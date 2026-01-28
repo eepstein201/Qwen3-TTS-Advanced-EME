@@ -85,8 +85,10 @@ A Gradio-based web interface provides an easy-to-use alternative to CLI commands
 # Start the TTS server first
 startTTSServer
 
-# Launch the web interface
+# Launch the web interface (any of these work)
 ttsUI
+changeVoice --ui
+changeVoice --gui
 ```
 
 This opens your browser to `http://localhost:7860` with a graphical interface.
@@ -230,6 +232,7 @@ changeVoice --list-aliases
 | `--stats` | Show server statistics |
 | `--history [N]` | Show last N generations |
 | `--local` | Force local generation (skip server) |
+| `--ui, --gui` | Launch the Gradio web interface |
 
 ---
 

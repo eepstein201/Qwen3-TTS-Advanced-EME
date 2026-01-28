@@ -1341,6 +1341,7 @@ def main():
     parser.add_argument("--ssml", action="store_true", help="Enable SSML markup parsing")
     parser.add_argument("--dialogue", metavar="FILE", help="Process dialogue JSON file with multiple speakers")
     parser.add_argument("--save-individual", action="store_true", help="Save individual audio files for each dialogue line")
+    parser.add_argument("--ui", "--gui", action="store_true", dest="ui", help="Launch the Gradio web interface")
 
     # Internal flag set by wrapper script
     parser.add_argument("--_server-mode", dest="server_mode", action="store_true", help=argparse.SUPPRESS)
@@ -1348,6 +1349,14 @@ def main():
     args = parser.parse_args()
     config = load_config()
     gen_params = get_generation_params(args, config)
+
+    # Launch Gradio UI
+    if args.ui:
+        import subprocess
+        ui_script = os.path.expanduser("~/Qwen3-TTS_UserFiles/tts_ui.py")
+        print("Launching Gradio web interface...")
+        subprocess.run([sys.executable, ui_script])
+        return False
 
     # List prompts
     if args.list_prompts:
