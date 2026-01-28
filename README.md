@@ -82,14 +82,18 @@ A Gradio-based web interface provides an easy-to-use alternative to CLI commands
 ### Launching the UI
 
 ```bash
-# Start the TTS server first
-startTTSServer
-
-# Launch the web interface (any of these work)
-ttsUI
+# Option 1: Direct launch (auto-starts server if needed)
 changeVoice --ui
-changeVoice --gui
+
+# Option 2: Interactive prompt
+changeVoice
+# Then select "2. Web Interface (Gradio UI in browser)"
+
+# Option 3: Dedicated command
+ttsUI
 ```
+
+The server starts automatically when launching the UI if it's not already running.
 
 This opens your browser to `http://localhost:7860` with a graphical interface.
 
