@@ -6,6 +6,7 @@ A powerful text-to-speech system with voice cloning, built on Qwen3-TTS models. 
 
 - [Getting Started](#getting-started)
 - [Quick Start](#quick-start)
+- [Web Interface](#web-interface)
 - [Commands Reference](#commands-reference)
 - [Voice Modes](#voice-modes)
 - [Audio Processing](#audio-processing)
@@ -28,12 +29,31 @@ A powerful text-to-speech system with voice cloning, built on Qwen3-TTS models. 
 
 ### Installation
 
-The system uses the `qwen3-tts` conda environment with the following key packages:
+Run the installation script for automated setup:
+
+```bash
+cd ~/Qwen3-TTS_UserFiles
+./install.sh
+```
+
+This will:
+- Check prerequisites (macOS, Apple Silicon, conda)
+- Create the `qwen3-tts` conda environment
+- Install all dependencies
+- Create wrapper scripts in `~/bin/`
+- Optionally pre-download models
+
+**Preview what will be done:**
+```bash
+./install.sh --dry-run
+```
+
+**Manual installation:** The system uses the `qwen3-tts` conda environment with:
 - `qwen-tts` - Qwen3 TTS models
 - `torch` - PyTorch with MPS support
 - `flask` - Server framework
 - `librosa` - Audio processing
-- `soundfile` - Audio I/O
+- `soundfile`, `gradio`, `watchdog` - Additional dependencies
 
 ### First Run
 
@@ -52,6 +72,42 @@ The system uses the `qwen3-tts` conda environment with the following key package
    ```bash
    stopTTSServer
    ```
+
+---
+
+## Web Interface
+
+A Gradio-based web interface provides an easy-to-use alternative to CLI commands.
+
+### Launching the UI
+
+```bash
+# Start the TTS server first
+startTTSServer
+
+# Launch the web interface
+ttsUI
+```
+
+This opens your browser to `http://localhost:7860` with a graphical interface.
+
+### UI Features
+
+- **Three tabs** for Clone, Design, and Custom modes
+- **Status bar** showing server connection, memory usage, and loaded models
+- **Voice prompt dropdown** (Clone mode)
+- **Speaker selection** with descriptions (Custom mode)
+- **Advanced settings** (collapsible): temperature, top-k, top-p, repetition penalty, seed
+- **Audio processing** (collapsible): trim silence, normalize, speed, pitch
+- **Built-in audio player** for immediate playback
+
+### UI Options
+
+```bash
+ttsUI --port 8080      # Use a different port
+ttsUI --share          # Create a public URL (for sharing)
+ttsUI --no-browser     # Don't auto-open browser
+```
 
 ---
 
@@ -111,6 +167,7 @@ changeVoice --list-aliases
 | `startTTSServer` | Start the persistent TTS server |
 | `stopTTSServer` | Stop the TTS server |
 | `createVoice` | Create a new voice clone from audio |
+| `ttsUI` | Launch the Gradio web interface |
 
 ### changeVoice Options
 
@@ -674,9 +731,11 @@ If you run out of memory:
 
 ```
 ~/Qwen3-TTS_UserFiles/
+├── install.sh           # Installation script
 ├── tts_generate.py      # Main generation script
 ├── tts_server.py        # Persistent server
 ├── tts_client.py        # Python API client
+├── tts_ui.py            # Gradio web interface
 ├── config.json          # Configuration
 ├── create_custom_voice.py  # Voice cloning script
 ├── voice_prompts/       # Voice prompt files (.pt)
@@ -688,7 +747,8 @@ If you run out of memory:
 ├── changeVoice          # Main command wrapper
 ├── startTTSServer       # Start server
 ├── stopTTSServer        # Stop server
-└── createVoice          # Create voice clone
+├── createVoice          # Create voice clone
+└── ttsUI                # Launch web interface
 
 ~/.tts_history.jsonl     # Generation history
 ```
