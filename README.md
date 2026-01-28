@@ -216,6 +216,8 @@ changeVoice --list-aliases
 | `--repl` | Start interactive REPL mode |
 | `--watch DIR` | Watch directory for .txt files |
 | `--srt FILE` | Process SRT subtitle file |
+| `--dialogue FILE` | Process dialogue JSON with multiple speakers |
+| `--save-individual` | Save individual files for each dialogue line |
 | `--dry-run` | Show what would be generated |
 
 #### Utility
@@ -385,6 +387,45 @@ This creates:
 - Individual audio files for each subtitle (`subtitles_001.wav`, etc.)
 - A combined audio file (`subtitles_combined.wav`)
 
+### Multi-Speaker Dialogue
+
+Generate dialogue with multiple speakers using a JSON file:
+
+```bash
+changeVoice --dialogue conversation.json -o ~/Downloads/
+```
+
+**Simple format** (inline speaker config):
+```json
+[
+  {"mode": "custom", "speaker": "ryan", "text": "Hello, how are you?"},
+  {"mode": "custom", "speaker": "aiden", "text": "I'm doing great, thanks!"},
+  {"mode": "clone", "prompt": "narrator.pt", "text": "They shook hands warmly."}
+]
+```
+
+**Named speakers format** (reusable speaker definitions):
+```json
+{
+  "speakers": {
+    "Alice": {"mode": "custom", "speaker": "vivian"},
+    "Bob": {"mode": "clone", "prompt": "bob_voice.pt"},
+    "Narrator": {"mode": "design", "description": "A deep, calm male narrator"}
+  },
+  "lines": [
+    {"speaker": "Alice", "text": "Hello Bob!"},
+    {"speaker": "Bob", "text": "Hi Alice! How are you?"},
+    {"speaker": "Narrator", "text": "Alice smiled warmly."},
+    {"speaker": "Alice", "text": "I'm wonderful, thank you!"}
+  ],
+  "pause_ms": 500
+}
+```
+
+Options:
+- `--save-individual`: Also save each line as a separate file
+- `pause_ms` in JSON: Silence between lines (default: 500ms)
+
 ---
 
 ## Configuration
@@ -537,6 +578,13 @@ audio_path = client.generate(
 print(client.list_prompts())    # Voice prompts
 print(client.list_presets())    # Generation presets
 print(client.list_aliases())    # Voice aliases
+
+# Generate multi-speaker dialogue
+lines = [
+    {"mode": "custom", "speaker": "ryan", "text": "Hello there!"},
+    {"mode": "custom", "speaker": "aiden", "text": "Hi! Nice to meet you."},
+]
+audio_path = client.generate_dialogue(lines, output="dialogue.wav", pause_ms=500)
 ```
 
 ### API Reference

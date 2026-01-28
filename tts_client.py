@@ -376,6 +376,165 @@ class TTSClient:
 
         return audio[start_idx:end_idx]
 
+    def generate_dialogue(
+        self,
+        lines,
+        output=None,
+        speakers=None,
+        pause_ms=500,
+        preset=None,
+        temperature=None,
+        top_k=None,
+        top_p=None,
+        seed=None,
+        repetition_penalty=None,
+        speed=None,
+        pitch=None,
+        normalize=False,
+        trim_silence=False,
+    ):
+        """Generate multi-speaker dialogue audio.
+
+        Args:
+            lines: List of dialogue lines. Each line is a dict with:
+                - text: The text to speak
+                - speaker: Speaker name (if using speakers dict) OR inline config
+                - mode: "clone", "design", or "custom" (if inline)
+                - prompt: Voice prompt file (for clone mode, if inline)
+                - description: Voice description (for design mode, if inline)
+                - speaker: Premium speaker name (for custom mode, if inline)
+                - instruct: Style instruction (for custom mode, if inline)
+            output: Output file path
+            speakers: Optional dict mapping speaker names to their config:
+                {"Alice": {"mode": "custom", "speaker": "vivian"}, ...}
+            pause_ms: Milliseconds of silence between lines (default: 500)
+            preset: Preset name to use
+            temperature/top_k/top_p/seed/repetition_penalty: Generation params
+            speed/pitch/normalize/trim_silence: Audio processing options
+
+        Returns:
+            Path to the generated audio file
+
+        Example:
+            # Simple inline format
+            lines = [
+                {"mode": "custom", "speaker": "ryan", "text": "Hello!"},
+                {"mode": "custom", "speaker": "aiden", "text": "Hi there!"},
+            ]
+            audio = client.generate_dialogue(lines, output="dialogue.wav")
+
+            # Named speakers format
+            speakers = {
+                "Alice": {"mode": "custom", "speaker": "vivian"},
+                "Bob": {"mode": "clone", "prompt": "bob.pt"},
+            }
+            lines = [
+                {"speaker": "Alice", "text": "Hello Bob!"},
+                {"speaker": "Bob", "text": "Hi Alice!"},
+            ]
+            audio = client.generate_dialogue(lines, speakers=speakers, output="chat.wav")
+        """
+        if not self.is_server_running():
+            raise ConnectionError("TTS server must be running for dialogue generation")
+
+        speakers = speakers or {}
+
+        # Get generation parameters
+        gen_config = self.config.get("generation", {})
+        gen_params = {
+            "temperature": temperature if temperature is not None else gen_config.get("temperature", 0.7),
+            "top_k": top_k if top_k is not None else gen_config.get("top_k", 50),
+            "top_p": top_p if top_p is not None else gen_config.get("top_p", 0.95),
+            "repetition_penalty": repetition_penalty if repetition_penalty is not None else gen_config.get("repetition_penalty", 1.05),
+        }
+
+        if seed is not None:
+            gen_params["seed"] = seed
+
+        # Apply preset
+        if preset:
+            presets = self.config.get("presets", {})
+            if preset in presets:
+                gen_params.update(presets[preset])
+
+        all_audio = []
+        sample_rate = None
+
+        for line in lines:
+            text = line.get("text", "")
+            if not text:
+                continue
+
+            # Resolve speaker config
+            if "speaker" in line and line["speaker"] in speakers:
+                speaker_config = speakers[line["speaker"]].copy()
+            else:
+                speaker_config = line.copy()
+
+            mode = speaker_config.get("mode", "clone")
+            prompt = speaker_config.get("prompt", self.config.get("default_clone_prompt", "default_clone.pt"))
+            description = speaker_config.get("description", self.config.get("default_voice_description", ""))
+            custom_speaker = speaker_config.get("speaker", "ryan")
+            instruct = speaker_config.get("instruct", line.get("instruct", ""))
+
+            # Generate this line
+            payload = {
+                "texts": [text],
+                "mode": mode,
+                "language": self.config.get("language", "English"),
+                **gen_params,
+            }
+
+            if mode == "clone":
+                payload["prompt_file"] = prompt
+            elif mode == "design":
+                payload["voice_description"] = description
+            else:  # custom
+                payload["speaker"] = custom_speaker
+                payload["instruct"] = instruct
+
+            resp = requests.post(f"{self.server_url}/generate", json=payload, timeout=300)
+            if resp.status_code != 200:
+                raise Exception(f"Server error: {resp.json().get('error', 'Unknown error')}")
+
+            result = resp.json()["results"][0]
+            wav, sr = sf.read(result["file"])
+            os.remove(result["file"])
+
+            # Apply audio processing
+            wav = self._process_audio(wav, sr, speed, pitch, normalize, trim_silence)
+
+            if sample_rate is None:
+                sample_rate = sr
+
+            all_audio.append(wav)
+
+        if not all_audio:
+            raise ValueError("No audio generated from dialogue")
+
+        # Combine with pauses
+        silence_samples = int(sample_rate * pause_ms / 1000)
+        combined = []
+
+        for i, wav in enumerate(all_audio):
+            combined.extend(wav)
+            if i < len(all_audio) - 1:
+                combined.extend(np.zeros(silence_samples))
+
+        combined = np.array(combined)
+
+        # Determine output path
+        if output is None:
+            output_dir = os.path.expanduser(self.config.get("output_directory", "~/Downloads"))
+            output = os.path.join(output_dir, "dialogue_output.wav")
+        else:
+            output = os.path.expanduser(output)
+            if not output.endswith('.wav'):
+                output += '.wav'
+
+        sf.write(output, combined, sample_rate)
+        return output
+
 
 # Convenience function for simple usage
 def generate(text, **kwargs):
