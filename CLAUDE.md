@@ -9,6 +9,7 @@ This directory contains Eric's custom Qwen3-TTS setup for voice cloning and text
 - `startTTSServer` - Manually start the persistent model server
 - `stopTTSServer` - Stop the server
 - `createVoice` - Create a new voice clone from audio
+- `ttsUI` - Launch Gradio web interface (http://localhost:7860)
 
 ### Usage Examples
 ```bash
@@ -44,8 +45,11 @@ changeVoice --list-speakers
 ## Architecture
 
 ### Files in this directory
+- `install.sh` - Automated installation script for fresh setups
 - `tts_generate.py` - Main generation script with SDPA optimization, inference_mode, batch support
 - `tts_server.py` - Flask server that keeps models in memory (~95% faster)
+- `tts_client.py` - Python API client library
+- `tts_ui.py` - Gradio web interface (Clone/Design/Custom tabs)
 - `config.json` - Settings: server config, generation params, presets
 - `create_custom_voice.py` - Script to create voice clone prompts from audio
 - `voice_prompts/` - Directory containing .pt voice clone files
@@ -55,6 +59,7 @@ changeVoice --list-speakers
 - `startTTSServer` - Starts server, waits for ready
 - `stopTTSServer` - Graceful shutdown
 - `createVoice` - Wrapper for voice creation
+- `ttsUI` - Launch Gradio web interface
 
 ## Technical Details
 
@@ -149,3 +154,19 @@ changeVoice --list-speakers
 - [x] `/models` endpoint - Server API to check model status
 - [x] `/load-model` endpoint - Server API to load models dynamically
 - [x] Memory optimization - Load only needed models (~3.5GB each)
+
+### Phase 9: Installation & Web UI ✅ COMPLETE
+- [x] `install.sh` - Automated installation script for fresh setups
+  - Checks prerequisites (macOS, Apple Silicon, conda, disk space)
+  - Creates conda environment with all dependencies
+  - Creates directories and config.json
+  - Creates wrapper scripts in ~/bin/
+  - Optional model pre-download
+  - Supports `--dry-run` for preview
+- [x] `tts_ui.py` - Gradio web interface
+  - Three tabs: Clone Mode, Design Mode, Custom Mode
+  - Server status display (connection, memory, loaded models)
+  - All generation parameters exposed
+  - Audio processing options (trim, normalize, speed, pitch)
+  - Built-in audio player
+- [x] `ttsUI` command - Launch web UI from terminal
