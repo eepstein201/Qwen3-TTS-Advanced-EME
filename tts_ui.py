@@ -53,13 +53,20 @@ def get_server_status():
 
     try:
         stats = client.get_stats()
-        memory = f"{stats.get('mps_memory_allocated_mb', 'N/A')}MB"
+        memory_val = stats.get('mps_memory_allocated_mb', 'N/A')
+        if isinstance(memory_val, (int, float)):
+            memory = f"{memory_val:.0f}MB"
+        else:
+            memory = str(memory_val)
 
+        # Check for loaded models - server returns clone_model_loaded, etc.
         loaded_models = []
-        models_info = stats.get("models", {})
-        for model_name, model_data in models_info.items():
-            if model_data.get("loaded", False):
-                loaded_models.append(model_name.capitalize())
+        if stats.get("clone_model_loaded"):
+            loaded_models.append("Clone")
+        if stats.get("design_model_loaded"):
+            loaded_models.append("Design")
+        if stats.get("custom_model_loaded"):
+            loaded_models.append("Custom")
 
         models_str = ", ".join(loaded_models) if loaded_models else "None"
 
