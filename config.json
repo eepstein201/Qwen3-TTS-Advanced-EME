@@ -1,0 +1,49 @@
+{
+  "default_voice_description": "A calm, friendly male voice with clear articulation and moderate pace.",
+  "default_clone_prompt": "default_clone.pt",
+  "output_directory": "~/Downloads",
+  "language": "English",
+  "server": {
+    "host": "127.0.0.1",
+    "port": 5123,
+    "auto_shutdown_minutes": 0
+  },
+  "models": {
+    "clone": {
+      "load_at_startup": true,
+      "description": "Voice cloning from audio samples (clone mode, -p prompt.pt)"
+    },
+    "design": {
+      "load_at_startup": false,
+      "description": "Generate voice from text description (design mode, -d 'description')"
+    },
+    "custom": {
+      "load_at_startup": false,
+      "description": "9 premium pre-trained speakers (custom mode, -s ryan)"
+    }
+  },
+  "generation": {
+    "temperature": 0.7,
+    "top_k": 50,
+    "top_p": 0.95,
+    "repetition_penalty": 1.05,
+    "seed": null
+  },
+  "presets": {
+    "consistent": {
+      "temperature": 0.5,
+      "top_k": 30,
+      "seed": 42
+    },
+    "creative": {
+      "temperature": 0.9,
+      "top_p": 0.98
+    }
+  },
+  "aliases": {
+    "default": {
+      "prompt": "default_clone.pt",
+      "preset": "consistent"
+    }
+  }
+}

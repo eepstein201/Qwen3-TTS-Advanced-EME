@@ -1,0 +1,34 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+
+# Logs and temp files
+*.log
+.tts_server.pid
+.tts_server_test.pid
+
+# Audio files (user-specific)
+*.wav
+*.mp3
+*.mp4
+
+# Voice prompts (user-specific, may contain personal voice data)
+voice_prompts/
+
+# Environment
+.env
+.venv/
+env/
+venv/
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
