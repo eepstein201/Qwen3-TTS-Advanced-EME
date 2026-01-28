@@ -695,6 +695,184 @@ def run_watch_mode(watch_dir, config, args, gen_params, use_server):
     observer.join()
 
 
+def process_dialogue(dialogue_path, config, args, gen_params, use_server):
+    """Process a dialogue JSON file with multiple speakers.
+
+    Supports two formats:
+
+    Format 1 - Simple (inline speaker config):
+    [
+      {"mode": "custom", "speaker": "ryan", "text": "Hello!"},
+      {"mode": "clone", "prompt": "narrator.pt", "text": "He said."},
+      {"mode": "custom", "speaker": "aiden", "instruct": "nervous", "text": "Hi..."}
+    ]
+
+    Format 2 - Named speakers (reusable):
+    {
+      "speakers": {
+        "Alice": {"mode": "custom", "speaker": "vivian"},
+        "Bob": {"mode": "clone", "prompt": "bob.pt"},
+        "Narrator": {"mode": "design", "description": "A deep male narrator voice"}
+      },
+      "lines": [
+        {"speaker": "Alice", "text": "Hello Bob!"},
+        {"speaker": "Bob", "text": "Hi Alice!"},
+        {"speaker": "Narrator", "text": "They smiled at each other."}
+      ],
+      "pause_ms": 500
+    }
+    """
+    with open(dialogue_path, "r") as f:
+        data = json.load(f)
+
+    # Determine format
+    if isinstance(data, list):
+        # Format 1: Simple inline
+        lines = data
+        speakers = {}
+        pause_ms = 500
+    else:
+        # Format 2: Named speakers
+        speakers = data.get("speakers", {})
+        lines = data.get("lines", data.get("dialogue", []))
+        pause_ms = data.get("pause_ms", 500)
+
+    if not lines:
+        print("Error: No dialogue lines found in file")
+        return
+
+    output_dir = os.path.expanduser(args.output or config.get("output_directory", "~/Downloads"))
+    os.makedirs(output_dir, exist_ok=True)
+
+    basename = os.path.splitext(os.path.basename(dialogue_path))[0]
+    language = config.get("language", "English")
+
+    print(f"\nProcessing dialogue: {dialogue_path}")
+    print(f"Found {len(lines)} lines, pause between lines: {pause_ms}ms")
+
+    all_audio = []
+    sample_rate = None
+
+    for idx, line in enumerate(lines, 1):
+        text = line.get("text", "")
+        if not text:
+            continue
+
+        # Resolve speaker config
+        if "speaker" in line and line["speaker"] in speakers:
+            # Named speaker reference
+            speaker_config = speakers[line["speaker"]].copy()
+            speaker_name = line["speaker"]
+        else:
+            # Inline config
+            speaker_config = line.copy()
+            speaker_name = line.get("speaker", line.get("prompt", "unknown"))
+
+        mode = speaker_config.get("mode", "clone")
+
+        # Extract mode-specific params
+        prompt_file = speaker_config.get("prompt", config.get("default_clone_prompt", "default_clone.pt"))
+        voice_description = speaker_config.get("description", config.get("default_voice_description", ""))
+        custom_speaker = speaker_config.get("speaker", "ryan")
+        instruct = speaker_config.get("instruct", line.get("instruct", ""))
+
+        # Get speaker display name
+        if mode == "custom":
+            display_name = custom_speaker
+        elif mode == "clone":
+            display_name = prompt_file
+        else:
+            display_name = "design"
+
+        preview = text[:40] + "..." if len(text) > 40 else text
+        print(f"  [{idx}/{len(lines)}] {speaker_name} ({mode}): \"{preview}\"")
+
+        try:
+            if use_server:
+                if mode == "clone":
+                    results = generate_via_server([text], mode, config, gen_params, prompt_file=prompt_file)
+                elif mode == "design":
+                    results = generate_via_server([text], mode, config, gen_params, voice_description=voice_description)
+                else:  # custom
+                    # Validate and resolve speaker name
+                    speaker_key = custom_speaker.lower()
+                    if speaker_key in CUSTOM_VOICE_SPEAKERS:
+                        resolved_speaker = CUSTOM_VOICE_SPEAKERS[speaker_key]["name"]
+                    else:
+                        resolved_speaker = custom_speaker
+                    results = generate_via_server([text], mode, config, gen_params,
+                                                  speaker=resolved_speaker, instruct=instruct)
+                wav, sr = sf.read(results[0]["file"])
+                os.remove(results[0]["file"])
+            else:
+                if mode == "clone":
+                    wav, sr = generate_local_clone(text, prompt_file, gen_params, language)
+                elif mode == "design":
+                    wav, sr = generate_local_design(text, voice_description, gen_params, language)
+                else:  # custom
+                    speaker_key = custom_speaker.lower()
+                    if speaker_key in CUSTOM_VOICE_SPEAKERS:
+                        resolved_speaker = CUSTOM_VOICE_SPEAKERS[speaker_key]["name"]
+                    else:
+                        resolved_speaker = custom_speaker
+                    wav, sr = generate_local_custom(text, resolved_speaker, instruct, gen_params, language)
+
+            # Apply audio processing
+            wav = process_audio(wav, sr, args)
+
+            if sample_rate is None:
+                sample_rate = sr
+
+            all_audio.append(wav)
+
+            # Optionally save individual files
+            if args.save_individual:
+                individual_path = os.path.join(output_dir, f"{basename}_{idx:03d}.wav")
+                sf.write(individual_path, wav, sr)
+
+        except Exception as e:
+            print(f"    Error generating line {idx}: {e}")
+            continue
+
+    if not all_audio:
+        print("Error: No audio generated")
+        return
+
+    # Combine all audio with pauses between
+    print("\nCombining audio...")
+    silence_samples = int(sample_rate * pause_ms / 1000)
+    combined = []
+
+    for i, wav in enumerate(all_audio):
+        combined.extend(wav)
+        if i < len(all_audio) - 1:
+            combined.extend(np.zeros(silence_samples))
+
+    combined_path = os.path.join(output_dir, f"{basename}.wav")
+    sf.write(combined_path, np.array(combined), sample_rate)
+
+    # Calculate duration
+    duration_sec = len(combined) / sample_rate
+
+    print(f"\nSaved: {combined_path}")
+    print(f"Duration: {duration_sec:.1f}s ({len(all_audio)} segments)")
+
+    # Log to history
+    log_generation(
+        f"[Dialogue: {len(lines)} lines]",
+        "dialogue",
+        basename,
+        combined_path,
+        gen_params,
+        duration_sec
+    )
+
+    if args.play:
+        play_audio(combined_path)
+    elif not args.no_open:
+        os.system(f'open "{combined_path}"')
+
+
 def process_srt_file(srt_path, config, args, gen_params, use_server):
     """Process an SRT file and generate audio for each subtitle."""
     entries = parse_srt(srt_path)
@@ -1161,6 +1339,8 @@ def main():
     parser.add_argument("--watch", metavar="DIR", help="Watch directory for .txt files")
     parser.add_argument("--srt", metavar="FILE", help="Process SRT subtitle file")
     parser.add_argument("--ssml", action="store_true", help="Enable SSML markup parsing")
+    parser.add_argument("--dialogue", metavar="FILE", help="Process dialogue JSON file with multiple speakers")
+    parser.add_argument("--save-individual", action="store_true", help="Save individual audio files for each dialogue line")
 
     # Internal flag set by wrapper script
     parser.add_argument("--_server-mode", dest="server_mode", action="store_true", help=argparse.SUPPRESS)
@@ -1357,6 +1537,15 @@ def main():
             print(f"Error: SRT file not found: {srt_path}")
             sys.exit(1)
         process_srt_file(srt_path, config, args, gen_params, use_server_early)
+        return use_server_early
+
+    # Dialogue processing
+    if args.dialogue:
+        dialogue_path = os.path.expanduser(args.dialogue)
+        if not os.path.isfile(dialogue_path):
+            print(f"Error: Dialogue file not found: {dialogue_path}")
+            sys.exit(1)
+        process_dialogue(dialogue_path, config, args, gen_params, use_server_early)
         return use_server_early
 
     # Handle voice alias - resolve to prompt and preset

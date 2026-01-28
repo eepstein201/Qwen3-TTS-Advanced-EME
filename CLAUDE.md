@@ -40,6 +40,9 @@ changeVoice --list-presets
 
 # List premium speakers
 changeVoice --list-speakers
+
+# Multi-speaker dialogue
+changeVoice --dialogue conversation.json -o output
 ```
 
 ## Architecture
@@ -128,7 +131,7 @@ changeVoice --list-speakers
 - [x] Audio normalization - `--normalize` flag for -3dB peak normalization
 - [x] Speed adjustment - `--speed FACTOR` (1.2 = 20% faster, 0.8 = 20% slower)
 - [x] Pitch adjustment - `--pitch SEMITONES` (+2 = higher, -2 = lower)
-- [ ] Multi-speaker concatenation - Chain voice prompts for dialogues (deferred to Phase 5)
+- [x] Multi-speaker concatenation - `--dialogue FILE` for multi-speaker dialogues
 
 ### Phase 5: Integration Features ✅ COMPLETE
 - [x] Interactive REPL mode - `--repl` for rapid iteration with commands
