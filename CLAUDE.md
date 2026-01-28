@@ -13,7 +13,13 @@ This directory contains Eric's custom Qwen3-TTS setup for voice cloning and text
 
 ### Usage Examples
 ```bash
-# Basic usage (will prompt about server)
+# Basic usage (no args = interactive prompt: CLI or Web UI)
+changeVoice
+
+# Launch web interface directly (auto-starts server)
+changeVoice --ui
+
+# Basic generation (will prompt about server)
 changeVoice "Hello world" -o greeting
 
 # With generation parameters
@@ -54,7 +60,7 @@ changeVoice --dialogue conversation.json -o output
 - `tts_client.py` - Python API client library
 - `tts_ui.py` - Gradio web interface (Clone/Design/Custom tabs)
 - `config.json` - Settings: server config, generation params, presets
-- `create_custom_voice.py` - Script to create voice clone prompts from audio
+- `create_custom_voice.py` - Script to create voice clone prompts from audio (handles stereo/mono)
 - `voice_prompts/` - Directory containing .pt voice clone files
 
 ### Wrapper scripts in ~/bin/
@@ -69,7 +75,7 @@ changeVoice --dialogue conversation.json -o output
 ### Conda Environment
 - Name: `qwen3-tts`
 - Location: `~/miniforge3/envs/qwen3-tts`
-- Key packages: qwen-tts, torch, flask, soundfile
+- Key packages: qwen-tts, torch, flask, soundfile, gradio
 
 ### Models (cached in ~/.cache/huggingface/hub/)
 - `Qwen/Qwen3-TTS-12Hz-1.7B-Base` - For voice cloning from audio samples
@@ -173,3 +179,7 @@ changeVoice --dialogue conversation.json -o output
   - Audio processing options (trim, normalize, speed, pitch)
   - Built-in audio player
 - [x] `ttsUI` command - Launch web UI from terminal
+- [x] `changeVoice --ui` / `--gui` - Launch Gradio with auto server start
+- [x] Interactive mode choice - `changeVoice` (no args) prompts CLI vs Web UI
+- [x] Auto server start - Server starts automatically when launching UI
+- [x] `createVoice` stereo fix - Handles stereo audio input correctly
