@@ -4,6 +4,7 @@
 import argparse
 import os
 import sys
+import numpy as np
 import torch
 import soundfile as sf
 from qwen_tts import Qwen3TTSModel
@@ -29,6 +30,11 @@ def create_voice_prompt(audio_path, transcript, prompt_name, test_generation=Tru
 
     # Load the converted audio
     ref_audio, ref_sr = sf.read(wav_path)
+
+    # Convert to mono if stereo (library bug: can't handle multi-channel in-place)
+    if ref_audio.ndim > 1:
+        ref_audio = np.mean(ref_audio, axis=-1).astype(np.float32)
+
     print(f"Audio loaded: {len(ref_audio)/ref_sr:.1f} seconds at {ref_sr}Hz")
 
     # Load the Base model (required for voice cloning from audio)
@@ -42,7 +48,7 @@ def create_voice_prompt(audio_path, transcript, prompt_name, test_generation=Tru
     # Create reusable voice clone prompt
     print("\nCreating voice clone prompt...")
     voice_prompt = model.create_voice_clone_prompt(
-        ref_audio=[[ref_audio, ref_sr]],
+        ref_audio=(ref_audio, ref_sr),
         ref_text=transcript,
     )
 
