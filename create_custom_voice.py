@@ -42,7 +42,7 @@ def create_voice_prompt(audio_path, transcript, prompt_name, test_generation=Tru
     # Create reusable voice clone prompt
     print("\nCreating voice clone prompt...")
     voice_prompt = model.create_voice_clone_prompt(
-        ref_audio=(ref_audio, ref_sr),
+        ref_audio=[(ref_audio, ref_sr)],
         ref_text=transcript,
     )
 
@@ -110,17 +110,21 @@ def main():
     # Get transcript
     if args.transcript:
         transcript = args.transcript
-        # Check if it's a file
-        if os.path.isfile(os.path.expanduser(transcript)):
-            with open(os.path.expanduser(transcript), "r") as f:
-                transcript = f.read().strip()
     else:
         print("\nEnter the transcript of what is said in the audio.")
         print("(This helps the model understand the voice characteristics)")
+        print("(You can paste the text directly or provide a path to a .txt file)")
         transcript = input("Transcript: ").strip()
         if not transcript:
             print("Error: Transcript required")
             sys.exit(1)
+
+    # Check if transcript is a file path
+    transcript_path = os.path.expanduser(transcript)
+    if os.path.isfile(transcript_path):
+        with open(transcript_path, "r") as f:
+            transcript = f.read().strip()
+        print(f"Loaded transcript from file ({len(transcript)} chars)")
 
     # Get prompt name
     if args.name:
