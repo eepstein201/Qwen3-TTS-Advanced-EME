@@ -812,11 +812,14 @@ If you run out of memory:
 
 ## Version History
 
-All features implemented across 6 phases:
+All features implemented across 9 phases:
 
 - **Phase 1:** Core usability (`--play`, `--clipboard`, `--trim-silence`, `--dry-run`)
 - **Phase 2:** Workflow (`--voice` aliases, `--history`, `--stats`, prompt management)
 - **Phase 3:** Server enhancements (auto-shutdown, queue system, threading)
-- **Phase 4:** Audio processing (`--normalize`, `--speed`, `--pitch`)
+- **Phase 4:** Audio processing (`--normalize`, `--speed`, `--pitch`, `--dialogue`)
 - **Phase 5:** Integration (`--repl`, `--watch`, `--srt`, Python API)
 - **Phase 6:** Advanced (`--ssml` markup support)
+- **Phase 7:** CustomVoice (9 premium speakers, `-m custom -s SPEAKER`)
+- **Phase 8:** Configurable model loading (on-demand, `/load-model` API)
+- **Phase 9:** Installation & Web UI (`install.sh`, Gradio interface, `changeVoice --ui`)
