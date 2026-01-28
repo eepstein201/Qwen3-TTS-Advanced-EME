@@ -950,6 +950,67 @@ def get_server_url(config):
     return f"http://{host}:{port}"
 
 
+def ensure_server_running(config):
+    """Ensure the TTS server is running, starting it if necessary.
+
+    Returns True if server is running, False if failed to start.
+    """
+    if is_server_running(config):
+        return True
+
+    print("TTS Server is not running.")
+    print("Starting server (this may take 30-60 seconds to load models)...")
+
+    # Start server using the wrapper script or directly
+    import subprocess
+
+    # Try to use the wrapper script first
+    start_script = os.path.expanduser("~/bin/startTTSServer")
+    if os.path.exists(start_script):
+        result = subprocess.run([start_script], capture_output=False)
+        return result.returncode == 0
+
+    # Fallback: start server directly in background
+    server_script = os.path.expanduser("~/Qwen3-TTS_UserFiles/tts_server.py")
+    log_file = os.path.expanduser("~/Qwen3-TTS_UserFiles/.tts_server.log")
+
+    with open(log_file, "w") as log:
+        subprocess.Popen(
+            [sys.executable, server_script],
+            stdout=log,
+            stderr=log,
+            start_new_session=True
+        )
+
+    # Wait for server to be ready
+    print("Waiting for server to be ready...")
+    for i in range(120):
+        if is_server_running(config):
+            print("TTS Server is ready!")
+            return True
+        time.sleep(1)
+        if (i + 1) % 10 == 0:
+            print(f"  Still loading models... ({i + 1} seconds)")
+
+    print("Error: Server failed to start. Check log:", log_file)
+    return False
+
+
+def launch_gradio_ui(config):
+    """Launch the Gradio web interface, starting server if needed."""
+    import subprocess
+
+    # Ensure server is running first
+    if not ensure_server_running(config):
+        print("\nCannot launch web interface without the server.")
+        print("Please check the server logs and try again.")
+        return
+
+    ui_script = os.path.expanduser("~/Qwen3-TTS_UserFiles/tts_ui.py")
+    print("\nLaunching Gradio web interface...")
+    subprocess.run([sys.executable, ui_script])
+
+
 def is_server_running(config):
     """Check if the TTS server is running."""
     try:
@@ -1165,7 +1226,19 @@ def generate_local_custom(text, speaker, instruct, gen_params, language="English
 def interactive_mode(use_server, config, gen_params):
     """Run in interactive mode with prompts."""
     print("\n=== Qwen3-TTS Generator ===\n")
-    text_input = input("Enter text or file path: ").strip()
+
+    # Ask user preference: CLI or Web UI
+    print("How would you like to generate speech?")
+    print("  1. Command Line (enter text here)")
+    print("  2. Web Interface (Gradio UI in browser)")
+    print()
+    mode_choice = input("Select [1/2]: ").strip()
+
+    if mode_choice == "2":
+        launch_gradio_ui(config)
+        return None  # Signal that we used Gradio
+
+    text_input = input("\nEnter text or file path: ").strip()
     if not text_input:
         print("Error: No text provided")
         sys.exit(1)
@@ -1350,12 +1423,9 @@ def main():
     config = load_config()
     gen_params = get_generation_params(args, config)
 
-    # Launch Gradio UI
+    # Launch Gradio UI (with automatic server start)
     if args.ui:
-        import subprocess
-        ui_script = os.path.expanduser("~/Qwen3-TTS_UserFiles/tts_ui.py")
-        print("Launching Gradio web interface...")
-        subprocess.run([sys.executable, ui_script])
+        launch_gradio_ui(config)
         return False
 
     # List prompts
@@ -1665,7 +1735,10 @@ def main():
 
     # Interactive mode if no text provided
     if not args.text:
-        interactive_mode(use_server, config, gen_params)
+        result = interactive_mode(use_server, config, gen_params)
+        if result is None:
+            # User chose Gradio UI
+            return False
         return use_server
 
     # Single text mode
