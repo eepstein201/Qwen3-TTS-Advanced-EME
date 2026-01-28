@@ -42,7 +42,7 @@ def create_voice_prompt(audio_path, transcript, prompt_name, test_generation=Tru
     # Create reusable voice clone prompt
     print("\nCreating voice clone prompt...")
     voice_prompt = model.create_voice_clone_prompt(
-        ref_audio=[(ref_audio, ref_sr)],
+        ref_audio=[[ref_audio, ref_sr]],
         ref_text=transcript,
     )
 
