@@ -115,7 +115,7 @@ def load_single_model(model_type):
         info["name"],
         attn_implementation="sdpa",
         device_map="mps",
-        dtype=torch.float16,
+        dtype=torch.bfloat16,
     )
 
     if model_type == "clone":

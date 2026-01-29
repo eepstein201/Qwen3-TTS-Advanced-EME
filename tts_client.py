@@ -270,7 +270,7 @@ class TTSClient:
                 "Qwen/Qwen3-TTS-12Hz-1.7B-Base",
                 attn_implementation="sdpa",
                 device_map="mps",
-                dtype=torch.float16,
+                dtype=torch.bfloat16,
             )
             prompt_path = os.path.join(self.voice_prompts_dir, prompt)
             voice_prompt = torch.load(prompt_path, weights_only=False)
@@ -293,7 +293,7 @@ class TTSClient:
                 "Qwen/Qwen3-TTS-12Hz-1.7B-CustomVoice",
                 attn_implementation="sdpa",
                 device_map="mps",
-                dtype=torch.float16,
+                dtype=torch.bfloat16,
             )
 
             if gen_params.get("seed") is not None:
@@ -315,7 +315,7 @@ class TTSClient:
                 "Qwen/Qwen3-TTS-12Hz-1.7B-VoiceDesign",
                 attn_implementation="sdpa",
                 device_map="mps",
-                dtype=torch.float16,
+                dtype=torch.bfloat16,
             )
 
             if gen_params.get("seed") is not None:

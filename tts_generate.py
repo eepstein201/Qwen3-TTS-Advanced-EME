@@ -1134,7 +1134,7 @@ def generate_local_clone(text, prompt_file, gen_params, language="English"):
         "Qwen/Qwen3-TTS-12Hz-1.7B-Base",
         attn_implementation="sdpa",
         device_map="mps",
-        dtype=torch.float16,
+        dtype=torch.bfloat16,
     )
 
     print(f"Loading voice prompt: {prompt_file}")
@@ -1167,7 +1167,7 @@ def generate_local_design(text, voice_description, gen_params, language="English
         "Qwen/Qwen3-TTS-12Hz-1.7B-VoiceDesign",
         attn_implementation="sdpa",
         device_map="mps",
-        dtype=torch.float16,
+        dtype=torch.bfloat16,
     )
 
     if gen_params.get("seed") is not None:
@@ -1198,7 +1198,7 @@ def generate_local_custom(text, speaker, instruct, gen_params, language="English
         "Qwen/Qwen3-TTS-12Hz-1.7B-CustomVoice",
         attn_implementation="sdpa",
         device_map="mps",
-        dtype=torch.float16,
+        dtype=torch.bfloat16,
     )
 
     if gen_params.get("seed") is not None:
