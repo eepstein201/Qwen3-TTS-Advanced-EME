@@ -375,6 +375,9 @@ def generate():
                     results.append({"index": i, "file": temp_file.name, "sample_rate": sr})
 
             return jsonify({"results": results})
+    except Exception as e:
+        app.logger.error(f"Generation failed: {e}")
+        return jsonify({"error": str(e)}), 500
     finally:
         # Remove from queue
         if request_id in request_queue:
