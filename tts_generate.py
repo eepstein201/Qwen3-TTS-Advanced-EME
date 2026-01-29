@@ -265,7 +265,11 @@ def preview_voice_prompt(prompt_name, config):
             os.remove(result["file"])
             return True
         else:
-            print(f"Error: {resp.json().get('error', 'Unknown error')}")
+            try:
+                error_msg = resp.json().get('error', 'Unknown error')
+            except (ValueError, requests.exceptions.JSONDecodeError):
+                error_msg = f"Server returned HTTP {resp.status_code}"
+            print(f"Error: {error_msg}")
             return False
     else:
         print("Error: TTS server must be running for preview. Start with 'startTTSServer'.")
@@ -1095,7 +1099,11 @@ def generate_via_server(texts, mode, config, gen_params, prompt_file=None, voice
 
     # Handle model not loaded error
     if resp.status_code == 503:
-        error_data = resp.json()
+        try:
+            error_data = resp.json()
+        except (ValueError, requests.exceptions.JSONDecodeError):
+            raise Exception(f"Server returned HTTP 503 (non-JSON response)")
+
         if error_data.get("error") == "model_not_loaded":
             model_type = error_data.get("model_type")
             description = error_data.get("description")
@@ -1115,7 +1123,11 @@ def generate_via_server(texts, mode, config, gen_params, prompt_file=None, voice
                     raise Exception(f"Model '{model_type}' not loaded. Enable in config.json or load with server.")
 
     if resp.status_code != 200:
-        raise Exception(f"Server error: {resp.json().get('error', 'Unknown error')}")
+        try:
+            error_msg = resp.json().get('error', 'Unknown error')
+        except (ValueError, requests.exceptions.JSONDecodeError):
+            error_msg = f"Server returned HTTP {resp.status_code} (non-JSON response)"
+        raise Exception(f"Server error: {error_msg}")
 
     return resp.json()["results"]
 

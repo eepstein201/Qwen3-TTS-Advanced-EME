@@ -253,7 +253,11 @@ class TTSClient:
 
         resp = requests.post(f"{self.server_url}/generate", json=payload, timeout=300)
         if resp.status_code != 200:
-            raise Exception(f"Server error: {resp.json().get('error', 'Unknown error')}")
+            try:
+                error_msg = resp.json().get("error", "Unknown error")
+            except (ValueError, requests.exceptions.JSONDecodeError):
+                error_msg = f"Server returned HTTP {resp.status_code} (non-JSON response)"
+            raise Exception(f"Server error: {error_msg}")
 
         result = resp.json()["results"][0]
         wav, sr = sf.read(result["file"])
@@ -495,7 +499,11 @@ class TTSClient:
 
             resp = requests.post(f"{self.server_url}/generate", json=payload, timeout=300)
             if resp.status_code != 200:
-                raise Exception(f"Server error: {resp.json().get('error', 'Unknown error')}")
+                try:
+                    error_msg = resp.json().get("error", "Unknown error")
+                except (ValueError, requests.exceptions.JSONDecodeError):
+                    error_msg = f"Server returned HTTP {resp.status_code} (non-JSON response)"
+                raise Exception(f"Server error: {error_msg}")
 
             result = resp.json()["results"][0]
             wav, sr = sf.read(result["file"])
