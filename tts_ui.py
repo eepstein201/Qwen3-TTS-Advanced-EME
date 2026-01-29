@@ -265,7 +265,7 @@ def generate_custom(text, speaker_choice, instruct, preset, temperature, top_k, 
 def build_ui():
     """Build the Gradio interface."""
 
-    with gr.Blocks(title="Qwen3-TTS Web Interface", theme=gr.themes.Soft()) as demo:
+    with gr.Blocks(title="Qwen3-TTS Web Interface") as demo:
         gr.Markdown("# Qwen3-TTS Web Interface")
 
         # Status bar
@@ -468,7 +468,8 @@ def main():
     demo.launch(
         server_port=args.port,
         share=args.share,
-        inbrowser=not args.no_browser
+        inbrowser=not args.no_browser,
+        theme=gr.themes.Soft()
     )
 
 
