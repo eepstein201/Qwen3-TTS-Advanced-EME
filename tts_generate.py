@@ -77,6 +77,34 @@ def get_clipboard_text():
         sys.exit(1)
 
 
+LAST_TEXT_FILE = os.path.expanduser("~/.tts_last_text")
+
+
+def auto_increment_filename(path):
+    """Auto-increment filename if it already exists.
+
+    output.wav -> output_2.wav -> output_3.wav
+    """
+    if not os.path.exists(path):
+        return path
+
+    base, ext = os.path.splitext(path)
+    # Check if base already ends with _N
+    match = re.match(r'^(.+)_(\d+)$', base)
+    if match:
+        base_stem = match.group(1)
+        n = int(match.group(2))
+    else:
+        base_stem = base
+        n = 1
+
+    while True:
+        n += 1
+        candidate = f"{base_stem}_{n}{ext}"
+        if not os.path.exists(candidate):
+            return candidate
+
+
 def play_audio(file_path):
     """Play audio file using system player (macOS afplay)."""
     try:
@@ -1376,8 +1404,9 @@ def main():
     parser.add_argument("--save-individual", action="store_true", help="Save individual audio files for each dialogue line")
     parser.add_argument("--ui", "--gui", action="store_true", dest="ui", help="Launch the Gradio web interface")
 
-    # Internal flag set by wrapper script
+    # Internal flags set by wrapper script
     parser.add_argument("--_server-mode", dest="server_mode", action="store_true", help=argparse.SUPPRESS)
+    parser.add_argument("--text-override", dest="text_override", help=argparse.SUPPRESS)
 
     args = parser.parse_args()
     config = load_config()
@@ -1671,7 +1700,10 @@ def main():
         return use_server
 
     # --- Single text mode ---
-    text = get_text(args.text[0])
+    if args.text_override:
+        text = args.text_override
+    else:
+        text = get_text(args.text[0])
 
     if args.ssml:
         original_text = text
@@ -1679,11 +1711,15 @@ def main():
         if text != original_text:
             print(f"SSML processed: {len(original_text)} -> {len(text)} chars")
 
+    # Save text for post-generation menu
+    with open(LAST_TEXT_FILE, "w") as f:
+        f.write(text)
+
     output_name = args.output or "tts_output.wav"
     if not output_name.endswith('.wav'):
         output_name += '.wav'
     output_dir = os.path.expanduser(config.get("output_directory", "~/Downloads"))
-    output_path = os.path.join(output_dir, output_name)
+    output_path = auto_increment_filename(os.path.join(output_dir, output_name))
 
     language = config.get("language", "English")
     mode = args.mode or "clone"

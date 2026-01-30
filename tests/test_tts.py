@@ -333,5 +333,43 @@ Second subtitle
         self.assertEqual(srt_time_to_ms("01:00:00,000"), 3600000)
 
 
+# =============================================================================
+# Auto-increment filename tests
+# =============================================================================
+
+class TestAutoIncrementFilename(unittest.TestCase):
+    """Test auto_increment_filename helper."""
+
+    def test_no_conflict(self):
+        from tts_generate import auto_increment_filename
+        # Non-existent file should return as-is
+        result = auto_increment_filename("/tmp/nonexistent_test_xyz.wav")
+        self.assertEqual(result, "/tmp/nonexistent_test_xyz.wav")
+
+    def test_conflict_increments(self):
+        from tts_generate import auto_increment_filename
+        # Create a temp file
+        with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as f:
+            path = f.name
+        try:
+            result = auto_increment_filename(path)
+            self.assertNotEqual(result, path)
+            self.assertIn("_2", result)
+        finally:
+            os.unlink(path)
+
+    def test_already_numbered(self):
+        from tts_generate import auto_increment_filename
+        # Create files with _2 suffix
+        with tempfile.NamedTemporaryFile(suffix="_2.wav", delete=False, dir="/tmp", prefix="test_") as f:
+            path = f.name
+        try:
+            result = auto_increment_filename(path)
+            self.assertNotEqual(result, path)
+            self.assertIn("_3", result)
+        finally:
+            os.unlink(path)
+
+
 if __name__ == "__main__":
     unittest.main()
