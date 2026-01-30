@@ -459,6 +459,7 @@ def main():
 
     demo = build_ui()
     demo.launch(
+        server_name="127.0.0.1",
         server_port=args.port,
         share=args.share,
         inbrowser=not args.no_browser,
