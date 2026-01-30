@@ -73,6 +73,30 @@ def is_server_running(config_or_url=None):
 
 
 # ---------------------------------------------------------------------------
+# Torch dtype configuration
+# ---------------------------------------------------------------------------
+
+VALID_DTYPES = ("float32", "float16", "bfloat16")
+
+
+def get_torch_dtype_name():
+    """Read the configured dtype from config.json (advanced.dtype).
+
+    Returns:
+        A string: "float32", "float16", or "bfloat16".
+        Defaults to "float32" if not set or invalid.
+    """
+    try:
+        config = load_config()
+        dtype = config.get("advanced", {}).get("dtype", "float32")
+    except Exception:
+        dtype = "float32"
+    if dtype not in VALID_DTYPES:
+        dtype = "float32"
+    return dtype
+
+
+# ---------------------------------------------------------------------------
 # Canonical speaker and model data
 # ---------------------------------------------------------------------------
 

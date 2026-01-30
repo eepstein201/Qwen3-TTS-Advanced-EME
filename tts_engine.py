@@ -2,8 +2,8 @@
 """Heavy inference engine — imports torch, transformers, soundfile, librosa.
 
 This module owns:
-- Model loading (clone / design / custom) with bfloat16, SDPA, MPS
-- Core inference: run_inference()
+- Model loading (clone / design / custom) with configurable dtype, SDPA, MPS
+- Core inference: run_inference() with NaN/Inf detection
 - Voice-prompt creation from reference audio
 - Audio post-processing (trim, normalize, speed, pitch)
 - MPS memory management (empty_cache after generation)
@@ -20,7 +20,7 @@ import numpy as np
 import soundfile as sf
 import torch
 
-from tts_config import MODEL_INFO, VOICE_PROMPTS_DIR
+from tts_config import MODEL_INFO, VOICE_PROMPTS_DIR, get_torch_dtype_name, CONFIG_PATH
 
 logger = logging.getLogger("tts.engine")
 
@@ -67,14 +67,22 @@ def load_model(model_type):
     if not info:
         raise ValueError(f"Unknown model type: {model_type}")
 
-    logger.info("Loading %s (%s)...", model_type, info["name"])
+    dtype_name = get_torch_dtype_name()
+    dtype_map = {
+        "float32": torch.float32,
+        "float16": torch.float16,
+        "bfloat16": torch.bfloat16,
+    }
+    torch_dtype = dtype_map[dtype_name]
+
+    logger.info("Loading %s (%s) with dtype=%s...", model_type, info["name"], dtype_name)
     t0 = time.time()
 
     model = Qwen3TTSModel.from_pretrained(
         info["name"],
         attn_implementation="sdpa",
         device_map="mps",
-        dtype=torch.bfloat16,
+        dtype=torch_dtype,
     )
 
     elapsed = time.time() - t0
@@ -118,29 +126,41 @@ def run_inference(model, text, mode, gen_params, language="English",
     if seed is not None:
         torch.manual_seed(seed)
 
-    with torch.inference_mode():
-        if mode == "clone":
-            wavs, sr = model.generate_voice_clone(
-                text=text,
-                language=language,
-                voice_clone_prompt=voice_prompt,
-                **params,
-            )
-        elif mode == "custom":
-            wavs, sr = model.generate_custom_voice(
-                text=text,
-                speaker=speaker,
-                instruct=instruct or "",
-                language=language,
-                **params,
-            )
-        else:  # design
-            wavs, sr = model.generate_voice_design(
-                text=text,
-                instruct=voice_description or "",
-                language=language,
-                **params,
-            )
+    try:
+        with torch.inference_mode():
+            if mode == "clone":
+                wavs, sr = model.generate_voice_clone(
+                    text=text,
+                    language=language,
+                    voice_clone_prompt=voice_prompt,
+                    **params,
+                )
+            elif mode == "custom":
+                wavs, sr = model.generate_custom_voice(
+                    text=text,
+                    speaker=speaker,
+                    instruct=instruct or "",
+                    language=language,
+                    **params,
+                )
+            else:  # design
+                wavs, sr = model.generate_voice_design(
+                    text=text,
+                    instruct=voice_description or "",
+                    language=language,
+                    **params,
+                )
+    except RuntimeError as e:
+        if "inf" in str(e) or "nan" in str(e):
+            dtype_name = get_torch_dtype_name()
+            if dtype_name != "float32":
+                logger.error(
+                    "Generation produced NaN/Inf with dtype=%s. "
+                    "Switch to float32 in %s under advanced.dtype for stability.",
+                    dtype_name, CONFIG_PATH,
+                )
+            raise
+        raise
 
     # MPS memory management
     if torch.backends.mps.is_available():
