@@ -1,6 +1,8 @@
 #!/usr/bin/env python3
 """Persistent TTS server that keeps models loaded in memory for fast generation."""
 
+import logging
+import logging.handlers
 import os
 import secrets
 import signal
@@ -12,6 +14,8 @@ import time
 from flask import Flask, request, jsonify
 import torch
 import soundfile as sf
+
+logger = logging.getLogger("tts")
 
 from tts_config import (
     CONFIG_PATH,
@@ -112,8 +116,7 @@ def reset_activity_timer():
 
 def auto_shutdown():
     """Auto-shutdown due to inactivity."""
-    print(f"\nAuto-shutdown: No activity for {server_config.get('auto_shutdown_minutes', 0)} minutes.")
-    print("Shutting down to free VRAM...")
+    logger.info("Auto-shutdown: No activity for %d minutes.", server_config.get("auto_shutdown_minutes", 0))
     cleanup_pid()
 
 
@@ -135,7 +138,7 @@ def load_single_model(model_type):
     if model_type not in MODEL_INFO:
         return False
 
-    print(f"Loading {MODEL_INFO[model_type]['name']}...")
+    logger.info("Loading %s...", MODEL_INFO[model_type]["name"])
     model = load_model(model_type)
 
     if model_type == "clone":
@@ -145,7 +148,7 @@ def load_single_model(model_type):
     elif model_type == "custom":
         custom_model = model
 
-    print(f"Loaded {model_type} model successfully!")
+    logger.info("Loaded %s model successfully.", model_type)
     return True
 
 
@@ -163,17 +166,15 @@ def load_models():
             models_to_load.append(model_type)
 
     if not models_to_load:
-        print("Warning: No models configured to load at startup.")
-        print("Use 'changeVoice --list-models' to see available models.")
+        logger.warning("No models configured to load at startup.")
         return
 
-    print(f"\nLoading {len(models_to_load)} model(s): {', '.join(models_to_load)}")
-    print("(Configure in config.json under 'models' section)\n")
+    logger.info("Loading %d model(s): %s", len(models_to_load), ", ".join(models_to_load))
 
     for model_type in models_to_load:
         load_single_model(model_type)
 
-    print("\nModel loading complete!")
+    logger.info("Model loading complete.")
 
 
 @app.route("/health", methods=["GET"])
@@ -401,7 +402,7 @@ def generate():
 
             return jsonify({"results": results})
     except Exception as e:
-        app.logger.error(f"Generation failed: {e}")
+        logger.error("Generation failed: %s", e, exc_info=True)
         return jsonify({"error": str(e)}), 500
     finally:
         # Remove from queue
@@ -448,6 +449,19 @@ if __name__ == "__main__":
                          help="Bind to 0.0.0.0 (accessible from network)")
     _args = _parser.parse_args()
 
+    # Configure logging: RotatingFileHandler + stderr
+    from tts_config import LOG_FILE
+    _log_fmt = logging.Formatter("%(asctime)s [%(name)s] %(levelname)s: %(message)s",
+                                 datefmt="%Y-%m-%d %H:%M:%S")
+    _file_handler = logging.handlers.RotatingFileHandler(
+        LOG_FILE, maxBytes=5 * 1024 * 1024, backupCount=1)
+    _file_handler.setFormatter(_log_fmt)
+    _stderr_handler = logging.StreamHandler(sys.stderr)
+    _stderr_handler.setFormatter(_log_fmt)
+    logging.getLogger("tts").setLevel(logging.DEBUG)
+    logging.getLogger("tts").addHandler(_file_handler)
+    logging.getLogger("tts").addHandler(_stderr_handler)
+
     config = load_config()
     server_config = config.get("server", {})
     # Store models config in server_config for access by load_models()
@@ -458,8 +472,7 @@ if __name__ == "__main__":
 
     if _args.public:
         host = "0.0.0.0"
-        print("WARNING: Binding to 0.0.0.0 — server is accessible from the network.")
-        print("Ensure your firewall is configured appropriately.")
+        logger.warning("Binding to 0.0.0.0 — server is accessible from the network.")
 
     # Handle shutdown signals
     signal.signal(signal.SIGTERM, cleanup_pid)
