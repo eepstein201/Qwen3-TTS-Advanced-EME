@@ -77,14 +77,6 @@ def load_model(model_type):
         dtype=torch.bfloat16,
     )
 
-    # Verify bfloat16 dtype
-    for name, param in list(model.named_parameters())[:1]:
-        if param.dtype != torch.bfloat16:
-            logger.warning(
-                "Model parameter %s has dtype %s, expected bfloat16",
-                name, param.dtype,
-            )
-
     elapsed = time.time() - t0
     logger.info("Loaded %s model in %.1fs", model_type, elapsed)
     return model
