@@ -291,13 +291,51 @@ def generate():
     if isinstance(texts, str):
         texts = [texts]
 
+    # --- Input validation ---
+    security = server_config.get("security", {})
+    max_text_length = security.get("max_text_length", 10000)
+    max_batch_size = security.get("max_batch_size", 20)
+
+    if not texts:
+        return jsonify({"error": "No texts provided", "recovery": "config"}), 400
+
+    if len(texts) > max_batch_size:
+        return jsonify({
+            "error": f"Batch size {len(texts)} exceeds limit of {max_batch_size}",
+            "recovery": "config",
+        }), 400
+
+    for i, t in enumerate(texts):
+        if not isinstance(t, str) or not t.strip():
+            return jsonify({"error": f"Text at index {i} is empty or invalid", "recovery": "config"}), 400
+        if len(t) > max_text_length:
+            return jsonify({
+                "error": f"Text at index {i} exceeds {max_text_length} character limit ({len(t)} chars)",
+                "recovery": "config",
+            }), 400
+
     mode = data.get("mode", "clone")
+    if mode not in ("clone", "design", "custom"):
+        return jsonify({"error": f"Invalid mode: {mode}. Must be clone, design, or custom", "recovery": "config"}), 400
+
     prompt_file = data.get("prompt_file")
+    if prompt_file and (".." in prompt_file or "/" in prompt_file):
+        return jsonify({"error": "Invalid prompt_file: path traversal not allowed", "recovery": "config"}), 400
+
     voice_description = data.get("voice_description", "")
     language = data.get("language", "English")
 
     # Custom mode parameters
     speaker = data.get("speaker")
+    if mode == "custom" and speaker:
+        speaker_key = speaker.lower() if isinstance(speaker, str) else ""
+        # Accept both the key (e.g. "ryan") and the display name (e.g. "Ryan")
+        valid_names = set(CUSTOM_VOICE_SPEAKERS.keys()) | {v["name"] for v in CUSTOM_VOICE_SPEAKERS.values()}
+        if speaker_key not in CUSTOM_VOICE_SPEAKERS and speaker not in valid_names:
+            return jsonify({
+                "error": f"Unknown speaker: {speaker}. Valid: {', '.join(CUSTOM_VOICE_SPEAKERS.keys())}",
+                "recovery": "config",
+            }), 400
     instruct = data.get("instruct", "")
 
     # Check if required model is loaded
@@ -357,6 +395,7 @@ def generate():
 
                 # Save to temp file
                 temp_file = tempfile.NamedTemporaryFile(suffix=".wav", delete=False)
+                os.chmod(temp_file.name, 0o600)
                 sf.write(temp_file.name, wav, sr)
                 results.append({"index": i, "file": temp_file.name, "sample_rate": sr})
 
@@ -403,12 +442,24 @@ def cleanup_pid(signum=None, frame=None):
 
 
 if __name__ == "__main__":
+    import argparse as _argparse
+    _parser = _argparse.ArgumentParser(description="TTS Server")
+    _parser.add_argument("--public", action="store_true",
+                         help="Bind to 0.0.0.0 (accessible from network)")
+    _args = _parser.parse_args()
+
     config = load_config()
     server_config = config.get("server", {})
     # Store models config in server_config for access by load_models()
     server_config["models"] = config.get("models", {})
+    server_config["security"] = config.get("security", {})
     host = server_config.get("host", "127.0.0.1")
     port = server_config.get("port", 5123)
+
+    if _args.public:
+        host = "0.0.0.0"
+        print("WARNING: Binding to 0.0.0.0 — server is accessible from the network.")
+        print("Ensure your firewall is configured appropriately.")
 
     # Handle shutdown signals
     signal.signal(signal.SIGTERM, cleanup_pid)
