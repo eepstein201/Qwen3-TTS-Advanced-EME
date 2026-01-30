@@ -10,10 +10,13 @@ Launch with:
 Opens a web browser at http://localhost:7860
 """
 
+import logging
 import os
 import sys
 import time
 import gradio as gr
+
+logger = logging.getLogger("tts.ui")
 
 # Add the user files directory to path for imports
 sys.path.insert(0, os.path.expanduser("~/Qwen3-TTS_UserFiles"))

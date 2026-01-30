@@ -8,6 +8,7 @@ Architecture:
 
 import argparse
 import json
+import logging
 import os
 import re
 import shutil
@@ -16,6 +17,8 @@ import sys
 import time
 
 import requests
+
+logger = logging.getLogger("tts.cli")
 import soundfile as sf
 import numpy as np
 
