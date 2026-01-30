@@ -290,6 +290,23 @@ def generate_custom(text, speaker_choice, instruct, preset, temperature, top_k, 
 # Build UI
 # =============================================================================
 
+def stop_server():
+    """Stop the TTS server via /shutdown endpoint."""
+    import requests as _requests
+    client = TTSClient()
+    if not client.is_server_running():
+        return format_status_display()
+
+    try:
+        _requests.post(f"{client.server_url}/shutdown", timeout=5, headers=auth_headers())
+    except Exception:
+        pass  # Server shuts down immediately, may not respond
+
+    # Wait briefly and re-check
+    time.sleep(1)
+    return format_status_display()
+
+
 def build_ui():
     """Build the Gradio interface."""
 
@@ -298,8 +315,15 @@ def build_ui():
 
         # Status bar
         status_html = gr.HTML(value=format_status_display())
-        refresh_btn = gr.Button("Refresh Status", size="sm")
+        with gr.Row():
+            refresh_btn = gr.Button("Refresh Status", size="sm")
+            stop_btn = gr.Button("Stop Server", size="sm", variant="stop")
         refresh_btn.click(fn=format_status_display, outputs=status_html)
+        stop_btn.click(
+            fn=stop_server,
+            outputs=status_html,
+            js="(x) => { if (!confirm('Stop the TTS server? Generation will be unavailable until you restart.')) throw new Error('Cancelled'); return x; }",
+        )
 
         # Tabs for different modes
         with gr.Tabs():
