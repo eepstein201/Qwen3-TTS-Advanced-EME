@@ -199,6 +199,9 @@ create_config() {
     "max_text_length": 10000,
     "max_batch_size": 20
   },
+  "advanced": {
+    "dtype": "float32"
+  },
   "generation": {
     "temperature": 0.7,
     "top_k": 50,
