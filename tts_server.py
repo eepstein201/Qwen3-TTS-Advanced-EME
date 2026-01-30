@@ -257,10 +257,13 @@ def load_model_endpoint():
     model_type = data.get("model_type")
 
     if not model_type:
-        return jsonify({"error": "model_type required"}), 400
+        return jsonify({"error": "model_type required", "recovery": "config"}), 400
 
     if model_type not in MODEL_INFO:
-        return jsonify({"error": f"Unknown model type: {model_type}. Valid: clone, design, custom"}), 400
+        return jsonify({
+            "error": f"Unknown model type: {model_type}. Valid: clone, design, custom",
+            "recovery": "config",
+        }), 400
 
     # Check if already loaded
     if _get_model(model_type) is not None:
@@ -273,7 +276,10 @@ def load_model_endpoint():
     if success:
         return jsonify({"status": "loaded", "model": model_type})
     else:
-        return jsonify({"error": f"Failed to load model: {model_type}"}), 500
+        return jsonify({
+            "error": f"Failed to load model: {model_type}",
+            "recovery": "restart",
+        }), 500
 
 
 @app.route("/prompts", methods=["GET"])
@@ -344,8 +350,9 @@ def generate():
     if model is None:
         return jsonify({
             "error": "model_not_loaded",
+            "detail": f"The '{mode}' model is not loaded. {MODEL_INFO.get(mode, {}).get('description', '')}",
+            "recovery": "restart",
             "model_type": mode,
-            "description": MODEL_INFO.get(mode, {}).get("description", ""),
         }), 503
 
     # Generation parameters
@@ -374,13 +381,17 @@ def generate():
                 voice_prompt = None
                 if mode == "clone":
                     if not prompt_file:
-                        return jsonify({"error": "prompt_file required for clone mode"}), 400
+                        return jsonify({"error": "prompt_file required for clone mode", "recovery": "config"}), 400
                     voice_prompt = load_voice_prompt(prompt_file)
                     if voice_prompt is None:
-                        return jsonify({"error": f"Voice prompt not found: {prompt_file}"}), 404
+                        return jsonify({
+                            "error": f"Voice prompt not found: {prompt_file}",
+                            "detail": "Check available prompts with 'changeVoice --list-prompts'",
+                            "recovery": "config",
+                        }), 404
                 elif mode == "custom":
                     if not speaker:
-                        return jsonify({"error": "speaker required for custom mode"}), 400
+                        return jsonify({"error": "speaker required for custom mode", "recovery": "config"}), 400
 
                 wav, sr = run_inference(
                     model=model,
@@ -403,7 +414,11 @@ def generate():
             return jsonify({"results": results})
     except Exception as e:
         logger.error("Generation failed: %s", e, exc_info=True)
-        return jsonify({"error": str(e)}), 500
+        return jsonify({
+            "error": "Audio generation failed",
+            "detail": str(e),
+            "recovery": "retry",
+        }), 500
     finally:
         # Remove from queue
         if request_id in request_queue:

@@ -182,6 +182,20 @@ class TestServerValidation(unittest.TestCase):
         # Should pass validation (400) and hit model-not-loaded (503)
         self.assertIn(resp.status_code, [200, 503])
 
+    def test_error_response_has_recovery_field(self):
+        """All error responses should include a recovery hint."""
+        # Validation error
+        resp = self.client.post("/generate", json={"texts": []})
+        data = resp.get_json()
+        self.assertIn("recovery", data)
+
+        # Model not loaded
+        resp = self.client.post("/generate", json={
+            "texts": ["hello"], "mode": "clone", "prompt_file": "test.pt"
+        })
+        data = resp.get_json()
+        self.assertIn("recovery", data)
+
 
 # =============================================================================
 # tts_server auth tests
