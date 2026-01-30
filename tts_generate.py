@@ -14,6 +14,7 @@ import re
 import shutil
 import subprocess
 import sys
+import threading
 import time
 
 import requests
@@ -468,6 +469,67 @@ def load_model_on_server(config, model_type):
     return False
 
 
+class _ProgressPoller:
+    """Background thread that polls /generation-status and displays progress."""
+
+    SPINNER = "⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏"
+
+    def __init__(self, server_url, batch_total=1):
+        self.server_url = server_url
+        self.batch_total = batch_total
+        self._stop = threading.Event()
+        self._thread = None
+
+    def start(self):
+        import threading
+        self._thread = threading.Thread(target=self._run, daemon=True)
+        self._thread.start()
+
+    def stop(self):
+        self._stop.set()
+        if self._thread:
+            self._thread.join(timeout=2)
+        # Clear the progress line
+        sys.stderr.write("\r" + " " * 80 + "\r")
+        sys.stderr.flush()
+
+    def _run(self):
+        tick = 0
+        while not self._stop.is_set():
+            try:
+                resp = requests.get(f"{self.server_url}/generation-status", timeout=2)
+                if resp.status_code == 200:
+                    state = resp.json()
+                    if state.get("active"):
+                        elapsed = state.get("elapsed_sec", 0)
+                        eta = state.get("eta_sec")
+                        spinner = self.SPINNER[tick % len(self.SPINNER)]
+
+                        if self.batch_total > 1:
+                            idx = state.get("batch_index", 0) + 1
+                            if eta is not None:
+                                total_est = elapsed + eta
+                                pct = min(95, int(elapsed / total_est * 100)) if total_est > 0 else 0
+                                bar_filled = pct // 5
+                                bar = "=" * bar_filled + ">" + " " * (19 - bar_filled)
+                                line = f"\r{spinner} [{idx}/{self.batch_total}] Generating... {elapsed:.0f}s / ~{elapsed + eta:.0f}s [{bar}] {pct}%"
+                            else:
+                                line = f"\r{spinner} [{idx}/{self.batch_total}] Generating... {elapsed:.0f}s elapsed"
+                        else:
+                            if eta is not None:
+                                line = f"\r{spinner} Generating... {elapsed:.0f}s elapsed (ETA ~{eta:.0f}s)"
+                            else:
+                                line = f"\r{spinner} Generating... {elapsed:.0f}s elapsed"
+
+                        sys.stderr.write(line)
+                        sys.stderr.flush()
+            except Exception:
+                pass
+
+            tick += 1
+            self._stop.wait(1.0)
+
+
 def generate_via_server(texts, mode, config, gen_params,
                         prompt_file=None, voice_description=None,
                         speaker=None, instruct=None, auto_load_model=True):
@@ -489,7 +551,14 @@ def generate_via_server(texts, mode, config, gen_params,
         payload["speaker"] = speaker
         payload["instruct"] = instruct or ""
 
-    resp = requests.post(f"{url}/generate", json=payload, timeout=300, headers=auth_headers())
+    # Start progress polling
+    progress = _ProgressPoller(url, batch_total=len(texts))
+    progress.start()
+
+    try:
+        resp = requests.post(f"{url}/generate", json=payload, timeout=300, headers=auth_headers())
+    finally:
+        progress.stop()
 
     # Handle model not loaded
     if resp.status_code == 503:
@@ -509,7 +578,12 @@ def generate_via_server(texts, mode, config, gen_params,
                 choice = input(f"Would you like to load the '{model_type}' model now? [Y/n]: ").strip().lower()
                 if choice != 'n':
                     if load_model_on_server(config, model_type):
-                        resp = requests.post(f"{url}/generate", json=payload, timeout=300, headers=auth_headers())
+                        progress = _ProgressPoller(url, batch_total=len(texts))
+                        progress.start()
+                        try:
+                            resp = requests.post(f"{url}/generate", json=payload, timeout=300, headers=auth_headers())
+                        finally:
+                            progress.stop()
                     else:
                         raise Exception(f"Failed to load {model_type} model")
                 else:
@@ -1631,6 +1705,8 @@ def main():
         if not args.description:
             language = speaker_lang
 
+    gen_start = time.time()
+
     if use_server:
         print("Using TTS server...")
         if mode == "clone":
@@ -1669,7 +1745,8 @@ def main():
         wav = process_audio_args(wav, sr, args)
         sf.write(output_path, wav, sr)
 
-    print(f"Saved to: {output_path}")
+    gen_duration = time.time() - gen_start
+    print(f"Saved to: {output_path} ({gen_duration:.1f}s)")
 
     # Log to history
     if mode == "clone":
@@ -1678,7 +1755,7 @@ def main():
         voice_param = voice_description
     else:
         voice_param = f"{speaker_name}" + (f" ({args.instruct})" if args.instruct else "")
-    log_generation(text, mode, voice_param, output_path, gen_params)
+    log_generation(text, mode, voice_param, output_path, gen_params, duration_sec=gen_duration)
 
     # Handle playback/opening
     if args.play:

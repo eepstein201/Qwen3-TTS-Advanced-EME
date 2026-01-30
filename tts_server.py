@@ -50,7 +50,7 @@ def generate_auth_token():
 
 
 # Endpoints that don't require authentication
-PUBLIC_ENDPOINTS = {"health", "static"}
+PUBLIC_ENDPOINTS = {"health", "generation_status", "static"}
 
 
 @app.before_request
@@ -90,6 +90,16 @@ last_activity = time.time()
 
 # Store config globally for auto-shutdown settings
 server_config = {}
+
+# Generation state for progress tracking
+generation_state = {
+    "active": False,
+    "start_time": 0.0,
+    "text_length": 0,
+    "mode": "",
+    "batch_index": 0,
+    "batch_total": 0,
+}
 
 
 def reset_activity_timer():
@@ -186,6 +196,46 @@ def health():
         "design_model_loaded": design_model is not None,
         "custom_model_loaded": custom_model is not None,
     })
+
+
+@app.route("/generation-status", methods=["GET"])
+def generation_status():
+    """Return current generation state for progress display. No auth required."""
+    state = dict(generation_state)
+    if state["active"]:
+        state["elapsed_sec"] = round(time.time() - state["start_time"], 1)
+        # Estimate ETA from history median chars/sec
+        state["eta_sec"] = _estimate_eta(state["text_length"], state["elapsed_sec"])
+    return jsonify(state)
+
+
+def _estimate_eta(text_length, elapsed_sec):
+    """Estimate remaining seconds from history data."""
+    import json as _json
+    from tts_config import HISTORY_FILE
+    try:
+        if not os.path.exists(HISTORY_FILE):
+            return None
+        with open(HISTORY_FILE, "r") as f:
+            lines = f.readlines()
+        # Use last 20 entries with duration data
+        rates = []
+        for line in lines[-20:]:
+            entry = _json.loads(line)
+            dur = entry.get("duration_sec")
+            tl = entry.get("text_length")
+            if dur and tl and dur > 0:
+                rates.append(tl / dur)
+        if not rates:
+            return None
+        # Median chars/sec
+        rates.sort()
+        median_rate = rates[len(rates) // 2]
+        estimated_total = text_length / median_rate
+        remaining = max(0, estimated_total - elapsed_sec)
+        return round(remaining, 1)
+    except Exception:
+        return None
 
 
 @app.route("/stats", methods=["GET"])
@@ -377,6 +427,16 @@ def generate():
             results = []
 
             for i, text in enumerate(texts):
+                # Update generation state for progress tracking
+                generation_state.update({
+                    "active": True,
+                    "start_time": time.time(),
+                    "text_length": len(text),
+                    "mode": mode,
+                    "batch_index": i,
+                    "batch_total": len(texts),
+                })
+
                 # Resolve voice prompt for clone mode
                 voice_prompt = None
                 if mode == "clone":
@@ -420,6 +480,9 @@ def generate():
             "recovery": "retry",
         }), 500
     finally:
+        # Clear generation state
+        generation_state.update({"active": False, "start_time": 0.0, "text_length": 0,
+                                 "mode": "", "batch_index": 0, "batch_total": 0})
         # Remove from queue
         if request_id in request_queue:
             request_queue.remove(request_id)

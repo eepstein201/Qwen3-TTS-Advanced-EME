@@ -13,6 +13,7 @@ Opens a web browser at http://localhost:7860
 import logging
 import os
 import sys
+import threading
 import time
 import gradio as gr
 
@@ -111,12 +112,33 @@ def get_presets():
         return ["(none)"]
 
 
+def _poll_progress(server_url, progress_fn, stop_event):
+    """Poll /generation-status and update Gradio progress bar."""
+    import requests as _requests
+    while not stop_event.is_set():
+        try:
+            resp = _requests.get(f"{server_url}/generation-status", timeout=2)
+            if resp.status_code == 200:
+                state = resp.json()
+                if state.get("active"):
+                    elapsed = state.get("elapsed_sec", 0)
+                    eta = state.get("eta_sec")
+                    if eta is not None and (elapsed + eta) > 0:
+                        pct = min(0.95, elapsed / (elapsed + eta))
+                    else:
+                        pct = min(0.95, elapsed / max(elapsed + 10, 30))
+                    progress_fn(pct, desc=f"Generating... {elapsed:.0f}s")
+        except Exception:
+            pass
+        stop_event.wait(1.0)
+
+
 # =============================================================================
 # Generation Functions
 # =============================================================================
 
 def generate_clone(text, prompt, preset, temperature, top_k, top_p, rep_penalty, seed,
-                   trim_silence, normalize, speed, pitch):
+                   trim_silence, normalize, speed, pitch, progress=gr.Progress()):
     """Generate audio using clone mode."""
     if not text or not text.strip():
         return None, "Error: Please enter some text to generate."
@@ -127,33 +149,34 @@ def generate_clone(text, prompt, preset, temperature, top_k, top_p, rep_penalty,
         return None, "Error: TTS server is not running. Start it with 'startTTSServer'."
 
     try:
-        # Parse seed
         seed_val = int(seed) if seed and str(seed).strip() else None
-
-        # Handle preset
         preset_val = preset if preset and preset != "(none)" else None
-
-        # Generate unique output filename
         timestamp = int(time.time())
         output_path = os.path.expanduser(f"~/Downloads/tts_ui_{timestamp}.wav")
 
-        result = client.generate(
-            text=text,
-            output=output_path,
-            mode="clone",
-            prompt=prompt,
-            preset=preset_val,
-            temperature=temperature,
-            top_k=int(top_k),
-            top_p=top_p,
-            repetition_penalty=rep_penalty,
-            seed=seed_val,
-            trim_silence=trim_silence,
-            normalize=normalize,
-            speed=speed if speed != 1.0 else None,
-            pitch=pitch if pitch != 0 else None,
+        progress(0, desc="Starting generation...")
+        stop_event = threading.Event()
+        poll_thread = threading.Thread(
+            target=_poll_progress,
+            args=(client.server_url, progress, stop_event),
+            daemon=True,
         )
+        poll_thread.start()
 
+        try:
+            result = client.generate(
+                text=text, output=output_path, mode="clone", prompt=prompt,
+                preset=preset_val, temperature=temperature, top_k=int(top_k),
+                top_p=top_p, repetition_penalty=rep_penalty, seed=seed_val,
+                trim_silence=trim_silence, normalize=normalize,
+                speed=speed if speed != 1.0 else None,
+                pitch=pitch if pitch != 0 else None,
+            )
+        finally:
+            stop_event.set()
+            poll_thread.join(timeout=2)
+
+        progress(1.0, desc="Complete")
         return result, f"Generated: {os.path.basename(result)}"
     except Exception as e:
         error_msg = str(e)
@@ -163,7 +186,7 @@ def generate_clone(text, prompt, preset, temperature, top_k, top_p, rep_penalty,
 
 
 def generate_design(text, description, preset, temperature, top_k, top_p, rep_penalty, seed,
-                    trim_silence, normalize, speed, pitch):
+                    trim_silence, normalize, speed, pitch, progress=gr.Progress()):
     """Generate audio using design mode."""
     if not text or not text.strip():
         return None, "Error: Please enter some text to generate."
@@ -177,33 +200,34 @@ def generate_design(text, description, preset, temperature, top_k, top_p, rep_pe
         return None, "Error: TTS server is not running. Start it with 'startTTSServer'."
 
     try:
-        # Parse seed
         seed_val = int(seed) if seed and str(seed).strip() else None
-
-        # Handle preset
         preset_val = preset if preset and preset != "(none)" else None
-
-        # Generate unique output filename
         timestamp = int(time.time())
         output_path = os.path.expanduser(f"~/Downloads/tts_ui_{timestamp}.wav")
 
-        result = client.generate(
-            text=text,
-            output=output_path,
-            mode="design",
-            description=description,
-            preset=preset_val,
-            temperature=temperature,
-            top_k=int(top_k),
-            top_p=top_p,
-            repetition_penalty=rep_penalty,
-            seed=seed_val,
-            trim_silence=trim_silence,
-            normalize=normalize,
-            speed=speed if speed != 1.0 else None,
-            pitch=pitch if pitch != 0 else None,
+        progress(0, desc="Starting generation...")
+        stop_event = threading.Event()
+        poll_thread = threading.Thread(
+            target=_poll_progress,
+            args=(client.server_url, progress, stop_event),
+            daemon=True,
         )
+        poll_thread.start()
 
+        try:
+            result = client.generate(
+                text=text, output=output_path, mode="design", description=description,
+                preset=preset_val, temperature=temperature, top_k=int(top_k),
+                top_p=top_p, repetition_penalty=rep_penalty, seed=seed_val,
+                trim_silence=trim_silence, normalize=normalize,
+                speed=speed if speed != 1.0 else None,
+                pitch=pitch if pitch != 0 else None,
+            )
+        finally:
+            stop_event.set()
+            poll_thread.join(timeout=2)
+
+        progress(1.0, desc="Complete")
         return result, f"Generated: {os.path.basename(result)}"
     except Exception as e:
         error_msg = str(e)
@@ -213,7 +237,7 @@ def generate_design(text, description, preset, temperature, top_k, top_p, rep_pe
 
 
 def generate_custom(text, speaker_choice, instruct, preset, temperature, top_k, top_p, rep_penalty, seed,
-                    trim_silence, normalize, speed, pitch):
+                    trim_silence, normalize, speed, pitch, progress=gr.Progress()):
     """Generate audio using custom mode with premium speakers."""
     if not text or not text.strip():
         return None, "Error: Please enter some text to generate."
@@ -224,37 +248,36 @@ def generate_custom(text, speaker_choice, instruct, preset, temperature, top_k, 
         return None, "Error: TTS server is not running. Start it with 'startTTSServer'."
 
     try:
-        # Extract speaker name from choice
         speaker = speaker_choice.split(" ")[0] if speaker_choice else "ryan"
-
-        # Parse seed
         seed_val = int(seed) if seed and str(seed).strip() else None
-
-        # Handle preset
         preset_val = preset if preset and preset != "(none)" else None
-
-        # Generate unique output filename
         timestamp = int(time.time())
         output_path = os.path.expanduser(f"~/Downloads/tts_ui_{timestamp}.wav")
 
-        result = client.generate(
-            text=text,
-            output=output_path,
-            mode="custom",
-            speaker=speaker,
-            instruct=instruct if instruct and instruct.strip() else None,
-            preset=preset_val,
-            temperature=temperature,
-            top_k=int(top_k),
-            top_p=top_p,
-            repetition_penalty=rep_penalty,
-            seed=seed_val,
-            trim_silence=trim_silence,
-            normalize=normalize,
-            speed=speed if speed != 1.0 else None,
-            pitch=pitch if pitch != 0 else None,
+        progress(0, desc="Starting generation...")
+        stop_event = threading.Event()
+        poll_thread = threading.Thread(
+            target=_poll_progress,
+            args=(client.server_url, progress, stop_event),
+            daemon=True,
         )
+        poll_thread.start()
 
+        try:
+            result = client.generate(
+                text=text, output=output_path, mode="custom", speaker=speaker,
+                instruct=instruct if instruct and instruct.strip() else None,
+                preset=preset_val, temperature=temperature, top_k=int(top_k),
+                top_p=top_p, repetition_penalty=rep_penalty, seed=seed_val,
+                trim_silence=trim_silence, normalize=normalize,
+                speed=speed if speed != 1.0 else None,
+                pitch=pitch if pitch != 0 else None,
+            )
+        finally:
+            stop_event.set()
+            poll_thread.join(timeout=2)
+
+        progress(1.0, desc="Complete")
         return result, f"Generated: {os.path.basename(result)}"
     except Exception as e:
         error_msg = str(e)

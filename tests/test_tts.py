@@ -255,6 +255,12 @@ class TestServerAuth(unittest.TestCase):
         })
         self.assertEqual(resp.status_code, 200)
 
+    def test_generation_status_no_auth_required(self):
+        resp = self.client.get("/generation-status")
+        self.assertEqual(resp.status_code, 200)
+        data = resp.get_json()
+        self.assertFalse(data["active"])
+
 
 # =============================================================================
 # SSML parsing tests (from tts_generate, lightweight)
