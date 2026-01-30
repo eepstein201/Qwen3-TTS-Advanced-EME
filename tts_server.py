@@ -1,19 +1,74 @@
 #!/usr/bin/env python3
 """Persistent TTS server that keeps models loaded in memory for fast generation."""
 
-import json
 import os
+import secrets
 import signal
 import sys
 import tempfile
 import threading
 import time
-from functools import lru_cache
+
 from flask import Flask, request, jsonify
 import torch
 import soundfile as sf
 
+from tts_config import (
+    CONFIG_PATH,
+    VOICE_PROMPTS_DIR,
+    PID_FILE,
+    TOKEN_FILE,
+    MODEL_INFO,
+    CUSTOM_VOICE_SPEAKERS,
+    load_config,
+)
+from tts_engine import (
+    load_model,
+    load_voice_prompt,
+    run_inference,
+    voice_prompt_cache_info,
+)
+
+# Auth token for this server session
+auth_token = None
+
 app = Flask(__name__)
+
+
+def generate_auth_token():
+    """Generate a new auth token and write it to TOKEN_FILE."""
+    global auth_token
+    auth_token = secrets.token_hex(32)
+    with open(TOKEN_FILE, "w") as f:
+        f.write(auth_token)
+    os.chmod(TOKEN_FILE, 0o600)
+    return auth_token
+
+
+# Endpoints that don't require authentication
+PUBLIC_ENDPOINTS = {"health", "static"}
+
+
+@app.before_request
+def check_auth():
+    """Verify Bearer token on all endpoints except public ones."""
+    if auth_token is None:
+        return  # Auth not configured (shouldn't happen in normal operation)
+
+    endpoint = request.endpoint
+    if endpoint in PUBLIC_ENDPOINTS:
+        return
+
+    auth_header = request.headers.get("Authorization", "")
+    if auth_header == f"Bearer {auth_token}":
+        return
+
+    return jsonify({
+        "error": "Authentication required",
+        "detail": "Include 'Authorization: Bearer <token>' header. Token is in ~/.tts_server_token",
+        "recovery": "restart",
+    }), 401
+
 
 # Global model holders
 clone_model = None
@@ -28,16 +83,6 @@ max_concurrent = 1  # TTS generation is memory-intensive, serialize by default
 # Auto-shutdown timer
 shutdown_timer = None
 last_activity = time.time()
-
-CONFIG_PATH = os.path.expanduser("~/Qwen3-TTS_UserFiles/config.json")
-VOICE_PROMPTS_DIR = os.path.expanduser("~/Qwen3-TTS_UserFiles/voice_prompts")
-PID_FILE = os.path.expanduser("~/Qwen3-TTS_UserFiles/.tts_server.pid")
-
-
-def load_config():
-    with open(CONFIG_PATH, "r") as f:
-        return json.load(f)
-
 
 # Store config globally for auto-shutdown settings
 server_config = {}
@@ -72,51 +117,26 @@ def auto_shutdown():
     cleanup_pid()
 
 
-@lru_cache(maxsize=10)
-def load_voice_prompt(prompt_file):
-    """Cache voice prompts in memory."""
-    prompt_path = os.path.join(VOICE_PROMPTS_DIR, prompt_file)
-    if not os.path.exists(prompt_path):
-        return None
-    return torch.load(prompt_path, weights_only=False)
-
-
-MODEL_INFO = {
-    "clone": {
-        "name": "Qwen/Qwen3-TTS-12Hz-1.7B-Base",
-        "description": "Voice cloning from audio samples (clone mode)",
-        "memory_mb": 3500,
-    },
-    "design": {
-        "name": "Qwen/Qwen3-TTS-12Hz-1.7B-VoiceDesign",
-        "description": "Generate voice from text description (design mode)",
-        "memory_mb": 3500,
-    },
-    "custom": {
-        "name": "Qwen/Qwen3-TTS-12Hz-1.7B-CustomVoice",
-        "description": "9 premium pre-trained speakers (custom mode)",
-        "memory_mb": 3500,
-    },
-}
+def _get_model(model_type):
+    """Return the loaded model for a given type, or None."""
+    if model_type == "clone":
+        return clone_model
+    elif model_type == "design":
+        return design_model
+    elif model_type == "custom":
+        return custom_model
+    return None
 
 
 def load_single_model(model_type):
-    """Load a single model by type."""
+    """Load a single model by type using tts_engine."""
     global clone_model, design_model, custom_model
-    from qwen_tts import Qwen3TTSModel
 
-    info = MODEL_INFO.get(model_type)
-    if not info:
+    if model_type not in MODEL_INFO:
         return False
 
-    print(f"Loading {info['name']}...")
-
-    model = Qwen3TTSModel.from_pretrained(
-        info["name"],
-        attn_implementation="sdpa",
-        device_map="mps",
-        dtype=torch.bfloat16,
-    )
+    print(f"Loading {MODEL_INFO[model_type]['name']}...")
+    model = load_model(model_type)
 
     if model_type == "clone":
         clone_model = model
@@ -131,8 +151,6 @@ def load_single_model(model_type):
 
 def load_models():
     """Load TTS models based on config."""
-    global clone_model, design_model, custom_model
-
     models_config = server_config.get("models", {})
 
     # Default: load clone model if no config
@@ -177,13 +195,15 @@ def stats():
     idle_seconds = int(time.time() - last_activity)
     auto_shutdown_minutes = server_config.get("auto_shutdown_minutes", 0)
 
+    cache_info = voice_prompt_cache_info()
+
     stats_data = {
         "status": "ok",
         "clone_model_loaded": clone_model is not None,
         "design_model_loaded": design_model is not None,
         "custom_model_loaded": custom_model is not None,
-        "voice_prompts_cached": load_voice_prompt.cache_info().currsize,
-        "voice_prompts_cache_hits": load_voice_prompt.cache_info().hits,
+        "voice_prompts_cached": cache_info.currsize,
+        "voice_prompts_cache_hits": cache_info.hits,
         "idle_seconds": idle_seconds,
         "auto_shutdown_minutes": auto_shutdown_minutes if auto_shutdown_minutes > 0 else "disabled",
         "generation_queue_size": len(request_queue),
@@ -217,15 +237,7 @@ def list_models():
 
     models_data = {}
     for model_type, info in MODEL_INFO.items():
-        if model_type == "clone":
-            loaded = clone_model is not None
-        elif model_type == "design":
-            loaded = design_model is not None
-        elif model_type == "custom":
-            loaded = custom_model is not None
-        else:
-            loaded = False
-
+        loaded = _get_model(model_type) is not None
         models_data[model_type] = {
             "loaded": loaded,
             "description": info["description"],
@@ -250,11 +262,7 @@ def load_model_endpoint():
         return jsonify({"error": f"Unknown model type: {model_type}. Valid: clone, design, custom"}), 400
 
     # Check if already loaded
-    if model_type == "clone" and clone_model is not None:
-        return jsonify({"status": "already_loaded", "model": model_type})
-    if model_type == "design" and design_model is not None:
-        return jsonify({"status": "already_loaded", "model": model_type})
-    if model_type == "custom" and custom_model is not None:
+    if _get_model(model_type) is not None:
         return jsonify({"status": "already_loaded", "model": model_type})
 
     # Load the model (this may take a while)
@@ -293,23 +301,12 @@ def generate():
     instruct = data.get("instruct", "")
 
     # Check if required model is loaded
-    if mode == "clone" and clone_model is None:
+    model = _get_model(mode)
+    if model is None:
         return jsonify({
             "error": "model_not_loaded",
-            "model_type": "clone",
-            "description": MODEL_INFO["clone"]["description"],
-        }), 503
-    elif mode == "design" and design_model is None:
-        return jsonify({
-            "error": "model_not_loaded",
-            "model_type": "design",
-            "description": MODEL_INFO["design"]["description"],
-        }), 503
-    elif mode == "custom" and custom_model is None:
-        return jsonify({
-            "error": "model_not_loaded",
-            "model_type": "custom",
-            "description": MODEL_INFO["custom"]["description"],
+            "model_type": mode,
+            "description": MODEL_INFO.get(mode, {}).get("description", ""),
         }), 503
 
     # Generation parameters
@@ -321,6 +318,8 @@ def generate():
     }
 
     seed = data.get("seed")
+    if seed is not None:
+        gen_params["seed"] = seed
 
     # Track this request in queue
     request_id = id(request)
@@ -329,50 +328,37 @@ def generate():
     try:
         # Acquire lock for thread-safe generation
         with generation_lock:
-            if seed is not None:
-                torch.manual_seed(seed)
-
             results = []
 
-            with torch.inference_mode():
-                for i, text in enumerate(texts):
-                    if mode == "clone":
-                        if not prompt_file:
-                            return jsonify({"error": "prompt_file required for clone mode"}), 400
+            for i, text in enumerate(texts):
+                # Resolve voice prompt for clone mode
+                voice_prompt = None
+                if mode == "clone":
+                    if not prompt_file:
+                        return jsonify({"error": "prompt_file required for clone mode"}), 400
+                    voice_prompt = load_voice_prompt(prompt_file)
+                    if voice_prompt is None:
+                        return jsonify({"error": f"Voice prompt not found: {prompt_file}"}), 404
+                elif mode == "custom":
+                    if not speaker:
+                        return jsonify({"error": "speaker required for custom mode"}), 400
 
-                        voice_prompt = load_voice_prompt(prompt_file)
-                        if voice_prompt is None:
-                            return jsonify({"error": f"Voice prompt not found: {prompt_file}"}), 404
+                wav, sr = run_inference(
+                    model=model,
+                    text=text,
+                    mode=mode,
+                    gen_params=gen_params,
+                    language=language,
+                    voice_prompt=voice_prompt,
+                    voice_description=voice_description,
+                    speaker=speaker,
+                    instruct=instruct,
+                )
 
-                        wavs, sr = clone_model.generate_voice_clone(
-                            text=text,
-                            language=language,
-                            voice_clone_prompt=voice_prompt,
-                            **gen_params,
-                        )
-                    elif mode == "custom":
-                        if not speaker:
-                            return jsonify({"error": "speaker required for custom mode"}), 400
-
-                        wavs, sr = custom_model.generate_custom_voice(
-                            text=text,
-                            speaker=speaker,
-                            instruct=instruct,
-                            language=language,
-                            **gen_params,
-                        )
-                    else:  # design mode
-                        wavs, sr = design_model.generate_voice_design(
-                            text=text,
-                            instruct=voice_description,
-                            language=language,
-                            **gen_params,
-                        )
-
-                    # Save to temp file
-                    temp_file = tempfile.NamedTemporaryFile(suffix=".wav", delete=False)
-                    sf.write(temp_file.name, wavs[0], sr)
-                    results.append({"index": i, "file": temp_file.name, "sample_rate": sr})
+                # Save to temp file
+                temp_file = tempfile.NamedTemporaryFile(suffix=".wav", delete=False)
+                sf.write(temp_file.name, wav, sr)
+                results.append({"index": i, "file": temp_file.name, "sample_rate": sr})
 
             return jsonify({"results": results})
     except Exception as e:
@@ -411,6 +397,8 @@ def cleanup_pid(signum=None, frame=None):
         shutdown_timer.cancel()
     if os.path.exists(PID_FILE):
         os.remove(PID_FILE)
+    if os.path.exists(TOKEN_FILE):
+        os.remove(TOKEN_FILE)
     sys.exit(0)
 
 
@@ -425,6 +413,10 @@ if __name__ == "__main__":
     # Handle shutdown signals
     signal.signal(signal.SIGTERM, cleanup_pid)
     signal.signal(signal.SIGINT, cleanup_pid)
+
+    # Generate auth token
+    generate_auth_token()
+    print(f"Auth token written to {TOKEN_FILE}")
 
     # Load models before starting server
     load_models()

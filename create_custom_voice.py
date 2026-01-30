@@ -3,18 +3,18 @@
 
 import argparse
 import os
+import subprocess
 import sys
-import numpy as np
-import torch
+
 import soundfile as sf
-from qwen_tts import Qwen3TTSModel
+import torch
 from pydub import AudioSegment
 
-VOICE_PROMPTS_DIR = os.path.expanduser("~/Qwen3-TTS_UserFiles/voice_prompts")
-USER_FILES_DIR = os.path.expanduser("~/Qwen3-TTS_UserFiles")
+from tts_config import VOICE_PROMPTS_DIR, USER_FILES_DIR
+from tts_engine import load_model, create_voice_prompt, run_inference
 
 
-def create_voice_prompt(audio_path, transcript, prompt_name, test_generation=True):
+def create_and_save_voice_prompt(audio_path, transcript, prompt_name, test_generation=True):
     """Create a voice clone prompt from audio and transcript."""
 
     # Determine audio format from extension
@@ -31,26 +31,15 @@ def create_voice_prompt(audio_path, transcript, prompt_name, test_generation=Tru
     # Load the converted audio
     ref_audio, ref_sr = sf.read(wav_path)
 
-    # Convert to mono if stereo (library bug: can't handle multi-channel in-place)
-    if ref_audio.ndim > 1:
-        ref_audio = np.mean(ref_audio, axis=-1).astype(np.float32)
-
     print(f"Audio loaded: {len(ref_audio)/ref_sr:.1f} seconds at {ref_sr}Hz")
 
     # Load the Base model (required for voice cloning from audio)
     print("Loading Qwen3-TTS Base model...")
-    model = Qwen3TTSModel.from_pretrained(
-        "Qwen/Qwen3-TTS-12Hz-1.7B-Base",
-        device_map="mps",
-        dtype=torch.float16,
-    )
+    model = load_model("clone")
 
-    # Create reusable voice clone prompt
+    # Create reusable voice clone prompt via tts_engine
     print("\nCreating voice clone prompt...")
-    voice_prompt = model.create_voice_clone_prompt(
-        ref_audio=(ref_audio, ref_sr),
-        ref_text=transcript,
-    )
+    voice_prompt = create_voice_prompt(model, ref_audio, ref_sr, transcript)
 
     # Save the voice prompt
     if not prompt_name.endswith('.pt'):
@@ -64,16 +53,19 @@ def create_voice_prompt(audio_path, transcript, prompt_name, test_generation=Tru
         print("\nGenerating test audio with cloned voice...")
         test_text = "This is a test of the cloned voice. How does it sound?"
 
-        wavs, sr = model.generate_voice_clone(
+        wav, sr = run_inference(
+            model=model,
             text=test_text,
+            mode="clone",
+            gen_params={"temperature": 0.7, "top_k": 50, "top_p": 0.95, "repetition_penalty": 1.05},
             language="English",
-            voice_clone_prompt=voice_prompt,
+            voice_prompt=voice_prompt,
         )
 
         test_output = os.path.join(USER_FILES_DIR, f"test_{prompt_name.replace('.pt', '.wav')}")
-        sf.write(test_output, wavs[0], sr)
+        sf.write(test_output, wav, sr)
         print(f"Test audio saved to: {test_output}")
-        os.system(f'open "{test_output}"')
+        subprocess.run(["open", test_output])
 
     # Cleanup temp file
     if os.path.exists(wav_path):
@@ -140,7 +132,7 @@ def main():
         if not prompt_name:
             prompt_name = "custom_voice"
 
-    create_voice_prompt(audio_path, transcript, prompt_name, test_generation=not args.no_test)
+    create_and_save_voice_prompt(audio_path, transcript, prompt_name, test_generation=not args.no_test)
 
 
 if __name__ == "__main__":
