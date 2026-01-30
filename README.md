@@ -459,6 +459,10 @@ Options:
     "design": { "load_at_startup": false },
     "custom": { "load_at_startup": false }
   },
+  "security": {
+    "max_text_length": 10000,
+    "max_batch_size": 20
+  },
   "generation": {
     "temperature": 0.7,
     "top_k": 50,
@@ -782,37 +786,120 @@ If you run out of memory:
 
 ---
 
+## Security
+
+### API Token Authentication
+
+The server generates a random auth token on startup. All API requests (except `/health` and `/generation-status`) require the token:
+
+```
+Authorization: Bearer <token>
+```
+
+The CLI and Python API handle this automatically. The token is stored at `~/.tts_server_token` and cleaned up on shutdown.
+
+### Input Validation
+
+The server validates all inputs:
+- **Text length:** max 10,000 characters per text (configurable in `config.json` under `security.max_text_length`)
+- **Batch size:** max 20 texts per request (configurable under `security.max_batch_size`)
+- **Path traversal:** prompt file names cannot contain `..` or `/`
+- **Mode/speaker:** validated against known values
+
+### Network Binding
+
+The server binds to `127.0.0.1` (localhost only) by default. Use `--public` to bind to `0.0.0.0`:
+```bash
+python tts_server.py --public
+```
+
+---
+
+## Progress Display
+
+### CLI Progress
+When generating via the server, a live progress spinner shows elapsed time and ETA:
+```
+⠋ Generating... 5s elapsed / ~12s ETA
+```
+
+ETA is estimated from your generation history (median characters/second).
+
+### Gradio Progress
+The web interface shows a progress bar during generation, capped at 95% until completion.
+
+---
+
+## Post-Generation Menu
+
+After generating with the server, the CLI shows a menu:
+```
+What would you like to do?
+  1. Same settings (re-generate with same arguments)
+  2. Edit text (open in editor, then re-generate)
+  3. New settings (start fresh with interactive mode)
+  4. Exit
+```
+
+Output filenames auto-increment (`output.wav` -> `output_2.wav` -> `output_3.wav`) so previous files are never overwritten.
+
+---
+
+## Testing
+
+Run the test suite (no GPU, models, or running server required):
+
+```bash
+python -m unittest discover -v tests/
+```
+
+36 tests covering config, server validation, authentication, SSML/SRT parsing, and filename logic.
+
+---
+
 ## Files & Directories
 
 ```
 ~/Qwen3-TTS_UserFiles/
-├── install.sh           # Installation script
-├── tts_generate.py      # Main generation script
-├── tts_server.py        # Persistent server
-├── tts_client.py        # Python API client
-├── tts_ui.py            # Gradio web interface
-├── config.json          # Configuration
+├── install.sh              # Installation script
+├── tts_generate.py         # Main generation script
+├── tts_server.py           # Persistent server (auth, validation, logging)
+├── tts_client.py           # Python API client
+├── tts_ui.py               # Gradio web interface
+├── tts_config.py           # Shared config, constants, error classes
+├── tts_engine.py           # Model loading & inference engine
+├── config.json             # Configuration
 ├── create_custom_voice.py  # Voice cloning script
-├── voice_prompts/       # Voice prompt files (.pt)
+├── voice_prompts/          # Voice prompt files (.pt)
 │   └── default_clone.pt
-├── .tts_server.pid      # Server PID file
-└── .tts_server.log      # Server log
+├── bin/                    # Wrapper scripts (canonical source)
+│   ├── changeVoice
+│   ├── startTTSServer
+│   ├── stopTTSServer
+│   ├── createVoice
+│   └── ttsUI
+├── tests/                  # Test suite
+│   └── test_tts.py
+├── .tts_server.pid         # Server PID file (runtime)
+└── .tts_server.log         # Server log (runtime)
 
-~/bin/
-├── changeVoice          # Main command wrapper
-├── startTTSServer       # Start server
-├── stopTTSServer        # Stop server
-├── createVoice          # Create voice clone
-└── ttsUI                # Launch web interface
+~/bin/                      # Installed wrapper scripts (copied from bin/)
+├── changeVoice
+├── startTTSServer
+├── stopTTSServer
+├── createVoice
+└── ttsUI
 
-~/.tts_history.jsonl     # Generation history
+~/.tts_server_token         # Auth token (runtime, 0600 perms)
+~/.tts_history.jsonl        # Generation history
+~/.tts_last_text            # Last generated text (for edit-and-rerun)
 ```
 
 ---
 
 ## Version History
 
-All features implemented across 9 phases:
+All features implemented across 10 phases:
 
 - **Phase 1:** Core usability (`--play`, `--clipboard`, `--trim-silence`, `--dry-run`)
 - **Phase 2:** Workflow (`--voice` aliases, `--history`, `--stats`, prompt management)
@@ -823,3 +910,4 @@ All features implemented across 9 phases:
 - **Phase 7:** CustomVoice (9 premium speakers, `-m custom -s SPEAKER`)
 - **Phase 8:** Configurable model loading (on-demand, `/load-model` API)
 - **Phase 9:** Installation & Web UI (`install.sh`, Gradio interface, `changeVoice --ui`)
+- **Phase 10:** Security, reliability & UX (auth tokens, input validation, logging, structured errors, progress/ETA, post-generation menu, test suite)

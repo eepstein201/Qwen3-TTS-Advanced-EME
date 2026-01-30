@@ -1,0 +1,52 @@
+#!/bin/bash
+# Start the TTS server in the background
+
+PID_FILE="$HOME/Qwen3-TTS_UserFiles/.tts_server.pid"
+LOG_FILE="$HOME/Qwen3-TTS_UserFiles/.tts_server.log"
+
+# Check if already running
+if [ -f "$PID_FILE" ]; then
+    PID=$(cat "$PID_FILE")
+    if kill -0 "$PID" 2>/dev/null; then
+        echo "TTS Server is already running (PID: $PID)"
+        exit 0
+    else
+        rm -f "$PID_FILE"
+    fi
+fi
+
+echo "Starting TTS Server..."
+echo "This will load the models into memory (may take 30-60 seconds)..."
+
+# Find and activate conda environment
+if [[ -f "$HOME/miniforge3/etc/profile.d/conda.sh" ]]; then
+    source "$HOME/miniforge3/etc/profile.d/conda.sh"
+elif [[ -f "$HOME/miniconda3/etc/profile.d/conda.sh" ]]; then
+    source "$HOME/miniconda3/etc/profile.d/conda.sh"
+fi
+conda activate qwen3-tts
+
+# MPS fallback for unsupported ops on Apple Silicon
+export PYTORCH_ENABLE_MPS_FALLBACK=1
+
+# Start server in background, redirect output to log
+nohup python ~/Qwen3-TTS_UserFiles/tts_server.py > "$LOG_FILE" 2>&1 &
+
+# Wait for server to be ready
+echo "Waiting for server to be ready..."
+for i in {1..120}; do
+    if curl -s http://127.0.0.1:5123/health > /dev/null 2>&1; then
+        echo "TTS Server is ready!"
+        echo "Use 'changeVoice' for fast generation."
+        echo "Use 'stopTTSServer' to shut down."
+        exit 0
+    fi
+    sleep 1
+    # Show progress every 10 seconds
+    if [ $((i % 10)) -eq 0 ]; then
+        echo "  Still loading models... ($i seconds)"
+    fi
+done
+
+echo "Error: Server failed to start. Check log: $LOG_FILE"
+exit 1
