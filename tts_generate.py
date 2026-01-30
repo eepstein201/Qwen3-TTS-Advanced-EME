@@ -517,10 +517,25 @@ def generate_via_server(texts, mode, config, gen_params,
 
     if resp.status_code != 200:
         try:
-            error_msg = resp.json().get('error', 'Unknown error')
+            error_data = resp.json()
+            error_msg = error_data.get('error', 'Unknown error')
+            detail = error_data.get('detail', '')
+            recovery = error_data.get('recovery', '')
         except (ValueError, requests.exceptions.JSONDecodeError):
             error_msg = f"Server returned HTTP {resp.status_code} (non-JSON response)"
-        raise Exception(f"Server error: {error_msg}")
+            detail = ""
+            recovery = ""
+
+        msg = f"Server error: {error_msg}"
+        if detail:
+            msg += f" [{detail}]"
+        if recovery == "restart":
+            msg += "\n  Suggestion: Try restarting the server with 'startTTSServer'."
+        elif recovery == "config":
+            msg += f"\n  Suggestion: Check your configuration in {CONFIG_PATH}."
+        elif recovery == "retry":
+            msg += "\n  Suggestion: Try again; the issue may be transient."
+        raise Exception(msg)
 
     return resp.json()["results"]
 

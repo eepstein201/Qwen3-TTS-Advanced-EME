@@ -156,7 +156,10 @@ def generate_clone(text, prompt, preset, temperature, top_k, top_p, rep_penalty,
 
         return result, f"Generated: {os.path.basename(result)}"
     except Exception as e:
-        return None, f"Error: {str(e)}"
+        error_msg = str(e)
+        if "restart" in error_msg.lower() or "not running" in error_msg.lower():
+            gr.Warning("Server issue — try restarting with 'startTTSServer'")
+        return None, f"Error: {error_msg}"
 
 
 def generate_design(text, description, preset, temperature, top_k, top_p, rep_penalty, seed,
@@ -203,7 +206,10 @@ def generate_design(text, description, preset, temperature, top_k, top_p, rep_pe
 
         return result, f"Generated: {os.path.basename(result)}"
     except Exception as e:
-        return None, f"Error: {str(e)}"
+        error_msg = str(e)
+        if "restart" in error_msg.lower() or "not running" in error_msg.lower():
+            gr.Warning("Server issue — try restarting with 'startTTSServer'")
+        return None, f"Error: {error_msg}"
 
 
 def generate_custom(text, speaker_choice, instruct, preset, temperature, top_k, top_p, rep_penalty, seed,
@@ -251,7 +257,10 @@ def generate_custom(text, speaker_choice, instruct, preset, temperature, top_k, 
 
         return result, f"Generated: {os.path.basename(result)}"
     except Exception as e:
-        return None, f"Error: {str(e)}"
+        error_msg = str(e)
+        if "restart" in error_msg.lower() or "not running" in error_msg.lower():
+            gr.Warning("Server issue — try restarting with 'startTTSServer'")
+        return None, f"Error: {error_msg}"
 
 
 # =============================================================================
