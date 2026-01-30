@@ -1,5 +1,10 @@
 #!/usr/bin/env python3
-"""Qwen3-TTS generation script with voice cloning and voice design support."""
+"""Qwen3-TTS generation script with voice cloning and voice design support.
+
+Architecture:
+  --_server-mode / server available  ->  HTTP calls (no torch import)
+  --local / no server                ->  lazy import tts_engine (PyTorch)
+"""
 
 import argparse
 import json
@@ -9,40 +14,28 @@ import shutil
 import subprocess
 import sys
 import time
+
 import requests
-import torch
 import soundfile as sf
 import numpy as np
-import librosa
 
-CONFIG_PATH = os.path.expanduser("~/Qwen3-TTS_UserFiles/config.json")
-VOICE_PROMPTS_DIR = os.path.expanduser("~/Qwen3-TTS_UserFiles/voice_prompts")
-HISTORY_FILE = os.path.expanduser("~/.tts_history.jsonl")
-
-# CustomVoice premium speakers
-CUSTOM_VOICE_SPEAKERS = {
-    "ryan": {"name": "Ryan", "lang": "English", "desc": "Dynamic male, strong rhythm"},
-    "aiden": {"name": "Aiden", "lang": "English", "desc": "Sunny American male, clear midrange"},
-    "vivian": {"name": "Vivian", "lang": "Chinese", "desc": "Bright young female"},
-    "serena": {"name": "Serena", "lang": "Chinese", "desc": "Warm, gentle female"},
-    "uncle_fu": {"name": "Uncle_Fu", "lang": "Chinese", "desc": "Seasoned male, mellow timbre"},
-    "dylan": {"name": "Dylan", "lang": "Chinese", "desc": "Youthful Beijing male"},
-    "eric": {"name": "Eric", "lang": "Chinese", "desc": "Lively Chengdu male"},
-    "ono_anna": {"name": "Ono_Anna", "lang": "Japanese", "desc": "Playful female"},
-    "sohee": {"name": "Sohee", "lang": "Korean", "desc": "Warm female, rich emotion"},
-}
+from tts_config import (
+    CONFIG_PATH,
+    VOICE_PROMPTS_DIR,
+    HISTORY_FILE,
+    MODEL_INFO,
+    CUSTOM_VOICE_SPEAKERS,
+    load_config,
+    save_config,
+    get_server_url,
+    is_server_running,
+    auth_headers,
+)
 
 
-def load_config():
-    with open(CONFIG_PATH, "r") as f:
-        return json.load(f)
-
-
-def save_config(config):
-    with open(CONFIG_PATH, "w") as f:
-        json.dump(config, f, indent=2)
-    print(f"Config saved to {CONFIG_PATH}")
-
+# ---------------------------------------------------------------------------
+# Text helpers
+# ---------------------------------------------------------------------------
 
 def list_voice_prompts():
     """List available voice clone prompts."""
@@ -80,90 +73,19 @@ def get_clipboard_text():
         sys.exit(1)
 
 
-def trim_silence(audio, sample_rate, threshold_db=-40, min_silence_ms=100):
-    """Trim leading and trailing silence from audio."""
-    threshold = 10 ** (threshold_db / 20)
-    min_samples = int(sample_rate * min_silence_ms / 1000)
-
-    # Find first non-silent sample
-    abs_audio = np.abs(audio)
-    non_silent = abs_audio > threshold
-
-    if not np.any(non_silent):
-        return audio  # All silence, return as-is
-
-    # Find start (first non-silent sample, minus a small buffer)
-    start_idx = np.argmax(non_silent)
-    start_idx = max(0, start_idx - min_samples)
-
-    # Find end (last non-silent sample, plus a small buffer)
-    end_idx = len(audio) - np.argmax(non_silent[::-1])
-    end_idx = min(len(audio), end_idx + min_samples)
-
-    return audio[start_idx:end_idx]
-
-
 def play_audio(file_path):
     """Play audio file using system player (macOS afplay)."""
     try:
         subprocess.run(["afplay", file_path], check=True)
     except subprocess.CalledProcessError:
-        print(f"Warning: Failed to play audio")
+        print("Warning: Failed to play audio")
     except FileNotFoundError:
         print("Warning: afplay not found (macOS only)")
 
 
-def normalize_audio(audio, target_db=-3.0):
-    """Normalize audio to target peak dB level."""
-    peak = np.max(np.abs(audio))
-    if peak == 0:
-        return audio
-    target_peak = 10 ** (target_db / 20)
-    return audio * (target_peak / peak)
-
-
-def adjust_speed(audio, sample_rate, speed_factor):
-    """Adjust audio speed without changing pitch.
-
-    Args:
-        speed_factor: >1.0 = faster, <1.0 = slower (e.g., 1.2 = 20% faster)
-    """
-    if speed_factor == 1.0:
-        return audio
-    return librosa.effects.time_stretch(audio, rate=speed_factor)
-
-
-def adjust_pitch(audio, sample_rate, semitones):
-    """Adjust audio pitch without changing speed.
-
-    Args:
-        semitones: positive = higher pitch, negative = lower pitch
-    """
-    if semitones == 0:
-        return audio
-    return librosa.effects.pitch_shift(audio, sr=sample_rate, n_steps=semitones)
-
-
-def process_audio(audio, sample_rate, args):
-    """Apply all audio processing based on args."""
-    # Trim silence first (if requested)
-    if args.trim_silence:
-        audio = trim_silence(audio, sample_rate)
-
-    # Speed adjustment
-    if args.speed and args.speed != 1.0:
-        audio = adjust_speed(audio, sample_rate, args.speed)
-
-    # Pitch adjustment
-    if args.pitch and args.pitch != 0:
-        audio = adjust_pitch(audio, sample_rate, args.pitch)
-
-    # Normalize (if requested)
-    if args.normalize:
-        audio = normalize_audio(audio, target_db=-3.0)
-
-    return audio
-
+# ---------------------------------------------------------------------------
+# History
+# ---------------------------------------------------------------------------
 
 def log_generation(text, mode, voice_param, output_path, gen_params, duration_sec=None):
     """Log generation to history file."""
@@ -184,6 +106,42 @@ def log_generation(text, mode, voice_param, output_path, gen_params, duration_se
         f.write(json.dumps(entry) + "\n")
 
 
+def show_history(count=10):
+    """Show recent generation history."""
+    if not os.path.exists(HISTORY_FILE):
+        print("No generation history found.")
+        return
+
+    with open(HISTORY_FILE, "r") as f:
+        lines = f.readlines()
+
+    if not lines:
+        print("No generation history found.")
+        return
+
+    recent = lines[-count:]
+    print(f"\nRecent generations (last {min(count, len(recent))}):\n")
+
+    for line in reversed(recent):
+        entry = json.loads(line)
+        ts = entry.get("timestamp", "")[:19].replace("T", " ")
+        text_preview = entry.get("text", "")[:50]
+        if len(entry.get("text", "")) > 50:
+            text_preview += "..."
+        mode = entry.get("mode", "?")
+        voice = entry.get("voice", "?")
+        output = os.path.basename(entry.get("output", "?"))
+
+        print(f"  {ts}  [{mode}] {voice}")
+        print(f"    \"{text_preview}\"")
+        print(f"    -> {output}")
+        print()
+
+
+# ---------------------------------------------------------------------------
+# Voice alias
+# ---------------------------------------------------------------------------
+
 def get_voice_alias(alias_name, config):
     """Resolve a voice alias from config."""
     aliases = config.get("aliases", {})
@@ -191,6 +149,10 @@ def get_voice_alias(alias_name, config):
         return aliases[alias_name]
     return None
 
+
+# ---------------------------------------------------------------------------
+# Voice prompt management
+# ---------------------------------------------------------------------------
 
 def delete_voice_prompt(prompt_name):
     """Delete a voice prompt file."""
@@ -246,7 +208,6 @@ def preview_voice_prompt(prompt_name, config):
         print(f"Error: Voice prompt not found: {prompt_name}")
         return False
 
-    # Check if server is running
     if is_server_running(config):
         url = get_server_url(config)
         payload = {
@@ -257,7 +218,7 @@ def preview_voice_prompt(prompt_name, config):
             "temperature": 0.7,
         }
         print(f"Generating preview for '{prompt_name}'...")
-        resp = requests.post(f"{url}/generate", json=payload, timeout=60)
+        resp = requests.post(f"{url}/generate", json=payload, timeout=60, headers=auth_headers())
         if resp.status_code == 200:
             result = resp.json()["results"][0]
             print("Playing preview...")
@@ -276,68 +237,31 @@ def preview_voice_prompt(prompt_name, config):
         return False
 
 
-def show_history(count=10):
-    """Show recent generation history."""
-    if not os.path.exists(HISTORY_FILE):
-        print("No generation history found.")
-        return
-
-    with open(HISTORY_FILE, "r") as f:
-        lines = f.readlines()
-
-    if not lines:
-        print("No generation history found.")
-        return
-
-    recent = lines[-count:]
-    print(f"\nRecent generations (last {min(count, len(recent))}):\n")
-
-    for line in reversed(recent):
-        entry = json.loads(line)
-        ts = entry.get("timestamp", "")[:19].replace("T", " ")
-        text_preview = entry.get("text", "")[:50]
-        if len(entry.get("text", "")) > 50:
-            text_preview += "..."
-        mode = entry.get("mode", "?")
-        voice = entry.get("voice", "?")
-        output = os.path.basename(entry.get("output", "?"))
-
-        print(f"  {ts}  [{mode}] {voice}")
-        print(f"    \"{text_preview}\"")
-        print(f"    -> {output}")
-        print()
-
+# ---------------------------------------------------------------------------
+# SSML parsing
+# ---------------------------------------------------------------------------
 
 def parse_ssml(text):
     """Parse SSML markup and return processed text with metadata.
 
     Supported tags:
-    - <break time="500ms"/> or <break time="1s"/> - Insert pause (converted to ellipsis)
-    - <emphasis>text</emphasis> - Emphasis (kept as-is, model interprets naturally)
+    - <break time="500ms"/> or <break time="1s"/> - Insert pause
+    - <emphasis>text</emphasis> - Emphasis
     - <sub alias="replacement">original</sub> - Substitution
-    - <say-as interpret-as="characters">ABC</say-as> - Spell out characters
-    - <prosody rate="slow|medium|fast" pitch="low|medium|high">text</prosody> - Prosody hints
-
-    Returns:
-        tuple: (processed_text, metadata_dict)
+    - <say-as interpret-as="characters">ABC</say-as> - Spell out
+    - <prosody rate="slow|fast" pitch="low|high">text</prosody> - Prosody hints
     """
-    metadata = {
-        "has_ssml": False,
-        "breaks": [],
-        "prosody": None,
-    }
+    metadata = {"has_ssml": False, "breaks": [], "prosody": None}
 
-    # Check if text contains SSML
     if not re.search(r'<[a-z]+[^>]*>', text, re.IGNORECASE):
         return text, metadata
 
     metadata["has_ssml"] = True
     processed = text
 
-    # Handle <break> tags - convert to pause markers
+    # <break> tags
     def replace_break(match):
         time_str = match.group(1)
-        # Convert time to approximate pause representation
         if 'ms' in time_str:
             ms = int(time_str.replace('ms', ''))
             if ms >= 1000:
@@ -358,20 +282,20 @@ def parse_ssml(text):
 
     processed = re.sub(r'<break\s+time=["\']([^"\']+)["\']\s*/>', replace_break, processed, flags=re.IGNORECASE)
 
-    # Handle <sub> tags - direct substitution
+    # <sub> tags
     processed = re.sub(r'<sub\s+alias=["\']([^"\']+)["\']>([^<]*)</sub>', r'\1', processed, flags=re.IGNORECASE)
 
-    # Handle <say-as interpret-as="characters"> - spell out
+    # <say-as interpret-as="characters">
     def spell_out(match):
         chars = match.group(1)
         return ' '.join(chars.upper())
 
     processed = re.sub(r'<say-as\s+interpret-as=["\']characters["\']>([^<]*)</say-as>', spell_out, processed, flags=re.IGNORECASE)
 
-    # Handle <emphasis> - keep text, remove tags (model handles naturally)
+    # <emphasis>
     processed = re.sub(r'<emphasis(?:\s+level=["\'][^"\']+["\'])?>([^<]*)</emphasis>', r'\1', processed, flags=re.IGNORECASE)
 
-    # Handle <prosody> - extract hints and remove tags
+    # <prosody>
     prosody_match = re.search(r'<prosody\s+([^>]+)>([^<]*)</prosody>', processed, flags=re.IGNORECASE)
     if prosody_match:
         attrs = prosody_match.group(1)
@@ -398,25 +322,18 @@ def parse_ssml(text):
 
     processed = re.sub(r'<prosody\s+[^>]+>([^<]*)</prosody>', r'\1', processed, flags=re.IGNORECASE)
 
-    # Remove any remaining XML-like tags
+    # Remove remaining XML tags
     processed = re.sub(r'<[^>]+>', '', processed)
-
-    # Clean up extra whitespace
     processed = re.sub(r'\s+', ' ', processed).strip()
 
     return processed, metadata
 
 
 def process_ssml_text(text, args):
-    """Process SSML in text and update args with prosody hints.
-
-    Returns:
-        str: Processed text with SSML tags converted
-    """
+    """Process SSML in text and update args with prosody hints."""
     processed, metadata = parse_ssml(text)
 
     if metadata.get("prosody"):
-        # Apply prosody hints if not overridden by CLI args
         if metadata["prosody"].get("speed") and not args.speed:
             args.speed = metadata["prosody"]["speed"]
         if metadata["prosody"].get("pitch") and not args.pitch:
@@ -425,12 +342,15 @@ def process_ssml_text(text, args):
     return processed
 
 
+# ---------------------------------------------------------------------------
+# SRT parsing
+# ---------------------------------------------------------------------------
+
 def parse_srt(srt_path):
-    """Parse an SRT subtitle file and return list of (index, start_ms, end_ms, text)."""
+    """Parse an SRT subtitle file."""
     with open(srt_path, "r", encoding="utf-8") as f:
         content = f.read()
 
-    # SRT format: index, timestamp, text, blank line
     pattern = r"(\d+)\s*\n(\d{2}:\d{2}:\d{2},\d{3})\s*-->\s*(\d{2}:\d{2}:\d{2},\d{3})\s*\n(.*?)(?=\n\n|\Z)"
     matches = re.findall(pattern, content, re.DOTALL)
 
@@ -446,11 +366,213 @@ def parse_srt(srt_path):
 
 
 def srt_time_to_ms(time_str):
-    """Convert SRT timestamp (00:01:23,456) to milliseconds."""
+    """Convert SRT timestamp to milliseconds."""
     parts = time_str.replace(",", ":").split(":")
     hours, minutes, seconds, ms = map(int, parts)
     return (hours * 3600 + minutes * 60 + seconds) * 1000 + ms
 
+
+# ---------------------------------------------------------------------------
+# Audio processing helper (delegates to engine for heavy ops)
+# ---------------------------------------------------------------------------
+
+def process_audio_args(audio, sample_rate, args):
+    """Apply audio processing based on argparse args.
+
+    Lazily imports tts_engine only when processing is actually needed.
+    """
+    needs = args.trim_silence or args.normalize or (args.speed and args.speed != 1.0) or (args.pitch and args.pitch != 0)
+    if not needs:
+        return audio
+
+    from tts_engine import process_audio
+    return process_audio(
+        audio, sample_rate,
+        trim=args.trim_silence,
+        normalize=args.normalize,
+        speed=args.speed if args.speed and args.speed != 1.0 else None,
+        pitch=args.pitch if args.pitch and args.pitch != 0 else None,
+    )
+
+
+# ---------------------------------------------------------------------------
+# Server helpers
+# ---------------------------------------------------------------------------
+
+def ensure_server_running(config):
+    """Ensure the TTS server is running, starting it if necessary."""
+    if is_server_running(config):
+        return True
+
+    print("TTS Server is not running.")
+    print("Starting server (this may take 30-60 seconds to load models)...")
+
+    start_script = os.path.expanduser("~/bin/startTTSServer")
+    if os.path.exists(start_script):
+        result = subprocess.run([start_script], capture_output=False)
+        return result.returncode == 0
+
+    # Fallback: start server directly
+    server_script = os.path.expanduser("~/Qwen3-TTS_UserFiles/tts_server.py")
+    log_file = os.path.expanduser("~/Qwen3-TTS_UserFiles/.tts_server.log")
+
+    with open(log_file, "w") as log:
+        subprocess.Popen(
+            [sys.executable, server_script],
+            stdout=log, stderr=log,
+            start_new_session=True,
+        )
+
+    print("Waiting for server to be ready...")
+    for i in range(120):
+        if is_server_running(config):
+            print("TTS Server is ready!")
+            return True
+        time.sleep(1)
+        if (i + 1) % 10 == 0:
+            print(f"  Still loading models... ({i + 1} seconds)")
+
+    print("Error: Server failed to start. Check log:", log_file)
+    return False
+
+
+def launch_gradio_ui(config):
+    """Launch the Gradio web interface, starting server if needed."""
+    if not ensure_server_running(config):
+        print("\nCannot launch web interface without the server.")
+        print("Please check the server logs and try again.")
+        return
+
+    ui_script = os.path.expanduser("~/Qwen3-TTS_UserFiles/tts_ui.py")
+    print("\nLaunching Gradio web interface...")
+    subprocess.run([sys.executable, ui_script])
+
+
+def load_model_on_server(config, model_type):
+    """Request the server to load a model on demand."""
+    url = get_server_url(config)
+    print(f"Loading {model_type} model on server (this may take 30-60 seconds)...")
+    resp = requests.post(f"{url}/load-model", json={"model_type": model_type}, timeout=120, headers=auth_headers())
+    if resp.status_code == 200:
+        result = resp.json()
+        if result.get("status") == "loaded":
+            print(f"Model '{model_type}' loaded successfully!")
+            return True
+        elif result.get("status") == "already_loaded":
+            print(f"Model '{model_type}' was already loaded.")
+            return True
+    print(f"Failed to load model: {resp.json().get('error', 'Unknown error')}")
+    return False
+
+
+def generate_via_server(texts, mode, config, gen_params,
+                        prompt_file=None, voice_description=None,
+                        speaker=None, instruct=None, auto_load_model=True):
+    """Generate audio via the TTS server."""
+    url = get_server_url(config)
+
+    payload = {
+        "texts": texts,
+        "mode": mode,
+        "language": config.get("language", "English"),
+        **gen_params,
+    }
+
+    if mode == "clone":
+        payload["prompt_file"] = prompt_file
+    elif mode == "design":
+        payload["voice_description"] = voice_description
+    elif mode == "custom":
+        payload["speaker"] = speaker
+        payload["instruct"] = instruct or ""
+
+    resp = requests.post(f"{url}/generate", json=payload, timeout=300, headers=auth_headers())
+
+    # Handle model not loaded
+    if resp.status_code == 503:
+        try:
+            error_data = resp.json()
+        except (ValueError, requests.exceptions.JSONDecodeError):
+            raise Exception("Server returned HTTP 503 (non-JSON response)")
+
+        if error_data.get("error") == "model_not_loaded":
+            model_type = error_data.get("model_type")
+            description = error_data.get("description")
+            print(f"\nThe '{model_type}' model is not loaded.")
+            print(f"  Purpose: {description}")
+            print()
+
+            if auto_load_model:
+                choice = input(f"Would you like to load the '{model_type}' model now? [Y/n]: ").strip().lower()
+                if choice != 'n':
+                    if load_model_on_server(config, model_type):
+                        resp = requests.post(f"{url}/generate", json=payload, timeout=300, headers=auth_headers())
+                    else:
+                        raise Exception(f"Failed to load {model_type} model")
+                else:
+                    raise Exception(f"Model '{model_type}' not loaded. Enable in config.json or load with server.")
+
+    if resp.status_code != 200:
+        try:
+            error_msg = resp.json().get('error', 'Unknown error')
+        except (ValueError, requests.exceptions.JSONDecodeError):
+            error_msg = f"Server returned HTTP {resp.status_code} (non-JSON response)"
+        raise Exception(f"Server error: {error_msg}")
+
+    return resp.json()["results"]
+
+
+# ---------------------------------------------------------------------------
+# Local generation (lazy import of tts_engine)
+# ---------------------------------------------------------------------------
+
+def generate_local(text, mode, gen_params, language="English",
+                   prompt_file=None, voice_description=None,
+                   speaker=None, instruct=None):
+    """Generate speech locally using tts_engine (imports torch on first call)."""
+    from tts_engine import load_model, run_inference, load_voice_prompt
+
+    print(f"Loading {mode} model locally...")
+    model = load_model(mode)
+
+    voice_prompt = None
+    if mode == "clone":
+        if not prompt_file:
+            print("Error: Voice prompt required for clone mode")
+            sys.exit(1)
+        prompt_path = os.path.join(VOICE_PROMPTS_DIR, prompt_file)
+        if not os.path.exists(prompt_path):
+            print(f"Error: Voice prompt not found: {prompt_path}")
+            sys.exit(1)
+        print(f"Loading voice prompt: {prompt_file}")
+        voice_prompt = load_voice_prompt(prompt_file)
+    elif mode == "custom":
+        if not speaker:
+            speaker = "Ryan"
+        print(f"Using speaker: {speaker}")
+        if instruct:
+            print(f"With instruction: {instruct}")
+    elif mode == "design":
+        print(f"Using voice description: {voice_description}")
+
+    print("Generating audio...")
+    wav, sr = run_inference(
+        model=model,
+        text=text,
+        mode=mode,
+        gen_params=gen_params,
+        language=language,
+        voice_prompt=voice_prompt,
+        voice_description=voice_description,
+        speaker=speaker,
+        instruct=instruct,
+    )
+    return wav, sr
+
+
+# ---------------------------------------------------------------------------
+# REPL mode
+# ---------------------------------------------------------------------------
 
 def run_repl(config, use_server):
     """Run interactive REPL mode for rapid TTS iteration."""
@@ -467,7 +589,6 @@ def run_repl(config, use_server):
     print("  /quit or /q    - Exit REPL")
     print()
 
-    # REPL state
     state = {
         "mode": "clone",
         "prompt": config.get("default_clone_prompt", "default_clone.pt"),
@@ -588,12 +709,18 @@ def run_repl(config, use_server):
                 wav, sr = sf.read(results[0]["file"])
                 os.remove(results[0]["file"])
             else:
-                wav, sr = generate_local_clone(text, state["prompt"], gen_params, config.get("language", "English"))
+                wav, sr = generate_local(
+                    text, state["mode"], gen_params,
+                    config.get("language", "English"),
+                    prompt_file=state["prompt"],
+                )
 
             # Apply audio processing
             if state["speed"] and state["speed"] != 1.0:
+                from tts_engine import adjust_speed
                 wav = adjust_speed(wav, sr, state["speed"])
             if state["pitch"] and state["pitch"] != 0:
+                from tts_engine import adjust_pitch
                 wav = adjust_pitch(wav, sr, state["pitch"])
 
             sf.write(output_path, wav, sr)
@@ -607,6 +734,10 @@ def run_repl(config, use_server):
         except Exception as e:
             print(f"Error: {e}")
 
+
+# ---------------------------------------------------------------------------
+# Watch mode
+# ---------------------------------------------------------------------------
 
 def run_watch_mode(watch_dir, config, args, gen_params, use_server):
     """Watch a directory for new .txt files and generate TTS."""
@@ -629,14 +760,11 @@ def run_watch_mode(watch_dir, config, args, gen_params, use_server):
 
     class TTSHandler(FileSystemEventHandler):
         def on_created(self, event):
-            if event.is_directory:
-                return
-            if not event.src_path.endswith(".txt"):
+            if event.is_directory or not event.src_path.endswith(".txt"):
                 return
             if event.src_path in processed_files:
                 return
 
-            # Wait a moment for file to be fully written
             time.sleep(0.5)
 
             try:
@@ -653,21 +781,22 @@ def run_watch_mode(watch_dir, config, args, gen_params, use_server):
                 print(f"\nProcessing: {event.src_path}")
 
                 if use_server:
-                    if mode == "clone":
-                        results = generate_via_server([text], mode, config, gen_params, prompt_file=prompt_file)
-                    else:
-                        results = generate_via_server([text], mode, config, gen_params, voice_description=voice_description)
-
+                    results = generate_via_server(
+                        [text], mode, config, gen_params,
+                        prompt_file=prompt_file if mode == "clone" else None,
+                        voice_description=voice_description if mode == "design" else None,
+                    )
                     wav, sr = sf.read(results[0]["file"])
                     os.remove(results[0]["file"])
                 else:
-                    if mode == "clone":
-                        wav, sr = generate_local_clone(text, prompt_file, gen_params, config.get("language", "English"))
-                    else:
-                        wav, sr = generate_local_design(text, voice_description, gen_params, config.get("language", "English"))
+                    wav, sr = generate_local(
+                        text, mode, gen_params,
+                        config.get("language", "English"),
+                        prompt_file=prompt_file,
+                        voice_description=voice_description,
+                    )
 
-                # Apply audio processing
-                wav = process_audio(wav, sr, args)
+                wav = process_audio_args(wav, sr, args)
                 sf.write(output_path, wav, sr)
 
                 print(f"  -> {output_path}")
@@ -699,44 +828,20 @@ def run_watch_mode(watch_dir, config, args, gen_params, use_server):
     observer.join()
 
 
+# ---------------------------------------------------------------------------
+# Dialogue processing
+# ---------------------------------------------------------------------------
+
 def process_dialogue(dialogue_path, config, args, gen_params, use_server):
-    """Process a dialogue JSON file with multiple speakers.
-
-    Supports two formats:
-
-    Format 1 - Simple (inline speaker config):
-    [
-      {"mode": "custom", "speaker": "ryan", "text": "Hello!"},
-      {"mode": "clone", "prompt": "narrator.pt", "text": "He said."},
-      {"mode": "custom", "speaker": "aiden", "instruct": "nervous", "text": "Hi..."}
-    ]
-
-    Format 2 - Named speakers (reusable):
-    {
-      "speakers": {
-        "Alice": {"mode": "custom", "speaker": "vivian"},
-        "Bob": {"mode": "clone", "prompt": "bob.pt"},
-        "Narrator": {"mode": "design", "description": "A deep male narrator voice"}
-      },
-      "lines": [
-        {"speaker": "Alice", "text": "Hello Bob!"},
-        {"speaker": "Bob", "text": "Hi Alice!"},
-        {"speaker": "Narrator", "text": "They smiled at each other."}
-      ],
-      "pause_ms": 500
-    }
-    """
+    """Process a dialogue JSON file with multiple speakers."""
     with open(dialogue_path, "r") as f:
         data = json.load(f)
 
-    # Determine format
     if isinstance(data, list):
-        # Format 1: Simple inline
         lines = data
         speakers = {}
         pause_ms = 500
     else:
-        # Format 2: Named speakers
         speakers = data.get("speakers", {})
         lines = data.get("lines", data.get("dialogue", []))
         pause_ms = data.get("pause_ms", 500)
@@ -764,23 +869,29 @@ def process_dialogue(dialogue_path, config, args, gen_params, use_server):
 
         # Resolve speaker config
         if "speaker" in line and line["speaker"] in speakers:
-            # Named speaker reference
             speaker_config = speakers[line["speaker"]].copy()
             speaker_name = line["speaker"]
         else:
-            # Inline config
             speaker_config = line.copy()
             speaker_name = line.get("speaker", line.get("prompt", "unknown"))
 
         mode = speaker_config.get("mode", "clone")
 
-        # Extract mode-specific params
         prompt_file = speaker_config.get("prompt", config.get("default_clone_prompt", "default_clone.pt"))
         voice_description = speaker_config.get("description", config.get("default_voice_description", ""))
         custom_speaker = speaker_config.get("speaker", "ryan")
         instruct = speaker_config.get("instruct", line.get("instruct", ""))
 
-        # Get speaker display name
+        # Resolve custom speaker name
+        if mode == "custom":
+            speaker_key = custom_speaker.lower()
+            if speaker_key in CUSTOM_VOICE_SPEAKERS:
+                resolved_speaker = CUSTOM_VOICE_SPEAKERS[speaker_key]["name"]
+            else:
+                resolved_speaker = custom_speaker
+        else:
+            resolved_speaker = None
+
         if mode == "custom":
             display_name = custom_speaker
         elif mode == "clone":
@@ -793,43 +904,31 @@ def process_dialogue(dialogue_path, config, args, gen_params, use_server):
 
         try:
             if use_server:
-                if mode == "clone":
-                    results = generate_via_server([text], mode, config, gen_params, prompt_file=prompt_file)
-                elif mode == "design":
-                    results = generate_via_server([text], mode, config, gen_params, voice_description=voice_description)
-                else:  # custom
-                    # Validate and resolve speaker name
-                    speaker_key = custom_speaker.lower()
-                    if speaker_key in CUSTOM_VOICE_SPEAKERS:
-                        resolved_speaker = CUSTOM_VOICE_SPEAKERS[speaker_key]["name"]
-                    else:
-                        resolved_speaker = custom_speaker
-                    results = generate_via_server([text], mode, config, gen_params,
-                                                  speaker=resolved_speaker, instruct=instruct)
+                results = generate_via_server(
+                    [text], mode, config, gen_params,
+                    prompt_file=prompt_file if mode == "clone" else None,
+                    voice_description=voice_description if mode == "design" else None,
+                    speaker=resolved_speaker if mode == "custom" else None,
+                    instruct=instruct if mode == "custom" else None,
+                )
                 wav, sr = sf.read(results[0]["file"])
                 os.remove(results[0]["file"])
             else:
-                if mode == "clone":
-                    wav, sr = generate_local_clone(text, prompt_file, gen_params, language)
-                elif mode == "design":
-                    wav, sr = generate_local_design(text, voice_description, gen_params, language)
-                else:  # custom
-                    speaker_key = custom_speaker.lower()
-                    if speaker_key in CUSTOM_VOICE_SPEAKERS:
-                        resolved_speaker = CUSTOM_VOICE_SPEAKERS[speaker_key]["name"]
-                    else:
-                        resolved_speaker = custom_speaker
-                    wav, sr = generate_local_custom(text, resolved_speaker, instruct, gen_params, language)
+                wav, sr = generate_local(
+                    text, mode, gen_params, language,
+                    prompt_file=prompt_file,
+                    voice_description=voice_description,
+                    speaker=resolved_speaker,
+                    instruct=instruct,
+                )
 
-            # Apply audio processing
-            wav = process_audio(wav, sr, args)
+            wav = process_audio_args(wav, sr, args)
 
             if sample_rate is None:
                 sample_rate = sr
 
             all_audio.append(wav)
 
-            # Optionally save individual files
             if args.save_individual:
                 individual_path = os.path.join(output_dir, f"{basename}_{idx:03d}.wav")
                 sf.write(individual_path, wav, sr)
@@ -842,7 +941,7 @@ def process_dialogue(dialogue_path, config, args, gen_params, use_server):
         print("Error: No audio generated")
         return
 
-    # Combine all audio with pauses between
+    # Combine with pauses
     print("\nCombining audio...")
     silence_samples = int(sample_rate * pause_ms / 1000)
     combined = []
@@ -855,27 +954,25 @@ def process_dialogue(dialogue_path, config, args, gen_params, use_server):
     combined_path = os.path.join(output_dir, f"{basename}.wav")
     sf.write(combined_path, np.array(combined), sample_rate)
 
-    # Calculate duration
     duration_sec = len(combined) / sample_rate
-
     print(f"\nSaved: {combined_path}")
     print(f"Duration: {duration_sec:.1f}s ({len(all_audio)} segments)")
 
-    # Log to history
     log_generation(
         f"[Dialogue: {len(lines)} lines]",
-        "dialogue",
-        basename,
-        combined_path,
-        gen_params,
-        duration_sec
+        "dialogue", basename, combined_path,
+        gen_params, duration_sec,
     )
 
     if args.play:
         play_audio(combined_path)
     elif not args.no_open:
-        os.system(f'open "{combined_path}"')
+        subprocess.run(["open", combined_path])
 
+
+# ---------------------------------------------------------------------------
+# SRT processing
+# ---------------------------------------------------------------------------
 
 def process_srt_file(srt_path, config, args, gen_params, use_server):
     """Process an SRT file and generate audio for each subtitle."""
@@ -902,34 +999,35 @@ def process_srt_file(srt_path, config, args, gen_params, use_server):
         print(f"  [{idx}/{len(entries)}] {text[:50]}{'...' if len(text) > 50 else ''}")
 
         if use_server:
-            if mode == "clone":
-                results = generate_via_server([text], mode, config, gen_params, prompt_file=prompt_file)
-            else:
-                results = generate_via_server([text], mode, config, gen_params, voice_description=voice_description)
+            results = generate_via_server(
+                [text], mode, config, gen_params,
+                prompt_file=prompt_file if mode == "clone" else None,
+                voice_description=voice_description if mode == "design" else None,
+            )
             wav, sr = sf.read(results[0]["file"])
             os.remove(results[0]["file"])
         else:
-            if mode == "clone":
-                wav, sr = generate_local_clone(text, prompt_file, gen_params, config.get("language", "English"))
-            else:
-                wav, sr = generate_local_design(text, voice_description, gen_params, config.get("language", "English"))
+            wav, sr = generate_local(
+                text, mode, gen_params,
+                config.get("language", "English"),
+                prompt_file=prompt_file,
+                voice_description=voice_description,
+            )
 
-        # Apply audio processing
-        wav = process_audio(wav, sr, args)
+        wav = process_audio_args(wav, sr, args)
 
         if sample_rate is None:
             sample_rate = sr
 
         all_audio.append(wav)
 
-        # Save individual file
         individual_path = os.path.join(output_dir, f"{basename}_{idx:03d}.wav")
         sf.write(individual_path, wav, sr)
 
-    # Also create a combined file with silence between segments
+    # Combined file
     print("\nCreating combined audio...")
     combined = []
-    silence_samples = int(sample_rate * 0.5)  # 0.5s silence between segments
+    silence_samples = int(sample_rate * 0.5)
 
     for i, wav in enumerate(all_audio):
         combined.extend(wav)
@@ -946,91 +1044,15 @@ def process_srt_file(srt_path, config, args, gen_params, use_server):
         play_audio(combined_path)
 
 
-def get_server_url(config):
-    """Get the server URL from config."""
-    server_config = config.get("server", {})
-    host = server_config.get("host", "127.0.0.1")
-    port = server_config.get("port", 5123)
-    return f"http://{host}:{port}"
-
-
-def ensure_server_running(config):
-    """Ensure the TTS server is running, starting it if necessary.
-
-    Returns True if server is running, False if failed to start.
-    """
-    if is_server_running(config):
-        return True
-
-    print("TTS Server is not running.")
-    print("Starting server (this may take 30-60 seconds to load models)...")
-
-    # Start server using the wrapper script or directly
-    import subprocess
-
-    # Try to use the wrapper script first
-    start_script = os.path.expanduser("~/bin/startTTSServer")
-    if os.path.exists(start_script):
-        result = subprocess.run([start_script], capture_output=False)
-        return result.returncode == 0
-
-    # Fallback: start server directly in background
-    server_script = os.path.expanduser("~/Qwen3-TTS_UserFiles/tts_server.py")
-    log_file = os.path.expanduser("~/Qwen3-TTS_UserFiles/.tts_server.log")
-
-    with open(log_file, "w") as log:
-        subprocess.Popen(
-            [sys.executable, server_script],
-            stdout=log,
-            stderr=log,
-            start_new_session=True
-        )
-
-    # Wait for server to be ready
-    print("Waiting for server to be ready...")
-    for i in range(120):
-        if is_server_running(config):
-            print("TTS Server is ready!")
-            return True
-        time.sleep(1)
-        if (i + 1) % 10 == 0:
-            print(f"  Still loading models... ({i + 1} seconds)")
-
-    print("Error: Server failed to start. Check log:", log_file)
-    return False
-
-
-def launch_gradio_ui(config):
-    """Launch the Gradio web interface, starting server if needed."""
-    import subprocess
-
-    # Ensure server is running first
-    if not ensure_server_running(config):
-        print("\nCannot launch web interface without the server.")
-        print("Please check the server logs and try again.")
-        return
-
-    ui_script = os.path.expanduser("~/Qwen3-TTS_UserFiles/tts_ui.py")
-    print("\nLaunching Gradio web interface...")
-    subprocess.run([sys.executable, ui_script])
-
-
-def is_server_running(config):
-    """Check if the TTS server is running."""
-    try:
-        url = get_server_url(config)
-        resp = requests.get(f"{url}/health", timeout=2)
-        return resp.status_code == 200
-    except:
-        return False
-
+# ---------------------------------------------------------------------------
+# Generation parameters
+# ---------------------------------------------------------------------------
 
 def get_generation_params(args, config):
     """Get generation parameters from args, preset, or config defaults."""
     gen_config = config.get("generation", {})
     presets = config.get("presets", {})
 
-    # Start with config defaults
     params = {
         "temperature": gen_config.get("temperature", 0.7),
         "top_k": gen_config.get("top_k", 50),
@@ -1039,12 +1061,9 @@ def get_generation_params(args, config):
         "seed": gen_config.get("seed"),
     }
 
-    # Apply preset if specified
     if args.preset and args.preset in presets:
-        preset = presets[args.preset]
-        params.update(preset)
+        params.update(presets[args.preset])
 
-    # Override with CLI args
     if args.temperature is not None:
         params["temperature"] = args.temperature
     if args.top_k is not None:
@@ -1059,187 +1078,14 @@ def get_generation_params(args, config):
     return params
 
 
-def load_model_on_server(config, model_type):
-    """Request the server to load a model on demand."""
-    url = get_server_url(config)
-    print(f"Loading {model_type} model on server (this may take 30-60 seconds)...")
-    resp = requests.post(f"{url}/load-model", json={"model_type": model_type}, timeout=120)
-    if resp.status_code == 200:
-        result = resp.json()
-        if result.get("status") == "loaded":
-            print(f"Model '{model_type}' loaded successfully!")
-            return True
-        elif result.get("status") == "already_loaded":
-            print(f"Model '{model_type}' was already loaded.")
-            return True
-    print(f"Failed to load model: {resp.json().get('error', 'Unknown error')}")
-    return False
-
-
-def generate_via_server(texts, mode, config, gen_params, prompt_file=None, voice_description=None, speaker=None, instruct=None, auto_load_model=True):
-    """Generate audio via the TTS server."""
-    url = get_server_url(config)
-
-    payload = {
-        "texts": texts,
-        "mode": mode,
-        "language": config.get("language", "English"),
-        **gen_params,
-    }
-
-    if mode == "clone":
-        payload["prompt_file"] = prompt_file
-    elif mode == "design":
-        payload["voice_description"] = voice_description
-    elif mode == "custom":
-        payload["speaker"] = speaker
-        payload["instruct"] = instruct or ""
-
-    resp = requests.post(f"{url}/generate", json=payload, timeout=300)
-
-    # Handle model not loaded error
-    if resp.status_code == 503:
-        try:
-            error_data = resp.json()
-        except (ValueError, requests.exceptions.JSONDecodeError):
-            raise Exception(f"Server returned HTTP 503 (non-JSON response)")
-
-        if error_data.get("error") == "model_not_loaded":
-            model_type = error_data.get("model_type")
-            description = error_data.get("description")
-            print(f"\nThe '{model_type}' model is not loaded.")
-            print(f"  Purpose: {description}")
-            print()
-
-            if auto_load_model:
-                choice = input(f"Would you like to load the '{model_type}' model now? [Y/n]: ").strip().lower()
-                if choice != 'n':
-                    if load_model_on_server(config, model_type):
-                        # Retry the request
-                        resp = requests.post(f"{url}/generate", json=payload, timeout=300)
-                    else:
-                        raise Exception(f"Failed to load {model_type} model")
-                else:
-                    raise Exception(f"Model '{model_type}' not loaded. Enable in config.json or load with server.")
-
-    if resp.status_code != 200:
-        try:
-            error_msg = resp.json().get('error', 'Unknown error')
-        except (ValueError, requests.exceptions.JSONDecodeError):
-            error_msg = f"Server returned HTTP {resp.status_code} (non-JSON response)"
-        raise Exception(f"Server error: {error_msg}")
-
-    return resp.json()["results"]
-
-
-def generate_local_clone(text, prompt_file, gen_params, language="English"):
-    """Generate speech locally using a cloned voice prompt."""
-    from qwen_tts import Qwen3TTSModel
-
-    prompt_path = os.path.join(VOICE_PROMPTS_DIR, prompt_file)
-    if not os.path.exists(prompt_path):
-        print(f"Error: Voice prompt not found: {prompt_path}")
-        sys.exit(1)
-
-    print("Loading Qwen3-TTS Base model...")
-    model = Qwen3TTSModel.from_pretrained(
-        "Qwen/Qwen3-TTS-12Hz-1.7B-Base",
-        attn_implementation="sdpa",
-        device_map="mps",
-        dtype=torch.bfloat16,
-    )
-
-    print(f"Loading voice prompt: {prompt_file}")
-    voice_prompt = torch.load(prompt_path, weights_only=False)
-
-    if gen_params.get("seed") is not None:
-        torch.manual_seed(gen_params["seed"])
-
-    print("Generating audio...")
-    with torch.inference_mode():
-        wavs, sr = model.generate_voice_clone(
-            text=text,
-            language=language,
-            voice_clone_prompt=voice_prompt,
-            temperature=gen_params.get("temperature", 0.7),
-            top_k=gen_params.get("top_k", 50),
-            top_p=gen_params.get("top_p", 0.95),
-            repetition_penalty=gen_params.get("repetition_penalty", 1.05),
-        )
-
-    return wavs[0], sr
-
-
-def generate_local_design(text, voice_description, gen_params, language="English"):
-    """Generate speech locally using voice design."""
-    from qwen_tts import Qwen3TTSModel
-
-    print("Loading Qwen3-TTS VoiceDesign model...")
-    model = Qwen3TTSModel.from_pretrained(
-        "Qwen/Qwen3-TTS-12Hz-1.7B-VoiceDesign",
-        attn_implementation="sdpa",
-        device_map="mps",
-        dtype=torch.bfloat16,
-    )
-
-    if gen_params.get("seed") is not None:
-        torch.manual_seed(gen_params["seed"])
-
-    print(f"Using voice description: {voice_description}")
-    print("Generating audio...")
-    with torch.inference_mode():
-        wavs, sr = model.generate_voice_design(
-            text=text,
-            instruct=voice_description,
-            language=language,
-            temperature=gen_params.get("temperature", 0.7),
-            top_k=gen_params.get("top_k", 50),
-            top_p=gen_params.get("top_p", 0.95),
-            repetition_penalty=gen_params.get("repetition_penalty", 1.05),
-        )
-
-    return wavs[0], sr
-
-
-def generate_local_custom(text, speaker, instruct, gen_params, language="English"):
-    """Generate speech locally using CustomVoice premium speakers."""
-    from qwen_tts import Qwen3TTSModel
-
-    print("Loading Qwen3-TTS CustomVoice model...")
-    model = Qwen3TTSModel.from_pretrained(
-        "Qwen/Qwen3-TTS-12Hz-1.7B-CustomVoice",
-        attn_implementation="sdpa",
-        device_map="mps",
-        dtype=torch.bfloat16,
-    )
-
-    if gen_params.get("seed") is not None:
-        torch.manual_seed(gen_params["seed"])
-
-    print(f"Using speaker: {speaker}")
-    if instruct:
-        print(f"With instruction: {instruct}")
-    print("Generating audio...")
-    with torch.inference_mode():
-        wavs, sr = model.generate_custom_voice(
-            text=text,
-            language=language,
-            speaker=speaker,
-            instruct=instruct or "",
-            temperature=gen_params.get("temperature", 0.7),
-            top_k=gen_params.get("top_k", 50),
-            top_p=gen_params.get("top_p", 0.95),
-            repetition_penalty=gen_params.get("repetition_penalty", 1.05),
-        )
-
-    return wavs[0], sr
-
+# ---------------------------------------------------------------------------
+# Interactive mode
+# ---------------------------------------------------------------------------
 
 def interactive_mode(use_server, config, gen_params):
     """Run in interactive mode with prompts."""
     print("\n=== Qwen3-TTS Generator ===\n")
 
-    # Ask user preference: CLI or Web UI
     print("How would you like to generate speech?")
     print("  1. Command Line (enter text here)")
     print("  2. Web Interface (Gradio UI in browser)")
@@ -1248,7 +1094,7 @@ def interactive_mode(use_server, config, gen_params):
 
     if mode_choice == "2":
         launch_gradio_ui(config)
-        return None  # Signal that we used Gradio
+        return None
 
     text_input = input("\nEnter text or file path: ").strip()
     if not text_input:
@@ -1310,16 +1156,21 @@ def interactive_mode(use_server, config, gen_params):
             results = generate_via_server([text], mode, config, gen_params, voice_description=voice_param)
         shutil.move(results[0]["file"], output_path)
     else:
-        if mode == "clone":
-            wav, sr = generate_local_clone(text, voice_param, gen_params, language)
-        else:
-            wav, sr = generate_local_design(text, voice_param, gen_params, language)
+        wav, sr = generate_local(
+            text, mode, gen_params, language,
+            prompt_file=voice_param if mode == "clone" else None,
+            voice_description=voice_param if mode == "design" else None,
+        )
         sf.write(output_path, wav, sr)
 
     print(f"Saved to: {output_path}")
-    os.system(f'open "{output_path}"')
+    subprocess.run(["open", output_path])
     return output_path
 
+
+# ---------------------------------------------------------------------------
+# Batch processing
+# ---------------------------------------------------------------------------
 
 def process_batch(texts, args, config, gen_params, use_server):
     """Process multiple texts."""
@@ -1337,16 +1188,17 @@ def process_batch(texts, args, config, gen_params, use_server):
 
     if use_server:
         print(f"Using TTS server for batch of {len(texts)} texts...")
-        if mode == "clone":
-            results = generate_via_server(texts, mode, config, gen_params, prompt_file=prompt_file)
-        else:
-            results = generate_via_server(texts, mode, config, gen_params, voice_description=voice_description)
+        results = generate_via_server(
+            texts, mode, config, gen_params,
+            prompt_file=prompt_file if mode == "clone" else None,
+            voice_description=voice_description if mode == "design" else None,
+        )
 
         for i, result in enumerate(results):
             output_path = os.path.join(output_dir, f"output_{i+1}.wav")
             if needs_processing:
                 wav, sr = sf.read(result["file"])
-                wav = process_audio(wav, sr, args)
+                wav = process_audio_args(wav, sr, args)
                 sf.write(output_path, wav, sr)
                 os.remove(result["file"])
             else:
@@ -1356,12 +1208,12 @@ def process_batch(texts, args, config, gen_params, use_server):
     else:
         for i, text in enumerate(texts):
             print(f"\nProcessing {i+1}/{len(texts)}...")
-            if mode == "clone":
-                wav, sr = generate_local_clone(text, prompt_file, gen_params, language)
-            else:
-                wav, sr = generate_local_design(text, voice_description, gen_params, language)
-
-            wav = process_audio(wav, sr, args)
+            wav, sr = generate_local(
+                text, mode, gen_params, language,
+                prompt_file=prompt_file,
+                voice_description=voice_description,
+            )
+            wav = process_audio_args(wav, sr, args)
 
             output_path = os.path.join(output_dir, f"output_{i+1}.wav")
             sf.write(output_path, wav, sr)
@@ -1370,6 +1222,10 @@ def process_batch(texts, args, config, gen_params, use_server):
 
     return output_paths
 
+
+# ---------------------------------------------------------------------------
+# Main
+# ---------------------------------------------------------------------------
 
 def main():
     parser = argparse.ArgumentParser(description="Qwen3-TTS Generator")
@@ -1435,21 +1291,21 @@ def main():
     config = load_config()
     gen_params = get_generation_params(args, config)
 
-    # Launch Gradio UI (with automatic server start)
+    # Launch Gradio UI
     if args.ui:
         launch_gradio_ui(config)
         return False
 
-    # List prompts
+    # --- List / info commands (no torch needed) ---
+
     if args.list_prompts:
         prompts = list_voice_prompts()
         print("Available voice prompts:")
         for p in prompts:
             default_marker = " (default)" if p == config.get("default_clone_prompt") else ""
             print(f"  - {p}{default_marker}")
-        return False  # Server not used
+        return False
 
-    # List presets
     if args.list_presets:
         presets = config.get("presets", {})
         print("Available presets:")
@@ -1457,7 +1313,6 @@ def main():
             print(f"  - {name}: {settings}")
         return False
 
-    # List aliases
     if args.list_aliases:
         aliases = config.get("aliases", {})
         if aliases:
@@ -1474,7 +1329,6 @@ def main():
             print('  }')
         return False
 
-    # List premium speakers
     if args.list_speakers:
         print("Premium CustomVoice speakers (use with -m custom -s SPEAKER):")
         print()
@@ -1496,53 +1350,34 @@ def main():
         print("Example: changeVoice 'Hello world' -m custom -s ryan -o output")
         return False
 
-    # List models and their status
     if args.list_models:
         models_config = config.get("models", {})
         print("\nAvailable TTS Models:")
         print("=" * 60)
         print()
 
-        model_info = {
-            "clone": {
-                "name": "Base (Clone)",
-                "hf_name": "Qwen/Qwen3-TTS-12Hz-1.7B-Base",
-                "description": "Clone voices from audio samples",
-                "usage": "-m clone -p voice.pt",
-                "memory": "~3.5GB",
-            },
-            "design": {
-                "name": "VoiceDesign",
-                "hf_name": "Qwen/Qwen3-TTS-12Hz-1.7B-VoiceDesign",
-                "description": "Generate voice from text description",
-                "usage": "-m design -d 'warm female voice'",
-                "memory": "~3.5GB",
-            },
-            "custom": {
-                "name": "CustomVoice",
-                "hf_name": "Qwen/Qwen3-TTS-12Hz-1.7B-CustomVoice",
-                "description": "9 premium pre-trained speakers",
-                "usage": "-m custom -s ryan",
-                "memory": "~3.5GB",
-            },
+        model_display = {
+            "clone": {"name": "Base (Clone)", "usage": "-m clone -p voice.pt", "memory": "~3.5GB"},
+            "design": {"name": "VoiceDesign", "usage": "-m design -d 'warm female voice'", "memory": "~3.5GB"},
+            "custom": {"name": "CustomVoice", "usage": "-m custom -s ryan", "memory": "~3.5GB"},
         }
 
-        # Check server status for loaded models
+        # Check server for loaded status
         server_status = {}
         if is_server_running(config):
             try:
                 url = get_server_url(config)
-                resp = requests.get(f"{url}/models", timeout=5)
+                resp = requests.get(f"{url}/models", timeout=5, headers=auth_headers())
                 if resp.status_code == 200:
                     server_status = resp.json().get("models", {})
-            except:
+            except Exception:
                 pass
 
-        for model_type, info in model_info.items():
+        for model_type, info in MODEL_INFO.items():
+            display = model_display.get(model_type, {})
             cfg = models_config.get(model_type, {})
             load_at_startup = cfg.get("load_at_startup", False)
 
-            # Determine actual load status
             if server_status:
                 loaded = server_status.get(model_type, {}).get("loaded", False)
                 status = "LOADED" if loaded else "not loaded"
@@ -1551,11 +1386,11 @@ def main():
 
             startup_str = "YES" if load_at_startup else "no"
 
-            print(f"  {info['name']:<16} [{status}]")
-            print(f"    Model:       {info['hf_name']}")
+            print(f"  {display.get('name', model_type):<16} [{status}]")
+            print(f"    Model:       {info['name']}")
             print(f"    Purpose:     {info['description']}")
-            print(f"    Usage:       {info['usage']}")
-            print(f"    Memory:      {info['memory']}")
+            print(f"    Usage:       {display.get('usage', '')}")
+            print(f"    Memory:      {display.get('memory', '?')}")
             print(f"    Auto-load:   {startup_str} (config.json: models.{model_type}.load_at_startup)")
             print()
 
@@ -1565,11 +1400,10 @@ def main():
         print("Models can also be loaded on-demand when you use a feature that requires them.")
         return False
 
-    # Show server stats
     if args.stats:
         if is_server_running(config):
             url = get_server_url(config)
-            resp = requests.get(f"{url}/stats", timeout=5)
+            resp = requests.get(f"{url}/stats", timeout=5, headers=auth_headers())
             if resp.status_code == 200:
                 stats = resp.json()
                 print("TTS Server Statistics:")
@@ -1581,7 +1415,6 @@ def main():
             print("Server not running. Start with 'startTTSServer'.")
         return False
 
-    # Edit config
     if args.edit_config:
         print(f"Current voice description: {config.get('default_voice_description', '')}")
         new_desc = input("Enter new description (or press Enter to keep): ").strip()
@@ -1590,12 +1423,10 @@ def main():
             save_config(config)
         return False
 
-    # Show history
     if args.history is not None:
         show_history(args.history)
         return False
 
-    # Voice prompt management
     if args.delete_prompt:
         delete_voice_prompt(args.delete_prompt)
         return False
@@ -1608,20 +1439,19 @@ def main():
         preview_voice_prompt(args.preview_prompt, config)
         return False
 
-    # Check server status early for integration features
+    # --- Modes that need generation ---
+
+    # Check server status
     use_server_early = args.server_mode and not args.local
 
-    # REPL mode
     if args.repl:
         run_repl(config, use_server_early)
         return use_server_early
 
-    # Watch mode
     if args.watch:
         run_watch_mode(args.watch, config, args, gen_params, use_server_early)
         return use_server_early
 
-    # SRT processing
     if args.srt:
         srt_path = os.path.expanduser(args.srt)
         if not os.path.isfile(srt_path):
@@ -1630,7 +1460,6 @@ def main():
         process_srt_file(srt_path, config, args, gen_params, use_server_early)
         return use_server_early
 
-    # Dialogue processing
     if args.dialogue:
         dialogue_path = os.path.expanduser(args.dialogue)
         if not os.path.isfile(dialogue_path):
@@ -1639,7 +1468,7 @@ def main():
         process_dialogue(dialogue_path, config, args, gen_params, use_server_early)
         return use_server_early
 
-    # Handle voice alias - resolve to prompt and preset
+    # Handle voice alias
     if args.voice:
         alias = get_voice_alias(args.voice, config)
         if alias is None:
@@ -1653,12 +1482,10 @@ def main():
                 print("  (none configured - add to config.json under 'aliases')")
             sys.exit(1)
 
-        # Apply alias settings
         if "prompt" in alias and not args.prompt:
             args.prompt = alias["prompt"]
         if "preset" in alias and not args.preset:
             args.preset = alias["preset"]
-            # Re-compute gen_params with the preset
             gen_params = get_generation_params(args, config)
         if "mode" in alias and not args.mode:
             args.mode = alias["mode"]
@@ -1672,10 +1499,9 @@ def main():
         args.text = [clipboard_text]
         print(f"Read from clipboard ({len(clipboard_text)} chars)")
 
-    # Check server status
     use_server = args.server_mode and not args.local
 
-    # Dry-run mode - show what would be generated
+    # Dry-run mode
     if args.dry_run:
         mode = args.mode or "clone"
         prompt_file = args.prompt or config.get("default_clone_prompt", "default_clone.pt")
@@ -1745,18 +1571,16 @@ def main():
         process_batch(texts, args, config, gen_params, use_server)
         return use_server
 
-    # Interactive mode if no text provided
+    # Interactive mode if no text
     if not args.text:
         result = interactive_mode(use_server, config, gen_params)
         if result is None:
-            # User chose Gradio UI
             return False
         return use_server
 
-    # Single text mode
+    # --- Single text mode ---
     text = get_text(args.text[0])
 
-    # Process SSML if enabled
     if args.ssml:
         original_text = text
         text = process_ssml_text(text, args)
@@ -1774,12 +1598,11 @@ def main():
     prompt_file = args.prompt or config.get("default_clone_prompt", "default_clone.pt")
     voice_description = args.description or config.get("default_voice_description", "")
 
-    # Determine mode based on arguments
+    # Determine mode
     if args.mode == "design" or args.description:
         mode = "design"
     if args.mode == "custom" or args.speaker:
         mode = "custom"
-        # Validate speaker
         speaker_key = (args.speaker or "ryan").lower()
         if speaker_key not in CUSTOM_VOICE_SPEAKERS:
             print(f"Error: Unknown speaker '{args.speaker}'")
@@ -1787,8 +1610,7 @@ def main():
             sys.exit(1)
         speaker_name = CUSTOM_VOICE_SPEAKERS[speaker_key]["name"]
         speaker_lang = CUSTOM_VOICE_SPEAKERS[speaker_key]["lang"]
-        # Use speaker's native language unless overridden
-        if not args.description:  # description can override language context
+        if not args.description:
             language = speaker_lang
 
     if use_server:
@@ -1801,26 +1623,32 @@ def main():
             results = generate_via_server([text], mode, config, gen_params,
                                           speaker=speaker_name, instruct=args.instruct or "")
 
-        # Check if any audio processing is needed
         needs_processing = args.trim_silence or args.normalize or args.speed or args.pitch
         if needs_processing:
             wav, sr = sf.read(results[0]["file"])
-            wav = process_audio(wav, sr, args)
+            wav = process_audio_args(wav, sr, args)
             sf.write(output_path, wav, sr)
             os.remove(results[0]["file"])
         else:
             shutil.move(results[0]["file"], output_path)
     else:
-        if mode == "clone":
-            wav, sr = generate_local_clone(text, prompt_file, gen_params, language)
+        if mode == "custom":
+            wav, sr = generate_local(
+                text, mode, gen_params, language,
+                speaker=speaker_name, instruct=args.instruct,
+            )
         elif mode == "design":
-            wav, sr = generate_local_design(text, voice_description, gen_params, language)
-        else:  # custom
-            wav, sr = generate_local_custom(text, speaker_name, args.instruct, gen_params, language)
+            wav, sr = generate_local(
+                text, mode, gen_params, language,
+                voice_description=voice_description,
+            )
+        else:
+            wav, sr = generate_local(
+                text, mode, gen_params, language,
+                prompt_file=prompt_file,
+            )
 
-        # Apply audio processing
-        wav = process_audio(wav, sr, args)
-
+        wav = process_audio_args(wav, sr, args)
         sf.write(output_path, wav, sr)
 
     print(f"Saved to: {output_path}")
@@ -1838,12 +1666,11 @@ def main():
     if args.play:
         play_audio(output_path)
     elif not args.no_open:
-        os.system(f'open "{output_path}"')
+        subprocess.run(["open", output_path])
 
     return use_server
 
 
 if __name__ == "__main__":
     used_server = main()
-    # Return code indicates if server was used (for wrapper script)
     sys.exit(0 if not used_server else 2)

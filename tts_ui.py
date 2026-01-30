@@ -19,25 +19,18 @@ import gradio as gr
 sys.path.insert(0, os.path.expanduser("~/Qwen3-TTS_UserFiles"))
 
 from tts_client import TTSClient
+from tts_config import (
+    CUSTOM_VOICE_SPEAKERS,
+    get_server_url,
+    is_server_running,
+    auth_headers,
+)
 
-
-# =============================================================================
-# Premium Speakers Reference
-# =============================================================================
-
-PREMIUM_SPEAKERS = [
-    {"name": "ryan", "language": "English", "description": "Dynamic male, strong rhythm"},
-    {"name": "aiden", "language": "English", "description": "Sunny American male, clear midrange"},
-    {"name": "vivian", "language": "Chinese", "description": "Bright young female"},
-    {"name": "serena", "language": "Chinese", "description": "Warm, gentle female"},
-    {"name": "uncle_fu", "language": "Chinese", "description": "Seasoned male, mellow timbre"},
-    {"name": "dylan", "language": "Chinese", "description": "Youthful Beijing male"},
-    {"name": "eric", "language": "Chinese", "description": "Lively Chengdu male"},
-    {"name": "ono_anna", "language": "Japanese", "description": "Playful female"},
-    {"name": "sohee", "language": "Korean", "description": "Warm female, rich emotion"},
+# Derive speaker choices from canonical source
+SPEAKER_CHOICES = [
+    f"{key} ({info['lang']}) - {info['desc']}"
+    for key, info in CUSTOM_VOICE_SPEAKERS.items()
 ]
-
-SPEAKER_CHOICES = [f"{s['name']} ({s['language']}) - {s['description']}" for s in PREMIUM_SPEAKERS]
 
 
 # =============================================================================

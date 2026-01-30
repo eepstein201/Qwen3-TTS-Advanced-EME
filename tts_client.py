@@ -1,6 +1,9 @@
 #!/usr/bin/env python3
 """
-TTS Client Library - Python API for Qwen3-TTS generation.
+TTS Client Library - HTTP-only Python API for Qwen3-TTS generation.
+
+This module NEVER imports torch or tts_engine — it communicates
+exclusively over HTTP to the TTS server.
 
 Usage:
     from tts_client import TTSClient
@@ -24,15 +27,6 @@ Usage:
         instruct="Speak with enthusiasm"
     )
 
-    # Generate with audio processing
-    audio_path = client.generate(
-        "Hello",
-        speed=1.1,
-        pitch=-2,
-        normalize=True,
-        trim_silence=True
-    )
-
     # Check server status
     if client.is_server_running():
         stats = client.get_stats()
@@ -42,15 +36,21 @@ Usage:
 import json
 import os
 import shutil
-import tempfile
+
 import requests
 import soundfile as sf
-import numpy as np
-import librosa
+
+from tts_config import (
+    CONFIG_PATH,
+    VOICE_PROMPTS_DIR,
+    get_server_url,
+    is_server_running,
+    auth_headers,
+)
 
 
 class TTSClient:
-    """Client for Qwen3-TTS generation."""
+    """HTTP-only client for Qwen3-TTS generation."""
 
     def __init__(self, config_path=None):
         """Initialize the TTS client.
@@ -58,8 +58,8 @@ class TTSClient:
         Args:
             config_path: Path to config.json. Defaults to ~/Qwen3-TTS_UserFiles/config.json
         """
-        self.config_path = config_path or os.path.expanduser("~/Qwen3-TTS_UserFiles/config.json")
-        self.voice_prompts_dir = os.path.expanduser("~/Qwen3-TTS_UserFiles/voice_prompts")
+        self.config_path = config_path or CONFIG_PATH
+        self.voice_prompts_dir = VOICE_PROMPTS_DIR
         self._config = None
 
     @property
@@ -78,24 +78,17 @@ class TTSClient:
     @property
     def server_url(self):
         """Get the server URL from config."""
-        server = self.config.get("server", {})
-        host = server.get("host", "127.0.0.1")
-        port = server.get("port", 5123)
-        return f"http://{host}:{port}"
+        return get_server_url(self.config)
 
     def is_server_running(self):
         """Check if the TTS server is running."""
-        try:
-            resp = requests.get(f"{self.server_url}/health", timeout=2)
-            return resp.status_code == 200
-        except:
-            return False
+        return is_server_running(self.config)
 
     def get_stats(self):
         """Get server statistics."""
         if not self.is_server_running():
             raise ConnectionError("TTS server is not running")
-        resp = requests.get(f"{self.server_url}/stats", timeout=5)
+        resp = requests.get(f"{self.server_url}/stats", timeout=5, headers=auth_headers())
         return resp.json()
 
     def list_prompts(self):
@@ -136,9 +129,8 @@ class TTSClient:
         pitch=None,
         normalize=False,
         trim_silence=False,
-        use_server=True,
     ):
-        """Generate speech from text.
+        """Generate speech from text via the server.
 
         Args:
             text: Text to synthesize
@@ -159,7 +151,6 @@ class TTSClient:
             pitch: Pitch shift in semitones
             normalize: Normalize audio to -3dB peak
             trim_silence: Trim leading/trailing silence
-            use_server: Use server if running (default: True)
 
         Returns:
             Path to the generated audio file
@@ -221,14 +212,15 @@ class TTSClient:
             if not output.endswith('.wav'):
                 output += '.wav'
 
-        # Generate audio
-        if use_server and self.is_server_running():
-            wav, sr = self._generate_via_server(text, mode, prompt, description, speaker, instruct, gen_params)
-        else:
-            wav, sr = self._generate_local(text, mode, prompt, description, speaker, instruct, gen_params)
+        # Generate audio via server
+        wav, sr = self._generate_via_server(text, mode, prompt, description, speaker, instruct, gen_params)
 
-        # Apply audio processing
-        wav = self._process_audio(wav, sr, speed, pitch, normalize, trim_silence)
+        # Apply audio processing (lazy import — only if needed)
+        needs_processing = trim_silence or normalize or (speed and speed != 1.0) or (pitch and pitch != 0)
+        if needs_processing:
+            from tts_engine import process_audio
+            wav = process_audio(wav, sr, trim=trim_silence, normalize=normalize,
+                                speed=speed, pitch=pitch)
 
         # Save output
         sf.write(output, wav, sr)
@@ -251,7 +243,7 @@ class TTSClient:
         else:
             payload["voice_description"] = description
 
-        resp = requests.post(f"{self.server_url}/generate", json=payload, timeout=300)
+        resp = requests.post(f"{self.server_url}/generate", json=payload, timeout=300, headers=auth_headers())
         if resp.status_code != 200:
             try:
                 error_msg = resp.json().get("error", "Unknown error")
@@ -263,122 +255,6 @@ class TTSClient:
         wav, sr = sf.read(result["file"])
         os.remove(result["file"])
         return wav, sr
-
-    def _generate_local(self, text, mode, prompt, description, speaker, instruct, gen_params):
-        """Generate audio locally."""
-        import torch
-        from qwen_tts import Qwen3TTSModel
-
-        if mode == "clone":
-            model = Qwen3TTSModel.from_pretrained(
-                "Qwen/Qwen3-TTS-12Hz-1.7B-Base",
-                attn_implementation="sdpa",
-                device_map="mps",
-                dtype=torch.bfloat16,
-            )
-            prompt_path = os.path.join(self.voice_prompts_dir, prompt)
-            voice_prompt = torch.load(prompt_path, weights_only=False)
-
-            if gen_params.get("seed") is not None:
-                torch.manual_seed(gen_params["seed"])
-
-            with torch.inference_mode():
-                wavs, sr = model.generate_voice_clone(
-                    text=text,
-                    language=self.config.get("language", "English"),
-                    voice_clone_prompt=voice_prompt,
-                    temperature=gen_params.get("temperature", 0.7),
-                    top_k=gen_params.get("top_k", 50),
-                    top_p=gen_params.get("top_p", 0.95),
-                    repetition_penalty=gen_params.get("repetition_penalty", 1.05),
-                )
-        elif mode == "custom":
-            model = Qwen3TTSModel.from_pretrained(
-                "Qwen/Qwen3-TTS-12Hz-1.7B-CustomVoice",
-                attn_implementation="sdpa",
-                device_map="mps",
-                dtype=torch.bfloat16,
-            )
-
-            if gen_params.get("seed") is not None:
-                torch.manual_seed(gen_params["seed"])
-
-            with torch.inference_mode():
-                wavs, sr = model.generate_custom_voice(
-                    text=text,
-                    speaker=speaker,
-                    instruct=instruct or "",
-                    language=self.config.get("language", "English"),
-                    temperature=gen_params.get("temperature", 0.7),
-                    top_k=gen_params.get("top_k", 50),
-                    top_p=gen_params.get("top_p", 0.95),
-                    repetition_penalty=gen_params.get("repetition_penalty", 1.05),
-                )
-        else:
-            model = Qwen3TTSModel.from_pretrained(
-                "Qwen/Qwen3-TTS-12Hz-1.7B-VoiceDesign",
-                attn_implementation="sdpa",
-                device_map="mps",
-                dtype=torch.bfloat16,
-            )
-
-            if gen_params.get("seed") is not None:
-                torch.manual_seed(gen_params["seed"])
-
-            with torch.inference_mode():
-                wavs, sr = model.generate_voice_design(
-                    text=text,
-                    instruct=description,
-                    language=self.config.get("language", "English"),
-                    temperature=gen_params.get("temperature", 0.7),
-                    top_k=gen_params.get("top_k", 50),
-                    top_p=gen_params.get("top_p", 0.95),
-                    repetition_penalty=gen_params.get("repetition_penalty", 1.05),
-                )
-
-        return wavs[0], sr
-
-    def _process_audio(self, audio, sample_rate, speed, pitch, normalize, trim_silence):
-        """Apply audio processing."""
-        # Trim silence
-        if trim_silence:
-            audio = self._trim_silence(audio, sample_rate)
-
-        # Speed adjustment
-        if speed and speed != 1.0:
-            audio = librosa.effects.time_stretch(audio, rate=speed)
-
-        # Pitch adjustment
-        if pitch and pitch != 0:
-            audio = librosa.effects.pitch_shift(audio, sr=sample_rate, n_steps=pitch)
-
-        # Normalize
-        if normalize:
-            peak = np.max(np.abs(audio))
-            if peak > 0:
-                target_peak = 10 ** (-3 / 20)  # -3dB
-                audio = audio * (target_peak / peak)
-
-        return audio
-
-    def _trim_silence(self, audio, sample_rate, threshold_db=-40, min_silence_ms=100):
-        """Trim leading and trailing silence."""
-        threshold = 10 ** (threshold_db / 20)
-        min_samples = int(sample_rate * min_silence_ms / 1000)
-
-        abs_audio = np.abs(audio)
-        non_silent = abs_audio > threshold
-
-        if not np.any(non_silent):
-            return audio
-
-        start_idx = np.argmax(non_silent)
-        start_idx = max(0, start_idx - min_samples)
-
-        end_idx = len(audio) - np.argmax(non_silent[::-1])
-        end_idx = min(len(audio), end_idx + min_samples)
-
-        return audio[start_idx:end_idx]
 
     def generate_dialogue(
         self,
@@ -409,8 +285,7 @@ class TTSClient:
                 - speaker: Premium speaker name (for custom mode, if inline)
                 - instruct: Style instruction (for custom mode, if inline)
             output: Output file path
-            speakers: Optional dict mapping speaker names to their config:
-                {"Alice": {"mode": "custom", "speaker": "vivian"}, ...}
+            speakers: Optional dict mapping speaker names to their config
             pause_ms: Milliseconds of silence between lines (default: 500)
             preset: Preset name to use
             temperature/top_k/top_p/seed/repetition_penalty: Generation params
@@ -418,26 +293,9 @@ class TTSClient:
 
         Returns:
             Path to the generated audio file
-
-        Example:
-            # Simple inline format
-            lines = [
-                {"mode": "custom", "speaker": "ryan", "text": "Hello!"},
-                {"mode": "custom", "speaker": "aiden", "text": "Hi there!"},
-            ]
-            audio = client.generate_dialogue(lines, output="dialogue.wav")
-
-            # Named speakers format
-            speakers = {
-                "Alice": {"mode": "custom", "speaker": "vivian"},
-                "Bob": {"mode": "clone", "prompt": "bob.pt"},
-            }
-            lines = [
-                {"speaker": "Alice", "text": "Hello Bob!"},
-                {"speaker": "Bob", "text": "Hi Alice!"},
-            ]
-            audio = client.generate_dialogue(lines, speakers=speakers, output="chat.wav")
         """
+        import numpy as np
+
         if not self.is_server_running():
             raise ConnectionError("TTS server must be running for dialogue generation")
 
@@ -497,7 +355,7 @@ class TTSClient:
                 payload["speaker"] = custom_speaker
                 payload["instruct"] = instruct
 
-            resp = requests.post(f"{self.server_url}/generate", json=payload, timeout=300)
+            resp = requests.post(f"{self.server_url}/generate", json=payload, timeout=300, headers=auth_headers())
             if resp.status_code != 200:
                 try:
                     error_msg = resp.json().get("error", "Unknown error")
@@ -509,8 +367,12 @@ class TTSClient:
             wav, sr = sf.read(result["file"])
             os.remove(result["file"])
 
-            # Apply audio processing
-            wav = self._process_audio(wav, sr, speed, pitch, normalize, trim_silence)
+            # Apply audio processing if needed
+            needs_processing = trim_silence or normalize or (speed and speed != 1.0) or (pitch and pitch != 0)
+            if needs_processing:
+                from tts_engine import process_audio
+                wav = process_audio(wav, sr, trim=trim_silence, normalize=normalize,
+                                    speed=speed, pitch=pitch)
 
             if sample_rate is None:
                 sample_rate = sr
