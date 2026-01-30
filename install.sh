@@ -195,6 +195,10 @@ create_config() {
       "description": "9 premium pre-trained speakers (custom mode, -s ryan)"
     }
   },
+  "security": {
+    "max_text_length": 10000,
+    "max_batch_size": 20
+  },
   "generation": {
     "temperature": 0.7,
     "top_k": 50,
@@ -230,174 +234,27 @@ EOF
 # =============================================================================
 
 create_wrapper_scripts() {
-    step "Creating wrapper scripts in ~/bin/..."
+    step "Installing wrapper scripts to ~/bin/..."
 
-    # Determine conda path
-    if [[ -f "$HOME/miniforge3/etc/profile.d/conda.sh" ]]; then
-        CONDA_PATH="$HOME/miniforge3/etc/profile.d/conda.sh"
-    elif [[ -f "$HOME/miniconda3/etc/profile.d/conda.sh" ]]; then
-        CONDA_PATH="$HOME/miniconda3/etc/profile.d/conda.sh"
-    else
-        CONDA_PATH=$(find "$HOME" -name "conda.sh" -path "*/etc/profile.d/*" 2>/dev/null | head -1)
+    # Copy scripts from repo's bin/ directory
+    SCRIPT_SRC="$USER_FILES_DIR/bin"
+
+    if [[ ! -d "$SCRIPT_SRC" ]]; then
+        error "bin/ directory not found in $USER_FILES_DIR"
+        error "Please ensure you cloned the complete repository."
+        exit 1
     fi
 
-    # changeVoice
-    cat > "$BIN_DIR/changeVoice" << EOF
-#!/bin/bash
-# Qwen3-TTS voice generation wrapper
-# Handles server detection and user prompts
-
-source $CONDA_PATH && conda activate $CONDA_ENV_NAME
-
-# Check if server is running
-SERVER_RUNNING=false
-if curl -s http://127.0.0.1:5123/health > /dev/null 2>&1; then
-    SERVER_RUNNING=true
-fi
-
-# If server not running, ask user if they want to start it
-if [ "\$SERVER_RUNNING" = false ]; then
-    echo "TTS Server is not running."
-    echo "Starting the server keeps models in memory for faster generation (~2-5 sec vs ~30-60 sec)."
-    read -p "Would you like to start the TTS server? [Y/n]: " START_SERVER
-    START_SERVER=\${START_SERVER:-Y}
-
-    if [[ "\$START_SERVER" =~ ^[Yy]\$ ]]; then
-        echo ""
-        startTTSServer
-        if [ \$? -eq 0 ]; then
-            SERVER_RUNNING=true
+    for script in changeVoice startTTSServer stopTTSServer createVoice ttsUI; do
+        if [[ -f "$SCRIPT_SRC/$script" ]]; then
+            cp "$SCRIPT_SRC/$script" "$BIN_DIR/$script"
+            info "Installed $script"
         else
-            echo "Failed to start server. Falling back to local generation."
+            warn "Script $script not found in $SCRIPT_SRC, skipping."
         fi
-        echo ""
-    fi
-fi
+    done
 
-# Run the generation script
-if [ "\$SERVER_RUNNING" = true ]; then
-    python ~/Qwen3-TTS_UserFiles/tts_generate.py --_server-mode "\$@"
-    RESULT=\$?
-else
-    python ~/Qwen3-TTS_UserFiles/tts_generate.py "\$@"
-    RESULT=\$?
-fi
-
-# If server was used (exit code 2), ask if user wants to stop it
-if [ \$RESULT -eq 2 ]; then
-    echo ""
-    read -p "Would you like to stop the TTS server? [y/N]: " STOP_SERVER
-    STOP_SERVER=\${STOP_SERVER:-N}
-
-    if [[ "\$STOP_SERVER" =~ ^[Yy]\$ ]]; then
-        stopTTSServer
-    else
-        echo "Server still running. Use 'stopTTSServer' to stop it later."
-    fi
-fi
-EOF
-
-    # startTTSServer
-    cat > "$BIN_DIR/startTTSServer" << EOF
-#!/bin/bash
-# Start the TTS server in the background
-
-PID_FILE="\$HOME/Qwen3-TTS_UserFiles/.tts_server.pid"
-LOG_FILE="\$HOME/Qwen3-TTS_UserFiles/.tts_server.log"
-
-# Check if already running
-if [ -f "\$PID_FILE" ]; then
-    PID=\$(cat "\$PID_FILE")
-    if kill -0 "\$PID" 2>/dev/null; then
-        echo "TTS Server is already running (PID: \$PID)"
-        exit 0
-    else
-        rm -f "\$PID_FILE"
-    fi
-fi
-
-echo "Starting TTS Server..."
-echo "This will load the models into memory (may take 30-60 seconds)..."
-
-# Activate conda and start server in background
-source $CONDA_PATH && conda activate $CONDA_ENV_NAME
-
-# Start server in background, redirect output to log
-nohup python ~/Qwen3-TTS_UserFiles/tts_server.py > "\$LOG_FILE" 2>&1 &
-
-# Wait for server to be ready
-echo "Waiting for server to be ready..."
-for i in {1..120}; do
-    if curl -s http://127.0.0.1:5123/health > /dev/null 2>&1; then
-        echo "TTS Server is ready!"
-        echo "Use 'changeVoice' for fast generation."
-        echo "Use 'stopTTSServer' to shut down."
-        exit 0
-    fi
-    sleep 1
-    # Show progress every 10 seconds
-    if [ \$((i % 10)) -eq 0 ]; then
-        echo "  Still loading models... (\$i seconds)"
-    fi
-done
-
-echo "Error: Server failed to start. Check log: \$LOG_FILE"
-exit 1
-EOF
-
-    # stopTTSServer
-    cat > "$BIN_DIR/stopTTSServer" << 'EOF'
-#!/bin/bash
-# Stop the TTS server
-
-PID_FILE="$HOME/Qwen3-TTS_UserFiles/.tts_server.pid"
-
-# Try graceful shutdown via API first
-if curl -s -X POST http://127.0.0.1:5123/shutdown > /dev/null 2>&1; then
-    echo "TTS Server shutting down gracefully..."
-    sleep 2
-fi
-
-# Check PID file and kill if still running
-if [ -f "$PID_FILE" ]; then
-    PID=$(cat "$PID_FILE")
-    if kill -0 "$PID" 2>/dev/null; then
-        echo "Stopping server (PID: $PID)..."
-        kill "$PID" 2>/dev/null
-        sleep 1
-        # Force kill if still running
-        if kill -0 "$PID" 2>/dev/null; then
-            kill -9 "$PID" 2>/dev/null
-        fi
-    fi
-    rm -f "$PID_FILE"
-fi
-
-echo "TTS Server stopped."
-EOF
-
-    # createVoice
-    cat > "$BIN_DIR/createVoice" << EOF
-#!/bin/bash
-# Create a new custom voice clone prompt
-# Activates conda environment and runs the voice creation script
-
-source $CONDA_PATH && conda activate $CONDA_ENV_NAME
-
-python ~/Qwen3-TTS_UserFiles/create_custom_voice.py "\$@"
-EOF
-
-    # ttsUI
-    cat > "$BIN_DIR/ttsUI" << EOF
-#!/bin/bash
-# Launch the Qwen3-TTS web interface
-
-source $CONDA_PATH && conda activate $CONDA_ENV_NAME
-
-python ~/Qwen3-TTS_UserFiles/tts_ui.py "\$@"
-EOF
-
-    success "Created wrapper scripts"
+    success "Wrapper scripts installed"
 }
 
 # =============================================================================

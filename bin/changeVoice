@@ -1,0 +1,111 @@
+#!/bin/bash
+# Qwen3-TTS voice generation wrapper
+# Handles server detection, generation, and post-generation menu
+
+# Find and activate conda environment
+if [[ -f "$HOME/miniforge3/etc/profile.d/conda.sh" ]]; then
+    source "$HOME/miniforge3/etc/profile.d/conda.sh"
+elif [[ -f "$HOME/miniconda3/etc/profile.d/conda.sh" ]]; then
+    source "$HOME/miniconda3/etc/profile.d/conda.sh"
+fi
+conda activate qwen3-tts
+
+# Check if server is running
+SERVER_RUNNING=false
+if curl -s http://127.0.0.1:5123/health > /dev/null 2>&1; then
+    SERVER_RUNNING=true
+fi
+
+# If server not running, ask user if they want to start it
+if [ "$SERVER_RUNNING" = false ]; then
+    echo "TTS Server is not running."
+    echo "Starting the server keeps models in memory for faster generation (~2-5 sec vs ~30-60 sec)."
+    read -p "Would you like to start the TTS server? [Y/n]: " START_SERVER
+    START_SERVER=${START_SERVER:-Y}
+
+    if [[ "$START_SERVER" =~ ^[Yy]$ ]]; then
+        echo ""
+        startTTSServer
+        if [ $? -eq 0 ]; then
+            SERVER_RUNNING=true
+        else
+            echo "Failed to start server. Falling back to local generation."
+        fi
+        echo ""
+    fi
+fi
+
+# Build base command
+if [ "$SERVER_RUNNING" = true ]; then
+    BASE_CMD="python ~/Qwen3-TTS_UserFiles/tts_generate.py --_server-mode"
+else
+    BASE_CMD="python ~/Qwen3-TTS_UserFiles/tts_generate.py"
+fi
+
+# Run the generation script
+eval $BASE_CMD "$@"
+RESULT=$?
+
+# Post-generation menu (only if generation succeeded and used server)
+if [ $RESULT -eq 2 ]; then
+    LAST_TEXT_FILE="$HOME/.tts_last_text"
+
+    while true; do
+        echo ""
+        echo "What would you like to do?"
+        echo "  1. Same settings (re-generate with same arguments)"
+        echo "  2. Edit text (open in editor, then re-generate)"
+        echo "  3. New settings (start fresh with interactive mode)"
+        echo "  4. Exit"
+        echo ""
+        read -p "Select [1-4]: " CHOICE
+
+        case "$CHOICE" in
+            1)
+                # Re-run with same arguments (filename auto-increments)
+                eval $BASE_CMD "$@"
+                RESULT=$?
+                if [ $RESULT -ne 2 ]; then break; fi
+                ;;
+            2)
+                # Edit text in $EDITOR, then re-run with --text-override
+                if [ -f "$LAST_TEXT_FILE" ]; then
+                    ${EDITOR:-nano} "$LAST_TEXT_FILE"
+                    EDITED_TEXT=$(cat "$LAST_TEXT_FILE")
+                    if [ -n "$EDITED_TEXT" ]; then
+                        eval $BASE_CMD --text-override "$EDITED_TEXT" "$@"
+                        RESULT=$?
+                        if [ $RESULT -ne 2 ]; then break; fi
+                    else
+                        echo "Text is empty, skipping generation."
+                    fi
+                else
+                    echo "No previous text found."
+                fi
+                ;;
+            3)
+                # Interactive mode (no text args)
+                eval $BASE_CMD
+                RESULT=$?
+                if [ $RESULT -ne 2 ]; then break; fi
+                ;;
+            4|"")
+                break
+                ;;
+            *)
+                echo "Invalid choice."
+                ;;
+        esac
+    done
+
+    # Ask about stopping server
+    echo ""
+    read -p "Would you like to stop the TTS server? [y/N]: " STOP_SERVER
+    STOP_SERVER=${STOP_SERVER:-N}
+
+    if [[ "$STOP_SERVER" =~ ^[Yy]$ ]]; then
+        stopTTSServer
+    else
+        echo "Server still running. Use 'stopTTSServer' to stop it later."
+    fi
+fi

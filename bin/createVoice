@@ -1,0 +1,13 @@
+#!/bin/bash
+# Create a new custom voice clone prompt
+# Activates conda environment and runs the voice creation script
+
+# Find and activate conda environment
+if [[ -f "$HOME/miniforge3/etc/profile.d/conda.sh" ]]; then
+    source "$HOME/miniforge3/etc/profile.d/conda.sh"
+elif [[ -f "$HOME/miniconda3/etc/profile.d/conda.sh" ]]; then
+    source "$HOME/miniconda3/etc/profile.d/conda.sh"
+fi
+conda activate qwen3-tts
+
+python ~/Qwen3-TTS_UserFiles/create_custom_voice.py "$@"
