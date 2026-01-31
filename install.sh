@@ -200,7 +200,7 @@ create_config() {
     "max_batch_size": 20
   },
   "advanced": {
-    "dtype": "float32"
+    "dtype": "bfloat16"
   },
   "generation": {
     "temperature": 0.7,
