@@ -1,13 +1,15 @@
 #!/usr/bin/env python3
-"""Heavy inference engine — imports torch, transformers, soundfile, librosa.
+"""TTS inference engine with backend dispatch (torch or mlx).
 
 This module owns:
-- Model loading (clone / design / custom) with configurable dtype, SDPA, MPS
-- Core inference: run_inference() with NaN/Inf detection
+- Model loading (clone / design / custom) dispatched by backend
+- Core inference: run_inference() with backend dispatch
 - Voice-prompt creation from reference audio
 - Audio post-processing (trim, normalize, speed, pitch)
-- MPS memory management (empty_cache after generation)
 - Voice prompt loading with LRU cache
+
+IMPORTANT: Neither torch nor mlx is imported at module scope.
+All backend-specific imports are local to _*_torch() or _*_mlx() functions.
 """
 
 import logging
@@ -18,40 +20,55 @@ from functools import lru_cache
 import librosa
 import numpy as np
 import soundfile as sf
-import torch
 
-from tts_config import MODEL_INFO, VOICE_PROMPTS_DIR, get_torch_dtype_name, CONFIG_PATH
+from tts_config import (
+    MODEL_INFO,
+    VOICE_PROMPTS_DIR,
+    get_torch_dtype_name,
+    get_backend,
+    get_mlx_model_name,
+    CONFIG_PATH,
+)
 
 logger = logging.getLogger("tts.engine")
 
 
 # ---------------------------------------------------------------------------
-# MPS bfloat16 safety patch
+# MPS bfloat16 safety patch (installed once on first torch backend use)
 # ---------------------------------------------------------------------------
-# MPS produces NaN/Inf in softmax outputs with bfloat16 and float16,
-# which crashes torch.multinomial during sampling. This patch casts the
-# probability tensor to float32 and sanitizes NaN/Inf before sampling.
-# Only active when running on MPS.
 
-_original_multinomial = torch.multinomial
+_mps_patch_installed = False
 
 
-def _safe_multinomial(input, num_samples, replacement=False, *, generator=None):
-    if input.device.type == "mps" and input.is_floating_point() and input.dtype != torch.float32:
-        input = input.float()
-    if input.device.type == "mps":
-        input = torch.nan_to_num(input, nan=0.0, posinf=1.0, neginf=0.0)
-        input = input.clamp(min=0.0)
-        # If an entire row is zero after sanitization, use uniform distribution
-        row_sums = input.sum(dim=-1, keepdim=True)
-        zero_rows = (row_sums == 0)
-        if zero_rows.any():
-            input = input.masked_fill(zero_rows.expand_as(input), 1.0 / input.shape[-1])
-    return _original_multinomial(input, num_samples, replacement=replacement, generator=generator)
+def _install_mps_patch():
+    """Install the MPS-safe multinomial patch.
 
+    Called once on first torch backend use. Patches torch.multinomial to
+    cast to float32 and sanitize NaN/Inf before sampling on MPS devices.
+    """
+    global _mps_patch_installed
+    if _mps_patch_installed:
+        return
 
-torch.multinomial = _safe_multinomial
-logger.debug("Installed MPS-safe multinomial patch")
+    import torch
+
+    _original_multinomial = torch.multinomial
+
+    def _safe_multinomial(input, num_samples, replacement=False, *, generator=None):
+        if input.device.type == "mps" and input.is_floating_point() and input.dtype != torch.float32:
+            input = input.float()
+        if input.device.type == "mps":
+            input = torch.nan_to_num(input, nan=0.0, posinf=1.0, neginf=0.0)
+            input = input.clamp(min=0.0)
+            row_sums = input.sum(dim=-1, keepdim=True)
+            zero_rows = (row_sums == 0)
+            if zero_rows.any():
+                input = input.masked_fill(zero_rows.expand_as(input), 1.0 / input.shape[-1])
+        return _original_multinomial(input, num_samples, replacement=replacement, generator=generator)
+
+    torch.multinomial = _safe_multinomial
+    _mps_patch_installed = True
+    logger.debug("Installed MPS-safe multinomial patch")
 
 
 # ---------------------------------------------------------------------------
@@ -59,38 +76,48 @@ logger.debug("Installed MPS-safe multinomial patch")
 # ---------------------------------------------------------------------------
 
 @lru_cache(maxsize=10)
-def load_voice_prompt(prompt_file):
-    """Load and cache a .pt voice prompt."""
+def _load_voice_prompt_torch(prompt_file):
+    """Load and cache a .pt voice prompt (torch backend)."""
+    import torch
+
     prompt_path = os.path.join(VOICE_PROMPTS_DIR, prompt_file)
     if not os.path.exists(prompt_path):
         return None
     return torch.load(prompt_path, weights_only=False)
 
 
+def load_voice_prompt(prompt_file):
+    """Load a voice prompt, dispatching to the correct format for the backend.
+
+    - torch backend: loads .pt tensor file
+    - mlx backend: loads .wav + .txt file pair as a dict
+    """
+    backend = get_backend()
+    if backend == "mlx":
+        return load_voice_prompt_mlx(prompt_file)
+    return _load_voice_prompt_torch(prompt_file)
+
+
 def clear_voice_prompt_cache():
     """Clear the voice prompt LRU cache."""
-    load_voice_prompt.cache_clear()
+    _load_voice_prompt_torch.cache_clear()
 
 
 def voice_prompt_cache_info():
     """Return cache statistics."""
-    return load_voice_prompt.cache_info()
+    return _load_voice_prompt_torch.cache_info()
 
 
 # ---------------------------------------------------------------------------
-# Model loading
+# Torch backend — model loading
 # ---------------------------------------------------------------------------
 
-def load_model(model_type):
-    """Load a TTS model by type.
-
-    Args:
-        model_type: One of "clone", "design", "custom".
-
-    Returns:
-        The loaded Qwen3TTSModel instance.
-    """
+def _load_model_torch(model_type):
+    """Load a TTS model using the PyTorch/MPS backend."""
+    import torch
     from qwen_tts import Qwen3TTSModel
+
+    _install_mps_patch()
 
     info = MODEL_INFO.get(model_type)
     if not info:
@@ -104,7 +131,7 @@ def load_model(model_type):
     }
     torch_dtype = dtype_map[dtype_name]
 
-    logger.info("Loading %s (%s) with dtype=%s...", model_type, info["name"], dtype_name)
+    logger.info("Loading %s (%s) with dtype=%s [torch backend]...", model_type, info["name"], dtype_name)
     t0 = time.time()
 
     model = Qwen3TTSModel.from_pretrained(
@@ -120,28 +147,15 @@ def load_model(model_type):
 
 
 # ---------------------------------------------------------------------------
-# Core inference
+# Torch backend — inference
 # ---------------------------------------------------------------------------
 
-def run_inference(model, text, mode, gen_params, language="English",
-                  voice_prompt=None, voice_description=None,
-                  speaker=None, instruct=None):
-    """Run TTS inference and return (wav_array, sample_rate).
+def _run_inference_torch(model, text, mode, gen_params, language="English",
+                         voice_prompt=None, voice_description=None,
+                         speaker=None, instruct=None):
+    """Run TTS inference using the PyTorch/MPS backend."""
+    import torch
 
-    Args:
-        model: Loaded Qwen3TTSModel.
-        text: Text to synthesize.
-        mode: "clone", "design", or "custom".
-        gen_params: Dict with temperature, top_k, top_p, repetition_penalty.
-        language: Language string.
-        voice_prompt: Loaded voice prompt tensor (clone mode).
-        voice_description: Voice description string (design mode).
-        speaker: Speaker name string (custom mode).
-        instruct: Style instruction string (custom mode).
-
-    Returns:
-        (wav_array, sample_rate) tuple.
-    """
     t0 = time.time()
 
     params = {
@@ -205,7 +219,7 @@ def run_inference(model, text, mode, gen_params, language="English",
 
     elapsed = time.time() - t0
     logger.info(
-        "Inference complete: %d chars, %.1fs, mode=%s",
+        "Inference complete: %d chars, %.1fs, mode=%s [torch]",
         len(text), elapsed, mode,
     )
 
@@ -213,8 +227,234 @@ def run_inference(model, text, mode, gen_params, language="English",
 
 
 # ---------------------------------------------------------------------------
-# Voice prompt creation
+# MLX backend — model loading
 # ---------------------------------------------------------------------------
+
+def _load_model_mlx(model_type):
+    """Load a TTS model using the MLX backend.
+
+    Uses mlx-community quantized models via mlx_audio.tts.utils.load_model.
+    """
+    try:
+        from mlx_audio.tts.utils import load_model as mlx_load_model
+    except ImportError:
+        raise ImportError(
+            "MLX backend selected but mlx-audio is not installed. "
+            "Activate the MLX environment: conda activate qwen3-tts-mlx\n"
+            "Or install dependencies: pip install -r requirements-mlx.txt"
+        )
+
+    repo_id = get_mlx_model_name(model_type)
+    logger.info("Loading %s (%s) [mlx backend]...", model_type, repo_id)
+    t0 = time.time()
+
+    model = mlx_load_model(repo_id)
+
+    elapsed = time.time() - t0
+    logger.info("Loaded %s model in %.1fs [mlx]", model_type, elapsed)
+    return model
+
+
+# ---------------------------------------------------------------------------
+# MLX backend — inference
+# ---------------------------------------------------------------------------
+
+def _run_inference_mlx(model, text, mode, gen_params, language="English",
+                       voice_prompt=None, voice_description=None,
+                       speaker=None, instruct=None):
+    """Run TTS inference using the MLX backend.
+
+    Returns (wav_array, sample_rate) where wav_array is a float32 numpy array,
+    matching the torch backend's output contract.
+
+    Args:
+        model: Loaded MLX model (from _load_model_mlx).
+        text: Text to synthesize.
+        mode: "clone", "design", or "custom".
+        gen_params: Dict with temperature, top_k, top_p, repetition_penalty.
+        language: Language string.
+        voice_prompt: For clone mode — dict with "ref_audio" (path) and
+                      "ref_text" (str), or a .pt prompt name (will error).
+        voice_description: Voice description string (design mode).
+        speaker: Speaker name string (custom mode).
+        instruct: Style instruction string (custom mode).
+    """
+    t0 = time.time()
+
+    params = {
+        "temperature": gen_params.get("temperature", 0.9),
+        "top_k": gen_params.get("top_k", 50),
+        "top_p": gen_params.get("top_p", 1.0),
+        "repetition_penalty": gen_params.get("repetition_penalty", 1.05),
+    }
+
+    speed = gen_params.get("speed", 1.0)
+
+    if mode == "clone":
+        # MLX clone mode uses ref_audio (wav path) + ref_text directly.
+        # voice_prompt should be a dict {"ref_audio": path, "ref_text": str}
+        # set up by the caller or by load_voice_prompt_mlx().
+        if voice_prompt is None:
+            raise ValueError("voice_prompt is required for clone mode")
+
+        if isinstance(voice_prompt, dict):
+            ref_audio_path = voice_prompt["ref_audio"]
+            ref_text = voice_prompt["ref_text"]
+        else:
+            raise TypeError(
+                "MLX clone mode requires a voice prompt dict with 'ref_audio' "
+                "and 'ref_text' keys. Torch .pt prompts are not compatible "
+                "with the MLX backend. Re-create the prompt with 'createVoice' "
+                "to generate MLX-compatible files (.wav + .txt)."
+            )
+
+        results = list(model.generate(
+            text=text,
+            ref_audio=ref_audio_path,
+            ref_text=ref_text,
+            language=language,
+            speed=speed,
+            **params,
+        ))
+
+    elif mode == "custom":
+        results = list(model.generate_custom_voice(
+            text=text,
+            speaker=speaker or "Ryan",
+            language=language,
+            instruct=instruct or "",
+            **params,
+        ))
+
+    else:  # design
+        results = list(model.generate_voice_design(
+            text=text,
+            instruct=voice_description or "",
+            language=language,
+            **params,
+        ))
+
+    if not results:
+        raise RuntimeError("MLX generation returned no results")
+
+    # Collect audio from all segments and concatenate
+    import mlx.core as mx
+
+    audio_segments = [r.audio for r in results]
+    if len(audio_segments) == 1:
+        audio_mx = audio_segments[0]
+    else:
+        audio_mx = mx.concatenate(audio_segments)
+
+    # Convert mx.array → numpy float32 (matches torch backend output contract)
+    wav = np.array(audio_mx, dtype=np.float32)
+
+    # Flatten to 1-D if needed
+    if wav.ndim > 1:
+        wav = wav.squeeze()
+
+    sr = results[0].sample_rate
+
+    elapsed = time.time() - t0
+    logger.info(
+        "Inference complete: %d chars, %.1fs, mode=%s [mlx]",
+        len(text), elapsed, mode,
+    )
+
+    return wav, sr
+
+
+# ---------------------------------------------------------------------------
+# MLX voice prompt loading
+# ---------------------------------------------------------------------------
+
+def load_voice_prompt_mlx(prompt_name):
+    """Load an MLX-compatible voice prompt (wav + txt file pair).
+
+    Looks for <prompt_name>.wav and <prompt_name>.txt in VOICE_PROMPTS_DIR.
+    Returns a dict with 'ref_audio' (path) and 'ref_text' (string) keys.
+
+    Args:
+        prompt_name: Base name with or without .pt extension.
+                     E.g. "my_voice" or "my_voice.pt" — the .pt is stripped.
+    """
+    # Strip .pt extension if present to get the base name
+    base = prompt_name
+    if base.endswith(".pt"):
+        base = base[:-3]
+
+    wav_path = os.path.join(VOICE_PROMPTS_DIR, f"{base}.wav")
+    txt_path = os.path.join(VOICE_PROMPTS_DIR, f"{base}.txt")
+
+    if not os.path.exists(wav_path) or not os.path.exists(txt_path):
+        # Check if a .pt file exists (torch-only prompt)
+        pt_path = os.path.join(VOICE_PROMPTS_DIR, f"{base}.pt")
+        if os.path.exists(pt_path):
+            raise FileNotFoundError(
+                f"Voice prompt '{base}' only has a .pt file (torch format). "
+                f"The MLX backend requires .wav and .txt files. "
+                f"Re-create the prompt with 'createVoice' to generate "
+                f"MLX-compatible files."
+            )
+        raise FileNotFoundError(
+            f"Voice prompt not found: looked for {wav_path} and {txt_path}"
+        )
+
+    with open(txt_path, "r") as f:
+        ref_text = f.read().strip()
+
+    return {"ref_audio": wav_path, "ref_text": ref_text}
+
+
+# ---------------------------------------------------------------------------
+# Public dispatch API
+# ---------------------------------------------------------------------------
+
+def load_model(model_type):
+    """Load a TTS model by type, dispatching to the configured backend.
+
+    Args:
+        model_type: One of "clone", "design", "custom".
+
+    Returns:
+        The loaded model instance (type depends on backend).
+    """
+    backend = get_backend()
+    if backend == "mlx":
+        return _load_model_mlx(model_type)
+    return _load_model_torch(model_type)
+
+
+def run_inference(model, text, mode, gen_params, language="English",
+                  voice_prompt=None, voice_description=None,
+                  speaker=None, instruct=None):
+    """Run TTS inference, dispatching to the configured backend.
+
+    Args:
+        model: Loaded model (from load_model).
+        text: Text to synthesize.
+        mode: "clone", "design", or "custom".
+        gen_params: Dict with temperature, top_k, top_p, repetition_penalty.
+        language: Language string.
+        voice_prompt: Loaded voice prompt (clone mode).
+        voice_description: Voice description string (design mode).
+        speaker: Speaker name string (custom mode).
+        instruct: Style instruction string (custom mode).
+
+    Returns:
+        (wav_array, sample_rate) tuple.
+    """
+    backend = get_backend()
+    if backend == "mlx":
+        return _run_inference_mlx(
+            model, text, mode, gen_params, language,
+            voice_prompt, voice_description, speaker, instruct,
+        )
+    return _run_inference_torch(
+        model, text, mode, gen_params, language,
+        voice_prompt, voice_description, speaker, instruct,
+    )
+
 
 def create_voice_prompt(model, ref_audio, ref_sr, transcript):
     """Create a reusable voice-clone prompt from reference audio.
@@ -245,7 +485,7 @@ def create_voice_prompt(model, ref_audio, ref_sr, transcript):
 
 
 # ---------------------------------------------------------------------------
-# Audio processing
+# Audio processing (backend-agnostic — uses only numpy/librosa)
 # ---------------------------------------------------------------------------
 
 def trim_silence(audio, sample_rate, threshold_db=-40, min_silence_ms=100):

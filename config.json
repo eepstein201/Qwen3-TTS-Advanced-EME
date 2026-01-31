@@ -27,7 +27,9 @@
     "max_batch_size": 20
   },
   "advanced": {
-    "dtype": "bfloat16"
+    "dtype": "bfloat16",
+    "backend": "torch",
+    "mlx_quantization": "8bit"
   },
   "generation": {
     "temperature": 0.7,

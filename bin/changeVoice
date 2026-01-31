@@ -1,6 +1,9 @@
 #!/bin/bash
 # Qwen3-TTS voice generation wrapper
 # Handles server detection, generation, and post-generation menu
+# Reads backend from config.json and activates the correct conda environment
+
+CONFIG_FILE="$HOME/Qwen3-TTS_UserFiles/config.json"
 
 # Find and activate conda environment
 if [[ -f "$HOME/miniforge3/etc/profile.d/conda.sh" ]]; then
@@ -8,7 +11,39 @@ if [[ -f "$HOME/miniforge3/etc/profile.d/conda.sh" ]]; then
 elif [[ -f "$HOME/miniconda3/etc/profile.d/conda.sh" ]]; then
     source "$HOME/miniconda3/etc/profile.d/conda.sh"
 fi
-conda activate qwen3-tts
+
+# Read backend from config.json
+BACKEND="torch"
+if [ -f "$CONFIG_FILE" ]; then
+    BACKEND=$(python3 -c "
+import json, sys
+try:
+    c = json.load(open('$CONFIG_FILE'))
+    print(c.get('advanced', {}).get('backend', 'torch'))
+except: print('torch')
+" 2>/dev/null)
+fi
+
+# Select conda environment based on backend
+if [ "$BACKEND" = "mlx" ]; then
+    CONDA_ENV="qwen3-tts-mlx"
+
+    # Verify the MLX environment exists
+    if ! conda env list 2>/dev/null | grep -q "^${CONDA_ENV} "; then
+        echo ""
+        echo "Error: MLX backend selected but environment '$CONDA_ENV' not found."
+        echo "Please run './install.sh' from ~/Qwen3-TTS_UserFiles to set it up,"
+        echo "or switch to the torch backend in config.json:"
+        echo '  "advanced": { "backend": "torch" }'
+        exit 1
+    fi
+else
+    CONDA_ENV="qwen3-tts"
+fi
+
+# Deactivate any current env, then activate the correct one
+conda deactivate 2>/dev/null
+conda activate "$CONDA_ENV"
 
 # Check if server is running
 SERVER_RUNNING=false

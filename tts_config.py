@@ -77,6 +77,8 @@ def is_server_running(config_or_url=None):
 # ---------------------------------------------------------------------------
 
 VALID_DTYPES = ("float32", "float16", "bfloat16")
+VALID_BACKENDS = ("torch", "mlx")
+VALID_MLX_QUANTIZATIONS = ("4bit", "8bit", "bf16")
 
 
 def get_torch_dtype_name():
@@ -94,6 +96,47 @@ def get_torch_dtype_name():
     if dtype not in VALID_DTYPES:
         dtype = "float32"
     return dtype
+
+
+def get_backend():
+    """Read the configured backend from config.json (advanced.backend).
+
+    The TTS_BACKEND environment variable overrides the config file,
+    allowing --backend CLI flag to work without modifying config.json.
+
+    Returns:
+        A string: "torch" or "mlx".
+        Defaults to "torch" if not set or invalid.
+    """
+    # Environment variable override (set by --backend CLI flag)
+    env_backend = os.environ.get("TTS_BACKEND")
+    if env_backend and env_backend in VALID_BACKENDS:
+        return env_backend
+    try:
+        config = load_config()
+        backend = config.get("advanced", {}).get("backend", "torch")
+    except Exception:
+        backend = "torch"
+    if backend not in VALID_BACKENDS:
+        backend = "torch"
+    return backend
+
+
+def get_mlx_quantization():
+    """Read the configured MLX quantization from config.json (advanced.mlx_quantization).
+
+    Returns:
+        A string: "4bit", "8bit", or "bf16".
+        Defaults to "8bit" if not set or invalid.
+    """
+    try:
+        config = load_config()
+        quant = config.get("advanced", {}).get("mlx_quantization", "8bit")
+    except Exception:
+        quant = "8bit"
+    if quant not in VALID_MLX_QUANTIZATIONS:
+        quant = "8bit"
+    return quant
 
 
 # ---------------------------------------------------------------------------
@@ -129,6 +172,36 @@ MODEL_INFO = {
         "memory_mb": 3500,
     },
 }
+
+MLX_MODEL_INFO = {
+    "clone": {
+        "name_template": "mlx-community/Qwen3-TTS-12Hz-1.7B-Base-{quant}",
+        "description": "Voice cloning from audio samples (clone mode)",
+        "memory_mb": 2500,
+    },
+    "design": {
+        "name_template": "mlx-community/Qwen3-TTS-12Hz-1.7B-VoiceDesign-{quant}",
+        "description": "Generate voice from text description (design mode)",
+        "memory_mb": 2500,
+    },
+    "custom": {
+        "name_template": "mlx-community/Qwen3-TTS-12Hz-1.7B-CustomVoice-{quant}",
+        "description": "9 premium pre-trained speakers (custom mode)",
+        "memory_mb": 2500,
+    },
+}
+
+
+def get_mlx_model_name(model_type):
+    """Return the MLX HuggingFace repo ID for a given model type.
+
+    Substitutes the configured quantization level into the name template.
+    """
+    info = MLX_MODEL_INFO.get(model_type)
+    if not info:
+        raise ValueError(f"Unknown model type: {model_type}")
+    quant = get_mlx_quantization()
+    return info["name_template"].format(quant=quant)
 
 
 # ---------------------------------------------------------------------------

@@ -1,0 +1,14 @@
+# MLX backend dependencies for Qwen3-TTS
+# Install in the qwen3-tts-mlx conda environment
+# Note: transformers==5.0.0rc3 is pulled in by mlx-audio (conflicts with torch env)
+mlx>=0.30.3
+mlx-audio>=0.3.1
+mlx-lm>=0.30.5
+flask
+librosa
+soundfile
+numpy
+pydub
+requests
+gradio
+watchdog
