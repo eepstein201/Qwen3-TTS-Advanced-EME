@@ -371,5 +371,334 @@ class TestAutoIncrementFilename(unittest.TestCase):
             os.unlink(path)
 
 
+# =============================================================================
+# Backend config tests (tts_config backend helpers)
+# =============================================================================
+
+class TestBackendConfig(unittest.TestCase):
+    """Test backend-related config helpers in tts_config."""
+
+    def test_valid_backends(self):
+        from tts_config import VALID_BACKENDS
+        self.assertIn("torch", VALID_BACKENDS)
+        self.assertIn("mlx", VALID_BACKENDS)
+
+    def test_valid_mlx_quantizations(self):
+        from tts_config import VALID_MLX_QUANTIZATIONS
+        self.assertIn("4bit", VALID_MLX_QUANTIZATIONS)
+        self.assertIn("8bit", VALID_MLX_QUANTIZATIONS)
+        self.assertIn("bf16", VALID_MLX_QUANTIZATIONS)
+
+    def test_mlx_model_info_keys(self):
+        from tts_config import MLX_MODEL_INFO
+        self.assertIn("clone", MLX_MODEL_INFO)
+        self.assertIn("design", MLX_MODEL_INFO)
+        self.assertIn("custom", MLX_MODEL_INFO)
+        for info in MLX_MODEL_INFO.values():
+            self.assertIn("name_template", info)
+            self.assertIn("description", info)
+            self.assertIn("memory_mb", info)
+
+    def test_mlx_model_info_templates(self):
+        from tts_config import MLX_MODEL_INFO
+        for model_type, info in MLX_MODEL_INFO.items():
+            self.assertIn("{quant}", info["name_template"])
+
+    def test_get_backend_default(self):
+        """get_backend() defaults to 'torch' with no env/config override."""
+        from tts_config import get_backend
+        # Clear env override
+        with patch.dict(os.environ, {}, clear=False):
+            os.environ.pop("TTS_BACKEND", None)
+            with patch("tts_config.load_config", return_value={}):
+                result = get_backend()
+        self.assertEqual(result, "torch")
+
+    def test_get_backend_from_config(self):
+        from tts_config import get_backend
+        with patch.dict(os.environ, {}, clear=False):
+            os.environ.pop("TTS_BACKEND", None)
+            with patch("tts_config.load_config", return_value={"advanced": {"backend": "mlx"}}):
+                result = get_backend()
+        self.assertEqual(result, "mlx")
+
+    def test_get_backend_env_override(self):
+        """TTS_BACKEND env var overrides config."""
+        from tts_config import get_backend
+        with patch.dict(os.environ, {"TTS_BACKEND": "mlx"}):
+            with patch("tts_config.load_config", return_value={"advanced": {"backend": "torch"}}):
+                result = get_backend()
+        self.assertEqual(result, "mlx")
+
+    def test_get_backend_invalid_falls_back(self):
+        from tts_config import get_backend
+        with patch.dict(os.environ, {}, clear=False):
+            os.environ.pop("TTS_BACKEND", None)
+            with patch("tts_config.load_config", return_value={"advanced": {"backend": "invalid"}}):
+                result = get_backend()
+        self.assertEqual(result, "torch")
+
+    def test_get_mlx_quantization_default(self):
+        from tts_config import get_mlx_quantization
+        with patch("tts_config.load_config", return_value={}):
+            result = get_mlx_quantization()
+        self.assertEqual(result, "8bit")
+
+    def test_get_mlx_quantization_from_config(self):
+        from tts_config import get_mlx_quantization
+        with patch("tts_config.load_config", return_value={"advanced": {"mlx_quantization": "4bit"}}):
+            result = get_mlx_quantization()
+        self.assertEqual(result, "4bit")
+
+    def test_get_mlx_quantization_invalid_falls_back(self):
+        from tts_config import get_mlx_quantization
+        with patch("tts_config.load_config", return_value={"advanced": {"mlx_quantization": "garbage"}}):
+            result = get_mlx_quantization()
+        self.assertEqual(result, "8bit")
+
+    def test_get_mlx_model_name(self):
+        from tts_config import get_mlx_model_name
+        with patch("tts_config.get_mlx_quantization", return_value="8bit"):
+            name = get_mlx_model_name("clone")
+        self.assertEqual(name, "mlx-community/Qwen3-TTS-12Hz-1.7B-Base-8bit")
+
+    def test_get_mlx_model_name_4bit(self):
+        from tts_config import get_mlx_model_name
+        with patch("tts_config.get_mlx_quantization", return_value="4bit"):
+            name = get_mlx_model_name("design")
+        self.assertEqual(name, "mlx-community/Qwen3-TTS-12Hz-1.7B-VoiceDesign-4bit")
+
+    def test_get_mlx_model_name_invalid_type(self):
+        from tts_config import get_mlx_model_name
+        with self.assertRaises(ValueError):
+            get_mlx_model_name("nonexistent")
+
+
+# =============================================================================
+# MLX voice prompt loading tests
+# =============================================================================
+
+class TestMLXVoicePrompt(unittest.TestCase):
+    """Test MLX voice prompt loading (file-based, no mlx import needed)."""
+
+    def setUp(self):
+        self.tmpdir = tempfile.mkdtemp()
+        self._orig_dir = None
+
+    def tearDown(self):
+        import shutil
+        shutil.rmtree(self.tmpdir, ignore_errors=True)
+
+    def test_load_voice_prompt_mlx_success(self):
+        """Load MLX prompt from .wav + .txt pair."""
+        from tts_engine import load_voice_prompt_mlx
+        # Create fake wav and txt
+        wav_path = os.path.join(self.tmpdir, "test_voice.wav")
+        txt_path = os.path.join(self.tmpdir, "test_voice.txt")
+        with open(wav_path, "wb") as f:
+            f.write(b"RIFF\x00\x00\x00\x00WAVEfmt ")
+        with open(txt_path, "w") as f:
+            f.write("Hello, this is a test transcript.")
+
+        with patch("tts_engine.VOICE_PROMPTS_DIR", self.tmpdir):
+            result = load_voice_prompt_mlx("test_voice.pt")
+
+        self.assertIsInstance(result, dict)
+        self.assertEqual(result["ref_audio"], wav_path)
+        self.assertEqual(result["ref_text"], "Hello, this is a test transcript.")
+
+    def test_load_voice_prompt_mlx_strips_pt(self):
+        """Prompt name with .pt extension is handled correctly."""
+        from tts_engine import load_voice_prompt_mlx
+        wav_path = os.path.join(self.tmpdir, "voice.wav")
+        txt_path = os.path.join(self.tmpdir, "voice.txt")
+        with open(wav_path, "wb") as f:
+            f.write(b"fake")
+        with open(txt_path, "w") as f:
+            f.write("transcript")
+
+        with patch("tts_engine.VOICE_PROMPTS_DIR", self.tmpdir):
+            result = load_voice_prompt_mlx("voice.pt")
+        self.assertEqual(result["ref_audio"], wav_path)
+
+    def test_load_voice_prompt_mlx_missing_files(self):
+        """Raises FileNotFoundError when wav/txt missing."""
+        from tts_engine import load_voice_prompt_mlx
+        with patch("tts_engine.VOICE_PROMPTS_DIR", self.tmpdir):
+            with self.assertRaises(FileNotFoundError):
+                load_voice_prompt_mlx("nonexistent")
+
+    def test_load_voice_prompt_mlx_pt_only_error(self):
+        """Clear error when only .pt exists (no MLX-compatible files)."""
+        from tts_engine import load_voice_prompt_mlx
+        pt_path = os.path.join(self.tmpdir, "legacy.pt")
+        with open(pt_path, "wb") as f:
+            f.write(b"fake tensor data")
+
+        with patch("tts_engine.VOICE_PROMPTS_DIR", self.tmpdir):
+            with self.assertRaises(FileNotFoundError) as ctx:
+                load_voice_prompt_mlx("legacy")
+            self.assertIn("only has a .pt file", str(ctx.exception))
+            self.assertIn("createVoice", str(ctx.exception))
+
+    def test_load_voice_prompt_dispatch_torch(self):
+        """load_voice_prompt dispatches to torch backend."""
+        from tts_engine import load_voice_prompt
+        with patch("tts_engine.get_backend", return_value="torch"):
+            with patch("tts_engine._load_voice_prompt_torch", return_value="mock_tensor") as mock:
+                result = load_voice_prompt("test.pt")
+        mock.assert_called_once_with("test.pt")
+        self.assertEqual(result, "mock_tensor")
+
+    def test_load_voice_prompt_dispatch_mlx(self):
+        """load_voice_prompt dispatches to MLX backend."""
+        from tts_engine import load_voice_prompt
+        mock_result = {"ref_audio": "/fake/path.wav", "ref_text": "text"}
+        with patch("tts_engine.get_backend", return_value="mlx"):
+            with patch("tts_engine.load_voice_prompt_mlx", return_value=mock_result) as mock:
+                result = load_voice_prompt("test.pt")
+        mock.assert_called_once_with("test.pt")
+        self.assertEqual(result, mock_result)
+
+
+# =============================================================================
+# Backend dispatch tests (no actual model loading — tests dispatch logic)
+# =============================================================================
+
+class TestBackendDispatch(unittest.TestCase):
+    """Test that public API dispatches to correct backend functions."""
+
+    def test_load_model_dispatch_torch(self):
+        from tts_engine import load_model
+        with patch("tts_engine.get_backend", return_value="torch"):
+            with patch("tts_engine._load_model_torch", return_value="torch_model") as mock:
+                result = load_model("clone")
+        mock.assert_called_once_with("clone")
+        self.assertEqual(result, "torch_model")
+
+    def test_load_model_dispatch_mlx(self):
+        from tts_engine import load_model
+        with patch("tts_engine.get_backend", return_value="mlx"):
+            with patch("tts_engine._load_model_mlx", return_value="mlx_model") as mock:
+                result = load_model("design")
+        mock.assert_called_once_with("design")
+        self.assertEqual(result, "mlx_model")
+
+    def test_run_inference_dispatch_torch(self):
+        from tts_engine import run_inference
+        with patch("tts_engine.get_backend", return_value="torch"):
+            with patch("tts_engine._run_inference_torch", return_value=("wav", 24000)) as mock:
+                result = run_inference("model", "text", "clone", {})
+        mock.assert_called_once()
+        self.assertEqual(result, ("wav", 24000))
+
+    def test_run_inference_dispatch_mlx(self):
+        from tts_engine import run_inference
+        with patch("tts_engine.get_backend", return_value="mlx"):
+            with patch("tts_engine._run_inference_mlx", return_value=("wav", 24000)) as mock:
+                result = run_inference("model", "text", "design", {})
+        mock.assert_called_once()
+        self.assertEqual(result, ("wav", 24000))
+
+
+# =============================================================================
+# MLX inference tests (skipped if mlx not installed)
+# =============================================================================
+
+# Check for mlx import capability (not config — actual library)
+try:
+    import mlx.core  # noqa: F401
+    HAS_MLX = True
+except ImportError:
+    HAS_MLX = False
+
+try:
+    from mlx_audio.tts.utils import load_model as _  # noqa: F401
+    HAS_MLX_AUDIO = True
+except ImportError:
+    HAS_MLX_AUDIO = False
+
+
+@unittest.skipIf(not HAS_MLX, "mlx not installed")
+class TestMLXImport(unittest.TestCase):
+    """Test that MLX imports work when mlx is available."""
+
+    def test_mlx_core_import(self):
+        import mlx.core as mx
+        self.assertTrue(hasattr(mx, "array"))
+
+    @unittest.skipIf(not HAS_MLX_AUDIO, "mlx-audio not installed")
+    def test_mlx_audio_import(self):
+        from mlx_audio.tts.utils import load_model
+        self.assertTrue(callable(load_model))
+
+
+class TestMLXInferenceCloneValidation(unittest.TestCase):
+    """Test MLX inference input validation (no actual model needed)."""
+
+    def test_clone_requires_voice_prompt(self):
+        """_run_inference_mlx raises ValueError without voice_prompt in clone mode."""
+        from tts_engine import _run_inference_mlx
+        with self.assertRaises(ValueError) as ctx:
+            _run_inference_mlx(
+                model=MagicMock(),
+                text="test",
+                mode="clone",
+                gen_params={},
+                voice_prompt=None,
+            )
+        self.assertIn("required for clone mode", str(ctx.exception))
+
+    def test_clone_rejects_non_dict_prompt(self):
+        """_run_inference_mlx raises TypeError for non-dict voice_prompt."""
+        from tts_engine import _run_inference_mlx
+        with self.assertRaises(TypeError) as ctx:
+            _run_inference_mlx(
+                model=MagicMock(),
+                text="test",
+                mode="clone",
+                gen_params={},
+                voice_prompt="some_tensor_object",
+            )
+        self.assertIn("MLX clone mode requires a voice prompt dict", str(ctx.exception))
+        self.assertIn("createVoice", str(ctx.exception))
+
+
+# =============================================================================
+# Lazy import safety tests
+# =============================================================================
+
+class TestLazyImports(unittest.TestCase):
+    """Verify that tts_engine does not import torch or mlx at module scope."""
+
+    def test_engine_no_torch_at_module_scope(self):
+        """tts_engine module should not force-import torch."""
+        # Remove tts_engine from cache to test fresh import behavior
+        saved_modules = {}
+        for mod in list(sys.modules.keys()):
+            if mod == "tts_engine" or mod.startswith("tts_engine."):
+                saved_modules[mod] = sys.modules.pop(mod)
+
+        # Also note if torch was already loaded
+        torch_was_loaded = "torch" in sys.modules
+
+        try:
+            import tts_engine  # noqa: F401
+            if not torch_was_loaded:
+                # torch should not have been imported by tts_engine
+                self.assertNotIn("torch", sys.modules,
+                    "tts_engine imported torch at module scope")
+        finally:
+            # Restore
+            for mod, val in saved_modules.items():
+                sys.modules[mod] = val
+
+    def test_config_no_torch(self):
+        """tts_config must not import torch (regression check)."""
+        import tts_config  # noqa: F401
+        # tts_config should never cause torch to load
+        self.assertNotIn("torch", dir(tts_config))
+
+
 if __name__ == "__main__":
     unittest.main()
