@@ -26,6 +26,35 @@ logger = logging.getLogger("tts.engine")
 
 
 # ---------------------------------------------------------------------------
+# MPS bfloat16 safety patch
+# ---------------------------------------------------------------------------
+# MPS produces NaN/Inf in softmax outputs with bfloat16 and float16,
+# which crashes torch.multinomial during sampling. This patch casts the
+# probability tensor to float32 and sanitizes NaN/Inf before sampling.
+# Only active when running on MPS.
+
+_original_multinomial = torch.multinomial
+
+
+def _safe_multinomial(input, num_samples, replacement=False, *, generator=None):
+    if input.device.type == "mps" and input.is_floating_point() and input.dtype != torch.float32:
+        input = input.float()
+    if input.device.type == "mps":
+        input = torch.nan_to_num(input, nan=0.0, posinf=1.0, neginf=0.0)
+        input = input.clamp(min=0.0)
+        # If an entire row is zero after sanitization, use uniform distribution
+        row_sums = input.sum(dim=-1, keepdim=True)
+        zero_rows = (row_sums == 0)
+        if zero_rows.any():
+            input = input.masked_fill(zero_rows.expand_as(input), 1.0 / input.shape[-1])
+    return _original_multinomial(input, num_samples, replacement=replacement, generator=generator)
+
+
+torch.multinomial = _safe_multinomial
+logger.debug("Installed MPS-safe multinomial patch")
+
+
+# ---------------------------------------------------------------------------
 # Voice prompt cache
 # ---------------------------------------------------------------------------
 
