@@ -12,7 +12,6 @@ import threading
 import time
 
 from flask import Flask, request, jsonify
-import torch
 import soundfile as sf
 
 logger = logging.getLogger("tts")
@@ -23,8 +22,12 @@ from tts_config import (
     PID_FILE,
     TOKEN_FILE,
     MODEL_INFO,
+    MLX_MODEL_INFO,
     CUSTOM_VOICE_SPEAKERS,
     load_config,
+    get_backend,
+    get_torch_dtype_name,
+    get_mlx_quantization,
 )
 from tts_engine import (
     load_model,
@@ -190,12 +193,19 @@ def load_models():
 @app.route("/health", methods=["GET"])
 def health():
     reset_activity_timer()
-    return jsonify({
+    backend = get_backend()
+    data = {
         "status": "ok",
+        "backend": backend,
         "clone_model_loaded": clone_model is not None,
         "design_model_loaded": design_model is not None,
         "custom_model_loaded": custom_model is not None,
-    })
+    }
+    if backend == "mlx":
+        data["mlx_quantization"] = get_mlx_quantization()
+    else:
+        data["dtype"] = get_torch_dtype_name()
+    return jsonify(data)
 
 
 @app.route("/generation-status", methods=["GET"])
@@ -248,8 +258,10 @@ def stats():
 
     cache_info = voice_prompt_cache_info()
 
+    backend = get_backend()
     stats_data = {
         "status": "ok",
+        "backend": backend,
         "clone_model_loaded": clone_model is not None,
         "design_model_loaded": design_model is not None,
         "custom_model_loaded": custom_model is not None,
@@ -259,24 +271,31 @@ def stats():
         "auto_shutdown_minutes": auto_shutdown_minutes if auto_shutdown_minutes > 0 else "disabled",
         "generation_queue_size": len(request_queue),
     }
+    if backend == "mlx":
+        stats_data["mlx_quantization"] = get_mlx_quantization()
+    else:
+        stats_data["dtype"] = get_torch_dtype_name()
 
-    # MPS (Apple Silicon) memory stats
-    if torch.backends.mps.is_available():
-        try:
-            allocated = torch.mps.current_allocated_memory()
-            stats_data["mps_memory_allocated_mb"] = round(allocated / (1024 * 1024), 2)
-        except Exception:
-            stats_data["mps_memory_allocated_mb"] = "unavailable"
+    # GPU memory stats (lazy torch import — only when torch backend is active)
+    try:
+        import torch
+        if torch.backends.mps.is_available():
+            try:
+                allocated = torch.mps.current_allocated_memory()
+                stats_data["mps_memory_allocated_mb"] = round(allocated / (1024 * 1024), 2)
+            except Exception:
+                stats_data["mps_memory_allocated_mb"] = "unavailable"
 
-    # CUDA memory stats (for NVIDIA GPUs)
-    if torch.cuda.is_available():
-        try:
-            allocated = torch.cuda.memory_allocated()
-            reserved = torch.cuda.memory_reserved()
-            stats_data["cuda_memory_allocated_mb"] = round(allocated / (1024 * 1024), 2)
-            stats_data["cuda_memory_reserved_mb"] = round(reserved / (1024 * 1024), 2)
-        except Exception:
-            pass
+        if torch.cuda.is_available():
+            try:
+                allocated = torch.cuda.memory_allocated()
+                reserved = torch.cuda.memory_reserved()
+                stats_data["cuda_memory_allocated_mb"] = round(allocated / (1024 * 1024), 2)
+                stats_data["cuda_memory_reserved_mb"] = round(reserved / (1024 * 1024), 2)
+            except Exception:
+                pass
+    except ImportError:
+        pass
 
     return jsonify(stats_data)
 
@@ -286,16 +305,26 @@ def list_models():
     """Return information about available models and their load status."""
     reset_activity_timer()
 
+    backend = get_backend()
     models_data = {}
     for model_type, info in MODEL_INFO.items():
         loaded = _get_model(model_type) is not None
-        models_data[model_type] = {
+        entry = {
             "loaded": loaded,
             "description": info["description"],
             "memory_mb": info["memory_mb"],
+            "repo_id": info["name"],
         }
+        # Include MLX repo ID when using MLX backend
+        if backend == "mlx":
+            mlx_info = MLX_MODEL_INFO.get(model_type)
+            if mlx_info:
+                from tts_config import get_mlx_model_name
+                entry["repo_id"] = get_mlx_model_name(model_type)
+                entry["memory_mb"] = mlx_info["memory_mb"]
+        models_data[model_type] = entry
 
-    return jsonify({"models": models_data})
+    return jsonify({"models": models_data, "backend": backend})
 
 
 @app.route("/load-model", methods=["POST"])

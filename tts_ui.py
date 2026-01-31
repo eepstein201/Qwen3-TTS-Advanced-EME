@@ -42,11 +42,11 @@ SPEAKER_CHOICES = [
 # =============================================================================
 
 def get_server_status():
-    """Get current server status, memory usage, and loaded models."""
+    """Get current server status, memory usage, loaded models, and backend info."""
     client = TTSClient()
 
     if not client.is_server_running():
-        return "Disconnected", "N/A", "N/A"
+        return "Disconnected", "N/A", "N/A", "N/A"
 
     try:
         stats = client.get_stats()
@@ -67,14 +67,23 @@ def get_server_status():
 
         models_str = ", ".join(loaded_models) if loaded_models else "None"
 
-        return "Connected", memory, models_str
+        # Backend info
+        backend = stats.get("backend", "torch")
+        if backend == "mlx":
+            quant = stats.get("mlx_quantization", "8bit")
+            backend_str = f"MLX ({quant})"
+        else:
+            dtype = stats.get("dtype", "float32")
+            backend_str = f"PyTorch ({dtype})"
+
+        return "Connected", memory, models_str, backend_str
     except Exception as e:
-        return f"Error: {str(e)}", "N/A", "N/A"
+        return f"Error: {str(e)}", "N/A", "N/A", "N/A"
 
 
 def format_status_display():
     """Format server status for display."""
-    status, memory, models = get_server_status()
+    status, memory, models, backend = get_server_status()
 
     if status == "Connected":
         status_html = f'<span style="color: green; font-weight: bold;">Connected</span>'
@@ -86,6 +95,7 @@ def format_status_display():
     return f"""
     <div style="padding: 10px; background: #f5f5f5; border-radius: 5px; margin-bottom: 15px;">
         <strong>Status:</strong> {status_html} |
+        <strong>Backend:</strong> {backend} |
         <strong>Memory:</strong> {memory} |
         <strong>Models:</strong> {models}
     </div>

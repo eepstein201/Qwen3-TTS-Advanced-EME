@@ -1,6 +1,10 @@
 #!/bin/bash
 # Create a new custom voice clone prompt
-# Activates conda environment and runs the voice creation script
+# Reads backend from config.json and activates the correct conda environment
+# Note: Voice creation always uses the torch backend (requires qwen-tts model
+# for create_voice_clone_prompt), but saves MLX-compatible files too.
+
+CONFIG_FILE="$HOME/Qwen3-TTS_UserFiles/config.json"
 
 # Find and activate conda environment
 if [[ -f "$HOME/miniforge3/etc/profile.d/conda.sh" ]]; then
@@ -8,6 +12,14 @@ if [[ -f "$HOME/miniforge3/etc/profile.d/conda.sh" ]]; then
 elif [[ -f "$HOME/miniconda3/etc/profile.d/conda.sh" ]]; then
     source "$HOME/miniconda3/etc/profile.d/conda.sh"
 fi
-conda activate qwen3-tts
+
+# Voice creation always uses torch env (needs qwen-tts for prompt extraction)
+CONDA_ENV="qwen3-tts"
+
+# Deactivate any current env, then activate the correct one
+conda deactivate 2>/dev/null
+conda activate "$CONDA_ENV"
+
+export PYTORCH_ENABLE_MPS_FALLBACK=1
 
 python ~/Qwen3-TTS_UserFiles/create_custom_voice.py "$@"

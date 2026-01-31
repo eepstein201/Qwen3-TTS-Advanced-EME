@@ -3,6 +3,7 @@
 
 import argparse
 import os
+import shutil
 import subprocess
 import sys
 
@@ -41,12 +42,24 @@ def create_and_save_voice_prompt(audio_path, transcript, prompt_name, test_gener
     print("\nCreating voice clone prompt...")
     voice_prompt = create_voice_prompt(model, ref_audio, ref_sr, transcript)
 
-    # Save the voice prompt
+    # Save the voice prompt (.pt for torch backend)
     if not prompt_name.endswith('.pt'):
         prompt_name += '.pt'
+    base_name = prompt_name[:-3]  # strip .pt for sibling files
     output_path = os.path.join(VOICE_PROMPTS_DIR, prompt_name)
     torch.save(voice_prompt, output_path)
     print(f"Voice prompt saved to: {output_path}")
+
+    # Save MLX-compatible files (.wav + .txt) alongside the .pt
+    # The MLX backend uses raw reference audio + transcript instead of .pt tensors
+    mlx_wav_path = os.path.join(VOICE_PROMPTS_DIR, f"{base_name}.wav")
+    mlx_txt_path = os.path.join(VOICE_PROMPTS_DIR, f"{base_name}.txt")
+
+    shutil.copy2(wav_path, mlx_wav_path)
+    with open(mlx_txt_path, "w") as f:
+        f.write(transcript)
+
+    print(f"MLX assets saved: {mlx_wav_path}, {mlx_txt_path}")
 
     # Optional test generation
     if test_generation:
@@ -62,7 +75,7 @@ def create_and_save_voice_prompt(audio_path, transcript, prompt_name, test_gener
             voice_prompt=voice_prompt,
         )
 
-        test_output = os.path.join(USER_FILES_DIR, f"test_{prompt_name.replace('.pt', '.wav')}")
+        test_output = os.path.join(USER_FILES_DIR, f"test_{base_name}.wav")
         sf.write(test_output, wav, sr)
         print(f"Test audio saved to: {test_output}")
         subprocess.run(["open", test_output])
@@ -72,6 +85,7 @@ def create_and_save_voice_prompt(audio_path, transcript, prompt_name, test_gener
         os.remove(wav_path)
 
     print(f"\nDone! Use with: changeVoice -p {prompt_name} \"Your text here\"")
+    print(f"  (Works with both torch and MLX backends)")
     return output_path
 
 

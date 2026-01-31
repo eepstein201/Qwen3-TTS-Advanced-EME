@@ -28,12 +28,18 @@ from tts_config import (
     VOICE_PROMPTS_DIR,
     HISTORY_FILE,
     MODEL_INFO,
+    MLX_MODEL_INFO,
     CUSTOM_VOICE_SPEAKERS,
+    VALID_BACKENDS,
     load_config,
     save_config,
     get_server_url,
     is_server_running,
     auth_headers,
+    get_backend,
+    get_torch_dtype_name,
+    get_mlx_quantization,
+    get_mlx_model_name,
 )
 
 
@@ -1366,6 +1372,10 @@ def main():
     parser.add_argument("--seed", type=int, help="Random seed for reproducibility")
     parser.add_argument("--repetition-penalty", type=float, dest="repetition_penalty", help="Repetition penalty")
 
+    # Backend override
+    parser.add_argument("--backend", choices=["torch", "mlx"], help="Override backend for this run (default: from config.json)")
+    parser.add_argument("--list-backends", action="store_true", help="List available backends and current setting")
+
     # Utility options
     parser.add_argument("--list-prompts", action="store_true", help="List available voice prompts")
     parser.add_argument("--list-presets", action="store_true", help="List available presets")
@@ -1412,12 +1422,37 @@ def main():
     config = load_config()
     gen_params = get_generation_params(args, config)
 
+    # Apply --backend override via environment variable (affects get_backend() globally)
+    if args.backend:
+        os.environ["TTS_BACKEND"] = args.backend
+
     # Launch Gradio UI
     if args.ui:
         launch_gradio_ui(config)
         return False
 
     # --- List / info commands (no torch needed) ---
+
+    if args.list_backends:
+        current = get_backend()
+        override = f" (overridden to '{args.backend}')" if args.backend else ""
+        print(f"Available backends: {', '.join(VALID_BACKENDS)}")
+        print(f"Current backend:    {current}{override}")
+        print()
+        if current == "mlx":
+            quant = get_mlx_quantization()
+            print(f"  MLX quantization: {quant}")
+            for mt in ("clone", "design", "custom"):
+                print(f"  {mt}: {get_mlx_model_name(mt)}")
+        else:
+            dtype = get_torch_dtype_name()
+            print(f"  PyTorch dtype: {dtype}")
+            for mt, info in MODEL_INFO.items():
+                print(f"  {mt}: {info['name']}")
+        print()
+        print(f"To change: edit {CONFIG_PATH} -> advanced.backend")
+        print("Or use: changeVoice --backend mlx \"text\" -o output")
+        return False
 
     if args.list_prompts:
         prompts = list_voice_prompts()

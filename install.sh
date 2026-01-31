@@ -200,7 +200,9 @@ create_config() {
     "max_batch_size": 20
   },
   "advanced": {
-    "dtype": "bfloat16"
+    "dtype": "bfloat16",
+    "backend": "torch",
+    "mlx_quantization": "8bit"
   },
   "generation": {
     "temperature": 0.7,
@@ -367,6 +369,108 @@ PYEOF
 }
 
 # =============================================================================
+# Create MLX Conda Environment (Optional)
+# =============================================================================
+
+create_mlx_env() {
+    step "MLX Backend (optional)..."
+
+    echo ""
+    echo "The MLX backend runs natively on Apple Silicon's Neural Engine with"
+    echo "lower thermal output, less battery drain, and smaller quantized models."
+    echo "It uses a separate conda environment (qwen3-tts-mlx) due to dependency conflicts."
+    echo ""
+    read -p "Install MLX backend? [y/N]: " INSTALL_MLX
+    INSTALL_MLX=${INSTALL_MLX:-N}
+
+    if [[ ! "$INSTALL_MLX" =~ ^[Yy]$ ]]; then
+        info "Skipping MLX backend installation."
+        return
+    fi
+
+    MLX_ENV_NAME="qwen3-tts-mlx"
+
+    # Check if environment exists
+    if conda env list | grep -q "^${MLX_ENV_NAME} "; then
+        warn "Environment '$MLX_ENV_NAME' already exists."
+        read -p "Recreate environment? This will delete the existing one. [y/N]: " RECREATE_MLX
+        if [[ "$RECREATE_MLX" =~ ^[Yy]$ ]]; then
+            info "Removing existing MLX environment..."
+            conda env remove -n "$MLX_ENV_NAME" -y
+        else
+            info "Keeping existing MLX environment. Updating packages..."
+            conda activate "$MLX_ENV_NAME"
+            pip install --upgrade -r "$USER_FILES_DIR/requirements-mlx.txt"
+            conda deactivate 2>/dev/null
+            success "MLX packages updated!"
+            return
+        fi
+    fi
+
+    info "Creating MLX conda environment with Python $PYTHON_VERSION..."
+    conda create -n "$MLX_ENV_NAME" python="$PYTHON_VERSION" -y
+
+    info "Activating MLX environment..."
+    conda activate "$MLX_ENV_NAME"
+
+    info "Installing MLX dependencies..."
+    pip install -r "$USER_FILES_DIR/requirements-mlx.txt"
+
+    conda deactivate 2>/dev/null
+    success "MLX environment created and packages installed!"
+
+    # Optional MLX model pre-download
+    echo ""
+    echo "MLX models are smaller than PyTorch models (~2-3GB per model)."
+    read -p "Pre-download MLX models now? [y/N]: " DOWNLOAD_MLX
+    DOWNLOAD_MLX=${DOWNLOAD_MLX:-N}
+
+    if [[ "$DOWNLOAD_MLX" =~ ^[Yy]$ ]]; then
+        info "Downloading MLX models..."
+        conda activate "$MLX_ENV_NAME"
+
+        python3 << 'PYEOF'
+import sys
+try:
+    from huggingface_hub import snapshot_download
+
+    models = [
+        "mlx-community/Qwen3-TTS-12Hz-1.7B-Base-8bit",
+        "mlx-community/Qwen3-TTS-12Hz-1.7B-VoiceDesign-8bit",
+        "mlx-community/Qwen3-TTS-12Hz-1.7B-CustomVoice-8bit"
+    ]
+
+    for model in models:
+        print(f"Downloading {model}...")
+        snapshot_download(model)
+        print(f"  Done!")
+
+    print("\nAll MLX models downloaded successfully!")
+except Exception as e:
+    print(f"Error downloading MLX models: {e}")
+    print("Models will be downloaded on first use.")
+    sys.exit(1)
+PYEOF
+
+        conda deactivate 2>/dev/null
+
+        if [[ $? -eq 0 ]]; then
+            success "MLX models downloaded!"
+        else
+            warn "MLX model download failed. They will be downloaded on first use."
+        fi
+    else
+        info "Skipping MLX model download. Models will be downloaded on first use."
+    fi
+
+    echo ""
+    info "To switch to the MLX backend, edit config.json:"
+    echo '  "advanced": { "backend": "mlx" }'
+    echo ""
+}
+
+
+# =============================================================================
 # Print Summary
 # =============================================================================
 
@@ -401,6 +505,10 @@ print_summary() {
     echo ""
     echo "Configuration:"
     echo "  ${CYAN}$USER_FILES_DIR/config.json${NC}"
+    echo ""
+    echo "Backend:"
+    echo "  Default: PyTorch/MPS (qwen3-tts env)"
+    echo "  To switch to MLX: set ${CYAN}\"backend\": \"mlx\"${NC} in config.json"
     echo ""
 
     if [[ ":$PATH:" != *":$HOME/bin:"* ]]; then
@@ -445,7 +553,11 @@ dry_run() {
     echo ""
     echo "6. Set executable permissions (chmod 755)"
     echo ""
-    echo "7. Optional: Pre-download models (~10GB)"
+    echo "7. Optional: Pre-download PyTorch models (~10GB)"
+    echo ""
+    echo "8. Optional: Create MLX backend environment (qwen3-tts-mlx)"
+    echo "   - Separate conda env with mlx-audio, mlx, mlx-lm"
+    echo "   - Optional pre-download of 8-bit quantized models (~2-3GB each)"
     echo ""
     echo "Run without --dry-run to perform installation."
     echo ""
@@ -476,6 +588,7 @@ main() {
     set_permissions
     update_path
     download_models
+    create_mlx_env
     print_summary
 }
 
