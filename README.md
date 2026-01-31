@@ -15,6 +15,7 @@ A powerful text-to-speech system with voice cloning, built on Qwen3-TTS models. 
 - [Python API](#python-api)
 - [FAQ](#faq)
 - [Troubleshooting](#troubleshooting)
+- [MLX Backend](#mlx-backend)
 - [Tips & Best Practices](#tips--best-practices)
 
 ---
@@ -38,7 +39,8 @@ cd ~/Qwen3-TTS_UserFiles
 
 This will:
 - Check prerequisites (macOS, Apple Silicon, conda)
-- Create the `qwen3-tts` conda environment
+- Create the `qwen3-tts` conda environment (PyTorch backend)
+- Optionally create the `qwen3-tts-mlx` conda environment (MLX backend)
 - Install all dependencies
 - Create wrapper scripts in `~/bin/`
 - Optionally pre-download models
@@ -486,9 +488,22 @@ Options:
       "prompt": "default_clone.pt",
       "preset": "consistent"
     }
+  },
+  "advanced": {
+    "dtype": "bfloat16",
+    "backend": "torch",
+    "mlx_quantization": "8bit"
   }
 }
 ```
+
+### Advanced Settings
+
+| Setting | Values | Default | Description |
+|---------|--------|---------|-------------|
+| `advanced.backend` | `"torch"`, `"mlx"` | `"torch"` | Inference backend (see [MLX Backend](#mlx-backend)) |
+| `advanced.dtype` | `"float32"`, `"float16"`, `"bfloat16"` | `"float32"` | PyTorch dtype (torch backend only) |
+| `advanced.mlx_quantization` | `"4bit"`, `"8bit"`, `"bf16"` | `"8bit"` | MLX model quantization (mlx backend only) |
 
 ### Model Configuration
 
@@ -685,7 +700,7 @@ changeVoice --batch texts.json -o ~/Downloads/batch/
 
 ### Q: How much memory does this use?
 
-**A:** The models use approximately 8GB of MPS (GPU) memory when loaded. Check with:
+**A:** PyTorch models use approximately 3.5GB each (~8GB total if all 3 loaded). MLX 8-bit models use ~2.5GB each. Check with:
 ```bash
 changeVoice --stats
 ```
@@ -751,6 +766,80 @@ If you run out of memory:
 1. Stop the server: `stopTTSServer`
 2. Close other GPU-intensive applications
 3. Restart the server
+
+---
+
+## MLX Backend
+
+MLX is an alternative inference backend for Apple Silicon Macs. It runs natively on the Neural Engine and GPU with significantly lower thermal output and battery drain compared to PyTorch/MPS.
+
+### Why MLX?
+
+| | PyTorch/MPS | MLX |
+|---|---|---|
+| Thermals | ~80-90°C | ~40-50°C |
+| Memory per model | ~3.5GB | ~2.5GB (8-bit quantized) |
+| Conda environment | `qwen3-tts` | `qwen3-tts-mlx` |
+
+### Installation
+
+MLX backend is installed as a separate conda environment (due to a dependency conflict between `qwen-tts` and `mlx-audio`):
+
+```bash
+# Option 1: Via install.sh (recommended)
+./install.sh
+# Select "Install MLX backend" when prompted
+
+# Option 2: Manual
+conda create -n qwen3-tts-mlx python=3.11 -y
+conda activate qwen3-tts-mlx
+pip install -r requirements-mlx.txt
+```
+
+### Switching Backends
+
+```bash
+# Edit config.json
+# Set "advanced": {"backend": "mlx"}
+
+# Restart the server — wrapper scripts auto-select the correct conda env
+stopTTSServer && startTTSServer
+
+# Or use CLI override for a single run (doesn't modify config)
+changeVoice --backend mlx "Hello world" -o test
+
+# List backend info
+changeVoice --list-backends
+```
+
+### MLX Quantization Options
+
+| Quantization | Model size | Quality | Setting |
+|-------------|-----------|---------|---------|
+| 4-bit | Smallest | Lower | `"mlx_quantization": "4bit"` |
+| 8-bit (default) | Medium | Good balance | `"mlx_quantization": "8bit"` |
+| bf16 | Largest | Highest | `"mlx_quantization": "bf16"` |
+
+### Voice Cloning with MLX
+
+MLX uses `.wav` + `.txt` files instead of `.pt` tensor files for voice cloning. When you create a voice prompt with `createVoice`, both formats are saved automatically:
+
+```
+voice_prompts/
+├── my_voice.pt     # PyTorch format
+├── my_voice.wav    # MLX format (reference audio)
+└── my_voice.txt    # MLX format (transcript)
+```
+
+If you have legacy `.pt`-only prompts from before MLX was added, re-create them with `createVoice` using the original audio.
+
+### MLX Troubleshooting
+
+**"mlx-audio is not installed"** - The MLX conda environment is not set up. Run `install.sh` or create it manually (see above).
+
+**"only has a .pt file (torch format)"** - Re-create the voice prompt with `createVoice` to generate MLX-compatible `.wav`/`.txt` files.
+
+**Wrong conda env activated** - Wrapper scripts handle this automatically. If running Python directly, activate the correct env: `conda activate qwen3-tts-mlx`.
 
 ---
 
@@ -853,7 +942,7 @@ Run the test suite (no GPU, models, or running server required):
 python -m unittest discover -v tests/
 ```
 
-36 tests covering config, server validation, authentication, SSML/SRT parsing, and filename logic.
+66 tests covering config, server validation, authentication, SSML/SRT parsing, filename logic, backend config, MLX voice prompts, backend dispatch, and lazy import safety. MLX-specific import tests are automatically skipped when `mlx` is not installed.
 
 ---
 
@@ -870,7 +959,8 @@ python -m unittest discover -v tests/
 ├── tts_engine.py           # Model loading & inference engine
 ├── config.json             # Configuration
 ├── create_custom_voice.py  # Voice cloning script
-├── voice_prompts/          # Voice prompt files (.pt)
+├── requirements-mlx.txt    # MLX backend dependencies
+├── voice_prompts/          # Voice prompt files (.pt + .wav/.txt for MLX)
 │   └── default_clone.pt
 ├── bin/                    # Wrapper scripts (canonical source)
 │   ├── changeVoice
@@ -911,3 +1001,4 @@ All features implemented across 10 phases:
 - **Phase 8:** Configurable model loading (on-demand, `/load-model` API)
 - **Phase 9:** Installation & Web UI (`install.sh`, Gradio interface, `changeVoice --ui`)
 - **Phase 10:** Security, reliability & UX (auth tokens, input validation, logging, structured errors, progress/ETA, post-generation menu, test suite)
+- **Phase 11:** MLX backend integration (Apple Silicon native inference, separate conda env, lazy imports, dual-format voice prompts, backend dispatch)

@@ -60,12 +60,13 @@ The codebase uses a layered architecture to avoid loading heavy dependencies (to
 | Module | Purpose | Imports torch? |
 |--------|---------|----------------|
 | `tts_config.py` | Constants, config helpers, error classes, `CUSTOM_VOICE_SPEAKERS`, `MODEL_INFO`, `TOKEN_FILE`, auth helpers | No |
-| `tts_engine.py` | `load_model()`, `run_inference()`, `create_voice_prompt()`, LRU cache, audio processing, MPS management | Yes (on import) |
-| `tts_server.py` | Flask server with auth, validation, progress tracking, structured errors | Yes (via tts_engine) |
+| `tts_engine.py` | `load_model()`, `run_inference()`, `create_voice_prompt()`, LRU cache, audio processing, backend dispatch | No (lazy imports per backend) |
+| `tts_server.py` | Flask server with auth, validation, progress tracking, structured errors | No (lazy via tts_engine) |
 | `tts_client.py` | HTTP client library for server API | No (lazy tts_engine for audio only) |
 | `tts_generate.py` | CLI generation with progress display, post-gen menu support | No (lazy tts_engine for local mode) |
 | `tts_ui.py` | Gradio web interface with progress bars, stop server button | No (HTTP only) |
-| `create_custom_voice.py` | Voice clone prompt creation from audio files | Yes (via tts_engine) |
+| `create_custom_voice.py` | Voice clone prompt creation from audio files, saves dual-format (.pt + .wav/.txt) | Yes (via tts_engine) |
+| `requirements-mlx.txt` | MLX backend dependencies (separate conda env) | N/A |
 
 ### Files in this directory
 - `install.sh` - Automated installation script (copies wrapper scripts from `bin/`)
@@ -82,11 +83,11 @@ The codebase uses a layered architecture to avoid loading heavy dependencies (to
 - `tests/` - Test suite (run with `python -m unittest discover -v tests/`)
 
 ### Wrapper scripts in ~/bin/ (installed from bin/)
-- `changeVoice` - Server detection, generation, post-generation menu (re-run, edit, new settings)
-- `startTTSServer` - Starts server with `PYTORCH_ENABLE_MPS_FALLBACK=1`, waits for ready
-- `stopTTSServer` - Graceful shutdown with auth token support
-- `createVoice` - Wrapper for voice creation
-- `ttsUI` - Launch Gradio web interface
+- `changeVoice` - Server detection, generation, post-generation menu; auto-selects conda env by backend
+- `startTTSServer` - Starts server; activates correct conda env, sets `PYTORCH_ENABLE_MPS_FALLBACK=1` for torch
+- `stopTTSServer` - Graceful shutdown with auth token support (no conda env needed)
+- `createVoice` - Wrapper for voice creation (always uses `qwen3-tts` torch env)
+- `ttsUI` - Launch Gradio web interface; auto-selects conda env by backend
 
 ## Security
 
@@ -155,15 +156,28 @@ Output filenames auto-increment: `output.wav` -> `output_2.wav` -> `output_3.wav
 
 ## Technical Details
 
-### Conda Environment
-- Name: `qwen3-tts`
-- Location: `~/miniforge3/envs/qwen3-tts`
-- Key packages: qwen-tts, torch, flask, soundfile, gradio
+### Conda Environments
+
+| Environment | Backend | Key packages | transformers version |
+|-------------|---------|-------------|---------------------|
+| `qwen3-tts` | torch (default) | qwen-tts, torch, flask, soundfile, gradio | 4.57.3 |
+| `qwen3-tts-mlx` | mlx | mlx-audio, mlx, mlx-lm, flask, gradio | 5.0.0rc3 |
+
+The two environments cannot be merged due to a hard `transformers` version conflict between `qwen-tts` and `mlx-audio`. Wrapper scripts automatically activate the correct environment based on `config.json`.
 
 ### Models (cached in ~/.cache/huggingface/hub/)
-- `Qwen/Qwen3-TTS-12Hz-1.7B-Base` - For voice cloning from audio samples
-- `Qwen/Qwen3-TTS-12Hz-1.7B-VoiceDesign` - For voice description mode
-- `Qwen/Qwen3-TTS-12Hz-1.7B-CustomVoice` - For 9 premium pre-trained speakers
+
+**PyTorch models:**
+- `Qwen/Qwen3-TTS-12Hz-1.7B-Base` - Voice cloning from audio samples (~3.5GB)
+- `Qwen/Qwen3-TTS-12Hz-1.7B-VoiceDesign` - Voice description mode (~3.5GB)
+- `Qwen/Qwen3-TTS-12Hz-1.7B-CustomVoice` - 9 premium pre-trained speakers (~3.5GB)
+
+**MLX models (quantized, smaller):**
+- `mlx-community/Qwen3-TTS-12Hz-1.7B-Base-{quant}` - Voice cloning (~2.5GB)
+- `mlx-community/Qwen3-TTS-12Hz-1.7B-VoiceDesign-{quant}` - Voice description (~2.5GB)
+- `mlx-community/Qwen3-TTS-12Hz-1.7B-CustomVoice-{quant}` - Premium speakers (~2.5GB)
+
+Where `{quant}` is `4bit`, `8bit` (default), or `bf16`.
 
 ### Server
 - Runs on `localhost:5123`
@@ -184,13 +198,19 @@ Run the test suite (no GPU, models, or running server required):
 python -m unittest discover -v tests/
 ```
 
-36 tests across 6 test classes:
+66 tests across 12 test classes (2 skipped when MLX not installed):
 - `TestTTSConfig` - error hierarchy, format helpers, auth token, model info, speakers
 - `TestServerValidation` - text length, batch size, mode, speaker, path traversal
 - `TestServerAuth` - public endpoints, auth enforcement, token validation
 - `TestSSMLParsing` - SSML tag parsing
 - `TestSRTParsing` - SRT subtitle parsing
 - `TestAutoIncrementFilename` - filename auto-increment logic
+- `TestBackendConfig` - `get_backend()`, `get_mlx_quantization()`, `get_mlx_model_name()`, env var override, MLX model info
+- `TestMLXVoicePrompt` - MLX voice prompt loading (.wav/.txt), dispatch, .pt-only error
+- `TestBackendDispatch` - `load_model()` and `run_inference()` dispatch to correct backend
+- `TestMLXInferenceCloneValidation` - MLX clone mode input validation (no model needed)
+- `TestMLXImport` - MLX library import checks (`unittest.skipIf` when mlx not installed)
+- `TestLazyImports` - Verify `tts_engine` does not import torch/mlx at module scope
 
 ## Config Structure (config.json)
 ```json
@@ -213,9 +233,93 @@ python -m unittest discover -v tests/
   "presets": {
     "consistent": { "temperature": 0.5, "top_k": 30, "seed": 42 },
     "creative": { "temperature": 0.9, "top_p": 0.98 }
+  },
+  "advanced": {
+    "dtype": "bfloat16",
+    "backend": "torch",
+    "mlx_quantization": "8bit"
   }
 }
 ```
+
+### Backend Configuration (`advanced` section)
+
+| Key | Values | Default | Description |
+|-----|--------|---------|-------------|
+| `backend` | `"torch"`, `"mlx"` | `"torch"` | Inference backend. Wrapper scripts activate the correct conda env. |
+| `dtype` | `"float32"`, `"float16"`, `"bfloat16"` | `"float32"` | PyTorch dtype (torch backend only). |
+| `mlx_quantization` | `"4bit"`, `"8bit"`, `"bf16"` | `"8bit"` | MLX model quantization level (mlx backend only). |
+
+**CLI override:** `changeVoice --backend mlx "text" -o output` sets `TTS_BACKEND` env var for that run without modifying config.json.
+
+## MLX Backend
+
+### Overview
+
+MLX is an alternative inference backend for Apple Silicon Macs that runs natively on the Neural Engine and GPU. Benefits over PyTorch/MPS:
+- Lower thermal output (~40-50°C vs ~80-90°C)
+- Less battery drain
+- Uses 8-bit quantized models (~2-3GB vs ~5-7GB per model)
+
+### Architecture
+
+```
+config.json  →  tts_config.py  →  tts_engine.py (dispatch)
+                                    ├── backend="torch" → lazy import torch/qwen_tts
+                                    │   Models: Qwen/Qwen3-TTS-12Hz-1.7B-*
+                                    │   Env: qwen3-tts
+                                    └── backend="mlx"   → lazy import mlx_audio
+                                        Models: mlx-community/Qwen3-TTS-12Hz-1.7B-*-{quant}
+                                        Env: qwen3-tts-mlx
+```
+
+All backend-specific imports are lazy (local to `_*_torch()` or `_*_mlx()` functions). Neither `torch` nor `mlx` is imported at module scope in `tts_engine.py` or `tts_server.py`.
+
+### Switching Backends
+
+1. Edit `config.json`: set `"advanced": {"backend": "mlx"}`
+2. Restart the server: `stopTTSServer && startTTSServer`
+3. Wrapper scripts automatically activate the correct conda environment
+
+Or use the CLI override for a single run:
+```bash
+changeVoice --backend mlx "Hello world" -o test
+```
+
+### Voice Prompt Format
+
+| | PyTorch | MLX |
+|---|---|---|
+| Voice clone input | `.pt` tensor file | `.wav` + `.txt` file pair |
+| Created by | `model.create_voice_clone_prompt()` | Raw reference audio + transcript |
+
+`createVoice` saves both formats automatically (.pt + .wav + .txt). For legacy `.pt`-only prompts, re-create them with `createVoice` using the original audio.
+
+### Installing the MLX Backend
+
+Run `install.sh` and select the MLX option, or manually:
+```bash
+conda create -n qwen3-tts-mlx python=3.11 -y
+conda activate qwen3-tts-mlx
+pip install -r requirements-mlx.txt
+```
+
+### MLX Troubleshooting
+
+**"mlx-audio is not installed"**
+- You're using the torch conda env with `backend: "mlx"`. Switch to the MLX env or run `install.sh` to create it.
+
+**"only has a .pt file (torch format)"**
+- The voice prompt was created before the MLX backend was added. Re-create it with `createVoice` — this saves both `.pt` (torch) and `.wav`/`.txt` (MLX) files.
+
+**Missing `.wav`/`.txt` files for Clone mode**
+- MLX clone mode needs a `.wav` reference audio and `.txt` transcript alongside the `.pt` file in `voice_prompts/`. Run `createVoice` with the original audio to regenerate all formats.
+
+**MLX model download fails**
+- Ensure you can access `mlx-community` repos on HuggingFace. Check quantization setting: `advanced.mlx_quantization` must be `"4bit"`, `"8bit"`, or `"bf16"`.
+
+**Wrong conda env activated**
+- Wrapper scripts read `advanced.backend` from `config.json` and activate the correct env. If you run Python directly, ensure you've activated the right env manually.
 
 ## Implementation Roadmap
 
@@ -235,3 +339,16 @@ See README.md for full phase history.
 - [x] Auto-increment output filenames
 - [x] Test suite (36 tests, no GPU required)
 - [x] Wrapper scripts in repo (`bin/`) for reproducible installation
+
+### Phase 11: MLX Backend Integration ✅ COMPLETE
+- [x] Backend config helpers - `get_backend()`, `get_mlx_quantization()`, `MLX_MODEL_INFO`
+- [x] Lazy import refactor - neither torch nor mlx imported at module scope
+- [x] Backend dispatch - `load_model()`, `run_inference()`, `load_voice_prompt()` dispatch by backend
+- [x] MLX inference - `_load_model_mlx()`, `_run_inference_mlx()` for all 3 modes
+- [x] Separate conda environments - `qwen3-tts` (torch) + `qwen3-tts-mlx` (mlx)
+- [x] Wrapper script env switching - auto-activate correct conda env
+- [x] Dual-format voice prompts - `.pt` (torch) + `.wav`/`.txt` (MLX) saved together
+- [x] UI/CLI integration - backend indicator in Gradio, `--backend` CLI flag, `/health` info
+- [x] `install.sh` MLX option - optional MLX env creation + model download
+- [x] Backend-aware test suite (66 tests, MLX tests skipped when mlx not installed)
+- [x] Documentation - CLAUDE.md, README.md updated
