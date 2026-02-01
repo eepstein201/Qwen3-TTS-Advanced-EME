@@ -28,7 +28,7 @@
   },
   "advanced": {
     "dtype": "bfloat16",
-    "backend": "torch",
+    "backend": "mlx",
     "mlx_quantization": "8bit"
   },
   "generation": {

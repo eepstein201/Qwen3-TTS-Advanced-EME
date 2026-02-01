@@ -1,8 +1,12 @@
 #!/bin/bash
 # Create a new custom voice clone prompt
-# Reads backend from config.json and activates the correct conda environment
-# Note: Voice creation always uses the torch backend (requires qwen-tts model
-# for create_voice_clone_prompt), but saves MLX-compatible files too.
+#
+# Default: saves both .pt (torch) and .wav/.txt (MLX) — requires torch env
+# --mlx-only: saves only .wav/.txt — works from either env
+#
+# Voice creation uses the torch env by default because .pt creation requires
+# the qwen-tts model. With --mlx-only, it uses whichever env matches the
+# configured backend (or torch if available).
 
 CONFIG_FILE="$HOME/Qwen3-TTS_UserFiles/config.json"
 
@@ -13,13 +17,34 @@ elif [[ -f "$HOME/miniconda3/etc/profile.d/conda.sh" ]]; then
     source "$HOME/miniconda3/etc/profile.d/conda.sh"
 fi
 
-# Voice creation always uses torch env (needs qwen-tts for prompt extraction)
-CONDA_ENV="qwen3-tts"
+# Check if --mlx-only was passed
+MLX_ONLY=false
+for arg in "$@"; do
+    if [[ "$arg" == "--mlx-only" ]]; then
+        MLX_ONLY=true
+        break
+    fi
+done
+
+if [[ "$MLX_ONLY" == "true" ]]; then
+    # --mlx-only doesn't need torch, use the configured backend's env
+    BACKEND=$(python3 -c "import json; c=json.load(open('$CONFIG_FILE')); print(c.get('advanced',{}).get('backend','torch'))" 2>/dev/null)
+    if [[ "$BACKEND" == "mlx" ]]; then
+        CONDA_ENV="qwen3-tts-mlx"
+    else
+        CONDA_ENV="qwen3-tts"
+    fi
+else
+    # Full dual-format creation requires torch env
+    CONDA_ENV="qwen3-tts"
+fi
 
 # Deactivate any current env, then activate the correct one
 conda deactivate 2>/dev/null
 conda activate "$CONDA_ENV"
 
-export PYTORCH_ENABLE_MPS_FALLBACK=1
+if [[ "$CONDA_ENV" == "qwen3-tts" ]]; then
+    export PYTORCH_ENABLE_MPS_FALLBACK=1
+fi
 
 python ~/Qwen3-TTS_UserFiles/create_custom_voice.py "$@"

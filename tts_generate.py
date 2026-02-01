@@ -47,6 +47,25 @@ from tts_config import (
 # Text helpers
 # ---------------------------------------------------------------------------
 
+def voice_prompt_exists(prompt_file):
+    """Check if a voice prompt exists for the current backend.
+
+    - torch: checks for .pt file
+    - mlx: checks for .wav + .txt file pair
+    """
+    backend = get_backend()
+    if backend == "mlx":
+        base = prompt_file
+        if base.endswith(".pt"):
+            base = base[:-3]
+        wav = os.path.join(VOICE_PROMPTS_DIR, f"{base}.wav")
+        txt = os.path.join(VOICE_PROMPTS_DIR, f"{base}.txt")
+        return os.path.exists(wav) and os.path.exists(txt)
+    else:
+        pt_path = os.path.join(VOICE_PROMPTS_DIR, prompt_file)
+        return os.path.exists(pt_path)
+
+
 def list_voice_prompts():
     """List available voice clone prompts."""
     prompts = [f for f in os.listdir(VOICE_PROMPTS_DIR) if f.endswith('.pt')]
@@ -241,8 +260,7 @@ def preview_voice_prompt(prompt_name, config):
     if not prompt_name.endswith('.pt'):
         prompt_name += '.pt'
 
-    prompt_path = os.path.join(VOICE_PROMPTS_DIR, prompt_name)
-    if not os.path.exists(prompt_path):
+    if not voice_prompt_exists(prompt_name):
         print(f"Error: Voice prompt not found: {prompt_name}")
         return False
 
@@ -666,9 +684,15 @@ def generate_local(text, mode, gen_params, language="English",
         if not prompt_file:
             print("Error: Voice prompt required for clone mode")
             sys.exit(1)
-        prompt_path = os.path.join(VOICE_PROMPTS_DIR, prompt_file)
-        if not os.path.exists(prompt_path):
-            print(f"Error: Voice prompt not found: {prompt_path}")
+        if not voice_prompt_exists(prompt_file):
+            backend = get_backend()
+            if backend == "mlx":
+                base = prompt_file[:-3] if prompt_file.endswith(".pt") else prompt_file
+                print(f"Error: MLX voice prompt not found for '{base}'.")
+                print(f"  Need: voice_prompts/{base}.wav + voice_prompts/{base}.txt")
+                print(f"  Create with: createVoice <audio> -t <transcript> -n {base} --mlx-only")
+            else:
+                print(f"Error: Voice prompt not found: {os.path.join(VOICE_PROMPTS_DIR, prompt_file)}")
             sys.exit(1)
         print(f"Loading voice prompt: {prompt_file}")
         voice_prompt = load_voice_prompt(prompt_file)
