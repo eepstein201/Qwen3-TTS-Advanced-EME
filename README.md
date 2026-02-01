@@ -727,7 +727,14 @@ changeVoice --stats
    cat ~/Qwen3-TTS_UserFiles/.tts_server.log
    ```
 
-3. **Kill any stuck processes:**
+3. **Stale wrapper scripts in ~/bin/:**
+   If the log shows `ModuleNotFoundError: No module named 'mlx_audio'` (or the wrong conda env is being used), the wrapper scripts in `~/bin/` may be outdated. Re-copy them from the repo:
+   ```bash
+   cp ~/Qwen3-TTS_UserFiles/bin/* ~/bin/ && chmod +x ~/bin/*
+   ```
+   Or re-run `./install.sh`. This is needed after repo updates that change the wrapper scripts (e.g., adding backend env switching).
+
+4. **Kill any stuck processes:**
    ```bash
    pkill -f tts_server.py
    rm ~/Qwen3-TTS_UserFiles/.tts_server.pid
@@ -979,7 +986,7 @@ python -m unittest discover -v tests/
 ├── .tts_server.pid         # Server PID file (runtime)
 └── .tts_server.log         # Server log (runtime)
 
-~/bin/                      # Installed wrapper scripts (copied from bin/)
+~/bin/                      # Installed wrapper scripts (copied from bin/ — re-copy after repo updates)
 ├── changeVoice
 ├── startTTSServer
 ├── stopTTSServer

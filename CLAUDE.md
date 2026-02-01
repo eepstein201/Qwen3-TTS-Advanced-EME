@@ -90,6 +90,12 @@ The codebase uses a layered architecture to avoid loading heavy dependencies (to
 - `createVoice` - Wrapper for voice creation (always uses `qwen3-tts` torch env)
 - `ttsUI` - Launch Gradio web interface; auto-selects conda env by backend
 
+**IMPORTANT:** The wrapper scripts in `~/bin/` are copies of the canonical scripts in `bin/`. After updating the repo (e.g., adding backend support, new flags), you must re-copy them:
+```bash
+cp bin/* ~/bin/ && chmod +x ~/bin/*
+```
+Or re-run `./install.sh`. Stale wrapper scripts are a common source of bugs (e.g., old scripts always activating the `qwen3-tts` torch env even when config says `"backend": "mlx"`).
+
 ## Security
 
 ### API Token Authentication
