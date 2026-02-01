@@ -102,8 +102,9 @@ This opens your browser to `http://localhost:7860` with a graphical interface.
 ### UI Features
 
 - **Three tabs** for Clone, Design, and Custom modes
-- **Status bar** showing server connection, memory usage, and loaded models
-- **Voice prompt dropdown** (Clone mode)
+- **Auto-load models** on first use — no need to pre-load all three at startup
+- **Status bar** showing server connection, backend, memory usage, and loaded models (refreshes after each generation)
+- **Voice prompt dropdown** (Clone mode) — defaults to `config.json`'s `default_clone_prompt`, backend-aware (.pt for PyTorch, .wav for MLX)
 - **Speaker selection** with descriptions (Custom mode)
 - **Advanced settings** (collapsible): temperature, top-k, top-p, repetition penalty, seed
 - **Audio processing** (collapsible): trim silence, normalize, speed, pitch
@@ -454,7 +455,7 @@ Options:
 ```json
 {
   "default_voice_description": "A calm, friendly voice...",
-  "default_clone_prompt": "LaLa_2.pt",
+  "default_clone_prompt": "my_voice.pt",
   "output_directory": "~/Downloads",
   "language": "English",
   "server": {
@@ -491,7 +492,7 @@ Options:
   },
   "aliases": {
     "default": {
-      "prompt": "LaLa_2.pt",
+      "prompt": "my_voice.pt",
       "preset": "consistent"
     }
   },
@@ -526,7 +527,7 @@ changeVoice --list-models
 | `design` | Generate voice from text description | ~3.5GB | ~2.5GB |
 | `custom` | 9 premium pre-trained speakers | ~3.5GB | ~2.5GB |
 
-**On-demand loading:** If you use a feature requiring an unloaded model, you'll be prompted to load it dynamically. This lets you start with minimal memory and add models as needed.
+**On-demand loading:** Models are loaded automatically when first needed — both in the CLI (interactive prompt) and the Web UI (transparent auto-load with progress indicator). This lets you start with minimal memory and add models as needed.
 
 ```json
 "models": {
@@ -630,7 +631,9 @@ client.server_url       # Server URL string
 
 # Methods
 client.is_server_running()      # Check server status
+client.get_health()             # Get health info (loaded models, backend)
 client.get_stats()              # Get server statistics
+client.load_model(mode)         # Load a model on demand (clone/design/custom)
 client.list_prompts()           # List voice prompts
 client.list_presets()           # List presets
 client.list_aliases()           # List voice aliases
@@ -928,7 +931,7 @@ When generating via the server, a live progress spinner shows elapsed time and E
 ETA is estimated from your generation history (median characters/second).
 
 ### Gradio Progress
-The web interface shows a progress bar during generation, capped at 95% until completion.
+The web interface shows a progress bar during generation, capped at 95% until completion. If a model needs to be loaded first, the progress bar shows "Loading {mode} model (first use)..." before generation begins.
 
 ---
 
@@ -974,9 +977,6 @@ python -m unittest discover -v tests/
 ├── create_custom_voice.py  # Voice cloning script
 ├── requirements-mlx.txt    # MLX backend dependencies
 ├── voice_prompts/          # Voice prompt files (.pt + .wav/.txt for MLX)
-│   ├── LaLa.pt / .wav / .txt
-│   ├── LaLa_2.pt / .wav / .txt
-│   └── lsmith.pt / .wav / .txt
 ├── bin/                    # Wrapper scripts (canonical source)
 │   ├── changeVoice
 │   ├── startTTSServer

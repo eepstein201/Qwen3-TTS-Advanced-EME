@@ -61,19 +61,19 @@ The codebase uses a layered architecture to avoid loading heavy dependencies (to
 |--------|---------|----------------|
 | `tts_config.py` | Constants, config helpers, error classes, `CUSTOM_VOICE_SPEAKERS`, `MODEL_INFO`, `TOKEN_FILE`, auth helpers | No |
 | `tts_engine.py` | `load_model()`, `run_inference()`, `create_voice_prompt()`, LRU cache, audio processing, backend dispatch | No (lazy imports per backend) |
-| `tts_server.py` | Flask server with auth, validation, progress tracking, structured errors | No (lazy via tts_engine) |
-| `tts_client.py` | HTTP client library for server API | No (lazy tts_engine for audio only) |
+| `tts_server.py` | Flask server with auth, validation, progress tracking, structured errors, backend-aware `/prompts` | No (lazy via tts_engine) |
+| `tts_client.py` | HTTP client library for server API (`get_health()`, `load_model()`, `generate()`) | No (lazy tts_engine for audio only) |
 | `tts_generate.py` | CLI generation with progress display, post-gen menu support | No (lazy tts_engine for local mode) |
-| `tts_ui.py` | Gradio web interface with progress bars, stop server button | No (HTTP only) |
+| `tts_ui.py` | Gradio web interface with auto-load, progress bars, stop server button | No (HTTP only) |
 | `create_custom_voice.py` | Voice clone prompt creation from audio files, saves dual-format (.pt + .wav/.txt) | Yes (via tts_engine) |
 | `requirements-mlx.txt` | MLX backend dependencies (separate conda env) | N/A |
 
 ### Files in this directory
 - `install.sh` - Automated installation script (torch + optional MLX envs, wrapper scripts)
 - `tts_generate.py` - CLI generation with `--backend` override, batch support, SSML, SRT, dialogue
-- `tts_server.py` - Flask server with auth, validation, logging, progress tracking, backend info
-- `tts_client.py` - Python API client library
-- `tts_ui.py` - Gradio web interface (Clone/Design/Custom tabs, backend status indicator)
+- `tts_server.py` - Flask server with auth, validation, logging, progress tracking, backend-aware `/prompts`
+- `tts_client.py` - Python API client library (`get_health()`, `load_model()`, `generate()`)
+- `tts_ui.py` - Gradio web interface (Clone/Design/Custom tabs, auto-load models, backend status indicator)
 - `tts_config.py` - Shared constants, config helpers, error classes, backend helpers (no torch/mlx)
 - `tts_engine.py` - Backend dispatch engine: lazy-loads torch or mlx per config
 - `config.json` - Settings: server, generation params, presets, security, backend selection
@@ -150,6 +150,7 @@ CLI and UI parse `recovery` to show actionable guidance.
 - ETA estimated from `~/.tts_history.jsonl` median chars/sec
 - CLI: background thread with spinner (`Generating... 12s elapsed`)
 - Gradio: `gr.Progress()` with threaded polling, capped at 95%
+- Gradio auto-load: `_ensure_model_loaded()` checks `/health` before generation, calls `client.load_model()` if needed (progress shows "Loading {mode} model (first use)...")
 
 ## Post-Generation Menu (CLI)
 
@@ -223,7 +224,7 @@ python -m unittest discover -v tests/
 ```json
 {
   "default_voice_description": "...",
-  "default_clone_prompt": "LaLa_2.pt",
+  "default_clone_prompt": "my_voice.pt",
   "output_directory": "~/Downloads",
   "language": "English",
   "server": { "host": "127.0.0.1", "port": 5123, "auto_shutdown_minutes": 0 },
@@ -359,3 +360,12 @@ See README.md for full phase history.
 - [x] `install.sh` MLX option - optional MLX env creation + model download
 - [x] Backend-aware test suite (66 tests, MLX tests skipped when mlx not installed)
 - [x] Documentation - CLAUDE.md, README.md updated
+
+### Phase 12: UI Auto-Load & Backend-Aware Prompts ✅ COMPLETE
+- [x] Backend-aware `/prompts` endpoint - lists `.pt` for torch, `.wav`+`.txt` pairs for MLX
+- [x] `TTSClient.get_health()` - check loaded models and backend via `/health`
+- [x] `TTSClient.load_model(mode)` - on-demand model loading via `/load-model` (120s timeout)
+- [x] Gradio auto-load - `_ensure_model_loaded()` checks `/health`, loads model before generation
+- [x] Status bar refresh - updates after each generation to reflect newly loaded models
+- [x] Voice prompt dropdown default - uses `get_default_clone_prompt()` from config
+- [x] Updated footer tips - MLX format, auto-load behavior, backend switching
