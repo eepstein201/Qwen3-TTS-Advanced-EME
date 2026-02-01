@@ -40,6 +40,7 @@ from tts_config import (
     get_torch_dtype_name,
     get_mlx_quantization,
     get_mlx_model_name,
+    get_default_clone_prompt,
 )
 
 
@@ -741,7 +742,7 @@ def run_repl(config, use_server):
 
     state = {
         "mode": "clone",
-        "prompt": config.get("default_clone_prompt", "default_clone.pt"),
+        "prompt": get_default_clone_prompt(config),
         "preset": None,
         "auto_play": True,
         "speed": None,
@@ -903,7 +904,7 @@ def run_watch_mode(watch_dir, config, args, gen_params, use_server):
     os.makedirs(output_dir, exist_ok=True)
 
     mode = args.mode or "clone"
-    prompt_file = args.prompt or config.get("default_clone_prompt", "default_clone.pt")
+    prompt_file = args.prompt or get_default_clone_prompt(config)
     voice_description = args.description or config.get("default_voice_description", "")
 
     processed_files = set()
@@ -1027,7 +1028,7 @@ def process_dialogue(dialogue_path, config, args, gen_params, use_server):
 
         mode = speaker_config.get("mode", "clone")
 
-        prompt_file = speaker_config.get("prompt", config.get("default_clone_prompt", "default_clone.pt"))
+        prompt_file = speaker_config.get("prompt", get_default_clone_prompt(config))
         voice_description = speaker_config.get("description", config.get("default_voice_description", ""))
         custom_speaker = speaker_config.get("speaker", "ryan")
         instruct = speaker_config.get("instruct", line.get("instruct", ""))
@@ -1136,7 +1137,7 @@ def process_srt_file(srt_path, config, args, gen_params, use_server):
 
     basename = os.path.splitext(os.path.basename(srt_path))[0]
     mode = args.mode or "clone"
-    prompt_file = args.prompt or config.get("default_clone_prompt", "default_clone.pt")
+    prompt_file = args.prompt or get_default_clone_prompt(config)
     voice_description = args.description or config.get("default_voice_description", "")
 
     print(f"\nProcessing SRT: {srt_path}")
@@ -1330,7 +1331,7 @@ def process_batch(texts, args, config, gen_params, use_server):
 
     language = config.get("language", "English")
     mode = args.mode or "clone"
-    prompt_file = args.prompt or config.get("default_clone_prompt", "default_clone.pt")
+    prompt_file = args.prompt or get_default_clone_prompt(config)
     voice_description = args.description or config.get("default_voice_description", "")
 
     output_paths = []
@@ -1684,7 +1685,7 @@ def main():
     # Dry-run mode
     if args.dry_run:
         mode = args.mode or "clone"
-        prompt_file = args.prompt or config.get("default_clone_prompt", "default_clone.pt")
+        prompt_file = args.prompt or get_default_clone_prompt(config)
         voice_description = args.description or config.get("default_voice_description", "")
         output_dir = os.path.expanduser(args.output or config.get("output_directory", "~/Downloads"))
 
@@ -1782,7 +1783,7 @@ def main():
 
     language = config.get("language", "English")
     mode = args.mode or "clone"
-    prompt_file = args.prompt or config.get("default_clone_prompt", "default_clone.pt")
+    prompt_file = args.prompt or get_default_clone_prompt(config)
     voice_description = args.description or config.get("default_voice_description", "")
 
     # Determine mode
