@@ -92,6 +92,38 @@ class TTSClient:
         resp = requests.get(f"{self.server_url}/stats", timeout=5, headers=auth_headers())
         return resp.json()
 
+    def get_health(self):
+        """Get server health info including loaded models and backend."""
+        if not self.is_server_running():
+            raise ConnectionError("TTS server is not running")
+        resp = requests.get(f"{self.server_url}/health", timeout=5)
+        return resp.json()
+
+    def load_model(self, mode):
+        """Request the server to load a model on demand.
+
+        Args:
+            mode: Model type — "clone", "design", or "custom".
+
+        Returns:
+            Response dict with "status" key ("loaded" or "already_loaded").
+        """
+        if not self.is_server_running():
+            raise ConnectionError("TTS server is not running")
+        resp = requests.post(
+            f"{self.server_url}/load-model",
+            json={"model_type": mode},
+            timeout=120,
+            headers=auth_headers(),
+        )
+        if resp.status_code != 200:
+            try:
+                error_msg = resp.json().get("error", "Unknown error")
+            except (ValueError, requests.exceptions.JSONDecodeError):
+                error_msg = f"Server returned HTTP {resp.status_code}"
+            raise Exception(f"Failed to load {mode} model: {error_msg}")
+        return resp.json()
+
     def list_prompts(self):
         """List available voice prompts."""
         prompts = [f for f in os.listdir(self.voice_prompts_dir) if f.endswith('.pt')]
