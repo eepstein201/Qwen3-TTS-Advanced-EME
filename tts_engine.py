@@ -28,9 +28,91 @@ from tts_config import (
     get_backend,
     get_mlx_model_name,
     CONFIG_PATH,
+    load_config,
 )
 
 logger = logging.getLogger("tts.engine")
+
+
+# ---------------------------------------------------------------------------
+# Text chunking for long-form reliability
+# ---------------------------------------------------------------------------
+
+def _split_text(text, max_chars=500):
+    """Split text into chunks at sentence boundaries.
+
+    Splits on sentence-ending punctuation (. ! ?) followed by whitespace,
+    or on newlines. If a single sentence exceeds max_chars, falls back to
+    clause boundaries (, ; — :). Never splits mid-word.
+
+    Args:
+        text: Input text to split.
+        max_chars: Maximum characters per chunk.
+
+    Returns:
+        List of text chunks. Returns [text] unchanged if len(text) <= max_chars.
+    """
+    text = text.strip()
+    if len(text) <= max_chars:
+        return [text]
+
+    import re
+
+    # Split on sentence boundaries: . ! ? followed by whitespace, or newlines
+    # Keep the delimiter attached to the preceding segment
+    sentence_pattern = r'(?<=[.!?])\s+'
+    sentences = re.split(sentence_pattern, text)
+
+    # Also split on paragraph breaks (multiple newlines)
+    expanded = []
+    for s in sentences:
+        parts = re.split(r'\n+', s)
+        expanded.extend(p.strip() for p in parts if p.strip())
+    sentences = expanded
+
+    chunks = []
+    current_chunk = ""
+
+    for sentence in sentences:
+        # If adding this sentence would exceed max_chars
+        if current_chunk and len(current_chunk) + 1 + len(sentence) > max_chars:
+            chunks.append(current_chunk.strip())
+            current_chunk = ""
+
+        # If a single sentence exceeds max_chars, split on clause boundaries
+        if len(sentence) > max_chars:
+            if current_chunk:
+                chunks.append(current_chunk.strip())
+                current_chunk = ""
+
+            clause_pattern = r'(?<=[,;:—])\s+'
+            clauses = re.split(clause_pattern, sentence)
+
+            for clause in clauses:
+                if current_chunk and len(current_chunk) + 1 + len(clause) > max_chars:
+                    chunks.append(current_chunk.strip())
+                    current_chunk = ""
+
+                # If even a single clause exceeds max_chars, force-split on word boundaries
+                if len(clause) > max_chars:
+                    if current_chunk:
+                        chunks.append(current_chunk.strip())
+                        current_chunk = ""
+                    words = clause.split()
+                    for word in words:
+                        if current_chunk and len(current_chunk) + 1 + len(word) > max_chars:
+                            chunks.append(current_chunk.strip())
+                            current_chunk = ""
+                        current_chunk = (current_chunk + " " + word).strip() if current_chunk else word
+                else:
+                    current_chunk = (current_chunk + " " + clause).strip() if current_chunk else clause
+        else:
+            current_chunk = (current_chunk + " " + sentence).strip() if current_chunk else sentence
+
+    if current_chunk.strip():
+        chunks.append(current_chunk.strip())
+
+    return chunks if chunks else [text]
 
 
 # ---------------------------------------------------------------------------
@@ -425,10 +507,23 @@ def load_model(model_type):
     return _load_model_torch(model_type)
 
 
+def _get_max_chunk_chars():
+    """Read max_chunk_chars from config, defaulting to 500."""
+    try:
+        config = load_config()
+        return config.get("generation", {}).get("max_chunk_chars", 500)
+    except Exception:
+        return 500
+
+
 def run_inference(model, text, mode, gen_params, language="English",
                   voice_prompt=None, voice_description=None,
-                  speaker=None, instruct=None):
+                  speaker=None, instruct=None,
+                  max_chunk_chars=None, progress_callback=None):
     """Run TTS inference, dispatching to the configured backend.
+
+    For long texts, automatically splits into chunks at sentence boundaries
+    and concatenates the results with short silence gaps.
 
     Args:
         model: Loaded model (from load_model).
@@ -440,10 +535,72 @@ def run_inference(model, text, mode, gen_params, language="English",
         voice_description: Voice description string (design mode).
         speaker: Speaker name string (custom mode).
         instruct: Style instruction string (custom mode).
+        max_chunk_chars: Max chars per chunk (None = read from config, 0 = disable).
+        progress_callback: Optional callable(chunk_index, chunk_total) for progress.
 
     Returns:
         (wav_array, sample_rate) tuple.
     """
+    if max_chunk_chars is None:
+        max_chunk_chars = _get_max_chunk_chars()
+
+    # Split into chunks if text is long enough
+    if max_chunk_chars > 0 and len(text) > max_chunk_chars:
+        chunks = _split_text(text, max_chars=max_chunk_chars)
+    else:
+        chunks = [text]
+
+    if len(chunks) == 1:
+        # Single chunk — no overhead
+        if progress_callback:
+            progress_callback(0, 1)
+        return _run_inference_single(
+            model, chunks[0], mode, gen_params, language,
+            voice_prompt, voice_description, speaker, instruct,
+        )
+
+    # Multi-chunk: generate each, concatenate with silence gaps
+    logger.info("Splitting text (%d chars) into %d chunks (max %d chars each)",
+                len(text), len(chunks), max_chunk_chars)
+
+    all_audio = []
+    sample_rate = None
+    silence_gap_ms = 100  # 100ms silence between chunks
+
+    for i, chunk in enumerate(chunks):
+        if progress_callback:
+            progress_callback(i, len(chunks))
+
+        preview = chunk[:50] + "..." if len(chunk) > 50 else chunk
+        logger.info("Chunk %d/%d: '%s' (%d chars)", i + 1, len(chunks), preview, len(chunk))
+
+        wav, sr = _run_inference_single(
+            model, chunk, mode, gen_params, language,
+            voice_prompt, voice_description, speaker, instruct,
+        )
+
+        if sample_rate is None:
+            sample_rate = sr
+
+        all_audio.append(wav)
+
+    # Concatenate with silence gaps
+    silence_samples = int(sample_rate * silence_gap_ms / 1000)
+    combined = []
+    for i, wav in enumerate(all_audio):
+        combined.append(wav)
+        if i < len(all_audio) - 1:
+            combined.append(np.zeros(silence_samples, dtype=np.float32))
+
+    result = np.concatenate(combined)
+    logger.info("Combined %d chunks into %.1fs audio", len(chunks), len(result) / sample_rate)
+    return result, sample_rate
+
+
+def _run_inference_single(model, text, mode, gen_params, language="English",
+                          voice_prompt=None, voice_description=None,
+                          speaker=None, instruct=None):
+    """Run TTS inference for a single text chunk."""
     backend = get_backend()
     if backend == "mlx":
         return _run_inference_mlx(

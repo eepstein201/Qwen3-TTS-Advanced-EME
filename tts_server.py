@@ -102,6 +102,8 @@ generation_state = {
     "mode": "",
     "batch_index": 0,
     "batch_total": 0,
+    "chunk_index": 0,
+    "chunk_total": 0,
 }
 
 
@@ -454,6 +456,9 @@ def generate():
     if seed is not None:
         gen_params["seed"] = seed
 
+    # Text chunking — None means use config default, 0 means disable
+    max_chunk_chars = data.get("max_chunk_chars")
+
     # Track this request in queue
     request_id = id(request)
     request_queue.append(request_id)
@@ -490,6 +495,12 @@ def generate():
                     if not speaker:
                         return jsonify({"error": "speaker required for custom mode", "recovery": "config"}), 400
 
+                def _chunk_progress(chunk_idx, chunk_total):
+                    generation_state.update({
+                        "chunk_index": chunk_idx,
+                        "chunk_total": chunk_total,
+                    })
+
                 wav, sr = run_inference(
                     model=model,
                     text=text,
@@ -500,6 +511,8 @@ def generate():
                     voice_description=voice_description,
                     speaker=speaker,
                     instruct=instruct,
+                    max_chunk_chars=max_chunk_chars,
+                    progress_callback=_chunk_progress,
                 )
 
                 # Save to temp file
@@ -519,7 +532,8 @@ def generate():
     finally:
         # Clear generation state
         generation_state.update({"active": False, "start_time": 0.0, "text_length": 0,
-                                 "mode": "", "batch_index": 0, "batch_total": 0})
+                                 "mode": "", "batch_index": 0, "batch_total": 0,
+                                 "chunk_index": 0, "chunk_total": 0})
         # Remove from queue
         if request_id in request_queue:
             request_queue.remove(request_id)

@@ -155,7 +155,13 @@ def _poll_progress(server_url, progress_fn, stop_event):
                         pct = min(0.95, elapsed / (elapsed + eta))
                     else:
                         pct = min(0.95, elapsed / max(elapsed + 10, 30))
-                    progress_fn(pct, desc=f"Generating... {elapsed:.0f}s")
+                    chunk_total = state.get("chunk_total", 0)
+                    if chunk_total > 1:
+                        chunk_idx = state.get("chunk_index", 0) + 1
+                        desc = f"Generating chunk {chunk_idx}/{chunk_total}... {elapsed:.0f}s"
+                    else:
+                        desc = f"Generating... {elapsed:.0f}s"
+                    progress_fn(pct, desc=desc)
         except Exception:
             pass
         stop_event.wait(1.0)
