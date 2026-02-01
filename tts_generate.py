@@ -620,7 +620,7 @@ def generate_via_server(texts, mode, config, gen_params,
     progress.start()
 
     try:
-        resp = requests.post(f"{url}/generate", json=payload, timeout=300, headers=auth_headers())
+        resp = requests.post(f"{url}/generate", json=payload, timeout=600, headers=auth_headers())
     finally:
         progress.stop()
 
@@ -645,7 +645,7 @@ def generate_via_server(texts, mode, config, gen_params,
                         progress = _ProgressPoller(url, batch_total=len(texts))
                         progress.start()
                         try:
-                            resp = requests.post(f"{url}/generate", json=payload, timeout=300, headers=auth_headers())
+                            resp = requests.post(f"{url}/generate", json=payload, timeout=600, headers=auth_headers())
                         finally:
                             progress.stop()
                     else:
