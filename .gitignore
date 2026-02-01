@@ -13,6 +13,11 @@ __pycache__/
 *.wav
 *.mp3
 *.mp4
+*.m4a
+
+# Transcript and text prompt files (user-specific)
+ltref*.txt
+txt_prompts/
 
 # Voice prompts (user-specific, may contain personal voice data)
 voice_prompts/
