@@ -97,7 +97,7 @@ ttsUI
 
 The server starts automatically when launching the UI if it's not already running.
 
-This opens your browser to `http://localhost:7860` with a graphical interface.
+This opens your browser to `http://localhost:7860` (or the next available port if 7860 is busy).
 
 ### UI Features
 
@@ -109,6 +109,7 @@ This opens your browser to `http://localhost:7860` with a graphical interface.
 - **Advanced settings** (collapsible): temperature, top-k, top-p, repetition penalty, seed
 - **Audio processing** (collapsible): trim silence, normalize, speed, pitch
 - **Built-in audio player** for immediate playback
+- **Dynamic port fallback** — if port 7860 is busy, auto-selects the next available port (7861, 7862, ...)
 
 ### UI Options
 
@@ -489,6 +490,9 @@ Options:
       "temperature": 0.9,
       "top_p": 0.98
     }
+  },
+  "ui": {
+    "port": 7860
   },
   "aliases": {
     "default": {
@@ -917,6 +921,8 @@ The server binds to `127.0.0.1` (localhost only) by default. Use `--public` to b
 ```bash
 python tts_server.py --public
 ```
+
+The Gradio UI port defaults to 7860 (configurable via `ui.port` in `config.json`). If the port is busy, it auto-selects the next available port in range +1..+9.
 
 ---
 

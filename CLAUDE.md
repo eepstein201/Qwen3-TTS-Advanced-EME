@@ -9,7 +9,7 @@ This directory contains Eric's custom Qwen3-TTS setup for voice cloning and text
 - `startTTSServer` - Manually start the persistent model server
 - `stopTTSServer` - Stop the server (uses auth token for graceful shutdown)
 - `createVoice` - Create a new voice clone from audio
-- `ttsUI` - Launch Gradio web interface (http://localhost:7860)
+- `ttsUI` - Launch Gradio web interface (default http://localhost:7860, auto-fallback if busy)
 
 ### Usage Examples
 ```bash
@@ -116,6 +116,7 @@ Or re-run `./install.sh`. Stale wrapper scripts are a common source of bugs (e.g
 - Server binds to `127.0.0.1` by default (localhost only)
 - `--public` flag to bind to `0.0.0.0` (with warning)
 - Gradio UI uses `server_name="127.0.0.1"` by default
+- Gradio port: configurable via `ui.port` (default 7860), auto-fallback to next available port in range +0..+9 if busy
 
 ### Temp File Security
 - Temp files created with `0o600` permissions
@@ -242,6 +243,7 @@ python -m unittest discover -v tests/
     "consistent": { "temperature": 0.5, "top_k": 30, "seed": 42 },
     "creative": { "temperature": 0.9, "top_p": 0.98 }
   },
+  "ui": { "port": 7860 },
   "advanced": {
     "dtype": "bfloat16",
     "backend": "torch",
@@ -249,6 +251,12 @@ python -m unittest discover -v tests/
   }
 }
 ```
+
+### UI Configuration (`ui` section)
+
+| Key | Values | Default | Description |
+|-----|--------|---------|-------------|
+| `port` | `1024`–`65535` | `7860` | Preferred Gradio UI port. If busy, auto-scans +1..+9. |
 
 ### Backend Configuration (`advanced` section)
 
@@ -369,3 +377,5 @@ See README.md for full phase history.
 - [x] Status bar refresh - updates after each generation to reflect newly loaded models
 - [x] Voice prompt dropdown default - uses `get_default_clone_prompt()` from config
 - [x] Updated footer tips - MLX format, auto-load behavior, backend switching
+- [x] Dynamic port fallback - `_find_available_port()` scans +0..+9, configurable via `ui.port`
+- [x] Generation timeout increased from 300s to 600s for long MLX texts
