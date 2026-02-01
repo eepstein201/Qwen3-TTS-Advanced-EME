@@ -276,7 +276,7 @@ class TTSClient:
         else:
             payload["voice_description"] = description
 
-        resp = requests.post(f"{self.server_url}/generate", json=payload, timeout=300, headers=auth_headers())
+        resp = requests.post(f"{self.server_url}/generate", json=payload, timeout=600, headers=auth_headers())
         if resp.status_code != 200:
             try:
                 error_msg = resp.json().get("error", "Unknown error")
@@ -388,7 +388,7 @@ class TTSClient:
                 payload["speaker"] = custom_speaker
                 payload["instruct"] = instruct
 
-            resp = requests.post(f"{self.server_url}/generate", json=payload, timeout=300, headers=auth_headers())
+            resp = requests.post(f"{self.server_url}/generate", json=payload, timeout=600, headers=auth_headers())
             if resp.status_code != 200:
                 try:
                     error_msg = resp.json().get("error", "Unknown error")
