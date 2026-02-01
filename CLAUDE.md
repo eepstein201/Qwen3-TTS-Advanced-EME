@@ -223,7 +223,7 @@ python -m unittest discover -v tests/
 ```json
 {
   "default_voice_description": "...",
-  "default_clone_prompt": "default_clone.pt",
+  "default_clone_prompt": "LaLa_2.pt",
   "output_directory": "~/Downloads",
   "language": "English",
   "server": { "host": "127.0.0.1", "port": 5123, "auto_shutdown_minutes": 0 },
