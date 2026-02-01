@@ -25,6 +25,7 @@ sys.path.insert(0, os.path.expanduser("~/Qwen3-TTS_UserFiles"))
 from tts_client import TTSClient
 from tts_config import (
     CUSTOM_VOICE_SPEAKERS,
+    get_default_clone_prompt,
     get_server_url,
     is_server_running,
     auth_headers,
@@ -122,6 +123,23 @@ def get_presets():
         return ["(none)"]
 
 
+def _ensure_model_loaded(client, mode, progress):
+    """Check if the required model is loaded; if not, load it on demand."""
+    try:
+        health = client.get_health()
+        key = f"{mode}_model_loaded"
+        if health.get(key):
+            return  # already loaded
+    except Exception:
+        return  # can't reach server; generate will report the error
+
+    progress(0, desc=f"Loading {mode} model (first use)...")
+    try:
+        client.load_model(mode)
+    except Exception as e:
+        raise gr.Error(f"Failed to load {mode} model: {e}")
+
+
 def _poll_progress(server_url, progress_fn, stop_event):
     """Poll /generation-status and update Gradio progress bar."""
     import requests as _requests
@@ -151,14 +169,16 @@ def generate_clone(text, prompt, preset, temperature, top_k, top_p, rep_penalty,
                    trim_silence, normalize, speed, pitch, progress=gr.Progress()):
     """Generate audio using clone mode."""
     if not text or not text.strip():
-        return None, "Error: Please enter some text to generate."
+        return None, "Error: Please enter some text to generate.", gr.update()
 
     client = TTSClient()
 
     if not client.is_server_running():
-        return None, "Error: TTS server is not running. Start it with 'startTTSServer'."
+        return None, "Error: TTS server is not running. Start it with 'startTTSServer'.", gr.update()
 
     try:
+        _ensure_model_loaded(client, "clone", progress)
+
         seed_val = int(seed) if seed and str(seed).strip() else None
         preset_val = preset if preset and preset != "(none)" else None
         timestamp = int(time.time())
@@ -187,29 +207,31 @@ def generate_clone(text, prompt, preset, temperature, top_k, top_p, rep_penalty,
             poll_thread.join(timeout=2)
 
         progress(1.0, desc="Complete")
-        return result, f"Generated: {os.path.basename(result)}"
+        return result, f"Generated: {os.path.basename(result)}", format_status_display()
     except Exception as e:
         error_msg = str(e)
         if "restart" in error_msg.lower() or "not running" in error_msg.lower():
             gr.Warning("Server issue — try restarting with 'startTTSServer'")
-        return None, f"Error: {error_msg}"
+        return None, f"Error: {error_msg}", format_status_display()
 
 
 def generate_design(text, description, preset, temperature, top_k, top_p, rep_penalty, seed,
                     trim_silence, normalize, speed, pitch, progress=gr.Progress()):
     """Generate audio using design mode."""
     if not text or not text.strip():
-        return None, "Error: Please enter some text to generate."
+        return None, "Error: Please enter some text to generate.", gr.update()
 
     if not description or not description.strip():
-        return None, "Error: Please enter a voice description."
+        return None, "Error: Please enter a voice description.", gr.update()
 
     client = TTSClient()
 
     if not client.is_server_running():
-        return None, "Error: TTS server is not running. Start it with 'startTTSServer'."
+        return None, "Error: TTS server is not running. Start it with 'startTTSServer'.", gr.update()
 
     try:
+        _ensure_model_loaded(client, "design", progress)
+
         seed_val = int(seed) if seed and str(seed).strip() else None
         preset_val = preset if preset and preset != "(none)" else None
         timestamp = int(time.time())
@@ -238,26 +260,28 @@ def generate_design(text, description, preset, temperature, top_k, top_p, rep_pe
             poll_thread.join(timeout=2)
 
         progress(1.0, desc="Complete")
-        return result, f"Generated: {os.path.basename(result)}"
+        return result, f"Generated: {os.path.basename(result)}", format_status_display()
     except Exception as e:
         error_msg = str(e)
         if "restart" in error_msg.lower() or "not running" in error_msg.lower():
             gr.Warning("Server issue — try restarting with 'startTTSServer'")
-        return None, f"Error: {error_msg}"
+        return None, f"Error: {error_msg}", format_status_display()
 
 
 def generate_custom(text, speaker_choice, instruct, preset, temperature, top_k, top_p, rep_penalty, seed,
                     trim_silence, normalize, speed, pitch, progress=gr.Progress()):
     """Generate audio using custom mode with premium speakers."""
     if not text or not text.strip():
-        return None, "Error: Please enter some text to generate."
+        return None, "Error: Please enter some text to generate.", gr.update()
 
     client = TTSClient()
 
     if not client.is_server_running():
-        return None, "Error: TTS server is not running. Start it with 'startTTSServer'."
+        return None, "Error: TTS server is not running. Start it with 'startTTSServer'.", gr.update()
 
     try:
+        _ensure_model_loaded(client, "custom", progress)
+
         speaker = speaker_choice.split(" ")[0] if speaker_choice else "ryan"
         seed_val = int(seed) if seed and str(seed).strip() else None
         preset_val = preset if preset and preset != "(none)" else None
@@ -288,12 +312,12 @@ def generate_custom(text, speaker_choice, instruct, preset, temperature, top_k, 
             poll_thread.join(timeout=2)
 
         progress(1.0, desc="Complete")
-        return result, f"Generated: {os.path.basename(result)}"
+        return result, f"Generated: {os.path.basename(result)}", format_status_display()
     except Exception as e:
         error_msg = str(e)
         if "restart" in error_msg.lower() or "not running" in error_msg.lower():
             gr.Warning("Server issue — try restarting with 'startTTSServer'")
-        return None, f"Error: {error_msg}"
+        return None, f"Error: {error_msg}", format_status_display()
 
 
 # =============================================================================
@@ -348,10 +372,12 @@ def build_ui():
                             placeholder="Enter text to synthesize...",
                             lines=3
                         )
+                        _default_prompt = get_default_clone_prompt()
+                        _prompts = get_voice_prompts()
                         clone_prompt = gr.Dropdown(
                             label="Voice Prompt",
-                            choices=get_voice_prompts(),
-                            value=get_voice_prompts()[0] if get_voice_prompts() else None
+                            choices=_prompts,
+                            value=_default_prompt if _default_prompt in _prompts else (_prompts[0] if _prompts else None)
                         )
                         clone_preset = gr.Dropdown(
                             label="Preset",
@@ -382,7 +408,7 @@ def build_ui():
                     inputs=[clone_text, clone_prompt, clone_preset, clone_temp, clone_top_k,
                             clone_top_p, clone_rep, clone_seed, clone_trim, clone_norm,
                             clone_speed, clone_pitch],
-                    outputs=[clone_output, clone_status]
+                    outputs=[clone_output, clone_status, status_html]
                 )
 
             # Design Mode Tab
@@ -430,7 +456,7 @@ def build_ui():
                     inputs=[design_text, design_desc, design_preset, design_temp, design_top_k,
                             design_top_p, design_rep, design_seed, design_trim, design_norm,
                             design_speed, design_pitch],
-                    outputs=[design_output, design_status]
+                    outputs=[design_output, design_status, status_html]
                 )
 
             # Custom Mode Tab
@@ -483,7 +509,7 @@ def build_ui():
                     inputs=[custom_text, custom_speaker, custom_instruct, custom_preset,
                             custom_temp, custom_top_k, custom_top_p, custom_rep, custom_seed,
                             custom_trim, custom_norm, custom_speed, custom_pitch],
-                    outputs=[custom_output, custom_status]
+                    outputs=[custom_output, custom_status, status_html]
                 )
 
         # Footer
@@ -491,9 +517,11 @@ def build_ui():
         ---
         **Tips:**
         - Start the TTS server first: `startTTSServer`
-        - Clone mode requires a voice prompt file (.pt)
+        - Models auto-load on first use — no need to pre-load all three
+        - Clone mode uses a voice prompt (.pt for PyTorch, .wav+.txt for MLX)
         - Design mode creates voices from text descriptions
         - Custom mode uses premium pre-trained speakers
+        - Switch backends in `config.json` → `advanced.backend` ("torch" or "mlx")
         """)
 
     return demo

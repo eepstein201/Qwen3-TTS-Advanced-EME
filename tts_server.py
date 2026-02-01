@@ -364,8 +364,16 @@ def load_model_endpoint():
 @app.route("/prompts", methods=["GET"])
 def list_prompts():
     reset_activity_timer()
-    prompts = [f for f in os.listdir(VOICE_PROMPTS_DIR) if f.endswith('.pt')]
-    return jsonify({"prompts": sorted(prompts)})
+    backend = get_backend()
+    if backend == "mlx":
+        # MLX uses .wav+.txt pairs; list voice names that have both files
+        wav_files = {f[:-4] for f in os.listdir(VOICE_PROMPTS_DIR) if f.endswith('.wav')}
+        txt_files = {f[:-4] for f in os.listdir(VOICE_PROMPTS_DIR) if f.endswith('.txt')}
+        names = sorted(wav_files & txt_files)
+        prompts = [f"{n}.wav" for n in names]
+    else:
+        prompts = sorted(f for f in os.listdir(VOICE_PROMPTS_DIR) if f.endswith('.pt'))
+    return jsonify({"prompts": prompts})
 
 
 @app.route("/generate", methods=["POST"])
