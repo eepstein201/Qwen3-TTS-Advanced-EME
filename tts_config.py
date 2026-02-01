@@ -43,6 +43,40 @@ def save_config(config):
         json.dump(config, f, indent=2)
 
 
+def get_default_clone_prompt(config=None):
+    """Return the default clone prompt filename.
+
+    Reads from config's "default_clone_prompt" key. If missing or the file
+    doesn't exist, falls back to the first .pt file found in VOICE_PROMPTS_DIR.
+    Returns None if no prompts are available.
+    """
+    if config is None:
+        try:
+            config = load_config()
+        except Exception:
+            config = {}
+
+    configured = config.get("default_clone_prompt")
+    if configured:
+        # Check it exists (as .pt or as MLX .wav/.txt pair)
+        base = configured[:-3] if configured.endswith(".pt") else configured
+        pt_exists = os.path.exists(os.path.join(VOICE_PROMPTS_DIR, f"{base}.pt"))
+        mlx_exists = (os.path.exists(os.path.join(VOICE_PROMPTS_DIR, f"{base}.wav"))
+                      and os.path.exists(os.path.join(VOICE_PROMPTS_DIR, f"{base}.txt")))
+        if pt_exists or mlx_exists:
+            return configured
+
+    # Fallback: first .pt file in voice_prompts/
+    try:
+        prompts = sorted(f for f in os.listdir(VOICE_PROMPTS_DIR) if f.endswith(".pt"))
+        if prompts:
+            return prompts[0]
+    except OSError:
+        pass
+
+    return None
+
+
 def get_server_url(config):
     """Return the server base URL from a config dict."""
     server = config.get("server", {})

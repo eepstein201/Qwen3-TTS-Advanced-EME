@@ -43,6 +43,7 @@ import soundfile as sf
 from tts_config import (
     CONFIG_PATH,
     VOICE_PROMPTS_DIR,
+    get_default_clone_prompt,
     get_server_url,
     is_server_running,
     auth_headers,
@@ -196,7 +197,7 @@ class TTSClient:
 
         # Default prompt/description/speaker
         if mode == "clone":
-            prompt = prompt or self.config.get("default_clone_prompt", "default_clone.pt")
+            prompt = prompt or get_default_clone_prompt(self.config)
         elif mode == "custom":
             speaker = speaker or self.config.get("default_speaker", "Ryan")
             instruct = instruct or ""
@@ -334,7 +335,7 @@ class TTSClient:
                 speaker_config = line.copy()
 
             mode = speaker_config.get("mode", "clone")
-            prompt = speaker_config.get("prompt", self.config.get("default_clone_prompt", "default_clone.pt"))
+            prompt = speaker_config.get("prompt", get_default_clone_prompt(self.config))
             description = speaker_config.get("description", self.config.get("default_voice_description", ""))
             custom_speaker = speaker_config.get("speaker", "ryan")
             instruct = speaker_config.get("instruct", line.get("instruct", ""))
