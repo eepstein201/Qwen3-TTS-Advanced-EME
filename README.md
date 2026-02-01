@@ -210,6 +210,7 @@ changeVoice --list-aliases
 | `--top-p FLOAT` | Top-p nucleus sampling (default: 0.95) |
 | `--seed INT` | Random seed for reproducibility |
 | `--repetition-penalty FLOAT` | Repetition penalty (default: 1.05) |
+| `--max-chunk-chars N` | Max chars per chunk for long text (default: 500, 0 to disable) |
 
 #### Audio Processing
 | Option | Description |
@@ -346,6 +347,30 @@ The `--trim-silence` flag removes silence from the beginning and end of the audi
 
 ## Advanced Features
 
+### Text Chunking (Long-Form Generation)
+
+Long texts are automatically split into smaller chunks at sentence boundaries for reliable generation. This prevents timeouts on long texts and provides per-chunk progress feedback.
+
+- **Default:** texts over 500 characters are chunked (configurable via `generation.max_chunk_chars`)
+- **Splitting logic:** prefers sentence boundaries (`. ! ?`), falls back to clause boundaries (`, ; :`), then word boundaries
+- **Silence gap:** 100ms silence inserted between chunks for natural pacing
+- **Progress:** CLI spinner and Gradio progress bar show chunk progress (e.g., `[chunk 2/5]`)
+
+```bash
+# Override chunk size for a single run
+changeVoice "Very long text..." --max-chunk-chars 800 -o output
+
+# Disable chunking (send full text as one inference call)
+changeVoice "Text" --max-chunk-chars 0 -o output
+```
+
+To change the default, edit `config.json`:
+```json
+"generation": {
+  "max_chunk_chars": 500
+}
+```
+
 ### SSML Markup
 
 Enable SSML parsing with `--ssml` for fine-grained control:
@@ -478,7 +503,8 @@ Options:
     "top_k": 50,
     "top_p": 0.95,
     "repetition_penalty": 1.05,
-    "seed": null
+    "seed": null,
+    "max_chunk_chars": 500
   },
   "presets": {
     "consistent": {
@@ -512,6 +538,7 @@ Options:
 
 | Setting | Values | Default | Description |
 |---------|--------|---------|-------------|
+| `generation.max_chunk_chars` | `0`–`10000` | `500` | Max chars per chunk for long texts (`0` disables chunking) |
 | `advanced.backend` | `"torch"`, `"mlx"` | `"torch"` | Inference backend (see [MLX Backend](#mlx-backend)) |
 | `advanced.dtype` | `"float32"`, `"float16"`, `"bfloat16"` | `"float32"` | PyTorch dtype (torch backend only) |
 | `advanced.mlx_quantization` | `"4bit"`, `"8bit"`, `"bf16"` | `"8bit"` | MLX model quantization (mlx backend only) |
@@ -870,7 +897,7 @@ If you have legacy `.pt`-only prompts from before MLX was added, re-create them 
 1. **Use the consistent preset** for reproducible, stable output
 2. **Normalize your output** for consistent volume levels
 3. **Trim silence** for cleaner audio files
-4. **Keep text segments reasonable** - very long texts may have quality degradation
+4. **Long texts are handled automatically** - texts over 500 chars are split into chunks at sentence boundaries for reliability (configurable via `generation.max_chunk_chars`)
 
 ### For Fastest Workflow
 
@@ -932,12 +959,13 @@ The Gradio UI port defaults to 7860 (configurable via `ui.port` in `config.json`
 When generating via the server, a live progress spinner shows elapsed time and ETA:
 ```
 ⠋ Generating... 5s elapsed / ~12s ETA
+⠋ Generating... 12s elapsed [chunk 2/5]
 ```
 
-ETA is estimated from your generation history (median characters/second).
+ETA is estimated from your generation history (median characters/second). For long texts that are split into chunks, the current chunk progress is also displayed.
 
 ### Gradio Progress
-The web interface shows a progress bar during generation, capped at 95% until completion. If a model needs to be loaded first, the progress bar shows "Loading {mode} model (first use)..." before generation begins.
+The web interface shows a progress bar during generation, capped at 95% until completion. For long chunked texts, the progress bar shows "Generating chunk 2/5... 12s". If a model needs to be loaded first, the progress bar shows "Loading {mode} model (first use)..." before generation begins.
 
 ---
 
@@ -1010,7 +1038,7 @@ python -m unittest discover -v tests/
 
 ## Version History
 
-All features implemented across 11 phases:
+All features implemented across 13 phases:
 
 - **Phase 1:** Core usability (`--play`, `--clipboard`, `--trim-silence`, `--dry-run`)
 - **Phase 2:** Workflow (`--voice` aliases, `--history`, `--stats`, prompt management)
@@ -1023,3 +1051,5 @@ All features implemented across 11 phases:
 - **Phase 9:** Installation & Web UI (`install.sh`, Gradio interface, `changeVoice --ui`)
 - **Phase 10:** Security, reliability & UX (auth tokens, input validation, logging, structured errors, progress/ETA, post-generation menu, test suite)
 - **Phase 11:** MLX backend integration (Apple Silicon native inference, separate conda env, lazy imports, dual-format voice prompts, backend dispatch)
+- **Phase 12:** UI auto-load & backend-aware prompts (on-demand model loading, dynamic port fallback, generation timeout increase)
+- **Phase 13:** Text chunking & long-form reliability (sentence-boundary splitting, per-chunk progress, `--max-chunk-chars` CLI flag)
