@@ -558,6 +558,13 @@ class _ProgressPoller:
                         eta = state.get("eta_sec")
                         spinner = self.SPINNER[tick % len(self.SPINNER)]
 
+                        # Chunk progress suffix
+                        chunk_total = state.get("chunk_total", 0)
+                        chunk_suffix = ""
+                        if chunk_total > 1:
+                            chunk_idx = state.get("chunk_index", 0) + 1
+                            chunk_suffix = f" [chunk {chunk_idx}/{chunk_total}]"
+
                         if self.batch_total > 1:
                             idx = state.get("batch_index", 0) + 1
                             if eta is not None:
@@ -565,14 +572,14 @@ class _ProgressPoller:
                                 pct = min(95, int(elapsed / total_est * 100)) if total_est > 0 else 0
                                 bar_filled = pct // 5
                                 bar = "=" * bar_filled + ">" + " " * (19 - bar_filled)
-                                line = f"\r{spinner} [{idx}/{self.batch_total}] Generating... {elapsed:.0f}s / ~{elapsed + eta:.0f}s [{bar}] {pct}%"
+                                line = f"\r{spinner} [{idx}/{self.batch_total}] Generating... {elapsed:.0f}s / ~{elapsed + eta:.0f}s [{bar}] {pct}%{chunk_suffix}"
                             else:
-                                line = f"\r{spinner} [{idx}/{self.batch_total}] Generating... {elapsed:.0f}s elapsed"
+                                line = f"\r{spinner} [{idx}/{self.batch_total}] Generating... {elapsed:.0f}s elapsed{chunk_suffix}"
                         else:
                             if eta is not None:
-                                line = f"\r{spinner} Generating... {elapsed:.0f}s elapsed (ETA ~{eta:.0f}s)"
+                                line = f"\r{spinner} Generating... {elapsed:.0f}s elapsed (ETA ~{eta:.0f}s){chunk_suffix}"
                             else:
-                                line = f"\r{spinner} Generating... {elapsed:.0f}s elapsed"
+                                line = f"\r{spinner} Generating... {elapsed:.0f}s elapsed{chunk_suffix}"
 
                         sys.stderr.write(line)
                         sys.stderr.flush()
@@ -585,7 +592,8 @@ class _ProgressPoller:
 
 def generate_via_server(texts, mode, config, gen_params,
                         prompt_file=None, voice_description=None,
-                        speaker=None, instruct=None, auto_load_model=True):
+                        speaker=None, instruct=None, auto_load_model=True,
+                        max_chunk_chars=None):
     """Generate audio via the TTS server."""
     url = get_server_url(config)
 
@@ -595,6 +603,9 @@ def generate_via_server(texts, mode, config, gen_params,
         "language": config.get("language", "English"),
         **gen_params,
     }
+
+    if max_chunk_chars is not None:
+        payload["max_chunk_chars"] = max_chunk_chars
 
     if mode == "clone":
         payload["prompt_file"] = prompt_file
@@ -673,7 +684,7 @@ def generate_via_server(texts, mode, config, gen_params,
 
 def generate_local(text, mode, gen_params, language="English",
                    prompt_file=None, voice_description=None,
-                   speaker=None, instruct=None):
+                   speaker=None, instruct=None, max_chunk_chars=None):
     """Generate speech locally using tts_engine (imports torch on first call)."""
     from tts_engine import load_model, run_inference, load_voice_prompt
 
@@ -717,6 +728,7 @@ def generate_local(text, mode, gen_params, language="English",
         voice_description=voice_description,
         speaker=speaker,
         instruct=instruct,
+        max_chunk_chars=max_chunk_chars,
     )
     return wav, sr
 
@@ -1397,6 +1409,10 @@ def main():
     parser.add_argument("--seed", type=int, help="Random seed for reproducibility")
     parser.add_argument("--repetition-penalty", type=float, dest="repetition_penalty", help="Repetition penalty")
 
+    # Text chunking
+    parser.add_argument("--max-chunk-chars", type=int, dest="max_chunk_chars", metavar="N",
+                        help="Max chars per chunk for long text (default: 500 from config, 0 to disable)")
+
     # Backend override
     parser.add_argument("--backend", choices=["torch", "mlx"], help="Override backend for this run (default: from config.json)")
     parser.add_argument("--list-backends", action="store_true", help="List available backends and current setting")
@@ -1446,6 +1462,9 @@ def main():
     args = parser.parse_args()
     config = load_config()
     gen_params = get_generation_params(args, config)
+
+    # Text chunking override (None = use config default)
+    max_chunk_chars = getattr(args, "max_chunk_chars", None)
 
     # Apply --backend override via environment variable (affects get_backend() globally)
     if args.backend:
@@ -1720,6 +1739,8 @@ def main():
         print(f"  Speed: {args.speed if args.speed else '1.0 (unchanged)'}")
         print(f"  Pitch: {args.pitch if args.pitch else '0 (unchanged)'} semitones")
         print(f"  SSML: {'enabled' if args.ssml else 'disabled'}")
+        chunk_cfg = max_chunk_chars if max_chunk_chars is not None else config.get("generation", {}).get("max_chunk_chars", 500)
+        print(f"  Text chunking: {'disabled' if chunk_cfg == 0 else f'max {chunk_cfg} chars/chunk'}")
         print(f"\nGeneration parameters:")
         for k, v in gen_params.items():
             print(f"  {k}: {v}")
@@ -1806,12 +1827,15 @@ def main():
     if use_server:
         print("Using TTS server...")
         if mode == "clone":
-            results = generate_via_server([text], mode, config, gen_params, prompt_file=prompt_file)
+            results = generate_via_server([text], mode, config, gen_params, prompt_file=prompt_file,
+                                          max_chunk_chars=max_chunk_chars)
         elif mode == "design":
-            results = generate_via_server([text], mode, config, gen_params, voice_description=voice_description)
+            results = generate_via_server([text], mode, config, gen_params, voice_description=voice_description,
+                                          max_chunk_chars=max_chunk_chars)
         else:  # custom
             results = generate_via_server([text], mode, config, gen_params,
-                                          speaker=speaker_name, instruct=args.instruct or "")
+                                          speaker=speaker_name, instruct=args.instruct or "",
+                                          max_chunk_chars=max_chunk_chars)
 
         needs_processing = args.trim_silence or args.normalize or args.speed or args.pitch
         if needs_processing:
@@ -1826,16 +1850,19 @@ def main():
             wav, sr = generate_local(
                 text, mode, gen_params, language,
                 speaker=speaker_name, instruct=args.instruct,
+                max_chunk_chars=max_chunk_chars,
             )
         elif mode == "design":
             wav, sr = generate_local(
                 text, mode, gen_params, language,
                 voice_description=voice_description,
+                max_chunk_chars=max_chunk_chars,
             )
         else:
             wav, sr = generate_local(
                 text, mode, gen_params, language,
                 prompt_file=prompt_file,
+                max_chunk_chars=max_chunk_chars,
             )
 
         wav = process_audio_args(wav, sr, args)

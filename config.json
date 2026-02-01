@@ -36,7 +36,8 @@
     "top_k": 50,
     "top_p": 0.95,
     "repetition_penalty": 1.05,
-    "seed": null
+    "seed": null,
+    "max_chunk_chars": 500
   },
   "presets": {
     "consistent": {
