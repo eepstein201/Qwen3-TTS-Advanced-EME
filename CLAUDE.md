@@ -69,18 +69,19 @@ The codebase uses a layered architecture to avoid loading heavy dependencies (to
 | `requirements-mlx.txt` | MLX backend dependencies (separate conda env) | N/A |
 
 ### Files in this directory
-- `install.sh` - Automated installation script (copies wrapper scripts from `bin/`)
-- `tts_generate.py` - Main generation script with SDPA optimization, inference_mode, batch support
-- `tts_server.py` - Flask server with auth, validation, logging, progress tracking
+- `install.sh` - Automated installation script (torch + optional MLX envs, wrapper scripts)
+- `tts_generate.py` - CLI generation with `--backend` override, batch support, SSML, SRT, dialogue
+- `tts_server.py` - Flask server with auth, validation, logging, progress tracking, backend info
 - `tts_client.py` - Python API client library
-- `tts_ui.py` - Gradio web interface (Clone/Design/Custom tabs, stop server button)
-- `tts_config.py` - Shared constants, config helpers, error classes (no torch)
-- `tts_engine.py` - Model loading, inference, audio processing (torch required)
-- `config.json` - Settings: server config, generation params, presets, security limits
-- `create_custom_voice.py` - Script to create voice clone prompts from audio
-- `voice_prompts/` - Directory containing .pt voice clone files
+- `tts_ui.py` - Gradio web interface (Clone/Design/Custom tabs, backend status indicator)
+- `tts_config.py` - Shared constants, config helpers, error classes, backend helpers (no torch/mlx)
+- `tts_engine.py` - Backend dispatch engine: lazy-loads torch or mlx per config
+- `config.json` - Settings: server, generation params, presets, security, backend selection
+- `create_custom_voice.py` - Voice clone prompt creation (saves .pt + .wav/.txt dual format)
+- `requirements-mlx.txt` - MLX backend pip dependencies (for `qwen3-tts-mlx` env)
+- `voice_prompts/` - Voice clone files (.pt for torch, .wav/.txt for MLX)
 - `bin/` - Wrapper scripts (canonical source, copied to ~/bin/ by install.sh)
-- `tests/` - Test suite (run with `python -m unittest discover -v tests/`)
+- `tests/` - Test suite: 66 tests (`python -m unittest discover -v tests/`)
 
 ### Wrapper scripts in ~/bin/ (installed from bin/)
 - `changeVoice` - Server detection, generation, post-generation menu; auto-selects conda env by backend
@@ -186,9 +187,9 @@ Where `{quant}` is `4bit`, `8bit` (default), or `bf16`.
 - Auth token: `~/.tts_server_token`
 
 ### Optimizations Applied
-- SDPA attention (`attn_implementation="sdpa"`)
-- `torch.inference_mode()` for faster inference
-- Voice prompt caching (LRU cache in server)
+- **Torch backend:** SDPA attention (`attn_implementation="sdpa"`), `torch.inference_mode()`, MPS-safe multinomial patch
+- **MLX backend:** 8-bit/4-bit quantized models, native Apple Silicon Neural Engine
+- **Both:** Voice prompt caching (LRU for torch), lazy imports (no unnecessary library loading)
 - Generation parameters exposed (temperature, top_k, top_p, seed, repetition_penalty)
 
 ## Testing

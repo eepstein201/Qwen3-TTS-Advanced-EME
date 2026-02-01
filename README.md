@@ -24,9 +24,9 @@ A powerful text-to-speech system with voice cloning, built on Qwen3-TTS models. 
 
 ### Prerequisites
 
-- macOS with Apple Silicon (M1/M2/M3)
+- macOS with Apple Silicon (M1/M2/M3/M4)
 - Conda (miniforge recommended)
-- ~8GB VRAM for model loading
+- ~3.5GB per model (PyTorch) or ~2.5GB per model (MLX 8-bit)
 
 ### Installation
 
@@ -227,6 +227,12 @@ changeVoice --list-aliases
 | `--dialogue FILE` | Process dialogue JSON with multiple speakers |
 | `--save-individual` | Save individual files for each dialogue line |
 | `--dry-run` | Show what would be generated |
+
+#### Backend
+| Option | Description |
+|--------|-------------|
+| `--backend torch\|mlx` | Override inference backend for this run |
+| `--list-backends` | Show current backend, models, and quantization |
 
 #### Utility
 | Option | Description |
@@ -507,18 +513,18 @@ Options:
 
 ### Model Configuration
 
-Control which models load at server startup to manage memory usage (~3.5GB per model):
+Control which models load at server startup:
 
 ```bash
 # See available models and their status
 changeVoice --list-models
 ```
 
-| Model | Purpose | Memory |
-|-------|---------|--------|
-| `clone` | Voice cloning from audio samples | ~3.5GB |
-| `design` | Generate voice from text description | ~3.5GB |
-| `custom` | 9 premium pre-trained speakers | ~3.5GB |
+| Model | Purpose | PyTorch Memory | MLX 8-bit Memory |
+|-------|---------|---------------|-----------------|
+| `clone` | Voice cloning from audio samples | ~3.5GB | ~2.5GB |
+| `design` | Generate voice from text description | ~3.5GB | ~2.5GB |
+| `custom` | 9 premium pre-trained speakers | ~3.5GB | ~2.5GB |
 
 **On-demand loading:** If you use a feature requiring an unloaded model, you'll be prompted to load it dynamically. This lets you start with minimal memory and add models as needed.
 
@@ -989,7 +995,7 @@ python -m unittest discover -v tests/
 
 ## Version History
 
-All features implemented across 10 phases:
+All features implemented across 11 phases:
 
 - **Phase 1:** Core usability (`--play`, `--clipboard`, `--trim-silence`, `--dry-run`)
 - **Phase 2:** Workflow (`--voice` aliases, `--history`, `--stats`, prompt management)

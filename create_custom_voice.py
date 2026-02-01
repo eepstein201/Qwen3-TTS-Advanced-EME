@@ -1,5 +1,13 @@
 #!/usr/bin/env python3
-"""Create a custom voice clone prompt from reference audio."""
+"""Create a custom voice clone prompt from reference audio.
+
+Saves voice prompts in dual format by default:
+  - .pt  (PyTorch tensor — used by torch backend)
+  - .wav (reference audio — used by MLX backend)
+  - .txt (transcript — used by MLX backend)
+
+Use --mlx-only to skip .pt creation (no torch required, works from any env).
+"""
 
 import argparse
 import os
@@ -8,16 +16,22 @@ import subprocess
 import sys
 
 import soundfile as sf
-import torch
 from pydub import AudioSegment
 
 from tts_config import VOICE_PROMPTS_DIR, USER_FILES_DIR
-from tts_engine import load_model, create_voice_prompt, run_inference
 
 
-def create_and_save_voice_prompt(audio_path, transcript, prompt_name, test_generation=True):
-    """Create a voice clone prompt from audio and transcript."""
+def create_and_save_voice_prompt(audio_path, transcript, prompt_name,
+                                  test_generation=True, mlx_only=False):
+    """Create a voice clone prompt from audio and transcript.
 
+    Args:
+        audio_path: Path to reference audio file.
+        transcript: Text transcript of the audio.
+        prompt_name: Name for the prompt (with or without .pt extension).
+        test_generation: Run a test generation after creating the prompt.
+        mlx_only: If True, only save .wav + .txt (no .pt, no torch needed).
+    """
     # Determine audio format from extension
     ext = os.path.splitext(audio_path)[1].lower().lstrip('.')
     if ext == 'm4a':
@@ -31,27 +45,14 @@ def create_and_save_voice_prompt(audio_path, transcript, prompt_name, test_gener
 
     # Load the converted audio
     ref_audio, ref_sr = sf.read(wav_path)
-
     print(f"Audio loaded: {len(ref_audio)/ref_sr:.1f} seconds at {ref_sr}Hz")
 
-    # Load the Base model (required for voice cloning from audio)
-    print("Loading Qwen3-TTS Base model...")
-    model = load_model("clone")
-
-    # Create reusable voice clone prompt via tts_engine
-    print("\nCreating voice clone prompt...")
-    voice_prompt = create_voice_prompt(model, ref_audio, ref_sr, transcript)
-
-    # Save the voice prompt (.pt for torch backend)
+    # Normalize prompt name
     if not prompt_name.endswith('.pt'):
         prompt_name += '.pt'
-    base_name = prompt_name[:-3]  # strip .pt for sibling files
-    output_path = os.path.join(VOICE_PROMPTS_DIR, prompt_name)
-    torch.save(voice_prompt, output_path)
-    print(f"Voice prompt saved to: {output_path}")
+    base_name = prompt_name[:-3]
 
-    # Save MLX-compatible files (.wav + .txt) alongside the .pt
-    # The MLX backend uses raw reference audio + transcript instead of .pt tensors
+    # --- Save MLX-compatible files (.wav + .txt) ---
     mlx_wav_path = os.path.join(VOICE_PROMPTS_DIR, f"{base_name}.wav")
     mlx_txt_path = os.path.join(VOICE_PROMPTS_DIR, f"{base_name}.txt")
 
@@ -59,7 +60,29 @@ def create_and_save_voice_prompt(audio_path, transcript, prompt_name, test_gener
     with open(mlx_txt_path, "w") as f:
         f.write(transcript)
 
-    print(f"MLX assets saved: {mlx_wav_path}, {mlx_txt_path}")
+    print(f"MLX files saved: {mlx_wav_path}")
+    print(f"                 {mlx_txt_path}")
+
+    if mlx_only:
+        # Clean up temp and exit early — no torch needed
+        if os.path.exists(wav_path):
+            os.remove(wav_path)
+        print(f"\nDone (MLX-only mode)! Use with: changeVoice -p {prompt_name} \"Your text here\"")
+        return mlx_wav_path
+
+    # --- Save PyTorch .pt file (requires torch + qwen-tts) ---
+    import torch
+    from tts_engine import load_model, create_voice_prompt, run_inference
+
+    print("Loading Qwen3-TTS Base model...")
+    model = load_model("clone")
+
+    print("\nCreating voice clone prompt...")
+    voice_prompt = create_voice_prompt(model, ref_audio, ref_sr, transcript)
+
+    output_path = os.path.join(VOICE_PROMPTS_DIR, prompt_name)
+    torch.save(voice_prompt, output_path)
+    print(f"Torch file saved: {output_path}")
 
     # Optional test generation
     if test_generation:
@@ -90,11 +113,20 @@ def create_and_save_voice_prompt(audio_path, transcript, prompt_name, test_gener
 
 
 def main():
-    parser = argparse.ArgumentParser(description="Create a custom voice clone prompt")
+    parser = argparse.ArgumentParser(
+        description="Create a custom voice clone prompt from reference audio",
+        epilog="""Examples:
+  createVoice audio.wav -t "Hello world" -n my_voice
+  createVoice audio.m4a -t transcript.txt -n my_voice --mlx-only
+  createVoice                                          # Interactive mode
+""",
+    )
     parser.add_argument("audio", nargs="?", help="Path to reference audio file")
     parser.add_argument("-t", "--transcript", help="Transcript of the audio (text or file path)")
     parser.add_argument("-n", "--name", help="Name for the voice prompt (without .pt extension)")
     parser.add_argument("--no-test", action="store_true", help="Skip test audio generation")
+    parser.add_argument("--mlx-only", action="store_true",
+                        help="Save only MLX files (.wav + .txt), skip .pt creation (no torch needed)")
 
     args = parser.parse_args()
 
@@ -146,7 +178,11 @@ def main():
         if not prompt_name:
             prompt_name = "custom_voice"
 
-    create_and_save_voice_prompt(audio_path, transcript, prompt_name, test_generation=not args.no_test)
+    create_and_save_voice_prompt(
+        audio_path, transcript, prompt_name,
+        test_generation=not args.no_test and not args.mlx_only,
+        mlx_only=args.mlx_only,
+    )
 
 
 if __name__ == "__main__":
