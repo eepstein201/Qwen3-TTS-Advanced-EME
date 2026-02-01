@@ -454,7 +454,7 @@ Options:
 ```json
 {
   "default_voice_description": "A calm, friendly voice...",
-  "default_clone_prompt": "default_clone.pt",
+  "default_clone_prompt": "LaLa_2.pt",
   "output_directory": "~/Downloads",
   "language": "English",
   "server": {
@@ -491,7 +491,7 @@ Options:
   },
   "aliases": {
     "default": {
-      "prompt": "default_clone.pt",
+      "prompt": "LaLa_2.pt",
       "preset": "consistent"
     }
   },
@@ -974,7 +974,9 @@ python -m unittest discover -v tests/
 ├── create_custom_voice.py  # Voice cloning script
 ├── requirements-mlx.txt    # MLX backend dependencies
 ├── voice_prompts/          # Voice prompt files (.pt + .wav/.txt for MLX)
-│   └── default_clone.pt
+│   ├── LaLa.pt / .wav / .txt
+│   ├── LaLa_2.pt / .wav / .txt
+│   └── lsmith.pt / .wav / .txt
 ├── bin/                    # Wrapper scripts (canonical source)
 │   ├── changeVoice
 │   ├── startTTSServer
