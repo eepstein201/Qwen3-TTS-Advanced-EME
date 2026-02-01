@@ -49,6 +49,9 @@
       "top_p": 0.98
     }
   },
+  "ui": {
+    "port": 7860
+  },
   "aliases": {
     "default": {
       "prompt": "LaLa_2.pt",
