@@ -60,7 +60,7 @@ The codebase uses a layered architecture to avoid loading heavy dependencies (to
 | Module | Purpose | Imports torch? |
 |--------|---------|----------------|
 | `tts_config.py` | Constants, config helpers, error classes, `CUSTOM_VOICE_SPEAKERS`, `MODEL_INFO`, `TOKEN_FILE`, auth helpers | No |
-| `tts_engine.py` | `load_model()`, `run_inference()`, `create_voice_prompt()`, LRU cache, audio processing, backend dispatch | No (lazy imports per backend) |
+| `tts_engine.py` | `load_model()`, `run_inference()`, `create_voice_prompt()`, LRU cache, audio processing, backend dispatch, text chunking | No (lazy imports per backend) |
 | `tts_server.py` | Flask server with auth, validation, progress tracking, structured errors, backend-aware `/prompts` | No (lazy via tts_engine) |
 | `tts_client.py` | HTTP client library for server API (`get_health()`, `load_model()`, `generate()`) | No (lazy tts_engine for audio only) |
 | `tts_generate.py` | CLI generation with progress display, post-gen menu support | No (lazy tts_engine for local mode) |
@@ -146,11 +146,11 @@ CLI and UI parse `recovery` to show actionable guidance.
 
 ## Progress & ETA
 
-- Server tracks `generation_state` (active, start_time, text_length, mode)
-- `/generation-status` endpoint (public, no auth) for polling
+- Server tracks `generation_state` (active, start_time, text_length, mode, chunk_index, chunk_total)
+- `/generation-status` endpoint (public, no auth) for polling — includes chunk progress for long texts
 - ETA estimated from `~/.tts_history.jsonl` median chars/sec
-- CLI: background thread with spinner (`Generating... 12s elapsed`)
-- Gradio: `gr.Progress()` with threaded polling, capped at 95%
+- CLI: background thread with spinner (`Generating... 12s elapsed [chunk 2/5]`)
+- Gradio: `gr.Progress()` with threaded polling, capped at 95% (shows "Generating chunk 2/5... 12s" for chunked texts)
 - Gradio auto-load: `_ensure_model_loaded()` checks `/health` before generation, calls `client.load_model()` if needed (progress shows "Loading {mode} model (first use)...")
 
 ## Post-Generation Menu (CLI)
@@ -198,6 +198,7 @@ Where `{quant}` is `4bit`, `8bit` (default), or `bf16`.
 - **Torch backend:** SDPA attention (`attn_implementation="sdpa"`), `torch.inference_mode()`, MPS-safe multinomial patch
 - **MLX backend:** 8-bit/4-bit quantized models, native Apple Silicon Neural Engine
 - **Both:** Voice prompt caching (LRU for torch), lazy imports (no unnecessary library loading)
+- **Text chunking:** Long texts (>500 chars) auto-split at sentence boundaries, generated per-chunk, concatenated with 100ms silence gaps — prevents timeouts and improves progress visibility
 - Generation parameters exposed (temperature, top_k, top_p, seed, repetition_penalty)
 
 ## Testing
@@ -238,7 +239,7 @@ python -m unittest discover -v tests/
     "max_text_length": 10000,
     "max_batch_size": 20
   },
-  "generation": { "temperature": 0.7, "top_k": 50, "top_p": 0.95, "repetition_penalty": 1.05, "seed": null },
+  "generation": { "temperature": 0.7, "top_k": 50, "top_p": 0.95, "repetition_penalty": 1.05, "seed": null, "max_chunk_chars": 500 },
   "presets": {
     "consistent": { "temperature": 0.5, "top_k": 30, "seed": 42 },
     "creative": { "temperature": 0.9, "top_p": 0.98 }
@@ -251,6 +252,19 @@ python -m unittest discover -v tests/
   }
 }
 ```
+
+### Generation Configuration (`generation` section)
+
+| Key | Values | Default | Description |
+|-----|--------|---------|-------------|
+| `temperature` | `0.0`–`2.0` | `0.7` | Sampling temperature. |
+| `top_k` | `1`–`200` | `50` | Top-k sampling. |
+| `top_p` | `0.0`–`1.0` | `0.95` | Top-p (nucleus) sampling. |
+| `repetition_penalty` | `1.0`–`2.0` | `1.05` | Repetition penalty. |
+| `seed` | integer or `null` | `null` | Random seed for reproducibility. |
+| `max_chunk_chars` | `0`–`10000` | `500` | Max chars per chunk for long texts. `0` disables chunking. |
+
+**CLI override:** `changeVoice --max-chunk-chars 800 "long text..." -o output` overrides for that run.
 
 ### UI Configuration (`ui` section)
 
@@ -379,3 +393,12 @@ See README.md for full phase history.
 - [x] Updated footer tips - MLX format, auto-load behavior, backend switching
 - [x] Dynamic port fallback - `_find_available_port()` scans +0..+9, configurable via `ui.port`
 - [x] Generation timeout increased from 300s to 600s for long MLX texts
+
+### Phase 13: Text Chunking & Long-Form Reliability ✅ COMPLETE
+- [x] `_split_text()` — sentence-boundary text splitter with clause/word fallback
+- [x] Chunked inference in `run_inference()` — auto-splits long texts, generates per-chunk, concatenates with 100ms silence gaps
+- [x] `progress_callback` support — server tracks `chunk_index`/`chunk_total` in `generation_state`
+- [x] CLI chunk progress — spinner shows `[chunk 2/5]` during multi-chunk generation
+- [x] Gradio chunk progress — progress bar shows "Generating chunk 2/5..." during long texts
+- [x] `generation.max_chunk_chars` config option (default: 500, 0 to disable)
+- [x] `--max-chunk-chars` CLI flag for per-run override
