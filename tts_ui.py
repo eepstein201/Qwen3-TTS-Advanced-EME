@@ -531,16 +531,46 @@ def build_ui():
 # Main
 # =============================================================================
 
+def _find_available_port(preferred, max_tries=10):
+    """Return *preferred* port if free, otherwise the next available port.
+
+    Scans preferred .. preferred+max_tries-1.  Returns None if all are taken.
+    """
+    import socket
+    for offset in range(max_tries):
+        port = preferred + offset
+        try:
+            with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+                s.bind(("127.0.0.1", port))
+                return port
+        except OSError:
+            continue
+    return None
+
+
 def main():
     """Main entry point."""
     import argparse
+    from tts_config import load_config
+
+    config = load_config()
+    default_port = config.get("ui", {}).get("port", 7860)
 
     parser = argparse.ArgumentParser(description="Qwen3-TTS Web Interface")
-    parser.add_argument("--port", type=int, default=7860, help="Port to run on (default: 7860)")
+    parser.add_argument("--port", type=int, default=default_port,
+                        help=f"Port to run on (default: {default_port})")
     parser.add_argument("--share", action="store_true", help="Create public URL")
     parser.add_argument("--no-browser", action="store_true", help="Don't open browser automatically")
 
     args = parser.parse_args()
+
+    # Find an available port (fallback to next in range if busy)
+    port = _find_available_port(args.port)
+    if port is None:
+        print(f"Error: No available port in range {args.port}-{args.port + 9}.")
+        sys.exit(1)
+    if port != args.port:
+        print(f"Port {args.port} is in use, using {port} instead.")
 
     # Check server status
     client = TTSClient()
@@ -557,7 +587,7 @@ def main():
     demo = build_ui()
     demo.launch(
         server_name="127.0.0.1",
-        server_port=args.port,
+        server_port=port,
         share=args.share,
         inbrowser=not args.no_browser,
         theme=gr.themes.Soft()
