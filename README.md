@@ -231,11 +231,13 @@ changeVoice --list-aliases
 | `--save-individual` | Save individual files for each dialogue line |
 | `--dry-run` | Show what would be generated |
 
-#### Backend
+#### Backend & Model
 | Option | Description |
 |--------|-------------|
 | `--backend torch\|mlx` | Override inference backend for this run |
+| `--model-size 1.7B\|0.6B` | Override model size (0.6B is ~40% faster, lower memory) |
 | `--list-backends` | Show current backend, models, and quantization |
+| `--stream` | Stream audio playback as it generates (MLX backend) |
 
 #### Utility
 | Option | Description |
@@ -306,10 +308,20 @@ changeVoice --list-speakers
 ### Creating Voice Clones
 
 ```bash
-# Create a new voice clone from audio
+# Create a new voice clone from audio (will prompt for transcript)
 createVoice path/to/audio.wav my_voice_name
 
-# The new prompt will be saved to voice_prompts/my_voice_name.pt
+# With explicit transcript
+createVoice audio.wav my_voice -t "transcript of what's said"
+
+# Auto-transcribe using MLX ASR (MLX backend only)
+createVoice audio.wav my_voice --auto-transcribe
+
+# MLX-only mode (no .pt file, works from any env)
+createVoice audio.wav my_voice -t "transcript" --mlx-only
+
+# The new prompt will be saved to voice_prompts/my_voice_name.pt (torch)
+# and voice_prompts/my_voice_name.wav + .txt (MLX)
 ```
 
 ---
@@ -529,7 +541,8 @@ Options:
   "advanced": {
     "dtype": "bfloat16",
     "backend": "torch",
-    "mlx_quantization": "8bit"
+    "mlx_quantization": "8bit",
+    "model_size": "1.7B"
   }
 }
 ```
@@ -542,6 +555,7 @@ Options:
 | `advanced.backend` | `"torch"`, `"mlx"` | `"torch"` | Inference backend (see [MLX Backend](#mlx-backend)) |
 | `advanced.dtype` | `"float32"`, `"float16"`, `"bfloat16"` | `"float32"` | PyTorch dtype (torch backend only) |
 | `advanced.mlx_quantization` | `"4bit"`, `"8bit"`, `"bf16"` | `"8bit"` | MLX model quantization (mlx backend only) |
+| `advanced.model_size` | `"1.7B"`, `"0.6B"` | `"1.7B"` | Model size (0.6B is ~40% faster with lower memory) |
 
 ### Model Configuration
 
@@ -1038,7 +1052,7 @@ python -m unittest discover -v tests/
 
 ## Version History
 
-All features implemented across 13 phases:
+All features implemented across 17 phases:
 
 - **Phase 1:** Core usability (`--play`, `--clipboard`, `--trim-silence`, `--dry-run`)
 - **Phase 2:** Workflow (`--voice` aliases, `--history`, `--stats`, prompt management)
@@ -1053,3 +1067,7 @@ All features implemented across 13 phases:
 - **Phase 11:** MLX backend integration (Apple Silicon native inference, separate conda env, lazy imports, dual-format voice prompts, backend dispatch)
 - **Phase 12:** UI auto-load & backend-aware prompts (on-demand model loading, dynamic port fallback, generation timeout increase)
 - **Phase 13:** Text chunking & long-form reliability (sentence-boundary splitting, per-chunk progress, `--max-chunk-chars` CLI flag)
+- **Phase 14:** 0.6B lightweight model support (`--model-size 0.6B`, ~40% faster, lower memory)
+- **Phase 15:** Streaming audio playback (`--stream` for real-time audio as it generates)
+- **Phase 16:** Auto-transcribe reference audio (`createVoice --auto-transcribe` using MLX ASR)
+- **Phase 17:** Stability hardening (float32 clone guard, model download retry, Metal crash recovery)

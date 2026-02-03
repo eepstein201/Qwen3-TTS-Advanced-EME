@@ -176,15 +176,25 @@ The two environments cannot be merged due to a hard `transformers` version confl
 
 ### Models (cached in ~/.cache/huggingface/hub/)
 
-**PyTorch models:**
-- `Qwen/Qwen3-TTS-12Hz-1.7B-Base` - Voice cloning from audio samples (~3.5GB)
-- `Qwen/Qwen3-TTS-12Hz-1.7B-VoiceDesign` - Voice description mode (~3.5GB)
-- `Qwen/Qwen3-TTS-12Hz-1.7B-CustomVoice` - 9 premium pre-trained speakers (~3.5GB)
+**PyTorch models (1.7B default, ~3.5GB each):**
+- `Qwen/Qwen3-TTS-12Hz-1.7B-Base` - Voice cloning from audio samples
+- `Qwen/Qwen3-TTS-12Hz-1.7B-VoiceDesign` - Voice description mode
+- `Qwen/Qwen3-TTS-12Hz-1.7B-CustomVoice` - 9 premium pre-trained speakers
 
-**MLX models (quantized, smaller):**
-- `mlx-community/Qwen3-TTS-12Hz-1.7B-Base-{quant}` - Voice cloning (~2.5GB)
-- `mlx-community/Qwen3-TTS-12Hz-1.7B-VoiceDesign-{quant}` - Voice description (~2.5GB)
-- `mlx-community/Qwen3-TTS-12Hz-1.7B-CustomVoice-{quant}` - Premium speakers (~2.5GB)
+**PyTorch models (0.6B lightweight, ~2GB each):**
+- `Qwen/Qwen3-TTS-12Hz-0.6B-Base` - Voice cloning (faster, lower memory)
+- `Qwen/Qwen3-TTS-12Hz-0.6B-VoiceDesign` - Voice description
+- `Qwen/Qwen3-TTS-12Hz-0.6B-CustomVoice` - Premium speakers
+
+**MLX models (1.7B quantized, ~2.5GB each):**
+- `mlx-community/Qwen3-TTS-12Hz-1.7B-Base-{quant}` - Voice cloning
+- `mlx-community/Qwen3-TTS-12Hz-1.7B-VoiceDesign-{quant}` - Voice description
+- `mlx-community/Qwen3-TTS-12Hz-1.7B-CustomVoice-{quant}` - Premium speakers
+
+**MLX models (0.6B quantized, ~1.5GB each):**
+- `mlx-community/Qwen3-TTS-12Hz-0.6B-Base-{quant}` - Voice cloning
+- `mlx-community/Qwen3-TTS-12Hz-0.6B-VoiceDesign-{quant}` - Voice description
+- `mlx-community/Qwen3-TTS-12Hz-0.6B-CustomVoice-{quant}` - Premium speakers
 
 Where `{quant}` is `4bit`, `8bit` (default), or `bf16`.
 
@@ -248,7 +258,8 @@ python -m unittest discover -v tests/
   "advanced": {
     "dtype": "bfloat16",
     "backend": "torch",
-    "mlx_quantization": "8bit"
+    "mlx_quantization": "8bit",
+    "model_size": "1.7B"
   }
 }
 ```
@@ -279,8 +290,11 @@ python -m unittest discover -v tests/
 | `backend` | `"torch"`, `"mlx"` | `"torch"` | Inference backend. Wrapper scripts activate the correct conda env. |
 | `dtype` | `"float32"`, `"float16"`, `"bfloat16"` | `"float32"` | PyTorch dtype (torch backend only). |
 | `mlx_quantization` | `"4bit"`, `"8bit"`, `"bf16"` | `"8bit"` | MLX model quantization level (mlx backend only). |
+| `model_size` | `"1.7B"`, `"0.6B"` | `"1.7B"` | Model size. 0.6B is ~40% faster with lower memory. |
 
-**CLI override:** `changeVoice --backend mlx "text" -o output` sets `TTS_BACKEND` env var for that run without modifying config.json.
+**CLI overrides:**
+- `changeVoice --backend mlx "text" -o output` — sets `TTS_BACKEND` env var for that run
+- `changeVoice --model-size 0.6B "text" -o output` — sets `TTS_MODEL_SIZE` env var for that run
 
 ## MLX Backend
 
@@ -402,3 +416,31 @@ See README.md for full phase history.
 - [x] Gradio chunk progress — progress bar shows "Generating chunk 2/5..." during long texts
 - [x] `generation.max_chunk_chars` config option (default: 500, 0 to disable)
 - [x] `--max-chunk-chars` CLI flag for per-run override
+
+### Phase 14: 0.6B Lightweight Model Support ✅ COMPLETE
+- [x] `MODEL_INFO` and `MLX_MODEL_INFO` now nested by size (`1.7B`, `0.6B`)
+- [x] `get_model_size()` config helper with `TTS_MODEL_SIZE` env var override
+- [x] `get_torch_model_name()`, `get_mlx_model_name()` use configured size
+- [x] `--model-size` CLI flag for per-run override
+- [x] `/health` and `/models` endpoints return `model_size` field
+- [x] Gradio UI shows model size in backend indicator: "MLX (8bit, 1.7B)"
+- [x] `advanced.model_size` config option (default: `"1.7B"`, alternative: `"0.6B"`)
+
+### Phase 15: Streaming Audio Playback ✅ COMPLETE
+- [x] `_run_inference_mlx_streaming()` — yields audio chunks as MLX model generates
+- [x] `run_inference_streaming()` — public API, MLX native streaming or torch chunked fallback
+- [x] `/generate-stream` endpoint — streams raw float32 audio chunks
+- [x] `--stream` CLI flag — plays audio chunks as they arrive via streaming endpoint
+- [x] `generate_streaming()` client function — streams from server, plays, saves combined audio
+
+### Phase 16: Auto-Transcribe Reference Audio (ASR) ✅ COMPLETE
+- [x] `transcribe_audio()` — lazy-loads ASR model on first use (NOT at server startup)
+- [x] `is_asr_available()` — checks MLX backend + mlx_audio.stt importable (no model load)
+- [x] `--auto-transcribe` flag for `createVoice` — transcribes reference audio automatically
+- [x] Interactive prompt when no transcript provided (MLX only): "Auto-transcribe with MLX ASR?"
+- [x] Transcript confirmation before saving voice prompt
+
+### Phase 17: Stability Hardening ✅ COMPLETE
+- [x] Float32 guard for torch clone mode on MPS — auto-overrides dtype to float32 with warning
+- [x] Model download retry with exponential backoff — 3 attempts (5s, 15s, 45s delays)
+- [x] MLX Metal kernel crash recovery — catches Metal errors, retries with smaller sub-chunks
