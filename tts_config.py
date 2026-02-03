@@ -113,6 +113,7 @@ def is_server_running(config_or_url=None):
 VALID_DTYPES = ("float32", "float16", "bfloat16")
 VALID_BACKENDS = ("torch", "mlx")
 VALID_MLX_QUANTIZATIONS = ("4bit", "8bit", "bf16")
+VALID_MODEL_SIZES = ("1.7B", "0.6B")
 
 
 def get_torch_dtype_name():
@@ -173,6 +174,30 @@ def get_mlx_quantization():
     return quant
 
 
+def get_model_size():
+    """Read the configured model size from config.json (advanced.model_size).
+
+    The TTS_MODEL_SIZE environment variable overrides the config file,
+    allowing --model-size CLI flag to work without modifying config.json.
+
+    Returns:
+        A string: "1.7B" or "0.6B".
+        Defaults to "1.7B" if not set or invalid.
+    """
+    # Environment variable override (set by --model-size CLI flag)
+    env_size = os.environ.get("TTS_MODEL_SIZE")
+    if env_size and env_size in VALID_MODEL_SIZES:
+        return env_size
+    try:
+        config = load_config()
+        size = config.get("advanced", {}).get("model_size", "1.7B")
+    except Exception:
+        size = "1.7B"
+    if size not in VALID_MODEL_SIZES:
+        size = "1.7B"
+    return size
+
+
 # ---------------------------------------------------------------------------
 # Canonical speaker and model data
 # ---------------------------------------------------------------------------
@@ -190,38 +215,76 @@ CUSTOM_VOICE_SPEAKERS = {
 }
 
 MODEL_INFO = {
-    "clone": {
-        "name": "Qwen/Qwen3-TTS-12Hz-1.7B-Base",
-        "description": "Voice cloning from audio samples (clone mode)",
-        "memory_mb": 3500,
+    "1.7B": {
+        "clone": {
+            "name": "Qwen/Qwen3-TTS-12Hz-1.7B-Base",
+            "description": "Voice cloning from audio samples (clone mode)",
+            "memory_mb": 3500,
+        },
+        "design": {
+            "name": "Qwen/Qwen3-TTS-12Hz-1.7B-VoiceDesign",
+            "description": "Generate voice from text description (design mode)",
+            "memory_mb": 3500,
+        },
+        "custom": {
+            "name": "Qwen/Qwen3-TTS-12Hz-1.7B-CustomVoice",
+            "description": "9 premium pre-trained speakers (custom mode)",
+            "memory_mb": 3500,
+        },
     },
-    "design": {
-        "name": "Qwen/Qwen3-TTS-12Hz-1.7B-VoiceDesign",
-        "description": "Generate voice from text description (design mode)",
-        "memory_mb": 3500,
-    },
-    "custom": {
-        "name": "Qwen/Qwen3-TTS-12Hz-1.7B-CustomVoice",
-        "description": "9 premium pre-trained speakers (custom mode)",
-        "memory_mb": 3500,
+    "0.6B": {
+        "clone": {
+            "name": "Qwen/Qwen3-TTS-12Hz-0.6B-Base",
+            "description": "Voice cloning from audio samples (clone mode, lightweight)",
+            "memory_mb": 2000,
+        },
+        "design": {
+            "name": "Qwen/Qwen3-TTS-12Hz-0.6B-VoiceDesign",
+            "description": "Generate voice from text description (design mode, lightweight)",
+            "memory_mb": 2000,
+        },
+        "custom": {
+            "name": "Qwen/Qwen3-TTS-12Hz-0.6B-CustomVoice",
+            "description": "9 premium pre-trained speakers (custom mode, lightweight)",
+            "memory_mb": 2000,
+        },
     },
 }
 
 MLX_MODEL_INFO = {
-    "clone": {
-        "name_template": "mlx-community/Qwen3-TTS-12Hz-1.7B-Base-{quant}",
-        "description": "Voice cloning from audio samples (clone mode)",
-        "memory_mb": 2500,
+    "1.7B": {
+        "clone": {
+            "name_template": "mlx-community/Qwen3-TTS-12Hz-1.7B-Base-{quant}",
+            "description": "Voice cloning from audio samples (clone mode)",
+            "memory_mb": 2500,
+        },
+        "design": {
+            "name_template": "mlx-community/Qwen3-TTS-12Hz-1.7B-VoiceDesign-{quant}",
+            "description": "Generate voice from text description (design mode)",
+            "memory_mb": 2500,
+        },
+        "custom": {
+            "name_template": "mlx-community/Qwen3-TTS-12Hz-1.7B-CustomVoice-{quant}",
+            "description": "9 premium pre-trained speakers (custom mode)",
+            "memory_mb": 2500,
+        },
     },
-    "design": {
-        "name_template": "mlx-community/Qwen3-TTS-12Hz-1.7B-VoiceDesign-{quant}",
-        "description": "Generate voice from text description (design mode)",
-        "memory_mb": 2500,
-    },
-    "custom": {
-        "name_template": "mlx-community/Qwen3-TTS-12Hz-1.7B-CustomVoice-{quant}",
-        "description": "9 premium pre-trained speakers (custom mode)",
-        "memory_mb": 2500,
+    "0.6B": {
+        "clone": {
+            "name_template": "mlx-community/Qwen3-TTS-12Hz-0.6B-Base-{quant}",
+            "description": "Voice cloning from audio samples (clone mode, lightweight)",
+            "memory_mb": 1500,
+        },
+        "design": {
+            "name_template": "mlx-community/Qwen3-TTS-12Hz-0.6B-VoiceDesign-{quant}",
+            "description": "Generate voice from text description (design mode, lightweight)",
+            "memory_mb": 1500,
+        },
+        "custom": {
+            "name_template": "mlx-community/Qwen3-TTS-12Hz-0.6B-CustomVoice-{quant}",
+            "description": "9 premium pre-trained speakers (custom mode, lightweight)",
+            "memory_mb": 1500,
+        },
     },
 }
 
@@ -229,13 +292,46 @@ MLX_MODEL_INFO = {
 def get_mlx_model_name(model_type):
     """Return the MLX HuggingFace repo ID for a given model type.
 
-    Substitutes the configured quantization level into the name template.
+    Substitutes the configured quantization level and model size into the name template.
     """
-    info = MLX_MODEL_INFO.get(model_type)
+    model_size = get_model_size()
+    size_info = MLX_MODEL_INFO.get(model_size)
+    if not size_info:
+        raise ValueError(f"Unknown model size: {model_size}")
+    info = size_info.get(model_type)
     if not info:
         raise ValueError(f"Unknown model type: {model_type}")
     quant = get_mlx_quantization()
     return info["name_template"].format(quant=quant)
+
+
+def get_torch_model_name(model_type):
+    """Return the PyTorch HuggingFace repo ID for a given model type.
+
+    Uses the configured model size.
+    """
+    model_size = get_model_size()
+    size_info = MODEL_INFO.get(model_size)
+    if not size_info:
+        raise ValueError(f"Unknown model size: {model_size}")
+    info = size_info.get(model_type)
+    if not info:
+        raise ValueError(f"Unknown model type: {model_type}")
+    return info["name"]
+
+
+def get_model_info(model_type):
+    """Return the model info dict for a given model type.
+
+    Uses the configured model size and backend.
+    """
+    model_size = get_model_size()
+    backend = get_backend()
+    if backend == "mlx":
+        size_info = MLX_MODEL_INFO.get(model_size, {})
+    else:
+        size_info = MODEL_INFO.get(model_size, {})
+    return size_info.get(model_type, {})
 
 
 # ---------------------------------------------------------------------------

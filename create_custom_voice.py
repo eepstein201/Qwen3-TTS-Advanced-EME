@@ -18,7 +18,7 @@ import sys
 import soundfile as sf
 from pydub import AudioSegment
 
-from tts_config import VOICE_PROMPTS_DIR, USER_FILES_DIR
+from tts_config import VOICE_PROMPTS_DIR, USER_FILES_DIR, get_backend
 
 
 def create_and_save_voice_prompt(audio_path, transcript, prompt_name,
@@ -118,6 +118,7 @@ def main():
         epilog="""Examples:
   createVoice audio.wav -t "Hello world" -n my_voice
   createVoice audio.m4a -t transcript.txt -n my_voice --mlx-only
+  createVoice audio.wav -n my_voice --auto-transcribe  # MLX ASR
   createVoice                                          # Interactive mode
 """,
     )
@@ -127,6 +128,8 @@ def main():
     parser.add_argument("--no-test", action="store_true", help="Skip test audio generation")
     parser.add_argument("--mlx-only", action="store_true",
                         help="Save only MLX files (.wav + .txt), skip .pt creation (no torch needed)")
+    parser.add_argument("--auto-transcribe", action="store_true",
+                        help="Auto-transcribe reference audio using MLX ASR (MLX backend only)")
 
     args = parser.parse_args()
 
@@ -151,24 +154,84 @@ def main():
             print(f"Error: Audio file not found: {audio_path}")
             sys.exit(1)
 
-    # Get transcript
+    # Get transcript — via --transcript, --auto-transcribe, or interactive prompt
+    transcript = None
+
     if args.transcript:
         transcript = args.transcript
-    else:
-        print("\nEnter the transcript of what is said in the audio.")
-        print("(This helps the model understand the voice characteristics)")
-        print("(You can paste the text directly or provide a path to a .txt file)")
-        transcript = input("Transcript: ").strip()
-        if not transcript:
-            print("Error: Transcript required")
+        # Check if transcript is a file path
+        transcript_path = os.path.expanduser(transcript)
+        if os.path.isfile(transcript_path):
+            with open(transcript_path, "r") as f:
+                transcript = f.read().strip()
+            print(f"Loaded transcript from file ({len(transcript)} chars)")
+
+    elif args.auto_transcribe:
+        # Auto-transcribe using MLX ASR
+        from tts_engine import transcribe_audio, is_asr_available
+
+        if not is_asr_available():
+            print("Error: Auto-transcription requires MLX backend with mlx-audio STT support.")
+            print("  Switch to MLX: set 'backend': 'mlx' in config.json")
+            print("  Or update mlx-audio: pip install --upgrade mlx-audio")
             sys.exit(1)
 
-    # Check if transcript is a file path
-    transcript_path = os.path.expanduser(transcript)
-    if os.path.isfile(transcript_path):
-        with open(transcript_path, "r") as f:
-            transcript = f.read().strip()
-        print(f"Loaded transcript from file ({len(transcript)} chars)")
+        print("\nAuto-transcribing reference audio with MLX ASR...")
+        try:
+            transcript = transcribe_audio(audio_path)
+            print(f"\nTranscript ({len(transcript)} chars):")
+            print(f"  \"{transcript}\"")
+
+            # Confirm with user
+            confirm = input("\nUse this transcript? [Y/n]: ").strip().lower()
+            if confirm and confirm not in ("y", "yes"):
+                print("Aborted. Provide transcript manually with --transcript.")
+                sys.exit(1)
+        except Exception as e:
+            print(f"Error: Auto-transcription failed: {e}")
+            sys.exit(1)
+
+    else:
+        # Interactive mode: check if ASR is available and offer it
+        from tts_engine import is_asr_available
+
+        if is_asr_available():
+            print("\nNo transcript provided. Options:")
+            print("  1. Auto-transcribe with MLX ASR")
+            print("  2. Enter transcript manually")
+            choice = input("Choose [1/2]: ").strip()
+
+            if choice == "1":
+                from tts_engine import transcribe_audio
+                print("\nAuto-transcribing reference audio...")
+                try:
+                    transcript = transcribe_audio(audio_path)
+                    print(f"\nTranscript ({len(transcript)} chars):")
+                    print(f"  \"{transcript}\"")
+
+                    confirm = input("\nUse this transcript? [Y/n]: ").strip().lower()
+                    if confirm and confirm not in ("y", "yes"):
+                        transcript = None  # Fall through to manual entry
+                except Exception as e:
+                    print(f"Auto-transcription failed: {e}")
+                    transcript = None  # Fall through to manual entry
+
+        if transcript is None:
+            print("\nEnter the transcript of what is said in the audio.")
+            print("(This helps the model understand the voice characteristics)")
+            print("(You can paste the text directly or provide a path to a .txt file)")
+            transcript = input("Transcript: ").strip()
+
+            # Check if transcript is a file path
+            transcript_path = os.path.expanduser(transcript)
+            if os.path.isfile(transcript_path):
+                with open(transcript_path, "r") as f:
+                    transcript = f.read().strip()
+                print(f"Loaded transcript from file ({len(transcript)} chars)")
+
+    if not transcript:
+        print("Error: Transcript required")
+        sys.exit(1)
 
     # Get prompt name
     if args.name:

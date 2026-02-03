@@ -31,6 +31,7 @@ from tts_config import (
     MLX_MODEL_INFO,
     CUSTOM_VOICE_SPEAKERS,
     VALID_BACKENDS,
+    VALID_MODEL_SIZES,
     load_config,
     save_config,
     get_server_url,
@@ -40,6 +41,7 @@ from tts_config import (
     get_torch_dtype_name,
     get_mlx_quantization,
     get_mlx_model_name,
+    get_model_size,
     get_default_clone_prompt,
 )
 
@@ -676,6 +678,110 @@ def generate_via_server(texts, mode, config, gen_params,
         raise Exception(msg)
 
     return resp.json()["results"]
+
+
+def generate_streaming(text, mode, config, gen_params, output_path,
+                       prompt_file=None, voice_description=None,
+                       speaker=None, instruct=None):
+    """Generate and stream audio playback in real-time (MLX backend).
+
+    Streams from server and plays audio chunks as they arrive.
+    Also saves the complete audio to output_path.
+    """
+    import struct
+    import subprocess
+    import tempfile
+
+    url = get_server_url(config)
+
+    payload = {
+        "text": text,
+        "mode": mode,
+        "language": config.get("language", "English"),
+        **gen_params,
+    }
+
+    if mode == "clone":
+        payload["prompt_file"] = prompt_file
+    elif mode == "design":
+        payload["voice_description"] = voice_description
+    elif mode == "custom":
+        payload["speaker"] = speaker
+        payload["instruct"] = instruct or ""
+
+    print("Streaming generation...")
+
+    try:
+        resp = requests.post(
+            f"{url}/generate-stream",
+            json=payload,
+            headers=auth_headers(),
+            stream=True,
+            timeout=600,
+        )
+
+        if resp.status_code != 200:
+            error_data = resp.json()
+            raise Exception(f"Server error: {error_data.get('error', 'Unknown')}")
+
+        # Collect all chunks for saving
+        all_chunks = []
+        sample_rate = None
+        chunk_count = 0
+
+        # Read streamed chunks (each chunk: 4-byte sample rate + float32 audio)
+        buffer = b""
+        for data in resp.iter_content(chunk_size=4096):
+            buffer += data
+
+            # Process complete chunks in buffer
+            while len(buffer) >= 4:
+                # Read sample rate header
+                sr = struct.unpack("<I", buffer[:4])[0]
+                if sample_rate is None:
+                    sample_rate = sr
+
+                # We need to read until we have a complete chunk
+                # For simplicity, process in 4KB audio segments
+                header_size = 4
+                remaining = buffer[header_size:]
+
+                # Process whatever audio we have (must be multiple of 4 bytes for float32)
+                audio_size = (len(remaining) // 4) * 4
+                if audio_size > 0:
+                    audio_bytes = remaining[:audio_size]
+                    chunk = np.frombuffer(audio_bytes, dtype="<f4")
+                    all_chunks.append(chunk)
+                    chunk_count += 1
+
+                    # Play chunk via afplay using temp file
+                    temp = tempfile.NamedTemporaryFile(suffix=".wav", delete=False)
+                    sf.write(temp.name, chunk, sr)
+                    try:
+                        subprocess.run(["afplay", temp.name], check=True)
+                    except Exception:
+                        pass
+                    finally:
+                        os.unlink(temp.name)
+
+                    # Keep any leftover bytes (incomplete float32 values)
+                    buffer = remaining[audio_size:]
+                else:
+                    break
+
+        print(f"Streaming complete: {chunk_count} chunks received")
+
+        # Save combined audio
+        if all_chunks and sample_rate:
+            combined = np.concatenate(all_chunks)
+            sf.write(output_path, combined, sample_rate)
+            print(f"Saved: {output_path}")
+            return output_path
+
+        return None
+
+    except requests.exceptions.RequestException as e:
+        raise Exception(f"Streaming request failed: {e}")
 
 
 # ---------------------------------------------------------------------------
@@ -1413,8 +1519,9 @@ def main():
     parser.add_argument("--max-chunk-chars", type=int, dest="max_chunk_chars", metavar="N",
                         help="Max chars per chunk for long text (default: 500 from config, 0 to disable)")
 
-    # Backend override
+    # Backend and model size override
     parser.add_argument("--backend", choices=["torch", "mlx"], help="Override backend for this run (default: from config.json)")
+    parser.add_argument("--model-size", choices=["1.7B", "0.6B"], help="Override model size for this run (default: from config.json)")
     parser.add_argument("--list-backends", action="store_true", help="List available backends and current setting")
 
     # Utility options
@@ -1428,6 +1535,7 @@ def main():
     parser.add_argument("--no-open", action="store_true", help="Don't open the output file")
     parser.add_argument("--local", action="store_true", help="Force local generation (skip server)")
     parser.add_argument("--play", action="store_true", help="Play audio after generation")
+    parser.add_argument("--stream", action="store_true", help="Stream audio playback as it generates (MLX backend)")
     parser.add_argument("--clipboard", action="store_true", help="Read text from clipboard")
     parser.add_argument("--trim-silence", action="store_true", help="Trim leading/trailing silence")
     parser.add_argument("--normalize", action="store_true", help="Normalize audio to -3dB peak")
@@ -1466,9 +1574,11 @@ def main():
     # Text chunking override (None = use config default)
     max_chunk_chars = getattr(args, "max_chunk_chars", None)
 
-    # Apply --backend override via environment variable (affects get_backend() globally)
+    # Apply --backend and --model-size overrides via environment variables
     if args.backend:
         os.environ["TTS_BACKEND"] = args.backend
+    if args.model_size:
+        os.environ["TTS_MODEL_SIZE"] = args.model_size
 
     # Launch Gradio UI
     if args.ui:
@@ -1824,7 +1934,34 @@ def main():
 
     gen_start = time.time()
 
-    if use_server:
+    # Streaming mode (plays audio as it generates)
+    if getattr(args, "stream", False) and use_server:
+        print("Using TTS server (streaming mode)...")
+        if mode == "clone":
+            generate_streaming(text, mode, config, gen_params, output_path,
+                               prompt_file=prompt_file)
+        elif mode == "design":
+            generate_streaming(text, mode, config, gen_params, output_path,
+                               voice_description=voice_description)
+        else:  # custom
+            generate_streaming(text, mode, config, gen_params, output_path,
+                               speaker=speaker_name, instruct=args.instruct or "")
+
+        gen_duration = time.time() - gen_start
+        print(f"Streaming complete ({gen_duration:.1f}s)")
+
+        # Log to history
+        if mode == "clone":
+            voice_param = prompt_file
+        elif mode == "design":
+            voice_param = voice_description
+        else:
+            voice_param = f"{speaker_name}" + (f" ({args.instruct})" if args.instruct else "")
+        log_generation(text, mode, voice_param, output_path, gen_params, duration_sec=gen_duration)
+
+        return use_server
+
+    elif use_server:
         print("Using TTS server...")
         if mode == "clone":
             results = generate_via_server([text], mode, config, gen_params, prompt_file=prompt_file,

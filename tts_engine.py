@@ -22,11 +22,13 @@ import numpy as np
 import soundfile as sf
 
 from tts_config import (
-    MODEL_INFO,
     VOICE_PROMPTS_DIR,
     get_torch_dtype_name,
     get_backend,
     get_mlx_model_name,
+    get_torch_model_name,
+    get_model_size,
+    get_model_info,
     CONFIG_PATH,
     load_config,
 )
@@ -194,16 +196,21 @@ def voice_prompt_cache_info():
 # Torch backend — model loading
 # ---------------------------------------------------------------------------
 
+_RETRY_DELAYS = (5, 15, 45)  # seconds between retry attempts
+
+
 def _load_model_torch(model_type):
-    """Load a TTS model using the PyTorch/MPS backend."""
+    """Load a TTS model using the PyTorch/MPS backend.
+
+    Retries up to 3 times with exponential backoff on download/load failures.
+    """
     import torch
     from qwen_tts import Qwen3TTSModel
 
     _install_mps_patch()
 
-    info = MODEL_INFO.get(model_type)
-    if not info:
-        raise ValueError(f"Unknown model type: {model_type}")
+    repo_id = get_torch_model_name(model_type)
+    model_size = get_model_size()
 
     dtype_name = get_torch_dtype_name()
     dtype_map = {
@@ -213,19 +220,38 @@ def _load_model_torch(model_type):
     }
     torch_dtype = dtype_map[dtype_name]
 
-    logger.info("Loading %s (%s) with dtype=%s [torch backend]...", model_type, info["name"], dtype_name)
+    logger.info("Loading %s (%s) with dtype=%s, size=%s [torch backend]...",
+                model_type, repo_id, dtype_name, model_size)
     t0 = time.time()
 
-    model = Qwen3TTSModel.from_pretrained(
-        info["name"],
-        attn_implementation="sdpa",
-        device_map="mps",
-        dtype=torch_dtype,
-    )
-
-    elapsed = time.time() - t0
-    logger.info("Loaded %s model in %.1fs", model_type, elapsed)
-    return model
+    last_error = None
+    for attempt in range(len(_RETRY_DELAYS) + 1):
+        try:
+            model = Qwen3TTSModel.from_pretrained(
+                repo_id,
+                attn_implementation="sdpa",
+                device_map="mps",
+                dtype=torch_dtype,
+            )
+            elapsed = time.time() - t0
+            logger.info("Loaded %s model in %.1fs", model_type, elapsed)
+            return model
+        except (OSError, ConnectionError, TimeoutError) as e:
+            last_error = e
+            if attempt < len(_RETRY_DELAYS):
+                delay = _RETRY_DELAYS[attempt]
+                logger.warning(
+                    "Model load attempt %d/%d failed: %s. Retrying in %ds...",
+                    attempt + 1, len(_RETRY_DELAYS) + 1, e, delay,
+                )
+                time.sleep(delay)
+            else:
+                logger.error(
+                    "Model download failed after %d attempts. "
+                    "Check your internet connection.",
+                    len(_RETRY_DELAYS) + 1,
+                )
+                raise last_error
 
 
 # ---------------------------------------------------------------------------
@@ -239,6 +265,20 @@ def _run_inference_torch(model, text, mode, gen_params, language="English",
     import torch
 
     t0 = time.time()
+
+    # Float32 guard: clone mode on MPS requires float32 to avoid NaN/Inf errors.
+    # If a non-float32 dtype is configured, override for this call and warn.
+    if mode == "clone" and torch.backends.mps.is_available():
+        dtype_name = get_torch_dtype_name()
+        if dtype_name != "float32":
+            logger.warning(
+                "Clone mode on MPS requires float32 (configured: %s). "
+                "Overriding to float32 for this generation. "
+                "Set advanced.dtype to 'float32' in %s to silence this warning.",
+                dtype_name, CONFIG_PATH,
+            )
+            # Cast model to float32 for this call, restore after
+            model.float()
 
     params = {
         "temperature": gen_params.get("temperature", 0.7),
@@ -316,6 +356,7 @@ def _load_model_mlx(model_type):
     """Load a TTS model using the MLX backend.
 
     Uses mlx-community quantized models via mlx_audio.tts.utils.load_model.
+    Retries up to 3 times with exponential backoff on download/load failures.
     """
     try:
         from mlx_audio.tts.utils import load_model as mlx_load_model
@@ -327,14 +368,33 @@ def _load_model_mlx(model_type):
         )
 
     repo_id = get_mlx_model_name(model_type)
-    logger.info("Loading %s (%s) [mlx backend]...", model_type, repo_id)
+    model_size = get_model_size()
+    logger.info("Loading %s (%s) size=%s [mlx backend]...", model_type, repo_id, model_size)
     t0 = time.time()
 
-    model = mlx_load_model(repo_id)
-
-    elapsed = time.time() - t0
-    logger.info("Loaded %s model in %.1fs [mlx]", model_type, elapsed)
-    return model
+    last_error = None
+    for attempt in range(len(_RETRY_DELAYS) + 1):
+        try:
+            model = mlx_load_model(repo_id)
+            elapsed = time.time() - t0
+            logger.info("Loaded %s model in %.1fs [mlx]", model_type, elapsed)
+            return model
+        except (OSError, ConnectionError, TimeoutError) as e:
+            last_error = e
+            if attempt < len(_RETRY_DELAYS):
+                delay = _RETRY_DELAYS[attempt]
+                logger.warning(
+                    "Model load attempt %d/%d failed: %s. Retrying in %ds...",
+                    attempt + 1, len(_RETRY_DELAYS) + 1, e, delay,
+                )
+                time.sleep(delay)
+            else:
+                logger.error(
+                    "Model download failed after %d attempts. "
+                    "Check your internet connection.",
+                    len(_RETRY_DELAYS) + 1,
+                )
+                raise last_error
 
 
 # ---------------------------------------------------------------------------
@@ -444,6 +504,91 @@ def _run_inference_mlx(model, text, mode, gen_params, language="English",
     )
 
     return wav, sr
+
+
+def _run_inference_mlx_streaming(model, text, mode, gen_params, language="English",
+                                  voice_prompt=None, voice_description=None,
+                                  speaker=None, instruct=None):
+    """Run TTS inference using the MLX backend, yielding audio chunks as they generate.
+
+    This is a generator that yields (audio_chunk, sample_rate) tuples as they
+    become available, enabling streaming playback.
+
+    Args:
+        model: Loaded MLX model (from _load_model_mlx).
+        text: Text to synthesize.
+        mode: "clone", "design", or "custom".
+        gen_params: Dict with temperature, top_k, top_p, repetition_penalty.
+        language: Language string.
+        voice_prompt: For clone mode — dict with "ref_audio" and "ref_text".
+        voice_description: Voice description string (design mode).
+        speaker: Speaker name string (custom mode).
+        instruct: Style instruction string (custom mode).
+
+    Yields:
+        (audio_chunk, sample_rate) tuples where audio_chunk is a float32 numpy array.
+    """
+    import mlx.core as mx
+
+    params = {
+        "temperature": gen_params.get("temperature", 0.9),
+        "top_k": gen_params.get("top_k", 50),
+        "top_p": gen_params.get("top_p", 1.0),
+        "repetition_penalty": gen_params.get("repetition_penalty", 1.05),
+    }
+
+    speed = gen_params.get("speed", 1.0)
+
+    if mode == "clone":
+        if voice_prompt is None:
+            raise ValueError("voice_prompt is required for clone mode")
+        if isinstance(voice_prompt, dict):
+            ref_audio_path = voice_prompt["ref_audio"]
+            ref_text = voice_prompt["ref_text"]
+        else:
+            raise TypeError(
+                "MLX clone mode requires a voice prompt dict with 'ref_audio' "
+                "and 'ref_text' keys."
+            )
+
+        generator = model.generate(
+            text=text,
+            ref_audio=ref_audio_path,
+            ref_text=ref_text,
+            language=language,
+            speed=speed,
+            **params,
+        )
+
+    elif mode == "custom":
+        generator = model.generate_custom_voice(
+            text=text,
+            speaker=speaker or "Ryan",
+            language=language,
+            instruct=instruct or "",
+            **params,
+        )
+
+    else:  # design
+        generator = model.generate_voice_design(
+            text=text,
+            instruct=voice_description or "",
+            language=language,
+            **params,
+        )
+
+    chunk_count = 0
+    for result in generator:
+        audio_mx = result.audio
+        wav = np.array(audio_mx, dtype=np.float32)
+        if wav.ndim > 1:
+            wav = wav.squeeze()
+        sr = result.sample_rate
+        chunk_count += 1
+        logger.debug("Streaming chunk %d: %d samples", chunk_count, len(wav))
+        yield wav, sr
+
+    logger.info("Streaming complete: %d chunks, mode=%s [mlx]", chunk_count, mode)
 
 
 # ---------------------------------------------------------------------------
@@ -599,18 +744,113 @@ def run_inference(model, text, mode, gen_params, language="English",
 
 def _run_inference_single(model, text, mode, gen_params, language="English",
                           voice_prompt=None, voice_description=None,
-                          speaker=None, instruct=None):
-    """Run TTS inference for a single text chunk."""
+                          speaker=None, instruct=None,
+                          _metal_retry=False):
+    """Run TTS inference for a single text chunk.
+
+    For MLX backend, includes Metal crash recovery: on certain Metal kernel
+    errors, retries once with smaller sub-chunks.
+    """
     backend = get_backend()
     if backend == "mlx":
-        return _run_inference_mlx(
-            model, text, mode, gen_params, language,
-            voice_prompt, voice_description, speaker, instruct,
-        )
+        try:
+            return _run_inference_mlx(
+                model, text, mode, gen_params, language,
+                voice_prompt, voice_description, speaker, instruct,
+            )
+        except RuntimeError as e:
+            # Metal kernel crashes often contain "command buffer" or "GPU" in the message
+            error_str = str(e).lower()
+            is_metal_crash = any(
+                keyword in error_str
+                for keyword in ("command buffer", "gpu", "metal", "kernel")
+            )
+            if is_metal_crash and not _metal_retry and len(text) > 100:
+                logger.warning(
+                    "Metal kernel issue detected, retrying with smaller sub-chunks: %s",
+                    str(e)[:100],
+                )
+                # Split the chunk in half and process each sub-chunk
+                mid = len(text) // 2
+                # Find a space near the midpoint to avoid splitting mid-word
+                split_idx = text.rfind(" ", mid - 50, mid + 50)
+                if split_idx == -1:
+                    split_idx = mid
+                chunk1, chunk2 = text[:split_idx].strip(), text[split_idx:].strip()
+
+                wav1, sr = _run_inference_single(
+                    model, chunk1, mode, gen_params, language,
+                    voice_prompt, voice_description, speaker, instruct,
+                    _metal_retry=True,
+                )
+                wav2, _ = _run_inference_single(
+                    model, chunk2, mode, gen_params, language,
+                    voice_prompt, voice_description, speaker, instruct,
+                    _metal_retry=True,
+                )
+                # Concatenate with short silence
+                silence = np.zeros(int(sr * 0.1), dtype=np.float32)
+                return np.concatenate([wav1, silence, wav2]), sr
+            raise
     return _run_inference_torch(
         model, text, mode, gen_params, language,
         voice_prompt, voice_description, speaker, instruct,
     )
+
+
+def run_inference_streaming(model, text, mode, gen_params, language="English",
+                            voice_prompt=None, voice_description=None,
+                            speaker=None, instruct=None,
+                            max_chunk_chars=None):
+    """Run TTS inference in streaming mode, yielding audio chunks as they generate.
+
+    For MLX backend, uses native streaming from model.generate().
+    For torch backend, falls back to text chunking — yields per-chunk audio.
+
+    Args:
+        model: Loaded model (from load_model).
+        text: Text to synthesize.
+        mode: "clone", "design", or "custom".
+        gen_params: Dict with temperature, top_k, top_p, repetition_penalty.
+        language: Language string.
+        voice_prompt: Loaded voice prompt (clone mode).
+        voice_description: Voice description string (design mode).
+        speaker: Speaker name string (custom mode).
+        instruct: Style instruction string (custom mode).
+        max_chunk_chars: Max chars per chunk for torch fallback (None = config default).
+
+    Yields:
+        (audio_chunk, sample_rate) tuples where audio_chunk is float32 numpy array.
+    """
+    backend = get_backend()
+
+    if backend == "mlx":
+        # MLX has native streaming — yield chunks as they generate
+        logger.info("Starting streaming inference [mlx]")
+        yield from _run_inference_mlx_streaming(
+            model, text, mode, gen_params, language,
+            voice_prompt, voice_description, speaker, instruct,
+        )
+    else:
+        # Torch fallback: chunk the text and yield per-chunk audio
+        logger.info("Starting chunked streaming [torch fallback]")
+        if max_chunk_chars is None:
+            max_chunk_chars = _get_max_chunk_chars()
+
+        if max_chunk_chars > 0 and len(text) > max_chunk_chars:
+            chunks = _split_text(text, max_chars=max_chunk_chars)
+        else:
+            chunks = [text]
+
+        for i, chunk in enumerate(chunks):
+            preview = chunk[:50] + "..." if len(chunk) > 50 else chunk
+            logger.info("Streaming chunk %d/%d: '%s'", i + 1, len(chunks), preview)
+
+            wav, sr = _run_inference_single(
+                model, chunk, mode, gen_params, language,
+                voice_prompt, voice_description, speaker, instruct,
+            )
+            yield wav, sr
 
 
 def create_voice_prompt(model, ref_audio, ref_sr, transcript):
@@ -721,3 +961,88 @@ def process_audio(audio, sample_rate, trim=False, normalize=False,
         audio = normalize_audio(audio, target_db=-3.0)
 
     return audio
+
+
+# ---------------------------------------------------------------------------
+# Audio transcription (ASR) — lazy loading, MLX backend only
+# ---------------------------------------------------------------------------
+
+# ASR model cache — NOT loaded at startup, only on first transcribe_audio() call
+_asr_model = None
+
+
+def transcribe_audio(audio_path, language="en"):
+    """Transcribe audio file to text using MLX ASR.
+
+    IMPORTANT: This function lazily loads the ASR model on first call.
+    The model is NOT loaded during server startup — only when transcription
+    is explicitly requested (typically via createVoice --auto-transcribe).
+
+    Args:
+        audio_path: Path to audio file (.wav, .mp3, etc.).
+        language: Language code for transcription (default: "en").
+
+    Returns:
+        Transcribed text string.
+
+    Raises:
+        ImportError: If mlx_audio is not installed (torch backend).
+        RuntimeError: If transcription fails.
+    """
+    global _asr_model
+
+    backend = get_backend()
+    if backend != "mlx":
+        raise ImportError(
+            "Auto-transcription is only available with the MLX backend. "
+            "Switch to MLX with: changeVoice --backend mlx ...\n"
+            "Or set 'backend': 'mlx' in config.json under 'advanced'."
+        )
+
+    # Lazy load ASR model on first use
+    if _asr_model is None:
+        logger.info("Loading ASR model for transcription (first use)...")
+        t0 = time.time()
+        try:
+            from mlx_audio.stt import transcribe as mlx_transcribe
+            from mlx_audio.stt.utils import load_model as load_stt_model
+
+            # Load the Whisper model for transcription
+            _asr_model = load_stt_model("mlx-community/whisper-large-v3-turbo")
+            elapsed = time.time() - t0
+            logger.info("ASR model loaded in %.1fs", elapsed)
+        except ImportError as e:
+            raise ImportError(
+                f"ASR transcription requires mlx-audio with STT support: {e}\n"
+                "Update mlx-audio: pip install --upgrade mlx-audio"
+            )
+
+    # Perform transcription
+    logger.info("Transcribing: %s", audio_path)
+    t0 = time.time()
+
+    try:
+        from mlx_audio.stt import transcribe as mlx_transcribe
+
+        result = mlx_transcribe(audio_path, model=_asr_model, language=language)
+        transcript = result.get("text", "").strip()
+        elapsed = time.time() - t0
+        logger.info("Transcription complete: %d chars in %.1fs", len(transcript), elapsed)
+        return transcript
+    except Exception as e:
+        raise RuntimeError(f"Transcription failed: {e}")
+
+
+def is_asr_available():
+    """Check if ASR transcription is available.
+
+    Returns True if using MLX backend and mlx_audio.stt is importable.
+    Does NOT load the ASR model — just checks availability.
+    """
+    if get_backend() != "mlx":
+        return False
+    try:
+        from mlx_audio.stt import transcribe  # noqa: F401
+        return True
+    except ImportError:
+        return False

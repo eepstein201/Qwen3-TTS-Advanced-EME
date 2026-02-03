@@ -87,13 +87,17 @@ class TestTTSConfig(unittest.TestCase):
 
     def test_model_info_keys(self):
         from tts_config import MODEL_INFO
-        self.assertIn("clone", MODEL_INFO)
-        self.assertIn("design", MODEL_INFO)
-        self.assertIn("custom", MODEL_INFO)
-        for info in MODEL_INFO.values():
-            self.assertIn("name", info)
-            self.assertIn("description", info)
-            self.assertIn("memory_mb", info)
+        # MODEL_INFO is now nested by size: MODEL_INFO["1.7B"]["clone"], etc.
+        self.assertIn("1.7B", MODEL_INFO)
+        self.assertIn("0.6B", MODEL_INFO)
+        for size in ("1.7B", "0.6B"):
+            self.assertIn("clone", MODEL_INFO[size])
+            self.assertIn("design", MODEL_INFO[size])
+            self.assertIn("custom", MODEL_INFO[size])
+            for info in MODEL_INFO[size].values():
+                self.assertIn("name", info)
+                self.assertIn("description", info)
+                self.assertIn("memory_mb", info)
 
     def test_custom_voice_speakers(self):
         from tts_config import CUSTOM_VOICE_SPEAKERS
@@ -391,18 +395,23 @@ class TestBackendConfig(unittest.TestCase):
 
     def test_mlx_model_info_keys(self):
         from tts_config import MLX_MODEL_INFO
-        self.assertIn("clone", MLX_MODEL_INFO)
-        self.assertIn("design", MLX_MODEL_INFO)
-        self.assertIn("custom", MLX_MODEL_INFO)
-        for info in MLX_MODEL_INFO.values():
-            self.assertIn("name_template", info)
-            self.assertIn("description", info)
-            self.assertIn("memory_mb", info)
+        # MLX_MODEL_INFO is now nested by size: MLX_MODEL_INFO["1.7B"]["clone"], etc.
+        self.assertIn("1.7B", MLX_MODEL_INFO)
+        self.assertIn("0.6B", MLX_MODEL_INFO)
+        for size in ("1.7B", "0.6B"):
+            self.assertIn("clone", MLX_MODEL_INFO[size])
+            self.assertIn("design", MLX_MODEL_INFO[size])
+            self.assertIn("custom", MLX_MODEL_INFO[size])
+            for info in MLX_MODEL_INFO[size].values():
+                self.assertIn("name_template", info)
+                self.assertIn("description", info)
+                self.assertIn("memory_mb", info)
 
     def test_mlx_model_info_templates(self):
         from tts_config import MLX_MODEL_INFO
-        for model_type, info in MLX_MODEL_INFO.items():
-            self.assertIn("{quant}", info["name_template"])
+        for size in ("1.7B", "0.6B"):
+            for model_type, info in MLX_MODEL_INFO[size].items():
+                self.assertIn("{quant}", info["name_template"])
 
     def test_get_backend_default(self):
         """get_backend() defaults to 'torch' with no env/config override."""
@@ -698,6 +707,164 @@ class TestLazyImports(unittest.TestCase):
         import tts_config  # noqa: F401
         # tts_config should never cause torch to load
         self.assertNotIn("torch", dir(tts_config))
+
+
+# =============================================================================
+# Phase 14: 0.6B Model Size tests
+# =============================================================================
+
+class TestModelSize(unittest.TestCase):
+    """Test 0.6B model size configuration."""
+
+    def test_valid_model_sizes(self):
+        from tts_config import VALID_MODEL_SIZES
+        self.assertIn("1.7B", VALID_MODEL_SIZES)
+        self.assertIn("0.6B", VALID_MODEL_SIZES)
+
+    def test_get_model_size_default(self):
+        """get_model_size() defaults to 1.7B."""
+        from tts_config import get_model_size
+        with patch.dict(os.environ, {}, clear=False):
+            os.environ.pop("TTS_MODEL_SIZE", None)
+            with patch("tts_config.load_config", return_value={}):
+                self.assertEqual(get_model_size(), "1.7B")
+
+    def test_get_model_size_from_config(self):
+        from tts_config import get_model_size
+        config = {"advanced": {"model_size": "0.6B"}}
+        with patch.dict(os.environ, {}, clear=False):
+            os.environ.pop("TTS_MODEL_SIZE", None)
+            with patch("tts_config.load_config", return_value=config):
+                self.assertEqual(get_model_size(), "0.6B")
+
+    def test_get_model_size_env_override(self):
+        """TTS_MODEL_SIZE env var overrides config."""
+        from tts_config import get_model_size
+        config = {"advanced": {"model_size": "1.7B"}}
+        with patch.dict(os.environ, {"TTS_MODEL_SIZE": "0.6B"}):
+            with patch("tts_config.load_config", return_value=config):
+                self.assertEqual(get_model_size(), "0.6B")
+
+    def test_get_torch_model_name(self):
+        from tts_config import get_torch_model_name
+        with patch("tts_config.get_model_size", return_value="1.7B"):
+            name = get_torch_model_name("clone")
+            self.assertIn("1.7B", name)
+            self.assertIn("Base", name)
+
+    def test_get_torch_model_name_0_6B(self):
+        from tts_config import get_torch_model_name
+        with patch("tts_config.get_model_size", return_value="0.6B"):
+            name = get_torch_model_name("clone")
+            self.assertIn("0.6B", name)
+
+    def test_model_info_has_0_6B(self):
+        from tts_config import MODEL_INFO, MLX_MODEL_INFO
+        # Both should have 0.6B entries
+        self.assertIn("0.6B", MODEL_INFO)
+        self.assertIn("0.6B", MLX_MODEL_INFO)
+        # And all 3 modes
+        for mode in ("clone", "design", "custom"):
+            self.assertIn(mode, MODEL_INFO["0.6B"])
+            self.assertIn(mode, MLX_MODEL_INFO["0.6B"])
+
+
+# =============================================================================
+# Phase 15: Streaming tests
+# =============================================================================
+
+class TestStreaming(unittest.TestCase):
+    """Test streaming inference API."""
+
+    def test_run_inference_streaming_exists(self):
+        """run_inference_streaming function is importable."""
+        from tts_engine import run_inference_streaming
+        self.assertTrue(callable(run_inference_streaming))
+
+    def test_mlx_streaming_function_exists(self):
+        """_run_inference_mlx_streaming function is importable."""
+        from tts_engine import _run_inference_mlx_streaming
+        self.assertTrue(callable(_run_inference_mlx_streaming))
+
+
+# =============================================================================
+# Phase 16: ASR tests
+# =============================================================================
+
+class TestASR(unittest.TestCase):
+    """Test ASR transcription functions."""
+
+    def test_transcribe_audio_exists(self):
+        """transcribe_audio function is importable."""
+        from tts_engine import transcribe_audio
+        self.assertTrue(callable(transcribe_audio))
+
+    def test_is_asr_available_exists(self):
+        """is_asr_available function is importable."""
+        from tts_engine import is_asr_available
+        self.assertTrue(callable(is_asr_available))
+
+    def test_is_asr_available_torch_returns_false(self):
+        """is_asr_available returns False when backend is torch."""
+        from tts_engine import is_asr_available
+        with patch("tts_engine.get_backend", return_value="torch"):
+            self.assertFalse(is_asr_available())
+
+    def test_transcribe_audio_requires_mlx(self):
+        """transcribe_audio raises ImportError when backend is torch."""
+        from tts_engine import transcribe_audio
+        with patch("tts_engine.get_backend", return_value="torch"):
+            with self.assertRaises(ImportError) as ctx:
+                transcribe_audio("/fake/path.wav")
+            self.assertIn("MLX backend", str(ctx.exception))
+
+
+# =============================================================================
+# Phase 17: Stability tests
+# =============================================================================
+
+class TestStability(unittest.TestCase):
+    """Test stability hardening features."""
+
+    def test_retry_delays_constant_exists(self):
+        """_RETRY_DELAYS constant is defined."""
+        from tts_engine import _RETRY_DELAYS
+        self.assertEqual(len(_RETRY_DELAYS), 3)
+        self.assertEqual(_RETRY_DELAYS, (5, 15, 45))
+
+
+# =============================================================================
+# Text chunking tests
+# =============================================================================
+
+class TestTextChunking(unittest.TestCase):
+    """Test text chunking for long-form generation."""
+
+    def test_split_text_short(self):
+        """Short text is not split."""
+        from tts_engine import _split_text
+        chunks = _split_text("Hello world.", max_chars=500)
+        self.assertEqual(chunks, ["Hello world."])
+
+    def test_split_text_sentences(self):
+        """Text is split on sentence boundaries."""
+        from tts_engine import _split_text
+        text = "First sentence. Second sentence. Third sentence."
+        chunks = _split_text(text, max_chars=30)
+        self.assertGreater(len(chunks), 1)
+        # Each chunk should be <= max_chars
+        for chunk in chunks:
+            self.assertLessEqual(len(chunk), 30)
+
+    def test_split_text_preserves_content(self):
+        """All content is preserved after splitting."""
+        from tts_engine import _split_text
+        text = "The quick brown fox jumps over the lazy dog. A second sentence follows."
+        chunks = _split_text(text, max_chars=50)
+        combined = " ".join(chunks)
+        # All words should be present
+        for word in text.split():
+            self.assertIn(word.rstrip(".,"), combined)
 
 
 if __name__ == "__main__":

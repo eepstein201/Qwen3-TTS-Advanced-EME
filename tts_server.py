@@ -28,11 +28,13 @@ from tts_config import (
     get_backend,
     get_torch_dtype_name,
     get_mlx_quantization,
+    get_model_size,
 )
 from tts_engine import (
     load_model,
     load_voice_prompt,
     run_inference,
+    run_inference_streaming,
     voice_prompt_cache_info,
 )
 
@@ -199,6 +201,7 @@ def health():
     data = {
         "status": "ok",
         "backend": backend,
+        "model_size": get_model_size(),
         "clone_model_loaded": clone_model is not None,
         "design_model_loaded": design_model is not None,
         "custom_model_loaded": custom_model is not None,
@@ -308,8 +311,14 @@ def list_models():
     reset_activity_timer()
 
     backend = get_backend()
+    model_size = get_model_size()
+
+    # Get size-specific model info
+    size_model_info = MODEL_INFO.get(model_size, MODEL_INFO["1.7B"])
+    size_mlx_info = MLX_MODEL_INFO.get(model_size, MLX_MODEL_INFO["1.7B"])
+
     models_data = {}
-    for model_type, info in MODEL_INFO.items():
+    for model_type, info in size_model_info.items():
         loaded = _get_model(model_type) is not None
         entry = {
             "loaded": loaded,
@@ -319,14 +328,14 @@ def list_models():
         }
         # Include MLX repo ID when using MLX backend
         if backend == "mlx":
-            mlx_info = MLX_MODEL_INFO.get(model_type)
+            mlx_info = size_mlx_info.get(model_type)
             if mlx_info:
                 from tts_config import get_mlx_model_name
                 entry["repo_id"] = get_mlx_model_name(model_type)
                 entry["memory_mb"] = mlx_info["memory_mb"]
         models_data[model_type] = entry
 
-    return jsonify({"models": models_data, "backend": backend})
+    return jsonify({"models": models_data, "backend": backend, "model_size": model_size})
 
 
 @app.route("/load-model", methods=["POST"])
@@ -537,6 +546,114 @@ def generate():
         # Remove from queue
         if request_id in request_queue:
             request_queue.remove(request_id)
+
+
+@app.route("/generate-stream", methods=["POST"])
+def generate_stream():
+    """Stream audio generation — returns chunked audio as it's produced.
+
+    Request body same as /generate, but for single text only.
+    Returns multipart audio chunks as they're generated.
+    """
+    from flask import Response
+
+    reset_activity_timer()
+
+    data = request.json
+    text = data.get("text", "")
+    if not text:
+        return jsonify({"error": "No text provided", "recovery": "config"}), 400
+
+    security = server_config.get("security", {})
+    max_text_length = security.get("max_text_length", 10000)
+    if len(text) > max_text_length:
+        return jsonify({
+            "error": f"Text exceeds {max_text_length} character limit ({len(text)} chars)",
+            "recovery": "config",
+        }), 400
+
+    mode = data.get("mode", "clone")
+    if mode not in ("clone", "design", "custom"):
+        return jsonify({"error": f"Invalid mode: {mode}", "recovery": "config"}), 400
+
+    prompt_file = data.get("prompt_file")
+    if prompt_file and (".." in prompt_file or "/" in prompt_file):
+        return jsonify({"error": "Invalid prompt_file", "recovery": "config"}), 400
+
+    voice_description = data.get("voice_description", "")
+    language = data.get("language", "English")
+    speaker = data.get("speaker")
+    instruct = data.get("instruct", "")
+
+    model = _get_model(mode)
+    if model is None:
+        return jsonify({
+            "error": "model_not_loaded",
+            "detail": f"The '{mode}' model is not loaded",
+            "recovery": "restart",
+        }), 503
+
+    gen_params = {
+        "temperature": data.get("temperature", 0.7),
+        "top_k": data.get("top_k", 50),
+        "top_p": data.get("top_p", 0.95),
+        "repetition_penalty": data.get("repetition_penalty", 1.05),
+    }
+    seed = data.get("seed")
+    if seed is not None:
+        gen_params["seed"] = seed
+
+    voice_prompt = None
+    if mode == "clone":
+        if not prompt_file:
+            return jsonify({"error": "prompt_file required for clone mode", "recovery": "config"}), 400
+        voice_prompt = load_voice_prompt(prompt_file)
+        if voice_prompt is None:
+            return jsonify({"error": f"Voice prompt not found: {prompt_file}", "recovery": "config"}), 404
+
+    def generate_chunks():
+        """Generator that yields audio chunks as multipart data."""
+        import struct
+
+        generation_state.update({
+            "active": True,
+            "start_time": time.time(),
+            "text_length": len(text),
+            "mode": mode,
+        })
+
+        try:
+            chunk_idx = 0
+            for wav_chunk, sr in run_inference_streaming(
+                model=model,
+                text=text,
+                mode=mode,
+                gen_params=gen_params,
+                language=language,
+                voice_prompt=voice_prompt,
+                voice_description=voice_description,
+                speaker=speaker,
+                instruct=instruct,
+            ):
+                chunk_idx += 1
+                generation_state["chunk_index"] = chunk_idx
+
+                # Pack sample rate as 4-byte int header, then raw float32 audio
+                header = struct.pack("<I", sr)
+                audio_bytes = wav_chunk.astype("<f4").tobytes()
+                yield header + audio_bytes
+
+        finally:
+            generation_state.update({
+                "active": False, "start_time": 0.0, "text_length": 0,
+                "mode": "", "chunk_index": 0, "chunk_total": 0,
+            })
+
+    return Response(
+        generate_chunks(),
+        mimetype="application/octet-stream",
+        headers={"X-Content-Type": "audio/raw-float32"}
+    )
 
 
 @app.route("/shutdown", methods=["POST"])

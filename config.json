@@ -29,7 +29,8 @@
   "advanced": {
     "dtype": "bfloat16",
     "backend": "mlx",
-    "mlx_quantization": "8bit"
+    "mlx_quantization": "8bit",
+    "model_size": "1.7B"
   },
   "generation": {
     "temperature": 0.7,

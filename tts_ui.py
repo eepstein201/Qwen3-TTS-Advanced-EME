@@ -70,12 +70,13 @@ def get_server_status():
 
         # Backend info
         backend = stats.get("backend", "torch")
+        model_size = stats.get("model_size", "1.7B")
         if backend == "mlx":
             quant = stats.get("mlx_quantization", "8bit")
-            backend_str = f"MLX ({quant})"
+            backend_str = f"MLX ({quant}, {model_size})"
         else:
             dtype = stats.get("dtype", "float32")
-            backend_str = f"PyTorch ({dtype})"
+            backend_str = f"PyTorch ({dtype}, {model_size})"
 
         return "Connected", memory, models_str, backend_str
     except Exception as e:
