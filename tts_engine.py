@@ -1004,8 +1004,7 @@ def transcribe_audio(audio_path, language="en"):
         logger.info("Loading ASR model for transcription (first use)...")
         t0 = time.time()
         try:
-            from mlx_audio.stt import transcribe as mlx_transcribe
-            from mlx_audio.stt.utils import load_model as load_stt_model
+            from mlx_audio.stt import load_model as load_stt_model
 
             # Load the Whisper model for transcription
             _asr_model = load_stt_model("mlx-community/whisper-large-v3-turbo")
@@ -1017,15 +1016,14 @@ def transcribe_audio(audio_path, language="en"):
                 "Update mlx-audio: pip install --upgrade mlx-audio"
             )
 
-    # Perform transcription
+    # Perform transcription using model.generate()
     logger.info("Transcribing: %s", audio_path)
     t0 = time.time()
 
     try:
-        from mlx_audio.stt import transcribe as mlx_transcribe
-
-        result = mlx_transcribe(audio_path, model=_asr_model, language=language)
-        transcript = result.get("text", "").strip()
+        result = _asr_model.generate(audio_path, language=language)
+        # Result is an STTOutput object with .text attribute
+        transcript = result.text.strip() if result.text else ""
         elapsed = time.time() - t0
         logger.info("Transcription complete: %d chars in %.1fs", len(transcript), elapsed)
         return transcript
@@ -1042,7 +1040,7 @@ def is_asr_available():
     if get_backend() != "mlx":
         return False
     try:
-        from mlx_audio.stt import transcribe  # noqa: F401
+        from mlx_audio.stt import load_model  # noqa: F401
         return True
     except ImportError:
         return False
