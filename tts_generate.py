@@ -729,45 +729,45 @@ def generate_streaming(text, mode, config, gen_params, output_path,
         sample_rate = None
         chunk_count = 0
 
-        # Read streamed chunks (each chunk: 4-byte sample rate + float32 audio)
+        # Read streamed chunks with length-prefixed format:
+        # Each chunk: [sample_rate:4][length:4][audio:length]
         buffer = b""
+        header_size = 8  # 4 bytes sample_rate + 4 bytes length
+
         for data in resp.iter_content(chunk_size=4096):
             buffer += data
 
             # Process complete chunks in buffer
-            while len(buffer) >= 4:
-                # Read sample rate header
-                sr = struct.unpack("<I", buffer[:4])[0]
+            while len(buffer) >= header_size:
+                # Read header
+                sr, audio_len = struct.unpack("<II", buffer[:header_size])
+
+                # Check if we have the full audio chunk
+                total_chunk_size = header_size + audio_len
+                if len(buffer) < total_chunk_size:
+                    break  # Need more data
+
                 if sample_rate is None:
                     sample_rate = sr
 
-                # We need to read until we have a complete chunk
-                # For simplicity, process in 4KB audio segments
-                header_size = 4
-                remaining = buffer[header_size:]
+                # Extract audio
+                audio_bytes = buffer[header_size:total_chunk_size]
+                chunk = np.frombuffer(audio_bytes, dtype="<f4")
+                all_chunks.append(chunk)
+                chunk_count += 1
 
-                # Process whatever audio we have (must be multiple of 4 bytes for float32)
-                audio_size = (len(remaining) // 4) * 4
-                if audio_size > 0:
-                    audio_bytes = remaining[:audio_size]
-                    chunk = np.frombuffer(audio_bytes, dtype="<f4")
-                    all_chunks.append(chunk)
-                    chunk_count += 1
+                # Play chunk via afplay using temp file
+                temp = tempfile.NamedTemporaryFile(suffix=".wav", delete=False)
+                sf.write(temp.name, chunk, sr)
+                try:
+                    subprocess.run(["afplay", temp.name], check=True)
+                except Exception:
+                    pass
+                finally:
+                    os.unlink(temp.name)
 
-                    # Play chunk via afplay using temp file
-                    temp = tempfile.NamedTemporaryFile(suffix=".wav", delete=False)
-                    sf.write(temp.name, chunk, sr)
-                    try:
-                        subprocess.run(["afplay", temp.name], check=True)
-                    except Exception:
-                        pass
-                    finally:
-                        os.unlink(temp.name)
-
-                    # Keep any leftover bytes (incomplete float32 values)
-                    buffer = remaining[audio_size:]
-                else:
-                    break
+                # Remove processed chunk from buffer
+                buffer = buffer[total_chunk_size:]
 
         print(f"Streaming complete: {chunk_count} chunks received")
 

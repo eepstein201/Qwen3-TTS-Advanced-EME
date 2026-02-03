@@ -152,10 +152,16 @@ def load_single_model(model_type):
     """Load a single model by type using tts_engine."""
     global clone_model, design_model, custom_model
 
-    if model_type not in MODEL_INFO:
+    valid_types = ("clone", "design", "custom")
+    if model_type not in valid_types:
         return False
 
-    logger.info("Loading %s...", MODEL_INFO[model_type]["name"])
+    # Get model info for logging (use current size)
+    from tts_config import get_model_info
+    info = get_model_info(model_type)
+    model_name = info.get("name", info.get("name_template", model_type))
+
+    logger.info("Loading %s...", model_name)
     model = load_model(model_type)
 
     if model_type == "clone":
@@ -349,9 +355,10 @@ def load_model_endpoint():
     if not model_type:
         return jsonify({"error": "model_type required", "recovery": "config"}), 400
 
-    if model_type not in MODEL_INFO:
+    valid_types = ("clone", "design", "custom")
+    if model_type not in valid_types:
         return jsonify({
-            "error": f"Unknown model type: {model_type}. Valid: clone, design, custom",
+            "error": f"Unknown model type: {model_type}. Valid: {', '.join(valid_types)}",
             "recovery": "config",
         }), 400
 
@@ -612,7 +619,10 @@ def generate_stream():
             return jsonify({"error": f"Voice prompt not found: {prompt_file}", "recovery": "config"}), 404
 
     def generate_chunks():
-        """Generator that yields audio chunks as multipart data."""
+        """Generator that yields audio chunks with length-prefixed format.
+
+        Each chunk: [4-byte sample_rate][4-byte audio_length][audio_bytes]
+        """
         import struct
 
         generation_state.update({
@@ -638,9 +648,9 @@ def generate_stream():
                 chunk_idx += 1
                 generation_state["chunk_index"] = chunk_idx
 
-                # Pack sample rate as 4-byte int header, then raw float32 audio
-                header = struct.pack("<I", sr)
+                # Length-prefixed format: [sample_rate:4][length:4][audio:length]
                 audio_bytes = wav_chunk.astype("<f4").tobytes()
+                header = struct.pack("<II", sr, len(audio_bytes))
                 yield header + audio_bytes
 
         finally:
