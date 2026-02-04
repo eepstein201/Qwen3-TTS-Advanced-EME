@@ -1179,5 +1179,297 @@ class TestLoadModelEndpoint(unittest.TestCase):
                 f"model_type '{model_type}' should be valid")
 
 
+# =============================================================================
+# Cancel generation endpoint tests
+# =============================================================================
+
+class TestCancelGenerationEndpoint(unittest.TestCase):
+    """Test /cancel-generation endpoint."""
+
+    @classmethod
+    def setUpClass(cls):
+        import tts_server
+        tts_server.auth_token = "test_token"
+        tts_server.server_config = {
+            "security": {},
+            "auto_shutdown_minutes": 0,
+        }
+        # Reset generation state
+        tts_server.generation_state.update({
+            "active": False,
+            "cancelled": False,
+            "generation_id": None,
+        })
+        cls.app = tts_server.app
+        cls.app.testing = True
+        cls.client = cls.app.test_client()
+
+    @classmethod
+    def tearDownClass(cls):
+        import tts_server
+        tts_server.auth_token = None
+
+    def test_cancel_requires_auth(self):
+        """POST /cancel-generation requires authentication."""
+        resp = self.client.post("/cancel-generation")
+        self.assertEqual(resp.status_code, 401)
+
+    def test_cancel_when_no_active_generation(self):
+        """Cancel returns no_active_generation when nothing running."""
+        import tts_server
+        tts_server.generation_state["active"] = False
+        resp = self.client.post("/cancel-generation",
+            headers={"Authorization": "Bearer test_token"})
+        self.assertEqual(resp.status_code, 200)
+        data = resp.get_json()
+        self.assertEqual(data["status"], "no_active_generation")
+
+    def test_cancel_sets_cancelled_flag(self):
+        """Cancel sets the cancelled flag in generation_state."""
+        import tts_server
+        tts_server.generation_state.update({
+            "active": True,
+            "cancelled": False,
+            "generation_id": "test123",
+        })
+        resp = self.client.post("/cancel-generation",
+            headers={"Authorization": "Bearer test_token"})
+        self.assertEqual(resp.status_code, 200)
+        data = resp.get_json()
+        self.assertEqual(data["status"], "cancellation_requested")
+        self.assertTrue(tts_server.generation_state["cancelled"])
+        # Reset
+        tts_server.generation_state.update({
+            "active": False,
+            "cancelled": False,
+            "generation_id": None,
+        })
+
+    def test_cancel_returns_generation_id(self):
+        """Cancel returns the generation_id."""
+        import tts_server
+        tts_server.generation_state.update({
+            "active": True,
+            "cancelled": False,
+            "generation_id": "abc12345",
+        })
+        resp = self.client.post("/cancel-generation",
+            headers={"Authorization": "Bearer test_token"})
+        data = resp.get_json()
+        self.assertEqual(data["generation_id"], "abc12345")
+        # Reset
+        tts_server.generation_state.update({
+            "active": False,
+            "cancelled": False,
+            "generation_id": None,
+        })
+
+
+class TestGenerationStateFields(unittest.TestCase):
+    """Test generation_state has required fields for cancellation."""
+
+    def test_generation_state_has_cancelled_field(self):
+        """generation_state dict has cancelled field."""
+        import tts_server
+        self.assertIn("cancelled", tts_server.generation_state)
+
+    def test_generation_state_has_generation_id(self):
+        """generation_state dict has generation_id field."""
+        import tts_server
+        self.assertIn("generation_id", tts_server.generation_state)
+
+
+# =============================================================================
+# Streaming client tests
+# =============================================================================
+
+class TestStreamingClientMethod(unittest.TestCase):
+    """Test TTSClient.generate_streaming method."""
+
+    def test_generate_streaming_method_exists(self):
+        """TTSClient has generate_streaming method."""
+        from tts_client import TTSClient
+        client = TTSClient()
+        self.assertTrue(hasattr(client, "generate_streaming"))
+        self.assertTrue(callable(getattr(client, "generate_streaming")))
+
+    def test_cancel_generation_method_exists(self):
+        """TTSClient has cancel_generation method."""
+        from tts_client import TTSClient
+        client = TTSClient()
+        self.assertTrue(hasattr(client, "cancel_generation"))
+        self.assertTrue(callable(getattr(client, "cancel_generation")))
+
+    def test_generate_streaming_signature(self):
+        """generate_streaming has expected parameters."""
+        import inspect
+        from tts_client import TTSClient
+        sig = inspect.signature(TTSClient.generate_streaming)
+        params = list(sig.parameters.keys())
+        # Should have text, mode, and various optional params
+        self.assertIn("text", params)
+        self.assertIn("mode", params)
+
+
+# =============================================================================
+# UI history functions tests
+# =============================================================================
+
+class TestUIHistoryFunctions(unittest.TestCase):
+    """Test tts_ui generation history functions."""
+
+    def test_history_functions_exist(self):
+        """tts_ui has history-related functions."""
+        import tts_ui
+        self.assertTrue(hasattr(tts_ui, "generation_history"))
+        self.assertTrue(hasattr(tts_ui, "add_to_history"))
+        self.assertTrue(hasattr(tts_ui, "get_history_data"))
+        self.assertTrue(hasattr(tts_ui, "MAX_HISTORY_SIZE"))
+
+    def test_add_to_history(self):
+        """add_to_history adds entries to history."""
+        import tts_ui
+        # Clear history
+        tts_ui.generation_history.clear()
+
+        tts_ui.add_to_history("clone", "Test text", "/path/to/audio.wav", 5)
+        self.assertEqual(len(tts_ui.generation_history), 1)
+        entry = tts_ui.generation_history[0]
+        self.assertEqual(entry["mode"], "Clone")
+        self.assertEqual(entry["chunks"], 5)
+        self.assertEqual(entry["path"], "/path/to/audio.wav")
+
+    def test_history_max_size(self):
+        """History doesn't exceed MAX_HISTORY_SIZE."""
+        import tts_ui
+        tts_ui.generation_history.clear()
+
+        # Add more than max entries
+        for i in range(tts_ui.MAX_HISTORY_SIZE + 5):
+            tts_ui.add_to_history("clone", f"Text {i}", f"/path/{i}.wav", 1)
+
+        self.assertEqual(len(tts_ui.generation_history), tts_ui.MAX_HISTORY_SIZE)
+
+    def test_get_history_data_format(self):
+        """get_history_data returns list of lists."""
+        import tts_ui
+        tts_ui.generation_history.clear()
+        tts_ui.add_to_history("clone", "Test text", "/path/test.wav", 3)
+
+        data = tts_ui.get_history_data()
+        self.assertIsInstance(data, list)
+        self.assertEqual(len(data), 1)
+        self.assertIsInstance(data[0], list)
+        # Should be [time, mode, text, chunks]
+        self.assertEqual(len(data[0]), 4)
+
+    def test_history_text_truncation(self):
+        """Long text is truncated in history entries."""
+        import tts_ui
+        tts_ui.generation_history.clear()
+
+        long_text = "A" * 100  # 100 character text
+        tts_ui.add_to_history("clone", long_text, "/path/test.wav", 1)
+
+        entry = tts_ui.generation_history[0]
+        # Text should be truncated to 40 chars + "..."
+        self.assertLessEqual(len(entry["text"]), 43)
+        self.assertTrue(entry["text"].endswith("..."))
+
+
+# =============================================================================
+# UI cancel function tests
+# =============================================================================
+
+class TestUICancelFunction(unittest.TestCase):
+    """Test tts_ui cancel streaming function."""
+
+    def test_cancel_streaming_generation_exists(self):
+        """tts_ui has cancel_streaming_generation function."""
+        import tts_ui
+        self.assertTrue(hasattr(tts_ui, "cancel_streaming_generation"))
+        self.assertTrue(callable(tts_ui.cancel_streaming_generation))
+
+
+# =============================================================================
+# UI text info helper tests
+# =============================================================================
+
+class TestUITextInfo(unittest.TestCase):
+    """Test tts_ui text info helper functions."""
+
+    def test_update_text_info_exists(self):
+        """tts_ui has update_text_info function."""
+        import tts_ui
+        self.assertTrue(hasattr(tts_ui, "update_text_info"))
+
+    def test_update_text_info_empty(self):
+        """update_text_info returns empty string for empty input."""
+        from tts_ui import update_text_info
+        self.assertEqual(update_text_info(""), "")
+        self.assertEqual(update_text_info(None), "")
+
+    def test_update_text_info_short(self):
+        """update_text_info shows char count for short text."""
+        from tts_ui import update_text_info
+        result = update_text_info("Hello")
+        self.assertIn("5 chars", result)
+
+    def test_update_text_info_long(self):
+        """update_text_info shows chunks estimate for long text."""
+        from tts_ui import update_text_info
+        long_text = "A" * 1000  # 1000 chars = ~2 chunks
+        result = update_text_info(long_text)
+        self.assertIn("1000 chars", result)
+        self.assertIn("chunks", result)
+
+
+# =============================================================================
+# Streaming server endpoint structure tests
+# =============================================================================
+
+class TestStreamingEndpointStructure(unittest.TestCase):
+    """Test /generate-stream endpoint structure."""
+
+    @classmethod
+    def setUpClass(cls):
+        import tts_server
+        tts_server.auth_token = "test_token"
+        tts_server.server_config = {
+            "security": {"max_text_length": 10000},
+            "auto_shutdown_minutes": 0,
+        }
+        cls.app = tts_server.app
+        cls.app.testing = True
+        cls.client = cls.app.test_client()
+
+    @classmethod
+    def tearDownClass(cls):
+        import tts_server
+        tts_server.auth_token = None
+
+    def test_generate_stream_requires_auth(self):
+        """POST /generate-stream requires authentication."""
+        resp = self.client.post("/generate-stream",
+            json={"text": "Hello", "mode": "clone"})
+        self.assertEqual(resp.status_code, 401)
+
+    def test_generate_stream_requires_text(self):
+        """POST /generate-stream requires text."""
+        resp = self.client.post("/generate-stream",
+            json={"mode": "clone"},
+            headers={"Authorization": "Bearer test_token"})
+        self.assertEqual(resp.status_code, 400)
+        self.assertIn("No text provided", resp.get_json()["error"])
+
+    def test_generate_stream_validates_mode(self):
+        """POST /generate-stream validates mode."""
+        resp = self.client.post("/generate-stream",
+            json={"text": "Hello", "mode": "invalid"},
+            headers={"Authorization": "Bearer test_token"})
+        self.assertEqual(resp.status_code, 400)
+        self.assertIn("Invalid mode", resp.get_json()["error"])
+
+
 if __name__ == "__main__":
     unittest.main()
