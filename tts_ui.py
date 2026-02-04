@@ -243,6 +243,21 @@ def _poll_progress(server_url, progress_fn, stop_event):
 # Generation Functions
 # =============================================================================
 
+def cancel_streaming_generation():
+    """Cancel the current streaming generation."""
+    client = TTSClient()
+    try:
+        result = client.cancel_generation()
+        status = result.get("status", "unknown")
+        if status == "cancellation_requested":
+            return "Cancellation requested...", format_status_display()
+        elif status == "no_active_generation":
+            return "No active generation to cancel", format_status_display()
+        return f"Cancel status: {status}", format_status_display()
+    except Exception as e:
+        return f"Cancel failed: {str(e)}", format_status_display()
+
+
 def _save_streaming_audio(all_chunks, sample_rate):
     """Save accumulated streaming chunks to a temp file and return path."""
     import numpy as np
@@ -651,7 +666,9 @@ def build_ui():
                             clone_speed = gr.Slider(0.5, 2.0, value=1.0, step=0.05, label="Speed")
                             clone_pitch = gr.Slider(-12, 12, value=0, step=1, label="Pitch (semitones)")
 
-                clone_btn = gr.Button("Generate", variant="primary")
+                with gr.Row():
+                    clone_btn = gr.Button("Generate", variant="primary")
+                    clone_cancel_btn = gr.Button("Stop", variant="stop")
                 clone_output = gr.Audio(label="Output", streaming=True, autoplay=True)
                 clone_status = gr.Textbox(label="Status", interactive=False)
 
@@ -677,6 +694,11 @@ def build_ui():
                             clone_top_p, clone_rep, clone_seed, clone_trim, clone_norm,
                             clone_speed, clone_pitch, clone_streaming],
                     outputs=[clone_output, clone_status, status_html]
+                )
+
+                clone_cancel_btn.click(
+                    fn=cancel_streaming_generation,
+                    outputs=[clone_status, status_html]
                 )
 
                 clone_text.change(fn=update_text_info, inputs=clone_text, outputs=clone_text_info)
@@ -727,7 +749,9 @@ def build_ui():
                             design_speed = gr.Slider(0.5, 2.0, value=1.0, step=0.05, label="Speed")
                             design_pitch = gr.Slider(-12, 12, value=0, step=1, label="Pitch (semitones)")
 
-                design_btn = gr.Button("Generate", variant="primary")
+                with gr.Row():
+                    design_btn = gr.Button("Generate", variant="primary")
+                    design_cancel_btn = gr.Button("Stop", variant="stop")
                 design_output = gr.Audio(label="Output", streaming=True, autoplay=True)
                 design_status = gr.Textbox(label="Status", interactive=False)
 
@@ -751,6 +775,11 @@ def build_ui():
                             design_top_p, design_rep, design_seed, design_trim, design_norm,
                             design_speed, design_pitch, design_streaming],
                     outputs=[design_output, design_status, status_html]
+                )
+
+                design_cancel_btn.click(
+                    fn=cancel_streaming_generation,
+                    outputs=[design_status, status_html]
                 )
 
                 design_text.change(fn=update_text_info, inputs=design_text, outputs=design_text_info)
@@ -806,7 +835,9 @@ def build_ui():
                             custom_speed = gr.Slider(0.5, 2.0, value=1.0, step=0.05, label="Speed")
                             custom_pitch = gr.Slider(-12, 12, value=0, step=1, label="Pitch (semitones)")
 
-                custom_btn = gr.Button("Generate", variant="primary")
+                with gr.Row():
+                    custom_btn = gr.Button("Generate", variant="primary")
+                    custom_cancel_btn = gr.Button("Stop", variant="stop")
                 custom_output = gr.Audio(label="Output", streaming=True, autoplay=True)
                 custom_status = gr.Textbox(label="Status", interactive=False)
 
@@ -830,6 +861,11 @@ def build_ui():
                             custom_temp, custom_top_k, custom_top_p, custom_rep, custom_seed,
                             custom_trim, custom_norm, custom_speed, custom_pitch, custom_streaming],
                     outputs=[custom_output, custom_status, status_html]
+                )
+
+                custom_cancel_btn.click(
+                    fn=cancel_streaming_generation,
+                    outputs=[custom_status, status_html]
                 )
 
                 custom_text.change(fn=update_text_info, inputs=custom_text, outputs=custom_text_info)
