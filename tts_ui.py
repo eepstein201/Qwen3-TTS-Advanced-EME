@@ -240,6 +240,42 @@ def _poll_progress(server_url, progress_fn, stop_event):
 
 
 # =============================================================================
+# Generation History
+# =============================================================================
+
+# Session-level history (shared across tabs)
+generation_history = []
+MAX_HISTORY_SIZE = 10
+
+
+def add_to_history(mode, text, output_path, duration_chunks):
+    """Add a generation to history."""
+    import datetime
+    entry = {
+        "time": datetime.datetime.now().strftime("%H:%M:%S"),
+        "mode": mode.capitalize(),
+        "text": text[:40] + "..." if len(text) > 40 else text,
+        "chunks": duration_chunks,
+        "path": output_path,
+    }
+    generation_history.insert(0, entry)
+    if len(generation_history) > MAX_HISTORY_SIZE:
+        generation_history.pop()
+
+
+def get_history_data():
+    """Return history as a list of lists for Dataframe display."""
+    return [[h["time"], h["mode"], h["text"], f"{h['chunks']} chunks"] for h in generation_history]
+
+
+def get_history_audio(evt: gr.SelectData):
+    """Return the audio file path for the selected history row."""
+    if evt.index[0] < len(generation_history):
+        return generation_history[evt.index[0]]["path"]
+    return None
+
+
+# =============================================================================
 # Generation Functions
 # =============================================================================
 
@@ -316,6 +352,7 @@ def generate_clone_streaming(text, prompt, preset, temperature, top_k, top_p, re
 
         # Final: save complete audio and return file path
         output_path = _save_streaming_audio(all_chunks, sample_rate)
+        add_to_history("clone", text, output_path, chunk_count)
         yield output_path, f"Complete: {chunk_count} chunks", format_status_display()
 
     except Exception as e:
@@ -367,6 +404,7 @@ def generate_design_streaming(text, description, preset, temperature, top_k, top
             yield (sr, wav_chunk), f"Streaming... {chunk_count} chunks", gr.update()
 
         output_path = _save_streaming_audio(all_chunks, sample_rate)
+        add_to_history("design", text, output_path, chunk_count)
         yield output_path, f"Complete: {chunk_count} chunks", format_status_display()
 
     except Exception as e:
@@ -416,6 +454,7 @@ def generate_custom_streaming(text, speaker_choice, instruct, preset, temperatur
             yield (sr, wav_chunk), f"Streaming... {chunk_count} chunks", gr.update()
 
         output_path = _save_streaming_audio(all_chunks, sample_rate)
+        add_to_history("custom", text, output_path, chunk_count)
         yield output_path, f"Complete: {chunk_count} chunks", format_status_display()
 
     except Exception as e:
@@ -914,6 +953,28 @@ def build_ui():
                     inputs=[create_audio, create_transcript, create_name],
                     outputs=[create_status, voice_list]
                 )
+
+        # History Panel
+        with gr.Accordion("Recent Generations", open=False):
+            history_df = gr.Dataframe(
+                headers=["Time", "Mode", "Text Preview", "Chunks"],
+                value=get_history_data,
+                interactive=False,
+                wrap=True,
+            )
+            history_audio = gr.Audio(label="Selected Generation", visible=False)
+            history_df.select(
+                fn=get_history_audio,
+                outputs=history_audio
+            ).then(
+                fn=lambda: gr.update(visible=True),
+                outputs=history_audio
+            )
+            refresh_history_btn = gr.Button("Refresh History", size="sm")
+            refresh_history_btn.click(
+                fn=get_history_data,
+                outputs=history_df
+            )
 
         # Footer
         gr.Markdown("""
