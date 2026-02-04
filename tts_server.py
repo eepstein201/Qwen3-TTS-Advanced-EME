@@ -106,6 +106,8 @@ generation_state = {
     "batch_total": 0,
     "chunk_index": 0,
     "chunk_total": 0,
+    "generation_id": None,
+    "cancelled": False,
 }
 
 
@@ -228,6 +230,17 @@ def generation_status():
         # Estimate ETA from history median chars/sec
         state["eta_sec"] = _estimate_eta(state["text_length"], state["elapsed_sec"])
     return jsonify(state)
+
+
+@app.route("/cancel-generation", methods=["POST"])
+def cancel_generation():
+    """Cancel the current streaming generation. Requires auth."""
+    if not generation_state["active"]:
+        return jsonify({"status": "no_active_generation"})
+
+    generation_state["cancelled"] = True
+    logger.info("Generation cancellation requested")
+    return jsonify({"status": "cancellation_requested", "generation_id": generation_state.get("generation_id")})
 
 
 def _estimate_eta(text_length, elapsed_sec):
@@ -622,14 +635,19 @@ def generate_stream():
         """Generator that yields audio chunks with length-prefixed format.
 
         Each chunk: [4-byte sample_rate][4-byte audio_length][audio_bytes]
+        Checks for cancellation between chunks.
         """
         import struct
+        import uuid
 
+        gen_id = str(uuid.uuid4())[:8]
         generation_state.update({
             "active": True,
             "start_time": time.time(),
             "text_length": len(text),
             "mode": mode,
+            "generation_id": gen_id,
+            "cancelled": False,
         })
 
         try:
@@ -645,6 +663,11 @@ def generate_stream():
                 speaker=speaker,
                 instruct=instruct,
             ):
+                # Check for cancellation
+                if generation_state["cancelled"]:
+                    logger.info("Generation cancelled after %d chunks", chunk_idx)
+                    break
+
                 chunk_idx += 1
                 generation_state["chunk_index"] = chunk_idx
 
@@ -657,6 +680,7 @@ def generate_stream():
             generation_state.update({
                 "active": False, "start_time": 0.0, "text_length": 0,
                 "mode": "", "chunk_index": 0, "chunk_total": 0,
+                "generation_id": None, "cancelled": False,
             })
 
     return Response(

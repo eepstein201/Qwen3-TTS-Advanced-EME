@@ -124,6 +124,21 @@ class TTSClient:
             raise Exception(f"Failed to load {mode} model: {error_msg}")
         return resp.json()
 
+    def cancel_generation(self):
+        """Cancel the current streaming generation.
+
+        Returns:
+            Response dict with "status" key ("cancellation_requested" or "no_active_generation").
+        """
+        if not self.is_server_running():
+            raise ConnectionError("TTS server is not running")
+        resp = requests.post(
+            f"{self.server_url}/cancel-generation",
+            timeout=5,
+            headers=auth_headers(),
+        )
+        return resp.json()
+
     def list_prompts(self):
         """List available voice prompts."""
         prompts = [f for f in os.listdir(self.voice_prompts_dir) if f.endswith('.pt')]
