@@ -25,6 +25,7 @@ sys.path.insert(0, os.path.expanduser("~/Qwen3-TTS_UserFiles"))
 from tts_client import TTSClient
 from tts_config import (
     CUSTOM_VOICE_SPEAKERS,
+    VOICE_PROMPTS_DIR,
     get_default_clone_prompt,
     get_server_url,
     is_server_running,
@@ -36,6 +37,76 @@ SPEAKER_CHOICES = [
     f"{key} ({info['lang']}) - {info['desc']}"
     for key, info in CUSTOM_VOICE_SPEAKERS.items()
 ]
+
+
+# =============================================================================
+# Text Info Helper
+# =============================================================================
+
+def update_text_info(text):
+    """Show character count and estimated chunks."""
+    if not text:
+        return ""
+    chars = len(text)
+    # Estimate chunks (500 chars default)
+    chunks = max(1, (chars + 499) // 500)
+    if chunks > 1:
+        return f"{chars} chars | ~{chunks} chunks"
+    return f"{chars} chars"
+
+
+# =============================================================================
+# Voice Creation Functions (via subprocess)
+# =============================================================================
+
+def create_voice_prompt(audio_path, transcript, voice_name, auto_transcribed=False):
+    """Create voice prompt via subprocess (handles env switching)."""
+    import subprocess
+
+    if not audio_path:
+        raise gr.Error("Please upload an audio file")
+    if not transcript or not transcript.strip():
+        raise gr.Error("Please enter or auto-transcribe a transcript")
+    if not voice_name or not voice_name.strip():
+        raise gr.Error("Please enter a name for the voice")
+
+    # Sanitize voice name
+    voice_name = voice_name.strip().replace(" ", "_").replace("/", "_")
+
+    cmd = [
+        os.path.expanduser("~/bin/createVoice"),
+        audio_path,
+        "-n", voice_name,
+        "-t", transcript,
+        "--no-test",
+    ]
+
+    try:
+        result = subprocess.run(cmd, capture_output=True, text=True, timeout=120)
+        if result.returncode != 0:
+            raise gr.Error(f"Failed: {result.stderr or result.stdout}")
+        return f"✓ Created voice: {voice_name}.pt", get_voice_prompts()
+    except subprocess.TimeoutExpired:
+        raise gr.Error("Voice creation timed out (>120s)")
+    except Exception as e:
+        raise gr.Error(f"Error: {str(e)}")
+
+
+def auto_transcribe_audio(audio_path):
+    """Auto-transcribe using MLX ASR."""
+    if not audio_path:
+        raise gr.Error("Please upload an audio file first")
+
+    try:
+        from tts_engine import transcribe_audio, is_asr_available
+        if not is_asr_available():
+            raise gr.Error("Auto-transcribe requires MLX backend")
+        transcript = transcribe_audio(audio_path)
+        return transcript
+    except ImportError:
+        raise gr.Error("ASR not available - enter transcript manually")
+    except Exception as e:
+        raise gr.Error(f"Transcription failed: {str(e)}")
 
 
 # =============================================================================
@@ -543,6 +614,10 @@ def build_ui():
                             placeholder="Enter text to synthesize...",
                             lines=3
                         )
+                        clone_text_info = gr.Textbox(
+                            label="", show_label=False, interactive=False,
+                            max_lines=1, container=False
+                        )
                         _default_prompt = get_default_clone_prompt()
                         _prompts = get_voice_prompts()
                         clone_prompt = gr.Dropdown(
@@ -604,6 +679,8 @@ def build_ui():
                     outputs=[clone_output, clone_status, status_html]
                 )
 
+                clone_text.change(fn=update_text_info, inputs=clone_text, outputs=clone_text_info)
+
             # Design Mode Tab
             with gr.Tab("Design Mode"):
                 gr.Markdown("Generate a voice from a text description.")
@@ -614,6 +691,10 @@ def build_ui():
                             label="Text Input",
                             placeholder="Enter text to synthesize...",
                             lines=3
+                        )
+                        design_text_info = gr.Textbox(
+                            label="", show_label=False, interactive=False,
+                            max_lines=1, container=False
                         )
                         design_desc = gr.Textbox(
                             label="Voice Description",
@@ -672,6 +753,8 @@ def build_ui():
                     outputs=[design_output, design_status, status_html]
                 )
 
+                design_text.change(fn=update_text_info, inputs=design_text, outputs=design_text_info)
+
             # Custom Mode Tab
             with gr.Tab("Custom Mode"):
                 gr.Markdown("Use premium pre-trained speakers.")
@@ -682,6 +765,10 @@ def build_ui():
                             label="Text Input",
                             placeholder="Enter text to synthesize...",
                             lines=3
+                        )
+                        custom_text_info = gr.Textbox(
+                            label="", show_label=False, interactive=False,
+                            max_lines=1, container=False
                         )
                         custom_speaker = gr.Dropdown(
                             label="Speaker",
@@ -743,6 +830,53 @@ def build_ui():
                             custom_temp, custom_top_k, custom_top_p, custom_rep, custom_seed,
                             custom_trim, custom_norm, custom_speed, custom_pitch, custom_streaming],
                     outputs=[custom_output, custom_status, status_html]
+                )
+
+                custom_text.change(fn=update_text_info, inputs=custom_text, outputs=custom_text_info)
+
+            # Create Voice Tab
+            with gr.Tab("Create Voice"):
+                gr.Markdown("Create a new voice clone from reference audio.")
+
+                with gr.Row():
+                    with gr.Column(scale=2):
+                        create_audio = gr.Audio(
+                            label="Reference Audio",
+                            type="filepath",
+                            sources=["upload", "microphone"]
+                        )
+                        create_transcript = gr.Textbox(
+                            label="Transcript",
+                            placeholder="Enter the exact words spoken in the audio...",
+                            lines=3
+                        )
+                        with gr.Row():
+                            auto_transcribe_btn = gr.Button("Auto-Transcribe (MLX)", size="sm")
+
+                    with gr.Column(scale=1):
+                        create_name = gr.Textbox(
+                            label="Voice Name",
+                            placeholder="e.g., my_voice",
+                            info="Will create my_voice.pt + .wav + .txt"
+                        )
+                        create_btn = gr.Button("Create Voice Prompt", variant="primary")
+                        create_status = gr.Textbox(label="Status", interactive=False)
+                        voice_list = gr.Dropdown(
+                            label="Available Voices",
+                            choices=get_voice_prompts(),
+                            interactive=False
+                        )
+
+                auto_transcribe_btn.click(
+                    fn=auto_transcribe_audio,
+                    inputs=[create_audio],
+                    outputs=[create_transcript]
+                )
+
+                create_btn.click(
+                    fn=create_voice_prompt,
+                    inputs=[create_audio, create_transcript, create_name],
+                    outputs=[create_status, voice_list]
                 )
 
         # Footer
