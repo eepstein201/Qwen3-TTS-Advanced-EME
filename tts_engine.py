@@ -557,6 +557,7 @@ def _run_inference_mlx_streaming(model, text, mode, gen_params, language="Englis
             ref_text=ref_text,
             language=language,
             speed=speed,
+            stream=True,  # Enable streaming
             **params,
         )
 
@@ -566,6 +567,7 @@ def _run_inference_mlx_streaming(model, text, mode, gen_params, language="Englis
             speaker=speaker or "Ryan",
             language=language,
             instruct=instruct or "",
+            stream=True,  # Enable streaming
             **params,
         )
 
@@ -574,6 +576,7 @@ def _run_inference_mlx_streaming(model, text, mode, gen_params, language="Englis
             text=text,
             instruct=voice_description or "",
             language=language,
+            stream=True,  # Enable streaming
             **params,
         )
 
