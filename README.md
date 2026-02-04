@@ -1006,7 +1006,7 @@ Run the test suite (no GPU, models, or running server required):
 python -m unittest discover -v tests/
 ```
 
-66 tests covering config, server validation, authentication, SSML/SRT parsing, filename logic, backend config, MLX voice prompts, backend dispatch, and lazy import safety. MLX-specific import tests are automatically skipped when `mlx` is not installed.
+110 tests covering config, server validation, authentication, SSML/SRT parsing, filename logic, backend config, MLX voice prompts, backend dispatch, model size (0.6B), streaming, ASR, stability hardening, text chunking, and server endpoints. MLX-specific import tests are automatically skipped when `mlx` is not installed.
 
 ---
 

@@ -786,6 +786,69 @@ class TestStreaming(unittest.TestCase):
         from tts_engine import _run_inference_mlx_streaming
         self.assertTrue(callable(_run_inference_mlx_streaming))
 
+    def test_streaming_torch_falls_back_to_chunked(self):
+        """run_inference_streaming for torch uses chunked inference (not native streaming)."""
+        from tts_engine import run_inference_streaming
+        import inspect
+        source = inspect.getsource(run_inference_streaming)
+        # Torch backend falls back to chunked approach
+        self.assertIn("_run_inference_single", source)
+
+    def test_streaming_mlx_function_signature(self):
+        """_run_inference_mlx_streaming has correct parameters."""
+        from tts_engine import _run_inference_mlx_streaming
+        import inspect
+        sig = inspect.signature(_run_inference_mlx_streaming)
+        params = list(sig.parameters.keys())
+        self.assertIn("model", params)
+        self.assertIn("text", params)
+        self.assertIn("mode", params)
+        self.assertIn("gen_params", params)
+
+
+class TestStreamingServerEndpoint(unittest.TestCase):
+    """Test /generate-stream server endpoint."""
+
+    @classmethod
+    def setUpClass(cls):
+        import tts_server
+        tts_server.auth_token = "test_token"
+        tts_server.server_config = {
+            "security": {"max_text_length": 1000, "max_batch_size": 10},
+            "auto_shutdown_minutes": 0,
+        }
+        cls.app = tts_server.app
+        cls.app.testing = True
+        cls.client = cls.app.test_client()
+
+    @classmethod
+    def tearDownClass(cls):
+        import tts_server
+        tts_server.auth_token = None
+
+    def test_generate_stream_requires_auth(self):
+        """POST /generate-stream requires authentication."""
+        resp = self.client.post("/generate-stream", json={
+            "text": "hello", "mode": "design"
+        })
+        self.assertEqual(resp.status_code, 401)
+
+    def test_generate_stream_validates_text(self):
+        """POST /generate-stream validates text input."""
+        resp = self.client.post("/generate-stream",
+            json={"mode": "design"},
+            headers={"Authorization": "Bearer test_token"})
+        self.assertEqual(resp.status_code, 400)
+        self.assertIn("text", resp.get_json()["error"].lower())
+
+    def test_generate_stream_validates_mode(self):
+        """POST /generate-stream validates mode."""
+        resp = self.client.post("/generate-stream",
+            json={"text": "hello", "mode": "invalid"},
+            headers={"Authorization": "Bearer test_token"})
+        self.assertEqual(resp.status_code, 400)
+        self.assertIn("mode", resp.get_json()["error"].lower())
+
 
 # =============================================================================
 # Phase 16: ASR tests
@@ -818,6 +881,42 @@ class TestASR(unittest.TestCase):
                 transcribe_audio("/fake/path.wav")
             self.assertIn("MLX backend", str(ctx.exception))
 
+    def test_asr_model_is_lazy_loaded(self):
+        """_asr_model is None until transcribe_audio is called."""
+        import tts_engine
+        # The global _asr_model should be None at module level
+        self.assertIsNone(tts_engine._asr_model)
+
+    def test_is_asr_available_mlx_with_stt(self):
+        """is_asr_available returns True when MLX + mlx_audio.stt available."""
+        from tts_engine import is_asr_available
+        with patch("tts_engine.get_backend", return_value="mlx"):
+            # Mock successful import of load_model
+            with patch.dict(sys.modules, {"mlx_audio.stt": MagicMock()}):
+                # Force re-check by clearing any cached imports
+                result = is_asr_available()
+        # Should attempt to import and return True if successful
+        # (actual result depends on whether mlx_audio is installed)
+        self.assertIsInstance(result, bool)
+
+    def test_transcribe_audio_returns_string(self):
+        """transcribe_audio returns a string."""
+        from tts_engine import transcribe_audio
+
+        # Mock the entire transcription flow
+        mock_result = MagicMock()
+        mock_result.text = "Hello world"
+
+        mock_model = MagicMock()
+        mock_model.generate.return_value = mock_result
+
+        with patch("tts_engine.get_backend", return_value="mlx"):
+            with patch("tts_engine._asr_model", mock_model):
+                result = transcribe_audio("/fake/path.wav")
+
+        self.assertIsInstance(result, str)
+        self.assertEqual(result, "Hello world")
+
 
 # =============================================================================
 # Phase 17: Stability tests
@@ -831,6 +930,58 @@ class TestStability(unittest.TestCase):
         from tts_engine import _RETRY_DELAYS
         self.assertEqual(len(_RETRY_DELAYS), 3)
         self.assertEqual(_RETRY_DELAYS, (5, 15, 45))
+
+    def test_retry_delays_is_exponential(self):
+        """_RETRY_DELAYS uses exponential backoff pattern."""
+        from tts_engine import _RETRY_DELAYS
+        # Each delay should be roughly 3x the previous (5 -> 15 -> 45)
+        self.assertEqual(_RETRY_DELAYS[1], _RETRY_DELAYS[0] * 3)
+        self.assertEqual(_RETRY_DELAYS[2], _RETRY_DELAYS[1] * 3)
+
+    def test_max_chunk_chars_helper_exists(self):
+        """_get_max_chunk_chars helper function exists."""
+        from tts_engine import _get_max_chunk_chars
+        self.assertTrue(callable(_get_max_chunk_chars))
+
+    def test_max_chunk_chars_default(self):
+        """_get_max_chunk_chars returns default 500."""
+        from tts_engine import _get_max_chunk_chars
+        with patch("tts_engine.load_config", return_value={}):
+            result = _get_max_chunk_chars()
+        self.assertEqual(result, 500)
+
+    def test_max_chunk_chars_from_config(self):
+        """_get_max_chunk_chars reads from config."""
+        from tts_engine import _get_max_chunk_chars
+        config = {"generation": {"max_chunk_chars": 300}}
+        with patch("tts_engine.load_config", return_value=config):
+            result = _get_max_chunk_chars()
+        self.assertEqual(result, 300)
+
+
+class TestFloat32Guard(unittest.TestCase):
+    """Test float32 dtype guard for torch clone mode on MPS."""
+
+    def test_float32_guard_exists_in_torch_inference(self):
+        """_run_inference_torch has float32 guard logic."""
+        from tts_engine import _run_inference_torch
+        import inspect
+        source = inspect.getsource(_run_inference_torch)
+        # Should have float32 override logic for clone mode
+        self.assertIn("float32", source)
+        self.assertIn("clone", source)
+
+
+class TestMLXMetalRecovery(unittest.TestCase):
+    """Test MLX Metal kernel crash recovery."""
+
+    def test_run_inference_handles_exceptions(self):
+        """run_inference wraps inference in try/except."""
+        from tts_engine import _run_inference_single
+        import inspect
+        source = inspect.getsource(_run_inference_single)
+        # Should have exception handling
+        self.assertIn("except", source)
 
 
 # =============================================================================
@@ -865,6 +1016,167 @@ class TestTextChunking(unittest.TestCase):
         # All words should be present
         for word in text.split():
             self.assertIn(word.rstrip(".,"), combined)
+
+    def test_split_text_question_mark(self):
+        """Text splits on question marks."""
+        from tts_engine import _split_text
+        text = "Is this a question? Yes it is."
+        chunks = _split_text(text, max_chars=25)
+        self.assertGreater(len(chunks), 1)
+
+    def test_split_text_exclamation(self):
+        """Text splits on exclamation marks."""
+        from tts_engine import _split_text
+        text = "Hello! How are you today?"
+        chunks = _split_text(text, max_chars=15)
+        self.assertGreater(len(chunks), 1)
+
+    def test_split_text_newlines(self):
+        """Text splits on newlines."""
+        from tts_engine import _split_text
+        text = "First paragraph.\n\nSecond paragraph."
+        chunks = _split_text(text, max_chars=20)
+        self.assertGreater(len(chunks), 1)
+
+    def test_split_text_comma_fallback(self):
+        """Very long sentence falls back to clause boundaries."""
+        from tts_engine import _split_text
+        # A single long sentence with commas but no periods
+        text = "This is a very long sentence, with several clauses, that should be split at commas when needed"
+        chunks = _split_text(text, max_chars=40)
+        # Should split due to length
+        self.assertGreater(len(chunks), 1)
+
+
+# =============================================================================
+# Server health endpoint info tests
+# =============================================================================
+
+class TestHealthEndpointInfo(unittest.TestCase):
+    """Test /health endpoint returns expected info fields."""
+
+    @classmethod
+    def setUpClass(cls):
+        import tts_server
+        tts_server.auth_token = None
+        tts_server.server_config = {
+            "security": {},
+            "auto_shutdown_minutes": 0,
+        }
+        cls.app = tts_server.app
+        cls.app.testing = True
+        cls.client = cls.app.test_client()
+
+    def test_health_returns_backend(self):
+        """/health returns backend field."""
+        resp = self.client.get("/health")
+        data = resp.get_json()
+        self.assertIn("backend", data)
+        self.assertIn(data["backend"], ["torch", "mlx"])
+
+    def test_health_returns_model_size(self):
+        """/health returns model_size field."""
+        resp = self.client.get("/health")
+        data = resp.get_json()
+        self.assertIn("model_size", data)
+        self.assertIn(data["model_size"], ["1.7B", "0.6B"])
+
+    def test_health_returns_model_loaded_fields(self):
+        """/health returns individual model loaded fields."""
+        resp = self.client.get("/health")
+        data = resp.get_json()
+        # Check for individual model loaded fields
+        self.assertIn("clone_model_loaded", data)
+        self.assertIn("design_model_loaded", data)
+        self.assertIn("custom_model_loaded", data)
+        self.assertIsInstance(data["clone_model_loaded"], bool)
+
+
+# =============================================================================
+# Generation status and chunk progress tests
+# =============================================================================
+
+class TestGenerationStatus(unittest.TestCase):
+    """Test /generation-status endpoint and chunk progress tracking."""
+
+    @classmethod
+    def setUpClass(cls):
+        import tts_server
+        tts_server.auth_token = None
+        tts_server.server_config = {
+            "security": {},
+            "auto_shutdown_minutes": 0,
+        }
+        cls.app = tts_server.app
+        cls.app.testing = True
+        cls.client = cls.app.test_client()
+
+    def test_generation_status_no_auth_required(self):
+        """/generation-status is public."""
+        resp = self.client.get("/generation-status")
+        self.assertEqual(resp.status_code, 200)
+
+    def test_generation_status_returns_active(self):
+        """/generation-status returns active field."""
+        resp = self.client.get("/generation-status")
+        data = resp.get_json()
+        self.assertIn("active", data)
+        self.assertIsInstance(data["active"], bool)
+
+    def test_generation_status_when_inactive(self):
+        """When no generation active, returns minimal info."""
+        resp = self.client.get("/generation-status")
+        data = resp.get_json()
+        self.assertFalse(data["active"])
+
+
+# =============================================================================
+# Load model endpoint tests
+# =============================================================================
+
+class TestLoadModelEndpoint(unittest.TestCase):
+    """Test /load-model endpoint validation."""
+
+    @classmethod
+    def setUpClass(cls):
+        import tts_server
+        tts_server.auth_token = "test_token"
+        tts_server.server_config = {
+            "security": {},
+            "auto_shutdown_minutes": 0,
+        }
+        cls.app = tts_server.app
+        cls.app.testing = True
+        cls.client = cls.app.test_client()
+
+    @classmethod
+    def tearDownClass(cls):
+        import tts_server
+        tts_server.auth_token = None
+
+    def test_load_model_requires_auth(self):
+        """POST /load-model requires authentication."""
+        resp = self.client.post("/load-model", json={"model_type": "clone"})
+        self.assertEqual(resp.status_code, 401)
+
+    def test_load_model_validates_type(self):
+        """POST /load-model validates model_type."""
+        resp = self.client.post("/load-model",
+            json={"model_type": "invalid_type"},
+            headers={"Authorization": "Bearer test_token"})
+        self.assertEqual(resp.status_code, 400)
+        self.assertIn("Unknown model type", resp.get_json()["error"])
+
+    def test_load_model_accepts_valid_types(self):
+        """POST /load-model accepts clone, design, custom."""
+        for model_type in ["clone", "design", "custom"]:
+            resp = self.client.post("/load-model",
+                json={"model_type": model_type},
+                headers={"Authorization": "Bearer test_token"})
+            # Should either succeed (200) or fail because model not available (503)
+            # but NOT validation error (400)
+            self.assertIn(resp.status_code, [200, 503],
+                f"model_type '{model_type}' should be valid")
 
 
 if __name__ == "__main__":

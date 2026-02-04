@@ -81,7 +81,7 @@ The codebase uses a layered architecture to avoid loading heavy dependencies (to
 - `requirements-mlx.txt` - MLX backend pip dependencies (for `qwen3-tts-mlx` env)
 - `voice_prompts/` - Voice clone files (.pt for torch, .wav/.txt for MLX)
 - `bin/` - Wrapper scripts (canonical source, copied to ~/bin/ by install.sh)
-- `tests/` - Test suite: 66 tests (`python -m unittest discover -v tests/`)
+- `tests/` - Test suite: 110 tests (`python -m unittest discover -v tests/`)
 
 ### Wrapper scripts in ~/bin/ (installed from bin/)
 - `changeVoice` - Server detection, generation, post-generation menu; auto-selects conda env by backend
@@ -218,7 +218,7 @@ Run the test suite (no GPU, models, or running server required):
 python -m unittest discover -v tests/
 ```
 
-66 tests across 12 test classes (2 skipped when MLX not installed):
+110 tests across 23 test classes (2 skipped when MLX not installed):
 - `TestTTSConfig` - error hierarchy, format helpers, auth token, model info, speakers
 - `TestServerValidation` - text length, batch size, mode, speaker, path traversal
 - `TestServerAuth` - public endpoints, auth enforcement, token validation
@@ -231,6 +231,17 @@ python -m unittest discover -v tests/
 - `TestMLXInferenceCloneValidation` - MLX clone mode input validation (no model needed)
 - `TestMLXImport` - MLX library import checks (`unittest.skipIf` when mlx not installed)
 - `TestLazyImports` - Verify `tts_engine` does not import torch/mlx at module scope
+- `TestModelSize` - 0.6B model configuration, `get_model_size()`, model name resolution
+- `TestStreaming` - streaming API exists, function signatures, torch fallback
+- `TestStreamingServerEndpoint` - `/generate-stream` auth, validation
+- `TestASR` - ASR functions, lazy loading, torch restriction, result types
+- `TestStability` - retry delays, max_chunk_chars config
+- `TestFloat32Guard` - float32 dtype guard for torch clone mode
+- `TestMLXMetalRecovery` - exception handling for Metal crashes
+- `TestTextChunking` - sentence splitting, boundary cases, content preservation
+- `TestHealthEndpointInfo` - `/health` returns backend, model_size, model_loaded fields
+- `TestGenerationStatus` - `/generation-status` endpoint behavior
+- `TestLoadModelEndpoint` - `/load-model` auth, validation, valid types
 
 ## Config Structure (config.json)
 ```json
@@ -394,7 +405,7 @@ See README.md for full phase history.
 - [x] Dual-format voice prompts - `.pt` (torch) + `.wav`/`.txt` (MLX) saved together
 - [x] UI/CLI integration - backend indicator in Gradio, `--backend` CLI flag, `/health` info
 - [x] `install.sh` MLX option - optional MLX env creation + model download
-- [x] Backend-aware test suite (66 tests, MLX tests skipped when mlx not installed)
+- [x] Backend-aware test suite (110 tests, MLX tests skipped when mlx not installed)
 - [x] Documentation - CLAUDE.md, README.md updated
 
 ### Phase 12: UI Auto-Load & Backend-Aware Prompts ✅ COMPLETE
