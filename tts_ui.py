@@ -172,6 +172,170 @@ def _poll_progress(server_url, progress_fn, stop_event):
 # Generation Functions
 # =============================================================================
 
+def _save_streaming_audio(all_chunks, sample_rate):
+    """Save accumulated streaming chunks to a temp file and return path."""
+    import numpy as np
+    import soundfile as sf
+
+    if not all_chunks:
+        return None
+
+    combined = np.concatenate(all_chunks)
+    timestamp = int(time.time())
+    output_path = os.path.expanduser(f"~/Downloads/tts_ui_{timestamp}.wav")
+    sf.write(output_path, combined, sample_rate)
+    return output_path
+
+
+def generate_clone_streaming(text, prompt, preset, temperature, top_k, top_p, rep_penalty, seed,
+                             trim_silence, normalize, speed, pitch):
+    """Generate audio with streaming - yields NEW chunk only for real-time playback."""
+    import numpy as np
+
+    if not text or not text.strip():
+        yield None, "Error: Please enter some text.", gr.update()
+        return
+
+    client = TTSClient()
+    if not client.is_server_running():
+        yield None, "Error: TTS server is not running.", gr.update()
+        return
+
+    try:
+        _ensure_model_loaded(client, "clone", lambda p, desc="": None)
+
+        seed_val = int(seed) if seed and str(seed).strip() else None
+        preset_val = preset if preset and preset != "(none)" else None
+
+        all_chunks = []
+        sample_rate = None
+        chunk_count = 0
+
+        for wav_chunk, sr in client.generate_streaming(
+            text=text,
+            mode="clone",
+            prompt=prompt,
+            preset=preset_val,
+            temperature=temperature,
+            top_k=int(top_k),
+            top_p=top_p,
+            seed=seed_val,
+            repetition_penalty=rep_penalty,
+        ):
+            all_chunks.append(wav_chunk)
+            sample_rate = sr
+            chunk_count += 1
+            # Yield ONLY the new chunk for streaming playback
+            yield (sr, wav_chunk), f"Streaming... {chunk_count} chunks", gr.update()
+
+        # Final: save complete audio and return file path
+        output_path = _save_streaming_audio(all_chunks, sample_rate)
+        yield output_path, f"Complete: {chunk_count} chunks", format_status_display()
+
+    except Exception as e:
+        yield None, f"Error: {str(e)}", format_status_display()
+
+
+def generate_design_streaming(text, description, preset, temperature, top_k, top_p, rep_penalty, seed,
+                              trim_silence, normalize, speed, pitch):
+    """Generate audio with streaming for design mode."""
+    import numpy as np
+
+    if not text or not text.strip():
+        yield None, "Error: Please enter some text.", gr.update()
+        return
+
+    if not description or not description.strip():
+        yield None, "Error: Please enter a voice description.", gr.update()
+        return
+
+    client = TTSClient()
+    if not client.is_server_running():
+        yield None, "Error: TTS server is not running.", gr.update()
+        return
+
+    try:
+        _ensure_model_loaded(client, "design", lambda p, desc="": None)
+
+        seed_val = int(seed) if seed and str(seed).strip() else None
+        preset_val = preset if preset and preset != "(none)" else None
+
+        all_chunks = []
+        sample_rate = None
+        chunk_count = 0
+
+        for wav_chunk, sr in client.generate_streaming(
+            text=text,
+            mode="design",
+            description=description,
+            preset=preset_val,
+            temperature=temperature,
+            top_k=int(top_k),
+            top_p=top_p,
+            seed=seed_val,
+            repetition_penalty=rep_penalty,
+        ):
+            all_chunks.append(wav_chunk)
+            sample_rate = sr
+            chunk_count += 1
+            yield (sr, wav_chunk), f"Streaming... {chunk_count} chunks", gr.update()
+
+        output_path = _save_streaming_audio(all_chunks, sample_rate)
+        yield output_path, f"Complete: {chunk_count} chunks", format_status_display()
+
+    except Exception as e:
+        yield None, f"Error: {str(e)}", format_status_display()
+
+
+def generate_custom_streaming(text, speaker_choice, instruct, preset, temperature, top_k, top_p, rep_penalty, seed,
+                              trim_silence, normalize, speed, pitch):
+    """Generate audio with streaming for custom mode."""
+    import numpy as np
+
+    if not text or not text.strip():
+        yield None, "Error: Please enter some text.", gr.update()
+        return
+
+    client = TTSClient()
+    if not client.is_server_running():
+        yield None, "Error: TTS server is not running.", gr.update()
+        return
+
+    try:
+        _ensure_model_loaded(client, "custom", lambda p, desc="": None)
+
+        speaker = speaker_choice.split(" ")[0] if speaker_choice else "ryan"
+        seed_val = int(seed) if seed and str(seed).strip() else None
+        preset_val = preset if preset and preset != "(none)" else None
+
+        all_chunks = []
+        sample_rate = None
+        chunk_count = 0
+
+        for wav_chunk, sr in client.generate_streaming(
+            text=text,
+            mode="custom",
+            speaker=speaker,
+            instruct=instruct if instruct and instruct.strip() else None,
+            preset=preset_val,
+            temperature=temperature,
+            top_k=int(top_k),
+            top_p=top_p,
+            seed=seed_val,
+            repetition_penalty=rep_penalty,
+        ):
+            all_chunks.append(wav_chunk)
+            sample_rate = sr
+            chunk_count += 1
+            yield (sr, wav_chunk), f"Streaming... {chunk_count} chunks", gr.update()
+
+        output_path = _save_streaming_audio(all_chunks, sample_rate)
+        yield output_path, f"Complete: {chunk_count} chunks", format_status_display()
+
+    except Exception as e:
+        yield None, f"Error: {str(e)}", format_status_display()
+
+
 def generate_clone(text, prompt, preset, temperature, top_k, top_p, rep_penalty, seed,
                    trim_silence, normalize, speed, pitch, progress=gr.Progress()):
     """Generate audio using clone mode."""
@@ -393,6 +557,12 @@ def build_ui():
                         )
 
                     with gr.Column(scale=1):
+                        clone_streaming = gr.Checkbox(
+                            label="Enable Streaming",
+                            value=True,
+                            info="Hear audio as it generates (MLX: native, torch: chunked)"
+                        )
+
                         with gr.Accordion("Advanced Settings", open=False):
                             clone_temp = gr.Slider(0.1, 1.5, value=0.7, step=0.05, label="Temperature")
                             clone_top_k = gr.Slider(1, 100, value=50, step=1, label="Top-K")
@@ -407,14 +577,30 @@ def build_ui():
                             clone_pitch = gr.Slider(-12, 12, value=0, step=1, label="Pitch (semitones)")
 
                 clone_btn = gr.Button("Generate", variant="primary")
-                clone_output = gr.Audio(label="Output")
+                clone_output = gr.Audio(label="Output", streaming=True, autoplay=True)
                 clone_status = gr.Textbox(label="Status", interactive=False)
 
+                # Dynamic handler based on streaming checkbox
+                def clone_handler(text, prompt, preset, temp, top_k, top_p, rep, seed,
+                                  trim, norm, speed, pitch, streaming):
+                    if streaming:
+                        yield from generate_clone_streaming(
+                            text, prompt, preset, temp, top_k, top_p, rep, seed,
+                            trim, norm, speed, pitch
+                        )
+                    else:
+                        # Non-streaming: use original function
+                        result = generate_clone(
+                            text, prompt, preset, temp, top_k, top_p, rep, seed,
+                            trim, norm, speed, pitch
+                        )
+                        yield result
+
                 clone_btn.click(
-                    fn=generate_clone,
+                    fn=clone_handler,
                     inputs=[clone_text, clone_prompt, clone_preset, clone_temp, clone_top_k,
                             clone_top_p, clone_rep, clone_seed, clone_trim, clone_norm,
-                            clone_speed, clone_pitch],
+                            clone_speed, clone_pitch, clone_streaming],
                     outputs=[clone_output, clone_status, status_html]
                 )
 
@@ -441,6 +627,12 @@ def build_ui():
                         )
 
                     with gr.Column(scale=1):
+                        design_streaming = gr.Checkbox(
+                            label="Enable Streaming",
+                            value=True,
+                            info="Hear audio as it generates (MLX: native, torch: chunked)"
+                        )
+
                         with gr.Accordion("Advanced Settings", open=False):
                             design_temp = gr.Slider(0.1, 1.5, value=0.7, step=0.05, label="Temperature")
                             design_top_k = gr.Slider(1, 100, value=50, step=1, label="Top-K")
@@ -455,14 +647,28 @@ def build_ui():
                             design_pitch = gr.Slider(-12, 12, value=0, step=1, label="Pitch (semitones)")
 
                 design_btn = gr.Button("Generate", variant="primary")
-                design_output = gr.Audio(label="Output")
+                design_output = gr.Audio(label="Output", streaming=True, autoplay=True)
                 design_status = gr.Textbox(label="Status", interactive=False)
 
+                def design_handler(text, desc, preset, temp, top_k, top_p, rep, seed,
+                                   trim, norm, speed, pitch, streaming):
+                    if streaming:
+                        yield from generate_design_streaming(
+                            text, desc, preset, temp, top_k, top_p, rep, seed,
+                            trim, norm, speed, pitch
+                        )
+                    else:
+                        result = generate_design(
+                            text, desc, preset, temp, top_k, top_p, rep, seed,
+                            trim, norm, speed, pitch
+                        )
+                        yield result
+
                 design_btn.click(
-                    fn=generate_design,
+                    fn=design_handler,
                     inputs=[design_text, design_desc, design_preset, design_temp, design_top_k,
                             design_top_p, design_rep, design_seed, design_trim, design_norm,
-                            design_speed, design_pitch],
+                            design_speed, design_pitch, design_streaming],
                     outputs=[design_output, design_status, status_html]
                 )
 
@@ -494,6 +700,12 @@ def build_ui():
                         )
 
                     with gr.Column(scale=1):
+                        custom_streaming = gr.Checkbox(
+                            label="Enable Streaming",
+                            value=True,
+                            info="Hear audio as it generates (MLX: native, torch: chunked)"
+                        )
+
                         with gr.Accordion("Advanced Settings", open=False):
                             custom_temp = gr.Slider(0.1, 1.5, value=0.7, step=0.05, label="Temperature")
                             custom_top_k = gr.Slider(1, 100, value=50, step=1, label="Top-K")
@@ -508,14 +720,28 @@ def build_ui():
                             custom_pitch = gr.Slider(-12, 12, value=0, step=1, label="Pitch (semitones)")
 
                 custom_btn = gr.Button("Generate", variant="primary")
-                custom_output = gr.Audio(label="Output")
+                custom_output = gr.Audio(label="Output", streaming=True, autoplay=True)
                 custom_status = gr.Textbox(label="Status", interactive=False)
 
+                def custom_handler(text, speaker, instruct, preset, temp, top_k, top_p, rep, seed,
+                                   trim, norm, speed, pitch, streaming):
+                    if streaming:
+                        yield from generate_custom_streaming(
+                            text, speaker, instruct, preset, temp, top_k, top_p, rep, seed,
+                            trim, norm, speed, pitch
+                        )
+                    else:
+                        result = generate_custom(
+                            text, speaker, instruct, preset, temp, top_k, top_p, rep, seed,
+                            trim, norm, speed, pitch
+                        )
+                        yield result
+
                 custom_btn.click(
-                    fn=generate_custom,
+                    fn=custom_handler,
                     inputs=[custom_text, custom_speaker, custom_instruct, custom_preset,
                             custom_temp, custom_top_k, custom_top_p, custom_rep, custom_seed,
-                            custom_trim, custom_norm, custom_speed, custom_pitch],
+                            custom_trim, custom_norm, custom_speed, custom_pitch, custom_streaming],
                     outputs=[custom_output, custom_status, status_html]
                 )
 

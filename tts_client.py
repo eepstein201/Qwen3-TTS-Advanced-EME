@@ -289,6 +289,143 @@ class TTSClient:
         os.remove(result["file"])
         return wav, sr
 
+    def generate_streaming(
+        self,
+        text,
+        mode="clone",
+        prompt=None,
+        description=None,
+        speaker=None,
+        instruct=None,
+        voice=None,
+        preset=None,
+        temperature=None,
+        top_k=None,
+        top_p=None,
+        seed=None,
+        repetition_penalty=None,
+    ):
+        """Generate speech with streaming, yielding audio chunks as they're produced.
+
+        This method connects to /generate-stream and yields (wav_chunk, sample_rate)
+        tuples as audio is generated. Ideal for real-time playback.
+
+        Args:
+            text: Text to synthesize
+            mode: "clone", "design", or "custom"
+            prompt: Voice prompt filename (for clone mode)
+            description: Voice description (for design mode)
+            speaker: Speaker name (for custom mode)
+            instruct: Instruction for speech style (for custom mode)
+            voice: Voice alias name (overrides prompt/preset)
+            preset: Preset name to use
+            temperature/top_k/top_p/seed/repetition_penalty: Generation params
+
+        Yields:
+            (wav_chunk, sample_rate) tuples where wav_chunk is a numpy float32 array
+        """
+        import struct
+        import numpy as np
+
+        # Resolve voice alias
+        if voice:
+            alias = self.resolve_alias(voice)
+            if alias:
+                if "prompt" in alias and prompt is None:
+                    prompt = alias["prompt"]
+                if "preset" in alias and preset is None:
+                    preset = alias["preset"]
+                if "mode" in alias:
+                    mode = alias["mode"]
+                if "description" in alias and description is None:
+                    description = alias["description"]
+                if "speaker" in alias and speaker is None:
+                    speaker = alias["speaker"]
+                if "instruct" in alias and instruct is None:
+                    instruct = alias["instruct"]
+            else:
+                raise ValueError(f"Unknown voice alias: {voice}")
+
+        # Get generation parameters
+        gen_config = self.config.get("generation", {})
+        gen_params = {
+            "temperature": temperature if temperature is not None else gen_config.get("temperature", 0.7),
+            "top_k": top_k if top_k is not None else gen_config.get("top_k", 50),
+            "top_p": top_p if top_p is not None else gen_config.get("top_p", 0.95),
+            "repetition_penalty": repetition_penalty if repetition_penalty is not None else gen_config.get("repetition_penalty", 1.05),
+        }
+
+        if seed is not None:
+            gen_params["seed"] = seed
+        elif gen_config.get("seed"):
+            gen_params["seed"] = gen_config["seed"]
+
+        # Apply preset
+        if preset:
+            presets = self.config.get("presets", {})
+            if preset in presets:
+                gen_params.update(presets[preset])
+
+        # Default prompt/description/speaker
+        if mode == "clone":
+            prompt = prompt or get_default_clone_prompt(self.config)
+        elif mode == "custom":
+            speaker = speaker or self.config.get("default_speaker", "Ryan")
+            instruct = instruct or ""
+        else:
+            description = description or self.config.get("default_voice_description", "")
+
+        # Build payload
+        payload = {
+            "text": text,
+            "mode": mode,
+            "language": self.config.get("language", "English"),
+            **gen_params,
+        }
+
+        if mode == "clone":
+            payload["prompt_file"] = prompt
+        elif mode == "custom":
+            payload["speaker"] = speaker
+            payload["instruct"] = instruct or ""
+        else:
+            payload["voice_description"] = description
+
+        # Stream from server
+        with requests.post(
+            f"{self.server_url}/generate-stream",
+            json=payload,
+            headers=auth_headers(),
+            stream=True,
+            timeout=600,
+        ) as resp:
+            if resp.status_code != 200:
+                try:
+                    error_msg = resp.json().get("error", "Unknown error")
+                except (ValueError, requests.exceptions.JSONDecodeError):
+                    error_msg = f"Server returned HTTP {resp.status_code}"
+                raise Exception(f"Server streaming error: {error_msg}")
+
+            buffer = b""
+            header_size = 8  # 4 bytes sample_rate + 4 bytes audio_length
+
+            for chunk in resp.iter_content(chunk_size=8192):
+                buffer += chunk
+
+                # Parse complete chunks from buffer
+                while len(buffer) >= header_size:
+                    sr, audio_len = struct.unpack("<II", buffer[:header_size])
+                    total_chunk_size = header_size + audio_len
+
+                    if len(buffer) < total_chunk_size:
+                        break  # Wait for more data
+
+                    audio_bytes = buffer[header_size:total_chunk_size]
+                    wav_chunk = np.frombuffer(audio_bytes, dtype="<f4")
+                    buffer = buffer[total_chunk_size:]
+
+                    yield wav_chunk, sr
+
     def generate_dialogue(
         self,
         lines,
