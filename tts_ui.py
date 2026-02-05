@@ -783,6 +783,28 @@ def build_ui():
                 outputs=[settings_status, status_html]
             )
 
+        # History Panel (defined before tabs so history_df can be referenced in click handlers)
+        with gr.Accordion("Recent Generations", open=False):
+            history_df = gr.Dataframe(
+                headers=["Time", "Mode", "Text Preview", "Chunks"],
+                value=[],
+                interactive=False,
+                wrap=True,
+            )
+            history_audio = gr.Audio(label="Selected Generation", visible=False)
+            history_df.select(
+                fn=get_history_audio,
+                outputs=history_audio
+            ).then(
+                fn=lambda: gr.update(visible=True),
+                outputs=history_audio
+            )
+            refresh_history_btn = gr.Button("Refresh History", size="sm")
+            refresh_history_btn.click(
+                fn=get_history_data,
+                outputs=history_df
+            )
+
         # Tabs for different modes
         with gr.Tabs():
             # Clone Mode Tab
@@ -1081,28 +1103,6 @@ def build_ui():
                     inputs=[create_audio, create_transcript, create_name],
                     outputs=[create_status, voice_list]
                 )
-
-        # History Panel
-        with gr.Accordion("Recent Generations", open=False):
-            history_df = gr.Dataframe(
-                headers=["Time", "Mode", "Text Preview", "Chunks"],
-                value=[],  # Start empty, not function reference
-                interactive=False,
-                wrap=True,
-            )
-            history_audio = gr.Audio(label="Selected Generation", visible=False)
-            history_df.select(
-                fn=get_history_audio,
-                outputs=history_audio
-            ).then(
-                fn=lambda: gr.update(visible=True),
-                outputs=history_audio
-            )
-            refresh_history_btn = gr.Button("Refresh History", size="sm")
-            refresh_history_btn.click(
-                fn=get_history_data,
-                outputs=history_df
-            )
 
         # Footer
         gr.Markdown("""
