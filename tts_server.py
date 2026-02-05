@@ -321,6 +321,17 @@ def stats():
     except ImportError:
         pass
 
+    # MLX memory stats (when mlx backend is active)
+    if backend == "mlx":
+        try:
+            import mlx.core as mx
+            active_mem = mx.metal.get_active_memory()
+            peak_mem = mx.metal.get_peak_memory()
+            stats_data["mlx_memory_active_mb"] = round(active_mem / (1024 * 1024), 2)
+            stats_data["mlx_memory_peak_mb"] = round(peak_mem / (1024 * 1024), 2)
+        except Exception:
+            pass
+
     return jsonify(stats_data)
 
 
@@ -677,11 +688,13 @@ def generate_stream():
                 yield header + audio_bytes
 
         finally:
-            generation_state.update({
-                "active": False, "start_time": 0.0, "text_length": 0,
-                "mode": "", "chunk_index": 0, "chunk_total": 0,
-                "generation_id": None, "cancelled": False,
-            })
+            # Only reset if this is still our generation (not a new one)
+            if generation_state.get("generation_id") == gen_id:
+                generation_state.update({
+                    "active": False, "start_time": 0.0, "text_length": 0,
+                    "mode": "", "chunk_index": 0, "chunk_total": 0,
+                    "generation_id": None, "cancelled": False,
+                })
 
     return Response(
         generate_chunks(),

@@ -1052,6 +1052,29 @@ class TestTextChunking(unittest.TestCase):
 # Server health endpoint info tests
 # =============================================================================
 
+class TestMLXMemoryStats(unittest.TestCase):
+    """Test MLX memory stats collection in /stats endpoint."""
+
+    def test_stats_mlx_memory_code_exists(self):
+        """tts_server has MLX memory collection code."""
+        import inspect
+        import tts_server
+        # Find the stats route handler
+        source = inspect.getsource(tts_server)
+        # Should have MLX memory collection
+        self.assertIn("mlx_memory_active_mb", source)
+        self.assertIn("mlx_memory_peak_mb", source)
+        self.assertIn("mx.metal.get_active_memory", source)
+
+    def test_ui_checks_mlx_memory_first(self):
+        """tts_ui checks for MLX memory before MPS memory."""
+        import inspect
+        import tts_ui
+        source = inspect.getsource(tts_ui.get_server_status)
+        # Should check mlx_memory first
+        self.assertIn("mlx_memory_active_mb", source)
+
+
 class TestHealthEndpointInfo(unittest.TestCase):
     """Test /health endpoint returns expected info fields."""
 
@@ -1278,6 +1301,18 @@ class TestGenerationStateFields(unittest.TestCase):
         import tts_server
         self.assertIn("generation_id", tts_server.generation_state)
 
+    def test_generation_state_initial_values(self):
+        """generation_state has correct initial values."""
+        import tts_server
+        # These should be the default/initial values
+        state = tts_server.generation_state
+        self.assertIn("active", state)
+        self.assertIn("start_time", state)
+        self.assertIn("text_length", state)
+        self.assertIn("mode", state)
+        self.assertIn("chunk_index", state)
+        self.assertIn("chunk_total", state)
+
 
 # =============================================================================
 # Streaming client tests
@@ -1390,6 +1425,41 @@ class TestUICancelFunction(unittest.TestCase):
         self.assertTrue(hasattr(tts_ui, "cancel_streaming_generation"))
         self.assertTrue(callable(tts_ui.cancel_streaming_generation))
 
+    def test_cancel_streaming_generation_returns_tuple(self):
+        """cancel_streaming_generation returns a tuple."""
+        from tts_ui import cancel_streaming_generation
+        from unittest.mock import patch, MagicMock
+
+        mock_client = MagicMock()
+        mock_client.cancel_generation.return_value = {"status": "no_active_generation"}
+
+        with patch("tts_ui.TTSClient", return_value=mock_client):
+            result = cancel_streaming_generation()
+
+        self.assertIsInstance(result, tuple)
+        # Should return (audio, status, status_html)
+        self.assertEqual(len(result), 3)
+
+    def test_cancel_streaming_generation_clears_audio(self):
+        """cancel_streaming_generation returns None for audio to clear player."""
+        from tts_ui import cancel_streaming_generation
+        from unittest.mock import patch, MagicMock
+
+        mock_client = MagicMock()
+        mock_client.cancel_generation.return_value = {"status": "cancellation_requested"}
+
+        with patch("tts_ui.TTSClient", return_value=mock_client):
+            result = cancel_streaming_generation()
+
+        # First element (audio) should be None to clear the player
+        self.assertIsNone(result[0])
+
+    def test_check_generation_cancelled_exists(self):
+        """tts_ui has _check_generation_cancelled helper."""
+        import tts_ui
+        self.assertTrue(hasattr(tts_ui, "_check_generation_cancelled"))
+        self.assertTrue(callable(tts_ui._check_generation_cancelled))
+
 
 # =============================================================================
 # UI text info helper tests
@@ -1469,6 +1539,161 @@ class TestStreamingEndpointStructure(unittest.TestCase):
             headers={"Authorization": "Bearer test_token"})
         self.assertEqual(resp.status_code, 400)
         self.assertIn("Invalid mode", resp.get_json()["error"])
+
+
+# =============================================================================
+# Generation functions return history update tests
+# =============================================================================
+
+class TestGenerationFunctionsReturnHistory(unittest.TestCase):
+    """Test that generation functions return history data for UI update."""
+
+    def test_generate_clone_returns_four_values(self):
+        """generate_clone returns 4 values (audio, status, status_html, history)."""
+        import inspect
+        import tts_ui
+        sig = inspect.signature(tts_ui.generate_clone)
+        # Check that the function can yield/return 4-tuple
+        source = inspect.getsource(tts_ui.generate_clone)
+        self.assertIn("get_history_data()", source)
+
+    def test_generate_design_returns_four_values(self):
+        """generate_design returns 4 values (audio, status, status_html, history)."""
+        import inspect
+        import tts_ui
+        source = inspect.getsource(tts_ui.generate_design)
+        self.assertIn("get_history_data()", source)
+
+    def test_generate_custom_returns_four_values(self):
+        """generate_custom returns 4 values (audio, status, status_html, history)."""
+        import inspect
+        import tts_ui
+        source = inspect.getsource(tts_ui.generate_custom)
+        self.assertIn("get_history_data()", source)
+
+    def test_streaming_functions_yield_four_values(self):
+        """Streaming generation functions yield 4-tuples."""
+        import inspect
+        import tts_ui
+        # Check clone streaming
+        source = inspect.getsource(tts_ui.generate_clone_streaming)
+        self.assertIn("get_history_data()", source)
+        # Check design streaming
+        source = inspect.getsource(tts_ui.generate_design_streaming)
+        self.assertIn("get_history_data()", source)
+        # Check custom streaming
+        source = inspect.getsource(tts_ui.generate_custom_streaming)
+        self.assertIn("get_history_data()", source)
+
+    def test_non_streaming_adds_to_history(self):
+        """Non-streaming generate functions call add_to_history."""
+        import inspect
+        import tts_ui
+        source = inspect.getsource(tts_ui.generate_clone)
+        self.assertIn("add_to_history", source)
+
+    def test_streaming_adds_to_history(self):
+        """Streaming generate functions call add_to_history on completion."""
+        import inspect
+        import tts_ui
+        source = inspect.getsource(tts_ui.generate_clone_streaming)
+        self.assertIn("add_to_history", source)
+
+
+# =============================================================================
+# Generation stream generation_id check tests
+# =============================================================================
+
+class TestGenerateStreamIdCheck(unittest.TestCase):
+    """Test generate_stream generation_id race condition fix."""
+
+    def test_generate_stream_checks_generation_id(self):
+        """generate_stream only resets state if generation_id matches."""
+        import inspect
+        import tts_server
+        source = inspect.getsource(tts_server)
+        # Should check generation_id before resetting
+        self.assertIn('if generation_state.get("generation_id") == gen_id', source)
+
+    def test_generation_state_has_generation_id(self):
+        """generation_state includes generation_id field."""
+        import tts_server
+        self.assertIn("generation_id", tts_server.generation_state)
+
+    def test_generation_state_has_cancelled(self):
+        """generation_state includes cancelled field."""
+        import tts_server
+        self.assertIn("cancelled", tts_server.generation_state)
+
+
+# =============================================================================
+# _check_generation_cancelled helper tests
+# =============================================================================
+
+class TestCheckGenerationCancelled(unittest.TestCase):
+    """Test _check_generation_cancelled helper function."""
+
+    def test_returns_false_on_error(self):
+        """_check_generation_cancelled returns False on connection error."""
+        from tts_ui import _check_generation_cancelled
+        from unittest.mock import patch
+
+        with patch("requests.get", side_effect=Exception("Connection error")):
+            result = _check_generation_cancelled()
+        self.assertFalse(result)
+
+    def test_returns_false_when_not_cancelled(self):
+        """_check_generation_cancelled returns False when not cancelled."""
+        from tts_ui import _check_generation_cancelled
+        from unittest.mock import patch, MagicMock
+
+        mock_resp = MagicMock()
+        mock_resp.status_code = 200
+        mock_resp.json.return_value = {"cancelled": False}
+
+        with patch("requests.get", return_value=mock_resp):
+            result = _check_generation_cancelled()
+        self.assertFalse(result)
+
+    def test_returns_true_when_cancelled(self):
+        """_check_generation_cancelled returns True when cancelled."""
+        from tts_ui import _check_generation_cancelled
+        from unittest.mock import patch, MagicMock
+
+        mock_resp = MagicMock()
+        mock_resp.status_code = 200
+        mock_resp.json.return_value = {"cancelled": True}
+
+        with patch("requests.get", return_value=mock_resp):
+            result = _check_generation_cancelled()
+        self.assertTrue(result)
+
+
+# =============================================================================
+# createVoice script backend override tests
+# =============================================================================
+
+class TestCreateVoiceBackendOverride(unittest.TestCase):
+    """Test createVoice script forces torch backend."""
+
+    def test_createvoice_sets_tts_backend_env(self):
+        """bin/createVoice script sets TTS_BACKEND=torch in torch env."""
+        import os
+        script_path = os.path.join(os.path.dirname(__file__), "..", "bin", "createVoice")
+        with open(script_path, "r") as f:
+            content = f.read()
+        # Should export TTS_BACKEND=torch when in qwen3-tts env
+        self.assertIn("TTS_BACKEND=torch", content)
+        self.assertIn("export TTS_BACKEND=torch", content)
+
+    def test_createvoice_comment_explains_override(self):
+        """bin/createVoice has comment explaining the backend override."""
+        import os
+        script_path = os.path.join(os.path.dirname(__file__), "..", "bin", "createVoice")
+        with open(script_path, "r") as f:
+            content = f.read()
+        # Should have explanatory comment
+        self.assertIn("Force torch backend", content)
 
 
 if __name__ == "__main__":

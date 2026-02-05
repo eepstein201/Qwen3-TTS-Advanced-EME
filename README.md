@@ -1006,7 +1006,7 @@ Run the test suite (no GPU, models, or running server required):
 python -m unittest discover -v tests/
 ```
 
-110 tests covering config, server validation, authentication, SSML/SRT parsing, filename logic, backend config, MLX voice prompts, backend dispatch, model size (0.6B), streaming, ASR, stability hardening, text chunking, and server endpoints. MLX-specific import tests are automatically skipped when `mlx` is not installed.
+152 tests covering config, server validation, authentication, SSML/SRT parsing, filename logic, backend config, MLX voice prompts, backend dispatch, model size (0.6B), streaming, ASR, stability hardening, text chunking, server endpoints, UI history functions, cancel behavior, and generation state tracking. MLX-specific import tests are automatically skipped when `mlx` is not installed.
 
 ---
 
@@ -1071,3 +1071,4 @@ All features implemented across 17 phases:
 - **Phase 15:** Streaming audio playback (`--stream` for real-time audio as it generates)
 - **Phase 16:** Auto-transcribe reference audio (`createVoice --auto-transcribe` using MLX ASR)
 - **Phase 17:** Stability hardening (float32 clone guard, model download retry, Metal crash recovery)
+- **Phase 18:** UI history integration & improvements (auto-update history panel after generation, cancel clears audio player, MLX memory stats, generation state tracking fixes)

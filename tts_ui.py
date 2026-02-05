@@ -30,6 +30,7 @@ from tts_config import (
     get_server_url,
     is_server_running,
     auth_headers,
+    load_config,
 )
 
 # Derive speaker choices from canonical source
@@ -122,7 +123,8 @@ def get_server_status():
 
     try:
         stats = client.get_stats()
-        memory_val = stats.get('mps_memory_allocated_mb', 'N/A')
+        # Check for MLX memory first, then MPS
+        memory_val = stats.get('mlx_memory_active_mb') or stats.get('mps_memory_allocated_mb', 'N/A')
         if isinstance(memory_val, (int, float)):
             memory = f"{memory_val:.0f}MB"
         else:
@@ -279,19 +281,36 @@ def get_history_audio(evt: gr.SelectData):
 # Generation Functions
 # =============================================================================
 
+def _check_generation_cancelled():
+    """Check if the current generation was cancelled on the server."""
+    try:
+        import requests
+        from tts_config import load_config
+        config = load_config()
+        server_url = get_server_url(config)
+        resp = requests.get(f"{server_url}/generation-status", timeout=2)
+        if resp.status_code == 200:
+            state = resp.json()
+            return state.get("cancelled", False)
+    except Exception:
+        pass
+    return False
+
+
 def cancel_streaming_generation():
-    """Cancel the current streaming generation."""
+    """Cancel the current streaming generation and clear audio output."""
     client = TTSClient()
     try:
         result = client.cancel_generation()
         status = result.get("status", "unknown")
         if status == "cancellation_requested":
-            return "Cancellation requested...", format_status_display()
+            # Return None for audio to clear the player
+            return None, "Generation cancelled", format_status_display()
         elif status == "no_active_generation":
-            return "No active generation to cancel", format_status_display()
-        return f"Cancel status: {status}", format_status_display()
+            return None, "No active generation to cancel", format_status_display()
+        return None, f"Cancel status: {status}", format_status_display()
     except Exception as e:
-        return f"Cancel failed: {str(e)}", format_status_display()
+        return None, f"Cancel failed: {str(e)}", format_status_display()
 
 
 def _save_streaming_audio(all_chunks, sample_rate):
@@ -315,12 +334,12 @@ def generate_clone_streaming(text, prompt, preset, temperature, top_k, top_p, re
     import numpy as np
 
     if not text or not text.strip():
-        yield None, "Error: Please enter some text.", gr.update()
+        yield None, "Error: Please enter some text.", gr.update(), gr.update()
         return
 
     client = TTSClient()
     if not client.is_server_running():
-        yield None, "Error: TTS server is not running.", gr.update()
+        yield None, "Error: TTS server is not running.", gr.update(), gr.update()
         return
 
     try:
@@ -348,15 +367,20 @@ def generate_clone_streaming(text, prompt, preset, temperature, top_k, top_p, re
             sample_rate = sr
             chunk_count += 1
             # Yield ONLY the new chunk for streaming playback
-            yield (sr, wav_chunk), f"Streaming... {chunk_count} chunks", gr.update()
+            yield (sr, wav_chunk), f"Streaming... {chunk_count} chunks", gr.update(), gr.update()
+
+        # Check if cancelled before yielding final state
+        if _check_generation_cancelled():
+            yield None, f"Cancelled after {chunk_count} chunks", format_status_display(), gr.update()
+            return
 
         # Final: save complete audio and return file path
         output_path = _save_streaming_audio(all_chunks, sample_rate)
         add_to_history("clone", text, output_path, chunk_count)
-        yield output_path, f"Complete: {chunk_count} chunks", format_status_display()
+        yield output_path, f"Complete: {chunk_count} chunks", format_status_display(), get_history_data()
 
     except Exception as e:
-        yield None, f"Error: {str(e)}", format_status_display()
+        yield None, f"Error: {str(e)}", format_status_display(), gr.update()
 
 
 def generate_design_streaming(text, description, preset, temperature, top_k, top_p, rep_penalty, seed,
@@ -365,16 +389,16 @@ def generate_design_streaming(text, description, preset, temperature, top_k, top
     import numpy as np
 
     if not text or not text.strip():
-        yield None, "Error: Please enter some text.", gr.update()
+        yield None, "Error: Please enter some text.", gr.update(), gr.update()
         return
 
     if not description or not description.strip():
-        yield None, "Error: Please enter a voice description.", gr.update()
+        yield None, "Error: Please enter a voice description.", gr.update(), gr.update()
         return
 
     client = TTSClient()
     if not client.is_server_running():
-        yield None, "Error: TTS server is not running.", gr.update()
+        yield None, "Error: TTS server is not running.", gr.update(), gr.update()
         return
 
     try:
@@ -401,14 +425,19 @@ def generate_design_streaming(text, description, preset, temperature, top_k, top
             all_chunks.append(wav_chunk)
             sample_rate = sr
             chunk_count += 1
-            yield (sr, wav_chunk), f"Streaming... {chunk_count} chunks", gr.update()
+            yield (sr, wav_chunk), f"Streaming... {chunk_count} chunks", gr.update(), gr.update()
+
+        # Check if cancelled before yielding final state
+        if _check_generation_cancelled():
+            yield None, f"Cancelled after {chunk_count} chunks", format_status_display(), gr.update()
+            return
 
         output_path = _save_streaming_audio(all_chunks, sample_rate)
         add_to_history("design", text, output_path, chunk_count)
-        yield output_path, f"Complete: {chunk_count} chunks", format_status_display()
+        yield output_path, f"Complete: {chunk_count} chunks", format_status_display(), get_history_data()
 
     except Exception as e:
-        yield None, f"Error: {str(e)}", format_status_display()
+        yield None, f"Error: {str(e)}", format_status_display(), gr.update()
 
 
 def generate_custom_streaming(text, speaker_choice, instruct, preset, temperature, top_k, top_p, rep_penalty, seed,
@@ -417,12 +446,12 @@ def generate_custom_streaming(text, speaker_choice, instruct, preset, temperatur
     import numpy as np
 
     if not text or not text.strip():
-        yield None, "Error: Please enter some text.", gr.update()
+        yield None, "Error: Please enter some text.", gr.update(), gr.update()
         return
 
     client = TTSClient()
     if not client.is_server_running():
-        yield None, "Error: TTS server is not running.", gr.update()
+        yield None, "Error: TTS server is not running.", gr.update(), gr.update()
         return
 
     try:
@@ -451,26 +480,31 @@ def generate_custom_streaming(text, speaker_choice, instruct, preset, temperatur
             all_chunks.append(wav_chunk)
             sample_rate = sr
             chunk_count += 1
-            yield (sr, wav_chunk), f"Streaming... {chunk_count} chunks", gr.update()
+            yield (sr, wav_chunk), f"Streaming... {chunk_count} chunks", gr.update(), gr.update()
+
+        # Check if cancelled before yielding final state
+        if _check_generation_cancelled():
+            yield None, f"Cancelled after {chunk_count} chunks", format_status_display(), gr.update()
+            return
 
         output_path = _save_streaming_audio(all_chunks, sample_rate)
         add_to_history("custom", text, output_path, chunk_count)
-        yield output_path, f"Complete: {chunk_count} chunks", format_status_display()
+        yield output_path, f"Complete: {chunk_count} chunks", format_status_display(), get_history_data()
 
     except Exception as e:
-        yield None, f"Error: {str(e)}", format_status_display()
+        yield None, f"Error: {str(e)}", format_status_display(), gr.update()
 
 
 def generate_clone(text, prompt, preset, temperature, top_k, top_p, rep_penalty, seed,
                    trim_silence, normalize, speed, pitch, progress=gr.Progress()):
     """Generate audio using clone mode."""
     if not text or not text.strip():
-        return None, "Error: Please enter some text to generate.", gr.update()
+        return None, "Error: Please enter some text to generate.", gr.update(), gr.update()
 
     client = TTSClient()
 
     if not client.is_server_running():
-        return None, "Error: TTS server is not running. Start it with 'startTTSServer'.", gr.update()
+        return None, "Error: TTS server is not running. Start it with 'startTTSServer'.", gr.update(), gr.update()
 
     try:
         _ensure_model_loaded(client, "clone", progress)
@@ -503,27 +537,28 @@ def generate_clone(text, prompt, preset, temperature, top_k, top_p, rep_penalty,
             poll_thread.join(timeout=2)
 
         progress(1.0, desc="Complete")
-        return result, f"Generated: {os.path.basename(result)}", format_status_display()
+        add_to_history("clone", text, result, 1)
+        return result, f"Generated: {os.path.basename(result)}", format_status_display(), get_history_data()
     except Exception as e:
         error_msg = str(e)
         if "restart" in error_msg.lower() or "not running" in error_msg.lower():
             gr.Warning("Server issue — try restarting with 'startTTSServer'")
-        return None, f"Error: {error_msg}", format_status_display()
+        return None, f"Error: {error_msg}", format_status_display(), gr.update()
 
 
 def generate_design(text, description, preset, temperature, top_k, top_p, rep_penalty, seed,
                     trim_silence, normalize, speed, pitch, progress=gr.Progress()):
     """Generate audio using design mode."""
     if not text or not text.strip():
-        return None, "Error: Please enter some text to generate.", gr.update()
+        return None, "Error: Please enter some text to generate.", gr.update(), gr.update()
 
     if not description or not description.strip():
-        return None, "Error: Please enter a voice description.", gr.update()
+        return None, "Error: Please enter a voice description.", gr.update(), gr.update()
 
     client = TTSClient()
 
     if not client.is_server_running():
-        return None, "Error: TTS server is not running. Start it with 'startTTSServer'.", gr.update()
+        return None, "Error: TTS server is not running. Start it with 'startTTSServer'.", gr.update(), gr.update()
 
     try:
         _ensure_model_loaded(client, "design", progress)
@@ -556,24 +591,25 @@ def generate_design(text, description, preset, temperature, top_k, top_p, rep_pe
             poll_thread.join(timeout=2)
 
         progress(1.0, desc="Complete")
-        return result, f"Generated: {os.path.basename(result)}", format_status_display()
+        add_to_history("design", text, result, 1)
+        return result, f"Generated: {os.path.basename(result)}", format_status_display(), get_history_data()
     except Exception as e:
         error_msg = str(e)
         if "restart" in error_msg.lower() or "not running" in error_msg.lower():
             gr.Warning("Server issue — try restarting with 'startTTSServer'")
-        return None, f"Error: {error_msg}", format_status_display()
+        return None, f"Error: {error_msg}", format_status_display(), gr.update()
 
 
 def generate_custom(text, speaker_choice, instruct, preset, temperature, top_k, top_p, rep_penalty, seed,
                     trim_silence, normalize, speed, pitch, progress=gr.Progress()):
     """Generate audio using custom mode with premium speakers."""
     if not text or not text.strip():
-        return None, "Error: Please enter some text to generate.", gr.update()
+        return None, "Error: Please enter some text to generate.", gr.update(), gr.update()
 
     client = TTSClient()
 
     if not client.is_server_running():
-        return None, "Error: TTS server is not running. Start it with 'startTTSServer'.", gr.update()
+        return None, "Error: TTS server is not running. Start it with 'startTTSServer'.", gr.update(), gr.update()
 
     try:
         _ensure_model_loaded(client, "custom", progress)
@@ -608,12 +644,13 @@ def generate_custom(text, speaker_choice, instruct, preset, temperature, top_k, 
             poll_thread.join(timeout=2)
 
         progress(1.0, desc="Complete")
-        return result, f"Generated: {os.path.basename(result)}", format_status_display()
+        add_to_history("custom", text, result, 1)
+        return result, f"Generated: {os.path.basename(result)}", format_status_display(), get_history_data()
     except Exception as e:
         error_msg = str(e)
         if "restart" in error_msg.lower() or "not running" in error_msg.lower():
             gr.Warning("Server issue — try restarting with 'startTTSServer'")
-        return None, f"Error: {error_msg}", format_status_display()
+        return None, f"Error: {error_msg}", format_status_display(), gr.update()
 
 
 # =============================================================================
@@ -732,12 +769,12 @@ def build_ui():
                     inputs=[clone_text, clone_prompt, clone_preset, clone_temp, clone_top_k,
                             clone_top_p, clone_rep, clone_seed, clone_trim, clone_norm,
                             clone_speed, clone_pitch, clone_streaming],
-                    outputs=[clone_output, clone_status, status_html]
+                    outputs=[clone_output, clone_status, status_html, history_df]
                 )
 
                 clone_cancel_btn.click(
                     fn=cancel_streaming_generation,
-                    outputs=[clone_status, status_html]
+                    outputs=[clone_output, clone_status, status_html]
                 )
 
                 clone_text.change(fn=update_text_info, inputs=clone_text, outputs=clone_text_info)
@@ -813,12 +850,12 @@ def build_ui():
                     inputs=[design_text, design_desc, design_preset, design_temp, design_top_k,
                             design_top_p, design_rep, design_seed, design_trim, design_norm,
                             design_speed, design_pitch, design_streaming],
-                    outputs=[design_output, design_status, status_html]
+                    outputs=[design_output, design_status, status_html, history_df]
                 )
 
                 design_cancel_btn.click(
                     fn=cancel_streaming_generation,
-                    outputs=[design_status, status_html]
+                    outputs=[design_output, design_status, status_html]
                 )
 
                 design_text.change(fn=update_text_info, inputs=design_text, outputs=design_text_info)
@@ -899,12 +936,12 @@ def build_ui():
                     inputs=[custom_text, custom_speaker, custom_instruct, custom_preset,
                             custom_temp, custom_top_k, custom_top_p, custom_rep, custom_seed,
                             custom_trim, custom_norm, custom_speed, custom_pitch, custom_streaming],
-                    outputs=[custom_output, custom_status, status_html]
+                    outputs=[custom_output, custom_status, status_html, history_df]
                 )
 
                 custom_cancel_btn.click(
                     fn=cancel_streaming_generation,
-                    outputs=[custom_status, status_html]
+                    outputs=[custom_output, custom_status, status_html]
                 )
 
                 custom_text.change(fn=update_text_info, inputs=custom_text, outputs=custom_text_info)
@@ -958,7 +995,7 @@ def build_ui():
         with gr.Accordion("Recent Generations", open=False):
             history_df = gr.Dataframe(
                 headers=["Time", "Mode", "Text Preview", "Chunks"],
-                value=get_history_data,
+                value=[],  # Start empty, not function reference
                 interactive=False,
                 wrap=True,
             )
