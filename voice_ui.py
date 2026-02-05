@@ -83,17 +83,14 @@ def apply_model_settings(model_size, mlx_quantization):
         )
 
         if result.get("status") == "config_updated":
-            changes = result.get("changes", {})
-            change_parts = []
-            if "model_size" in changes:
-                change_parts.append(f"size: {changes['model_size']}")
-            if "mlx_quantization" in changes:
-                change_parts.append(f"quant: {changes['mlx_quantization']}")
+            changes = result.get("changes", [])
+            # changes is a list of strings like ["model_size=1.7B", "mlx_quantization=8bit"]
+            change_summary = ", ".join(changes) if changes else "no changes"
 
             if result.get("models_unloaded"):
-                msg = f"Settings applied ({', '.join(change_parts)}). New model will load on next generation."
+                msg = f"Settings applied ({change_summary}). Models unloaded - new model loads on next generation."
             else:
-                msg = f"Settings applied ({', '.join(change_parts)})."
+                msg = f"Settings applied ({change_summary})."
             return msg, format_status_display()
         else:
             return f"Unexpected response: {result}", format_status_display()
