@@ -1667,54 +1667,57 @@ class TestGenerationFunctionsReturnHistory(unittest.TestCase):
     """Test that generation functions return history data for UI update."""
 
     def test_generate_clone_returns_four_values(self):
-        """generate_clone returns 4 values (audio, status, status_html, history)."""
+        """generate_clone delegates to helper that returns 4 values."""
         import inspect
         import voice_ui
-        sig = inspect.signature(voice_ui.generate_clone)
-        # Check that the function can yield/return 4-tuple
+        # Non-streaming functions delegate to _generate_non_streaming_impl
         source = inspect.getsource(voice_ui.generate_clone)
-        self.assertIn("get_history_data()", source)
+        self.assertIn("_generate_non_streaming_impl", source)
+        # Helper should have get_history_data
+        helper_source = inspect.getsource(voice_ui._generate_non_streaming_impl)
+        self.assertIn("get_history_data()", helper_source)
 
     def test_generate_design_returns_four_values(self):
-        """generate_design returns 4 values (audio, status, status_html, history)."""
+        """generate_design delegates to helper that returns 4 values."""
         import inspect
         import voice_ui
         source = inspect.getsource(voice_ui.generate_design)
-        self.assertIn("get_history_data()", source)
+        self.assertIn("_generate_non_streaming_impl", source)
 
     def test_generate_custom_returns_four_values(self):
-        """generate_custom returns 4 values (audio, status, status_html, history)."""
+        """generate_custom delegates to helper that returns 4 values."""
         import inspect
         import voice_ui
         source = inspect.getsource(voice_ui.generate_custom)
-        self.assertIn("get_history_data()", source)
+        self.assertIn("_generate_non_streaming_impl", source)
 
     def test_streaming_functions_yield_four_values(self):
-        """Streaming generation functions yield 4-tuples."""
+        """Streaming generation functions delegate to helper that yields 4-tuples."""
         import inspect
         import voice_ui
-        # Check clone streaming
+        # Check that streaming wrappers delegate to _generate_streaming_impl
         source = inspect.getsource(voice_ui.generate_clone_streaming)
-        self.assertIn("get_history_data()", source)
-        # Check design streaming
+        self.assertIn("_generate_streaming_impl", source)
         source = inspect.getsource(voice_ui.generate_design_streaming)
-        self.assertIn("get_history_data()", source)
-        # Check custom streaming
+        self.assertIn("_generate_streaming_impl", source)
         source = inspect.getsource(voice_ui.generate_custom_streaming)
-        self.assertIn("get_history_data()", source)
+        self.assertIn("_generate_streaming_impl", source)
+        # Helper should have get_history_data
+        helper_source = inspect.getsource(voice_ui._generate_streaming_impl)
+        self.assertIn("get_history_data()", helper_source)
 
     def test_non_streaming_adds_to_history(self):
-        """Non-streaming generate functions call add_to_history."""
+        """Non-streaming helper calls add_to_history."""
         import inspect
         import voice_ui
-        source = inspect.getsource(voice_ui.generate_clone)
+        source = inspect.getsource(voice_ui._generate_non_streaming_impl)
         self.assertIn("add_to_history", source)
 
     def test_streaming_adds_to_history(self):
-        """Streaming generate functions call add_to_history on completion."""
+        """Streaming helper calls add_to_history on completion."""
         import inspect
         import voice_ui
-        source = inspect.getsource(voice_ui.generate_clone_streaming)
+        source = inspect.getsource(voice_ui._generate_streaming_impl)
         self.assertIn("add_to_history", source)
 
 
