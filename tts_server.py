@@ -459,9 +459,11 @@ def update_model_config():
     save_config(config)
 
     # Unload all models so new settings take effect
-    global loaded_models
+    global clone_model, design_model, custom_model
     with generation_lock:
-        loaded_models = {}
+        clone_model = None
+        design_model = None
+        custom_model = None
 
     logger.info("Model config updated: %s. Models unloaded.", ", ".join(changes))
 

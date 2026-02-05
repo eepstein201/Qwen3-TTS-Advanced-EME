@@ -15,6 +15,7 @@ import os
 import sys
 import threading
 import time
+import uuid
 import gradio as gr
 
 logger = logging.getLogger("tts.ui")
@@ -382,8 +383,9 @@ def _save_streaming_audio(all_chunks, sample_rate):
         return None
 
     combined = np.concatenate(all_chunks)
-    timestamp = int(time.time())
-    output_path = os.path.expanduser(f"~/Downloads/tts_ui_{timestamp}.wav")
+    # Use UUID to avoid filename collisions when multiple generations happen quickly
+    unique_id = uuid.uuid4().hex[:8]
+    output_path = os.path.expanduser(f"~/Downloads/voice_ui_{unique_id}.wav")
     sf.write(output_path, combined, sample_rate)
     return output_path
 
@@ -436,8 +438,11 @@ def generate_clone_streaming(text, prompt, preset, temperature, top_k, top_p, re
 
         # Final: save complete audio and return file path
         output_path = _save_streaming_audio(all_chunks, sample_rate)
-        add_to_history("clone", text, output_path, chunk_count)
-        yield output_path, f"Complete: {chunk_count} chunks", format_status_display(), get_history_data()
+        if output_path:
+            add_to_history("clone", text, output_path, chunk_count)
+            yield output_path, f"Complete: {chunk_count} chunks", format_status_display(), get_history_data()
+        else:
+            yield None, "Error: No audio was generated", format_status_display(), gr.update()
 
     except Exception as e:
         yield None, f"Error: {str(e)}", format_status_display(), gr.update()
@@ -493,8 +498,11 @@ def generate_design_streaming(text, description, preset, temperature, top_k, top
             return
 
         output_path = _save_streaming_audio(all_chunks, sample_rate)
-        add_to_history("design", text, output_path, chunk_count)
-        yield output_path, f"Complete: {chunk_count} chunks", format_status_display(), get_history_data()
+        if output_path:
+            add_to_history("design", text, output_path, chunk_count)
+            yield output_path, f"Complete: {chunk_count} chunks", format_status_display(), get_history_data()
+        else:
+            yield None, "Error: No audio was generated", format_status_display(), gr.update()
 
     except Exception as e:
         yield None, f"Error: {str(e)}", format_status_display(), gr.update()
@@ -548,8 +556,11 @@ def generate_custom_streaming(text, speaker_choice, instruct, preset, temperatur
             return
 
         output_path = _save_streaming_audio(all_chunks, sample_rate)
-        add_to_history("custom", text, output_path, chunk_count)
-        yield output_path, f"Complete: {chunk_count} chunks", format_status_display(), get_history_data()
+        if output_path:
+            add_to_history("custom", text, output_path, chunk_count)
+            yield output_path, f"Complete: {chunk_count} chunks", format_status_display(), get_history_data()
+        else:
+            yield None, "Error: No audio was generated", format_status_display(), gr.update()
 
     except Exception as e:
         yield None, f"Error: {str(e)}", format_status_display(), gr.update()
@@ -571,8 +582,7 @@ def generate_clone(text, prompt, preset, temperature, top_k, top_p, rep_penalty,
 
         seed_val = int(seed) if seed and str(seed).strip() else None
         preset_val = preset if preset and preset != "(none)" else None
-        timestamp = int(time.time())
-        output_path = os.path.expanduser(f"~/Downloads/tts_ui_{timestamp}.wav")
+        output_path = os.path.expanduser(f"~/Downloads/voice_ui_{uuid.uuid4().hex[:8]}.wav")
 
         progress(0, desc="Starting generation...")
         stop_event = threading.Event()
@@ -625,8 +635,7 @@ def generate_design(text, description, preset, temperature, top_k, top_p, rep_pe
 
         seed_val = int(seed) if seed and str(seed).strip() else None
         preset_val = preset if preset and preset != "(none)" else None
-        timestamp = int(time.time())
-        output_path = os.path.expanduser(f"~/Downloads/tts_ui_{timestamp}.wav")
+        output_path = os.path.expanduser(f"~/Downloads/voice_ui_{uuid.uuid4().hex[:8]}.wav")
 
         progress(0, desc="Starting generation...")
         stop_event = threading.Event()
@@ -677,8 +686,7 @@ def generate_custom(text, speaker_choice, instruct, preset, temperature, top_k, 
         speaker = speaker_choice.split(" ")[0] if speaker_choice else "ryan"
         seed_val = int(seed) if seed and str(seed).strip() else None
         preset_val = preset if preset and preset != "(none)" else None
-        timestamp = int(time.time())
-        output_path = os.path.expanduser(f"~/Downloads/tts_ui_{timestamp}.wav")
+        output_path = os.path.expanduser(f"~/Downloads/voice_ui_{uuid.uuid4().hex[:8]}.wav")
 
         progress(0, desc="Starting generation...")
         stop_event = threading.Event()
