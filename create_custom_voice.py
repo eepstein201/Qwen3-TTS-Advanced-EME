@@ -128,6 +128,8 @@ def main():
     parser.add_argument("--no-test", action="store_true", help="Skip test audio generation")
     parser.add_argument("--mlx-only", action="store_true",
                         help="Save only MLX files (.wav + .txt), skip .pt creation (no torch needed)")
+    parser.add_argument("--force-torch", action="store_true",
+                        help="Force .pt creation even when MLX backend is active")
     parser.add_argument("--auto-transcribe", action="store_true",
                         help="Auto-transcribe reference audio using MLX ASR (MLX backend only)")
 
@@ -241,10 +243,20 @@ def main():
         if not prompt_name:
             prompt_name = "custom_voice"
 
+    # Determine mlx_only mode:
+    # - Explicitly set via --mlx-only flag
+    # - Auto-enabled when backend is MLX (unless --force-torch is set)
+    from tts_config import get_backend
+    use_mlx_only = args.mlx_only
+    if not use_mlx_only and not args.force_torch and get_backend() == "mlx":
+        use_mlx_only = True
+        print("Note: MLX backend active - using MLX-only mode (skip .pt creation)")
+        print("      Use --force-torch to create .pt files for torch compatibility")
+
     create_and_save_voice_prompt(
         audio_path, transcript, prompt_name,
-        test_generation=not args.no_test and not args.mlx_only,
-        mlx_only=args.mlx_only,
+        test_generation=not args.no_test and not use_mlx_only,
+        mlx_only=use_mlx_only,
     )
 
 

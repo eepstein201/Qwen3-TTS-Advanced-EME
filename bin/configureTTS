@@ -1,0 +1,42 @@
+#!/bin/bash
+# configureTTS - Reconfigure TTS settings based on hardware detection
+#
+# Usage:
+#   configureTTS           # Interactive wizard to update config
+#   configureTTS --show    # Show current vs recommended (no changes)
+#   configureTTS --apply   # Apply recommended without prompts (TODO)
+#
+# This is a wrapper for install.sh --reconfigure
+
+USER_FILES_DIR="$HOME/Qwen3-TTS_UserFiles"
+INSTALL_SCRIPT="$USER_FILES_DIR/install.sh"
+
+if [[ ! -f "$INSTALL_SCRIPT" ]]; then
+    echo "Error: install.sh not found at $INSTALL_SCRIPT"
+    echo "Please ensure Qwen3-TTS is properly installed."
+    exit 1
+fi
+
+case "$1" in
+    --show)
+        exec "$INSTALL_SCRIPT" --show
+        ;;
+    --help|-h)
+        echo "Usage: configureTTS [OPTIONS]"
+        echo ""
+        echo "Reconfigure TTS settings with smart hardware detection."
+        echo ""
+        echo "Options:"
+        echo "  (no args)   Interactive wizard to update config.json"
+        echo "  --show      Show current vs recommended settings"
+        echo "  --help      Show this help message"
+        echo ""
+        echo "After reconfiguring, restart the server:"
+        echo "  stopTTSServer && startTTSServer"
+        echo ""
+        exit 0
+        ;;
+    *)
+        exec "$INSTALL_SCRIPT" --reconfigure
+        ;;
+esac

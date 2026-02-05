@@ -414,14 +414,14 @@ class TestBackendConfig(unittest.TestCase):
                 self.assertIn("{quant}", info["name_template"])
 
     def test_get_backend_default(self):
-        """get_backend() defaults to 'torch' with no env/config override."""
+        """get_backend() defaults to 'mlx' with no env/config override (MLX-first architecture)."""
         from tts_config import get_backend
         # Clear env override
         with patch.dict(os.environ, {}, clear=False):
             os.environ.pop("TTS_BACKEND", None)
             with patch("tts_config.load_config", return_value={}):
                 result = get_backend()
-        self.assertEqual(result, "torch")
+        self.assertEqual(result, "mlx")
 
     def test_get_backend_from_config(self):
         from tts_config import get_backend
@@ -440,12 +440,13 @@ class TestBackendConfig(unittest.TestCase):
         self.assertEqual(result, "mlx")
 
     def test_get_backend_invalid_falls_back(self):
+        """Invalid backend value falls back to 'mlx' (MLX-first architecture)."""
         from tts_config import get_backend
         with patch.dict(os.environ, {}, clear=False):
             os.environ.pop("TTS_BACKEND", None)
             with patch("tts_config.load_config", return_value={"advanced": {"backend": "invalid"}}):
                 result = get_backend()
-        self.assertEqual(result, "torch")
+        self.assertEqual(result, "mlx")
 
     def test_get_mlx_quantization_default(self):
         from tts_config import get_mlx_quantization

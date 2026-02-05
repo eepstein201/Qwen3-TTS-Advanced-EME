@@ -8,8 +8,9 @@ This directory contains Eric's custom Qwen3-TTS setup for voice cloning and text
 - `changeVoice` - Main TTS command (prompts to start server if not running, post-generation menu)
 - `startTTSServer` - Manually start the persistent model server
 - `stopTTSServer` - Stop the server (uses auth token for graceful shutdown)
-- `createVoice` - Create a new voice clone from audio
+- `createVoice` - Create a new voice clone from audio (auto-MLX-only when backend is MLX)
 - `ttsUI` - Launch Gradio web interface (default http://localhost:7860, auto-fallback if busy)
+- `configureTTS` - Reconfigure settings with hardware detection (backend, model size, quantization)
 
 ### Usage Examples
 ```bash
@@ -87,8 +88,9 @@ The codebase uses a layered architecture to avoid loading heavy dependencies (to
 - `changeVoice` - Server detection, generation, post-generation menu; auto-selects conda env by backend
 - `startTTSServer` - Starts server; activates correct conda env, sets `PYTORCH_ENABLE_MPS_FALLBACK=1` for torch
 - `stopTTSServer` - Graceful shutdown with auth token support (no conda env needed)
-- `createVoice` - Wrapper for voice creation (always uses `qwen3-tts` torch env)
+- `createVoice` - Wrapper for voice creation; auto-MLX-only when backend is MLX (--force-torch for .pt)
 - `ttsUI` - Launch Gradio web interface; auto-selects conda env by backend
+- `configureTTS` - Reconfigure settings with hardware detection; calls `install.sh --reconfigure`
 
 **IMPORTANT:** The wrapper scripts in `~/bin/` are copies of the canonical scripts in `bin/`. After updating the repo (e.g., adding backend support, new flags), you must re-copy them:
 ```bash
@@ -476,3 +478,16 @@ See README.md for full phase history.
 - [x] Generation state race condition fix — `generate_stream` only resets state if `generation_id` matches
 - [x] `createVoice` backend override — forces `TTS_BACKEND=torch` when running in torch env
 - [x] Test suite expanded to 152 tests — added tests for history, cancel, memory stats, generation state
+
+### Phase 19: MLX-First Architecture 🚧 IN PROGRESS
+- [x] `install.sh` rewrite — MLX as primary backend, torch as optional fallback
+- [x] Hardware detection — detects Apple Silicon vs Intel, RAM size
+- [x] Configuration wizard — interactive prompts for backend, model size, quantization
+- [x] Intel Mac guardrails — hard-locks to torch, no MLX options shown
+- [x] `configureTTS` command — wrapper for `install.sh --reconfigure`
+- [x] `tts_config.py` defaults changed — `get_backend()` returns "mlx" by default
+- [x] `createVoice` auto-MLX-only — when backend is MLX, skips .pt creation (--force-torch to override)
+- [ ] Gradio UI model selection — dropdowns for model size and quantization
+- [ ] `/update-model-config` server endpoint — switch model variants without restart
+- [ ] Dynamic model download — auto-download missing model variants on demand
+- [ ] Documentation updates — CLAUDE.md, README.md position MLX as default
