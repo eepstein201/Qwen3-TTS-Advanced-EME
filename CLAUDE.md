@@ -81,7 +81,7 @@ The codebase uses a layered architecture to avoid loading heavy dependencies (to
 - `requirements-mlx.txt` - MLX backend pip dependencies (for `qwen3-tts-mlx` env)
 - `voice_prompts/` - Voice clone files (.pt for torch, .wav/.txt for MLX)
 - `bin/` - Wrapper scripts (canonical source, copied to ~/bin/ by install.sh)
-- `tests/` - Test suite: 110 tests (`python -m unittest discover -v tests/`)
+- `tests/` - Test suite: 152 tests (`python -m unittest discover -v tests/`)
 
 ### Wrapper scripts in ~/bin/ (installed from bin/)
 - `changeVoice` - Server detection, generation, post-generation menu; auto-selects conda env by backend
@@ -218,7 +218,7 @@ Run the test suite (no GPU, models, or running server required):
 python -m unittest discover -v tests/
 ```
 
-110 tests across 23 test classes (2 skipped when MLX not installed):
+152 tests across 32 test classes (2 skipped when MLX not installed):
 - `TestTTSConfig` - error hierarchy, format helpers, auth token, model info, speakers
 - `TestServerValidation` - text length, batch size, mode, speaker, path traversal
 - `TestServerAuth` - public endpoints, auth enforcement, token validation
@@ -242,6 +242,17 @@ python -m unittest discover -v tests/
 - `TestHealthEndpointInfo` - `/health` returns backend, model_size, model_loaded fields
 - `TestGenerationStatus` - `/generation-status` endpoint behavior
 - `TestLoadModelEndpoint` - `/load-model` auth, validation, valid types
+- `TestMLXMemoryStats` - MLX memory stats in `/stats` endpoint
+- `TestGenerationStateFields` - generation_state initial values and fields
+- `TestCancelGenerationEndpoint` - cancel endpoint auth, behavior
+- `TestUIHistoryFunctions` - history add/get, truncation, max size
+- `TestUICancelFunction` - cancel returns tuple, clears audio
+- `TestUITextInfo` - text info helper functions
+- `TestStreamingEndpointStructure` - `/generate-stream` endpoint validation
+- `TestGenerationFunctionsReturnHistory` - generation functions return history data
+- `TestGenerateStreamIdCheck` - generation_id race condition fix
+- `TestCheckGenerationCancelled` - _check_generation_cancelled helper
+- `TestCreateVoiceBackendOverride` - createVoice forces TTS_BACKEND=torch
 
 ## Config Structure (config.json)
 ```json
@@ -455,3 +466,13 @@ See README.md for full phase history.
 - [x] Float32 guard for torch clone mode on MPS — auto-overrides dtype to float32 with warning
 - [x] Model download retry with exponential backoff — 3 attempts (5s, 15s, 45s delays)
 - [x] MLX Metal kernel crash recovery — catches Metal errors, retries with smaller sub-chunks
+
+### Phase 18: UI History Integration & Improvements ✅ COMPLETE
+- [x] History panel auto-update — generation functions return history data, UI wired to update panel
+- [x] Cancel button clears audio — `cancel_streaming_generation()` returns `None` for audio to clear player
+- [x] `_check_generation_cancelled()` helper — checks server for cancellation state
+- [x] MLX memory stats in `/stats` — `mlx_memory_active_mb`, `mlx_memory_peak_mb` fields
+- [x] `get_server_status()` prefers MLX memory — checks `mlx_memory_active_mb` before `mps_memory_allocated_mb`
+- [x] Generation state race condition fix — `generate_stream` only resets state if `generation_id` matches
+- [x] `createVoice` backend override — forces `TTS_BACKEND=torch` when running in torch env
+- [x] Test suite expanded to 152 tests — added tests for history, cancel, memory stats, generation state

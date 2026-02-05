@@ -45,6 +45,8 @@ conda activate "$CONDA_ENV"
 
 if [[ "$CONDA_ENV" == "qwen3-tts" ]]; then
     export PYTORCH_ENABLE_MPS_FALLBACK=1
+    # Force torch backend when running in torch env (overrides config.json)
+    export TTS_BACKEND=torch
 fi
 
 python ~/Qwen3-TTS_UserFiles/create_custom_voice.py "$@"
