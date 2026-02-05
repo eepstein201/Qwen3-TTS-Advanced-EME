@@ -141,7 +141,7 @@ def get_backend():
 
     Returns:
         A string: "torch" or "mlx".
-        Defaults to "torch" if not set or invalid.
+        Defaults to "mlx" if not set or invalid (Apple Silicon optimized).
     """
     # Environment variable override (set by --backend CLI flag)
     env_backend = os.environ.get("TTS_BACKEND")
@@ -149,11 +149,11 @@ def get_backend():
         return env_backend
     try:
         config = load_config()
-        backend = config.get("advanced", {}).get("backend", "torch")
+        backend = config.get("advanced", {}).get("backend", "mlx")
     except Exception:
-        backend = "torch"
+        backend = "mlx"
     if backend not in VALID_BACKENDS:
-        backend = "torch"
+        backend = "mlx"
     return backend
 
 
