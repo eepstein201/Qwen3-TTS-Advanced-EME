@@ -24,9 +24,10 @@ A powerful text-to-speech system with voice cloning, built on Qwen3-TTS models. 
 
 ### Prerequisites
 
-- macOS with Apple Silicon (M1/M2/M3/M4)
+- macOS with Apple Silicon (M1/M2/M3/M4) — MLX backend (recommended)
+- macOS with Intel — PyTorch backend only
 - Conda (miniforge recommended)
-- ~3.5GB per model (PyTorch) or ~2.5GB per model (MLX 8-bit)
+- ~2.5GB per model (MLX 8-bit, recommended) or ~3.5GB per model (PyTorch)
 
 ### Installation
 
@@ -38,12 +39,20 @@ cd ~/Qwen3-TTS_UserFiles
 ```
 
 This will:
-- Check prerequisites (macOS, Apple Silicon, conda)
-- Create the `qwen3-tts` conda environment (PyTorch backend)
-- Optionally create the `qwen3-tts-mlx` conda environment (MLX backend)
+- Detect your hardware (Apple Silicon or Intel) and RAM
+- Recommend optimal settings (backend, model size, quantization)
+- Create conda environments:
+  - `qwen3-tts-mlx` (MLX backend, recommended for Apple Silicon)
+  - `qwen3-tts` (PyTorch backend, optional fallback or Intel-only)
 - Install all dependencies
 - Create wrapper scripts in `~/bin/`
 - Optionally pre-download models
+
+**Reconfigure settings later:**
+```bash
+configureTTS             # Interactive wizard
+configureTTS --show      # Show current vs recommended settings
+```
 
 **Preview what will be done:**
 ```bash
@@ -178,6 +187,7 @@ changeVoice --list-aliases
 | `stopTTSServer` | Stop the TTS server |
 | `createVoice` | Create a new voice clone from audio |
 | `ttsUI` | Launch the Gradio web interface |
+| `configureTTS` | Reconfigure backend, model size, quantization settings |
 
 ### changeVoice Options
 
@@ -552,10 +562,12 @@ Options:
 | Setting | Values | Default | Description |
 |---------|--------|---------|-------------|
 | `generation.max_chunk_chars` | `0`–`10000` | `500` | Max chars per chunk for long texts (`0` disables chunking) |
-| `advanced.backend` | `"torch"`, `"mlx"` | `"torch"` | Inference backend (see [MLX Backend](#mlx-backend)) |
+| `advanced.backend` | `"mlx"`, `"torch"` | `"mlx"` | Inference backend (MLX recommended for Apple Silicon) |
 | `advanced.dtype` | `"float32"`, `"float16"`, `"bfloat16"` | `"float32"` | PyTorch dtype (torch backend only) |
 | `advanced.mlx_quantization` | `"4bit"`, `"8bit"`, `"bf16"` | `"8bit"` | MLX model quantization (mlx backend only) |
 | `advanced.model_size` | `"1.7B"`, `"0.6B"` | `"1.7B"` | Model size (0.6B is ~40% faster with lower memory) |
+
+**Change settings via UI:** The Gradio web interface has a "Model Settings" accordion to switch model size and MLX quantization without restarting the server.
 
 ### Model Configuration
 
@@ -830,17 +842,19 @@ If you run out of memory:
 
 ---
 
-## MLX Backend
+## MLX Backend (Recommended)
 
-MLX is an alternative inference backend for Apple Silicon Macs. It runs natively on the Neural Engine and GPU with significantly lower thermal output and battery drain compared to PyTorch/MPS.
+MLX is the recommended inference backend for Apple Silicon Macs. It runs natively on the Neural Engine and GPU with significantly lower thermal output and battery drain compared to PyTorch/MPS.
 
 ### Why MLX?
 
-| | PyTorch/MPS | MLX |
+| | MLX (Recommended) | PyTorch/MPS |
 |---|---|---|
-| Thermals | ~80-90°C | ~40-50°C |
-| Memory per model | ~3.5GB | ~2.5GB (8-bit quantized) |
-| Conda environment | `qwen3-tts` | `qwen3-tts-mlx` |
+| Thermals | ~40-50°C | ~80-90°C |
+| Memory per model | ~2.5GB (8-bit quantized) | ~3.5GB |
+| Conda environment | `qwen3-tts-mlx` | `qwen3-tts` |
+| Apple Silicon | Native | Via MPS |
+| Intel Mac | Not available | Required |
 
 ### Installation
 
@@ -1006,7 +1020,7 @@ Run the test suite (no GPU, models, or running server required):
 python -m unittest discover -v tests/
 ```
 
-152 tests covering config, server validation, authentication, SSML/SRT parsing, filename logic, backend config, MLX voice prompts, backend dispatch, model size (0.6B), streaming, ASR, stability hardening, text chunking, server endpoints, UI history functions, cancel behavior, and generation state tracking. MLX-specific import tests are automatically skipped when `mlx` is not installed.
+161 tests covering config, server validation, authentication, SSML/SRT parsing, filename logic, backend config, MLX voice prompts, backend dispatch, model size (0.6B), streaming, ASR, stability hardening, text chunking, server endpoints, UI history functions, cancel behavior, generation state tracking, model settings UI, and `/update-model-config` endpoint. MLX-specific import tests are automatically skipped when `mlx` is not installed.
 
 ---
 
@@ -1030,6 +1044,7 @@ python -m unittest discover -v tests/
 │   ├── startTTSServer
 │   ├── stopTTSServer
 │   ├── createVoice
+│   ├── configureTTS
 │   └── ttsUI
 ├── tests/                  # Test suite
 │   └── test_tts.py
@@ -1041,6 +1056,7 @@ python -m unittest discover -v tests/
 ├── startTTSServer
 ├── stopTTSServer
 ├── createVoice
+├── configureTTS
 └── ttsUI
 
 ~/.tts_server_token         # Auth token (runtime, 0600 perms)
@@ -1072,3 +1088,4 @@ All features implemented across 17 phases:
 - **Phase 16:** Auto-transcribe reference audio (`createVoice --auto-transcribe` using MLX ASR)
 - **Phase 17:** Stability hardening (float32 clone guard, model download retry, Metal crash recovery)
 - **Phase 18:** UI history integration & improvements (auto-update history panel after generation, cancel clears audio player, MLX memory stats, generation state tracking fixes)
+- **Phase 19:** MLX-First Architecture (MLX as default backend, hardware detection, `configureTTS` command, UI model selection, `/update-model-config` endpoint)
