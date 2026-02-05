@@ -26,8 +26,13 @@ from tts_client import TTSClient
 from tts_config import (
     CUSTOM_VOICE_SPEAKERS,
     VOICE_PROMPTS_DIR,
+    VALID_MODEL_SIZES,
+    VALID_MLX_QUANTIZATIONS,
     get_default_clone_prompt,
     get_server_url,
+    get_backend,
+    get_model_size,
+    get_mlx_quantization,
     is_server_running,
     auth_headers,
     load_config,
@@ -38,6 +43,61 @@ SPEAKER_CHOICES = [
     f"{key} ({info['lang']}) - {info['desc']}"
     for key, info in CUSTOM_VOICE_SPEAKERS.items()
 ]
+
+
+# =============================================================================
+# Model Settings Functions
+# =============================================================================
+
+def get_current_model_settings():
+    """Get current model size and quantization from server or config."""
+    client = TTSClient()
+    try:
+        if client.is_server_running():
+            stats = client.get_stats()
+            size = stats.get("model_size", "1.7B")
+            quant = stats.get("mlx_quantization", "8bit")
+            backend = stats.get("backend", "mlx")
+        else:
+            # Fall back to config
+            size = get_model_size()
+            quant = get_mlx_quantization()
+            backend = get_backend()
+        return size, quant, backend
+    except Exception:
+        return "1.7B", "8bit", "mlx"
+
+
+def apply_model_settings(model_size, mlx_quantization):
+    """Apply new model settings via server endpoint."""
+    client = TTSClient()
+
+    if not client.is_server_running():
+        return "Error: Server not running. Start with 'startTTSServer'.", format_status_display()
+
+    try:
+        result = client.update_model_config(
+            model_size=model_size,
+            mlx_quantization=mlx_quantization
+        )
+
+        if result.get("status") == "config_updated":
+            changes = result.get("changes", {})
+            change_parts = []
+            if "model_size" in changes:
+                change_parts.append(f"size: {changes['model_size']}")
+            if "mlx_quantization" in changes:
+                change_parts.append(f"quant: {changes['mlx_quantization']}")
+
+            if result.get("models_unloaded"):
+                msg = f"Settings applied ({', '.join(change_parts)}). New model will load on next generation."
+            else:
+                msg = f"Settings applied ({', '.join(change_parts)})."
+            return msg, format_status_display()
+        else:
+            return f"Unexpected response: {result}", format_status_display()
+    except Exception as e:
+        return f"Error: {str(e)}", format_status_display()
 
 
 # =============================================================================
@@ -692,6 +752,37 @@ def build_ui():
             js="(x) => { if (!confirm('Stop the TTS server? Generation will be unavailable until you restart.')) throw new Error('Cancelled'); return x; }",
         )
 
+        # Model Settings (MLX-first architecture)
+        current_size, current_quant, current_backend = get_current_model_settings()
+        with gr.Accordion("Model Settings", open=False):
+            gr.Markdown("Change model size or quantization. Settings apply on next generation.")
+            with gr.Row():
+                model_size_dropdown = gr.Dropdown(
+                    label="Model Size",
+                    choices=list(VALID_MODEL_SIZES),
+                    value=current_size,
+                    info="1.7B: higher quality | 0.6B: ~40% faster, lower memory"
+                )
+                mlx_quant_dropdown = gr.Dropdown(
+                    label="MLX Quantization",
+                    choices=list(VALID_MLX_QUANTIZATIONS),
+                    value=current_quant,
+                    info="4bit: smallest | 8bit: balanced | bf16: highest quality",
+                    visible=(current_backend == "mlx")
+                )
+            with gr.Row():
+                apply_settings_btn = gr.Button("Apply Settings", variant="secondary", size="sm")
+                settings_status = gr.Textbox(
+                    label="", show_label=False, interactive=False,
+                    max_lines=1, container=False, scale=3
+                )
+
+            apply_settings_btn.click(
+                fn=apply_model_settings,
+                inputs=[model_size_dropdown, mlx_quant_dropdown],
+                outputs=[settings_status, status_html]
+            )
+
         # Tabs for different modes
         with gr.Tabs():
             # Clone Mode Tab
@@ -1019,10 +1110,11 @@ def build_ui():
         **Tips:**
         - Start the TTS server first: `startTTSServer`
         - Models auto-load on first use — no need to pre-load all three
+        - Use **Model Settings** above to switch between model sizes (0.6B/1.7B) and quantizations (4bit/8bit/bf16)
         - Clone mode uses a voice prompt (.pt for PyTorch, .wav+.txt for MLX)
         - Design mode creates voices from text descriptions
         - Custom mode uses premium pre-trained speakers
-        - Switch backends in `config.json` → `advanced.backend` ("torch" or "mlx")
+        - Run `configureTTS` to optimize settings for your hardware
         """)
 
     return demo

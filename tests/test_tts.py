@@ -1496,6 +1496,123 @@ class TestUITextInfo(unittest.TestCase):
 
 
 # =============================================================================
+# UI model settings tests
+# =============================================================================
+
+class TestUIModelSettings(unittest.TestCase):
+    """Test tts_ui model settings functions (Phase 19: MLX-First Architecture)."""
+
+    def test_model_settings_functions_exist(self):
+        """tts_ui has model settings functions."""
+        import tts_ui
+        self.assertTrue(hasattr(tts_ui, "get_current_model_settings"))
+        self.assertTrue(hasattr(tts_ui, "apply_model_settings"))
+        self.assertTrue(callable(tts_ui.get_current_model_settings))
+        self.assertTrue(callable(tts_ui.apply_model_settings))
+
+    def test_get_current_model_settings_returns_tuple(self):
+        """get_current_model_settings returns a 3-tuple."""
+        from tts_ui import get_current_model_settings
+        result = get_current_model_settings()
+        self.assertIsInstance(result, tuple)
+        self.assertEqual(len(result), 3)
+        # (size, quant, backend)
+        size, quant, backend = result
+        self.assertIn(size, ("1.7B", "0.6B"))
+        self.assertIn(quant, ("4bit", "8bit", "bf16"))
+        self.assertIn(backend, ("torch", "mlx"))
+
+    def test_apply_model_settings_returns_tuple(self):
+        """apply_model_settings returns a 2-tuple (message, status_html)."""
+        from tts_ui import apply_model_settings
+        # Without server running, should return error message
+        result = apply_model_settings("1.7B", "8bit")
+        self.assertIsInstance(result, tuple)
+        self.assertEqual(len(result), 2)
+        msg, html = result
+        self.assertIsInstance(msg, str)
+        self.assertIsInstance(html, str)
+
+    def test_apply_model_settings_requires_server(self):
+        """apply_model_settings returns error when server not running."""
+        from tts_ui import apply_model_settings
+        msg, _ = apply_model_settings("0.6B", "4bit")
+        self.assertIn("not running", msg.lower())
+
+
+class TestUIModelSettingsImports(unittest.TestCase):
+    """Test tts_ui imports required for model settings."""
+
+    def test_model_settings_imports(self):
+        """tts_ui imports required constants for model settings."""
+        import tts_ui
+        # Should have imported these from tts_config
+        self.assertTrue(hasattr(tts_ui, "VALID_MODEL_SIZES"))
+        self.assertTrue(hasattr(tts_ui, "VALID_MLX_QUANTIZATIONS"))
+        self.assertTrue(hasattr(tts_ui, "get_backend"))
+        self.assertTrue(hasattr(tts_ui, "get_model_size"))
+        self.assertTrue(hasattr(tts_ui, "get_mlx_quantization"))
+
+
+# =============================================================================
+# Update model config endpoint tests
+# =============================================================================
+
+class TestUpdateModelConfigEndpoint(unittest.TestCase):
+    """Test /update-model-config server endpoint."""
+
+    @classmethod
+    def setUpClass(cls):
+        import tts_server
+        tts_server.auth_token = "test_token"
+        tts_server.server_config = {
+            "security": {"max_text_length": 10000},
+            "auto_shutdown_minutes": 0,
+        }
+        cls.app = tts_server.app
+        cls.app.testing = True
+        cls.client = cls.app.test_client()
+
+    @classmethod
+    def tearDownClass(cls):
+        import tts_server
+        tts_server.auth_token = None
+
+    def test_update_model_config_requires_auth(self):
+        """POST /update-model-config requires authentication."""
+        resp = self.client.post("/update-model-config",
+            json={"model_size": "0.6B"})
+        self.assertEqual(resp.status_code, 401)
+
+    def test_update_model_config_validates_model_size(self):
+        """POST /update-model-config validates model_size."""
+        resp = self.client.post("/update-model-config",
+            json={"model_size": "invalid"},
+            headers={"Authorization": "Bearer test_token"})
+        self.assertEqual(resp.status_code, 400)
+        self.assertIn("Invalid model_size", resp.get_json()["error"])
+
+    def test_update_model_config_validates_mlx_quantization(self):
+        """POST /update-model-config validates mlx_quantization."""
+        resp = self.client.post("/update-model-config",
+            json={"mlx_quantization": "invalid"},
+            headers={"Authorization": "Bearer test_token"})
+        self.assertEqual(resp.status_code, 400)
+        self.assertIn("Invalid mlx_quantization", resp.get_json()["error"])
+
+
+class TestClientUpdateModelConfig(unittest.TestCase):
+    """Test TTSClient.update_model_config method."""
+
+    def test_update_model_config_method_exists(self):
+        """TTSClient has update_model_config method."""
+        from tts_client import TTSClient
+        client = TTSClient()
+        self.assertTrue(hasattr(client, "update_model_config"))
+        self.assertTrue(callable(client.update_model_config))
+
+
+# =============================================================================
 # Streaming server endpoint structure tests
 # =============================================================================
 

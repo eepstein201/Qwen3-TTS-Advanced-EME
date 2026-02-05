@@ -477,7 +477,7 @@ See README.md for full phase history.
 - [x] `get_server_status()` prefers MLX memory — checks `mlx_memory_active_mb` before `mps_memory_allocated_mb`
 - [x] Generation state race condition fix — `generate_stream` only resets state if `generation_id` matches
 - [x] `createVoice` backend override — forces `TTS_BACKEND=torch` when running in torch env
-- [x] Test suite expanded to 152 tests — added tests for history, cancel, memory stats, generation state
+- [x] Test suite expanded (base: 152 tests) — added tests for history, cancel, memory stats, generation state
 
 ### Phase 19: MLX-First Architecture 🚧 IN PROGRESS
 - [x] `install.sh` rewrite — MLX as primary backend, torch as optional fallback
@@ -487,7 +487,9 @@ See README.md for full phase history.
 - [x] `configureTTS` command — wrapper for `install.sh --reconfigure`
 - [x] `tts_config.py` defaults changed — `get_backend()` returns "mlx" by default
 - [x] `createVoice` auto-MLX-only — when backend is MLX, skips .pt creation (--force-torch to override)
-- [ ] Gradio UI model selection — dropdowns for model size and quantization
-- [ ] `/update-model-config` server endpoint — switch model variants without restart
+- [x] `/update-model-config` server endpoint — switch model variants without restart
+- [x] `TTSClient.update_model_config()` — client method for model settings
+- [x] Gradio UI model selection — "Model Settings" accordion with dropdowns for model size and MLX quantization
+- [x] Test suite expanded to 161 tests — added tests for model settings UI and endpoint
 - [ ] Dynamic model download — auto-download missing model variants on demand
-- [ ] Documentation updates — CLAUDE.md, README.md position MLX as default
+- [ ] Documentation updates — README.md position MLX as default
