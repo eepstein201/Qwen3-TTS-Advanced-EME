@@ -5,7 +5,7 @@ Qwen3-TTS Web Interface - Gradio-based UI for TTS generation.
 Launch with:
     ttsUI
     # or
-    python ~/Qwen3-TTS_UserFiles/tts_ui.py
+    python ~/Qwen3-TTS_UserFiles/voice_ui.py
 
 Opens a web browser at http://localhost:7860
 """
@@ -23,8 +23,8 @@ logger = logging.getLogger("tts.ui")
 # Add the user files directory to path for imports
 sys.path.insert(0, os.path.expanduser("~/Qwen3-TTS_UserFiles"))
 
-from tts_client import TTSClient
-from tts_config import (
+from voice_client import TTSClient
+from voice_config import (
     CUSTOM_VOICE_SPEAKERS,
     VOICE_PROMPTS_DIR,
     VALID_MODEL_SIZES,
@@ -160,7 +160,7 @@ def auto_transcribe_audio(audio_path):
         raise gr.Error("Please upload an audio file first")
 
     try:
-        from tts_engine import transcribe_audio, is_asr_available
+        from voice_engine import transcribe_audio, is_asr_available
         if not is_asr_available():
             raise gr.Error("Auto-transcribe requires MLX backend")
         transcript = transcribe_audio(audio_path)
@@ -346,7 +346,7 @@ def _check_generation_cancelled():
     """Check if the current generation was cancelled on the server."""
     try:
         import requests
-        from tts_config import load_config
+        from voice_config import load_config
         config = load_config()
         server_url = get_server_url(config)
         resp = requests.get(f"{server_url}/generation-status", timeout=2)
@@ -1152,7 +1152,7 @@ def _find_available_port(preferred, max_tries=10):
 def main():
     """Main entry point."""
     import argparse
-    from tts_config import load_config
+    from voice_config import load_config
 
     config = load_config()
     default_port = config.get("ui", {}).get("port", 7860)

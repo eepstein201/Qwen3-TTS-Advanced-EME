@@ -21,10 +21,10 @@ import requests
 USER_FILES_DIR = os.path.expanduser("~/Qwen3-TTS_UserFiles")
 CONFIG_PATH = os.path.join(USER_FILES_DIR, "config.json")
 VOICE_PROMPTS_DIR = os.path.join(USER_FILES_DIR, "voice_prompts")
-HISTORY_FILE = os.path.expanduser("~/.tts_history.jsonl")
-PID_FILE = os.path.join(USER_FILES_DIR, ".tts_server.pid")
-LOG_FILE = os.path.join(USER_FILES_DIR, ".tts_server.log")
-TOKEN_FILE = os.path.expanduser("~/.tts_server_token")
+HISTORY_FILE = os.path.expanduser("~/.voice_history.jsonl")
+PID_FILE = os.path.join(USER_FILES_DIR, ".voice_server.pid")
+LOG_FILE = os.path.join(USER_FILES_DIR, ".voice_server.log")
+TOKEN_FILE = os.path.expanduser("~/.voice_server_token")
 
 # ---------------------------------------------------------------------------
 # Config helpers

@@ -21,7 +21,7 @@ import librosa
 import numpy as np
 import soundfile as sf
 
-from tts_config import (
+from voice_config import (
     VOICE_PROMPTS_DIR,
     get_torch_dtype_name,
     get_backend,

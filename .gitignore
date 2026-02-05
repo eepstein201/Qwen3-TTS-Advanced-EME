@@ -6,8 +6,8 @@ __pycache__/
 
 # Logs and temp files
 *.log
-.tts_server.pid
-.tts_server_test.pid
+.voice_server.pid
+.voice_server_test.pid
 
 # Audio files (user-specific)
 *.wav

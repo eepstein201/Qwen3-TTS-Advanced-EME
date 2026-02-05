@@ -2,11 +2,11 @@
 """
 TTS Client Library - HTTP-only Python API for Qwen3-TTS generation.
 
-This module NEVER imports torch or tts_engine — it communicates
+This module NEVER imports torch or voice_engine — it communicates
 exclusively over HTTP to the TTS server.
 
 Usage:
-    from tts_client import TTSClient
+    from voice_client import TTSClient
 
     client = TTSClient()
 
@@ -40,7 +40,7 @@ import shutil
 import requests
 import soundfile as sf
 
-from tts_config import (
+from voice_config import (
     CONFIG_PATH,
     VOICE_PROMPTS_DIR,
     get_default_clone_prompt,
@@ -305,7 +305,7 @@ class TTSClient:
         # Apply audio processing (lazy import — only if needed)
         needs_processing = trim_silence or normalize or (speed and speed != 1.0) or (pitch and pitch != 0)
         if needs_processing:
-            from tts_engine import process_audio
+            from voice_engine import process_audio
             wav = process_audio(wav, sr, trim=trim_silence, normalize=normalize,
                                 speed=speed, pitch=pitch)
 
@@ -594,7 +594,7 @@ class TTSClient:
             # Apply audio processing if needed
             needs_processing = trim_silence or normalize or (speed and speed != 1.0) or (pitch and pitch != 0)
             if needs_processing:
-                from tts_engine import process_audio
+                from voice_engine import process_audio
                 wav = process_audio(wav, sr, trim=trim_silence, normalize=normalize,
                                     speed=speed, pitch=pitch)
 

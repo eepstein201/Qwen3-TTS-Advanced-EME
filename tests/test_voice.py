@@ -21,19 +21,19 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 
 # =============================================================================
-# tts_config tests
+# voice_config tests
 # =============================================================================
 
 class TestTTSConfig(unittest.TestCase):
-    """Test tts_config module (no heavy imports)."""
+    """Test voice_config module (no heavy imports)."""
 
     def test_imports_no_torch(self):
-        """tts_config must not import torch."""
-        import tts_config  # noqa: F401
+        """voice_config must not import torch."""
+        import voice_config  # noqa: F401
         self.assertNotIn("torch", sys.modules.keys() - {"torch"})
 
     def test_error_hierarchy(self):
-        from tts_config import (
+        from voice_config import (
             TTSError, ServerConnectionError, ModelNotLoadedError,
             InvalidInputError, GenerationError, AuthenticationError,
         )
@@ -44,29 +44,29 @@ class TestTTSConfig(unittest.TestCase):
             self.assertIsInstance(err, TTSError)
 
     def test_error_format_cli(self):
-        from tts_config import ServerConnectionError
+        from voice_config import ServerConnectionError
         err = ServerConnectionError("details here")
         formatted = err.format_cli()
         self.assertIn("Cannot connect", formatted)
         self.assertIn("startTTSServer", formatted)
 
     def test_error_format_gradio(self):
-        from tts_config import GenerationError
+        from voice_config import GenerationError
         err = GenerationError("oops")
         html = err.format_gradio()
         self.assertIn("Audio generation failed", html)
 
     def test_read_auth_token_missing(self):
-        from tts_config import TOKEN_FILE, read_auth_token
+        from voice_config import TOKEN_FILE, read_auth_token
         # Use a temp path that doesn't exist
-        with patch("tts_config.TOKEN_FILE", "/tmp/nonexistent_token_test_xyz"):
+        with patch("voice_config.TOKEN_FILE", "/tmp/nonexistent_token_test_xyz"):
             result = read_auth_token()
         # If the real file exists, it returns its content; with patched path it's None
         # Can't reliably test with real TOKEN_FILE, so test the function signature
         self.assertTrue(result is None or isinstance(result, str))
 
     def test_auth_headers_returns_dict(self):
-        from tts_config import auth_headers
+        from voice_config import auth_headers
         headers = auth_headers()
         self.assertIsInstance(headers, dict)
 
@@ -75,8 +75,8 @@ class TestTTSConfig(unittest.TestCase):
             f.write("test_token_abc123")
             token_path = f.name
         try:
-            with patch("tts_config.TOKEN_FILE", token_path):
-                from tts_config import read_auth_token, auth_headers
+            with patch("voice_config.TOKEN_FILE", token_path):
+                from voice_config import read_auth_token, auth_headers
                 # Need to reimport to pick up patched value
                 token = read_auth_token()
                 headers = auth_headers()
@@ -86,7 +86,7 @@ class TestTTSConfig(unittest.TestCase):
             os.unlink(token_path)
 
     def test_model_info_keys(self):
-        from tts_config import MODEL_INFO
+        from voice_config import MODEL_INFO
         # MODEL_INFO is now nested by size: MODEL_INFO["1.7B"]["clone"], etc.
         self.assertIn("1.7B", MODEL_INFO)
         self.assertIn("0.6B", MODEL_INFO)
@@ -100,7 +100,7 @@ class TestTTSConfig(unittest.TestCase):
                 self.assertIn("memory_mb", info)
 
     def test_custom_voice_speakers(self):
-        from tts_config import CUSTOM_VOICE_SPEAKERS
+        from voice_config import CUSTOM_VOICE_SPEAKERS
         self.assertIn("ryan", CUSTOM_VOICE_SPEAKERS)
         self.assertIn("aiden", CUSTOM_VOICE_SPEAKERS)
         for key, info in CUSTOM_VOICE_SPEAKERS.items():
@@ -110,7 +110,7 @@ class TestTTSConfig(unittest.TestCase):
 
 
 # =============================================================================
-# tts_server validation tests (using Flask test client, no models needed)
+# voice_server validation tests (using Flask test client, no models needed)
 # =============================================================================
 
 class TestServerValidation(unittest.TestCase):
@@ -121,13 +121,13 @@ class TestServerValidation(unittest.TestCase):
         """Set up Flask test client with mocked models."""
         # We need to mock torch and model-related imports
         # to avoid loading heavy dependencies
-        import tts_server
-        tts_server.auth_token = None  # Disable auth for tests
-        tts_server.server_config = {
+        import voice_server
+        voice_server.auth_token = None  # Disable auth for tests
+        voice_server.server_config = {
             "security": {"max_text_length": 100, "max_batch_size": 3},
             "auto_shutdown_minutes": 0,
         }
-        cls.app = tts_server.app
+        cls.app = voice_server.app
         cls.app.testing = True
         cls.client = cls.app.test_client()
 
@@ -202,7 +202,7 @@ class TestServerValidation(unittest.TestCase):
 
 
 # =============================================================================
-# tts_server auth tests
+# voice_server auth tests
 # =============================================================================
 
 class TestServerAuth(unittest.TestCase):
@@ -210,20 +210,20 @@ class TestServerAuth(unittest.TestCase):
 
     @classmethod
     def setUpClass(cls):
-        import tts_server
-        tts_server.auth_token = "test_secret_token"
-        tts_server.server_config = {
+        import voice_server
+        voice_server.auth_token = "test_secret_token"
+        voice_server.server_config = {
             "security": {},
             "auto_shutdown_minutes": 0,
         }
-        cls.app = tts_server.app
+        cls.app = voice_server.app
         cls.app.testing = True
         cls.client = cls.app.test_client()
 
     @classmethod
     def tearDownClass(cls):
-        import tts_server
-        tts_server.auth_token = None
+        import voice_server
+        voice_server.auth_token = None
 
     def test_health_no_auth_required(self):
         resp = self.client.get("/health")
@@ -267,37 +267,37 @@ class TestServerAuth(unittest.TestCase):
 
 
 # =============================================================================
-# SSML parsing tests (from tts_generate, lightweight)
+# SSML parsing tests (from voice_generate, lightweight)
 # =============================================================================
 
 class TestSSMLParsing(unittest.TestCase):
-    """Test SSML parsing in tts_generate."""
+    """Test SSML parsing in voice_generate."""
 
     def test_no_ssml(self):
-        from tts_generate import parse_ssml
+        from voice_generate import parse_ssml
         text, meta = parse_ssml("Hello world")
         self.assertEqual(text, "Hello world")
         self.assertFalse(meta["has_ssml"])
 
     def test_break_tag(self):
-        from tts_generate import parse_ssml
+        from voice_generate import parse_ssml
         text, meta = parse_ssml('Hello <break time="500ms"/> world')
         self.assertTrue(meta["has_ssml"])
         self.assertNotIn("<break", text)
 
     def test_sub_tag(self):
-        from tts_generate import parse_ssml
+        from voice_generate import parse_ssml
         text, meta = parse_ssml('<sub alias="World Wide Web">WWW</sub>')
         self.assertIn("World Wide Web", text)
         self.assertNotIn("WWW", text)
 
     def test_say_as_characters(self):
-        from tts_generate import parse_ssml
+        from voice_generate import parse_ssml
         text, meta = parse_ssml('<say-as interpret-as="characters">ABC</say-as>')
         self.assertIn("A B C", text)
 
     def test_prosody_speed(self):
-        from tts_generate import parse_ssml
+        from voice_generate import parse_ssml
         text, meta = parse_ssml('<prosody rate="fast">Quick text</prosody>')
         self.assertTrue(meta["has_ssml"])
         self.assertEqual(meta["prosody"]["speed"], 1.2)
@@ -311,7 +311,7 @@ class TestSRTParsing(unittest.TestCase):
     """Test SRT parsing."""
 
     def test_parse_srt(self):
-        from tts_generate import parse_srt
+        from voice_generate import parse_srt
         srt_content = """1
 00:00:01,000 --> 00:00:03,000
 Hello world
@@ -332,7 +332,7 @@ Second subtitle
             os.unlink(srt_path)
 
     def test_srt_time_to_ms(self):
-        from tts_generate import srt_time_to_ms
+        from voice_generate import srt_time_to_ms
         self.assertEqual(srt_time_to_ms("00:01:30,500"), 90500)
         self.assertEqual(srt_time_to_ms("01:00:00,000"), 3600000)
 
@@ -345,13 +345,13 @@ class TestAutoIncrementFilename(unittest.TestCase):
     """Test auto_increment_filename helper."""
 
     def test_no_conflict(self):
-        from tts_generate import auto_increment_filename
+        from voice_generate import auto_increment_filename
         # Non-existent file should return as-is
         result = auto_increment_filename("/tmp/nonexistent_test_xyz.wav")
         self.assertEqual(result, "/tmp/nonexistent_test_xyz.wav")
 
     def test_conflict_increments(self):
-        from tts_generate import auto_increment_filename
+        from voice_generate import auto_increment_filename
         # Create a temp file
         with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as f:
             path = f.name
@@ -363,7 +363,7 @@ class TestAutoIncrementFilename(unittest.TestCase):
             os.unlink(path)
 
     def test_already_numbered(self):
-        from tts_generate import auto_increment_filename
+        from voice_generate import auto_increment_filename
         # Create files with _2 suffix
         with tempfile.NamedTemporaryFile(suffix="_2.wav", delete=False, dir="/tmp", prefix="test_") as f:
             path = f.name
@@ -376,25 +376,25 @@ class TestAutoIncrementFilename(unittest.TestCase):
 
 
 # =============================================================================
-# Backend config tests (tts_config backend helpers)
+# Backend config tests (voice_config backend helpers)
 # =============================================================================
 
 class TestBackendConfig(unittest.TestCase):
-    """Test backend-related config helpers in tts_config."""
+    """Test backend-related config helpers in voice_config."""
 
     def test_valid_backends(self):
-        from tts_config import VALID_BACKENDS
+        from voice_config import VALID_BACKENDS
         self.assertIn("torch", VALID_BACKENDS)
         self.assertIn("mlx", VALID_BACKENDS)
 
     def test_valid_mlx_quantizations(self):
-        from tts_config import VALID_MLX_QUANTIZATIONS
+        from voice_config import VALID_MLX_QUANTIZATIONS
         self.assertIn("4bit", VALID_MLX_QUANTIZATIONS)
         self.assertIn("8bit", VALID_MLX_QUANTIZATIONS)
         self.assertIn("bf16", VALID_MLX_QUANTIZATIONS)
 
     def test_mlx_model_info_keys(self):
-        from tts_config import MLX_MODEL_INFO
+        from voice_config import MLX_MODEL_INFO
         # MLX_MODEL_INFO is now nested by size: MLX_MODEL_INFO["1.7B"]["clone"], etc.
         self.assertIn("1.7B", MLX_MODEL_INFO)
         self.assertIn("0.6B", MLX_MODEL_INFO)
@@ -408,78 +408,78 @@ class TestBackendConfig(unittest.TestCase):
                 self.assertIn("memory_mb", info)
 
     def test_mlx_model_info_templates(self):
-        from tts_config import MLX_MODEL_INFO
+        from voice_config import MLX_MODEL_INFO
         for size in ("1.7B", "0.6B"):
             for model_type, info in MLX_MODEL_INFO[size].items():
                 self.assertIn("{quant}", info["name_template"])
 
     def test_get_backend_default(self):
         """get_backend() defaults to 'mlx' with no env/config override (MLX-first architecture)."""
-        from tts_config import get_backend
+        from voice_config import get_backend
         # Clear env override
         with patch.dict(os.environ, {}, clear=False):
             os.environ.pop("TTS_BACKEND", None)
-            with patch("tts_config.load_config", return_value={}):
+            with patch("voice_config.load_config", return_value={}):
                 result = get_backend()
         self.assertEqual(result, "mlx")
 
     def test_get_backend_from_config(self):
-        from tts_config import get_backend
+        from voice_config import get_backend
         with patch.dict(os.environ, {}, clear=False):
             os.environ.pop("TTS_BACKEND", None)
-            with patch("tts_config.load_config", return_value={"advanced": {"backend": "mlx"}}):
+            with patch("voice_config.load_config", return_value={"advanced": {"backend": "mlx"}}):
                 result = get_backend()
         self.assertEqual(result, "mlx")
 
     def test_get_backend_env_override(self):
         """TTS_BACKEND env var overrides config."""
-        from tts_config import get_backend
+        from voice_config import get_backend
         with patch.dict(os.environ, {"TTS_BACKEND": "mlx"}):
-            with patch("tts_config.load_config", return_value={"advanced": {"backend": "torch"}}):
+            with patch("voice_config.load_config", return_value={"advanced": {"backend": "torch"}}):
                 result = get_backend()
         self.assertEqual(result, "mlx")
 
     def test_get_backend_invalid_falls_back(self):
         """Invalid backend value falls back to 'mlx' (MLX-first architecture)."""
-        from tts_config import get_backend
+        from voice_config import get_backend
         with patch.dict(os.environ, {}, clear=False):
             os.environ.pop("TTS_BACKEND", None)
-            with patch("tts_config.load_config", return_value={"advanced": {"backend": "invalid"}}):
+            with patch("voice_config.load_config", return_value={"advanced": {"backend": "invalid"}}):
                 result = get_backend()
         self.assertEqual(result, "mlx")
 
     def test_get_mlx_quantization_default(self):
-        from tts_config import get_mlx_quantization
-        with patch("tts_config.load_config", return_value={}):
+        from voice_config import get_mlx_quantization
+        with patch("voice_config.load_config", return_value={}):
             result = get_mlx_quantization()
         self.assertEqual(result, "8bit")
 
     def test_get_mlx_quantization_from_config(self):
-        from tts_config import get_mlx_quantization
-        with patch("tts_config.load_config", return_value={"advanced": {"mlx_quantization": "4bit"}}):
+        from voice_config import get_mlx_quantization
+        with patch("voice_config.load_config", return_value={"advanced": {"mlx_quantization": "4bit"}}):
             result = get_mlx_quantization()
         self.assertEqual(result, "4bit")
 
     def test_get_mlx_quantization_invalid_falls_back(self):
-        from tts_config import get_mlx_quantization
-        with patch("tts_config.load_config", return_value={"advanced": {"mlx_quantization": "garbage"}}):
+        from voice_config import get_mlx_quantization
+        with patch("voice_config.load_config", return_value={"advanced": {"mlx_quantization": "garbage"}}):
             result = get_mlx_quantization()
         self.assertEqual(result, "8bit")
 
     def test_get_mlx_model_name(self):
-        from tts_config import get_mlx_model_name
-        with patch("tts_config.get_mlx_quantization", return_value="8bit"):
+        from voice_config import get_mlx_model_name
+        with patch("voice_config.get_mlx_quantization", return_value="8bit"):
             name = get_mlx_model_name("clone")
         self.assertEqual(name, "mlx-community/Qwen3-TTS-12Hz-1.7B-Base-8bit")
 
     def test_get_mlx_model_name_4bit(self):
-        from tts_config import get_mlx_model_name
-        with patch("tts_config.get_mlx_quantization", return_value="4bit"):
+        from voice_config import get_mlx_model_name
+        with patch("voice_config.get_mlx_quantization", return_value="4bit"):
             name = get_mlx_model_name("design")
         self.assertEqual(name, "mlx-community/Qwen3-TTS-12Hz-1.7B-VoiceDesign-4bit")
 
     def test_get_mlx_model_name_invalid_type(self):
-        from tts_config import get_mlx_model_name
+        from voice_config import get_mlx_model_name
         with self.assertRaises(ValueError):
             get_mlx_model_name("nonexistent")
 
@@ -501,7 +501,7 @@ class TestMLXVoicePrompt(unittest.TestCase):
 
     def test_load_voice_prompt_mlx_success(self):
         """Load MLX prompt from .wav + .txt pair."""
-        from tts_engine import load_voice_prompt_mlx
+        from voice_engine import load_voice_prompt_mlx
         # Create fake wav and txt
         wav_path = os.path.join(self.tmpdir, "test_voice.wav")
         txt_path = os.path.join(self.tmpdir, "test_voice.txt")
@@ -510,7 +510,7 @@ class TestMLXVoicePrompt(unittest.TestCase):
         with open(txt_path, "w") as f:
             f.write("Hello, this is a test transcript.")
 
-        with patch("tts_engine.VOICE_PROMPTS_DIR", self.tmpdir):
+        with patch("voice_engine.VOICE_PROMPTS_DIR", self.tmpdir):
             result = load_voice_prompt_mlx("test_voice.pt")
 
         self.assertIsInstance(result, dict)
@@ -519,7 +519,7 @@ class TestMLXVoicePrompt(unittest.TestCase):
 
     def test_load_voice_prompt_mlx_strips_pt(self):
         """Prompt name with .pt extension is handled correctly."""
-        from tts_engine import load_voice_prompt_mlx
+        from voice_engine import load_voice_prompt_mlx
         wav_path = os.path.join(self.tmpdir, "voice.wav")
         txt_path = os.path.join(self.tmpdir, "voice.txt")
         with open(wav_path, "wb") as f:
@@ -527,25 +527,25 @@ class TestMLXVoicePrompt(unittest.TestCase):
         with open(txt_path, "w") as f:
             f.write("transcript")
 
-        with patch("tts_engine.VOICE_PROMPTS_DIR", self.tmpdir):
+        with patch("voice_engine.VOICE_PROMPTS_DIR", self.tmpdir):
             result = load_voice_prompt_mlx("voice.pt")
         self.assertEqual(result["ref_audio"], wav_path)
 
     def test_load_voice_prompt_mlx_missing_files(self):
         """Raises FileNotFoundError when wav/txt missing."""
-        from tts_engine import load_voice_prompt_mlx
-        with patch("tts_engine.VOICE_PROMPTS_DIR", self.tmpdir):
+        from voice_engine import load_voice_prompt_mlx
+        with patch("voice_engine.VOICE_PROMPTS_DIR", self.tmpdir):
             with self.assertRaises(FileNotFoundError):
                 load_voice_prompt_mlx("nonexistent")
 
     def test_load_voice_prompt_mlx_pt_only_error(self):
         """Clear error when only .pt exists (no MLX-compatible files)."""
-        from tts_engine import load_voice_prompt_mlx
+        from voice_engine import load_voice_prompt_mlx
         pt_path = os.path.join(self.tmpdir, "legacy.pt")
         with open(pt_path, "wb") as f:
             f.write(b"fake tensor data")
 
-        with patch("tts_engine.VOICE_PROMPTS_DIR", self.tmpdir):
+        with patch("voice_engine.VOICE_PROMPTS_DIR", self.tmpdir):
             with self.assertRaises(FileNotFoundError) as ctx:
                 load_voice_prompt_mlx("legacy")
             self.assertIn("only has a .pt file", str(ctx.exception))
@@ -553,19 +553,19 @@ class TestMLXVoicePrompt(unittest.TestCase):
 
     def test_load_voice_prompt_dispatch_torch(self):
         """load_voice_prompt dispatches to torch backend."""
-        from tts_engine import load_voice_prompt
-        with patch("tts_engine.get_backend", return_value="torch"):
-            with patch("tts_engine._load_voice_prompt_torch", return_value="mock_tensor") as mock:
+        from voice_engine import load_voice_prompt
+        with patch("voice_engine.get_backend", return_value="torch"):
+            with patch("voice_engine._load_voice_prompt_torch", return_value="mock_tensor") as mock:
                 result = load_voice_prompt("test.pt")
         mock.assert_called_once_with("test.pt")
         self.assertEqual(result, "mock_tensor")
 
     def test_load_voice_prompt_dispatch_mlx(self):
         """load_voice_prompt dispatches to MLX backend."""
-        from tts_engine import load_voice_prompt
+        from voice_engine import load_voice_prompt
         mock_result = {"ref_audio": "/fake/path.wav", "ref_text": "text"}
-        with patch("tts_engine.get_backend", return_value="mlx"):
-            with patch("tts_engine.load_voice_prompt_mlx", return_value=mock_result) as mock:
+        with patch("voice_engine.get_backend", return_value="mlx"):
+            with patch("voice_engine.load_voice_prompt_mlx", return_value=mock_result) as mock:
                 result = load_voice_prompt("test.pt")
         mock.assert_called_once_with("test.pt")
         self.assertEqual(result, mock_result)
@@ -579,33 +579,33 @@ class TestBackendDispatch(unittest.TestCase):
     """Test that public API dispatches to correct backend functions."""
 
     def test_load_model_dispatch_torch(self):
-        from tts_engine import load_model
-        with patch("tts_engine.get_backend", return_value="torch"):
-            with patch("tts_engine._load_model_torch", return_value="torch_model") as mock:
+        from voice_engine import load_model
+        with patch("voice_engine.get_backend", return_value="torch"):
+            with patch("voice_engine._load_model_torch", return_value="torch_model") as mock:
                 result = load_model("clone")
         mock.assert_called_once_with("clone")
         self.assertEqual(result, "torch_model")
 
     def test_load_model_dispatch_mlx(self):
-        from tts_engine import load_model
-        with patch("tts_engine.get_backend", return_value="mlx"):
-            with patch("tts_engine._load_model_mlx", return_value="mlx_model") as mock:
+        from voice_engine import load_model
+        with patch("voice_engine.get_backend", return_value="mlx"):
+            with patch("voice_engine._load_model_mlx", return_value="mlx_model") as mock:
                 result = load_model("design")
         mock.assert_called_once_with("design")
         self.assertEqual(result, "mlx_model")
 
     def test_run_inference_dispatch_torch(self):
-        from tts_engine import run_inference
-        with patch("tts_engine.get_backend", return_value="torch"):
-            with patch("tts_engine._run_inference_torch", return_value=("wav", 24000)) as mock:
+        from voice_engine import run_inference
+        with patch("voice_engine.get_backend", return_value="torch"):
+            with patch("voice_engine._run_inference_torch", return_value=("wav", 24000)) as mock:
                 result = run_inference("model", "text", "clone", {})
         mock.assert_called_once()
         self.assertEqual(result, ("wav", 24000))
 
     def test_run_inference_dispatch_mlx(self):
-        from tts_engine import run_inference
-        with patch("tts_engine.get_backend", return_value="mlx"):
-            with patch("tts_engine._run_inference_mlx", return_value=("wav", 24000)) as mock:
+        from voice_engine import run_inference
+        with patch("voice_engine.get_backend", return_value="mlx"):
+            with patch("voice_engine._run_inference_mlx", return_value=("wav", 24000)) as mock:
                 result = run_inference("model", "text", "design", {})
         mock.assert_called_once()
         self.assertEqual(result, ("wav", 24000))
@@ -648,7 +648,7 @@ class TestMLXInferenceCloneValidation(unittest.TestCase):
 
     def test_clone_requires_voice_prompt(self):
         """_run_inference_mlx raises ValueError without voice_prompt in clone mode."""
-        from tts_engine import _run_inference_mlx
+        from voice_engine import _run_inference_mlx
         with self.assertRaises(ValueError) as ctx:
             _run_inference_mlx(
                 model=MagicMock(),
@@ -661,7 +661,7 @@ class TestMLXInferenceCloneValidation(unittest.TestCase):
 
     def test_clone_rejects_non_dict_prompt(self):
         """_run_inference_mlx raises TypeError for non-dict voice_prompt."""
-        from tts_engine import _run_inference_mlx
+        from voice_engine import _run_inference_mlx
         with self.assertRaises(TypeError) as ctx:
             _run_inference_mlx(
                 model=MagicMock(),
@@ -679,35 +679,35 @@ class TestMLXInferenceCloneValidation(unittest.TestCase):
 # =============================================================================
 
 class TestLazyImports(unittest.TestCase):
-    """Verify that tts_engine does not import torch or mlx at module scope."""
+    """Verify that voice_engine does not import torch or mlx at module scope."""
 
     def test_engine_no_torch_at_module_scope(self):
-        """tts_engine module should not force-import torch."""
-        # Remove tts_engine from cache to test fresh import behavior
+        """voice_engine module should not force-import torch."""
+        # Remove voice_engine from cache to test fresh import behavior
         saved_modules = {}
         for mod in list(sys.modules.keys()):
-            if mod == "tts_engine" or mod.startswith("tts_engine."):
+            if mod == "voice_engine" or mod.startswith("voice_engine."):
                 saved_modules[mod] = sys.modules.pop(mod)
 
         # Also note if torch was already loaded
         torch_was_loaded = "torch" in sys.modules
 
         try:
-            import tts_engine  # noqa: F401
+            import voice_engine  # noqa: F401
             if not torch_was_loaded:
-                # torch should not have been imported by tts_engine
+                # torch should not have been imported by voice_engine
                 self.assertNotIn("torch", sys.modules,
-                    "tts_engine imported torch at module scope")
+                    "voice_engine imported torch at module scope")
         finally:
             # Restore
             for mod, val in saved_modules.items():
                 sys.modules[mod] = val
 
     def test_config_no_torch(self):
-        """tts_config must not import torch (regression check)."""
-        import tts_config  # noqa: F401
-        # tts_config should never cause torch to load
-        self.assertNotIn("torch", dir(tts_config))
+        """voice_config must not import torch (regression check)."""
+        import voice_config  # noqa: F401
+        # voice_config should never cause torch to load
+        self.assertNotIn("torch", dir(voice_config))
 
 
 # =============================================================================
@@ -718,49 +718,49 @@ class TestModelSize(unittest.TestCase):
     """Test 0.6B model size configuration."""
 
     def test_valid_model_sizes(self):
-        from tts_config import VALID_MODEL_SIZES
+        from voice_config import VALID_MODEL_SIZES
         self.assertIn("1.7B", VALID_MODEL_SIZES)
         self.assertIn("0.6B", VALID_MODEL_SIZES)
 
     def test_get_model_size_default(self):
         """get_model_size() defaults to 1.7B."""
-        from tts_config import get_model_size
+        from voice_config import get_model_size
         with patch.dict(os.environ, {}, clear=False):
             os.environ.pop("TTS_MODEL_SIZE", None)
-            with patch("tts_config.load_config", return_value={}):
+            with patch("voice_config.load_config", return_value={}):
                 self.assertEqual(get_model_size(), "1.7B")
 
     def test_get_model_size_from_config(self):
-        from tts_config import get_model_size
+        from voice_config import get_model_size
         config = {"advanced": {"model_size": "0.6B"}}
         with patch.dict(os.environ, {}, clear=False):
             os.environ.pop("TTS_MODEL_SIZE", None)
-            with patch("tts_config.load_config", return_value=config):
+            with patch("voice_config.load_config", return_value=config):
                 self.assertEqual(get_model_size(), "0.6B")
 
     def test_get_model_size_env_override(self):
         """TTS_MODEL_SIZE env var overrides config."""
-        from tts_config import get_model_size
+        from voice_config import get_model_size
         config = {"advanced": {"model_size": "1.7B"}}
         with patch.dict(os.environ, {"TTS_MODEL_SIZE": "0.6B"}):
-            with patch("tts_config.load_config", return_value=config):
+            with patch("voice_config.load_config", return_value=config):
                 self.assertEqual(get_model_size(), "0.6B")
 
     def test_get_torch_model_name(self):
-        from tts_config import get_torch_model_name
-        with patch("tts_config.get_model_size", return_value="1.7B"):
+        from voice_config import get_torch_model_name
+        with patch("voice_config.get_model_size", return_value="1.7B"):
             name = get_torch_model_name("clone")
             self.assertIn("1.7B", name)
             self.assertIn("Base", name)
 
     def test_get_torch_model_name_0_6B(self):
-        from tts_config import get_torch_model_name
-        with patch("tts_config.get_model_size", return_value="0.6B"):
+        from voice_config import get_torch_model_name
+        with patch("voice_config.get_model_size", return_value="0.6B"):
             name = get_torch_model_name("clone")
             self.assertIn("0.6B", name)
 
     def test_model_info_has_0_6B(self):
-        from tts_config import MODEL_INFO, MLX_MODEL_INFO
+        from voice_config import MODEL_INFO, MLX_MODEL_INFO
         # Both should have 0.6B entries
         self.assertIn("0.6B", MODEL_INFO)
         self.assertIn("0.6B", MLX_MODEL_INFO)
@@ -779,17 +779,17 @@ class TestStreaming(unittest.TestCase):
 
     def test_run_inference_streaming_exists(self):
         """run_inference_streaming function is importable."""
-        from tts_engine import run_inference_streaming
+        from voice_engine import run_inference_streaming
         self.assertTrue(callable(run_inference_streaming))
 
     def test_mlx_streaming_function_exists(self):
         """_run_inference_mlx_streaming function is importable."""
-        from tts_engine import _run_inference_mlx_streaming
+        from voice_engine import _run_inference_mlx_streaming
         self.assertTrue(callable(_run_inference_mlx_streaming))
 
     def test_streaming_torch_falls_back_to_chunked(self):
         """run_inference_streaming for torch uses chunked inference (not native streaming)."""
-        from tts_engine import run_inference_streaming
+        from voice_engine import run_inference_streaming
         import inspect
         source = inspect.getsource(run_inference_streaming)
         # Torch backend falls back to chunked approach
@@ -797,7 +797,7 @@ class TestStreaming(unittest.TestCase):
 
     def test_streaming_mlx_function_signature(self):
         """_run_inference_mlx_streaming has correct parameters."""
-        from tts_engine import _run_inference_mlx_streaming
+        from voice_engine import _run_inference_mlx_streaming
         import inspect
         sig = inspect.signature(_run_inference_mlx_streaming)
         params = list(sig.parameters.keys())
@@ -812,20 +812,20 @@ class TestStreamingServerEndpoint(unittest.TestCase):
 
     @classmethod
     def setUpClass(cls):
-        import tts_server
-        tts_server.auth_token = "test_token"
-        tts_server.server_config = {
+        import voice_server
+        voice_server.auth_token = "test_token"
+        voice_server.server_config = {
             "security": {"max_text_length": 1000, "max_batch_size": 10},
             "auto_shutdown_minutes": 0,
         }
-        cls.app = tts_server.app
+        cls.app = voice_server.app
         cls.app.testing = True
         cls.client = cls.app.test_client()
 
     @classmethod
     def tearDownClass(cls):
-        import tts_server
-        tts_server.auth_token = None
+        import voice_server
+        voice_server.auth_token = None
 
     def test_generate_stream_requires_auth(self):
         """POST /generate-stream requires authentication."""
@@ -860,38 +860,38 @@ class TestASR(unittest.TestCase):
 
     def test_transcribe_audio_exists(self):
         """transcribe_audio function is importable."""
-        from tts_engine import transcribe_audio
+        from voice_engine import transcribe_audio
         self.assertTrue(callable(transcribe_audio))
 
     def test_is_asr_available_exists(self):
         """is_asr_available function is importable."""
-        from tts_engine import is_asr_available
+        from voice_engine import is_asr_available
         self.assertTrue(callable(is_asr_available))
 
     def test_is_asr_available_torch_returns_false(self):
         """is_asr_available returns False when backend is torch."""
-        from tts_engine import is_asr_available
-        with patch("tts_engine.get_backend", return_value="torch"):
+        from voice_engine import is_asr_available
+        with patch("voice_engine.get_backend", return_value="torch"):
             self.assertFalse(is_asr_available())
 
     def test_transcribe_audio_requires_mlx(self):
         """transcribe_audio raises ImportError when backend is torch."""
-        from tts_engine import transcribe_audio
-        with patch("tts_engine.get_backend", return_value="torch"):
+        from voice_engine import transcribe_audio
+        with patch("voice_engine.get_backend", return_value="torch"):
             with self.assertRaises(ImportError) as ctx:
                 transcribe_audio("/fake/path.wav")
             self.assertIn("MLX backend", str(ctx.exception))
 
     def test_asr_model_is_lazy_loaded(self):
         """_asr_model is None until transcribe_audio is called."""
-        import tts_engine
+        import voice_engine
         # The global _asr_model should be None at module level
-        self.assertIsNone(tts_engine._asr_model)
+        self.assertIsNone(voice_engine._asr_model)
 
     def test_is_asr_available_mlx_with_stt(self):
         """is_asr_available returns True when MLX + mlx_audio.stt available."""
-        from tts_engine import is_asr_available
-        with patch("tts_engine.get_backend", return_value="mlx"):
+        from voice_engine import is_asr_available
+        with patch("voice_engine.get_backend", return_value="mlx"):
             # Mock successful import of load_model
             with patch.dict(sys.modules, {"mlx_audio.stt": MagicMock()}):
                 # Force re-check by clearing any cached imports
@@ -902,7 +902,7 @@ class TestASR(unittest.TestCase):
 
     def test_transcribe_audio_returns_string(self):
         """transcribe_audio returns a string."""
-        from tts_engine import transcribe_audio
+        from voice_engine import transcribe_audio
 
         # Mock the entire transcription flow
         mock_result = MagicMock()
@@ -911,8 +911,8 @@ class TestASR(unittest.TestCase):
         mock_model = MagicMock()
         mock_model.generate.return_value = mock_result
 
-        with patch("tts_engine.get_backend", return_value="mlx"):
-            with patch("tts_engine._asr_model", mock_model):
+        with patch("voice_engine.get_backend", return_value="mlx"):
+            with patch("voice_engine._asr_model", mock_model):
                 result = transcribe_audio("/fake/path.wav")
 
         self.assertIsInstance(result, str)
@@ -928,34 +928,34 @@ class TestStability(unittest.TestCase):
 
     def test_retry_delays_constant_exists(self):
         """_RETRY_DELAYS constant is defined."""
-        from tts_engine import _RETRY_DELAYS
+        from voice_engine import _RETRY_DELAYS
         self.assertEqual(len(_RETRY_DELAYS), 3)
         self.assertEqual(_RETRY_DELAYS, (5, 15, 45))
 
     def test_retry_delays_is_exponential(self):
         """_RETRY_DELAYS uses exponential backoff pattern."""
-        from tts_engine import _RETRY_DELAYS
+        from voice_engine import _RETRY_DELAYS
         # Each delay should be roughly 3x the previous (5 -> 15 -> 45)
         self.assertEqual(_RETRY_DELAYS[1], _RETRY_DELAYS[0] * 3)
         self.assertEqual(_RETRY_DELAYS[2], _RETRY_DELAYS[1] * 3)
 
     def test_max_chunk_chars_helper_exists(self):
         """_get_max_chunk_chars helper function exists."""
-        from tts_engine import _get_max_chunk_chars
+        from voice_engine import _get_max_chunk_chars
         self.assertTrue(callable(_get_max_chunk_chars))
 
     def test_max_chunk_chars_default(self):
         """_get_max_chunk_chars returns default 500."""
-        from tts_engine import _get_max_chunk_chars
-        with patch("tts_engine.load_config", return_value={}):
+        from voice_engine import _get_max_chunk_chars
+        with patch("voice_engine.load_config", return_value={}):
             result = _get_max_chunk_chars()
         self.assertEqual(result, 500)
 
     def test_max_chunk_chars_from_config(self):
         """_get_max_chunk_chars reads from config."""
-        from tts_engine import _get_max_chunk_chars
+        from voice_engine import _get_max_chunk_chars
         config = {"generation": {"max_chunk_chars": 300}}
-        with patch("tts_engine.load_config", return_value=config):
+        with patch("voice_engine.load_config", return_value=config):
             result = _get_max_chunk_chars()
         self.assertEqual(result, 300)
 
@@ -965,7 +965,7 @@ class TestFloat32Guard(unittest.TestCase):
 
     def test_float32_guard_exists_in_torch_inference(self):
         """_run_inference_torch has float32 guard logic."""
-        from tts_engine import _run_inference_torch
+        from voice_engine import _run_inference_torch
         import inspect
         source = inspect.getsource(_run_inference_torch)
         # Should have float32 override logic for clone mode
@@ -978,7 +978,7 @@ class TestMLXMetalRecovery(unittest.TestCase):
 
     def test_run_inference_handles_exceptions(self):
         """run_inference wraps inference in try/except."""
-        from tts_engine import _run_inference_single
+        from voice_engine import _run_inference_single
         import inspect
         source = inspect.getsource(_run_inference_single)
         # Should have exception handling
@@ -994,13 +994,13 @@ class TestTextChunking(unittest.TestCase):
 
     def test_split_text_short(self):
         """Short text is not split."""
-        from tts_engine import _split_text
+        from voice_engine import _split_text
         chunks = _split_text("Hello world.", max_chars=500)
         self.assertEqual(chunks, ["Hello world."])
 
     def test_split_text_sentences(self):
         """Text is split on sentence boundaries."""
-        from tts_engine import _split_text
+        from voice_engine import _split_text
         text = "First sentence. Second sentence. Third sentence."
         chunks = _split_text(text, max_chars=30)
         self.assertGreater(len(chunks), 1)
@@ -1010,7 +1010,7 @@ class TestTextChunking(unittest.TestCase):
 
     def test_split_text_preserves_content(self):
         """All content is preserved after splitting."""
-        from tts_engine import _split_text
+        from voice_engine import _split_text
         text = "The quick brown fox jumps over the lazy dog. A second sentence follows."
         chunks = _split_text(text, max_chars=50)
         combined = " ".join(chunks)
@@ -1020,28 +1020,28 @@ class TestTextChunking(unittest.TestCase):
 
     def test_split_text_question_mark(self):
         """Text splits on question marks."""
-        from tts_engine import _split_text
+        from voice_engine import _split_text
         text = "Is this a question? Yes it is."
         chunks = _split_text(text, max_chars=25)
         self.assertGreater(len(chunks), 1)
 
     def test_split_text_exclamation(self):
         """Text splits on exclamation marks."""
-        from tts_engine import _split_text
+        from voice_engine import _split_text
         text = "Hello! How are you today?"
         chunks = _split_text(text, max_chars=15)
         self.assertGreater(len(chunks), 1)
 
     def test_split_text_newlines(self):
         """Text splits on newlines."""
-        from tts_engine import _split_text
+        from voice_engine import _split_text
         text = "First paragraph.\n\nSecond paragraph."
         chunks = _split_text(text, max_chars=20)
         self.assertGreater(len(chunks), 1)
 
     def test_split_text_comma_fallback(self):
         """Very long sentence falls back to clause boundaries."""
-        from tts_engine import _split_text
+        from voice_engine import _split_text
         # A single long sentence with commas but no periods
         text = "This is a very long sentence, with several clauses, that should be split at commas when needed"
         chunks = _split_text(text, max_chars=40)
@@ -1057,21 +1057,21 @@ class TestMLXMemoryStats(unittest.TestCase):
     """Test MLX memory stats collection in /stats endpoint."""
 
     def test_stats_mlx_memory_code_exists(self):
-        """tts_server has MLX memory collection code."""
+        """voice_server has MLX memory collection code."""
         import inspect
-        import tts_server
+        import voice_server
         # Find the stats route handler
-        source = inspect.getsource(tts_server)
+        source = inspect.getsource(voice_server)
         # Should have MLX memory collection
         self.assertIn("mlx_memory_active_mb", source)
         self.assertIn("mlx_memory_peak_mb", source)
         self.assertIn("mx.metal.get_active_memory", source)
 
     def test_ui_checks_mlx_memory_first(self):
-        """tts_ui checks for MLX memory before MPS memory."""
+        """voice_ui checks for MLX memory before MPS memory."""
         import inspect
-        import tts_ui
-        source = inspect.getsource(tts_ui.get_server_status)
+        import voice_ui
+        source = inspect.getsource(voice_ui.get_server_status)
         # Should check mlx_memory first
         self.assertIn("mlx_memory_active_mb", source)
 
@@ -1081,13 +1081,13 @@ class TestHealthEndpointInfo(unittest.TestCase):
 
     @classmethod
     def setUpClass(cls):
-        import tts_server
-        tts_server.auth_token = None
-        tts_server.server_config = {
+        import voice_server
+        voice_server.auth_token = None
+        voice_server.server_config = {
             "security": {},
             "auto_shutdown_minutes": 0,
         }
-        cls.app = tts_server.app
+        cls.app = voice_server.app
         cls.app.testing = True
         cls.client = cls.app.test_client()
 
@@ -1125,13 +1125,13 @@ class TestGenerationStatus(unittest.TestCase):
 
     @classmethod
     def setUpClass(cls):
-        import tts_server
-        tts_server.auth_token = None
-        tts_server.server_config = {
+        import voice_server
+        voice_server.auth_token = None
+        voice_server.server_config = {
             "security": {},
             "auto_shutdown_minutes": 0,
         }
-        cls.app = tts_server.app
+        cls.app = voice_server.app
         cls.app.testing = True
         cls.client = cls.app.test_client()
 
@@ -1163,20 +1163,20 @@ class TestLoadModelEndpoint(unittest.TestCase):
 
     @classmethod
     def setUpClass(cls):
-        import tts_server
-        tts_server.auth_token = "test_token"
-        tts_server.server_config = {
+        import voice_server
+        voice_server.auth_token = "test_token"
+        voice_server.server_config = {
             "security": {},
             "auto_shutdown_minutes": 0,
         }
-        cls.app = tts_server.app
+        cls.app = voice_server.app
         cls.app.testing = True
         cls.client = cls.app.test_client()
 
     @classmethod
     def tearDownClass(cls):
-        import tts_server
-        tts_server.auth_token = None
+        import voice_server
+        voice_server.auth_token = None
 
     def test_load_model_requires_auth(self):
         """POST /load-model requires authentication."""
@@ -1212,26 +1212,26 @@ class TestCancelGenerationEndpoint(unittest.TestCase):
 
     @classmethod
     def setUpClass(cls):
-        import tts_server
-        tts_server.auth_token = "test_token"
-        tts_server.server_config = {
+        import voice_server
+        voice_server.auth_token = "test_token"
+        voice_server.server_config = {
             "security": {},
             "auto_shutdown_minutes": 0,
         }
         # Reset generation state
-        tts_server.generation_state.update({
+        voice_server.generation_state.update({
             "active": False,
             "cancelled": False,
             "generation_id": None,
         })
-        cls.app = tts_server.app
+        cls.app = voice_server.app
         cls.app.testing = True
         cls.client = cls.app.test_client()
 
     @classmethod
     def tearDownClass(cls):
-        import tts_server
-        tts_server.auth_token = None
+        import voice_server
+        voice_server.auth_token = None
 
     def test_cancel_requires_auth(self):
         """POST /cancel-generation requires authentication."""
@@ -1240,8 +1240,8 @@ class TestCancelGenerationEndpoint(unittest.TestCase):
 
     def test_cancel_when_no_active_generation(self):
         """Cancel returns no_active_generation when nothing running."""
-        import tts_server
-        tts_server.generation_state["active"] = False
+        import voice_server
+        voice_server.generation_state["active"] = False
         resp = self.client.post("/cancel-generation",
             headers={"Authorization": "Bearer test_token"})
         self.assertEqual(resp.status_code, 200)
@@ -1250,8 +1250,8 @@ class TestCancelGenerationEndpoint(unittest.TestCase):
 
     def test_cancel_sets_cancelled_flag(self):
         """Cancel sets the cancelled flag in generation_state."""
-        import tts_server
-        tts_server.generation_state.update({
+        import voice_server
+        voice_server.generation_state.update({
             "active": True,
             "cancelled": False,
             "generation_id": "test123",
@@ -1261,9 +1261,9 @@ class TestCancelGenerationEndpoint(unittest.TestCase):
         self.assertEqual(resp.status_code, 200)
         data = resp.get_json()
         self.assertEqual(data["status"], "cancellation_requested")
-        self.assertTrue(tts_server.generation_state["cancelled"])
+        self.assertTrue(voice_server.generation_state["cancelled"])
         # Reset
-        tts_server.generation_state.update({
+        voice_server.generation_state.update({
             "active": False,
             "cancelled": False,
             "generation_id": None,
@@ -1271,8 +1271,8 @@ class TestCancelGenerationEndpoint(unittest.TestCase):
 
     def test_cancel_returns_generation_id(self):
         """Cancel returns the generation_id."""
-        import tts_server
-        tts_server.generation_state.update({
+        import voice_server
+        voice_server.generation_state.update({
             "active": True,
             "cancelled": False,
             "generation_id": "abc12345",
@@ -1282,7 +1282,7 @@ class TestCancelGenerationEndpoint(unittest.TestCase):
         data = resp.get_json()
         self.assertEqual(data["generation_id"], "abc12345")
         # Reset
-        tts_server.generation_state.update({
+        voice_server.generation_state.update({
             "active": False,
             "cancelled": False,
             "generation_id": None,
@@ -1294,19 +1294,19 @@ class TestGenerationStateFields(unittest.TestCase):
 
     def test_generation_state_has_cancelled_field(self):
         """generation_state dict has cancelled field."""
-        import tts_server
-        self.assertIn("cancelled", tts_server.generation_state)
+        import voice_server
+        self.assertIn("cancelled", voice_server.generation_state)
 
     def test_generation_state_has_generation_id(self):
         """generation_state dict has generation_id field."""
-        import tts_server
-        self.assertIn("generation_id", tts_server.generation_state)
+        import voice_server
+        self.assertIn("generation_id", voice_server.generation_state)
 
     def test_generation_state_initial_values(self):
         """generation_state has correct initial values."""
-        import tts_server
+        import voice_server
         # These should be the default/initial values
-        state = tts_server.generation_state
+        state = voice_server.generation_state
         self.assertIn("active", state)
         self.assertIn("start_time", state)
         self.assertIn("text_length", state)
@@ -1324,14 +1324,14 @@ class TestStreamingClientMethod(unittest.TestCase):
 
     def test_generate_streaming_method_exists(self):
         """TTSClient has generate_streaming method."""
-        from tts_client import TTSClient
+        from voice_client import TTSClient
         client = TTSClient()
         self.assertTrue(hasattr(client, "generate_streaming"))
         self.assertTrue(callable(getattr(client, "generate_streaming")))
 
     def test_cancel_generation_method_exists(self):
         """TTSClient has cancel_generation method."""
-        from tts_client import TTSClient
+        from voice_client import TTSClient
         client = TTSClient()
         self.assertTrue(hasattr(client, "cancel_generation"))
         self.assertTrue(callable(getattr(client, "cancel_generation")))
@@ -1339,7 +1339,7 @@ class TestStreamingClientMethod(unittest.TestCase):
     def test_generate_streaming_signature(self):
         """generate_streaming has expected parameters."""
         import inspect
-        from tts_client import TTSClient
+        from voice_client import TTSClient
         sig = inspect.signature(TTSClient.generate_streaming)
         params = list(sig.parameters.keys())
         # Should have text, mode, and various optional params
@@ -1352,47 +1352,47 @@ class TestStreamingClientMethod(unittest.TestCase):
 # =============================================================================
 
 class TestUIHistoryFunctions(unittest.TestCase):
-    """Test tts_ui generation history functions."""
+    """Test voice_ui generation history functions."""
 
     def test_history_functions_exist(self):
-        """tts_ui has history-related functions."""
-        import tts_ui
-        self.assertTrue(hasattr(tts_ui, "generation_history"))
-        self.assertTrue(hasattr(tts_ui, "add_to_history"))
-        self.assertTrue(hasattr(tts_ui, "get_history_data"))
-        self.assertTrue(hasattr(tts_ui, "MAX_HISTORY_SIZE"))
+        """voice_ui has history-related functions."""
+        import voice_ui
+        self.assertTrue(hasattr(voice_ui, "generation_history"))
+        self.assertTrue(hasattr(voice_ui, "add_to_history"))
+        self.assertTrue(hasattr(voice_ui, "get_history_data"))
+        self.assertTrue(hasattr(voice_ui, "MAX_HISTORY_SIZE"))
 
     def test_add_to_history(self):
         """add_to_history adds entries to history."""
-        import tts_ui
+        import voice_ui
         # Clear history
-        tts_ui.generation_history.clear()
+        voice_ui.generation_history.clear()
 
-        tts_ui.add_to_history("clone", "Test text", "/path/to/audio.wav", 5)
-        self.assertEqual(len(tts_ui.generation_history), 1)
-        entry = tts_ui.generation_history[0]
+        voice_ui.add_to_history("clone", "Test text", "/path/to/audio.wav", 5)
+        self.assertEqual(len(voice_ui.generation_history), 1)
+        entry = voice_ui.generation_history[0]
         self.assertEqual(entry["mode"], "Clone")
         self.assertEqual(entry["chunks"], 5)
         self.assertEqual(entry["path"], "/path/to/audio.wav")
 
     def test_history_max_size(self):
         """History doesn't exceed MAX_HISTORY_SIZE."""
-        import tts_ui
-        tts_ui.generation_history.clear()
+        import voice_ui
+        voice_ui.generation_history.clear()
 
         # Add more than max entries
-        for i in range(tts_ui.MAX_HISTORY_SIZE + 5):
-            tts_ui.add_to_history("clone", f"Text {i}", f"/path/{i}.wav", 1)
+        for i in range(voice_ui.MAX_HISTORY_SIZE + 5):
+            voice_ui.add_to_history("clone", f"Text {i}", f"/path/{i}.wav", 1)
 
-        self.assertEqual(len(tts_ui.generation_history), tts_ui.MAX_HISTORY_SIZE)
+        self.assertEqual(len(voice_ui.generation_history), voice_ui.MAX_HISTORY_SIZE)
 
     def test_get_history_data_format(self):
         """get_history_data returns list of lists."""
-        import tts_ui
-        tts_ui.generation_history.clear()
-        tts_ui.add_to_history("clone", "Test text", "/path/test.wav", 3)
+        import voice_ui
+        voice_ui.generation_history.clear()
+        voice_ui.add_to_history("clone", "Test text", "/path/test.wav", 3)
 
-        data = tts_ui.get_history_data()
+        data = voice_ui.get_history_data()
         self.assertIsInstance(data, list)
         self.assertEqual(len(data), 1)
         self.assertIsInstance(data[0], list)
@@ -1401,13 +1401,13 @@ class TestUIHistoryFunctions(unittest.TestCase):
 
     def test_history_text_truncation(self):
         """Long text is truncated in history entries."""
-        import tts_ui
-        tts_ui.generation_history.clear()
+        import voice_ui
+        voice_ui.generation_history.clear()
 
         long_text = "A" * 100  # 100 character text
-        tts_ui.add_to_history("clone", long_text, "/path/test.wav", 1)
+        voice_ui.add_to_history("clone", long_text, "/path/test.wav", 1)
 
-        entry = tts_ui.generation_history[0]
+        entry = voice_ui.generation_history[0]
         # Text should be truncated to 40 chars + "..."
         self.assertLessEqual(len(entry["text"]), 43)
         self.assertTrue(entry["text"].endswith("..."))
@@ -1418,23 +1418,23 @@ class TestUIHistoryFunctions(unittest.TestCase):
 # =============================================================================
 
 class TestUICancelFunction(unittest.TestCase):
-    """Test tts_ui cancel streaming function."""
+    """Test voice_ui cancel streaming function."""
 
     def test_cancel_streaming_generation_exists(self):
-        """tts_ui has cancel_streaming_generation function."""
-        import tts_ui
-        self.assertTrue(hasattr(tts_ui, "cancel_streaming_generation"))
-        self.assertTrue(callable(tts_ui.cancel_streaming_generation))
+        """voice_ui has cancel_streaming_generation function."""
+        import voice_ui
+        self.assertTrue(hasattr(voice_ui, "cancel_streaming_generation"))
+        self.assertTrue(callable(voice_ui.cancel_streaming_generation))
 
     def test_cancel_streaming_generation_returns_tuple(self):
         """cancel_streaming_generation returns a tuple."""
-        from tts_ui import cancel_streaming_generation
+        from voice_ui import cancel_streaming_generation
         from unittest.mock import patch, MagicMock
 
         mock_client = MagicMock()
         mock_client.cancel_generation.return_value = {"status": "no_active_generation"}
 
-        with patch("tts_ui.TTSClient", return_value=mock_client):
+        with patch("voice_ui.TTSClient", return_value=mock_client):
             result = cancel_streaming_generation()
 
         self.assertIsInstance(result, tuple)
@@ -1443,23 +1443,23 @@ class TestUICancelFunction(unittest.TestCase):
 
     def test_cancel_streaming_generation_clears_audio(self):
         """cancel_streaming_generation returns None for audio to clear player."""
-        from tts_ui import cancel_streaming_generation
+        from voice_ui import cancel_streaming_generation
         from unittest.mock import patch, MagicMock
 
         mock_client = MagicMock()
         mock_client.cancel_generation.return_value = {"status": "cancellation_requested"}
 
-        with patch("tts_ui.TTSClient", return_value=mock_client):
+        with patch("voice_ui.TTSClient", return_value=mock_client):
             result = cancel_streaming_generation()
 
         # First element (audio) should be None to clear the player
         self.assertIsNone(result[0])
 
     def test_check_generation_cancelled_exists(self):
-        """tts_ui has _check_generation_cancelled helper."""
-        import tts_ui
-        self.assertTrue(hasattr(tts_ui, "_check_generation_cancelled"))
-        self.assertTrue(callable(tts_ui._check_generation_cancelled))
+        """voice_ui has _check_generation_cancelled helper."""
+        import voice_ui
+        self.assertTrue(hasattr(voice_ui, "_check_generation_cancelled"))
+        self.assertTrue(callable(voice_ui._check_generation_cancelled))
 
 
 # =============================================================================
@@ -1467,28 +1467,28 @@ class TestUICancelFunction(unittest.TestCase):
 # =============================================================================
 
 class TestUITextInfo(unittest.TestCase):
-    """Test tts_ui text info helper functions."""
+    """Test voice_ui text info helper functions."""
 
     def test_update_text_info_exists(self):
-        """tts_ui has update_text_info function."""
-        import tts_ui
-        self.assertTrue(hasattr(tts_ui, "update_text_info"))
+        """voice_ui has update_text_info function."""
+        import voice_ui
+        self.assertTrue(hasattr(voice_ui, "update_text_info"))
 
     def test_update_text_info_empty(self):
         """update_text_info returns empty string for empty input."""
-        from tts_ui import update_text_info
+        from voice_ui import update_text_info
         self.assertEqual(update_text_info(""), "")
         self.assertEqual(update_text_info(None), "")
 
     def test_update_text_info_short(self):
         """update_text_info shows char count for short text."""
-        from tts_ui import update_text_info
+        from voice_ui import update_text_info
         result = update_text_info("Hello")
         self.assertIn("5 chars", result)
 
     def test_update_text_info_long(self):
         """update_text_info shows chunks estimate for long text."""
-        from tts_ui import update_text_info
+        from voice_ui import update_text_info
         long_text = "A" * 1000  # 1000 chars = ~2 chunks
         result = update_text_info(long_text)
         self.assertIn("1000 chars", result)
@@ -1500,19 +1500,19 @@ class TestUITextInfo(unittest.TestCase):
 # =============================================================================
 
 class TestUIModelSettings(unittest.TestCase):
-    """Test tts_ui model settings functions (Phase 19: MLX-First Architecture)."""
+    """Test voice_ui model settings functions (Phase 19: MLX-First Architecture)."""
 
     def test_model_settings_functions_exist(self):
-        """tts_ui has model settings functions."""
-        import tts_ui
-        self.assertTrue(hasattr(tts_ui, "get_current_model_settings"))
-        self.assertTrue(hasattr(tts_ui, "apply_model_settings"))
-        self.assertTrue(callable(tts_ui.get_current_model_settings))
-        self.assertTrue(callable(tts_ui.apply_model_settings))
+        """voice_ui has model settings functions."""
+        import voice_ui
+        self.assertTrue(hasattr(voice_ui, "get_current_model_settings"))
+        self.assertTrue(hasattr(voice_ui, "apply_model_settings"))
+        self.assertTrue(callable(voice_ui.get_current_model_settings))
+        self.assertTrue(callable(voice_ui.apply_model_settings))
 
     def test_get_current_model_settings_returns_tuple(self):
         """get_current_model_settings returns a 3-tuple."""
-        from tts_ui import get_current_model_settings
+        from voice_ui import get_current_model_settings
         result = get_current_model_settings()
         self.assertIsInstance(result, tuple)
         self.assertEqual(len(result), 3)
@@ -1524,7 +1524,7 @@ class TestUIModelSettings(unittest.TestCase):
 
     def test_apply_model_settings_returns_tuple(self):
         """apply_model_settings returns a 2-tuple (message, status_html)."""
-        from tts_ui import apply_model_settings
+        from voice_ui import apply_model_settings
         # Without server running, should return error message
         result = apply_model_settings("1.7B", "8bit")
         self.assertIsInstance(result, tuple)
@@ -1535,23 +1535,23 @@ class TestUIModelSettings(unittest.TestCase):
 
     def test_apply_model_settings_requires_server(self):
         """apply_model_settings returns error when server not running."""
-        from tts_ui import apply_model_settings
+        from voice_ui import apply_model_settings
         msg, _ = apply_model_settings("0.6B", "4bit")
         self.assertIn("not running", msg.lower())
 
 
 class TestUIModelSettingsImports(unittest.TestCase):
-    """Test tts_ui imports required for model settings."""
+    """Test voice_ui imports required for model settings."""
 
     def test_model_settings_imports(self):
-        """tts_ui imports required constants for model settings."""
-        import tts_ui
-        # Should have imported these from tts_config
-        self.assertTrue(hasattr(tts_ui, "VALID_MODEL_SIZES"))
-        self.assertTrue(hasattr(tts_ui, "VALID_MLX_QUANTIZATIONS"))
-        self.assertTrue(hasattr(tts_ui, "get_backend"))
-        self.assertTrue(hasattr(tts_ui, "get_model_size"))
-        self.assertTrue(hasattr(tts_ui, "get_mlx_quantization"))
+        """voice_ui imports required constants for model settings."""
+        import voice_ui
+        # Should have imported these from voice_config
+        self.assertTrue(hasattr(voice_ui, "VALID_MODEL_SIZES"))
+        self.assertTrue(hasattr(voice_ui, "VALID_MLX_QUANTIZATIONS"))
+        self.assertTrue(hasattr(voice_ui, "get_backend"))
+        self.assertTrue(hasattr(voice_ui, "get_model_size"))
+        self.assertTrue(hasattr(voice_ui, "get_mlx_quantization"))
 
 
 # =============================================================================
@@ -1563,20 +1563,20 @@ class TestUpdateModelConfigEndpoint(unittest.TestCase):
 
     @classmethod
     def setUpClass(cls):
-        import tts_server
-        tts_server.auth_token = "test_token"
-        tts_server.server_config = {
+        import voice_server
+        voice_server.auth_token = "test_token"
+        voice_server.server_config = {
             "security": {"max_text_length": 10000},
             "auto_shutdown_minutes": 0,
         }
-        cls.app = tts_server.app
+        cls.app = voice_server.app
         cls.app.testing = True
         cls.client = cls.app.test_client()
 
     @classmethod
     def tearDownClass(cls):
-        import tts_server
-        tts_server.auth_token = None
+        import voice_server
+        voice_server.auth_token = None
 
     def test_update_model_config_requires_auth(self):
         """POST /update-model-config requires authentication."""
@@ -1606,7 +1606,7 @@ class TestClientUpdateModelConfig(unittest.TestCase):
 
     def test_update_model_config_method_exists(self):
         """TTSClient has update_model_config method."""
-        from tts_client import TTSClient
+        from voice_client import TTSClient
         client = TTSClient()
         self.assertTrue(hasattr(client, "update_model_config"))
         self.assertTrue(callable(client.update_model_config))
@@ -1621,20 +1621,20 @@ class TestStreamingEndpointStructure(unittest.TestCase):
 
     @classmethod
     def setUpClass(cls):
-        import tts_server
-        tts_server.auth_token = "test_token"
-        tts_server.server_config = {
+        import voice_server
+        voice_server.auth_token = "test_token"
+        voice_server.server_config = {
             "security": {"max_text_length": 10000},
             "auto_shutdown_minutes": 0,
         }
-        cls.app = tts_server.app
+        cls.app = voice_server.app
         cls.app.testing = True
         cls.client = cls.app.test_client()
 
     @classmethod
     def tearDownClass(cls):
-        import tts_server
-        tts_server.auth_token = None
+        import voice_server
+        voice_server.auth_token = None
 
     def test_generate_stream_requires_auth(self):
         """POST /generate-stream requires authentication."""
@@ -1669,52 +1669,52 @@ class TestGenerationFunctionsReturnHistory(unittest.TestCase):
     def test_generate_clone_returns_four_values(self):
         """generate_clone returns 4 values (audio, status, status_html, history)."""
         import inspect
-        import tts_ui
-        sig = inspect.signature(tts_ui.generate_clone)
+        import voice_ui
+        sig = inspect.signature(voice_ui.generate_clone)
         # Check that the function can yield/return 4-tuple
-        source = inspect.getsource(tts_ui.generate_clone)
+        source = inspect.getsource(voice_ui.generate_clone)
         self.assertIn("get_history_data()", source)
 
     def test_generate_design_returns_four_values(self):
         """generate_design returns 4 values (audio, status, status_html, history)."""
         import inspect
-        import tts_ui
-        source = inspect.getsource(tts_ui.generate_design)
+        import voice_ui
+        source = inspect.getsource(voice_ui.generate_design)
         self.assertIn("get_history_data()", source)
 
     def test_generate_custom_returns_four_values(self):
         """generate_custom returns 4 values (audio, status, status_html, history)."""
         import inspect
-        import tts_ui
-        source = inspect.getsource(tts_ui.generate_custom)
+        import voice_ui
+        source = inspect.getsource(voice_ui.generate_custom)
         self.assertIn("get_history_data()", source)
 
     def test_streaming_functions_yield_four_values(self):
         """Streaming generation functions yield 4-tuples."""
         import inspect
-        import tts_ui
+        import voice_ui
         # Check clone streaming
-        source = inspect.getsource(tts_ui.generate_clone_streaming)
+        source = inspect.getsource(voice_ui.generate_clone_streaming)
         self.assertIn("get_history_data()", source)
         # Check design streaming
-        source = inspect.getsource(tts_ui.generate_design_streaming)
+        source = inspect.getsource(voice_ui.generate_design_streaming)
         self.assertIn("get_history_data()", source)
         # Check custom streaming
-        source = inspect.getsource(tts_ui.generate_custom_streaming)
+        source = inspect.getsource(voice_ui.generate_custom_streaming)
         self.assertIn("get_history_data()", source)
 
     def test_non_streaming_adds_to_history(self):
         """Non-streaming generate functions call add_to_history."""
         import inspect
-        import tts_ui
-        source = inspect.getsource(tts_ui.generate_clone)
+        import voice_ui
+        source = inspect.getsource(voice_ui.generate_clone)
         self.assertIn("add_to_history", source)
 
     def test_streaming_adds_to_history(self):
         """Streaming generate functions call add_to_history on completion."""
         import inspect
-        import tts_ui
-        source = inspect.getsource(tts_ui.generate_clone_streaming)
+        import voice_ui
+        source = inspect.getsource(voice_ui.generate_clone_streaming)
         self.assertIn("add_to_history", source)
 
 
@@ -1728,20 +1728,20 @@ class TestGenerateStreamIdCheck(unittest.TestCase):
     def test_generate_stream_checks_generation_id(self):
         """generate_stream only resets state if generation_id matches."""
         import inspect
-        import tts_server
-        source = inspect.getsource(tts_server)
+        import voice_server
+        source = inspect.getsource(voice_server)
         # Should check generation_id before resetting
         self.assertIn('if generation_state.get("generation_id") == gen_id', source)
 
     def test_generation_state_has_generation_id(self):
         """generation_state includes generation_id field."""
-        import tts_server
-        self.assertIn("generation_id", tts_server.generation_state)
+        import voice_server
+        self.assertIn("generation_id", voice_server.generation_state)
 
     def test_generation_state_has_cancelled(self):
         """generation_state includes cancelled field."""
-        import tts_server
-        self.assertIn("cancelled", tts_server.generation_state)
+        import voice_server
+        self.assertIn("cancelled", voice_server.generation_state)
 
 
 # =============================================================================
@@ -1753,7 +1753,7 @@ class TestCheckGenerationCancelled(unittest.TestCase):
 
     def test_returns_false_on_error(self):
         """_check_generation_cancelled returns False on connection error."""
-        from tts_ui import _check_generation_cancelled
+        from voice_ui import _check_generation_cancelled
         from unittest.mock import patch
 
         with patch("requests.get", side_effect=Exception("Connection error")):
@@ -1762,7 +1762,7 @@ class TestCheckGenerationCancelled(unittest.TestCase):
 
     def test_returns_false_when_not_cancelled(self):
         """_check_generation_cancelled returns False when not cancelled."""
-        from tts_ui import _check_generation_cancelled
+        from voice_ui import _check_generation_cancelled
         from unittest.mock import patch, MagicMock
 
         mock_resp = MagicMock()
@@ -1775,7 +1775,7 @@ class TestCheckGenerationCancelled(unittest.TestCase):
 
     def test_returns_true_when_cancelled(self):
         """_check_generation_cancelled returns True when cancelled."""
-        from tts_ui import _check_generation_cancelled
+        from voice_ui import _check_generation_cancelled
         from unittest.mock import patch, MagicMock
 
         mock_resp = MagicMock()
@@ -1794,7 +1794,7 @@ class TestCheckGenerationCancelled(unittest.TestCase):
 class TestCreateVoiceBackendOverride(unittest.TestCase):
     """Test createVoice script forces torch backend."""
 
-    def test_createvoice_sets_tts_backend_env(self):
+    def test_createvoice_sets_voice_backend_env(self):
         """bin/createVoice script sets TTS_BACKEND=torch in torch env."""
         import os
         script_path = os.path.join(os.path.dirname(__file__), "..", "bin", "createVoice")

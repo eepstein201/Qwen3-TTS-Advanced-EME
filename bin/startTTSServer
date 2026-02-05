@@ -2,8 +2,8 @@
 # Start the TTS server in the background
 # Reads backend from config.json and activates the correct conda environment
 
-PID_FILE="$HOME/Qwen3-TTS_UserFiles/.tts_server.pid"
-LOG_FILE="$HOME/Qwen3-TTS_UserFiles/.tts_server.log"
+PID_FILE="$HOME/Qwen3-TTS_UserFiles/.voice_server.pid"
+LOG_FILE="$HOME/Qwen3-TTS_UserFiles/.voice_server.log"
 CONFIG_FILE="$HOME/Qwen3-TTS_UserFiles/config.json"
 
 # Check if already running
@@ -68,7 +68,7 @@ if [ "$BACKEND" != "mlx" ]; then
 fi
 
 # Start server in background, redirect output to log
-nohup python ~/Qwen3-TTS_UserFiles/tts_server.py > "$LOG_FILE" 2>&1 &
+nohup python ~/Qwen3-TTS_UserFiles/voice_server.py > "$LOG_FILE" 2>&1 &
 
 # Wait for server to be ready
 echo "Waiting for server to be ready..."

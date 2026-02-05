@@ -44,4 +44,4 @@ fi
 conda deactivate 2>/dev/null
 conda activate "$CONDA_ENV"
 
-python ~/Qwen3-TTS_UserFiles/tts_ui.py "$@"
+python ~/Qwen3-TTS_UserFiles/voice_ui.py "$@"

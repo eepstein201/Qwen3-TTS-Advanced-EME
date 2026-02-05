@@ -1,8 +1,8 @@
 #!/bin/bash
 # Stop the TTS server
 
-PID_FILE="$HOME/Qwen3-TTS_UserFiles/.tts_server.pid"
-TOKEN_FILE="$HOME/.tts_server_token"
+PID_FILE="$HOME/Qwen3-TTS_UserFiles/.voice_server.pid"
+TOKEN_FILE="$HOME/.voice_server_token"
 
 # Try graceful shutdown via API first (with auth token if available)
 if [ -f "$TOKEN_FILE" ]; then
