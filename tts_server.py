@@ -403,6 +403,76 @@ def load_model_endpoint():
         }), 500
 
 
+@app.route("/update-model-config", methods=["POST"])
+def update_model_config():
+    """Update model size and/or quantization settings.
+
+    Accepts JSON body with optional keys:
+      - model_size: "1.7B" or "0.6B"
+      - mlx_quantization: "4bit", "8bit", or "bf16"
+
+    After updating config.json, unloads current models so the new
+    settings take effect on next generation.
+    """
+    reset_activity_timer()
+    data = request.json or {}
+
+    new_size = data.get("model_size")
+    new_quant = data.get("mlx_quantization")
+
+    if not new_size and not new_quant:
+        return jsonify({
+            "error": "At least one of model_size or mlx_quantization required",
+            "recovery": "config",
+        }), 400
+
+    # Validate values
+    valid_sizes = ("1.7B", "0.6B")
+    valid_quants = ("4bit", "8bit", "bf16")
+
+    if new_size and new_size not in valid_sizes:
+        return jsonify({
+            "error": f"Invalid model_size: {new_size}. Valid: {', '.join(valid_sizes)}",
+            "recovery": "config",
+        }), 400
+
+    if new_quant and new_quant not in valid_quants:
+        return jsonify({
+            "error": f"Invalid mlx_quantization: {new_quant}. Valid: {', '.join(valid_quants)}",
+            "recovery": "config",
+        }), 400
+
+    # Update config.json
+    from tts_config import load_config, save_config
+    config = load_config()
+    if "advanced" not in config:
+        config["advanced"] = {}
+
+    changes = []
+    if new_size:
+        config["advanced"]["model_size"] = new_size
+        changes.append(f"model_size={new_size}")
+    if new_quant:
+        config["advanced"]["mlx_quantization"] = new_quant
+        changes.append(f"mlx_quantization={new_quant}")
+
+    save_config(config)
+
+    # Unload all models so new settings take effect
+    global loaded_models
+    with generation_lock:
+        loaded_models = {}
+
+    logger.info("Model config updated: %s. Models unloaded.", ", ".join(changes))
+
+    return jsonify({
+        "status": "config_updated",
+        "changes": changes,
+        "models_unloaded": True,
+        "note": "New model will be loaded on next generation",
+    })
+
+
 @app.route("/prompts", methods=["GET"])
 def list_prompts():
     reset_activity_timer()

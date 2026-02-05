@@ -124,6 +124,45 @@ class TTSClient:
             raise Exception(f"Failed to load {mode} model: {error_msg}")
         return resp.json()
 
+    def update_model_config(self, model_size=None, mlx_quantization=None):
+        """Update model size and/or quantization settings.
+
+        Args:
+            model_size: "1.7B" or "0.6B" (optional).
+            mlx_quantization: "4bit", "8bit", or "bf16" (optional).
+
+        Returns:
+            Response dict with "status", "changes", "models_unloaded" keys.
+
+        The server will unload current models and load the new variant
+        on the next generation request.
+        """
+        if not self.is_server_running():
+            raise ConnectionError("TTS server is not running")
+
+        data = {}
+        if model_size:
+            data["model_size"] = model_size
+        if mlx_quantization:
+            data["mlx_quantization"] = mlx_quantization
+
+        if not data:
+            raise ValueError("At least one of model_size or mlx_quantization required")
+
+        resp = requests.post(
+            f"{self.server_url}/update-model-config",
+            json=data,
+            timeout=10,
+            headers=auth_headers(),
+        )
+        if resp.status_code != 200:
+            try:
+                error_msg = resp.json().get("error", "Unknown error")
+            except (ValueError, requests.exceptions.JSONDecodeError):
+                error_msg = f"Server returned HTTP {resp.status_code}"
+            raise Exception(f"Failed to update model config: {error_msg}")
+        return resp.json()
+
     def cancel_generation(self):
         """Cancel the current streaming generation.
 
