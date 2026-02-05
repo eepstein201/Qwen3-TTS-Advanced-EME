@@ -31,7 +31,7 @@ import sys
 
 from pydub import AudioSegment
 
-from tts_config import VOICE_PROMPTS_DIR, USER_FILES_DIR
+from voice_config import VOICE_PROMPTS_DIR, USER_FILES_DIR
 
 
 def find_pt_only_prompts():

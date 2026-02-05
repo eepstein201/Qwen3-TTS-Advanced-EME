@@ -60,23 +60,23 @@ The codebase uses a layered architecture to avoid loading heavy dependencies (to
 
 | Module | Purpose | Imports torch? |
 |--------|---------|----------------|
-| `tts_config.py` | Constants, config helpers, error classes, `CUSTOM_VOICE_SPEAKERS`, `MODEL_INFO`, `TOKEN_FILE`, auth helpers | No |
-| `tts_engine.py` | `load_model()`, `run_inference()`, `create_voice_prompt()`, LRU cache, audio processing, backend dispatch, text chunking | No (lazy imports per backend) |
-| `tts_server.py` | Flask server with auth, validation, progress tracking, structured errors, backend-aware `/prompts` | No (lazy via tts_engine) |
-| `tts_client.py` | HTTP client library for server API (`get_health()`, `load_model()`, `generate()`) | No (lazy tts_engine for audio only) |
-| `tts_generate.py` | CLI generation with progress display, post-gen menu support | No (lazy tts_engine for local mode) |
-| `tts_ui.py` | Gradio web interface with auto-load, progress bars, stop server button | No (HTTP only) |
-| `create_custom_voice.py` | Voice clone prompt creation from audio files, saves dual-format (.pt + .wav/.txt) | Yes (via tts_engine) |
+| `voice_config.py` | Constants, config helpers, error classes, `CUSTOM_VOICE_SPEAKERS`, `MODEL_INFO`, `TOKEN_FILE`, auth helpers | No |
+| `voice_engine.py` | `load_model()`, `run_inference()`, `create_voice_prompt()`, LRU cache, audio processing, backend dispatch, text chunking | No (lazy imports per backend) |
+| `voice_server.py` | Flask server with auth, validation, progress tracking, structured errors, backend-aware `/prompts` | No (lazy via voice_engine) |
+| `voice_client.py` | HTTP client library for server API (`get_health()`, `load_model()`, `generate()`) | No (lazy voice_engine for audio only) |
+| `voice_generate.py` | CLI generation with progress display, post-gen menu support | No (lazy voice_engine for local mode) |
+| `voice_ui.py` | Gradio web interface with auto-load, progress bars, stop server button | No (HTTP only) |
+| `create_custom_voice.py` | Voice clone prompt creation from audio files, saves dual-format (.pt + .wav/.txt) | Yes (via voice_engine) |
 | `requirements-mlx.txt` | MLX backend dependencies (separate conda env) | N/A |
 
 ### Files in this directory
 - `install.sh` - Automated installation script (torch + optional MLX envs, wrapper scripts)
-- `tts_generate.py` - CLI generation with `--backend` override, batch support, SSML, SRT, dialogue
-- `tts_server.py` - Flask server with auth, validation, logging, progress tracking, backend-aware `/prompts`
-- `tts_client.py` - Python API client library (`get_health()`, `load_model()`, `generate()`)
-- `tts_ui.py` - Gradio web interface (Clone/Design/Custom tabs, auto-load models, backend status indicator)
-- `tts_config.py` - Shared constants, config helpers, error classes, backend helpers (no torch/mlx)
-- `tts_engine.py` - Backend dispatch engine: lazy-loads torch or mlx per config
+- `voice_generate.py` - CLI generation with `--backend` override, batch support, SSML, SRT, dialogue
+- `voice_server.py` - Flask server with auth, validation, logging, progress tracking, backend-aware `/prompts`
+- `voice_client.py` - Python API client library (`get_health()`, `load_model()`, `generate()`)
+- `voice_ui.py` - Gradio web interface (Clone/Design/Custom tabs, auto-load models, backend status indicator)
+- `voice_config.py` - Shared constants, config helpers, error classes, backend helpers (no torch/mlx)
+- `voice_engine.py` - Backend dispatch engine: lazy-loads torch or mlx per config
 - `config.json` - Settings: server, generation params, presets, security, backend selection
 - `create_custom_voice.py` - Voice clone prompt creation (saves .pt + .wav/.txt dual format)
 - `requirements-mlx.txt` - MLX backend pip dependencies (for `qwen3-tts-mlx` env)
@@ -101,9 +101,9 @@ Or re-run `./install.sh`. Stale wrapper scripts are a common source of bugs (e.g
 ## Security
 
 ### API Token Authentication
-- Server generates a 32-byte hex token on startup, written to `~/.tts_server_token` (0o600 perms)
+- Server generates a 32-byte hex token on startup, written to `~/.voice_server_token` (0o600 perms)
 - All endpoints except `/health` and `/generation-status` require `Authorization: Bearer <token>`
-- `tts_client.py` and `tts_generate.py` read the token automatically via `tts_config.auth_headers()`
+- `voice_client.py` and `voice_generate.py` read the token automatically via `voice_config.auth_headers()`
 - `stopTTSServer` reads the token for authenticated graceful shutdown
 - Token is cleaned up on server shutdown
 
@@ -131,7 +131,7 @@ Structured logging replaces `print()` throughout:
 - `tts.cli` - CLI generation logger
 - `tts.ui` - Gradio UI logger
 
-Server log file: `.tts_server.log`
+Server log file: `.voice_server.log`
 
 ## Structured Error Responses
 
@@ -150,7 +150,7 @@ CLI and UI parse `recovery` to show actionable guidance.
 
 - Server tracks `generation_state` (active, start_time, text_length, mode, chunk_index, chunk_total)
 - `/generation-status` endpoint (public, no auth) for polling — includes chunk progress for long texts
-- ETA estimated from `~/.tts_history.jsonl` median chars/sec
+- ETA estimated from `~/.voice_history.jsonl` median chars/sec
 - CLI: background thread with spinner (`Generating... 12s elapsed [chunk 2/5]`)
 - Gradio: `gr.Progress()` with threaded polling, capped at 95% (shows "Generating chunk 2/5... 12s" for chunked texts)
 - Gradio auto-load: `_ensure_model_loaded()` checks `/health` before generation, calls `client.load_model()` if needed (progress shows "Loading {mode} model (first use)...")
@@ -202,9 +202,9 @@ Where `{quant}` is `4bit`, `8bit` (default), or `bf16`.
 
 ### Server
 - Runs on `localhost:5123`
-- PID file: `.tts_server.pid`
-- Log file: `.tts_server.log`
-- Auth token: `~/.tts_server_token`
+- PID file: `.voice_server.pid`
+- Log file: `.voice_server.log`
+- Auth token: `~/.voice_server_token`
 
 ### Optimizations Applied
 - **Torch backend:** SDPA attention (`attn_implementation="sdpa"`), `torch.inference_mode()`, MPS-safe multinomial patch
@@ -232,7 +232,7 @@ python -m unittest discover -v tests/
 - `TestBackendDispatch` - `load_model()` and `run_inference()` dispatch to correct backend
 - `TestMLXInferenceCloneValidation` - MLX clone mode input validation (no model needed)
 - `TestMLXImport` - MLX library import checks (`unittest.skipIf` when mlx not installed)
-- `TestLazyImports` - Verify `tts_engine` does not import torch/mlx at module scope
+- `TestLazyImports` - Verify `voice_engine` does not import torch/mlx at module scope
 - `TestModelSize` - 0.6B model configuration, `get_model_size()`, model name resolution
 - `TestStreaming` - streaming API exists, function signatures, torch fallback
 - `TestStreamingServerEndpoint` - `/generate-stream` auth, validation
@@ -332,7 +332,7 @@ MLX is an alternative inference backend for Apple Silicon Macs that runs nativel
 ### Architecture
 
 ```
-config.json  →  tts_config.py  →  tts_engine.py (dispatch)
+config.json  →  voice_config.py  →  voice_engine.py (dispatch)
                                     ├── backend="torch" → lazy import torch/qwen_tts
                                     │   Models: Qwen/Qwen3-TTS-12Hz-1.7B-*
                                     │   Env: qwen3-tts
@@ -341,7 +341,7 @@ config.json  →  tts_config.py  →  tts_engine.py (dispatch)
                                         Env: qwen3-tts-mlx
 ```
 
-All backend-specific imports are lazy (local to `_*_torch()` or `_*_mlx()` functions). Neither `torch` nor `mlx` is imported at module scope in `tts_engine.py` or `tts_server.py`.
+All backend-specific imports are lazy (local to `_*_torch()` or `_*_mlx()` functions). Neither `torch` nor `mlx` is imported at module scope in `voice_engine.py` or `voice_server.py`.
 
 ### Switching Backends
 
@@ -395,7 +395,7 @@ pip install -r requirements-mlx.txt
 See README.md for full phase history.
 
 ### Phase 10: Security, Reliability & UX ✅ COMPLETE
-- [x] Architecture split - `tts_config.py` (no torch) + `tts_engine.py` (torch)
+- [x] Architecture split - `voice_config.py` (no torch) + `voice_engine.py` (torch)
 - [x] API token authentication - Bearer token on all endpoints
 - [x] Input validation - text length, batch size, mode, speaker, path traversal
 - [x] Network binding - localhost default, `--public` flag
@@ -485,7 +485,7 @@ See README.md for full phase history.
 - [x] Configuration wizard — interactive prompts for backend, model size, quantization
 - [x] Intel Mac guardrails — hard-locks to torch, no MLX options shown
 - [x] `configureTTS` command — wrapper for `install.sh --reconfigure`
-- [x] `tts_config.py` defaults changed — `get_backend()` returns "mlx" by default
+- [x] `voice_config.py` defaults changed — `get_backend()` returns "mlx" by default
 - [x] `createVoice` auto-MLX-only — when backend is MLX, skips .pt creation (--force-torch to override)
 - [x] `/update-model-config` server endpoint — switch model variants without restart
 - [x] `TTSClient.update_model_config()` — client method for model settings

@@ -3,7 +3,7 @@
 
 Architecture:
   --_server-mode / server available  ->  HTTP calls (no torch import)
-  --local / no server                ->  lazy import tts_engine (PyTorch)
+  --local / no server                ->  lazy import voice_engine (PyTorch)
 """
 
 import argparse
@@ -23,7 +23,7 @@ logger = logging.getLogger("tts.cli")
 import soundfile as sf
 import numpy as np
 
-from tts_config import (
+from voice_config import (
     CONFIG_PATH,
     VOICE_PROMPTS_DIR,
     HISTORY_FILE,
@@ -105,7 +105,7 @@ def get_clipboard_text():
         sys.exit(1)
 
 
-LAST_TEXT_FILE = os.path.expanduser("~/.tts_last_text")
+LAST_TEXT_FILE = os.path.expanduser("~/.voice_last_text")
 
 
 def auto_increment_filename(path):
@@ -438,13 +438,13 @@ def srt_time_to_ms(time_str):
 def process_audio_args(audio, sample_rate, args):
     """Apply audio processing based on argparse args.
 
-    Lazily imports tts_engine only when processing is actually needed.
+    Lazily imports voice_engine only when processing is actually needed.
     """
     needs = args.trim_silence or args.normalize or (args.speed and args.speed != 1.0) or (args.pitch and args.pitch != 0)
     if not needs:
         return audio
 
-    from tts_engine import process_audio
+    from voice_engine import process_audio
     return process_audio(
         audio, sample_rate,
         trim=args.trim_silence,
@@ -472,8 +472,8 @@ def ensure_server_running(config):
         return result.returncode == 0
 
     # Fallback: start server directly
-    server_script = os.path.expanduser("~/Qwen3-TTS_UserFiles/tts_server.py")
-    log_file = os.path.expanduser("~/Qwen3-TTS_UserFiles/.tts_server.log")
+    server_script = os.path.expanduser("~/Qwen3-TTS_UserFiles/voice_server.py")
+    log_file = os.path.expanduser("~/Qwen3-TTS_UserFiles/.voice_server.log")
 
     with open(log_file, "w") as log:
         subprocess.Popen(
@@ -502,7 +502,7 @@ def launch_gradio_ui(config):
         print("Please check the server logs and try again.")
         return
 
-    ui_script = os.path.expanduser("~/Qwen3-TTS_UserFiles/tts_ui.py")
+    ui_script = os.path.expanduser("~/Qwen3-TTS_UserFiles/voice_ui.py")
     print("\nLaunching Gradio web interface...")
     subprocess.run([sys.executable, ui_script])
 
@@ -785,14 +785,14 @@ def generate_streaming(text, mode, config, gen_params, output_path,
 
 
 # ---------------------------------------------------------------------------
-# Local generation (lazy import of tts_engine)
+# Local generation (lazy import of voice_engine)
 # ---------------------------------------------------------------------------
 
 def generate_local(text, mode, gen_params, language="English",
                    prompt_file=None, voice_description=None,
                    speaker=None, instruct=None, max_chunk_chars=None):
-    """Generate speech locally using tts_engine (imports torch on first call)."""
-    from tts_engine import load_model, run_inference, load_voice_prompt
+    """Generate speech locally using voice_engine (imports torch on first call)."""
+    from voice_engine import load_model, run_inference, load_voice_prompt
 
     print(f"Loading {mode} model locally...")
     model = load_model(mode)
@@ -986,10 +986,10 @@ def run_repl(config, use_server):
 
             # Apply audio processing
             if state["speed"] and state["speed"] != 1.0:
-                from tts_engine import adjust_speed
+                from voice_engine import adjust_speed
                 wav = adjust_speed(wav, sr, state["speed"])
             if state["pitch"] and state["pitch"] != 0:
-                from tts_engine import adjust_pitch
+                from voice_engine import adjust_pitch
                 wav = adjust_pitch(wav, sr, state["pitch"])
 
             sf.write(output_path, wav, sr)

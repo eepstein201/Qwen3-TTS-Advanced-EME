@@ -627,12 +627,12 @@ Add aliases to quickly switch between voice configurations:
 
 ### Installation
 
-The API client is included at `~/Qwen3-TTS_UserFiles/tts_client.py`.
+The API client is included at `~/Qwen3-TTS_UserFiles/voice_client.py`.
 
 ### Basic Usage
 
 ```python
-from tts_client import TTSClient, generate
+from voice_client import TTSClient, generate
 
 # Quick one-liner
 audio_path = generate("Hello world", output="greeting.wav")
@@ -784,7 +784,7 @@ changeVoice --stats
 
 2. **Check the log file:**
    ```bash
-   cat ~/Qwen3-TTS_UserFiles/.tts_server.log
+   cat ~/Qwen3-TTS_UserFiles/.voice_server.log
    ```
 
 3. **Stale wrapper scripts in ~/bin/:**
@@ -796,8 +796,8 @@ changeVoice --stats
 
 4. **Kill any stuck processes:**
    ```bash
-   pkill -f tts_server.py
-   rm ~/Qwen3-TTS_UserFiles/.tts_server.pid
+   pkill -f voice_server.py
+   rm ~/Qwen3-TTS_UserFiles/.voice_server.pid
    ```
 
 ### Generation is Slow
@@ -960,7 +960,7 @@ The server generates a random auth token on startup. All API requests (except `/
 Authorization: Bearer <token>
 ```
 
-The CLI and Python API handle this automatically. The token is stored at `~/.tts_server_token` and cleaned up on shutdown.
+The CLI and Python API handle this automatically. The token is stored at `~/.voice_server_token` and cleaned up on shutdown.
 
 ### Input Validation
 
@@ -974,7 +974,7 @@ The server validates all inputs:
 
 The server binds to `127.0.0.1` (localhost only) by default. Use `--public` to bind to `0.0.0.0`:
 ```bash
-python tts_server.py --public
+python voice_server.py --public
 ```
 
 The Gradio UI port defaults to 7860 (configurable via `ui.port` in `config.json`). If the port is busy, it auto-selects the next available port in range +1..+9.
@@ -1029,12 +1029,12 @@ python -m unittest discover -v tests/
 ```
 ~/Qwen3-TTS_UserFiles/
 ├── install.sh              # Installation script
-├── tts_generate.py         # Main generation script
-├── tts_server.py           # Persistent server (auth, validation, logging)
-├── tts_client.py           # Python API client
-├── tts_ui.py               # Gradio web interface
-├── tts_config.py           # Shared config, constants, error classes
-├── tts_engine.py           # Model loading & inference engine
+├── voice_generate.py       # Main generation script
+├── voice_server.py         # Persistent server (auth, validation, logging)
+├── voice_client.py         # Python API client
+├── voice_ui.py             # Gradio web interface
+├── voice_config.py         # Shared config, constants, error classes
+├── voice_engine.py         # Model loading & inference engine
 ├── config.json             # Configuration
 ├── create_custom_voice.py  # Voice cloning script
 ├── requirements-mlx.txt    # MLX backend dependencies
@@ -1048,8 +1048,8 @@ python -m unittest discover -v tests/
 │   └── ttsUI
 ├── tests/                  # Test suite
 │   └── test_tts.py
-├── .tts_server.pid         # Server PID file (runtime)
-└── .tts_server.log         # Server log (runtime)
+├── .voice_server.pid         # Server PID file (runtime)
+└── .voice_server.log         # Server log (runtime)
 
 ~/bin/                      # Installed wrapper scripts (copied from bin/ — re-copy after repo updates)
 ├── changeVoice
@@ -1059,9 +1059,9 @@ python -m unittest discover -v tests/
 ├── configureTTS
 └── ttsUI
 
-~/.tts_server_token         # Auth token (runtime, 0600 perms)
-~/.tts_history.jsonl        # Generation history
-~/.tts_last_text            # Last generated text (for edit-and-rerun)
+~/.voice_server_token         # Auth token (runtime, 0600 perms)
+~/.voice_history.jsonl        # Generation history
+~/.voice_last_text            # Last generated text (for edit-and-rerun)
 ```
 
 ---

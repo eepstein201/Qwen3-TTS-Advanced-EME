@@ -72,9 +72,9 @@ fi
 
 # Build base command
 if [ "$SERVER_RUNNING" = true ]; then
-    BASE_CMD="python ~/Qwen3-TTS_UserFiles/tts_generate.py --_server-mode"
+    BASE_CMD="python ~/Qwen3-TTS_UserFiles/voice_generate.py --_server-mode"
 else
-    BASE_CMD="python ~/Qwen3-TTS_UserFiles/tts_generate.py"
+    BASE_CMD="python ~/Qwen3-TTS_UserFiles/voice_generate.py"
 fi
 
 # Run the generation script
@@ -83,7 +83,7 @@ RESULT=$?
 
 # Post-generation menu (only if generation succeeded and used server)
 if [ $RESULT -eq 2 ]; then
-    LAST_TEXT_FILE="$HOME/.tts_last_text"
+    LAST_TEXT_FILE="$HOME/.voice_last_text"
 
     while true; do
         echo ""

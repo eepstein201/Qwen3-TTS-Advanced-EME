@@ -16,7 +16,7 @@ import soundfile as sf
 
 logger = logging.getLogger("tts")
 
-from tts_config import (
+from voice_config import (
     CONFIG_PATH,
     VOICE_PROMPTS_DIR,
     PID_FILE,
@@ -30,7 +30,7 @@ from tts_config import (
     get_mlx_quantization,
     get_model_size,
 )
-from tts_engine import (
+from voice_engine import (
     load_model,
     load_voice_prompt,
     run_inference,
@@ -74,7 +74,7 @@ def check_auth():
 
     return jsonify({
         "error": "Authentication required",
-        "detail": "Include 'Authorization: Bearer <token>' header. Token is in ~/.tts_server_token",
+        "detail": "Include 'Authorization: Bearer <token>' header. Token is in ~/.voice_server_token",
         "recovery": "restart",
     }), 401
 
@@ -151,7 +151,7 @@ def _get_model(model_type):
 
 
 def load_single_model(model_type):
-    """Load a single model by type using tts_engine."""
+    """Load a single model by type using voice_engine."""
     global clone_model, design_model, custom_model
 
     valid_types = ("clone", "design", "custom")
@@ -159,7 +159,7 @@ def load_single_model(model_type):
         return False
 
     # Get model info for logging (use current size)
-    from tts_config import get_model_info
+    from voice_config import get_model_info
     info = get_model_info(model_type)
     model_name = info.get("name", info.get("name_template", model_type))
 
@@ -246,7 +246,7 @@ def cancel_generation():
 def _estimate_eta(text_length, elapsed_sec):
     """Estimate remaining seconds from history data."""
     import json as _json
-    from tts_config import HISTORY_FILE
+    from voice_config import HISTORY_FILE
     try:
         if not os.path.exists(HISTORY_FILE):
             return None
@@ -360,7 +360,7 @@ def list_models():
         if backend == "mlx":
             mlx_info = size_mlx_info.get(model_type)
             if mlx_info:
-                from tts_config import get_mlx_model_name
+                from voice_config import get_mlx_model_name
                 entry["repo_id"] = get_mlx_model_name(model_type)
                 entry["memory_mb"] = mlx_info["memory_mb"]
         models_data[model_type] = entry
@@ -443,7 +443,7 @@ def update_model_config():
         }), 400
 
     # Update config.json
-    from tts_config import load_config, save_config
+    from voice_config import load_config, save_config
     config = load_config()
     if "advanced" not in config:
         config["advanced"] = {}
@@ -815,7 +815,7 @@ if __name__ == "__main__":
     _args = _parser.parse_args()
 
     # Configure logging: RotatingFileHandler + stderr
-    from tts_config import LOG_FILE
+    from voice_config import LOG_FILE
     _log_fmt = logging.Formatter("%(asctime)s [%(name)s] %(levelname)s: %(message)s",
                                  datefmt="%Y-%m-%d %H:%M:%S")
     _file_handler = logging.handlers.RotatingFileHandler(

@@ -18,7 +18,7 @@ import sys
 import soundfile as sf
 from pydub import AudioSegment
 
-from tts_config import VOICE_PROMPTS_DIR, USER_FILES_DIR, get_backend
+from voice_config import VOICE_PROMPTS_DIR, USER_FILES_DIR, get_backend
 
 
 def create_and_save_voice_prompt(audio_path, transcript, prompt_name,
@@ -72,7 +72,7 @@ def create_and_save_voice_prompt(audio_path, transcript, prompt_name,
 
     # --- Save PyTorch .pt file (requires torch + qwen-tts) ---
     import torch
-    from tts_engine import load_model, create_voice_prompt, run_inference
+    from voice_engine import load_model, create_voice_prompt, run_inference
 
     print("Loading Qwen3-TTS Base model...")
     model = load_model("clone")
@@ -170,7 +170,7 @@ def main():
 
     elif args.auto_transcribe:
         # Auto-transcribe using MLX ASR
-        from tts_engine import transcribe_audio, is_asr_available
+        from voice_engine import transcribe_audio, is_asr_available
 
         if not is_asr_available():
             print("Error: Auto-transcription requires MLX backend with mlx-audio STT support.")
@@ -195,7 +195,7 @@ def main():
 
     else:
         # Interactive mode: check if ASR is available and offer it
-        from tts_engine import is_asr_available
+        from voice_engine import is_asr_available
 
         if is_asr_available():
             print("\nNo transcript provided. Options:")
@@ -204,7 +204,7 @@ def main():
             choice = input("Choose [1/2]: ").strip()
 
             if choice == "1":
-                from tts_engine import transcribe_audio
+                from voice_engine import transcribe_audio
                 print("\nAuto-transcribing reference audio...")
                 try:
                     transcript = transcribe_audio(audio_path)
@@ -246,7 +246,7 @@ def main():
     # Determine mlx_only mode:
     # - Explicitly set via --mlx-only flag
     # - Auto-enabled when backend is MLX (unless --force-torch is set)
-    from tts_config import get_backend
+    from voice_config import get_backend
     use_mlx_only = args.mlx_only
     if not use_mlx_only and not args.force_torch and get_backend() == "mlx":
         use_mlx_only = True
