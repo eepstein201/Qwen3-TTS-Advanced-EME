@@ -390,13 +390,41 @@ def _save_streaming_audio(all_chunks, sample_rate):
     return output_path
 
 
-def generate_clone_streaming(text, prompt, preset, temperature, top_k, top_p, rep_penalty, seed,
-                             trim_silence, normalize, speed, pitch):
-    """Generate audio with streaming - yields NEW chunk only for real-time playback."""
-    import numpy as np
+# =============================================================================
+# Unified generation helpers (reduces code duplication)
+# =============================================================================
 
+def _validate_inputs(mode, text, description=None):
+    """Validate inputs for generation. Returns error message or None."""
     if not text or not text.strip():
-        yield None, "Error: Please enter some text.", gr.update(), gr.update()
+        return "Error: Please enter some text."
+    if mode == "design" and (not description or not description.strip()):
+        return "Error: Please enter a voice description."
+    return None
+
+
+def _get_mode_kwargs(mode, prompt=None, description=None, speaker_choice=None, instruct=None):
+    """Build mode-specific kwargs for client.generate() or client.generate_streaming()."""
+    if mode == "clone":
+        return {"prompt": prompt}
+    elif mode == "design":
+        return {"description": description}
+    elif mode == "custom":
+        speaker = speaker_choice.split(" ")[0] if speaker_choice else "ryan"
+        kwargs = {"speaker": speaker}
+        if instruct and instruct.strip():
+            kwargs["instruct"] = instruct
+        return kwargs
+    return {}
+
+
+def _generate_streaming_impl(mode, text, preset, temperature, top_k, top_p, rep_penalty, seed,
+                              prompt=None, description=None, speaker_choice=None, instruct=None):
+    """Unified streaming generation for all modes."""
+    # Validate inputs
+    error = _validate_inputs(mode, text, description)
+    if error:
+        yield None, error, gr.update(), gr.update()
         return
 
     client = TTSClient()
@@ -405,10 +433,11 @@ def generate_clone_streaming(text, prompt, preset, temperature, top_k, top_p, re
         return
 
     try:
-        _ensure_model_loaded(client, "clone", lambda p, desc="": None)
+        _ensure_model_loaded(client, mode, lambda p, desc="": None)
 
         seed_val = int(seed) if seed and str(seed).strip() else None
         preset_val = preset if preset and preset != "(none)" else None
+        mode_kwargs = _get_mode_kwargs(mode, prompt, description, speaker_choice, instruct)
 
         all_chunks = []
         sample_rate = None
@@ -416,19 +445,18 @@ def generate_clone_streaming(text, prompt, preset, temperature, top_k, top_p, re
 
         for wav_chunk, sr in client.generate_streaming(
             text=text,
-            mode="clone",
-            prompt=prompt,
+            mode=mode,
             preset=preset_val,
             temperature=temperature,
             top_k=int(top_k),
             top_p=top_p,
             seed=seed_val,
             repetition_penalty=rep_penalty,
+            **mode_kwargs,
         ):
             all_chunks.append(wav_chunk)
             sample_rate = sr
             chunk_count += 1
-            # Yield ONLY the new chunk for streaming playback
             yield (sr, wav_chunk), f"Streaming... {chunk_count} chunks", gr.update(), gr.update()
 
         # Check if cancelled before yielding final state
@@ -436,289 +464,131 @@ def generate_clone_streaming(text, prompt, preset, temperature, top_k, top_p, re
             yield None, f"Cancelled after {chunk_count} chunks", format_status_display(), gr.update()
             return
 
-        # Final: save complete audio and return file path
         output_path = _save_streaming_audio(all_chunks, sample_rate)
         if output_path:
-            add_to_history("clone", text, output_path, chunk_count)
+            add_to_history(mode, text, output_path, chunk_count)
             yield output_path, f"Complete: {chunk_count} chunks", format_status_display(), get_history_data()
         else:
             yield None, "Error: No audio was generated", format_status_display(), gr.update()
 
     except Exception as e:
         yield None, f"Error: {str(e)}", format_status_display(), gr.update()
+
+
+def _generate_non_streaming_impl(mode, text, preset, temperature, top_k, top_p, rep_penalty, seed,
+                                  trim_silence, normalize, speed, pitch, progress,
+                                  prompt=None, description=None, speaker_choice=None, instruct=None):
+    """Unified non-streaming generation for all modes."""
+    # Validate inputs
+    error = _validate_inputs(mode, text, description)
+    if error:
+        return None, error, gr.update(), gr.update()
+
+    client = TTSClient()
+    if not client.is_server_running():
+        return None, "Error: TTS server is not running. Start it with 'startTTSServer'.", gr.update(), gr.update()
+
+    try:
+        _ensure_model_loaded(client, mode, progress)
+
+        seed_val = int(seed) if seed and str(seed).strip() else None
+        preset_val = preset if preset and preset != "(none)" else None
+        output_path = os.path.expanduser(f"~/Downloads/voice_ui_{uuid.uuid4().hex[:8]}.wav")
+        mode_kwargs = _get_mode_kwargs(mode, prompt, description, speaker_choice, instruct)
+
+        progress(0, desc="Starting generation...")
+        stop_event = threading.Event()
+        poll_thread = threading.Thread(
+            target=_poll_progress,
+            args=(client.server_url, progress, stop_event),
+            daemon=True,
+        )
+        poll_thread.start()
+
+        try:
+            result = client.generate(
+                text=text,
+                output=output_path,
+                mode=mode,
+                preset=preset_val,
+                temperature=temperature,
+                top_k=int(top_k),
+                top_p=top_p,
+                repetition_penalty=rep_penalty,
+                seed=seed_val,
+                trim_silence=trim_silence,
+                normalize=normalize,
+                speed=speed if speed != 1.0 else None,
+                pitch=pitch if pitch != 0 else None,
+                **mode_kwargs,
+            )
+        finally:
+            stop_event.set()
+            poll_thread.join(timeout=2)
+
+        progress(1.0, desc="Complete")
+        add_to_history(mode, text, result, 1)
+        return result, f"Generated: {os.path.basename(result)}", format_status_display(), get_history_data()
+    except Exception as e:
+        error_msg = str(e)
+        if "restart" in error_msg.lower() or "not running" in error_msg.lower():
+            gr.Warning("Server issue — try restarting with 'startTTSServer'")
+        return None, f"Error: {error_msg}", format_status_display(), gr.update()
+
+
+# =============================================================================
+# Mode-specific wrappers (thin wrappers for Gradio click handlers)
+# =============================================================================
+
+def generate_clone_streaming(text, prompt, preset, temperature, top_k, top_p, rep_penalty, seed,
+                             trim_silence, normalize, speed, pitch):
+    """Generate audio with streaming for clone mode."""
+    yield from _generate_streaming_impl(
+        "clone", text, preset, temperature, top_k, top_p, rep_penalty, seed,
+        prompt=prompt)
 
 
 def generate_design_streaming(text, description, preset, temperature, top_k, top_p, rep_penalty, seed,
                               trim_silence, normalize, speed, pitch):
     """Generate audio with streaming for design mode."""
-    import numpy as np
-
-    if not text or not text.strip():
-        yield None, "Error: Please enter some text.", gr.update(), gr.update()
-        return
-
-    if not description or not description.strip():
-        yield None, "Error: Please enter a voice description.", gr.update(), gr.update()
-        return
-
-    client = TTSClient()
-    if not client.is_server_running():
-        yield None, "Error: TTS server is not running.", gr.update(), gr.update()
-        return
-
-    try:
-        _ensure_model_loaded(client, "design", lambda p, desc="": None)
-
-        seed_val = int(seed) if seed and str(seed).strip() else None
-        preset_val = preset if preset and preset != "(none)" else None
-
-        all_chunks = []
-        sample_rate = None
-        chunk_count = 0
-
-        for wav_chunk, sr in client.generate_streaming(
-            text=text,
-            mode="design",
-            description=description,
-            preset=preset_val,
-            temperature=temperature,
-            top_k=int(top_k),
-            top_p=top_p,
-            seed=seed_val,
-            repetition_penalty=rep_penalty,
-        ):
-            all_chunks.append(wav_chunk)
-            sample_rate = sr
-            chunk_count += 1
-            yield (sr, wav_chunk), f"Streaming... {chunk_count} chunks", gr.update(), gr.update()
-
-        # Check if cancelled before yielding final state
-        if _check_generation_cancelled():
-            yield None, f"Cancelled after {chunk_count} chunks", format_status_display(), gr.update()
-            return
-
-        output_path = _save_streaming_audio(all_chunks, sample_rate)
-        if output_path:
-            add_to_history("design", text, output_path, chunk_count)
-            yield output_path, f"Complete: {chunk_count} chunks", format_status_display(), get_history_data()
-        else:
-            yield None, "Error: No audio was generated", format_status_display(), gr.update()
-
-    except Exception as e:
-        yield None, f"Error: {str(e)}", format_status_display(), gr.update()
+    yield from _generate_streaming_impl(
+        "design", text, preset, temperature, top_k, top_p, rep_penalty, seed,
+        description=description)
 
 
 def generate_custom_streaming(text, speaker_choice, instruct, preset, temperature, top_k, top_p, rep_penalty, seed,
                               trim_silence, normalize, speed, pitch):
     """Generate audio with streaming for custom mode."""
-    import numpy as np
-
-    if not text or not text.strip():
-        yield None, "Error: Please enter some text.", gr.update(), gr.update()
-        return
-
-    client = TTSClient()
-    if not client.is_server_running():
-        yield None, "Error: TTS server is not running.", gr.update(), gr.update()
-        return
-
-    try:
-        _ensure_model_loaded(client, "custom", lambda p, desc="": None)
-
-        speaker = speaker_choice.split(" ")[0] if speaker_choice else "ryan"
-        seed_val = int(seed) if seed and str(seed).strip() else None
-        preset_val = preset if preset and preset != "(none)" else None
-
-        all_chunks = []
-        sample_rate = None
-        chunk_count = 0
-
-        for wav_chunk, sr in client.generate_streaming(
-            text=text,
-            mode="custom",
-            speaker=speaker,
-            instruct=instruct if instruct and instruct.strip() else None,
-            preset=preset_val,
-            temperature=temperature,
-            top_k=int(top_k),
-            top_p=top_p,
-            seed=seed_val,
-            repetition_penalty=rep_penalty,
-        ):
-            all_chunks.append(wav_chunk)
-            sample_rate = sr
-            chunk_count += 1
-            yield (sr, wav_chunk), f"Streaming... {chunk_count} chunks", gr.update(), gr.update()
-
-        # Check if cancelled before yielding final state
-        if _check_generation_cancelled():
-            yield None, f"Cancelled after {chunk_count} chunks", format_status_display(), gr.update()
-            return
-
-        output_path = _save_streaming_audio(all_chunks, sample_rate)
-        if output_path:
-            add_to_history("custom", text, output_path, chunk_count)
-            yield output_path, f"Complete: {chunk_count} chunks", format_status_display(), get_history_data()
-        else:
-            yield None, "Error: No audio was generated", format_status_display(), gr.update()
-
-    except Exception as e:
-        yield None, f"Error: {str(e)}", format_status_display(), gr.update()
+    yield from _generate_streaming_impl(
+        "custom", text, preset, temperature, top_k, top_p, rep_penalty, seed,
+        speaker_choice=speaker_choice, instruct=instruct)
 
 
 def generate_clone(text, prompt, preset, temperature, top_k, top_p, rep_penalty, seed,
                    trim_silence, normalize, speed, pitch, progress=gr.Progress()):
     """Generate audio using clone mode."""
-    if not text or not text.strip():
-        return None, "Error: Please enter some text to generate.", gr.update(), gr.update()
-
-    client = TTSClient()
-
-    if not client.is_server_running():
-        return None, "Error: TTS server is not running. Start it with 'startTTSServer'.", gr.update(), gr.update()
-
-    try:
-        _ensure_model_loaded(client, "clone", progress)
-
-        seed_val = int(seed) if seed and str(seed).strip() else None
-        preset_val = preset if preset and preset != "(none)" else None
-        output_path = os.path.expanduser(f"~/Downloads/voice_ui_{uuid.uuid4().hex[:8]}.wav")
-
-        progress(0, desc="Starting generation...")
-        stop_event = threading.Event()
-        poll_thread = threading.Thread(
-            target=_poll_progress,
-            args=(client.server_url, progress, stop_event),
-            daemon=True,
-        )
-        poll_thread.start()
-
-        try:
-            result = client.generate(
-                text=text, output=output_path, mode="clone", prompt=prompt,
-                preset=preset_val, temperature=temperature, top_k=int(top_k),
-                top_p=top_p, repetition_penalty=rep_penalty, seed=seed_val,
-                trim_silence=trim_silence, normalize=normalize,
-                speed=speed if speed != 1.0 else None,
-                pitch=pitch if pitch != 0 else None,
-            )
-        finally:
-            stop_event.set()
-            poll_thread.join(timeout=2)
-
-        progress(1.0, desc="Complete")
-        add_to_history("clone", text, result, 1)
-        return result, f"Generated: {os.path.basename(result)}", format_status_display(), get_history_data()
-    except Exception as e:
-        error_msg = str(e)
-        if "restart" in error_msg.lower() or "not running" in error_msg.lower():
-            gr.Warning("Server issue — try restarting with 'startTTSServer'")
-        return None, f"Error: {error_msg}", format_status_display(), gr.update()
+    return _generate_non_streaming_impl(
+        "clone", text, preset, temperature, top_k, top_p, rep_penalty, seed,
+        trim_silence, normalize, speed, pitch, progress,
+        prompt=prompt)
 
 
 def generate_design(text, description, preset, temperature, top_k, top_p, rep_penalty, seed,
                     trim_silence, normalize, speed, pitch, progress=gr.Progress()):
     """Generate audio using design mode."""
-    if not text or not text.strip():
-        return None, "Error: Please enter some text to generate.", gr.update(), gr.update()
-
-    if not description or not description.strip():
-        return None, "Error: Please enter a voice description.", gr.update(), gr.update()
-
-    client = TTSClient()
-
-    if not client.is_server_running():
-        return None, "Error: TTS server is not running. Start it with 'startTTSServer'.", gr.update(), gr.update()
-
-    try:
-        _ensure_model_loaded(client, "design", progress)
-
-        seed_val = int(seed) if seed and str(seed).strip() else None
-        preset_val = preset if preset and preset != "(none)" else None
-        output_path = os.path.expanduser(f"~/Downloads/voice_ui_{uuid.uuid4().hex[:8]}.wav")
-
-        progress(0, desc="Starting generation...")
-        stop_event = threading.Event()
-        poll_thread = threading.Thread(
-            target=_poll_progress,
-            args=(client.server_url, progress, stop_event),
-            daemon=True,
-        )
-        poll_thread.start()
-
-        try:
-            result = client.generate(
-                text=text, output=output_path, mode="design", description=description,
-                preset=preset_val, temperature=temperature, top_k=int(top_k),
-                top_p=top_p, repetition_penalty=rep_penalty, seed=seed_val,
-                trim_silence=trim_silence, normalize=normalize,
-                speed=speed if speed != 1.0 else None,
-                pitch=pitch if pitch != 0 else None,
-            )
-        finally:
-            stop_event.set()
-            poll_thread.join(timeout=2)
-
-        progress(1.0, desc="Complete")
-        add_to_history("design", text, result, 1)
-        return result, f"Generated: {os.path.basename(result)}", format_status_display(), get_history_data()
-    except Exception as e:
-        error_msg = str(e)
-        if "restart" in error_msg.lower() or "not running" in error_msg.lower():
-            gr.Warning("Server issue — try restarting with 'startTTSServer'")
-        return None, f"Error: {error_msg}", format_status_display(), gr.update()
+    return _generate_non_streaming_impl(
+        "design", text, preset, temperature, top_k, top_p, rep_penalty, seed,
+        trim_silence, normalize, speed, pitch, progress,
+        description=description)
 
 
 def generate_custom(text, speaker_choice, instruct, preset, temperature, top_k, top_p, rep_penalty, seed,
                     trim_silence, normalize, speed, pitch, progress=gr.Progress()):
     """Generate audio using custom mode with premium speakers."""
-    if not text or not text.strip():
-        return None, "Error: Please enter some text to generate.", gr.update(), gr.update()
-
-    client = TTSClient()
-
-    if not client.is_server_running():
-        return None, "Error: TTS server is not running. Start it with 'startTTSServer'.", gr.update(), gr.update()
-
-    try:
-        _ensure_model_loaded(client, "custom", progress)
-
-        speaker = speaker_choice.split(" ")[0] if speaker_choice else "ryan"
-        seed_val = int(seed) if seed and str(seed).strip() else None
-        preset_val = preset if preset and preset != "(none)" else None
-        output_path = os.path.expanduser(f"~/Downloads/voice_ui_{uuid.uuid4().hex[:8]}.wav")
-
-        progress(0, desc="Starting generation...")
-        stop_event = threading.Event()
-        poll_thread = threading.Thread(
-            target=_poll_progress,
-            args=(client.server_url, progress, stop_event),
-            daemon=True,
-        )
-        poll_thread.start()
-
-        try:
-            result = client.generate(
-                text=text, output=output_path, mode="custom", speaker=speaker,
-                instruct=instruct if instruct and instruct.strip() else None,
-                preset=preset_val, temperature=temperature, top_k=int(top_k),
-                top_p=top_p, repetition_penalty=rep_penalty, seed=seed_val,
-                trim_silence=trim_silence, normalize=normalize,
-                speed=speed if speed != 1.0 else None,
-                pitch=pitch if pitch != 0 else None,
-            )
-        finally:
-            stop_event.set()
-            poll_thread.join(timeout=2)
-
-        progress(1.0, desc="Complete")
-        add_to_history("custom", text, result, 1)
-        return result, f"Generated: {os.path.basename(result)}", format_status_display(), get_history_data()
-    except Exception as e:
-        error_msg = str(e)
-        if "restart" in error_msg.lower() or "not running" in error_msg.lower():
-            gr.Warning("Server issue — try restarting with 'startTTSServer'")
-        return None, f"Error: {error_msg}", format_status_display(), gr.update()
+    return _generate_non_streaming_impl(
+        "custom", text, preset, temperature, top_k, top_p, rep_penalty, seed,
+        trim_silence, normalize, speed, pitch, progress,
+        speaker_choice=speaker_choice, instruct=instruct)
 
 
 # =============================================================================
