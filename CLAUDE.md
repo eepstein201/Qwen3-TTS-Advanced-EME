@@ -479,7 +479,7 @@ See README.md for full phase history.
 - [x] `createVoice` backend override — forces `TTS_BACKEND=torch` when running in torch env
 - [x] Test suite expanded (base: 152 tests) — added tests for history, cancel, memory stats, generation state
 
-### Phase 19: MLX-First Architecture 🚧 IN PROGRESS
+### Phase 19: MLX-First Architecture ✅ COMPLETE
 - [x] `install.sh` rewrite — MLX as primary backend, torch as optional fallback
 - [x] Hardware detection — detects Apple Silicon vs Intel, RAM size
 - [x] Configuration wizard — interactive prompts for backend, model size, quantization
@@ -491,5 +491,5 @@ See README.md for full phase history.
 - [x] `TTSClient.update_model_config()` — client method for model settings
 - [x] Gradio UI model selection — "Model Settings" accordion with dropdowns for model size and MLX quantization
 - [x] Test suite expanded to 161 tests — added tests for model settings UI and endpoint
-- [ ] Dynamic model download — auto-download missing model variants on demand
-- [ ] Documentation updates — README.md position MLX as default
+- [x] Documentation updates — README.md positions MLX as default, adds configureTTS, updates test count
+- [x] Dynamic model download — handled by HuggingFace hub (auto-downloads on first use with retry)
