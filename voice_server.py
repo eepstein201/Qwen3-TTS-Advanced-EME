@@ -551,7 +551,7 @@ def generate():
     if model is None:
         return jsonify({
             "error": "model_not_loaded",
-            "detail": f"The '{mode}' model is not loaded. {MODEL_INFO.get(mode, {}).get('description', '')}",
+            "detail": f"The '{mode}' model is not loaded. {MODEL_INFO.get(get_model_size(), {}).get(mode, {}).get('description', '')}",
             "recovery": "restart",
             "model_type": mode,
         }), 503

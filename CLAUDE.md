@@ -82,7 +82,7 @@ The codebase uses a layered architecture to avoid loading heavy dependencies (to
 - `requirements-mlx.txt` - MLX backend pip dependencies (for `qwen3-tts-mlx` env)
 - `voice_prompts/` - Voice clone files (.pt for torch, .wav/.txt for MLX)
 - `bin/` - Wrapper scripts (canonical source, copied to ~/bin/ by install.sh)
-- `tests/` - Test suite: 152 tests (`python -m unittest discover -v tests/`)
+- `tests/` - Test suite: 161 tests (`python -m unittest discover -v tests/`)
 
 ### Wrapper scripts in ~/bin/ (installed from bin/)
 - `changeVoice` - Server detection, generation, post-generation menu; auto-selects conda env by backend
@@ -220,7 +220,7 @@ Run the test suite (no GPU, models, or running server required):
 python -m unittest discover -v tests/
 ```
 
-152 tests across 32 test classes (2 skipped when MLX not installed):
+161 tests across 39 test classes (2 skipped when MLX not installed):
 - `TestTTSConfig` - error hierarchy, format helpers, auth token, model info, speakers
 - `TestServerValidation` - text length, batch size, mode, speaker, path traversal
 - `TestServerAuth` - public endpoints, auth enforcement, token validation
@@ -255,6 +255,11 @@ python -m unittest discover -v tests/
 - `TestGenerateStreamIdCheck` - generation_id race condition fix
 - `TestCheckGenerationCancelled` - _check_generation_cancelled helper
 - `TestCreateVoiceBackendOverride` - createVoice forces TTS_BACKEND=torch
+- `TestStreamingClientMethod` - streaming client method exists and signatures
+- `TestUIModelSettings` - model settings UI apply/get functions
+- `TestUIModelSettingsImports` - model settings imports (VALID_MODEL_SIZES, etc.)
+- `TestUpdateModelConfigEndpoint` - `/update-model-config` auth, validation, model clearing
+- `TestClientUpdateModelConfig` - client update_model_config method
 
 ## Config Structure (config.json)
 ```json
@@ -477,7 +482,7 @@ See README.md for full phase history.
 - [x] `get_server_status()` prefers MLX memory — checks `mlx_memory_active_mb` before `mps_memory_allocated_mb`
 - [x] Generation state race condition fix — `generate_stream` only resets state if `generation_id` matches
 - [x] `createVoice` backend override — forces `TTS_BACKEND=torch` when running in torch env
-- [x] Test suite expanded (base: 152 tests) — added tests for history, cancel, memory stats, generation state
+- [x] Test suite expanded (base: 161 tests) — added tests for history, cancel, memory stats, generation state
 
 ### Phase 19: MLX-First Architecture ✅ COMPLETE
 - [x] `install.sh` rewrite — MLX as primary backend, torch as optional fallback
