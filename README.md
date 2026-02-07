@@ -1047,7 +1047,7 @@ python -m unittest discover -v tests/
 │   ├── configureTTS
 │   └── ttsUI
 ├── tests/                  # Test suite
-│   └── test_tts.py
+│   └── test_voice.py
 ├── .voice_server.pid         # Server PID file (runtime)
 └── .voice_server.log         # Server log (runtime)
 
