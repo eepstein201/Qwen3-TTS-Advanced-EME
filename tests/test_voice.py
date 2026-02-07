@@ -1197,9 +1197,10 @@ class TestLoadModelEndpoint(unittest.TestCase):
             resp = self.client.post("/load-model",
                 json={"model_type": model_type},
                 headers={"Authorization": "Bearer test_token"})
-            # Should either succeed (200) or fail because model not available (503)
+            # Should either succeed (200), fail because model not available (503),
+            # or fail because backend library not installed (500)
             # but NOT validation error (400)
-            self.assertIn(resp.status_code, [200, 503],
+            self.assertIn(resp.status_code, [200, 500, 503],
                 f"model_type '{model_type}' should be valid")
 
 

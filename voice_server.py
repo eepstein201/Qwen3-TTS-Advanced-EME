@@ -391,8 +391,22 @@ def load_model_endpoint():
         return jsonify({"status": "already_loaded", "model": model_type})
 
     # Load the model (this may take a while)
-    with generation_lock:
-        success = load_single_model(model_type)
+    try:
+        with generation_lock:
+            success = load_single_model(model_type)
+    except ImportError as e:
+        return jsonify({
+            "error": f"Backend not available for model loading: {model_type}",
+            "detail": str(e),
+            "recovery": "config",
+        }), 500
+    except Exception as e:
+        logger.error("Failed to load model %s: %s", model_type, e, exc_info=True)
+        return jsonify({
+            "error": f"Failed to load model: {model_type}",
+            "detail": str(e),
+            "recovery": "restart",
+        }), 500
 
     if success:
         return jsonify({"status": "loaded", "model": model_type})
