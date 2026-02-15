@@ -89,9 +89,20 @@ def get_text(text_or_file):
 
 
 def get_clipboard_text():
-    """Get text from system clipboard using pbpaste (macOS)."""
+    """Get text from system clipboard (platform-aware)."""
+    from voice_config import IS_MACOS, IS_LINUX, IN_COLAB
+    if IN_COLAB:
+        print("Error: Clipboard not available in Colab environment")
+        sys.exit(1)
+    if IS_MACOS:
+        cmd = ["pbpaste"]
+    elif IS_LINUX:
+        cmd = ["xclip", "-selection", "clipboard", "-o"]
+    else:
+        print("Error: Clipboard not supported on this platform")
+        sys.exit(1)
     try:
-        result = subprocess.run(["pbpaste"], capture_output=True, text=True, check=True)
+        result = subprocess.run(cmd, capture_output=True, text=True, check=True)
         text = result.stdout.strip()
         if not text:
             print("Error: Clipboard is empty")
@@ -101,7 +112,7 @@ def get_clipboard_text():
         print("Error: Failed to read clipboard")
         sys.exit(1)
     except FileNotFoundError:
-        print("Error: pbpaste not found (macOS only)")
+        print(f"Error: {cmd[0]} not found")
         sys.exit(1)
 
 
@@ -134,13 +145,39 @@ def auto_increment_filename(path):
 
 
 def play_audio(file_path):
-    """Play audio file using system player (macOS afplay)."""
+    """Play audio file using system player (platform-aware)."""
+    from voice_config import IS_MACOS, IS_LINUX, IN_COLAB
+    if IN_COLAB:
+        logger.info("Audio generated (playback skipped in headless mode)")
+        return
+    if IS_MACOS:
+        cmd = ["afplay", file_path]
+    elif IS_LINUX:
+        cmd = ["ffplay", "-nodisp", "-autoexit", file_path]
+    else:
+        logger.warning("Audio playback not supported on this platform")
+        return
     try:
-        subprocess.run(["afplay", file_path], check=True)
+        subprocess.run(cmd, check=True)
     except subprocess.CalledProcessError:
-        print("Warning: Failed to play audio")
+        logger.warning("Failed to play audio")
     except FileNotFoundError:
-        print("Warning: afplay not found (macOS only)")
+        logger.warning("%s not found — audio playback unavailable", cmd[0])
+
+
+def open_file(path):
+    """Open a file with the system default handler (platform-aware)."""
+    from voice_config import IS_MACOS, IS_LINUX, IN_COLAB
+    if IN_COLAB:
+        print(f"File saved: {path}")
+        return
+    if IS_MACOS:
+        subprocess.run(["open", path])
+    elif IS_LINUX:
+        try:
+            subprocess.run(["xdg-open", path])
+        except FileNotFoundError:
+            logger.warning("xdg-open not found — cannot open file automatically")
 
 
 # ---------------------------------------------------------------------------
@@ -756,11 +793,11 @@ def generate_streaming(text, mode, config, gen_params, output_path,
                 all_chunks.append(chunk)
                 chunk_count += 1
 
-                # Play chunk via afplay using temp file
+                # Play chunk using platform-aware player
                 temp = tempfile.NamedTemporaryFile(suffix=".wav", delete=False)
                 sf.write(temp.name, chunk, sr)
                 try:
-                    subprocess.run(["afplay", temp.name], check=True)
+                    play_audio(temp.name)
                 except Exception:
                     pass
                 finally:
@@ -1236,7 +1273,7 @@ def process_dialogue(dialogue_path, config, args, gen_params, use_server):
     if args.play:
         play_audio(combined_path)
     elif not args.no_open:
-        subprocess.run(["open", combined_path])
+        open_file(combined_path)
 
 
 # ---------------------------------------------------------------------------
@@ -1433,7 +1470,7 @@ def interactive_mode(use_server, config, gen_params):
         sf.write(output_path, wav, sr)
 
     print(f"Saved to: {output_path}")
-    subprocess.run(["open", output_path])
+    open_file(output_path)
     return output_path
 
 
@@ -2021,7 +2058,7 @@ def main():
     if args.play:
         play_audio(output_path)
     elif not args.no_open:
-        subprocess.run(["open", output_path])
+        open_file(output_path)
 
     return use_server
 
