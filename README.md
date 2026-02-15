@@ -946,12 +946,13 @@ A ready-to-run notebook (`colab_notebook.ipynb`) is included for running Qwen3-T
 **Requirements:** A Colab runtime with GPU (T4 or better).
 
 **Quick start:**
-1. Upload `colab_notebook.ipynb` to Google Colab
-2. Select a GPU runtime (Runtime > Change runtime type > T4 GPU)
-3. Run all cells — the notebook installs dependencies, configures CUDA, starts the server, and launches a Gradio UI with a public URL
+1. Upload the `Qwen3-TTS_UserFiles` folder to Google Drive at `My Drive/Qwen3-TTS_UserFiles/`
+2. Upload `colab_notebook.ipynb` to Google Colab
+3. Select a GPU runtime (Runtime > Change runtime type > T4 GPU)
+4. Run all cells — the notebook mounts Drive, installs dependencies, configures CUDA, starts the server, and launches a Gradio UI with a public URL
 
 The notebook cells:
-1. Install system dependencies (`ffmpeg`) and Python packages (`requirements-cuda.txt`)
+1. Mount Google Drive, link project folder, install system deps (`ffmpeg`) and Python packages
 2. Configure the CUDA backend and verify GPU detection
 3. Start the TTS server in the background
 4. Launch the Gradio web UI with a public sharing URL
