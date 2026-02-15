@@ -1232,12 +1232,15 @@ def main():
     server_name = "0.0.0.0" if IN_COLAB else "127.0.0.1"
     share = args.share or IN_COLAB
     inbrowser = not args.no_browser and not IN_COLAB
+    # Allow Gradio to serve audio files from output and temp directories
+    allowed = [os.path.expanduser("~/Downloads"), "/tmp"]
     demo.launch(
         server_name=server_name,
         server_port=port,
         share=share,
         inbrowser=inbrowser,
-        theme=gr.themes.Soft()
+        theme=gr.themes.Soft(),
+        allowed_paths=allowed,
     )
 
 
