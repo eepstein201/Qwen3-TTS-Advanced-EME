@@ -82,7 +82,7 @@ The codebase uses a layered architecture to avoid loading heavy dependencies (to
 - `requirements-mlx.txt` - MLX backend pip dependencies (for `qwen3-tts-mlx` env)
 - `voice_prompts/` - Voice clone files (.pt for torch, .wav/.txt for MLX)
 - `bin/` - Wrapper scripts (canonical source, copied to ~/bin/ by install.sh)
-- `tests/` - Test suite: 178 tests (`python -m unittest discover -v tests/`)
+- `tests/` - Test suite: 204 tests (`python -m unittest discover -v tests/`)
 
 ### Wrapper scripts in ~/bin/ (installed from bin/)
 - `changeVoice` - Server detection, generation, post-generation menu; auto-selects conda env by backend
@@ -220,7 +220,7 @@ Run the test suite (no GPU, models, or running server required):
 python -m unittest discover -v tests/
 ```
 
-178 tests across 42 test classes (2 skipped when MLX not installed):
+204 tests across 48 test classes (2 skipped when MLX not installed):
 - `TestTTSConfig` - error hierarchy, format helpers, auth token, model info, speakers
 - `TestServerValidation` - text length, batch size, mode, speaker, path traversal
 - `TestServerAuth` - public endpoints, auth enforcement, token validation
@@ -263,6 +263,13 @@ python -m unittest discover -v tests/
 - `TestMLXVoicePromptCache` - MLX prompt cache consistency, storage, clear, info
 - `TestETACache` - ETA cache existence, TTL, uses cache, returns None
 - `TestGenerationCache` - key determinism, varies by text/mode, put/get, miss, eviction, invalidate, stale cleanup
+- `TestDeletePromptEndpoint` - `/delete-prompt` auth, path traversal, deletion, 404
+- `TestRenamePromptEndpoint` - `/rename-prompt` auth, path traversal, collision, success, rollback
+- `TestPreviewPromptEndpoint` - `/preview-prompt` auth, 404, returns audio/wav
+- `TestPromptDetailsEndpoint` - `/prompt-details` auth, single prompt, all prompts
+- `TestClientPromptManagement` - client method signatures, list_prompts server usage
+- `TestSetDefaultClonePrompt` - set_default_clone_prompt writes config
+- `TestVoiceManagementUI` - UI helper functions exist (table, preview, rename, delete, default)
 
 ## Config Structure (config.json)
 ```json
@@ -540,14 +547,21 @@ See README.md for full phase history.
 
 **Status:** Complete. All 178 tests pass (17 new tests added). Double-checked locking implemented for generation cache.
 
-#### Phase 21a: Voice Management UI ⬜ NOT STARTED
+#### Phase 21a: Voice Management UI ✅ COMPLETE
 
-**Planned changes (from approved plan):**
-- `voice_server.py` — 4 new endpoints: `POST /delete-prompt`, `POST /rename-prompt`, `GET /preview-prompt`, `GET /prompt-details`
-- `voice_client.py` — `delete_prompt()`, `rename_prompt()`, `preview_prompt()`, `get_prompt_details()` methods; fix `list_prompts()` to use server `/prompts` endpoint
+**Changes made:**
 - `voice_config.py` — `set_default_clone_prompt()` helper
+- `voice_server.py` — 4 new endpoints: `POST /delete-prompt`, `POST /rename-prompt`, `GET /preview-prompt`, `GET /prompt-details`
+  - All endpoints: auth, path traversal validation, structured error responses
+  - Rename uses rollback on partial failure (if .wav rename fails after .pt, rolls back .pt)
+  - Delete/rename clear voice prompt cache and update default config if needed
+- `voice_client.py` — `delete_prompt()`, `rename_prompt()`, `preview_prompt()`, `get_prompt_details()` methods; fixed `list_prompts()` to use server `/prompts` endpoint
 - `voice_ui.py` — new "Manage Voices" tab (Dataframe, Preview, Rename, Delete, Set Default buttons)
-- `tests/test_voice.py` — ~15-18 new tests
+  - Preview writes bytes to temp .wav file for gr.Audio
+  - Rename/Delete cross-update Clone tab's voice dropdown via outputs
+- `tests/test_voice.py` — 26 new tests (178 → 204)
+
+**Status:** Complete. All 204 tests pass.
 
 #### Phase 21c: Google Colab Support ⬜ NOT STARTED
 

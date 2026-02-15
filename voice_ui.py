@@ -24,12 +24,15 @@ logger = logging.getLogger("tts.ui")
 sys.path.insert(0, os.path.expanduser("~/Qwen3-TTS_UserFiles"))
 
 from voice_client import TTSClient
+import tempfile
+
 from voice_config import (
     CUSTOM_VOICE_SPEAKERS,
     VOICE_PROMPTS_DIR,
     VALID_MODEL_SIZES,
     VALID_MLX_QUANTIZATIONS,
     get_default_clone_prompt,
+    set_default_clone_prompt,
     get_server_url,
     get_backend,
     get_model_size,
@@ -609,6 +612,89 @@ def stop_server():
     return format_status_display()
 
 
+# =============================================================================
+# Voice Management helpers
+# =============================================================================
+
+def get_prompt_table_data():
+    """Fetch prompt details from server and format as table rows."""
+    client = TTSClient()
+    try:
+        details = client.get_prompt_details()
+        prompts = details.get("prompts", [])
+        rows = []
+        for p in prompts:
+            fmts = ", ".join(p.get("formats", []))
+            size_mb = f"{p.get('size_bytes', 0) / (1024 * 1024):.1f}"
+            default = "Yes" if p.get("is_default") else ""
+            rows.append([p["name"], fmts, size_mb, default])
+        return rows
+    except Exception as e:
+        logger.warning("Failed to get prompt details: %s", e)
+        return []
+
+
+def preview_voice(name):
+    """Preview a voice prompt. Returns path to temp .wav file for gr.Audio."""
+    if not name:
+        return None
+    client = TTSClient()
+    try:
+        audio_bytes = client.preview_prompt(name)
+        tmp = tempfile.NamedTemporaryFile(suffix=".wav", delete=False)
+        tmp.write(audio_bytes)
+        tmp.close()
+        return tmp.name
+    except Exception as e:
+        logger.warning("Failed to preview prompt '%s': %s", name, e)
+        return None
+
+
+def rename_voice(old_name, new_name):
+    """Rename a voice prompt. Returns (status_msg, table_data, dropdown_update)."""
+    if not old_name or not new_name:
+        return "Please provide both old and new names.", get_prompt_table_data(), gr.update()
+    client = TTSClient()
+    try:
+        result = client.rename_prompt(old_name, new_name)
+        new_prompts = get_voice_prompts()
+        return (
+            f"Renamed '{old_name}' to '{new_name}'",
+            get_prompt_table_data(),
+            gr.update(choices=new_prompts, value=new_prompts[0] if new_prompts else None),
+        )
+    except Exception as e:
+        return f"Rename failed: {e}", get_prompt_table_data(), gr.update()
+
+
+def delete_voice(name):
+    """Delete a voice prompt. Returns (status_msg, table_data, dropdown_update)."""
+    if not name:
+        return "No voice selected.", get_prompt_table_data(), gr.update()
+    client = TTSClient()
+    try:
+        result = client.delete_prompt(name)
+        new_prompts = get_voice_prompts()
+        return (
+            f"Deleted '{name}' ({', '.join(result.get('files_removed', []))})",
+            get_prompt_table_data(),
+            gr.update(choices=new_prompts, value=new_prompts[0] if new_prompts else None),
+        )
+    except Exception as e:
+        return f"Delete failed: {e}", get_prompt_table_data(), gr.update()
+
+
+def set_voice_default(name):
+    """Set a voice as the default clone prompt. Returns (status_msg, table_data)."""
+    if not name:
+        return "No voice selected.", get_prompt_table_data()
+    try:
+        set_default_clone_prompt(name)
+        return f"Set '{name}' as default voice.", get_prompt_table_data()
+    except Exception as e:
+        return f"Failed to set default: {e}", get_prompt_table_data()
+
+
 def build_ui():
     """Build the Gradio interface."""
 
@@ -977,6 +1063,86 @@ def build_ui():
                     fn=create_voice_prompt,
                     inputs=[create_audio, create_transcript, create_name],
                     outputs=[create_status, voice_list]
+                )
+
+            # Manage Voices Tab
+            with gr.Tab("Manage Voices"):
+                gr.Markdown("View, preview, rename, and delete voice prompts.")
+
+                with gr.Row():
+                    with gr.Column(scale=2):
+                        manage_table = gr.Dataframe(
+                            headers=["Name", "Formats", "Size (MB)", "Default"],
+                            value=get_prompt_table_data(),
+                            interactive=False,
+                            wrap=True,
+                        )
+                        manage_refresh_btn = gr.Button("Refresh List", size="sm")
+
+                    with gr.Column(scale=1):
+                        manage_preview_audio = gr.Audio(label="Preview", visible=True)
+                        manage_selected = gr.Textbox(
+                            label="Selected Voice", interactive=False,
+                            max_lines=1, container=True
+                        )
+                        manage_new_name = gr.Textbox(
+                            label="New Name (for rename)",
+                            placeholder="Enter new name...",
+                            max_lines=1
+                        )
+                        with gr.Row():
+                            manage_preview_btn = gr.Button("Preview", size="sm")
+                            manage_default_btn = gr.Button("Set Default", size="sm")
+                        with gr.Row():
+                            manage_rename_btn = gr.Button("Rename", size="sm", variant="secondary")
+                            manage_delete_btn = gr.Button("Delete", size="sm", variant="stop")
+                        manage_status = gr.Textbox(
+                            label="", show_label=False, interactive=False,
+                            max_lines=2, container=False
+                        )
+
+                # Row selection -> populate selected name
+                def on_table_select(evt: gr.SelectData, table_data):
+                    if evt.index and len(evt.index) >= 1:
+                        row_idx = evt.index[0]
+                        if table_data and row_idx < len(table_data):
+                            return table_data[row_idx][0]
+                    return ""
+
+                manage_table.select(
+                    fn=on_table_select,
+                    inputs=[manage_table],
+                    outputs=[manage_selected]
+                )
+
+                manage_refresh_btn.click(
+                    fn=get_prompt_table_data,
+                    outputs=[manage_table]
+                )
+
+                manage_preview_btn.click(
+                    fn=preview_voice,
+                    inputs=[manage_selected],
+                    outputs=[manage_preview_audio]
+                )
+
+                manage_default_btn.click(
+                    fn=set_voice_default,
+                    inputs=[manage_selected],
+                    outputs=[manage_status, manage_table]
+                )
+
+                manage_rename_btn.click(
+                    fn=rename_voice,
+                    inputs=[manage_selected, manage_new_name],
+                    outputs=[manage_status, manage_table, clone_prompt]
+                )
+
+                manage_delete_btn.click(
+                    fn=delete_voice,
+                    inputs=[manage_selected],
+                    outputs=[manage_status, manage_table, clone_prompt],
+                    js="(x) => { if (!confirm('Delete this voice prompt? This cannot be undone.')) throw new Error('Cancelled'); return x; }",
                 )
 
         # Footer

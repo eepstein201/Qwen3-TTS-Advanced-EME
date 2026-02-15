@@ -77,6 +77,14 @@ def get_default_clone_prompt(config=None):
     return None
 
 
+def set_default_clone_prompt(prompt_name, config=None):
+    """Set the default clone prompt in config.json."""
+    if config is None:
+        config = load_config()
+    config["default_clone_prompt"] = prompt_name
+    save_config(config)
+
+
 def get_server_url(config):
     """Return the server base URL from a config dict."""
     server = config.get("server", {})

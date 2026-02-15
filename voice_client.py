@@ -179,9 +179,114 @@ class TTSClient:
         return resp.json()
 
     def list_prompts(self):
-        """List available voice prompts."""
+        """List available voice prompts.
+
+        Uses the server /prompts endpoint when running (returns backend-aware list),
+        falls back to local filesystem listing.
+        """
+        if self.is_server_running():
+            try:
+                resp = requests.get(f"{self.server_url}/prompts", timeout=5, headers=auth_headers())
+                if resp.status_code == 200:
+                    return resp.json().get("prompts", [])
+            except Exception:
+                pass
+        # Fallback to local filesystem
         prompts = [f for f in os.listdir(self.voice_prompts_dir) if f.endswith('.pt')]
         return sorted(prompts)
+
+    def delete_prompt(self, name):
+        """Delete a voice prompt and all its format files.
+
+        Args:
+            name: Voice prompt name (with or without extension)
+
+        Returns:
+            Response dict with status and files_removed list
+        """
+        if not self.is_server_running():
+            raise ConnectionError("TTS server is not running")
+        resp = requests.post(
+            f"{self.server_url}/delete-prompt",
+            json={"name": name},
+            timeout=10,
+            headers=auth_headers(),
+        )
+        if resp.status_code != 200:
+            error_msg = resp.json().get("error", "Unknown error")
+            raise Exception(f"Delete failed: {error_msg}")
+        return resp.json()
+
+    def rename_prompt(self, old_name, new_name):
+        """Rename a voice prompt (all format files).
+
+        Args:
+            old_name: Current prompt name
+            new_name: New prompt name
+
+        Returns:
+            Response dict with status and files_renamed list
+        """
+        if not self.is_server_running():
+            raise ConnectionError("TTS server is not running")
+        resp = requests.post(
+            f"{self.server_url}/rename-prompt",
+            json={"old_name": old_name, "new_name": new_name},
+            timeout=10,
+            headers=auth_headers(),
+        )
+        if resp.status_code != 200:
+            error_msg = resp.json().get("error", "Unknown error")
+            raise Exception(f"Rename failed: {error_msg}")
+        return resp.json()
+
+    def preview_prompt(self, name):
+        """Get the .wav audio data for a voice prompt.
+
+        Args:
+            name: Voice prompt name
+
+        Returns:
+            Raw bytes of the .wav file
+        """
+        if not self.is_server_running():
+            raise ConnectionError("TTS server is not running")
+        resp = requests.get(
+            f"{self.server_url}/preview-prompt",
+            params={"name": name},
+            timeout=10,
+            headers=auth_headers(),
+        )
+        if resp.status_code != 200:
+            try:
+                error_msg = resp.json().get("error", "Unknown error")
+            except (ValueError, requests.exceptions.JSONDecodeError):
+                error_msg = f"HTTP {resp.status_code}"
+            raise Exception(f"Preview failed: {error_msg}")
+        return resp.content
+
+    def get_prompt_details(self, name=None):
+        """Get metadata for voice prompts.
+
+        Args:
+            name: Prompt name for single prompt details, or None for all prompts
+
+        Returns:
+            Dict with prompt metadata (single) or {"prompts": [...]} (all)
+        """
+        if not self.is_server_running():
+            raise ConnectionError("TTS server is not running")
+        params = {"name": name} if name else {}
+        resp = requests.get(
+            f"{self.server_url}/prompt-details",
+            params=params,
+            timeout=10,
+            headers=auth_headers(),
+        )
+        if resp.status_code != 200:
+            error_msg = resp.json().get("error", "Unknown error")
+            raise Exception(f"Details failed: {error_msg}")
+        return resp.json()
 
     def list_presets(self):
         """List available presets."""

@@ -11,7 +11,7 @@ import tempfile
 import threading
 import time
 
-from flask import Flask, request, jsonify
+from flask import Flask, request, jsonify, send_file
 import soundfile as sf
 
 logger = logging.getLogger("tts")
@@ -25,7 +25,10 @@ from voice_config import (
     MLX_MODEL_INFO,
     CUSTOM_VOICE_SPEAKERS,
     load_config,
+    save_config,
     get_backend,
+    get_default_clone_prompt,
+    set_default_clone_prompt,
     get_torch_dtype_name,
     get_mlx_quantization,
     get_model_size,
@@ -36,6 +39,7 @@ from voice_engine import (
     run_inference,
     run_inference_streaming,
     voice_prompt_cache_info,
+    clear_voice_prompt_cache,
 )
 
 # Auth token for this server session
@@ -595,6 +599,254 @@ def list_prompts():
         prompts = [f"{n}.wav" for n in names]
     else:
         prompts = sorted(f for f in os.listdir(VOICE_PROMPTS_DIR) if f.endswith('.pt'))
+    return jsonify({"prompts": prompts})
+
+
+# ---------------------------------------------------------------------------
+# Voice prompt management endpoints
+# ---------------------------------------------------------------------------
+
+def _validate_prompt_name(name):
+    """Validate a prompt name for path traversal. Returns error response or None."""
+    if not name:
+        return jsonify({"error": "Missing prompt name", "recovery": "config"}), 400
+    if ".." in name or "/" in name:
+        return jsonify({"error": "Invalid prompt name: path traversal not allowed", "recovery": "config"}), 400
+    return None
+
+
+@app.route("/delete-prompt", methods=["POST"])
+def delete_prompt():
+    """Delete a voice prompt and all its format files (.pt, .wav, .txt)."""
+    reset_activity_timer()
+    data = request.get_json(silent=True) or {}
+    name = data.get("name", "")
+
+    err = _validate_prompt_name(name)
+    if err:
+        return err
+
+    # Strip extension to get base name
+    base = name
+    for ext in (".pt", ".wav", ".txt"):
+        if base.endswith(ext):
+            base = base[:-len(ext)]
+            break
+
+    # Find and delete all matching files
+    files_removed = []
+    for ext in (".pt", ".wav", ".txt"):
+        path = os.path.join(VOICE_PROMPTS_DIR, f"{base}{ext}")
+        if os.path.exists(path):
+            os.remove(path)
+            files_removed.append(f"{base}{ext}")
+
+    if not files_removed:
+        return jsonify({"error": f"Voice prompt '{base}' not found", "recovery": "config"}), 404
+
+    # If deleted prompt was the default, clear it
+    try:
+        config = load_config()
+        current_default = config.get("default_clone_prompt", "")
+        default_base = current_default
+        for ext in (".pt", ".wav", ".txt"):
+            if default_base.endswith(ext):
+                default_base = default_base[:-len(ext)]
+                break
+        if default_base == base:
+            config["default_clone_prompt"] = ""
+            save_config(config)
+    except Exception:
+        pass
+
+    # Clear voice prompt cache
+    clear_voice_prompt_cache()
+
+    logger.info("Deleted voice prompt '%s': %s", base, files_removed)
+    return jsonify({"status": "deleted", "name": base, "files_removed": files_removed})
+
+
+@app.route("/rename-prompt", methods=["POST"])
+def rename_prompt():
+    """Rename a voice prompt (all format files) with rollback on partial failure."""
+    reset_activity_timer()
+    data = request.get_json(silent=True) or {}
+    old_name = data.get("old_name", "")
+    new_name = data.get("new_name", "")
+
+    for name_val in (old_name, new_name):
+        err = _validate_prompt_name(name_val)
+        if err:
+            return err
+
+    # Strip extensions to get base names
+    old_base = old_name
+    new_base = new_name
+    for ext in (".pt", ".wav", ".txt"):
+        if old_base.endswith(ext):
+            old_base = old_base[:-len(ext)]
+            break
+    for ext in (".pt", ".wav", ".txt"):
+        if new_base.endswith(ext):
+            new_base = new_base[:-len(ext)]
+            break
+
+    if old_base == new_base:
+        return jsonify({"error": "Old and new names are the same", "recovery": "config"}), 400
+
+    # Collision check — ensure no files with new name exist
+    for ext in (".pt", ".wav", ".txt"):
+        if os.path.exists(os.path.join(VOICE_PROMPTS_DIR, f"{new_base}{ext}")):
+            return jsonify({
+                "error": f"Voice prompt '{new_base}' already exists",
+                "recovery": "config",
+            }), 409
+
+    # Check that at least one old file exists
+    old_exists = any(
+        os.path.exists(os.path.join(VOICE_PROMPTS_DIR, f"{old_base}{ext}"))
+        for ext in (".pt", ".wav", ".txt")
+    )
+    if not old_exists:
+        return jsonify({"error": f"Voice prompt '{old_base}' not found", "recovery": "config"}), 404
+
+    # Rename with rollback on partial failure
+    renamed = []
+    try:
+        for ext in (".pt", ".wav", ".txt"):
+            old_path = os.path.join(VOICE_PROMPTS_DIR, f"{old_base}{ext}")
+            new_path = os.path.join(VOICE_PROMPTS_DIR, f"{new_base}{ext}")
+            if os.path.exists(old_path):
+                os.rename(old_path, new_path)
+                renamed.append((new_path, old_path))
+    except OSError as e:
+        # Rollback successful renames
+        for current, rollback_to in renamed:
+            try:
+                os.rename(current, rollback_to)
+            except OSError:
+                pass
+        return jsonify({"error": f"Rename failed: {e}", "recovery": "retry"}), 500
+
+    # Update default if the renamed prompt was the default
+    try:
+        config = load_config()
+        current_default = config.get("default_clone_prompt", "")
+        default_base = current_default
+        for ext in (".pt", ".wav", ".txt"):
+            if default_base.endswith(ext):
+                default_base = default_base[:-len(ext)]
+                break
+        if default_base == old_base:
+            # Preserve the extension format of the original default
+            if current_default.endswith(".pt"):
+                config["default_clone_prompt"] = f"{new_base}.pt"
+            else:
+                config["default_clone_prompt"] = new_base
+            save_config(config)
+    except Exception:
+        pass
+
+    # Clear voice prompt cache
+    clear_voice_prompt_cache()
+
+    files_renamed = [os.path.basename(new) for new, _ in renamed]
+    logger.info("Renamed voice prompt '%s' -> '%s': %s", old_base, new_base, files_renamed)
+    return jsonify({"status": "renamed", "old_name": old_base, "new_name": new_base, "files_renamed": files_renamed})
+
+
+@app.route("/preview-prompt", methods=["GET"])
+def preview_prompt():
+    """Return the .wav file for a voice prompt as audio/wav."""
+    reset_activity_timer()
+    name = request.args.get("name", "")
+
+    err = _validate_prompt_name(name)
+    if err:
+        return err
+
+    # Strip extension to get base name
+    base = name
+    for ext in (".pt", ".wav", ".txt"):
+        if base.endswith(ext):
+            base = base[:-len(ext)]
+            break
+
+    wav_path = os.path.join(VOICE_PROMPTS_DIR, f"{base}.wav")
+    if not os.path.exists(wav_path):
+        return jsonify({"error": f"No .wav file found for prompt '{base}'", "recovery": "config"}), 404
+
+    return send_file(wav_path, mimetype="audio/wav")
+
+
+@app.route("/prompt-details", methods=["GET"])
+def prompt_details():
+    """Return metadata for voice prompts.
+
+    If ?name=X is provided, returns details for that prompt.
+    Otherwise returns details for all prompts.
+    """
+    reset_activity_timer()
+    name = request.args.get("name")
+
+    # Get current default
+    current_default = get_default_clone_prompt() or ""
+    default_base = current_default
+    for ext in (".pt", ".wav", ".txt"):
+        if default_base.endswith(ext):
+            default_base = default_base[:-len(ext)]
+            break
+
+    def _prompt_info(base):
+        """Build metadata dict for a single prompt."""
+        formats = []
+        total_size = 0
+        created = None
+        for ext in (".pt", ".wav", ".txt"):
+            path = os.path.join(VOICE_PROMPTS_DIR, f"{base}{ext}")
+            if os.path.exists(path):
+                formats.append(ext)
+                total_size += os.path.getsize(path)
+                mtime = os.path.getmtime(path)
+                if created is None or mtime < created:
+                    created = mtime
+        return {
+            "name": base,
+            "formats": formats,
+            "size_bytes": total_size,
+            "created": created,
+            "is_default": (base == default_base),
+        }
+
+    if name:
+        err = _validate_prompt_name(name)
+        if err:
+            return err
+        base = name
+        for ext in (".pt", ".wav", ".txt"):
+            if base.endswith(ext):
+                base = base[:-len(ext)]
+                break
+        info = _prompt_info(base)
+        if not info["formats"]:
+            return jsonify({"error": f"Voice prompt '{base}' not found", "recovery": "config"}), 404
+        return jsonify(info)
+
+    # All prompts
+    try:
+        all_files = os.listdir(VOICE_PROMPTS_DIR)
+    except OSError:
+        return jsonify({"prompts": []})
+
+    # Collect unique base names
+    bases = set()
+    for f in all_files:
+        for ext in (".pt", ".wav", ".txt"):
+            if f.endswith(ext):
+                bases.add(f[:-len(ext)])
+                break
+
+    prompts = [_prompt_info(b) for b in sorted(bases)]
     return jsonify({"prompts": prompts})
 
 
