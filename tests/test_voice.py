@@ -1538,7 +1538,9 @@ class TestUIModelSettings(unittest.TestCase):
     def test_apply_model_settings_requires_server(self):
         """apply_model_settings returns error when server not running."""
         from voice_ui import apply_model_settings
-        msg, _ = apply_model_settings("0.6B", "4bit")
+        with unittest.mock.patch("voice_ui.TTSClient") as MockClient:
+            MockClient.return_value.is_server_running.return_value = False
+            msg, _ = apply_model_settings("0.6B", "4bit")
         self.assertIn("not running", msg.lower())
 
 
