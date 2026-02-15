@@ -498,3 +498,11 @@ See README.md for full phase history.
 - [x] Test suite expanded to 161 tests — added tests for model settings UI and endpoint
 - [x] Documentation updates — README.md positions MLX as default, adds configureTTS, updates test count
 - [x] Dynamic model download — handled by HuggingFace hub (auto-downloads on first use with retry)
+
+### Phase 20: Cleanup & Stabilization ✅ COMPLETE
+- [x] Fix critical bugs in server and UI (Phase 20a) — resolved startup and rendering issues
+- [x] Rename `tts_*` files to `voice_*` prefix (Phase 20b) — consistent naming across all modules
+- [x] Consolidate duplicate generation functions (Phase 20c) — removed redundant code paths
+- [x] Improve model settings feedback message (Phase 20d) — clearer UI responses on config changes
+- [x] Fix stale references and `MODEL_INFO` lookup bug (Phase 20e) — updated imports after rename
+- [x] Handle `ImportError` in `/load-model` endpoint gracefully — returns structured error instead of 500
