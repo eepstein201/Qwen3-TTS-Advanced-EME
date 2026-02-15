@@ -184,8 +184,11 @@ def get_server_status():
 
     try:
         stats = client.get_stats()
-        # Check for MLX memory first, then MPS
-        memory_val = stats.get('mlx_memory_active_mb') or stats.get('mps_memory_allocated_mb', 'N/A')
+        # Check for MLX memory first, then MPS, then CUDA
+        memory_val = (stats.get('mlx_memory_active_mb')
+                      or stats.get('mps_memory_allocated_mb')
+                      or stats.get('cuda_memory_allocated_mb')
+                      or 'N/A')
         if isinstance(memory_val, (int, float)):
             memory = f"{memory_val:.0f}MB"
         else:
