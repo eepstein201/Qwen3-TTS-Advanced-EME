@@ -16,6 +16,7 @@ A powerful text-to-speech system with voice cloning, built on Qwen3-TTS models. 
 - [FAQ](#faq)
 - [Troubleshooting](#troubleshooting)
 - [MLX Backend](#mlx-backend)
+- [Google Colab / Linux](#google-colab--linux)
 - [Tips & Best Practices](#tips--best-practices)
 
 ---
@@ -24,9 +25,10 @@ A powerful text-to-speech system with voice cloning, built on Qwen3-TTS models. 
 
 ### Prerequisites
 
-- macOS with Apple Silicon (M1/M2/M3/M4) — MLX backend (recommended)
-- macOS with Intel — PyTorch backend only
-- Conda (miniforge recommended)
+- **macOS with Apple Silicon** (M1/M2/M3/M4) — MLX backend (recommended)
+- **macOS with Intel** — PyTorch backend only
+- **Google Colab / Linux with NVIDIA GPU** — PyTorch + CUDA backend
+- Conda (miniforge recommended) or pip (Colab)
 - ~2.5GB per model (MLX 8-bit, recommended) or ~3.5GB per model (PyTorch)
 
 ### Installation
@@ -119,6 +121,8 @@ This opens your browser to `http://localhost:7860` (or the next available port i
 - **Audio processing** (collapsible): trim silence, normalize, speed, pitch
 - **Built-in audio player** for immediate playback
 - **Dynamic port fallback** — if port 7860 is busy, auto-selects the next available port (7861, 7862, ...)
+- **Manage Voices tab** — preview, rename, delete, and set default voice prompts; changes sync to the Clone tab dropdown in real time
+- **Model Settings accordion** — switch model size and MLX quantization without restarting the server
 
 ### UI Options
 
@@ -562,7 +566,7 @@ Options:
 | Setting | Values | Default | Description |
 |---------|--------|---------|-------------|
 | `generation.max_chunk_chars` | `0`–`10000` | `500` | Max chars per chunk for long texts (`0` disables chunking) |
-| `advanced.backend` | `"mlx"`, `"torch"` | `"mlx"` | Inference backend (MLX recommended for Apple Silicon) |
+| `advanced.backend` | `"mlx"`, `"torch"` | platform-aware | Inference backend: defaults to `"mlx"` on Apple Silicon, `"torch"` elsewhere |
 | `advanced.dtype` | `"float32"`, `"float16"`, `"bfloat16"` | `"float32"` | PyTorch dtype (torch backend only) |
 | `advanced.mlx_quantization` | `"4bit"`, `"8bit"`, `"bf16"` | `"8bit"` | MLX model quantization (mlx backend only) |
 | `advanced.model_size` | `"1.7B"`, `"0.6B"` | `"1.7B"` | Model size (0.6B is ~40% faster with lower memory) |
@@ -665,9 +669,15 @@ audio_path = client.generate(
 )
 
 # List available resources
-print(client.list_prompts())    # Voice prompts
+print(client.list_prompts())    # Voice prompts (uses server when running)
 print(client.list_presets())    # Generation presets
 print(client.list_aliases())    # Voice aliases
+
+# Voice prompt management
+details = client.get_prompt_details("my_voice")  # Get prompt metadata
+audio = client.preview_prompt("my_voice")         # Get preview audio bytes
+client.rename_prompt("old_name", "new_name")      # Rename (all formats)
+client.delete_prompt("unwanted_voice")             # Delete (all formats)
 
 # Generate multi-speaker dialogue
 lines = [
@@ -691,11 +701,20 @@ client.is_server_running()      # Check server status
 client.get_health()             # Get health info (loaded models, backend)
 client.get_stats()              # Get server statistics
 client.load_model(mode)         # Load a model on demand (clone/design/custom)
-client.list_prompts()           # List voice prompts
+client.list_prompts()           # List voice prompts (server-aware)
 client.list_presets()           # List presets
 client.list_aliases()           # List voice aliases
 client.resolve_alias(name)      # Get alias configuration
 client.reload_config()          # Reload configuration
+client.update_model_config(     # Change model settings on running server
+    model_size=None,
+    mlx_quantization=None)
+
+# Voice prompt management
+client.get_prompt_details(name) # Get prompt metadata (formats, size, is_default)
+client.preview_prompt(name)     # Get preview audio bytes
+client.rename_prompt(old, new)  # Rename prompt (all formats, atomic with rollback)
+client.delete_prompt(name)      # Delete prompt (all formats)
 
 # Generation
 client.generate(
@@ -918,6 +937,66 @@ If you have legacy `.pt`-only prompts from before MLX was added, re-create them 
 
 ---
 
+## Google Colab / Linux
+
+### Running on Google Colab
+
+A ready-to-run notebook (`colab_notebook.ipynb`) is included for running Qwen3-TTS on Google Colab with CUDA GPU acceleration.
+
+**Requirements:** A Colab runtime with GPU (T4 or better).
+
+**Quick start:**
+1. Upload `colab_notebook.ipynb` to Google Colab
+2. Select a GPU runtime (Runtime > Change runtime type > T4 GPU)
+3. Run all cells — the notebook installs dependencies, configures CUDA, starts the server, and launches a Gradio UI with a public URL
+
+The notebook cells:
+1. Install system dependencies (`ffmpeg`) and Python packages (`requirements-cuda.txt`)
+2. Configure the CUDA backend and verify GPU detection
+3. Start the TTS server in the background
+4. Launch the Gradio web UI with a public sharing URL
+5. Quick generation example with in-notebook audio playback
+
+### Running on Linux
+
+The system auto-detects the platform and adjusts behavior:
+
+| Feature | macOS | Linux/Colab |
+|---------|-------|-------------|
+| Backend default | MLX (Apple Silicon) or torch (Intel) | torch |
+| Device | MPS (Apple Silicon) or CPU | CUDA (if GPU) or CPU |
+| Audio playback | `afplay` | `ffplay` (from ffmpeg) |
+| File open | `open` | `xdg-open` |
+| Clipboard | `pbpaste` | `xclip` (not available in Colab) |
+| Network binding | `127.0.0.1` | `0.0.0.0` (Colab auto-detected) |
+| Gradio sharing | Manual (`--share`) | Auto-enabled in Colab |
+
+### Linux Installation (non-Colab)
+
+```bash
+# Install system dependencies
+sudo apt-get install -y ffmpeg
+
+# Install Python dependencies
+pip install -r requirements-cuda.txt
+
+# Start the server
+python voice_server.py
+
+# Launch the UI
+python voice_ui.py --share
+```
+
+### Platform Detection
+
+The system uses these constants (defined in `voice_config.py`):
+- `IN_COLAB` — `True` when running inside Google Colab
+- `IS_MACOS` — `True` on macOS
+- `IS_LINUX` — `True` on Linux
+- `get_device()` — returns `"cuda"`, `"mps"`, or `"cpu"` based on platform and hardware
+
+---
+
 ## Tips & Best Practices
 
 ### For Best Quality
@@ -1020,7 +1099,7 @@ Run the test suite (no GPU, models, or running server required):
 python -m unittest discover -v tests/
 ```
 
-161 tests covering config, server validation, authentication, SSML/SRT parsing, filename logic, backend config, MLX voice prompts, backend dispatch, model size (0.6B), streaming, ASR, stability hardening, text chunking, server endpoints, UI history functions, cancel behavior, generation state tracking, model settings UI, and `/update-model-config` endpoint. MLX-specific import tests are automatically skipped when `mlx` is not installed.
+216 tests covering config, server validation, authentication, SSML/SRT parsing, filename logic, backend config, MLX voice prompts, backend dispatch, model size (0.6B), streaming, ASR, stability hardening, text chunking, server endpoints, UI history functions, cancel behavior, generation state tracking, model settings UI, `/update-model-config` endpoint, MLX voice prompt caching, ETA caching, generation result caching, voice prompt management (delete/rename/preview/details), platform detection, device-aware engine loading, and platform-safe commands. MLX-specific import tests are automatically skipped when `mlx` is not installed.
 
 ---
 
@@ -1038,6 +1117,8 @@ python -m unittest discover -v tests/
 ├── config.json             # Configuration
 ├── create_custom_voice.py  # Voice cloning script
 ├── requirements-mlx.txt    # MLX backend dependencies
+├── requirements-cuda.txt   # CUDA/Colab dependencies
+├── colab_notebook.ipynb    # Ready-to-run Google Colab notebook
 ├── voice_prompts/          # Voice prompt files (.pt + .wav/.txt for MLX)
 ├── bin/                    # Wrapper scripts (canonical source)
 │   ├── changeVoice
@@ -1068,7 +1149,7 @@ python -m unittest discover -v tests/
 
 ## Version History
 
-All features implemented across 17 phases:
+All features implemented across 21 phases:
 
 - **Phase 1:** Core usability (`--play`, `--clipboard`, `--trim-silence`, `--dry-run`)
 - **Phase 2:** Workflow (`--voice` aliases, `--history`, `--stats`, prompt management)
@@ -1089,3 +1170,7 @@ All features implemented across 17 phases:
 - **Phase 17:** Stability hardening (float32 clone guard, model download retry, Metal crash recovery)
 - **Phase 18:** UI history integration & improvements (auto-update history panel after generation, cancel clears audio player, MLX memory stats, generation state tracking fixes)
 - **Phase 19:** MLX-First Architecture (MLX as default backend, hardware detection, `configureTTS` command, UI model selection, `/update-model-config` endpoint)
+- **Phase 20:** Cleanup & Stabilization (bug fixes, file rename to `voice_*` prefix, duplicate code consolidation, `MODEL_INFO` lookup fix, graceful `ImportError` handling)
+- **Phase 21b:** Performance & Caching (MLX voice prompt cache, ETA cache with 30s TTL, generation result cache with double-checked locking, cache invalidation on model config change)
+- **Phase 21a:** Voice Management UI (preview/rename/delete/set-default voice prompts via Gradio "Manage Voices" tab, 4 new server endpoints, cross-tab state sync)
+- **Phase 21c:** Google Colab & Linux Support (platform detection, device-aware model loading, CUDA memory cleanup, platform-safe audio/clipboard/open commands, Colab auto-binding, ready-to-run notebook)
