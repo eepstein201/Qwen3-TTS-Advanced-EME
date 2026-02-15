@@ -129,9 +129,15 @@ def _install_mps_patch():
 
     Called once on first torch backend use. Patches torch.multinomial to
     cast to float32 and sanitize NaN/Inf before sampling on MPS devices.
+    Only runs on macOS — skipped on Linux/Colab where MPS is not available.
     """
     global _mps_patch_installed
     if _mps_patch_installed:
+        return
+
+    from voice_config import IS_MACOS
+    if not IS_MACOS:
+        _mps_patch_installed = True  # Mark as done, no patch needed
         return
 
     import torch
@@ -241,10 +247,14 @@ def _load_model_torch(model_type):
     last_error = None
     for attempt in range(len(_RETRY_DELAYS) + 1):
         try:
+            from voice_config import get_device
+            device = get_device()
+            # CUDA uses "auto" for multi-GPU support; MPS/CPU use device name directly
+            device_map = "auto" if device == "cuda" else device
             model = Qwen3TTSModel.from_pretrained(
                 repo_id,
                 attn_implementation="sdpa",
-                device_map="mps",
+                device_map=device_map,
                 dtype=torch_dtype,
             )
             elapsed = time.time() - t0
@@ -341,13 +351,23 @@ def _run_inference_torch(model, text, mode, gen_params, language="English",
             raise
         raise
 
-    # MPS memory management
+    # Device memory management
     if torch.backends.mps.is_available():
         try:
             torch.mps.empty_cache()
             peak = torch.mps.current_allocated_memory()
             logger.debug(
                 "MPS memory after generation: %.1f MB",
+                peak / (1024 * 1024),
+            )
+        except Exception:
+            pass
+    elif torch.cuda.is_available():
+        try:
+            torch.cuda.empty_cache()
+            peak = torch.cuda.max_memory_allocated()
+            logger.debug(
+                "CUDA memory after generation: %.1f MB",
                 peak / (1024 * 1024),
             )
         except Exception:

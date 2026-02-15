@@ -68,6 +68,7 @@ The codebase uses a layered architecture to avoid loading heavy dependencies (to
 | `voice_ui.py` | Gradio web interface with auto-load, progress bars, stop server button | No (HTTP only) |
 | `create_custom_voice.py` | Voice clone prompt creation from audio files, saves dual-format (.pt + .wav/.txt) | Yes (via voice_engine) |
 | `requirements-mlx.txt` | MLX backend dependencies (separate conda env) | N/A |
+| `requirements-cuda.txt` | CUDA/Colab dependencies | N/A |
 
 ### Files in this directory
 - `install.sh` - Automated installation script (torch + optional MLX envs, wrapper scripts)
@@ -80,9 +81,11 @@ The codebase uses a layered architecture to avoid loading heavy dependencies (to
 - `config.json` - Settings: server, generation params, presets, security, backend selection
 - `create_custom_voice.py` - Voice clone prompt creation (saves .pt + .wav/.txt dual format)
 - `requirements-mlx.txt` - MLX backend pip dependencies (for `qwen3-tts-mlx` env)
+- `requirements-cuda.txt` - CUDA/Colab pip dependencies (torch, bitsandbytes, scipy)
+- `colab_notebook.ipynb` - Ready-to-run Google Colab notebook
 - `voice_prompts/` - Voice clone files (.pt for torch, .wav/.txt for MLX)
 - `bin/` - Wrapper scripts (canonical source, copied to ~/bin/ by install.sh)
-- `tests/` - Test suite: 204 tests (`python -m unittest discover -v tests/`)
+- `tests/` - Test suite: 216 tests (`python -m unittest discover -v tests/`)
 
 ### Wrapper scripts in ~/bin/ (installed from bin/)
 - `changeVoice` - Server detection, generation, post-generation menu; auto-selects conda env by backend
@@ -173,6 +176,7 @@ Output filenames auto-increment: `output.wav` -> `output_2.wav` -> `output_3.wav
 |-------------|---------|-------------|---------------------|
 | `qwen3-tts` | torch (default) | qwen-tts, torch, flask, soundfile, gradio | 4.57.3 |
 | `qwen3-tts-mlx` | mlx | mlx-audio, mlx, mlx-lm, flask, gradio | 5.0.0rc3 |
+| (Colab/pip) | torch (CUDA) | torch, qwen-tts, flask, gradio, bitsandbytes | 4.57.3 |
 
 The two environments cannot be merged due to a hard `transformers` version conflict between `qwen-tts` and `mlx-audio`. Wrapper scripts automatically activate the correct environment based on `config.json`.
 
@@ -220,7 +224,7 @@ Run the test suite (no GPU, models, or running server required):
 python -m unittest discover -v tests/
 ```
 
-204 tests across 48 test classes (2 skipped when MLX not installed):
+216 tests across 51 test classes (2 skipped when MLX not installed):
 - `TestTTSConfig` - error hierarchy, format helpers, auth token, model info, speakers
 - `TestServerValidation` - text length, batch size, mode, speaker, path traversal
 - `TestServerAuth` - public endpoints, auth enforcement, token validation
@@ -270,6 +274,9 @@ python -m unittest discover -v tests/
 - `TestClientPromptManagement` - client method signatures, list_prompts server usage
 - `TestSetDefaultClonePrompt` - set_default_clone_prompt writes config
 - `TestVoiceManagementUI` - UI helper functions exist (table, preview, rename, delete, default)
+- `TestPlatformDetection` - IN_COLAB, IS_MACOS, IS_LINUX, get_device() with mocked platforms
+- `TestDeviceAwareEngine` - get_device usage, IS_MACOS guard, CUDA memory cleanup
+- `TestPlatformSafeCommands` - play_audio, get_clipboard_text, open_file platform checks
 
 ## Config Structure (config.json)
 ```json
@@ -517,7 +524,7 @@ See README.md for full phase history.
 - [x] Fix stale references and `MODEL_INFO` lookup bug (Phase 20e) — updated imports after rename
 - [x] Handle `ImportError` in `/load-model` endpoint gracefully — returns structured error instead of 500
 
-### Phase 21: Voice Management, Performance & Colab Support 🔧 IN PROGRESS
+### Phase 21: Voice Management, Performance & Colab Support ✅ COMPLETE
 
 **Implementation order:** 21b → 21a → 21c (each sub-phase gets its own commit)
 
@@ -563,15 +570,15 @@ See README.md for full phase history.
 
 **Status:** Complete. All 204 tests pass.
 
-#### Phase 21c: Google Colab Support ⬜ NOT STARTED
+#### Phase 21c: Google Colab Support ✅ COMPLETE
 
-**Planned changes (from approved plan):**
-- `voice_config.py` — `IN_COLAB`, `IS_MACOS`, `IS_LINUX` constants; `get_device()` function
-- `voice_engine.py` — device-aware model loading (replace hardcoded `"mps"`), CUDA memory stats
-- `voice_generate.py` — platform-safe `get_clipboard_text()`, `play_audio()`, `open` commands
+**Changes made:**
+- `voice_config.py` — `IN_COLAB`, `IS_MACOS`, `IS_LINUX` constants; `get_device()` returns "cuda"/"mps"/"cpu"; `get_backend()` defaults to "torch" on non-macOS
+- `voice_engine.py` — device-aware model loading (`get_device()` replaces hardcoded `"mps"`), MPS patch guarded by `IS_MACOS`, CUDA memory cleanup added
+- `voice_generate.py` — platform-safe `play_audio()`, `get_clipboard_text()`, `open_file()` helper; streaming playback uses `play_audio()`
 - `voice_server.py` — auto-bind `0.0.0.0` on Colab
-- `voice_ui.py` — auto `share=True` + `server_name="0.0.0.0"` on Colab
-- New: `requirements-cuda.txt`, `colab_notebook.ipynb`
-- `tests/test_voice.py` — ~10-12 new tests
+- `voice_ui.py` — auto `share=True`, `server_name="0.0.0.0"`, skip `inbrowser` on Colab; port detection uses Colab-aware bind address
+- New: `requirements-cuda.txt` (with bitsandbytes, scipy), `colab_notebook.ipynb` (with apt-get ffmpeg)
+- `tests/test_voice.py` — 12 new tests (204 → 216)
 
-**Full plan transcript:** `/Users/ericepstein/.claude/projects/-Users-ericepstein-Qwen3-TTS-UserFiles/6e4b0383-2087-4fb4-b470-730d0f786893.jsonl`
+**Status:** Complete. All 216 tests pass.

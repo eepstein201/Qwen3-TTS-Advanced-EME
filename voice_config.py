@@ -11,8 +11,18 @@ This module provides:
 
 import json
 import os
+import platform
+import sys
 
 import requests
+
+# ---------------------------------------------------------------------------
+# Platform detection
+# ---------------------------------------------------------------------------
+
+IN_COLAB = "google.colab" in sys.modules
+IS_MACOS = platform.system() == "Darwin"
+IS_LINUX = platform.system() == "Linux"
 
 # ---------------------------------------------------------------------------
 # Path constants
@@ -85,6 +95,22 @@ def set_default_clone_prompt(prompt_name, config=None):
     save_config(config)
 
 
+def get_device():
+    """Return the PyTorch device string for this platform.
+
+    No torch import — uses environment/platform detection only.
+    Returns: 'cuda', 'mps', or 'cpu'
+    """
+    if IN_COLAB or IS_LINUX:
+        if (os.environ.get("CUDA_VISIBLE_DEVICES") is not None
+                or os.path.exists("/dev/nvidia0")):
+            return "cuda"
+        return "cpu"
+    if IS_MACOS and platform.machine() == "arm64":
+        return "mps"
+    return "cpu"
+
+
 def get_server_url(config):
     """Return the server base URL from a config dict."""
     server = config.get("server", {})
@@ -149,19 +175,23 @@ def get_backend():
 
     Returns:
         A string: "torch" or "mlx".
-        Defaults to "mlx" if not set or invalid (Apple Silicon optimized).
+        Defaults to "mlx" on macOS ARM64 (Apple Silicon optimized),
+        "torch" on all other platforms (Colab/Linux/Intel Mac).
     """
+    # Platform-aware default: MLX only on Apple Silicon
+    _default = "mlx" if (IS_MACOS and platform.machine() == "arm64") else "torch"
+
     # Environment variable override (set by --backend CLI flag)
     env_backend = os.environ.get("TTS_BACKEND")
     if env_backend and env_backend in VALID_BACKENDS:
         return env_backend
     try:
         config = load_config()
-        backend = config.get("advanced", {}).get("backend", "mlx")
+        backend = config.get("advanced", {}).get("backend", _default)
     except Exception:
-        backend = "mlx"
+        backend = _default
     if backend not in VALID_BACKENDS:
-        backend = "mlx"
+        backend = _default
     return backend
 
 

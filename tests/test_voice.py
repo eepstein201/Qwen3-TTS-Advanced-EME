@@ -2357,5 +2357,124 @@ class TestVoiceManagementUI(unittest.TestCase):
         self.assertTrue(callable(set_voice_default))
 
 
+# =============================================================================
+# Phase 21c: Platform detection and Colab support tests
+# =============================================================================
+
+class TestPlatformDetection(unittest.TestCase):
+    """Test platform detection constants and get_device()."""
+
+    def test_platform_constants_exist(self):
+        """voice_config has IN_COLAB, IS_MACOS, IS_LINUX constants."""
+        from voice_config import IN_COLAB, IS_MACOS, IS_LINUX
+        self.assertIsInstance(IN_COLAB, bool)
+        self.assertIsInstance(IS_MACOS, bool)
+        self.assertIsInstance(IS_LINUX, bool)
+
+    def test_get_device_exists(self):
+        """voice_config has get_device function."""
+        from voice_config import get_device
+        self.assertTrue(callable(get_device))
+        result = get_device()
+        self.assertIn(result, ("cuda", "mps", "cpu"))
+
+    def test_get_device_returns_mps_on_macos_arm(self):
+        """get_device returns 'mps' on macOS ARM64."""
+        import platform as _platform
+        with patch("voice_config.IS_MACOS", True), \
+             patch("voice_config.IS_LINUX", False), \
+             patch("voice_config.IN_COLAB", False), \
+             patch("voice_config.platform.machine", return_value="arm64"):
+            from voice_config import get_device
+            result = get_device()
+        self.assertEqual(result, "mps")
+
+    def test_get_device_returns_cuda_with_env(self):
+        """get_device returns 'cuda' when CUDA_VISIBLE_DEVICES is set."""
+        with patch("voice_config.IS_MACOS", False), \
+             patch("voice_config.IS_LINUX", True), \
+             patch("voice_config.IN_COLAB", False), \
+             patch.dict(os.environ, {"CUDA_VISIBLE_DEVICES": "0"}):
+            from voice_config import get_device
+            result = get_device()
+        self.assertEqual(result, "cuda")
+
+    def test_get_device_returns_cpu_fallback(self):
+        """get_device returns 'cpu' when no GPU available."""
+        with patch("voice_config.IS_MACOS", False), \
+             patch("voice_config.IS_LINUX", True), \
+             patch("voice_config.IN_COLAB", False), \
+             patch.dict(os.environ, {}, clear=True), \
+             patch("voice_config.os.path.exists", return_value=False):
+            from voice_config import get_device
+            # Need to remove CUDA_VISIBLE_DEVICES if present
+            env = os.environ.copy()
+            env.pop("CUDA_VISIBLE_DEVICES", None)
+            with patch.dict(os.environ, env, clear=True):
+                result = get_device()
+        self.assertEqual(result, "cpu")
+
+
+class TestDeviceAwareEngine(unittest.TestCase):
+    """Test device-aware engine code."""
+
+    def test_load_model_torch_uses_get_device(self):
+        """_load_model_torch uses get_device() for device_map."""
+        import inspect
+        from voice_engine import _load_model_torch
+        source = inspect.getsource(_load_model_torch)
+        self.assertIn("get_device", source)
+        self.assertNotIn('device_map="mps"', source)
+
+    def test_install_mps_patch_checks_platform(self):
+        """_install_mps_patch checks IS_MACOS before patching."""
+        import inspect
+        from voice_engine import _install_mps_patch
+        source = inspect.getsource(_install_mps_patch)
+        self.assertIn("IS_MACOS", source)
+
+    def test_cuda_memory_cleanup_exists(self):
+        """_run_inference_torch has CUDA memory cleanup code."""
+        import inspect
+        from voice_engine import _run_inference_torch
+        source = inspect.getsource(_run_inference_torch)
+        self.assertIn("torch.cuda.is_available", source)
+        self.assertIn("torch.cuda.empty_cache", source)
+
+
+class TestPlatformSafeCommands(unittest.TestCase):
+    """Test platform-safe command helpers in voice_generate."""
+
+    def test_play_audio_checks_platform(self):
+        """play_audio checks platform before choosing command."""
+        import inspect
+        from voice_generate import play_audio
+        source = inspect.getsource(play_audio)
+        self.assertIn("IS_MACOS", source)
+        self.assertIn("IS_LINUX", source)
+        self.assertIn("IN_COLAB", source)
+
+    def test_get_clipboard_text_checks_platform(self):
+        """get_clipboard_text checks platform before choosing command."""
+        import inspect
+        from voice_generate import get_clipboard_text
+        source = inspect.getsource(get_clipboard_text)
+        self.assertIn("IS_MACOS", source)
+        self.assertIn("IS_LINUX", source)
+
+    def test_open_file_exists(self):
+        """voice_generate has open_file helper function."""
+        from voice_generate import open_file
+        self.assertTrue(callable(open_file))
+
+    def test_open_file_handles_missing_xdg(self):
+        """open_file wraps xdg-open in try/except."""
+        import inspect
+        from voice_generate import open_file
+        source = inspect.getsource(open_file)
+        self.assertIn("FileNotFoundError", source)
+        self.assertIn("xdg-open", source)
+
+
 if __name__ == "__main__":
     unittest.main()

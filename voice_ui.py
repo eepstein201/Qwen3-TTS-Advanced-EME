@@ -1171,11 +1171,13 @@ def _find_available_port(preferred, max_tries=10):
     Scans preferred .. preferred+max_tries-1.  Returns None if all are taken.
     """
     import socket
+    from voice_config import IN_COLAB
+    bind_addr = "0.0.0.0" if IN_COLAB else "127.0.0.1"
     for offset in range(max_tries):
         port = preferred + offset
         try:
             with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
-                s.bind(("127.0.0.1", port))
+                s.bind((bind_addr, port))
                 return port
         except OSError:
             continue
@@ -1218,12 +1220,16 @@ def main():
         print("the server is running.")
         print("=" * 60 + "\n")
 
+    from voice_config import IN_COLAB
     demo = build_ui()
+    server_name = "0.0.0.0" if IN_COLAB else "127.0.0.1"
+    share = args.share or IN_COLAB
+    inbrowser = not args.no_browser and not IN_COLAB
     demo.launch(
-        server_name="127.0.0.1",
+        server_name=server_name,
         server_port=port,
-        share=args.share,
-        inbrowser=not args.no_browser,
+        share=share,
+        inbrowser=inbrowser,
         theme=gr.themes.Soft()
     )
 

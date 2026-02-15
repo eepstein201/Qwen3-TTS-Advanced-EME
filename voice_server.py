@@ -1252,6 +1252,11 @@ if __name__ == "__main__":
         host = "0.0.0.0"
         logger.warning("Binding to 0.0.0.0 — server is accessible from the network.")
 
+    from voice_config import IN_COLAB
+    if IN_COLAB:
+        host = "0.0.0.0"
+        logger.info("Colab detected — binding to 0.0.0.0 for tunnel access.")
+
     # Handle shutdown signals
     signal.signal(signal.SIGTERM, cleanup_pid)
     signal.signal(signal.SIGINT, cleanup_pid)
