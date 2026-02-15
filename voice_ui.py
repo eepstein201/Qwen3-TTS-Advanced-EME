@@ -470,7 +470,9 @@ def _generate_streaming_impl(mode, text, preset, temperature, top_k, top_p, rep_
         output_path = _save_streaming_audio(all_chunks, sample_rate)
         if output_path:
             add_to_history(mode, text, output_path, chunk_count)
-            yield output_path, f"Complete: {chunk_count} chunks", format_status_display(), get_history_data()
+            # Use gr.update with autoplay=False so the saved file doesn't replay
+            # (the audio was already played during streaming)
+            yield gr.update(value=output_path, autoplay=False), f"Complete: {chunk_count} chunks", format_status_display(), get_history_data()
         else:
             yield None, "Error: No audio was generated", format_status_display(), gr.update()
 
