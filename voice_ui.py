@@ -715,7 +715,7 @@ def build_ui():
         stop_btn.click(
             fn=stop_server,
             outputs=status_html,
-            js="(x) => { if (!confirm('Stop the TTS server? Generation will be unavailable until you restart.')) throw new Error('Cancelled'); return x; }",
+            js="() => { if (!confirm('Stop the TTS server? Generation will be unavailable until you restart.')) throw new Error('Cancelled'); }",
         )
 
         # Model Settings (MLX-first architecture)
@@ -1154,7 +1154,7 @@ def build_ui():
                     fn=delete_voice,
                     inputs=[manage_selected],
                     outputs=[manage_status, manage_table, clone_prompt],
-                    js="(x) => { if (!confirm('Delete this voice prompt? This cannot be undone.')) throw new Error('Cancelled'); return x; }",
+                    js="() => { if (!confirm('Delete this voice prompt? This cannot be undone.')) throw new Error('Cancelled'); }",
                 )
 
         # Footer
