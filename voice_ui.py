@@ -600,7 +600,7 @@ def generate_custom(text, speaker_choice, instruct, preset, temperature, top_k, 
 # Build UI
 # =============================================================================
 
-def stop_server():
+def stop_server(*_args):
     """Stop the TTS server via /shutdown endpoint."""
     import requests as _requests
     client = TTSClient()
