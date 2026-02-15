@@ -1103,10 +1103,17 @@ def build_ui():
 
                 # Row selection -> populate selected name
                 def on_table_select(evt: gr.SelectData, table_data):
-                    if evt.index and len(evt.index) >= 1:
+                    try:
                         row_idx = evt.index[0]
-                        if table_data and row_idx < len(table_data):
+                        if hasattr(table_data, "iloc"):
+                            # pandas DataFrame from Gradio Dataframe component
+                            if row_idx < len(table_data):
+                                return str(table_data.iloc[row_idx, 0])
+                        elif table_data and row_idx < len(table_data):
+                            # list of lists fallback
                             return table_data[row_idx][0]
+                    except (IndexError, TypeError, KeyError):
+                        pass
                     return ""
 
                 manage_table.select(
