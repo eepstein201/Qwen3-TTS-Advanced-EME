@@ -2038,5 +2038,324 @@ class TestGenerationCache(unittest.TestCase):
         self.assertIn("_gen_cache_invalidate", source)
 
 
+# =============================================================================
+# Phase 21a: Voice management endpoint tests
+# =============================================================================
+
+class TestDeletePromptEndpoint(unittest.TestCase):
+    """Test POST /delete-prompt endpoint."""
+
+    @classmethod
+    def setUpClass(cls):
+        import voice_server
+        voice_server.auth_token = "test_secret_token"
+        voice_server.server_config = {
+            "security": {"max_text_length": 100, "max_batch_size": 3},
+            "auto_shutdown_minutes": 0,
+        }
+        cls.app = voice_server.app
+        cls.app.testing = True
+        cls.client = cls.app.test_client()
+        cls.auth = {"Authorization": "Bearer test_secret_token"}
+
+    def setUp(self):
+        self.tmpdir = tempfile.mkdtemp()
+        # Create fake voice files
+        for ext in (".pt", ".wav", ".txt"):
+            with open(os.path.join(self.tmpdir, f"test_voice{ext}"), "w") as f:
+                f.write("fake")
+
+    def tearDown(self):
+        import shutil
+        shutil.rmtree(self.tmpdir, ignore_errors=True)
+
+    def test_delete_requires_auth(self):
+        """POST /delete-prompt requires authentication."""
+        resp = self.client.post("/delete-prompt", json={"name": "test"})
+        self.assertEqual(resp.status_code, 401)
+
+    def test_delete_path_traversal(self):
+        """POST /delete-prompt rejects path traversal."""
+        resp = self.client.post("/delete-prompt", json={"name": "../etc/passwd"},
+                                headers=self.auth)
+        self.assertEqual(resp.status_code, 400)
+        self.assertIn("path traversal", resp.get_json()["error"])
+
+    def test_delete_nonexistent(self):
+        """POST /delete-prompt returns 404 for missing prompt."""
+        with patch("voice_server.VOICE_PROMPTS_DIR", self.tmpdir):
+            resp = self.client.post("/delete-prompt", json={"name": "nonexistent"},
+                                    headers=self.auth)
+        self.assertEqual(resp.status_code, 404)
+
+    def test_delete_success(self):
+        """POST /delete-prompt deletes all format files."""
+        with patch("voice_server.VOICE_PROMPTS_DIR", self.tmpdir):
+            resp = self.client.post("/delete-prompt", json={"name": "test_voice"},
+                                    headers=self.auth)
+        self.assertEqual(resp.status_code, 200)
+        data = resp.get_json()
+        self.assertEqual(data["status"], "deleted")
+        self.assertEqual(len(data["files_removed"]), 3)
+        # Verify files are gone
+        for ext in (".pt", ".wav", ".txt"):
+            self.assertFalse(os.path.exists(os.path.join(self.tmpdir, f"test_voice{ext}")))
+
+
+class TestRenamePromptEndpoint(unittest.TestCase):
+    """Test POST /rename-prompt endpoint."""
+
+    @classmethod
+    def setUpClass(cls):
+        import voice_server
+        voice_server.auth_token = "test_secret_token"
+        voice_server.server_config = {
+            "security": {"max_text_length": 100, "max_batch_size": 3},
+            "auto_shutdown_minutes": 0,
+        }
+        cls.app = voice_server.app
+        cls.app.testing = True
+        cls.client = cls.app.test_client()
+        cls.auth = {"Authorization": "Bearer test_secret_token"}
+
+    def setUp(self):
+        self.tmpdir = tempfile.mkdtemp()
+        for ext in (".pt", ".wav", ".txt"):
+            with open(os.path.join(self.tmpdir, f"old_voice{ext}"), "w") as f:
+                f.write("fake")
+
+    def tearDown(self):
+        import shutil
+        shutil.rmtree(self.tmpdir, ignore_errors=True)
+
+    def test_rename_requires_auth(self):
+        """POST /rename-prompt requires authentication."""
+        resp = self.client.post("/rename-prompt", json={"old_name": "a", "new_name": "b"})
+        self.assertEqual(resp.status_code, 401)
+
+    def test_rename_path_traversal(self):
+        """POST /rename-prompt rejects path traversal in both names."""
+        resp = self.client.post("/rename-prompt",
+                                json={"old_name": "../bad", "new_name": "ok"},
+                                headers=self.auth)
+        self.assertEqual(resp.status_code, 400)
+        resp = self.client.post("/rename-prompt",
+                                json={"old_name": "ok", "new_name": "../bad"},
+                                headers=self.auth)
+        self.assertEqual(resp.status_code, 400)
+
+    def test_rename_collision(self):
+        """POST /rename-prompt returns 409 when new name already exists."""
+        # Create collision target
+        with open(os.path.join(self.tmpdir, "existing.wav"), "w") as f:
+            f.write("fake")
+        with patch("voice_server.VOICE_PROMPTS_DIR", self.tmpdir):
+            resp = self.client.post("/rename-prompt",
+                                    json={"old_name": "old_voice", "new_name": "existing"},
+                                    headers=self.auth)
+        self.assertEqual(resp.status_code, 409)
+
+    def test_rename_success(self):
+        """POST /rename-prompt renames all format files."""
+        with patch("voice_server.VOICE_PROMPTS_DIR", self.tmpdir):
+            resp = self.client.post("/rename-prompt",
+                                    json={"old_name": "old_voice", "new_name": "new_voice"},
+                                    headers=self.auth)
+        self.assertEqual(resp.status_code, 200)
+        data = resp.get_json()
+        self.assertEqual(data["status"], "renamed")
+        # Old files should be gone, new files should exist
+        for ext in (".pt", ".wav", ".txt"):
+            self.assertFalse(os.path.exists(os.path.join(self.tmpdir, f"old_voice{ext}")))
+            self.assertTrue(os.path.exists(os.path.join(self.tmpdir, f"new_voice{ext}")))
+
+    def test_rename_not_found(self):
+        """POST /rename-prompt returns 404 for missing prompt."""
+        with patch("voice_server.VOICE_PROMPTS_DIR", self.tmpdir):
+            resp = self.client.post("/rename-prompt",
+                                    json={"old_name": "nonexistent", "new_name": "new"},
+                                    headers=self.auth)
+        self.assertEqual(resp.status_code, 404)
+
+
+class TestPreviewPromptEndpoint(unittest.TestCase):
+    """Test GET /preview-prompt endpoint."""
+
+    @classmethod
+    def setUpClass(cls):
+        import voice_server
+        voice_server.auth_token = "test_secret_token"
+        voice_server.server_config = {
+            "security": {"max_text_length": 100, "max_batch_size": 3},
+            "auto_shutdown_minutes": 0,
+        }
+        cls.app = voice_server.app
+        cls.app.testing = True
+        cls.client = cls.app.test_client()
+        cls.auth = {"Authorization": "Bearer test_secret_token"}
+
+    def setUp(self):
+        self.tmpdir = tempfile.mkdtemp()
+        with open(os.path.join(self.tmpdir, "test_voice.wav"), "wb") as f:
+            f.write(b"RIFF\x00\x00\x00\x00WAVEfmt ")
+
+    def tearDown(self):
+        import shutil
+        shutil.rmtree(self.tmpdir, ignore_errors=True)
+
+    def test_preview_requires_auth(self):
+        """GET /preview-prompt requires authentication."""
+        resp = self.client.get("/preview-prompt?name=test")
+        self.assertEqual(resp.status_code, 401)
+
+    def test_preview_not_found(self):
+        """GET /preview-prompt returns 404 for missing prompt."""
+        with patch("voice_server.VOICE_PROMPTS_DIR", self.tmpdir):
+            resp = self.client.get("/preview-prompt?name=nonexistent",
+                                   headers=self.auth)
+        self.assertEqual(resp.status_code, 404)
+
+    def test_preview_returns_audio(self):
+        """GET /preview-prompt returns audio/wav content."""
+        with patch("voice_server.VOICE_PROMPTS_DIR", self.tmpdir):
+            resp = self.client.get("/preview-prompt?name=test_voice",
+                                   headers=self.auth)
+        self.assertEqual(resp.status_code, 200)
+        self.assertIn("audio/wav", resp.content_type)
+
+
+class TestPromptDetailsEndpoint(unittest.TestCase):
+    """Test GET /prompt-details endpoint."""
+
+    @classmethod
+    def setUpClass(cls):
+        import voice_server
+        voice_server.auth_token = "test_secret_token"
+        voice_server.server_config = {
+            "security": {"max_text_length": 100, "max_batch_size": 3},
+            "auto_shutdown_minutes": 0,
+        }
+        cls.app = voice_server.app
+        cls.app.testing = True
+        cls.client = cls.app.test_client()
+        cls.auth = {"Authorization": "Bearer test_secret_token"}
+
+    def setUp(self):
+        self.tmpdir = tempfile.mkdtemp()
+        for ext in (".pt", ".wav", ".txt"):
+            with open(os.path.join(self.tmpdir, f"voice_a{ext}"), "w") as f:
+                f.write("fake data here")
+
+    def tearDown(self):
+        import shutil
+        shutil.rmtree(self.tmpdir, ignore_errors=True)
+
+    def test_details_requires_auth(self):
+        """GET /prompt-details requires authentication."""
+        resp = self.client.get("/prompt-details?name=test")
+        self.assertEqual(resp.status_code, 401)
+
+    def test_details_single_prompt(self):
+        """GET /prompt-details?name=X returns metadata for one prompt."""
+        with patch("voice_server.VOICE_PROMPTS_DIR", self.tmpdir):
+            resp = self.client.get("/prompt-details?name=voice_a",
+                                   headers=self.auth)
+        self.assertEqual(resp.status_code, 200)
+        data = resp.get_json()
+        self.assertEqual(data["name"], "voice_a")
+        self.assertIn(".pt", data["formats"])
+        self.assertIn(".wav", data["formats"])
+        self.assertIn(".txt", data["formats"])
+        self.assertGreater(data["size_bytes"], 0)
+
+    def test_details_all_prompts(self):
+        """GET /prompt-details without name returns all prompts."""
+        with patch("voice_server.VOICE_PROMPTS_DIR", self.tmpdir):
+            resp = self.client.get("/prompt-details", headers=self.auth)
+        self.assertEqual(resp.status_code, 200)
+        data = resp.get_json()
+        self.assertIn("prompts", data)
+        self.assertEqual(len(data["prompts"]), 1)
+        self.assertEqual(data["prompts"][0]["name"], "voice_a")
+
+
+class TestClientPromptManagement(unittest.TestCase):
+    """Test voice_client prompt management method signatures."""
+
+    def test_delete_prompt_method_exists(self):
+        """TTSClient has delete_prompt method."""
+        from voice_client import TTSClient
+        self.assertTrue(hasattr(TTSClient, "delete_prompt"))
+
+    def test_rename_prompt_method_exists(self):
+        """TTSClient has rename_prompt method."""
+        from voice_client import TTSClient
+        self.assertTrue(hasattr(TTSClient, "rename_prompt"))
+
+    def test_preview_prompt_method_exists(self):
+        """TTSClient has preview_prompt method."""
+        from voice_client import TTSClient
+        self.assertTrue(hasattr(TTSClient, "preview_prompt"))
+
+    def test_get_prompt_details_method_exists(self):
+        """TTSClient has get_prompt_details method."""
+        from voice_client import TTSClient
+        self.assertTrue(hasattr(TTSClient, "get_prompt_details"))
+
+    def test_list_prompts_uses_server(self):
+        """list_prompts calls server /prompts when running."""
+        import inspect
+        from voice_client import TTSClient
+        source = inspect.getsource(TTSClient.list_prompts)
+        self.assertIn("/prompts", source)
+        self.assertIn("is_server_running", source)
+
+
+class TestSetDefaultClonePrompt(unittest.TestCase):
+    """Test set_default_clone_prompt config helper."""
+
+    def test_set_default_writes_config(self):
+        """set_default_clone_prompt updates config.json."""
+        from voice_config import set_default_clone_prompt, load_config, save_config, CONFIG_PATH
+        # Save original config
+        original = load_config()
+        try:
+            set_default_clone_prompt("test_voice.pt")
+            config = load_config()
+            self.assertEqual(config["default_clone_prompt"], "test_voice.pt")
+        finally:
+            # Restore original config
+            save_config(original)
+
+
+class TestVoiceManagementUI(unittest.TestCase):
+    """Test voice management UI helper functions."""
+
+    def test_get_prompt_table_data_exists(self):
+        """voice_ui has get_prompt_table_data function."""
+        from voice_ui import get_prompt_table_data
+        self.assertTrue(callable(get_prompt_table_data))
+
+    def test_preview_voice_exists(self):
+        """voice_ui has preview_voice function."""
+        from voice_ui import preview_voice
+        self.assertTrue(callable(preview_voice))
+
+    def test_rename_voice_exists(self):
+        """voice_ui has rename_voice function."""
+        from voice_ui import rename_voice
+        self.assertTrue(callable(rename_voice))
+
+    def test_delete_voice_exists(self):
+        """voice_ui has delete_voice function."""
+        from voice_ui import delete_voice
+        self.assertTrue(callable(delete_voice))
+
+    def test_set_voice_default_exists(self):
+        """voice_ui has set_voice_default function."""
+        from voice_ui import set_voice_default
+        self.assertTrue(callable(set_voice_default))
+
+
 if __name__ == "__main__":
     unittest.main()
