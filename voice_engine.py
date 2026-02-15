@@ -1023,16 +1023,87 @@ def process_audio(audio, sample_rate, trim=False, normalize=False,
 # Audio transcription (ASR) — lazy loading, MLX backend only
 # ---------------------------------------------------------------------------
 
-# ASR model cache — NOT loaded at startup, only on first transcribe_audio() call
-_asr_model = None
+# ASR model caches — NOT loaded at startup, only on first transcribe_audio() call
+_asr_model_mlx = None
+_asr_model_torch = None
+
+
+def _transcribe_mlx(audio_path, language="en"):
+    """Transcribe using MLX ASR (Apple Silicon)."""
+    global _asr_model_mlx
+
+    if _asr_model_mlx is None:
+        logger.info("Loading MLX ASR model for transcription (first use)...")
+        t0 = time.time()
+        try:
+            from mlx_audio.stt import load_model as load_stt_model
+            _asr_model_mlx = load_stt_model("mlx-community/whisper-large-v3-turbo")
+            logger.info("MLX ASR model loaded in %.1fs", time.time() - t0)
+        except ImportError as e:
+            raise ImportError(
+                f"ASR transcription requires mlx-audio with STT support: {e}\n"
+                "Update mlx-audio: pip install --upgrade mlx-audio"
+            )
+
+    logger.info("Transcribing (MLX): %s", audio_path)
+    t0 = time.time()
+    try:
+        result = _asr_model_mlx.generate(audio_path, language=language)
+        transcript = result.text.strip() if result.text else ""
+        logger.info("Transcription complete: %d chars in %.1fs", len(transcript), time.time() - t0)
+        return transcript
+    except Exception as e:
+        raise RuntimeError(f"Transcription failed: {e}")
+
+
+def _transcribe_torch(audio_path, language="en"):
+    """Transcribe using transformers Whisper pipeline (CUDA/CPU)."""
+    global _asr_model_torch
+
+    if _asr_model_torch is None:
+        logger.info("Loading torch ASR model for transcription (first use)...")
+        t0 = time.time()
+        try:
+            from transformers import pipeline as hf_pipeline
+            device_name = get_device()
+            if device_name == "cuda":
+                device = 0
+            elif device_name == "mps":
+                device = "mps"
+            else:
+                device = -1
+            _asr_model_torch = hf_pipeline(
+                "automatic-speech-recognition",
+                model="openai/whisper-base",
+                device=device,
+                chunk_length_s=30,
+            )
+            logger.info("Torch ASR model loaded in %.1fs", time.time() - t0)
+        except ImportError as e:
+            raise ImportError(
+                f"ASR transcription requires transformers: {e}\n"
+                "Install with: pip install transformers"
+            )
+
+    logger.info("Transcribing (torch): %s", audio_path)
+    t0 = time.time()
+    try:
+        kwargs = {}
+        if language:
+            kwargs["generate_kwargs"] = {"language": language}
+        result = _asr_model_torch(audio_path, **kwargs)
+        transcript = result["text"].strip() if result.get("text") else ""
+        logger.info("Transcription complete: %d chars in %.1fs", len(transcript), time.time() - t0)
+        return transcript
+    except Exception as e:
+        raise RuntimeError(f"Transcription failed: {e}")
 
 
 def transcribe_audio(audio_path, language="en"):
-    """Transcribe audio file to text using MLX ASR.
+    """Transcribe audio file to text.
 
-    IMPORTANT: This function lazily loads the ASR model on first call.
-    The model is NOT loaded during server startup — only when transcription
-    is explicitly requested (typically via createVoice --auto-transcribe).
+    Dispatches to MLX ASR (Apple Silicon) or torch Whisper (CUDA/CPU)
+    based on configured backend. Lazily loads the ASR model on first call.
 
     Args:
         audio_path: Path to audio file (.wav, .mp3, etc.).
@@ -1042,61 +1113,31 @@ def transcribe_audio(audio_path, language="en"):
         Transcribed text string.
 
     Raises:
-        ImportError: If mlx_audio is not installed (torch backend).
+        ImportError: If required ASR library is not installed.
         RuntimeError: If transcription fails.
     """
-    global _asr_model
-
     backend = get_backend()
-    if backend != "mlx":
-        raise ImportError(
-            "Auto-transcription is only available with the MLX backend. "
-            "Switch to MLX with: changeVoice --backend mlx ...\n"
-            "Or set 'backend': 'mlx' in config.json under 'advanced'."
-        )
-
-    # Lazy load ASR model on first use
-    if _asr_model is None:
-        logger.info("Loading ASR model for transcription (first use)...")
-        t0 = time.time()
-        try:
-            from mlx_audio.stt import load_model as load_stt_model
-
-            # Load the Whisper model for transcription
-            _asr_model = load_stt_model("mlx-community/whisper-large-v3-turbo")
-            elapsed = time.time() - t0
-            logger.info("ASR model loaded in %.1fs", elapsed)
-        except ImportError as e:
-            raise ImportError(
-                f"ASR transcription requires mlx-audio with STT support: {e}\n"
-                "Update mlx-audio: pip install --upgrade mlx-audio"
-            )
-
-    # Perform transcription using model.generate()
-    logger.info("Transcribing: %s", audio_path)
-    t0 = time.time()
-
-    try:
-        result = _asr_model.generate(audio_path, language=language)
-        # Result is an STTOutput object with .text attribute
-        transcript = result.text.strip() if result.text else ""
-        elapsed = time.time() - t0
-        logger.info("Transcription complete: %d chars in %.1fs", len(transcript), elapsed)
-        return transcript
-    except Exception as e:
-        raise RuntimeError(f"Transcription failed: {e}")
+    if backend == "mlx":
+        return _transcribe_mlx(audio_path, language)
+    else:
+        return _transcribe_torch(audio_path, language)
 
 
 def is_asr_available():
     """Check if ASR transcription is available.
 
-    Returns True if using MLX backend and mlx_audio.stt is importable.
+    Returns True if the current backend has a compatible ASR library.
     Does NOT load the ASR model — just checks availability.
     """
-    if get_backend() != "mlx":
-        return False
-    try:
-        from mlx_audio.stt import load_model  # noqa: F401
-        return True
-    except ImportError:
-        return False
+    if get_backend() == "mlx":
+        try:
+            from mlx_audio.stt import load_model  # noqa: F401
+            return True
+        except ImportError:
+            return False
+    else:
+        try:
+            from transformers import pipeline  # noqa: F401
+            return True
+        except ImportError:
+            return False

@@ -869,43 +869,24 @@ class TestASR(unittest.TestCase):
         from voice_engine import is_asr_available
         self.assertTrue(callable(is_asr_available))
 
-    def test_is_asr_available_torch_returns_false(self):
-        """is_asr_available returns False when backend is torch."""
-        from voice_engine import is_asr_available
-        with patch("voice_engine.get_backend", return_value="torch"):
-            self.assertFalse(is_asr_available())
-
-    def test_transcribe_audio_requires_mlx(self):
-        """transcribe_audio raises ImportError when backend is torch."""
-        from voice_engine import transcribe_audio
-        with patch("voice_engine.get_backend", return_value="torch"):
-            with self.assertRaises(ImportError) as ctx:
-                transcribe_audio("/fake/path.wav")
-            self.assertIn("MLX backend", str(ctx.exception))
-
-    def test_asr_model_is_lazy_loaded(self):
-        """_asr_model is None until transcribe_audio is called."""
+    def test_asr_models_are_lazy_loaded(self):
+        """ASR model caches are None until transcribe_audio is called."""
         import voice_engine
-        # The global _asr_model should be None at module level
-        self.assertIsNone(voice_engine._asr_model)
+        self.assertIsNone(voice_engine._asr_model_mlx)
+        self.assertIsNone(voice_engine._asr_model_torch)
 
     def test_is_asr_available_mlx_with_stt(self):
         """is_asr_available returns True when MLX + mlx_audio.stt available."""
         from voice_engine import is_asr_available
         with patch("voice_engine.get_backend", return_value="mlx"):
-            # Mock successful import of load_model
             with patch.dict(sys.modules, {"mlx_audio.stt": MagicMock()}):
-                # Force re-check by clearing any cached imports
                 result = is_asr_available()
-        # Should attempt to import and return True if successful
-        # (actual result depends on whether mlx_audio is installed)
         self.assertIsInstance(result, bool)
 
-    def test_transcribe_audio_returns_string(self):
-        """transcribe_audio returns a string."""
+    def test_transcribe_audio_mlx_returns_string(self):
+        """transcribe_audio returns a string via MLX path."""
         from voice_engine import transcribe_audio
 
-        # Mock the entire transcription flow
         mock_result = MagicMock()
         mock_result.text = "Hello world"
 
@@ -913,11 +894,45 @@ class TestASR(unittest.TestCase):
         mock_model.generate.return_value = mock_result
 
         with patch("voice_engine.get_backend", return_value="mlx"):
-            with patch("voice_engine._asr_model", mock_model):
+            with patch("voice_engine._asr_model_mlx", mock_model):
                 result = transcribe_audio("/fake/path.wav")
 
         self.assertIsInstance(result, str)
         self.assertEqual(result, "Hello world")
+
+    def test_is_asr_available_torch_with_transformers(self):
+        """is_asr_available returns True when torch + transformers available."""
+        from voice_engine import is_asr_available
+        with patch("voice_engine.get_backend", return_value="torch"):
+            result = is_asr_available()
+        # transformers is installed in our env
+        self.assertTrue(result)
+
+    def test_transcribe_audio_torch_dispatches(self):
+        """transcribe_audio uses torch path when backend is torch."""
+        from voice_engine import transcribe_audio
+
+        mock_pipe = MagicMock(return_value={"text": "Torch transcript"})
+
+        with patch("voice_engine.get_backend", return_value="torch"):
+            with patch("voice_engine._asr_model_torch", mock_pipe):
+                result = transcribe_audio("/fake/path.wav")
+
+        self.assertEqual(result, "Torch transcript")
+        mock_pipe.assert_called_once()
+
+    def test_transcribe_audio_torch_passes_language(self):
+        """Torch ASR passes language via generate_kwargs."""
+        from voice_engine import transcribe_audio
+
+        mock_pipe = MagicMock(return_value={"text": "Bonjour"})
+
+        with patch("voice_engine.get_backend", return_value="torch"):
+            with patch("voice_engine._asr_model_torch", mock_pipe):
+                transcribe_audio("/fake/path.wav", language="fr")
+
+        call_kwargs = mock_pipe.call_args[1]
+        self.assertEqual(call_kwargs["generate_kwargs"]["language"], "fr")
 
 
 # =============================================================================

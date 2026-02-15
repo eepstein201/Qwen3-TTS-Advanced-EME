@@ -1041,7 +1041,7 @@ def build_ui():
                             lines=3
                         )
                         with gr.Row():
-                            auto_transcribe_btn = gr.Button("Auto-Transcribe (MLX)", size="sm")
+                            auto_transcribe_btn = gr.Button("Auto-Transcribe", size="sm")
 
                     with gr.Column(scale=1):
                         create_name = gr.Textbox(
