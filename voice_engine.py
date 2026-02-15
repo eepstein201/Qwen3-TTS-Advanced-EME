@@ -1065,6 +1065,7 @@ def _transcribe_torch(audio_path, language="en"):
         t0 = time.time()
         try:
             from transformers import pipeline as hf_pipeline
+            from voice_config import get_device
             device_name = get_device()
             if device_name == "cuda":
                 device = 0
