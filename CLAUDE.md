@@ -82,7 +82,7 @@ The codebase uses a layered architecture to avoid loading heavy dependencies (to
 - `requirements-mlx.txt` - MLX backend pip dependencies (for `qwen3-tts-mlx` env)
 - `voice_prompts/` - Voice clone files (.pt for torch, .wav/.txt for MLX)
 - `bin/` - Wrapper scripts (canonical source, copied to ~/bin/ by install.sh)
-- `tests/` - Test suite: 161 tests (`python -m unittest discover -v tests/`)
+- `tests/` - Test suite: 178 tests (`python -m unittest discover -v tests/`)
 
 ### Wrapper scripts in ~/bin/ (installed from bin/)
 - `changeVoice` - Server detection, generation, post-generation menu; auto-selects conda env by backend
@@ -220,7 +220,7 @@ Run the test suite (no GPU, models, or running server required):
 python -m unittest discover -v tests/
 ```
 
-161 tests across 39 test classes (2 skipped when MLX not installed):
+178 tests across 42 test classes (2 skipped when MLX not installed):
 - `TestTTSConfig` - error hierarchy, format helpers, auth token, model info, speakers
 - `TestServerValidation` - text length, batch size, mode, speaker, path traversal
 - `TestServerAuth` - public endpoints, auth enforcement, token validation
@@ -260,6 +260,9 @@ python -m unittest discover -v tests/
 - `TestUIModelSettingsImports` - model settings imports (VALID_MODEL_SIZES, etc.)
 - `TestUpdateModelConfigEndpoint` - `/update-model-config` auth, validation, model clearing
 - `TestClientUpdateModelConfig` - client update_model_config method
+- `TestMLXVoicePromptCache` - MLX prompt cache consistency, storage, clear, info
+- `TestETACache` - ETA cache existence, TTL, uses cache, returns None
+- `TestGenerationCache` - key determinism, varies by text/mode, put/get, miss, eviction, invalidate, stale cleanup
 
 ## Config Structure (config.json)
 ```json
@@ -506,3 +509,55 @@ See README.md for full phase history.
 - [x] Improve model settings feedback message (Phase 20d) — clearer UI responses on config changes
 - [x] Fix stale references and `MODEL_INFO` lookup bug (Phase 20e) — updated imports after rename
 - [x] Handle `ImportError` in `/load-model` endpoint gracefully — returns structured error instead of 500
+
+### Phase 21: Voice Management, Performance & Colab Support 🔧 IN PROGRESS
+
+**Implementation order:** 21b → 21a → 21c (each sub-phase gets its own commit)
+
+#### Phase 21b: Performance & Caching ✅ COMPLETE
+
+**Changes already made:**
+
+1. **voice_engine.py** — MLX voice prompt cache
+   - Added `_mlx_prompt_cache` dict + `_MLX_PROMPT_CACHE_MAX = 10` (line ~601)
+   - `load_voice_prompt_mlx()` now checks/populates cache, evicts oldest at capacity
+   - `clear_voice_prompt_cache()` clears BOTH torch LRU + MLX dict caches
+   - `voice_prompt_cache_info()` returns active backend's stats (SimpleNamespace for MLX)
+
+2. **voice_server.py** — ETA cache + generation result cache
+   - `_eta_cache` dict with 30s TTL (`_ETA_CACHE_TTL = 30`), replaces per-poll .jsonl reads
+   - `_estimate_eta()` reads from cache, refreshes only after TTL expires
+   - `_gen_cache` dict with `_GEN_CACHE_MAX = 5` entries, keyed by SHA256 hash of (text, mode, params, prompt)
+   - `_gen_cache_key()`, `_gen_cache_get()`, `_gen_cache_put()`, `_gen_cache_invalidate()`
+   - `/generate` endpoint checks cache before generating (cache hit → copies file, skips inference)
+   - `/generate` endpoint stores results in cache after generating
+   - `/update-model-config` calls `_gen_cache_invalidate()` to clear stale results
+
+3. **tests/test_voice.py** — 10 new tests added
+   - `TestMLXVoicePromptCache` (4 tests) — cache consistency, storage, clear, info
+   - `TestETACache` (4 tests) — cache existence, TTL, uses cache, returns None
+   - `TestGenerationCache` (9 tests) — key determinism, varies by text/mode, put/get, miss, eviction, invalidate, stale cleanup, update-model-config integration
+
+**Status:** Complete. All 178 tests pass (17 new tests added). Double-checked locking implemented for generation cache.
+
+#### Phase 21a: Voice Management UI ⬜ NOT STARTED
+
+**Planned changes (from approved plan):**
+- `voice_server.py` — 4 new endpoints: `POST /delete-prompt`, `POST /rename-prompt`, `GET /preview-prompt`, `GET /prompt-details`
+- `voice_client.py` — `delete_prompt()`, `rename_prompt()`, `preview_prompt()`, `get_prompt_details()` methods; fix `list_prompts()` to use server `/prompts` endpoint
+- `voice_config.py` — `set_default_clone_prompt()` helper
+- `voice_ui.py` — new "Manage Voices" tab (Dataframe, Preview, Rename, Delete, Set Default buttons)
+- `tests/test_voice.py` — ~15-18 new tests
+
+#### Phase 21c: Google Colab Support ⬜ NOT STARTED
+
+**Planned changes (from approved plan):**
+- `voice_config.py` — `IN_COLAB`, `IS_MACOS`, `IS_LINUX` constants; `get_device()` function
+- `voice_engine.py` — device-aware model loading (replace hardcoded `"mps"`), CUDA memory stats
+- `voice_generate.py` — platform-safe `get_clipboard_text()`, `play_audio()`, `open` commands
+- `voice_server.py` — auto-bind `0.0.0.0` on Colab
+- `voice_ui.py` — auto `share=True` + `server_name="0.0.0.0"` on Colab
+- New: `requirements-cuda.txt`, `colab_notebook.ipynb`
+- `tests/test_voice.py` — ~10-12 new tests
+
+**Full plan transcript:** `/Users/ericepstein/.claude/projects/-Users-ericepstein-Qwen3-TTS-UserFiles/6e4b0383-2087-4fb4-b470-730d0f786893.jsonl`

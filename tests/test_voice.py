@@ -13,6 +13,7 @@ import json
 import os
 import sys
 import tempfile
+import time
 import unittest
 from unittest.mock import patch, MagicMock
 
@@ -1816,6 +1817,225 @@ class TestCreateVoiceBackendOverride(unittest.TestCase):
             content = f.read()
         # Should have explanatory comment
         self.assertIn("Force torch backend", content)
+
+
+# =============================================================================
+# Phase 21b: MLX voice prompt cache tests
+# =============================================================================
+
+class TestMLXVoicePromptCache(unittest.TestCase):
+    """Test MLX voice prompt caching in voice_engine."""
+
+    def setUp(self):
+        # Clear cache before each test (earlier test classes may have populated it)
+        from voice_engine import _mlx_prompt_cache
+        _mlx_prompt_cache.clear()
+        self.tmpdir = tempfile.mkdtemp()
+        # Create fake wav and txt
+        for name in ("voice_a", "voice_b"):
+            with open(os.path.join(self.tmpdir, f"{name}.wav"), "wb") as f:
+                f.write(b"RIFF\x00\x00\x00\x00WAVEfmt ")
+            with open(os.path.join(self.tmpdir, f"{name}.txt"), "w") as f:
+                f.write(f"Transcript for {name}")
+
+    def tearDown(self):
+        import shutil
+        shutil.rmtree(self.tmpdir, ignore_errors=True)
+        # Clear cache between tests
+        from voice_engine import _mlx_prompt_cache
+        _mlx_prompt_cache.clear()
+
+    def test_mlx_cache_returns_consistent_results(self):
+        """Cached result is identical to first load."""
+        from voice_engine import load_voice_prompt_mlx
+        with patch("voice_engine.VOICE_PROMPTS_DIR", self.tmpdir):
+            first = load_voice_prompt_mlx("voice_a")
+            second = load_voice_prompt_mlx("voice_a")
+        self.assertIs(first, second)  # Same object from cache
+
+    def test_mlx_cache_stores_entries(self):
+        """Loading a prompt adds it to the cache."""
+        from voice_engine import load_voice_prompt_mlx, _mlx_prompt_cache
+        with patch("voice_engine.VOICE_PROMPTS_DIR", self.tmpdir):
+            load_voice_prompt_mlx("voice_a")
+        self.assertIn("voice_a", _mlx_prompt_cache)
+
+    def test_clear_voice_prompt_cache_clears_mlx(self):
+        """clear_voice_prompt_cache clears MLX cache."""
+        from voice_engine import load_voice_prompt_mlx, clear_voice_prompt_cache, _mlx_prompt_cache
+        with patch("voice_engine.VOICE_PROMPTS_DIR", self.tmpdir):
+            load_voice_prompt_mlx("voice_a")
+        self.assertEqual(len(_mlx_prompt_cache), 1)
+        clear_voice_prompt_cache()
+        self.assertEqual(len(_mlx_prompt_cache), 0)
+
+    def test_mlx_cache_info_returns_currsize(self):
+        """voice_prompt_cache_info returns MLX cache size."""
+        from voice_engine import load_voice_prompt_mlx, voice_prompt_cache_info
+        with patch("voice_engine.get_backend", return_value="mlx"):
+            with patch("voice_engine.VOICE_PROMPTS_DIR", self.tmpdir):
+                load_voice_prompt_mlx("voice_a")
+            info = voice_prompt_cache_info()
+        self.assertEqual(info.currsize, 1)
+
+
+# =============================================================================
+# Phase 21b: ETA cache tests
+# =============================================================================
+
+class TestETACache(unittest.TestCase):
+    """Test ETA estimation cache in voice_server."""
+
+    @classmethod
+    def setUpClass(cls):
+        import voice_server
+        voice_server.auth_token = None
+        voice_server.server_config = {
+            "security": {},
+            "auto_shutdown_minutes": 0,
+        }
+        cls.app = voice_server.app
+        cls.app.testing = True
+        cls.client = cls.app.test_client()
+
+    def test_eta_cache_exists(self):
+        """voice_server has _eta_cache module-level dict."""
+        import voice_server
+        self.assertTrue(hasattr(voice_server, "_eta_cache"))
+        self.assertIn("median_rate", voice_server._eta_cache)
+        self.assertIn("last_updated", voice_server._eta_cache)
+
+    def test_eta_cache_ttl_constant(self):
+        """voice_server has _ETA_CACHE_TTL constant."""
+        import voice_server
+        self.assertTrue(hasattr(voice_server, "_ETA_CACHE_TTL"))
+        self.assertEqual(voice_server._ETA_CACHE_TTL, 30)
+
+    def test_estimate_eta_uses_cache(self):
+        """_estimate_eta reads from cache when fresh."""
+        import voice_server
+        # Pre-populate cache with a known rate
+        voice_server._eta_cache["median_rate"] = 10.0  # 10 chars/sec
+        voice_server._eta_cache["last_updated"] = time.time()  # fresh
+
+        result = voice_server._estimate_eta(100, 5.0)
+        # 100 chars / 10 chars/sec = 10s total, 10 - 5 = 5s remaining
+        self.assertIsNotNone(result)
+        self.assertAlmostEqual(result, 5.0, delta=0.5)
+
+    def test_estimate_eta_returns_none_without_data(self):
+        """_estimate_eta returns None when no history data."""
+        import voice_server
+        voice_server._eta_cache["median_rate"] = None
+        voice_server._eta_cache["last_updated"] = time.time()
+
+        result = voice_server._estimate_eta(100, 5.0)
+        self.assertIsNone(result)
+
+
+# =============================================================================
+# Phase 21b: Generation result cache tests
+# =============================================================================
+
+class TestGenerationCache(unittest.TestCase):
+    """Test generation result cache in voice_server."""
+
+    def setUp(self):
+        import voice_server
+        voice_server._gen_cache.clear()
+
+    def test_gen_cache_key_deterministic(self):
+        """Same inputs produce same cache key."""
+        import voice_server
+        key1 = voice_server._gen_cache_key("hello", "clone", {"temperature": 0.7}, prompt_file="voice.pt")
+        key2 = voice_server._gen_cache_key("hello", "clone", {"temperature": 0.7}, prompt_file="voice.pt")
+        self.assertEqual(key1, key2)
+
+    def test_gen_cache_key_varies_by_text(self):
+        """Different text produces different cache key."""
+        import voice_server
+        key1 = voice_server._gen_cache_key("hello", "clone", {})
+        key2 = voice_server._gen_cache_key("world", "clone", {})
+        self.assertNotEqual(key1, key2)
+
+    def test_gen_cache_key_varies_by_mode(self):
+        """Different mode produces different cache key."""
+        import voice_server
+        key1 = voice_server._gen_cache_key("hello", "clone", {})
+        key2 = voice_server._gen_cache_key("hello", "design", {})
+        self.assertNotEqual(key1, key2)
+
+    def test_gen_cache_put_and_get(self):
+        """Can store and retrieve cache entries."""
+        import voice_server
+        # Create a temp file to cache
+        with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as f:
+            f.write(b"fake audio")
+            path = f.name
+        try:
+            voice_server._gen_cache_put("test_key", path, 24000)
+            result = voice_server._gen_cache_get("test_key")
+            self.assertIsNotNone(result)
+            self.assertEqual(result["file"], path)
+            self.assertEqual(result["sample_rate"], 24000)
+        finally:
+            os.unlink(path)
+
+    def test_gen_cache_miss(self):
+        """Cache miss returns None."""
+        import voice_server
+        result = voice_server._gen_cache_get("nonexistent_key")
+        self.assertIsNone(result)
+
+    def test_gen_cache_max_size_eviction(self):
+        """Cache evicts oldest entry when full."""
+        import voice_server
+        files = []
+        try:
+            for i in range(voice_server._GEN_CACHE_MAX + 2):
+                with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as f:
+                    f.write(b"audio")
+                    files.append(f.name)
+                voice_server._gen_cache_put(f"key_{i}", f.name, 24000)
+                time.sleep(0.01)  # Ensure distinct timestamps
+
+            # Should not exceed max
+            self.assertLessEqual(len(voice_server._gen_cache), voice_server._GEN_CACHE_MAX)
+        finally:
+            for f in files:
+                if os.path.exists(f):
+                    os.unlink(f)
+
+    def test_gen_cache_invalidate(self):
+        """_gen_cache_invalidate clears all entries."""
+        import voice_server
+        with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as f:
+            f.write(b"audio")
+            path = f.name
+        voice_server._gen_cache_put("key", path, 24000)
+        self.assertEqual(len(voice_server._gen_cache), 1)
+
+        voice_server._gen_cache_invalidate()
+        self.assertEqual(len(voice_server._gen_cache), 0)
+
+    def test_gen_cache_stale_file_cleanup(self):
+        """Cache get cleans up entries with missing files."""
+        import voice_server
+        voice_server._gen_cache["stale_key"] = {
+            "file": "/nonexistent/path.wav",
+            "sample_rate": 24000,
+            "timestamp": time.time(),
+        }
+        result = voice_server._gen_cache_get("stale_key")
+        self.assertIsNone(result)
+        self.assertNotIn("stale_key", voice_server._gen_cache)
+
+    def test_update_model_config_invalidates_gen_cache(self):
+        """Updating model config invalidates generation cache."""
+        import inspect
+        import voice_server
+        source = inspect.getsource(voice_server.update_model_config)
+        self.assertIn("_gen_cache_invalidate", source)
 
 
 if __name__ == "__main__":

@@ -243,33 +243,124 @@ def cancel_generation():
     return jsonify({"status": "cancellation_requested", "generation_id": generation_state.get("generation_id")})
 
 
+# ---------------------------------------------------------------------------
+# ETA cache — avoids reading .jsonl on every 1s poll
+# ---------------------------------------------------------------------------
+
+_eta_cache = {"median_rate": None, "last_updated": 0}
+_ETA_CACHE_TTL = 30  # seconds
+
+
 def _estimate_eta(text_length, elapsed_sec):
-    """Estimate remaining seconds from history data."""
+    """Estimate remaining seconds from history data.
+
+    Uses a cached median chars/sec rate (refreshed every 30s) to avoid
+    reading the history file on every 1-second progress poll.
+    """
     import json as _json
     from voice_config import HISTORY_FILE
-    try:
-        if not os.path.exists(HISTORY_FILE):
-            return None
-        with open(HISTORY_FILE, "r") as f:
-            lines = f.readlines()
-        # Use last 20 entries with duration data
-        rates = []
-        for line in lines[-20:]:
-            entry = _json.loads(line)
-            dur = entry.get("duration_sec")
-            tl = entry.get("text_length")
-            if dur and tl and dur > 0:
-                rates.append(tl / dur)
-        if not rates:
-            return None
-        # Median chars/sec
-        rates.sort()
-        median_rate = rates[len(rates) // 2]
-        estimated_total = text_length / median_rate
-        remaining = max(0, estimated_total - elapsed_sec)
-        return round(remaining, 1)
-    except Exception:
+
+    now = time.time()
+
+    # Refresh cache if stale
+    if now - _eta_cache["last_updated"] > _ETA_CACHE_TTL:
+        try:
+            if not os.path.exists(HISTORY_FILE):
+                _eta_cache["median_rate"] = None
+            else:
+                with open(HISTORY_FILE, "r") as f:
+                    lines = f.readlines()
+                rates = []
+                for line in lines[-20:]:
+                    entry = _json.loads(line)
+                    dur = entry.get("duration_sec")
+                    tl = entry.get("text_length")
+                    if dur and tl and dur > 0:
+                        rates.append(tl / dur)
+                if rates:
+                    rates.sort()
+                    _eta_cache["median_rate"] = rates[len(rates) // 2]
+                else:
+                    _eta_cache["median_rate"] = None
+        except Exception:
+            _eta_cache["median_rate"] = None
+        _eta_cache["last_updated"] = now
+
+    median_rate = _eta_cache["median_rate"]
+    if median_rate is None:
         return None
+
+    estimated_total = text_length / median_rate
+    remaining = max(0, estimated_total - elapsed_sec)
+    return round(remaining, 1)
+
+
+# ---------------------------------------------------------------------------
+# Generation result cache — caches recent results by input hash
+# ---------------------------------------------------------------------------
+
+import hashlib
+
+_gen_cache = {}  # key -> {"file": path, "sample_rate": int, "timestamp": float}
+_gen_cache_lock = threading.Lock()
+_GEN_CACHE_MAX = 5
+
+
+def _gen_cache_key(text, mode, gen_params, prompt_file=None, voice_description=None,
+                   speaker=None, instruct=None):
+    """Generate a hash key for generation cache lookup."""
+    key_parts = [text, mode, str(sorted(gen_params.items()))]
+    if prompt_file:
+        key_parts.append(prompt_file)
+    if voice_description:
+        key_parts.append(voice_description)
+    if speaker:
+        key_parts.append(speaker)
+    if instruct:
+        key_parts.append(instruct)
+    raw = "|".join(key_parts)
+    return hashlib.sha256(raw.encode()).hexdigest()[:16]
+
+
+def _gen_cache_get(key):
+    """Get a cached generation result. Returns file path or None."""
+    entry = _gen_cache.get(key)
+    if entry and os.path.exists(entry["file"]):
+        return entry
+    # Clean up stale entry
+    if entry:
+        _gen_cache.pop(key, None)
+    return None
+
+
+def _gen_cache_put(key, file_path, sample_rate):
+    """Store a generation result in cache, evicting oldest if full."""
+    if len(_gen_cache) >= _GEN_CACHE_MAX:
+        # Evict oldest by timestamp
+        oldest_key = min(_gen_cache, key=lambda k: _gen_cache[k]["timestamp"])
+        old_entry = _gen_cache.pop(oldest_key)
+        # Clean up old file
+        try:
+            if os.path.exists(old_entry["file"]):
+                os.remove(old_entry["file"])
+        except OSError:
+            pass
+    _gen_cache[key] = {
+        "file": file_path,
+        "sample_rate": sample_rate,
+        "timestamp": time.time(),
+    }
+
+
+def _gen_cache_invalidate():
+    """Invalidate all cached generation results."""
+    for entry in _gen_cache.values():
+        try:
+            if os.path.exists(entry["file"]):
+                os.remove(entry["file"])
+        except OSError:
+            pass
+    _gen_cache.clear()
 
 
 @app.route("/stats", methods=["GET"])
@@ -479,7 +570,10 @@ def update_model_config():
         design_model = None
         custom_model = None
 
-    logger.info("Model config updated: %s. Models unloaded.", ", ".join(changes))
+    # Invalidate generation cache — results from old model are stale
+    _gen_cache_invalidate()
+
+    logger.info("Model config updated: %s. Models unloaded. Generation cache cleared.", ", ".join(changes))
 
     return jsonify({
         "status": "config_updated",
@@ -590,11 +684,57 @@ def generate():
     request_queue.append(request_id)
 
     try:
+        # --- Double-checked locking: first cache check BEFORE acquiring lock ---
+        # For single-text requests, a cache hit avoids blocking on the lock entirely.
+        pre_lock_cache_keys = {}
+        pre_lock_results = {}
+        for i, text in enumerate(texts):
+            cache_key = _gen_cache_key(
+                text, mode, gen_params,
+                prompt_file=prompt_file,
+                voice_description=voice_description,
+                speaker=speaker, instruct=instruct,
+            )
+            pre_lock_cache_keys[i] = cache_key
+            cached = _gen_cache_get(cache_key)
+            if cached:
+                import shutil
+                temp_file = tempfile.NamedTemporaryFile(suffix=".wav", delete=False)
+                os.chmod(temp_file.name, 0o600)
+                shutil.copy2(cached["file"], temp_file.name)
+                pre_lock_results[i] = {"index": i, "file": temp_file.name, "sample_rate": cached["sample_rate"]}
+                logger.info("Generation cache hit (pre-lock) for text %d/%d", i + 1, len(texts))
+
+        # If ALL texts hit cache, skip the lock entirely
+        if len(pre_lock_results) == len(texts):
+            results = [pre_lock_results[i] for i in range(len(texts))]
+            # Skip to response (no lock needed)
+            request_queue.remove(request_id)
+            return jsonify({"results": results})
+
         # Acquire lock for thread-safe generation
         with generation_lock:
             results = []
 
             for i, text in enumerate(texts):
+                # Use pre-lock cache hit if available
+                if i in pre_lock_results:
+                    results.append(pre_lock_results[i])
+                    continue
+
+                # --- Double-checked locking: second cache check AFTER acquiring lock ---
+                # Another thread may have generated this while we waited for the lock.
+                cache_key = pre_lock_cache_keys[i]
+                cached = _gen_cache_get(cache_key)
+                if cached:
+                    import shutil
+                    temp_file = tempfile.NamedTemporaryFile(suffix=".wav", delete=False)
+                    os.chmod(temp_file.name, 0o600)
+                    shutil.copy2(cached["file"], temp_file.name)
+                    results.append({"index": i, "file": temp_file.name, "sample_rate": cached["sample_rate"]})
+                    logger.info("Generation cache hit (post-lock) for text %d/%d", i + 1, len(texts))
+                    continue
+
                 # Update generation state for progress tracking
                 generation_state.update({
                     "active": True,
@@ -646,6 +786,13 @@ def generate():
                 os.chmod(temp_file.name, 0o600)
                 sf.write(temp_file.name, wav, sr)
                 results.append({"index": i, "file": temp_file.name, "sample_rate": sr})
+
+                # Store in generation cache (copy the file so original can be moved)
+                cache_file = tempfile.NamedTemporaryFile(suffix=".wav", delete=False)
+                os.chmod(cache_file.name, 0o600)
+                import shutil
+                shutil.copy2(temp_file.name, cache_file.name)
+                _gen_cache_put(cache_key, cache_file.name, sr)
 
             return jsonify({"results": results})
     except Exception as e:

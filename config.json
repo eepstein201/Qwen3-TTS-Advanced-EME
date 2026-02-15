@@ -29,7 +29,7 @@
   "advanced": {
     "dtype": "bfloat16",
     "backend": "mlx",
-    "mlx_quantization": "8bit",
+    "mlx_quantization": "bf16",
     "model_size": "1.7B"
   },
   "generation": {

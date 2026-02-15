@@ -183,12 +183,26 @@ def load_voice_prompt(prompt_file):
 
 
 def clear_voice_prompt_cache():
-    """Clear the voice prompt LRU cache."""
+    """Clear both torch and MLX voice prompt caches."""
     _load_voice_prompt_torch.cache_clear()
+    _mlx_prompt_cache.clear()
 
 
 def voice_prompt_cache_info():
-    """Return cache statistics."""
+    """Return cache statistics for the active backend.
+
+    For torch: returns lru_cache info (named tuple with hits, misses, etc.)
+    For mlx: returns a simple namespace with hits/currsize.
+    """
+    backend = get_backend()
+    if backend == "mlx":
+        from types import SimpleNamespace
+        return SimpleNamespace(
+            currsize=len(_mlx_prompt_cache),
+            hits=0,  # dict cache doesn't track hits
+            misses=0,
+            maxsize=_MLX_PROMPT_CACHE_MAX,
+        )
     return _load_voice_prompt_torch.cache_info()
 
 
@@ -598,16 +612,25 @@ def _run_inference_mlx_streaming(model, text, mode, gen_params, language="Englis
 # MLX voice prompt loading
 # ---------------------------------------------------------------------------
 
+_mlx_prompt_cache = {}
+_MLX_PROMPT_CACHE_MAX = 10
+
+
 def load_voice_prompt_mlx(prompt_name):
     """Load an MLX-compatible voice prompt (wav + txt file pair).
 
     Looks for <prompt_name>.wav and <prompt_name>.txt in VOICE_PROMPTS_DIR.
     Returns a dict with 'ref_audio' (path) and 'ref_text' (string) keys.
+    Results are cached (up to 10 entries) for repeated lookups.
 
     Args:
         prompt_name: Base name with or without .pt extension.
                      E.g. "my_voice" or "my_voice.pt" — the .pt is stripped.
     """
+    # Check cache first
+    if prompt_name in _mlx_prompt_cache:
+        return _mlx_prompt_cache[prompt_name]
+
     # Strip .pt extension if present to get the base name
     base = prompt_name
     if base.endswith(".pt"):
@@ -633,7 +656,15 @@ def load_voice_prompt_mlx(prompt_name):
     with open(txt_path, "r") as f:
         ref_text = f.read().strip()
 
-    return {"ref_audio": wav_path, "ref_text": ref_text}
+    result = {"ref_audio": wav_path, "ref_text": ref_text}
+
+    # Evict oldest entry if at capacity
+    if len(_mlx_prompt_cache) >= _MLX_PROMPT_CACHE_MAX:
+        oldest_key = next(iter(_mlx_prompt_cache))
+        del _mlx_prompt_cache[oldest_key]
+
+    _mlx_prompt_cache[prompt_name] = result
+    return result
 
 
 # ---------------------------------------------------------------------------
