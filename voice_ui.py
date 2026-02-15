@@ -600,7 +600,7 @@ def generate_custom(text, speaker_choice, instruct, preset, temperature, top_k, 
 # Build UI
 # =============================================================================
 
-def stop_server(*_args):
+def stop_server():
     """Stop the TTS server via /shutdown endpoint."""
     import requests as _requests
     client = TTSClient()
@@ -715,7 +715,6 @@ def build_ui():
         stop_btn.click(
             fn=stop_server,
             outputs=status_html,
-            js="() => { if (!confirm('Stop the TTS server? Generation will be unavailable until you restart.')) throw new Error('Cancelled'); }",
         )
 
         # Model Settings (MLX-first architecture)
@@ -1154,7 +1153,6 @@ def build_ui():
                     fn=delete_voice,
                     inputs=[manage_selected],
                     outputs=[manage_status, manage_table, clone_prompt],
-                    js="() => { if (!confirm('Delete this voice prompt? This cannot be undone.')) throw new Error('Cancelled'); }",
                 )
 
         # Footer
