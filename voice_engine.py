@@ -173,7 +173,9 @@ def _load_voice_prompt_torch(prompt_file):
     prompt_path = os.path.join(VOICE_PROMPTS_DIR, prompt_file)
     if not os.path.exists(prompt_path):
         return None
-    return torch.load(prompt_path, weights_only=False)
+    from voice_config import get_device
+    device = get_device()
+    return torch.load(prompt_path, weights_only=False, map_location=device)
 
 
 def load_voice_prompt(prompt_file):
