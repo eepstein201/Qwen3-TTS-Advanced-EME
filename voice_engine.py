@@ -167,11 +167,30 @@ def _install_mps_patch():
 
 @lru_cache(maxsize=10)
 def _load_voice_prompt_torch(prompt_file):
-    """Load and cache a .pt voice prompt (torch backend)."""
+    """Load and cache a .pt voice prompt (torch backend).
+
+    If the .pt file doesn't exist but .wav + .txt files do, auto-creates
+    the .pt using the already-loaded clone model (avoids loading a second model).
+    """
     import torch
 
     prompt_path = os.path.join(VOICE_PROMPTS_DIR, prompt_file)
     if not os.path.exists(prompt_path):
+        # Try to auto-create .pt from .wav + .txt
+        base_name = prompt_file[:-3] if prompt_file.endswith('.pt') else prompt_file
+        wav_path = os.path.join(VOICE_PROMPTS_DIR, f"{base_name}.wav")
+        txt_path = os.path.join(VOICE_PROMPTS_DIR, f"{base_name}.txt")
+        if os.path.exists(wav_path) and os.path.exists(txt_path):
+            logger.info("Auto-creating .pt from .wav + .txt for %s", base_name)
+            import soundfile as sf
+            ref_audio, ref_sr = sf.read(wav_path)
+            with open(txt_path, "r") as f:
+                transcript = f.read().strip()
+            model = load_model("clone")
+            voice_prompt = create_voice_prompt(model, ref_audio, ref_sr, transcript)
+            torch.save(voice_prompt, prompt_path)
+            logger.info("Auto-created and saved %s", prompt_path)
+            return voice_prompt
         return None
     from voice_config import get_device
     device = get_device()
