@@ -180,12 +180,16 @@ def _load_voice_prompt_torch(prompt_file):
         base_name = prompt_file[:-3] if prompt_file.endswith('.pt') else prompt_file
         wav_path = os.path.join(VOICE_PROMPTS_DIR, f"{base_name}.wav")
         txt_path = os.path.join(VOICE_PROMPTS_DIR, f"{base_name}.txt")
-        if os.path.exists(wav_path) and os.path.exists(txt_path):
-            logger.info("Auto-creating .pt from .wav + .txt for %s", base_name)
+        if os.path.exists(wav_path):
+            logger.info("Auto-creating .pt from .wav for %s", base_name)
             import soundfile as sf
             ref_audio, ref_sr = sf.read(wav_path)
-            with open(txt_path, "r") as f:
-                transcript = f.read().strip()
+            transcript = ""
+            if os.path.exists(txt_path):
+                with open(txt_path, "r") as f:
+                    transcript = f.read().strip()
+            if not transcript:
+                logger.warning("No transcript for %s, using empty string", base_name)
             model = load_model("clone")
             voice_prompt = create_voice_prompt(model, ref_audio, ref_sr, transcript)
             torch.save(voice_prompt, prompt_path)

@@ -591,14 +591,20 @@ def update_model_config():
 def list_prompts():
     reset_activity_timer()
     backend = get_backend()
+    all_files = set(os.listdir(VOICE_PROMPTS_DIR))
     if backend == "mlx":
         # MLX uses .wav+.txt pairs; list voice names that have both files
-        wav_files = {f[:-4] for f in os.listdir(VOICE_PROMPTS_DIR) if f.endswith('.wav')}
-        txt_files = {f[:-4] for f in os.listdir(VOICE_PROMPTS_DIR) if f.endswith('.txt')}
+        wav_files = {f[:-4] for f in all_files if f.endswith('.wav')}
+        txt_files = {f[:-4] for f in all_files if f.endswith('.txt')}
         names = sorted(wav_files & txt_files)
         prompts = [f"{n}.wav" for n in names]
     else:
-        prompts = sorted(f for f in os.listdir(VOICE_PROMPTS_DIR) if f.endswith('.pt'))
+        # Torch uses .pt files, but also include voices with .wav+.txt
+        # or .wav-only (server auto-creates .pt on first use)
+        pt_names = {f[:-3] for f in all_files if f.endswith('.pt')}
+        wav_names = {f[:-4] for f in all_files if f.endswith('.wav')}
+        all_names = sorted(pt_names | wav_names)
+        prompts = [f"{n}.pt" for n in all_names]
     return jsonify({"prompts": prompts})
 
 
