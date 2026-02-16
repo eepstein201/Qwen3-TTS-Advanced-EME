@@ -14,12 +14,11 @@ All backend-specific imports are local to _*_torch() or _*_mlx() functions.
 
 import logging
 import os
+import threading
 import time
 from functools import lru_cache
 
-import librosa
 import numpy as np
-import soundfile as sf
 
 from voice_config import (
     VOICE_PROMPTS_DIR,
@@ -34,6 +33,22 @@ from voice_config import (
 )
 
 logger = logging.getLogger("tts.engine")
+
+# Audio loader preference — read once at import, updated only via set_audio_loader()
+_AUDIO_LOADER = load_config().get("advanced", {}).get("audio_loader", "torchaudio")
+
+
+def get_audio_loader():
+    """Return cached audio loader preference. No disk I/O."""
+    return _AUDIO_LOADER
+
+
+def set_audio_loader(loader):
+    """Update audio loader preference in memory (called by config update endpoints)."""
+    global _AUDIO_LOADER
+    if loader not in ("torchaudio", "librosa"):
+        raise ValueError(f"Invalid audio loader: {loader}")
+    _AUDIO_LOADER = loader
 
 
 # ---------------------------------------------------------------------------
@@ -182,8 +197,7 @@ def _load_voice_prompt_torch(prompt_file):
         txt_path = os.path.join(VOICE_PROMPTS_DIR, f"{base_name}.txt")
         if os.path.exists(wav_path):
             logger.info("Auto-creating .pt from .wav for %s", base_name)
-            import soundfile as sf
-            ref_audio, ref_sr = sf.read(wav_path)
+            ref_audio, ref_sr = load_audio_for_cloning(wav_path)
             transcript = ""
             if os.path.exists(txt_path):
                 with open(txt_path, "r") as f:
@@ -961,7 +975,63 @@ def create_voice_prompt(model, ref_audio, ref_sr, transcript):
 
 
 # ---------------------------------------------------------------------------
-# Audio processing (backend-agnostic — uses only numpy/librosa)
+# Smart Audio Loader (torchaudio primary, soundfile/librosa fallback)
+# ---------------------------------------------------------------------------
+
+def load_audio(file_path, target_sr=16000):
+    """Load audio file, resample to target_sr. Uses cached loader preference."""
+    if _AUDIO_LOADER == "torchaudio":
+        try:
+            import torchaudio
+            waveform, sr = torchaudio.load(file_path)
+            if waveform.shape[0] > 1:
+                waveform = waveform.mean(dim=0, keepdim=True)
+            if sr != target_sr:
+                resampler = torchaudio.transforms.Resample(sr, target_sr)
+                waveform = resampler(waveform)
+            return waveform.squeeze(0).numpy(), target_sr
+        except Exception as e:
+            logger.warning("torchaudio failed, falling back to soundfile: %s", e)
+    import soundfile as sf
+    audio, sr = sf.read(file_path)
+    if audio.ndim > 1:
+        audio = np.mean(audio, axis=-1).astype(np.float32)
+    if sr != target_sr:
+        import librosa
+        audio = librosa.resample(audio, orig_sr=sr, target_sr=target_sr)
+    return audio, target_sr
+
+
+def load_audio_for_cloning(file_path, max_duration=30, target_sr=16000):
+    """Load audio truncated to max_duration seconds. For voice embedding only."""
+    if _AUDIO_LOADER == "torchaudio":
+        try:
+            import torchaudio
+            info = torchaudio.info(file_path)
+            max_frames = int(max_duration * info.sample_rate)
+            waveform, sr = torchaudio.load(file_path, num_frames=max_frames)
+            if waveform.shape[0] > 1:
+                waveform = waveform.mean(dim=0, keepdim=True)
+            if sr != target_sr:
+                resampler = torchaudio.transforms.Resample(sr, target_sr)
+                waveform = resampler(waveform)
+            return waveform.squeeze(0).numpy(), target_sr
+        except Exception as e:
+            logger.warning("torchaudio failed, falling back to soundfile: %s", e)
+    import soundfile as sf
+    audio, sr = sf.read(file_path)
+    if audio.ndim > 1:
+        audio = np.mean(audio, axis=-1).astype(np.float32)
+    max_samples = int(max_duration * sr)
+    audio = audio[:max_samples]
+    if sr != target_sr:
+        import librosa
+        audio = librosa.resample(audio, orig_sr=sr, target_sr=target_sr)
+    return audio, target_sr
+
+
+# ---------------------------------------------------------------------------
+# Audio processing (backend-agnostic — uses only numpy)
 # ---------------------------------------------------------------------------
 
 def trim_silence(audio, sample_rate, threshold_db=-40, min_silence_ms=100):
@@ -1001,6 +1071,7 @@ def adjust_speed(audio, sample_rate, speed_factor):
     """
     if speed_factor == 1.0:
         return audio
+    import librosa
     return librosa.effects.time_stretch(audio, rate=speed_factor)
 
 
@@ -1012,6 +1083,7 @@ def adjust_pitch(audio, sample_rate, semitones):
     """
     if semitones == 0:
         return audio
+    import librosa
     return librosa.effects.pitch_shift(audio, sr=sample_rate, n_steps=semitones)
 
 
@@ -1046,9 +1118,55 @@ def process_audio(audio, sample_rate, trim=False, normalize=False,
 # Audio transcription (ASR) — lazy loading, MLX backend only
 # ---------------------------------------------------------------------------
 
-# ASR model caches — NOT loaded at startup, only on first transcribe_audio() call
+# ASR model caches — NOT loaded at startup, preloaded in background by UI
 _asr_model_mlx = None
 _asr_model_torch = None
+_asr_lock = threading.Lock()
+
+
+def _ensure_asr_torch_loaded():
+    """Thread-safe loading of the torch ASR pipeline. Blocks until ready."""
+    global _asr_model_torch
+    with _asr_lock:
+        if _asr_model_torch is not None:
+            return
+        logger.info("Loading torch ASR model...")
+        t0 = time.time()
+        try:
+            from transformers import pipeline as hf_pipeline
+            from voice_config import get_device
+            device_name = get_device()
+            if device_name == "cuda":
+                device = 0
+            elif device_name == "mps":
+                device = "mps"
+            else:
+                device = -1
+            _asr_model_torch = hf_pipeline(
+                "automatic-speech-recognition",
+                model="openai/whisper-base",
+                device=device,
+                chunk_length_s=30,
+            )
+            logger.info("Torch ASR model loaded in %.1fs", time.time() - t0)
+        except ImportError as e:
+            raise ImportError(
+                f"ASR transcription requires transformers: {e}\n"
+                "Install with: pip install transformers"
+            )
+
+
+def preload_asr_model():
+    """Preload ASR model in a background thread. Non-blocking, non-fatal."""
+    def _load():
+        try:
+            backend = get_backend()
+            if backend != "mlx":
+                _ensure_asr_torch_loaded()
+        except Exception as e:
+            logger.warning("ASR preload failed (will retry on first use): %s", e)
+
+    threading.Thread(target=_load, daemon=True).start()
 
 
 def _transcribe_mlx(audio_path, language="en"):
@@ -1081,33 +1199,7 @@ def _transcribe_mlx(audio_path, language="en"):
 
 def _transcribe_torch(audio_path, language="en"):
     """Transcribe using transformers Whisper pipeline (CUDA/CPU)."""
-    global _asr_model_torch
-
-    if _asr_model_torch is None:
-        logger.info("Loading torch ASR model for transcription (first use)...")
-        t0 = time.time()
-        try:
-            from transformers import pipeline as hf_pipeline
-            from voice_config import get_device
-            device_name = get_device()
-            if device_name == "cuda":
-                device = 0
-            elif device_name == "mps":
-                device = "mps"
-            else:
-                device = -1
-            _asr_model_torch = hf_pipeline(
-                "automatic-speech-recognition",
-                model="openai/whisper-base",
-                device=device,
-                chunk_length_s=30,
-            )
-            logger.info("Torch ASR model loaded in %.1fs", time.time() - t0)
-        except ImportError as e:
-            raise ImportError(
-                f"ASR transcription requires transformers: {e}\n"
-                "Install with: pip install transformers"
-            )
+    _ensure_asr_torch_loaded()
 
     logger.info("Transcribing (torch): %s", audio_path)
     t0 = time.time()
@@ -1184,3 +1276,41 @@ def is_asr_available():
             return True
         except ImportError:
             return False
+
+
+def is_asr_loaded():
+    """Check if an ASR model is currently loaded in memory."""
+    return _asr_model_mlx is not None or _asr_model_torch is not None
+
+
+def get_asr_model_info():
+    """Return info dict about loaded ASR model (or None if not loaded)."""
+    if _asr_model_mlx is not None:
+        return {
+            "loaded": True,
+            "backend": "mlx",
+            "model_name": "whisper-large-v3-turbo",
+        }
+    if _asr_model_torch is not None:
+        return {
+            "loaded": True,
+            "backend": "torch",
+            "model_name": "whisper-base",
+        }
+    return {"loaded": False, "backend": None, "model_name": None}
+
+
+def unload_model_cleanup():
+    """Backend-specific memory cleanup after setting a model to None."""
+    import gc
+    gc.collect()
+    backend = get_backend()
+    if backend == "torch":
+        try:
+            import torch
+            if torch.cuda.is_available():
+                torch.cuda.empty_cache()
+            elif hasattr(torch, 'mps') and torch.backends.mps.is_available():
+                torch.mps.empty_cache()
+        except ImportError:
+            pass

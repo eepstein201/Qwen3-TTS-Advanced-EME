@@ -701,6 +701,141 @@ def set_voice_default(name):
         return f"Failed to set default: {e}", get_prompt_table_data()
 
 
+# =============================================================================
+# Model Management helpers
+# =============================================================================
+
+def get_model_table_data():
+    """Fetch model info from server and format as table rows."""
+    client = TTSClient()
+    try:
+        if not client.is_server_running():
+            return []
+        models_resp = client.get_models()
+        models = models_resp.get("models", {})
+        rows = []
+        for model_type in ("clone", "design", "custom"):
+            info = models.get(model_type, {})
+            status = "Loaded" if info.get("loaded") else "Unloaded"
+            memory = f"{info.get('memory_mb', '?')} MB"
+            load_time = info.get("load_time_sec")
+            load_time_str = f"{load_time:.1f}s" if load_time else "-"
+            startup = "Yes" if info.get("load_at_startup") else "No"
+            rows.append([model_type.capitalize(), status, memory, load_time_str, startup])
+        # ASR row
+        from voice_engine import is_asr_loaded, get_asr_model_info
+        asr_info = get_asr_model_info()
+        asr_status = "Loaded" if asr_info.get("loaded") else "Unloaded"
+        asr_model = asr_info.get("model_name", "-") or "-"
+        rows.append(["ASR (Whisper)", asr_status, asr_model, "-", "-"])
+        return rows
+    except Exception as e:
+        logger.warning("Failed to get model table data: %s", e)
+        return []
+
+
+def toggle_model(model_type, action):
+    """Load or unload a TTS model. Returns (status_msg, table_data, status_html)."""
+    client = TTSClient()
+    if not client.is_server_running():
+        return "Server not running", get_model_table_data(), format_status_display()
+    try:
+        if action == "load":
+            result = client.load_model(model_type)
+            msg = f"{model_type.capitalize()} model: {result.get('status', 'done')}"
+        else:
+            result = client.unload_model(model_type)
+            msg = f"{model_type.capitalize()} model: {result.get('status', 'done')}"
+        return msg, get_model_table_data(), format_status_display()
+    except Exception as e:
+        return f"Error: {e}", get_model_table_data(), format_status_display()
+
+
+def toggle_asr(action):
+    """Load or unload ASR model. Returns (status_msg, table_data)."""
+    try:
+        if action == "load":
+            from voice_engine import preload_asr_model, is_asr_loaded
+            if is_asr_loaded():
+                return "ASR already loaded", get_model_table_data()
+            # Load synchronously for UI feedback
+            from voice_engine import _ensure_asr_torch_loaded, _transcribe_mlx
+            backend = get_backend()
+            if backend == "mlx":
+                # Trigger MLX ASR load by calling _transcribe_mlx internals
+                from voice_engine import _asr_model_mlx
+                if _asr_model_mlx is None:
+                    from mlx_audio.stt import load_model as load_stt_model
+                    import voice_engine
+                    voice_engine._asr_model_mlx = load_stt_model("mlx-community/whisper-large-v3-turbo")
+            else:
+                _ensure_asr_torch_loaded()
+            return "ASR model loaded", get_model_table_data()
+        else:
+            from voice_engine import unload_asr_model
+            unload_asr_model()
+            return "ASR model unloaded", get_model_table_data()
+    except Exception as e:
+        return f"Error: {e}", get_model_table_data()
+
+
+def update_startup_defaults(clone_startup, design_startup, custom_startup):
+    """Update which models load at server startup. Returns status message."""
+    client = TTSClient()
+    if not client.is_server_running():
+        return "Server not running"
+    try:
+        result = client.update_startup_config(
+            clone=clone_startup, design=design_startup, custom=custom_startup
+        )
+        changes = result.get("changes", [])
+        return f"Startup config updated: {', '.join(changes)}"
+    except Exception as e:
+        return f"Error: {e}"
+
+
+def get_model_status_html(model_type):
+    """Compact colored indicator for a model's load status."""
+    client = TTSClient()
+    try:
+        if not client.is_server_running():
+            return '<span style="color: gray;">Server offline</span>'
+        health = client.get_health()
+        loaded = health.get(f"{model_type}_model_loaded", False)
+        if loaded:
+            return f'<span style="color: green; font-weight: bold;">● {model_type.capitalize()} loaded</span>'
+        else:
+            return f'<span style="color: gray;">○ {model_type.capitalize()} not loaded</span>'
+    except Exception:
+        return '<span style="color: gray;">Unknown</span>'
+
+
+def get_audio_loader_setting():
+    """Get current audio loader setting from engine cache."""
+    try:
+        from voice_engine import get_audio_loader
+        return get_audio_loader()
+    except Exception:
+        return "torchaudio"
+
+
+def set_audio_loader_setting(loader):
+    """Set audio loader preference. Returns status message."""
+    try:
+        from voice_engine import set_audio_loader
+        set_audio_loader(loader)
+        # Also persist to config
+        config = load_config()
+        if "advanced" not in config:
+            config["advanced"] = {}
+        config["advanced"]["audio_loader"] = loader
+        from voice_config import save_config
+        save_config(config)
+        return f"Audio loader set to: {loader}"
+    except Exception as e:
+        return f"Error: {e}"
+
+
 def build_ui():
     """Build the Gradio interface."""
 
@@ -776,6 +911,7 @@ def build_ui():
             # Clone Mode Tab
             with gr.Tab("Clone Mode"):
                 gr.Markdown("Use a voice prompt file to clone a specific voice.")
+                clone_model_indicator = gr.HTML(value=get_model_status_html("clone"))
 
                 with gr.Row():
                     with gr.Column(scale=2):
@@ -849,6 +985,9 @@ def build_ui():
                             clone_top_p, clone_rep, clone_seed, clone_trim, clone_norm,
                             clone_speed, clone_pitch, clone_streaming],
                     outputs=[clone_output, clone_status, status_html, history_df]
+                ).then(
+                    fn=lambda: get_model_status_html("clone"),
+                    outputs=clone_model_indicator
                 )
 
                 clone_cancel_btn.click(
@@ -861,6 +1000,7 @@ def build_ui():
             # Design Mode Tab
             with gr.Tab("Design Mode"):
                 gr.Markdown("Generate a voice from a text description.")
+                design_model_indicator = gr.HTML(value=get_model_status_html("design"))
 
                 with gr.Row():
                     with gr.Column(scale=2):
@@ -930,6 +1070,9 @@ def build_ui():
                             design_top_p, design_rep, design_seed, design_trim, design_norm,
                             design_speed, design_pitch, design_streaming],
                     outputs=[design_output, design_status, status_html, history_df]
+                ).then(
+                    fn=lambda: get_model_status_html("design"),
+                    outputs=design_model_indicator
                 )
 
                 design_cancel_btn.click(
@@ -942,6 +1085,7 @@ def build_ui():
             # Custom Mode Tab
             with gr.Tab("Custom Mode"):
                 gr.Markdown("Use premium pre-trained speakers.")
+                custom_model_indicator = gr.HTML(value=get_model_status_html("custom"))
 
                 with gr.Row():
                     with gr.Column(scale=2):
@@ -1016,6 +1160,9 @@ def build_ui():
                             custom_temp, custom_top_k, custom_top_p, custom_rep, custom_seed,
                             custom_trim, custom_norm, custom_speed, custom_pitch, custom_streaming],
                     outputs=[custom_output, custom_status, status_html, history_df]
+                ).then(
+                    fn=lambda: get_model_status_html("custom"),
+                    outputs=custom_model_indicator
                 )
 
                 custom_cancel_btn.click(
@@ -1156,6 +1303,104 @@ def build_ui():
                     outputs=[manage_status, manage_table, clone_prompt],
                 )
 
+            # Manage Models Tab
+            with gr.Tab("Manage Models"):
+                gr.Markdown("Load/unload models, configure startup defaults, and audio loader.")
+
+                with gr.Row():
+                    with gr.Column(scale=2):
+                        model_table = gr.Dataframe(
+                            headers=["Model", "Status", "Memory", "Load Time", "Startup"],
+                            value=get_model_table_data(),
+                            interactive=False,
+                            wrap=True,
+                        )
+                        model_refresh_btn = gr.Button("Refresh", size="sm")
+
+                    with gr.Column(scale=1):
+                        gr.Markdown("### Load / Unload")
+                        with gr.Row():
+                            model_type_select = gr.Dropdown(
+                                label="Model",
+                                choices=["clone", "design", "custom"],
+                                value="clone",
+                            )
+                        with gr.Row():
+                            model_load_btn = gr.Button("Load", size="sm", variant="primary")
+                            model_unload_btn = gr.Button("Unload", size="sm", variant="stop")
+                        model_manage_status = gr.Textbox(
+                            label="", show_label=False, interactive=False,
+                            max_lines=2, container=False
+                        )
+
+                        gr.Markdown("### ASR (Whisper)")
+                        with gr.Row():
+                            asr_load_btn = gr.Button("Load ASR", size="sm")
+                            asr_unload_btn = gr.Button("Unload ASR", size="sm", variant="stop")
+
+                        gr.Markdown("### Startup Defaults")
+                        startup_clone = gr.Checkbox(label="Clone at startup", value=True)
+                        startup_design = gr.Checkbox(label="Design at startup", value=False)
+                        startup_custom = gr.Checkbox(label="Custom at startup", value=False)
+                        startup_save_btn = gr.Button("Save Startup Config", size="sm")
+                        startup_status = gr.Textbox(
+                            label="", show_label=False, interactive=False,
+                            max_lines=1, container=False
+                        )
+
+                        gr.Markdown("### Audio Loader")
+                        audio_loader_select = gr.Dropdown(
+                            label="Audio Loader",
+                            choices=["torchaudio", "librosa"],
+                            value=get_audio_loader_setting(),
+                            info="torchaudio: faster C++ | librosa: broader format support"
+                        )
+                        audio_loader_save_btn = gr.Button("Save Audio Loader", size="sm")
+                        audio_loader_status = gr.Textbox(
+                            label="", show_label=False, interactive=False,
+                            max_lines=1, container=False
+                        )
+
+                # Wire up Manage Models handlers
+                model_refresh_btn.click(
+                    fn=get_model_table_data,
+                    outputs=model_table
+                )
+
+                model_load_btn.click(
+                    fn=lambda mt: toggle_model(mt, "load"),
+                    inputs=[model_type_select],
+                    outputs=[model_manage_status, model_table, status_html]
+                )
+
+                model_unload_btn.click(
+                    fn=lambda mt: toggle_model(mt, "unload"),
+                    inputs=[model_type_select],
+                    outputs=[model_manage_status, model_table, status_html]
+                )
+
+                asr_load_btn.click(
+                    fn=lambda: toggle_asr("load"),
+                    outputs=[model_manage_status, model_table]
+                )
+
+                asr_unload_btn.click(
+                    fn=lambda: toggle_asr("unload"),
+                    outputs=[model_manage_status, model_table]
+                )
+
+                startup_save_btn.click(
+                    fn=update_startup_defaults,
+                    inputs=[startup_clone, startup_design, startup_custom],
+                    outputs=startup_status
+                )
+
+                audio_loader_save_btn.click(
+                    fn=set_audio_loader_setting,
+                    inputs=[audio_loader_select],
+                    outputs=audio_loader_status
+                )
+
         # Footer
         gr.Markdown("""
         ---
@@ -1168,6 +1413,15 @@ def build_ui():
         - Custom mode uses premium pre-trained speakers
         - Run `configureTTS` to optimize settings for your hardware
         """)
+
+    # Preload ASR model in background (non-blocking)
+    try:
+        from voice_engine import is_asr_available, preload_asr_model
+        if is_asr_available():
+            preload_asr_model()
+            logger.info("ASR preload started in background")
+    except Exception as e:
+        logger.warning("ASR preload setup failed: %s", e)
 
     return demo
 

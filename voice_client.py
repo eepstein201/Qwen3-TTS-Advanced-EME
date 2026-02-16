@@ -163,6 +163,82 @@ class TTSClient:
             raise Exception(f"Failed to update model config: {error_msg}")
         return resp.json()
 
+    def unload_model(self, mode):
+        """Unload a model to free memory.
+
+        Args:
+            mode: Model type — "clone", "design", or "custom".
+
+        Returns:
+            Response dict with "status" key ("unloaded" or "already_unloaded").
+        """
+        if not self.is_server_running():
+            raise ConnectionError("TTS server is not running")
+        resp = requests.post(
+            f"{self.server_url}/unload-model",
+            json={"model_type": mode},
+            timeout=10,
+            headers=auth_headers(),
+        )
+        if resp.status_code not in (200, 409):
+            try:
+                error_msg = resp.json().get("error", "Unknown error")
+            except (ValueError, requests.exceptions.JSONDecodeError):
+                error_msg = f"Server returned HTTP {resp.status_code}"
+            raise Exception(f"Failed to unload {mode} model: {error_msg}")
+        return resp.json()
+
+    def update_startup_config(self, clone=None, design=None, custom=None):
+        """Update which models load at server startup.
+
+        Args:
+            clone: True/False to enable/disable clone model at startup (optional).
+            design: True/False to enable/disable design model at startup (optional).
+            custom: True/False to enable/disable custom model at startup (optional).
+
+        Returns:
+            Response dict with "status" and "changes" keys.
+        """
+        if not self.is_server_running():
+            raise ConnectionError("TTS server is not running")
+        data = {}
+        if clone is not None:
+            data["clone"] = clone
+        if design is not None:
+            data["design"] = design
+        if custom is not None:
+            data["custom"] = custom
+        if not data:
+            raise ValueError("At least one model type required")
+        resp = requests.post(
+            f"{self.server_url}/update-startup-config",
+            json=data,
+            timeout=10,
+            headers=auth_headers(),
+        )
+        if resp.status_code != 200:
+            try:
+                error_msg = resp.json().get("error", "Unknown error")
+            except (ValueError, requests.exceptions.JSONDecodeError):
+                error_msg = f"Server returned HTTP {resp.status_code}"
+            raise Exception(f"Failed to update startup config: {error_msg}")
+        return resp.json()
+
+    def get_models(self):
+        """Get information about available models and their load status.
+
+        Returns:
+            Response dict with "models", "backend", "model_size" keys.
+        """
+        if not self.is_server_running():
+            raise ConnectionError("TTS server is not running")
+        resp = requests.get(
+            f"{self.server_url}/models",
+            timeout=5,
+            headers=auth_headers(),
+        )
+        return resp.json()
+
     def cancel_generation(self):
         """Cancel the current streaming generation.
 

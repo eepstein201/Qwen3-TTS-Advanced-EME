@@ -20,6 +20,36 @@ from unittest.mock import patch, MagicMock
 # Ensure project root is importable
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
+# Check optional dependencies — tests that need these are skipped when missing
+try:
+    import soundfile  # noqa: F401
+    HAS_SOUNDFILE = True
+except ImportError:
+    HAS_SOUNDFILE = False
+
+try:
+    import gradio  # noqa: F401
+    HAS_GRADIO = True
+except ImportError:
+    HAS_GRADIO = False
+
+try:
+    import flask  # noqa: F401
+    HAS_FLASK = True
+except ImportError:
+    HAS_FLASK = False
+
+# voice_server requires soundfile + flask; voice_client requires soundfile;
+# voice_ui requires gradio
+_server_deps = HAS_SOUNDFILE and HAS_FLASK
+_client_deps = HAS_SOUNDFILE
+_ui_deps = HAS_GRADIO
+
+_skip_server = unittest.skipUnless(_server_deps, "requires soundfile + flask")
+_skip_client = unittest.skipUnless(_client_deps, "requires soundfile")
+_skip_ui = unittest.skipUnless(_ui_deps, "requires gradio")
+_skip_generate = unittest.skipUnless(HAS_SOUNDFILE, "requires soundfile (voice_generate)")
+
 
 # =============================================================================
 # voice_config tests
@@ -114,6 +144,7 @@ class TestTTSConfig(unittest.TestCase):
 # voice_server validation tests (using Flask test client, no models needed)
 # =============================================================================
 
+@_skip_server
 class TestServerValidation(unittest.TestCase):
     """Test server input validation without loading any models."""
 
@@ -206,6 +237,7 @@ class TestServerValidation(unittest.TestCase):
 # voice_server auth tests
 # =============================================================================
 
+@_skip_server
 class TestServerAuth(unittest.TestCase):
     """Test server authentication."""
 
@@ -271,6 +303,7 @@ class TestServerAuth(unittest.TestCase):
 # SSML parsing tests (from voice_generate, lightweight)
 # =============================================================================
 
+@_skip_generate
 class TestSSMLParsing(unittest.TestCase):
     """Test SSML parsing in voice_generate."""
 
@@ -308,6 +341,7 @@ class TestSSMLParsing(unittest.TestCase):
 # SRT parsing tests
 # =============================================================================
 
+@_skip_generate
 class TestSRTParsing(unittest.TestCase):
     """Test SRT parsing."""
 
@@ -342,6 +376,7 @@ Second subtitle
 # Auto-increment filename tests
 # =============================================================================
 
+@_skip_generate
 class TestAutoIncrementFilename(unittest.TestCase):
     """Test auto_increment_filename helper."""
 
@@ -808,6 +843,7 @@ class TestStreaming(unittest.TestCase):
         self.assertIn("gen_params", params)
 
 
+@_skip_server
 class TestStreamingServerEndpoint(unittest.TestCase):
     """Test /generate-stream server endpoint."""
 
@@ -901,12 +937,17 @@ class TestASR(unittest.TestCase):
         self.assertEqual(result, "Hello world")
 
     def test_is_asr_available_torch_with_transformers(self):
-        """is_asr_available returns True when torch + transformers available."""
+        """is_asr_available returns True when torch + transformers importable."""
         from voice_engine import is_asr_available
+        # Check if transformers is actually importable in this env
+        try:
+            from transformers import pipeline  # noqa: F401
+            has_transformers = True
+        except (ImportError, Exception):
+            has_transformers = False
         with patch("voice_engine.get_backend", return_value="torch"):
             result = is_asr_available()
-        # transformers is installed in our env
-        self.assertTrue(result)
+        self.assertEqual(result, has_transformers)
 
     def test_transcribe_audio_torch_dispatches(self):
         """transcribe_audio uses torch path when backend is torch."""
@@ -1069,6 +1110,8 @@ class TestTextChunking(unittest.TestCase):
 # Server health endpoint info tests
 # =============================================================================
 
+@_skip_server
+@_skip_ui
 class TestMLXMemoryStats(unittest.TestCase):
     """Test MLX memory stats collection in /stats endpoint."""
 
@@ -1092,6 +1135,7 @@ class TestMLXMemoryStats(unittest.TestCase):
         self.assertIn("mlx_memory_active_mb", source)
 
 
+@_skip_server
 class TestHealthEndpointInfo(unittest.TestCase):
     """Test /health endpoint returns expected info fields."""
 
@@ -1136,6 +1180,7 @@ class TestHealthEndpointInfo(unittest.TestCase):
 # Generation status and chunk progress tests
 # =============================================================================
 
+@_skip_server
 class TestGenerationStatus(unittest.TestCase):
     """Test /generation-status endpoint and chunk progress tracking."""
 
@@ -1174,6 +1219,7 @@ class TestGenerationStatus(unittest.TestCase):
 # Load model endpoint tests
 # =============================================================================
 
+@_skip_server
 class TestLoadModelEndpoint(unittest.TestCase):
     """Test /load-model endpoint validation."""
 
@@ -1224,6 +1270,7 @@ class TestLoadModelEndpoint(unittest.TestCase):
 # Cancel generation endpoint tests
 # =============================================================================
 
+@_skip_server
 class TestCancelGenerationEndpoint(unittest.TestCase):
     """Test /cancel-generation endpoint."""
 
@@ -1306,6 +1353,7 @@ class TestCancelGenerationEndpoint(unittest.TestCase):
         })
 
 
+@_skip_server
 class TestGenerationStateFields(unittest.TestCase):
     """Test generation_state has required fields for cancellation."""
 
@@ -1336,6 +1384,7 @@ class TestGenerationStateFields(unittest.TestCase):
 # Streaming client tests
 # =============================================================================
 
+@_skip_client
 class TestStreamingClientMethod(unittest.TestCase):
     """Test TTSClient.generate_streaming method."""
 
@@ -1368,6 +1417,7 @@ class TestStreamingClientMethod(unittest.TestCase):
 # UI history functions tests
 # =============================================================================
 
+@_skip_ui
 class TestUIHistoryFunctions(unittest.TestCase):
     """Test voice_ui generation history functions."""
 
@@ -1434,6 +1484,7 @@ class TestUIHistoryFunctions(unittest.TestCase):
 # UI cancel function tests
 # =============================================================================
 
+@_skip_ui
 class TestUICancelFunction(unittest.TestCase):
     """Test voice_ui cancel streaming function."""
 
@@ -1483,6 +1534,7 @@ class TestUICancelFunction(unittest.TestCase):
 # UI text info helper tests
 # =============================================================================
 
+@_skip_ui
 class TestUITextInfo(unittest.TestCase):
     """Test voice_ui text info helper functions."""
 
@@ -1516,6 +1568,7 @@ class TestUITextInfo(unittest.TestCase):
 # UI model settings tests
 # =============================================================================
 
+@_skip_ui
 class TestUIModelSettings(unittest.TestCase):
     """Test voice_ui model settings functions (Phase 19: MLX-First Architecture)."""
 
@@ -1559,6 +1612,7 @@ class TestUIModelSettings(unittest.TestCase):
         self.assertIn("not running", msg.lower())
 
 
+@_skip_ui
 class TestUIModelSettingsImports(unittest.TestCase):
     """Test voice_ui imports required for model settings."""
 
@@ -1577,6 +1631,7 @@ class TestUIModelSettingsImports(unittest.TestCase):
 # Update model config endpoint tests
 # =============================================================================
 
+@_skip_server
 class TestUpdateModelConfigEndpoint(unittest.TestCase):
     """Test /update-model-config server endpoint."""
 
@@ -1620,6 +1675,7 @@ class TestUpdateModelConfigEndpoint(unittest.TestCase):
         self.assertIn("Invalid mlx_quantization", resp.get_json()["error"])
 
 
+@_skip_client
 class TestClientUpdateModelConfig(unittest.TestCase):
     """Test TTSClient.update_model_config method."""
 
@@ -1635,6 +1691,7 @@ class TestClientUpdateModelConfig(unittest.TestCase):
 # Streaming server endpoint structure tests
 # =============================================================================
 
+@_skip_server
 class TestStreamingEndpointStructure(unittest.TestCase):
     """Test /generate-stream endpoint structure."""
 
@@ -1682,6 +1739,7 @@ class TestStreamingEndpointStructure(unittest.TestCase):
 # Generation functions return history update tests
 # =============================================================================
 
+@_skip_ui
 class TestGenerationFunctionsReturnHistory(unittest.TestCase):
     """Test that generation functions return history data for UI update."""
 
@@ -1744,6 +1802,7 @@ class TestGenerationFunctionsReturnHistory(unittest.TestCase):
 # Generation stream generation_id check tests
 # =============================================================================
 
+@_skip_server
 class TestGenerateStreamIdCheck(unittest.TestCase):
     """Test generate_stream generation_id race condition fix."""
 
@@ -1770,6 +1829,7 @@ class TestGenerateStreamIdCheck(unittest.TestCase):
 # _check_generation_cancelled helper tests
 # =============================================================================
 
+@_skip_ui
 class TestCheckGenerationCancelled(unittest.TestCase):
     """Test _check_generation_cancelled helper function."""
 
@@ -1900,6 +1960,7 @@ class TestMLXVoicePromptCache(unittest.TestCase):
 # Phase 21b: ETA cache tests
 # =============================================================================
 
+@_skip_server
 class TestETACache(unittest.TestCase):
     """Test ETA estimation cache in voice_server."""
 
@@ -1954,6 +2015,7 @@ class TestETACache(unittest.TestCase):
 # Phase 21b: Generation result cache tests
 # =============================================================================
 
+@_skip_server
 class TestGenerationCache(unittest.TestCase):
     """Test generation result cache in voice_server."""
 
@@ -2059,6 +2121,7 @@ class TestGenerationCache(unittest.TestCase):
 # Phase 21a: Voice management endpoint tests
 # =============================================================================
 
+@_skip_server
 class TestDeletePromptEndpoint(unittest.TestCase):
     """Test POST /delete-prompt endpoint."""
 
@@ -2119,6 +2182,7 @@ class TestDeletePromptEndpoint(unittest.TestCase):
             self.assertFalse(os.path.exists(os.path.join(self.tmpdir, f"test_voice{ext}")))
 
 
+@_skip_server
 class TestRenamePromptEndpoint(unittest.TestCase):
     """Test POST /rename-prompt endpoint."""
 
@@ -2195,6 +2259,7 @@ class TestRenamePromptEndpoint(unittest.TestCase):
         self.assertEqual(resp.status_code, 404)
 
 
+@_skip_server
 class TestPreviewPromptEndpoint(unittest.TestCase):
     """Test GET /preview-prompt endpoint."""
 
@@ -2241,6 +2306,7 @@ class TestPreviewPromptEndpoint(unittest.TestCase):
         self.assertIn("audio/wav", resp.content_type)
 
 
+@_skip_server
 class TestPromptDetailsEndpoint(unittest.TestCase):
     """Test GET /prompt-details endpoint."""
 
@@ -2296,6 +2362,7 @@ class TestPromptDetailsEndpoint(unittest.TestCase):
         self.assertEqual(data["prompts"][0]["name"], "voice_a")
 
 
+@_skip_client
 class TestClientPromptManagement(unittest.TestCase):
     """Test voice_client prompt management method signatures."""
 
@@ -2345,6 +2412,7 @@ class TestSetDefaultClonePrompt(unittest.TestCase):
             save_config(original)
 
 
+@_skip_ui
 class TestVoiceManagementUI(unittest.TestCase):
     """Test voice management UI helper functions."""
 
@@ -2459,6 +2527,7 @@ class TestDeviceAwareEngine(unittest.TestCase):
         self.assertIn("torch.cuda.empty_cache", source)
 
 
+@_skip_generate
 class TestPlatformSafeCommands(unittest.TestCase):
     """Test platform-safe command helpers in voice_generate."""
 
@@ -2491,6 +2560,318 @@ class TestPlatformSafeCommands(unittest.TestCase):
         source = inspect.getsource(open_file)
         self.assertIn("FileNotFoundError", source)
         self.assertIn("xdg-open", source)
+
+
+# =============================================================================
+# Unload model endpoint tests
+# =============================================================================
+
+@_skip_server
+class TestUnloadModelEndpoint(unittest.TestCase):
+    """Test /unload-model endpoint."""
+
+    @classmethod
+    def setUpClass(cls):
+        import voice_server
+        voice_server.auth_token = "test_token"
+        voice_server.server_config = {
+            "security": {},
+            "auto_shutdown_minutes": 0,
+            "models": {"clone": {"load_at_startup": True}},
+        }
+        cls.app = voice_server.app
+        cls.app.testing = True
+        cls.client = cls.app.test_client()
+
+    @classmethod
+    def tearDownClass(cls):
+        import voice_server
+        voice_server.auth_token = None
+
+    def test_unload_requires_auth(self):
+        """POST /unload-model requires authentication."""
+        resp = self.client.post("/unload-model", json={"model_type": "clone"})
+        self.assertEqual(resp.status_code, 401)
+
+    def test_unload_validates_type(self):
+        """POST /unload-model validates model_type."""
+        resp = self.client.post("/unload-model",
+            json={"model_type": "invalid"},
+            headers={"Authorization": "Bearer test_token"})
+        self.assertEqual(resp.status_code, 400)
+
+    def test_unload_requires_model_type(self):
+        """POST /unload-model requires model_type field."""
+        resp = self.client.post("/unload-model",
+            json={},
+            headers={"Authorization": "Bearer test_token"})
+        self.assertEqual(resp.status_code, 400)
+
+    def test_unload_already_unloaded(self):
+        """POST /unload-model returns already_unloaded when model not loaded."""
+        import voice_server
+        voice_server.clone_model = None
+        resp = self.client.post("/unload-model",
+            json={"model_type": "clone"},
+            headers={"Authorization": "Bearer test_token"})
+        self.assertEqual(resp.status_code, 200)
+        self.assertEqual(resp.get_json()["status"], "already_unloaded")
+
+    def test_unload_rejects_during_generation(self):
+        """POST /unload-model returns 409 when generation active for that mode."""
+        import voice_server
+        voice_server.generation_state["active"] = True
+        voice_server.generation_state["mode"] = "clone"
+        try:
+            resp = self.client.post("/unload-model",
+                json={"model_type": "clone"},
+                headers={"Authorization": "Bearer test_token"})
+            self.assertEqual(resp.status_code, 409)
+        finally:
+            voice_server.generation_state["active"] = False
+            voice_server.generation_state["mode"] = ""
+
+
+# =============================================================================
+# Update startup config endpoint tests
+# =============================================================================
+
+@_skip_server
+class TestUpdateStartupConfigEndpoint(unittest.TestCase):
+    """Test /update-startup-config endpoint."""
+
+    @classmethod
+    def setUpClass(cls):
+        import voice_server
+        voice_server.auth_token = "test_token"
+        voice_server.server_config = {
+            "security": {},
+            "auto_shutdown_minutes": 0,
+        }
+        cls.app = voice_server.app
+        cls.app.testing = True
+        cls.client = cls.app.test_client()
+
+    @classmethod
+    def tearDownClass(cls):
+        import voice_server
+        voice_server.auth_token = None
+
+    def test_startup_config_requires_auth(self):
+        """POST /update-startup-config requires authentication."""
+        resp = self.client.post("/update-startup-config", json={"clone": True})
+        self.assertEqual(resp.status_code, 401)
+
+    def test_startup_config_empty_body(self):
+        """POST /update-startup-config rejects empty body."""
+        resp = self.client.post("/update-startup-config",
+            json={},
+            headers={"Authorization": "Bearer test_token"})
+        self.assertEqual(resp.status_code, 400)
+
+    @patch("voice_server.save_config")
+    @patch("voice_server.load_config")
+    def test_startup_config_saves(self, mock_load, mock_save):
+        """POST /update-startup-config saves to config."""
+        mock_load.return_value = {"models": {"clone": {}, "design": {}, "custom": {}}}
+        resp = self.client.post("/update-startup-config",
+            json={"clone": True, "design": False},
+            headers={"Authorization": "Bearer test_token"})
+        self.assertEqual(resp.status_code, 200)
+        self.assertEqual(resp.get_json()["status"], "updated")
+        self.assertTrue(mock_save.called)
+
+    @patch("voice_server.save_config")
+    @patch("voice_server.load_config")
+    def test_startup_config_partial_update(self, mock_load, mock_save):
+        """POST /update-startup-config accepts partial updates."""
+        mock_load.return_value = {"models": {"clone": {"load_at_startup": True}}}
+        resp = self.client.post("/update-startup-config",
+            json={"design": True},
+            headers={"Authorization": "Bearer test_token"})
+        self.assertEqual(resp.status_code, 200)
+        changes = resp.get_json()["changes"]
+        self.assertEqual(len(changes), 1)
+        self.assertIn("design=on", changes[0])
+
+
+# =============================================================================
+# Client model management methods tests
+# =============================================================================
+
+@_skip_client
+class TestClientModelMethods(unittest.TestCase):
+    """Test that TTSClient has unload_model, update_startup_config, get_models methods."""
+
+    def test_unload_model_exists(self):
+        from voice_client import TTSClient
+        client = TTSClient()
+        self.assertTrue(hasattr(client, "unload_model"))
+        self.assertTrue(callable(getattr(client, "unload_model")))
+
+    def test_update_startup_config_exists(self):
+        from voice_client import TTSClient
+        client = TTSClient()
+        self.assertTrue(hasattr(client, "update_startup_config"))
+        self.assertTrue(callable(getattr(client, "update_startup_config")))
+
+    def test_get_models_exists(self):
+        from voice_client import TTSClient
+        client = TTSClient()
+        self.assertTrue(hasattr(client, "get_models"))
+        self.assertTrue(callable(getattr(client, "get_models")))
+
+
+# =============================================================================
+# Engine model cleanup and ASR info tests
+# =============================================================================
+
+class TestEngineModelCleanup(unittest.TestCase):
+    """Test unload_model_cleanup, is_asr_loaded, get_asr_model_info."""
+
+    def test_unload_model_cleanup_exists(self):
+        from voice_engine import unload_model_cleanup
+        self.assertTrue(callable(unload_model_cleanup))
+
+    def test_is_asr_loaded_returns_bool(self):
+        from voice_engine import is_asr_loaded
+        result = is_asr_loaded()
+        self.assertIsInstance(result, bool)
+
+    def test_get_asr_model_info_returns_dict(self):
+        from voice_engine import get_asr_model_info
+        info = get_asr_model_info()
+        self.assertIsInstance(info, dict)
+        self.assertIn("loaded", info)
+        self.assertIn("backend", info)
+        self.assertIn("model_name", info)
+
+
+# =============================================================================
+# Enhanced /models endpoint tests
+# =============================================================================
+
+@_skip_server
+class TestModelsEndpointEnhanced(unittest.TestCase):
+    """Test /models endpoint includes load_at_startup and load_time_sec."""
+
+    @classmethod
+    def setUpClass(cls):
+        import voice_server
+        voice_server.auth_token = "test_token"
+        voice_server.server_config = {
+            "security": {},
+            "auto_shutdown_minutes": 0,
+            "models": {
+                "clone": {"load_at_startup": True},
+                "design": {"load_at_startup": False},
+                "custom": {"load_at_startup": False},
+            },
+        }
+        voice_server.model_load_times = {"clone": 5.2}
+        cls.app = voice_server.app
+        cls.app.testing = True
+        cls.client = cls.app.test_client()
+
+    @classmethod
+    def tearDownClass(cls):
+        import voice_server
+        voice_server.auth_token = None
+        voice_server.model_load_times = {}
+
+    def test_models_has_load_at_startup(self):
+        """GET /models includes load_at_startup field."""
+        resp = self.client.get("/models",
+            headers={"Authorization": "Bearer test_token"})
+        data = resp.get_json()
+        clone_info = data["models"]["clone"]
+        self.assertIn("load_at_startup", clone_info)
+        self.assertTrue(clone_info["load_at_startup"])
+
+    def test_models_has_load_time(self):
+        """GET /models includes load_time_sec field."""
+        resp = self.client.get("/models",
+            headers={"Authorization": "Bearer test_token"})
+        data = resp.get_json()
+        clone_info = data["models"]["clone"]
+        self.assertIn("load_time_sec", clone_info)
+        self.assertEqual(clone_info["load_time_sec"], 5.2)
+
+    def test_health_includes_load_times(self):
+        """GET /health includes model_load_times."""
+        resp = self.client.get("/health")
+        data = resp.get_json()
+        self.assertIn("model_load_times", data)
+
+
+# =============================================================================
+# Smart Audio Loader tests
+# =============================================================================
+
+class TestSmartAudioLoader(unittest.TestCase):
+    """Test smart audio loader functions."""
+
+    def test_load_audio_exists(self):
+        from voice_engine import load_audio
+        self.assertTrue(callable(load_audio))
+
+    def test_load_audio_for_cloning_exists(self):
+        from voice_engine import load_audio_for_cloning
+        self.assertTrue(callable(load_audio_for_cloning))
+
+    def test_get_audio_loader_returns_valid(self):
+        from voice_engine import get_audio_loader
+        result = get_audio_loader()
+        self.assertIn(result, ("torchaudio", "librosa"))
+
+    def test_set_audio_loader_validates(self):
+        from voice_engine import set_audio_loader
+        with self.assertRaises(ValueError):
+            set_audio_loader("invalid_loader")
+
+    def test_set_audio_loader_updates(self):
+        from voice_engine import set_audio_loader, get_audio_loader
+        original = get_audio_loader()
+        try:
+            set_audio_loader("librosa")
+            self.assertEqual(get_audio_loader(), "librosa")
+            set_audio_loader("torchaudio")
+            self.assertEqual(get_audio_loader(), "torchaudio")
+        finally:
+            set_audio_loader(original)
+
+
+# =============================================================================
+# Manage Models UI tests
+# =============================================================================
+
+@_skip_ui
+class TestManageModelsUI(unittest.TestCase):
+    """Test Manage Models UI helper functions."""
+
+    def test_get_model_table_data_exists(self):
+        import voice_ui
+        self.assertTrue(callable(getattr(voice_ui, "get_model_table_data", None)))
+
+    def test_toggle_model_exists(self):
+        import voice_ui
+        self.assertTrue(callable(getattr(voice_ui, "toggle_model", None)))
+
+    def test_get_model_status_html_exists(self):
+        import voice_ui
+        self.assertTrue(callable(getattr(voice_ui, "get_model_status_html", None)))
+
+    def test_update_startup_defaults_exists(self):
+        import voice_ui
+        self.assertTrue(callable(getattr(voice_ui, "update_startup_defaults", None)))
+
+    def test_get_audio_loader_setting_exists(self):
+        import voice_ui
+        self.assertTrue(callable(getattr(voice_ui, "get_audio_loader_setting", None)))
+
+    def test_set_audio_loader_setting_exists(self):
+        import voice_ui
+        self.assertTrue(callable(getattr(voice_ui, "set_audio_loader_setting", None)))
 
 
 if __name__ == "__main__":

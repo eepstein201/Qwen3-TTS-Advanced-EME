@@ -1,1177 +1,291 @@
 # Qwen3-TTS Voice Generation System
 
-A powerful text-to-speech system with voice cloning, built on Qwen3-TTS models. Features include voice cloning from audio samples, a persistent server for fast generation, audio processing, SSML markup, and more.
+Clone any voice from an audio sample, design voices from text descriptions, or choose from 9 premium speakers. Powered by Qwen3-TTS models with a persistent server for fast generation.
 
-## Table of Contents
+**Platforms:** Mac (Apple Silicon with MLX, Intel with PyTorch), Linux with NVIDIA GPU, Google Colab
 
-- [Getting Started](#getting-started)
-- [Quick Start](#quick-start)
-- [Web Interface](#web-interface)
-- [Commands Reference](#commands-reference)
-- [Voice Modes](#voice-modes)
-- [Audio Processing](#audio-processing)
-- [Advanced Features](#advanced-features)
-- [Configuration](#configuration)
-- [Python API](#python-api)
-- [FAQ](#faq)
-- [Troubleshooting](#troubleshooting)
-- [MLX Backend](#mlx-backend)
-- [Google Colab / Linux](#google-colab--linux)
-- [Tips & Best Practices](#tips--best-practices)
-
----
-
-## Getting Started
-
-### Prerequisites
-
-- **macOS with Apple Silicon** (M1/M2/M3/M4) — MLX backend (recommended)
-- **macOS with Intel** — PyTorch backend only
-- **Google Colab / Linux with NVIDIA GPU** — PyTorch + CUDA backend
-- Conda (miniforge recommended) or pip (Colab)
-- ~2.5GB per model (MLX 8-bit, recommended) or ~3.5GB per model (PyTorch)
-
-### Installation
-
-Run the installation script for automated setup:
+## Install
 
 ```bash
 cd ~/Qwen3-TTS_UserFiles
 ./install.sh
 ```
 
-This will:
-- Detect your hardware (Apple Silicon or Intel) and RAM
-- Recommend optimal settings (backend, model size, quantization)
-- Create conda environments:
-  - `qwen3-tts-mlx` (MLX backend, recommended for Apple Silicon)
-  - `qwen3-tts` (PyTorch backend, optional fallback or Intel-only)
-- Install all dependencies
-- Create wrapper scripts in `~/bin/`
-- Optionally pre-download models
-
-**Reconfigure settings later:**
-```bash
-configureTTS             # Interactive wizard
-configureTTS --show      # Show current vs recommended settings
-```
-
-**Preview what will be done:**
-```bash
-./install.sh --dry-run
-```
-
-**Manual installation:** The system uses the `qwen3-tts` conda environment with:
-- `qwen-tts` - Qwen3 TTS models
-- `torch` - PyTorch with MPS support
-- `flask` - Server framework
-- `librosa` - Audio processing
-- `soundfile`, `gradio`, `watchdog` - Additional dependencies
-
-### First Run
-
-1. **Start the TTS server** (recommended for fast generation):
-   ```bash
-   startTTSServer
-   ```
-   This loads models into memory (~30-60 seconds) for subsequent fast generation (~2-5 seconds).
-
-2. **Generate your first audio**:
-   ```bash
-   changeVoice "Hello, world!" -o hello
-   ```
-
-3. **When done, stop the server**:
-   ```bash
-   stopTTSServer
-   ```
-
----
-
-## Web Interface
-
-A Gradio-based web interface provides an easy-to-use alternative to CLI commands.
-
-### Launching the UI
+The installer detects your hardware, walks you through backend/model/quantization choices, creates the right conda environment, and installs commands to `~/bin/`.
 
 ```bash
-# Option 1: Direct launch (auto-starts server if needed)
-changeVoice --ui
-
-# Option 2: Interactive prompt
-changeVoice
-# Then select "2. Web Interface (Gradio UI in browser)"
-
-# Option 3: Dedicated command
-ttsUI
+configureTTS             # Re-run the setup wizard anytime
+configureTTS --show      # Compare current settings to recommendations
 ```
-
-The server starts automatically when launching the UI if it's not already running.
-
-This opens your browser to `http://localhost:7860` (or the next available port if 7860 is busy).
-
-### UI Features
-
-- **Three tabs** for Clone, Design, and Custom modes
-- **Auto-load models** on first use — no need to pre-load all three at startup
-- **Status bar** showing server connection, backend, memory usage, and loaded models (refreshes after each generation)
-- **Voice prompt dropdown** (Clone mode) — defaults to `config.json`'s `default_clone_prompt`, backend-aware (.pt for PyTorch, .wav for MLX)
-- **Speaker selection** with descriptions (Custom mode)
-- **Advanced settings** (collapsible): temperature, top-k, top-p, repetition penalty, seed
-- **Audio processing** (collapsible): trim silence, normalize, speed, pitch
-- **Built-in audio player** for immediate playback
-- **Dynamic port fallback** — if port 7860 is busy, auto-selects the next available port (7861, 7862, ...)
-- **Manage Voices tab** — preview, rename, delete, and set default voice prompts; changes sync to the Clone tab dropdown in real time
-- **Model Settings accordion** — switch model size and MLX quantization without restarting the server
-
-### UI Options
-
-```bash
-ttsUI --port 8080      # Use a different port
-ttsUI --share          # Create a public URL (for sharing)
-ttsUI --no-browser     # Don't auto-open browser
-```
-
----
 
 ## Quick Start
 
-### Basic Usage
-
 ```bash
-# Simple generation (opens file automatically)
-changeVoice "Your text here" -o output_name
-
-# Generate and play immediately
-changeVoice "Quick test" -o test --play
-
-# Generate from clipboard
-changeVoice --clipboard -o from_clipboard
-
-# Use a preset for consistent output
-changeVoice "Reproducible output" --preset consistent -o output
+startTTSServer                          # Load model (~30-60s first time)
+changeVoice "Hello, world!" -o hello    # Generate speech → hello.wav
+stopTTSServer                           # Free memory when done
 ```
 
-### With Audio Processing
+Or skip straight to the web UI:
 
 ```bash
-# Speed up by 20%
-changeVoice "Faster speech" --speed 1.2 -o fast
-
-# Lower pitch by 2 semitones
-changeVoice "Deeper voice" --pitch -2 -o deep
-
-# Normalize volume and trim silence
-changeVoice "Clean audio" --normalize --trim-silence -o clean
-
-# Combine multiple options
-changeVoice "Full processing" --speed 1.1 --pitch -1 --normalize --trim-silence -o processed
+ttsUI                    # Opens http://localhost:7860
+changeVoice --ui         # Same thing, auto-starts server
 ```
 
-### Using Voice Aliases
+## Three Voice Modes
+
+### Clone (default) — sound like anyone
+
+Record or upload 10-30 seconds of clean speech, create a voice prompt, then generate in that voice.
 
 ```bash
-# Use a configured voice alias (combines prompt + preset)
-changeVoice "Hello" -v default -o greeting
+# Create a voice clone
+createVoice recording.wav my_voice -t "transcript of what they said"
+createVoice recording.wav my_voice --auto-transcribe    # Let Whisper handle it
 
-# List available aliases
-changeVoice --list-aliases
+# Generate with it
+changeVoice "Hello" -o output                   # Uses default voice
+changeVoice "Hello" -p my_voice.pt -o output    # Specific voice
 ```
 
----
-
-## Commands Reference
-
-### Main Commands
-
-| Command | Description |
-|---------|-------------|
-| `changeVoice` | Main TTS generation command |
-| `startTTSServer` | Start the persistent TTS server |
-| `stopTTSServer` | Stop the TTS server |
-| `createVoice` | Create a new voice clone from audio |
-| `ttsUI` | Launch the Gradio web interface |
-| `configureTTS` | Reconfigure backend, model size, quantization settings |
-
-### changeVoice Options
-
-#### Input/Output
-| Option | Description |
-|--------|-------------|
-| `"text"` | Text to synthesize (or path to .txt file) |
-| `-o, --output NAME` | Output filename (saved to ~/Downloads/) |
-| `--clipboard` | Read text from system clipboard |
-| `--batch FILE` | Process JSON array of texts |
-| `--no-open` | Don't open the output file |
-| `--play` | Play audio immediately after generation |
-
-#### Voice Selection
-| Option | Description |
-|--------|-------------|
-| `-v, --voice NAME` | Use a voice alias from config |
-| `-p, --prompt FILE` | Use specific voice prompt (.pt file) |
-| `-m, --mode clone\|design\|custom` | Voice mode (clone, design, or custom) |
-| `-d, --description TEXT` | Voice description (for design mode) |
-| `-s, --speaker NAME` | Premium speaker for custom mode (ryan, aiden, etc.) |
-| `-i, --instruct TEXT` | Style instruction for custom mode |
-| `--preset NAME` | Use named preset (consistent, creative) |
-
-#### Generation Parameters
-| Option | Description |
-|--------|-------------|
-| `--temperature FLOAT` | Sampling temperature (default: 0.7) |
-| `--top-k INT` | Top-k sampling (default: 50) |
-| `--top-p FLOAT` | Top-p nucleus sampling (default: 0.95) |
-| `--seed INT` | Random seed for reproducibility |
-| `--repetition-penalty FLOAT` | Repetition penalty (default: 1.05) |
-| `--max-chunk-chars N` | Max chars per chunk for long text (default: 500, 0 to disable) |
-
-#### Audio Processing
-| Option | Description |
-|--------|-------------|
-| `--trim-silence` | Remove leading/trailing silence |
-| `--normalize` | Normalize to -3dB peak |
-| `--speed FACTOR` | Speed adjustment (1.2 = 20% faster) |
-| `--pitch SEMITONES` | Pitch shift (+2 = higher, -2 = lower) |
-
-#### Advanced Features
-| Option | Description |
-|--------|-------------|
-| `--ssml` | Enable SSML markup parsing |
-| `--repl` | Start interactive REPL mode |
-| `--watch DIR` | Watch directory for .txt files |
-| `--srt FILE` | Process SRT subtitle file |
-| `--dialogue FILE` | Process dialogue JSON with multiple speakers |
-| `--save-individual` | Save individual files for each dialogue line |
-| `--dry-run` | Show what would be generated |
-
-#### Backend & Model
-| Option | Description |
-|--------|-------------|
-| `--backend torch\|mlx` | Override inference backend for this run |
-| `--model-size 1.7B\|0.6B` | Override model size (0.6B is ~40% faster, lower memory) |
-| `--list-backends` | Show current backend, models, and quantization |
-| `--stream` | Stream audio playback as it generates (MLX backend) |
-
-#### Utility
-| Option | Description |
-|--------|-------------|
-| `--list-prompts` | List available voice prompts |
-| `--list-presets` | List available presets |
-| `--list-aliases` | List voice aliases |
-| `--list-speakers` | List premium CustomVoice speakers |
-| `--stats` | Show server statistics |
-| `--history [N]` | Show last N generations |
-| `--local` | Force local generation (skip server) |
-| `--ui, --gui` | Launch the Gradio web interface |
-
----
-
-## Voice Modes
-
-### Clone Mode (Default)
-
-Uses a voice prompt file (.pt) created from an audio sample to clone that voice.
+### Design — describe the voice you want
 
 ```bash
-# Use default clone prompt
-changeVoice "Hello" -o output
-
-# Use specific voice prompt
-changeVoice "Hello" -p narrator.pt -o output
+changeVoice "Hello" -m design -d "A warm, friendly female voice with a slight British accent" -o output
 ```
 
-### Design Mode
+### Custom — 9 premium pre-trained speakers
 
-Generates a voice from a text description (no audio sample needed).
-
-```bash
-# Use design mode with description
-changeVoice "Hello" -m design -d "A warm, friendly female voice" -o output
-```
-
-### Custom Mode (Premium Speakers)
-
-Uses pre-trained premium speakers from the CustomVoice model. No audio sample or description needed.
-
-**Available Speakers:**
-
-| Speaker | Language | Description |
-|---------|----------|-------------|
-| `ryan` | English | Dynamic male, strong rhythm |
-| `aiden` | English | Sunny American male, clear midrange |
-| `vivian` | Chinese | Bright young female |
-| `serena` | Chinese | Warm, gentle female |
-| `uncle_fu` | Chinese | Seasoned male, mellow timbre |
-| `dylan` | Chinese | Youthful Beijing male |
-| `eric` | Chinese | Lively Chengdu male |
-| `ono_anna` | Japanese | Playful female |
-| `sohee` | Korean | Warm female, rich emotion |
+Speakers: `ryan`, `aiden`, `vivian`, `serena`, `uncle_fu`, `dylan`, `eric`, `ono_anna`, `sohee`
 
 ```bash
-# Use premium speaker
 changeVoice "Hello" -m custom -s ryan -o output
-
-# With style instruction
-changeVoice "Hello" -m custom -s ryan -i "speak with enthusiasm" -o output
-
-# List all speakers
+changeVoice "Hello" -m custom -s vivian -i "speak with excitement" -o output
 changeVoice --list-speakers
 ```
 
-### Creating Voice Clones
+## Web Interface
+
+Six tabs for everything you need:
+
+| Tab | What it does |
+|-----|-------------|
+| **Clone Mode** | Generate with a cloned voice, pick from your voice prompts |
+| **Design Mode** | Type a voice description and generate |
+| **Custom Mode** | Pick a premium speaker, optionally add style instructions |
+| **Create Voice** | Upload audio + transcript (or auto-transcribe) to create a new voice |
+| **Manage Voices** | Preview, rename, delete voices; set your default |
+| **Manage Models** | Load/unload models, set startup defaults, switch audio loader |
+
+Models auto-load on first use. Status indicators show what's loaded. Cancel button stops generation mid-stream.
 
 ```bash
-# Create a new voice clone from audio (will prompt for transcript)
-createVoice path/to/audio.wav my_voice_name
-
-# With explicit transcript
-createVoice audio.wav my_voice -t "transcript of what's said"
-
-# Auto-transcribe using MLX ASR (MLX backend only)
-createVoice audio.wav my_voice --auto-transcribe
-
-# MLX-only mode (no .pt file, works from any env)
-createVoice audio.wav my_voice -t "transcript" --mlx-only
-
-# The new prompt will be saved to voice_prompts/my_voice_name.pt (torch)
-# and voice_prompts/my_voice_name.wav + .txt (MLX)
+ttsUI --port 8080        # Custom port
+ttsUI --share            # Public URL (Colab does this automatically)
+ttsUI --no-browser       # Don't open browser
 ```
 
----
+## CLI Reference
 
-## Audio Processing
-
-### Speed Adjustment
+### Generation
 
 ```bash
---speed 0.8    # 20% slower
---speed 1.0    # Normal (default)
---speed 1.2    # 20% faster
---speed 1.5    # 50% faster
+changeVoice "Text" -o output                       # Basic
+changeVoice "Text" -o output --play                 # Auto-play after
+changeVoice "Text" --stream -o output               # Stream as it generates
+changeVoice --clipboard -o from_clip                 # From clipboard
+changeVoice "One" "Two" "Three" -o ~/Downloads/      # Batch from args
+changeVoice --batch texts.json -o ~/Downloads/       # Batch from JSON array
 ```
 
-### Pitch Adjustment
+### Tuning Output
 
 ```bash
---pitch -4     # Much lower (4 semitones down)
---pitch -2     # Lower
---pitch 0      # Normal (default)
---pitch 2      # Higher
---pitch 4      # Much higher (4 semitones up)
+changeVoice "Text" --preset consistent -o output     # Reproducible output
+changeVoice "Text" --preset creative -o output        # More variation
+changeVoice "Text" --temperature 0.5 --seed 42 -o output
+changeVoice "Text" --speed 1.2 -o fast               # 20% faster playback
+changeVoice "Text" --pitch -2 -o deep                 # Lower pitch
+changeVoice "Text" --normalize --trim-silence -o clean
 ```
 
-### Normalization
-
-The `--normalize` flag adjusts the audio to a -3dB peak level, ensuring consistent volume across generations.
-
-### Silence Trimming
-
-The `--trim-silence` flag removes silence from the beginning and end of the audio, using a -40dB threshold.
-
----
-
-## Advanced Features
-
-### Text Chunking (Long-Form Generation)
-
-Long texts are automatically split into smaller chunks at sentence boundaries for reliable generation. This prevents timeouts on long texts and provides per-chunk progress feedback.
-
-- **Default:** texts over 500 characters are chunked (configurable via `generation.max_chunk_chars`)
-- **Splitting logic:** prefers sentence boundaries (`. ! ?`), falls back to clause boundaries (`, ; :`), then word boundaries
-- **Silence gap:** 100ms silence inserted between chunks for natural pacing
-- **Progress:** CLI spinner and Gradio progress bar show chunk progress (e.g., `[chunk 2/5]`)
+### Advanced
 
 ```bash
-# Override chunk size for a single run
-changeVoice "Very long text..." --max-chunk-chars 800 -o output
-
-# Disable chunking (send full text as one inference call)
-changeVoice "Text" --max-chunk-chars 0 -o output
-```
-
-To change the default, edit `config.json`:
-```json
-"generation": {
-  "max_chunk_chars": 500
-}
-```
-
-### SSML Markup
-
-Enable SSML parsing with `--ssml` for fine-grained control:
-
-```bash
+changeVoice --repl                                   # Interactive REPL
+changeVoice --watch ~/Desktop/tts_input -o output    # Watch folder for .txt files
+changeVoice --srt subtitles.srt -o subs              # Generate from SRT subtitles
+changeVoice --dialogue convo.json -o dialogue         # Multi-speaker dialogue
 changeVoice 'Hello <break time="500ms"/> world.' --ssml -o output
 ```
 
-#### Supported SSML Tags
-
-| Tag | Example | Effect |
-|-----|---------|--------|
-| `<break>` | `<break time="500ms"/>` | Insert pause |
-| `<emphasis>` | `<emphasis>important</emphasis>` | Emphasis (natural) |
-| `<sub>` | `<sub alias="NASA">N.A.S.A.</sub>` | Substitution |
-| `<say-as>` | `<say-as interpret-as="characters">ABC</say-as>` | Spell out |
-| `<prosody>` | `<prosody rate="fast" pitch="high">text</prosody>` | Speed/pitch hints |
-
-### Interactive REPL Mode
-
-Start an interactive session for rapid iteration:
+### Backend & Model Overrides
 
 ```bash
-changeVoice --repl
+changeVoice --backend mlx "Text" -o output           # Force MLX for this run
+changeVoice --model-size 0.6B "Text" -o output       # Use lighter model
+changeVoice --list-backends                           # Show current config
 ```
 
-REPL Commands:
-```
-/voice NAME    - Switch voice alias
-/preset NAME   - Switch preset
-/prompt NAME   - Switch voice prompt
-/play on|off   - Toggle auto-play
-/speed FACTOR  - Set speed
-/pitch SEMI    - Set pitch shift
-/status        - Show current settings
-/quit          - Exit
-```
-
-### Watch Mode
-
-Monitor a directory and automatically generate TTS for new .txt files:
+### Voice Management (CLI)
 
 ```bash
-changeVoice --watch ~/Desktop/tts_input -o ~/Desktop/tts_output
+changeVoice --list-prompts                           # All voice prompts
+changeVoice --preview-prompt my_voice                # Play a voice preview
+changeVoice --rename-prompt old_name new_name
+changeVoice --delete-prompt unwanted
 ```
 
-### SRT Subtitle Processing
-
-Generate audio for each subtitle in an SRT file:
+### Info & Stats
 
 ```bash
-changeVoice --srt subtitles.srt -o ~/Downloads/subtitles
-```
-
-This creates:
-- Individual audio files for each subtitle (`subtitles_001.wav`, etc.)
-- A combined audio file (`subtitles_combined.wav`)
-
-### Multi-Speaker Dialogue
-
-Generate dialogue with multiple speakers using a JSON file:
-
-```bash
-changeVoice --dialogue conversation.json -o ~/Downloads/
-```
-
-**Simple format** (inline speaker config):
-```json
-[
-  {"mode": "custom", "speaker": "ryan", "text": "Hello, how are you?"},
-  {"mode": "custom", "speaker": "aiden", "text": "I'm doing great, thanks!"},
-  {"mode": "clone", "prompt": "narrator.pt", "text": "They shook hands warmly."}
-]
-```
-
-**Named speakers format** (reusable speaker definitions):
-```json
-{
-  "speakers": {
-    "Alice": {"mode": "custom", "speaker": "vivian"},
-    "Bob": {"mode": "clone", "prompt": "bob_voice.pt"},
-    "Narrator": {"mode": "design", "description": "A deep, calm male narrator"}
-  },
-  "lines": [
-    {"speaker": "Alice", "text": "Hello Bob!"},
-    {"speaker": "Bob", "text": "Hi Alice! How are you?"},
-    {"speaker": "Narrator", "text": "Alice smiled warmly."},
-    {"speaker": "Alice", "text": "I'm wonderful, thank you!"}
-  ],
-  "pause_ms": 500
-}
-```
-
-Options:
-- `--save-individual`: Also save each line as a separate file
-- `pause_ms` in JSON: Silence between lines (default: 500ms)
-
----
-
-## Configuration
-
-### Config File Location
-
-`~/Qwen3-TTS_UserFiles/config.json`
-
-### Config Structure
-
-```json
-{
-  "default_voice_description": "A calm, friendly voice...",
-  "default_clone_prompt": "my_voice.pt",
-  "output_directory": "~/Downloads",
-  "language": "English",
-  "server": {
-    "host": "127.0.0.1",
-    "port": 5123,
-    "auto_shutdown_minutes": 0
-  },
-  "models": {
-    "clone": { "load_at_startup": true },
-    "design": { "load_at_startup": false },
-    "custom": { "load_at_startup": false }
-  },
-  "security": {
-    "max_text_length": 10000,
-    "max_batch_size": 20
-  },
-  "generation": {
-    "temperature": 0.7,
-    "top_k": 50,
-    "top_p": 0.95,
-    "repetition_penalty": 1.05,
-    "seed": null,
-    "max_chunk_chars": 500
-  },
-  "presets": {
-    "consistent": {
-      "temperature": 0.5,
-      "top_k": 30,
-      "seed": 42
-    },
-    "creative": {
-      "temperature": 0.9,
-      "top_p": 0.98
-    }
-  },
-  "ui": {
-    "port": 7860
-  },
-  "aliases": {
-    "default": {
-      "prompt": "my_voice.pt",
-      "preset": "consistent"
-    }
-  },
-  "advanced": {
-    "dtype": "bfloat16",
-    "backend": "torch",
-    "mlx_quantization": "8bit",
-    "model_size": "1.7B"
-  }
-}
-```
-
-### Advanced Settings
-
-| Setting | Values | Default | Description |
-|---------|--------|---------|-------------|
-| `generation.max_chunk_chars` | `0`–`10000` | `500` | Max chars per chunk for long texts (`0` disables chunking) |
-| `advanced.backend` | `"mlx"`, `"torch"` | platform-aware | Inference backend: defaults to `"mlx"` on Apple Silicon, `"torch"` elsewhere |
-| `advanced.dtype` | `"float32"`, `"float16"`, `"bfloat16"` | `"float32"` | PyTorch dtype (torch backend only) |
-| `advanced.mlx_quantization` | `"4bit"`, `"8bit"`, `"bf16"` | `"8bit"` | MLX model quantization (mlx backend only) |
-| `advanced.model_size` | `"1.7B"`, `"0.6B"` | `"1.7B"` | Model size (0.6B is ~40% faster with lower memory) |
-
-**Change settings via UI:** The Gradio web interface has a "Model Settings" accordion to switch model size and MLX quantization without restarting the server.
-
-### Model Configuration
-
-Control which models load at server startup:
-
-```bash
-# See available models and their status
+changeVoice --stats                                  # Server memory, cache, uptime
+changeVoice --history 10                             # Last 10 generations
+changeVoice --list-presets
+changeVoice --list-aliases
 changeVoice --list-models
 ```
 
-| Model | Purpose | PyTorch Memory | MLX 8-bit Memory |
-|-------|---------|---------------|-----------------|
-| `clone` | Voice cloning from audio samples | ~3.5GB | ~2.5GB |
-| `design` | Generate voice from text description | ~3.5GB | ~2.5GB |
-| `custom` | 9 premium pre-trained speakers | ~3.5GB | ~2.5GB |
+## Voice Aliases
 
-**On-demand loading:** Models are loaded automatically when first needed — both in the CLI (interactive prompt) and the Web UI (transparent auto-load with progress indicator). This lets you start with minimal memory and add models as needed.
-
-```json
-"models": {
-  "clone": { "load_at_startup": true },
-  "design": { "load_at_startup": false },
-  "custom": { "load_at_startup": true }
-}
-```
-
-### Auto-Shutdown
-
-Set `auto_shutdown_minutes` to automatically stop the server after inactivity:
-
-```json
-"server": {
-  "auto_shutdown_minutes": 30
-}
-```
-
-### Creating Voice Aliases
-
-Add aliases to quickly switch between voice configurations:
+Save voice + preset combinations in `config.json`:
 
 ```json
 "aliases": {
-  "narrator": {
-    "prompt": "narrator.pt",
-    "preset": "consistent"
-  },
-  "character": {
-    "prompt": "character.pt",
-    "preset": "creative"
-  }
+  "narrator": { "prompt": "narrator.pt", "preset": "consistent" },
+  "character": { "prompt": "character.pt", "preset": "creative" }
 }
 ```
 
----
+```bash
+changeVoice "Text" -v narrator -o output
+```
 
 ## Python API
 
-### Installation
-
-The API client is included at `~/Qwen3-TTS_UserFiles/voice_client.py`.
-
-### Basic Usage
-
 ```python
-from voice_client import TTSClient, generate
+from voice_client import TTSClient
 
-# Quick one-liner
-audio_path = generate("Hello world", output="greeting.wav")
-
-# Full control with client
 client = TTSClient()
 
-# Check server status
-if client.is_server_running():
-    stats = client.get_stats()
-    print(f"Memory usage: {stats['mps_memory_allocated_mb']}MB")
-
-# Generate with options
+# Generate speech
 audio_path = client.generate(
     "Hello world",
-    output="~/Downloads/output.wav",
-    voice="narrator",           # Use voice alias
-    speed=1.1,                  # 10% faster
-    pitch=-2,                   # Lower pitch
-    normalize=True,             # Normalize volume
-    trim_silence=True           # Trim silence
+    output="output.wav",
+    mode="clone",              # "clone", "design", or "custom"
+    voice="narrator",          # Voice alias
+    speed=1.1,
+    normalize=True,
 )
 
-# Generate with premium speaker (custom mode)
-audio_path = client.generate(
-    "Hello world",
-    mode="custom",
-    speaker="Ryan",             # Premium speaker
-    instruct="speak cheerfully" # Optional style instruction
-)
+# Model management
+client.load_model("design")
+client.unload_model("design")
+client.get_models()                                    # Status of all models
+client.update_model_config(model_size="0.6B")          # Switch model variant
+client.update_startup_config(clone=True, design=False)  # Startup defaults
 
-# List available resources
-print(client.list_prompts())    # Voice prompts (uses server when running)
-print(client.list_presets())    # Generation presets
-print(client.list_aliases())    # Voice aliases
+# Voice management
+client.list_prompts()
+client.get_prompt_details("my_voice")
+client.preview_prompt("my_voice")
+client.rename_prompt("old", "new")
+client.delete_prompt("unwanted")
 
-# Voice prompt management
-details = client.get_prompt_details("my_voice")  # Get prompt metadata
-audio = client.preview_prompt("my_voice")         # Get preview audio bytes
-client.rename_prompt("old_name", "new_name")      # Rename (all formats)
-client.delete_prompt("unwanted_voice")             # Delete (all formats)
-
-# Generate multi-speaker dialogue
+# Multi-speaker dialogue
 lines = [
-    {"mode": "custom", "speaker": "ryan", "text": "Hello there!"},
-    {"mode": "custom", "speaker": "aiden", "text": "Hi! Nice to meet you."},
+    {"mode": "custom", "speaker": "ryan", "text": "Hello!"},
+    {"mode": "custom", "speaker": "aiden", "text": "Hi there!"},
 ]
-audio_path = client.generate_dialogue(lines, output="dialogue.wav", pause_ms=500)
+client.generate_dialogue(lines, output="dialogue.wav")
 ```
 
-### API Reference
+## Configuration
 
-```python
-client = TTSClient(config_path=None)  # Uses default config
+All settings live in `config.json`. Edit directly or use `configureTTS`.
 
-# Properties
-client.config           # Configuration dictionary
-client.server_url       # Server URL string
+| Setting | Values | Default | Description |
+|---------|--------|---------|-------------|
+| `advanced.backend` | `"mlx"`, `"torch"` | Platform-aware | MLX on Apple Silicon, torch elsewhere |
+| `advanced.model_size` | `"1.7B"`, `"0.6B"` | `"1.7B"` | 0.6B is ~40% faster, uses less memory |
+| `advanced.mlx_quantization` | `"4bit"`, `"8bit"`, `"bf16"` | `"8bit"` | MLX quantization level |
+| `advanced.audio_loader` | `"torchaudio"`, `"librosa"` | `"torchaudio"` | Audio loading backend |
+| `generation.temperature` | `0.0`-`2.0` | `0.7` | Higher = more variation |
+| `generation.max_chunk_chars` | `0`-`10000` | `500` | Auto-splits long text (0 = no splitting) |
+| `models.*.load_at_startup` | `true`/`false` | clone=true | Which models to preload |
+| `server.auto_shutdown_minutes` | `0`+ | `0` | Auto-stop after idle (0 = never) |
 
-# Methods
-client.is_server_running()      # Check server status
-client.get_health()             # Get health info (loaded models, backend)
-client.get_stats()              # Get server statistics
-client.load_model(mode)         # Load a model on demand (clone/design/custom)
-client.list_prompts()           # List voice prompts (server-aware)
-client.list_presets()           # List presets
-client.list_aliases()           # List voice aliases
-client.resolve_alias(name)      # Get alias configuration
-client.reload_config()          # Reload configuration
-client.update_model_config(     # Change model settings on running server
-    model_size=None,
-    mlx_quantization=None)
+### Presets
 
-# Voice prompt management
-client.get_prompt_details(name) # Get prompt metadata (formats, size, is_default)
-client.preview_prompt(name)     # Get preview audio bytes
-client.rename_prompt(old, new)  # Rename prompt (all formats, atomic with rollback)
-client.delete_prompt(name)      # Delete prompt (all formats)
+- **consistent** — temperature 0.5, seed 42, top_k 30. Same input = same output.
+- **creative** — temperature 0.9, top_p 0.98. More expressive, varied output.
 
-# Generation
-client.generate(
-    text,                       # Text to synthesize
-    output=None,                # Output path
-    mode="clone",               # clone, design, or custom
-    prompt=None,                # Voice prompt file (clone mode)
-    description=None,           # Voice description (design mode)
-    speaker=None,               # Speaker name (custom mode)
-    instruct=None,              # Style instruction (custom mode)
-    voice=None,                 # Voice alias
-    preset=None,                # Preset name
-    temperature=None,           # Sampling temperature
-    top_k=None,                 # Top-k sampling
-    top_p=None,                 # Top-p sampling
-    seed=None,                  # Random seed
-    repetition_penalty=None,    # Repetition penalty
-    speed=None,                 # Speed factor
-    pitch=None,                 # Pitch semitones
-    normalize=False,            # Normalize audio
-    trim_silence=False,         # Trim silence
-    use_server=True             # Use server if running
-)
-```
+## MLX Backend (Apple Silicon)
 
----
+MLX runs natively on Apple Silicon — lower thermals (~40-50C vs ~80-90C), less battery drain, quantized models use less memory.
 
-## FAQ
-
-### Q: Why should I use the server?
-
-**A:** The server keeps models loaded in memory, reducing generation time from ~30-60 seconds (cold start) to ~2-5 seconds. If you're generating multiple clips, the server is much faster.
-
-### Q: How do I create a voice clone?
-
-**A:** Use the `createVoice` command with a clean audio sample:
 ```bash
-createVoice path/to/audio.wav voice_name
-```
-For best results, use 10-30 seconds of clear speech without background noise.
-
-### Q: What's the difference between clone and design mode?
-
-**A:**
-- **Clone mode** uses a voice prompt file created from an audio sample to replicate that specific voice.
-- **Design mode** generates a voice from a text description, useful when you don't have an audio sample.
-
-### Q: How do I get consistent output?
-
-**A:** Use the `consistent` preset or set a fixed seed:
-```bash
-changeVoice "Text" --preset consistent -o output
-# or
-changeVoice "Text" --seed 42 --temperature 0.5 -o output
+configureTTS                                    # Switch backend in the wizard
+# or edit config.json: "advanced": {"backend": "mlx"}
+stopTTSServer && startTTSServer                 # Restart to apply
 ```
 
-### Q: Can I process multiple texts at once?
+MLX voice cloning uses `.wav` + `.txt` file pairs instead of `.pt` tensors. `createVoice` saves all formats automatically.
 
-**A:** Yes, use batch mode:
-```bash
-# Multiple arguments
-changeVoice "Text one" "Text two" "Text three" -o ~/Downloads/batch/
+**Quantization:** `4bit` (smallest, fastest) | `8bit` (default, balanced) | `bf16` (highest quality)
 
-# From JSON file
-echo '["Text one", "Text two"]' > texts.json
-changeVoice --batch texts.json -o ~/Downloads/batch/
-```
+## Google Colab
 
-### Q: How much memory does this use?
+A ready-to-run notebook is included (`colab_notebook.ipynb`).
 
-**A:** PyTorch models use approximately 3.5GB each (~8GB total if all 3 loaded). MLX 8-bit models use ~2.5GB each. Check with:
-```bash
-changeVoice --stats
-```
+1. Upload `Qwen3-TTS_UserFiles/` to Google Drive at `My Drive/Qwen3-TTS_UserFiles/`
+2. Open `colab_notebook.ipynb` in Colab, select a T4+ GPU runtime
+3. Run all cells — mounts Drive, installs deps, starts server, opens Gradio with a public URL
 
----
+The system auto-detects Colab: binds `0.0.0.0`, enables Gradio sharing, uses CUDA.
 
 ## Troubleshooting
 
-### Server Won't Start
+**Server won't start:** `cat .voice_server.log` for details. Kill stuck processes: `pkill -f voice_server.py && rm .voice_server.pid`
 
-1. **Check if already running:**
-   ```bash
-   curl http://127.0.0.1:5123/health
-   ```
+**Wrong conda env:** Wrapper scripts auto-switch, but if you updated them: `cp bin/* ~/bin/ && chmod +x ~/bin/*`
 
-2. **Check the log file:**
-   ```bash
-   cat ~/Qwen3-TTS_UserFiles/.voice_server.log
-   ```
+**Slow generation:** Make sure the server is running (`startTTSServer`). Without it, models reload every time.
 
-3. **Stale wrapper scripts in ~/bin/:**
-   If the log shows `ModuleNotFoundError: No module named 'mlx_audio'` (or the wrong conda env is being used), the wrapper scripts in `~/bin/` may be outdated. Re-copy them from the repo:
-   ```bash
-   cp ~/Qwen3-TTS_UserFiles/bin/* ~/bin/ && chmod +x ~/bin/*
-   ```
-   Or re-run `./install.sh`. This is needed after repo updates that change the wrapper scripts (e.g., adding backend env switching).
+**Bad audio quality:** Use `--preset consistent` or lower temperature (`--temperature 0.5`). Set a seed (`--seed 42`).
 
-4. **Kill any stuck processes:**
-   ```bash
-   pkill -f voice_server.py
-   rm ~/Qwen3-TTS_UserFiles/.voice_server.pid
-   ```
+**Voice clone doesn't match:** Use cleaner source audio. 10-30 seconds of a single speaker, no background noise or music.
 
-### Generation is Slow
+**Out of memory:** `stopTTSServer` to free everything. Use `--model-size 0.6B` or unload unused models in the Manage Models tab.
 
-- Make sure the server is running (`startTTSServer`)
-- Check that you're not using `--local` flag
-- Verify server is responsive: `changeVoice --stats`
-
-### Audio Quality Issues
-
-1. **Robotic/distorted output:**
-   - Lower the temperature: `--temperature 0.5`
-   - Use the `consistent` preset
-
-2. **Inconsistent voice:**
-   - Set a fixed seed: `--seed 42`
-   - Use lower temperature
-
-3. **Too much silence:**
-   - Use `--trim-silence`
-
-4. **Volume too low/high:**
-   - Use `--normalize`
-
-### Voice Clone Doesn't Sound Right
-
-- Ensure source audio is clean (no background noise, music)
-- Use 10-30 seconds of clear speech
-- Try different parts of the source audio
-- The voice may work better with certain types of text
-
-### "Model not found" Error
-
-Ensure models are downloaded. They should be cached in `~/.cache/huggingface/hub/`. The first run will download them automatically.
-
-### Memory Issues
-
-If you run out of memory:
-1. Stop the server: `stopTTSServer`
-2. Close other GPU-intensive applications
-3. Restart the server
-
----
-
-## MLX Backend (Recommended)
-
-MLX is the recommended inference backend for Apple Silicon Macs. It runs natively on the Neural Engine and GPU with significantly lower thermal output and battery drain compared to PyTorch/MPS.
-
-### Why MLX?
-
-| | MLX (Recommended) | PyTorch/MPS |
-|---|---|---|
-| Thermals | ~40-50°C | ~80-90°C |
-| Memory per model | ~2.5GB (8-bit quantized) | ~3.5GB |
-| Conda environment | `qwen3-tts-mlx` | `qwen3-tts` |
-| Apple Silicon | Native | Via MPS |
-| Intel Mac | Not available | Required |
-
-### Installation
-
-MLX backend is installed as a separate conda environment (due to a dependency conflict between `qwen-tts` and `mlx-audio`):
-
-```bash
-# Option 1: Via install.sh (recommended)
-./install.sh
-# Select "Install MLX backend" when prompted
-
-# Option 2: Manual
-conda create -n qwen3-tts-mlx python=3.11 -y
-conda activate qwen3-tts-mlx
-pip install -r requirements-mlx.txt
-```
-
-### Switching Backends
-
-```bash
-# Edit config.json
-# Set "advanced": {"backend": "mlx"}
-
-# Restart the server — wrapper scripts auto-select the correct conda env
-stopTTSServer && startTTSServer
-
-# Or use CLI override for a single run (doesn't modify config)
-changeVoice --backend mlx "Hello world" -o test
-
-# List backend info
-changeVoice --list-backends
-```
-
-### MLX Quantization Options
-
-| Quantization | Model size | Quality | Setting |
-|-------------|-----------|---------|---------|
-| 4-bit | Smallest | Lower | `"mlx_quantization": "4bit"` |
-| 8-bit (default) | Medium | Good balance | `"mlx_quantization": "8bit"` |
-| bf16 | Largest | Highest | `"mlx_quantization": "bf16"` |
-
-### Voice Cloning with MLX
-
-MLX uses `.wav` + `.txt` files instead of `.pt` tensor files for voice cloning. When you create a voice prompt with `createVoice`, both formats are saved automatically:
-
-```
-voice_prompts/
-├── my_voice.pt     # PyTorch format
-├── my_voice.wav    # MLX format (reference audio)
-└── my_voice.txt    # MLX format (transcript)
-```
-
-If you have legacy `.pt`-only prompts from before MLX was added, re-create them with `createVoice` using the original audio.
-
-### MLX Troubleshooting
-
-**"mlx-audio is not installed"** - The MLX conda environment is not set up. Run `install.sh` or create it manually (see above).
-
-**"only has a .pt file (torch format)"** - Re-create the voice prompt with `createVoice` to generate MLX-compatible `.wav`/`.txt` files.
-
-**Wrong conda env activated** - Wrapper scripts handle this automatically. If running Python directly, activate the correct env: `conda activate qwen3-tts-mlx`.
-
----
-
-## Google Colab / Linux
-
-### Running on Google Colab
-
-A ready-to-run notebook (`colab_notebook.ipynb`) is included for running Qwen3-TTS on Google Colab with CUDA GPU acceleration.
-
-**Requirements:** A Colab runtime with GPU (T4 or better).
-
-**Quick start:**
-1. Upload the `Qwen3-TTS_UserFiles` folder to Google Drive at `My Drive/Qwen3-TTS_UserFiles/`
-2. Upload `colab_notebook.ipynb` to Google Colab
-3. Select a GPU runtime (Runtime > Change runtime type > T4 GPU)
-4. Run all cells — the notebook mounts Drive, installs dependencies, configures CUDA, starts the server, and launches a Gradio UI with a public URL
-
-The notebook cells:
-1. Mount Google Drive, link project folder, install system deps (`ffmpeg`) and Python packages
-2. Configure the CUDA backend and verify GPU detection
-3. Start the TTS server in the background
-4. Launch the Gradio web UI with a public sharing URL
-5. Quick generation example with in-notebook audio playback
-
-### Running on Linux
-
-The system auto-detects the platform and adjusts behavior:
-
-| Feature | macOS | Linux/Colab |
-|---------|-------|-------------|
-| Backend default | MLX (Apple Silicon) or torch (Intel) | torch |
-| Device | MPS (Apple Silicon) or CPU | CUDA (if GPU) or CPU |
-| Audio playback | `afplay` | `ffplay` (from ffmpeg) |
-| File open | `open` | `xdg-open` |
-| Clipboard | `pbpaste` | `xclip` (not available in Colab) |
-| Network binding | `127.0.0.1` | `0.0.0.0` (Colab auto-detected) |
-| Gradio sharing | Manual (`--share`) | Auto-enabled in Colab |
-
-### Linux Installation (non-Colab)
-
-```bash
-# Install system dependencies
-sudo apt-get install -y ffmpeg
-
-# Install Python dependencies
-pip install -r requirements-cuda.txt
-
-# Start the server
-python voice_server.py
-
-# Launch the UI
-python voice_ui.py --share
-```
-
-### Platform Detection
-
-The system uses these constants (defined in `voice_config.py`):
-- `IN_COLAB` — `True` when running inside Google Colab
-- `IS_MACOS` — `True` on macOS
-- `IS_LINUX` — `True` on Linux
-- `get_device()` — returns `"cuda"`, `"mps"`, or `"cpu"` based on platform and hardware
-
----
-
-## Tips & Best Practices
-
-### For Best Quality
-
-1. **Use the consistent preset** for reproducible, stable output
-2. **Normalize your output** for consistent volume levels
-3. **Trim silence** for cleaner audio files
-4. **Long texts are handled automatically** - texts over 500 chars are split into chunks at sentence boundaries for reliability (configurable via `generation.max_chunk_chars`)
-
-### For Fastest Workflow
-
-1. **Always use the server** - it's 10-20x faster
-2. **Use voice aliases** to quickly switch configurations
-3. **Use REPL mode** for rapid iteration and testing
-4. **Set up watch mode** for batch processing workflows
-
-### For Voice Cloning
-
-1. **Source audio quality matters** - use clean, clear recordings
-2. **10-30 seconds is ideal** - too short lacks variety, too long may confuse the model
-3. **Single speaker only** - don't mix multiple voices
-4. **Consistent recording conditions** - same microphone, room, distance
-
-### For Production Use
-
-1. **Set auto-shutdown** if running on shared resources
-2. **Use the Python API** for integration with other tools
-3. **Log generations** with `--history` to track what was created
-4. **Use presets** to maintain consistency across sessions
-
----
-
-## Security
-
-### API Token Authentication
-
-The server generates a random auth token on startup. All API requests (except `/health` and `/generation-status`) require the token:
-
-```
-Authorization: Bearer <token>
-```
-
-The CLI and Python API handle this automatically. The token is stored at `~/.voice_server_token` and cleaned up on shutdown.
-
-### Input Validation
-
-The server validates all inputs:
-- **Text length:** max 10,000 characters per text (configurable in `config.json` under `security.max_text_length`)
-- **Batch size:** max 20 texts per request (configurable under `security.max_batch_size`)
-- **Path traversal:** prompt file names cannot contain `..` or `/`
-- **Mode/speaker:** validated against known values
-
-### Network Binding
-
-The server binds to `127.0.0.1` (localhost only) by default. Use `--public` to bind to `0.0.0.0`:
-```bash
-python voice_server.py --public
-```
-
-The Gradio UI port defaults to 7860 (configurable via `ui.port` in `config.json`). If the port is busy, it auto-selects the next available port in range +1..+9.
-
----
-
-## Progress Display
-
-### CLI Progress
-When generating via the server, a live progress spinner shows elapsed time and ETA:
-```
-⠋ Generating... 5s elapsed / ~12s ETA
-⠋ Generating... 12s elapsed [chunk 2/5]
-```
-
-ETA is estimated from your generation history (median characters/second). For long texts that are split into chunks, the current chunk progress is also displayed.
-
-### Gradio Progress
-The web interface shows a progress bar during generation, capped at 95% until completion. For long chunked texts, the progress bar shows "Generating chunk 2/5... 12s". If a model needs to be loaded first, the progress bar shows "Loading {mode} model (first use)..." before generation begins.
-
----
-
-## Post-Generation Menu
-
-After generating with the server, the CLI shows a menu:
-```
-What would you like to do?
-  1. Same settings (re-generate with same arguments)
-  2. Edit text (open in editor, then re-generate)
-  3. New settings (start fresh with interactive mode)
-  4. Exit
-```
-
-Output filenames auto-increment (`output.wav` -> `output_2.wav` -> `output_3.wav`) so previous files are never overwritten.
-
----
+**MLX errors:** Make sure `advanced.backend` in config.json matches your conda env. Run `install.sh` to fix.
 
 ## Testing
-
-Run the test suite (no GPU, models, or running server required):
 
 ```bash
 python -m unittest discover -v tests/
 ```
 
-216 tests covering config, server validation, authentication, SSML/SRT parsing, filename logic, backend config, MLX voice prompts, backend dispatch, model size (0.6B), streaming, ASR, stability hardening, text chunking, server endpoints, UI history functions, cancel behavior, generation state tracking, model settings UI, `/update-model-config` endpoint, MLX voice prompt caching, ETA caching, generation result caching, voice prompt management (delete/rename/preview/details), platform detection, device-aware engine loading, and platform-safe commands. MLX-specific import tests are automatically skipped when `mlx` is not installed.
+246 tests, no GPU or running server required. Run inside a conda env (`qwen3-tts` or `qwen3-tts-mlx`) for full coverage — tests gracefully skip when optional dependencies are missing.
 
----
-
-## Files & Directories
+## Project Structure
 
 ```
 ~/Qwen3-TTS_UserFiles/
-├── install.sh              # Installation script
-├── voice_generate.py       # Main generation script
-├── voice_server.py         # Persistent server (auth, validation, logging)
-├── voice_client.py         # Python API client
-├── voice_ui.py             # Gradio web interface
-├── voice_config.py         # Shared config, constants, error classes
-├── voice_engine.py         # Model loading & inference engine
-├── config.json             # Configuration
-├── create_custom_voice.py  # Voice cloning script
-├── requirements-mlx.txt    # MLX backend dependencies
+├── voice_config.py         # Config, constants, errors, platform detection
+├── voice_engine.py         # Inference engine, audio processing, ASR, caching
+├── voice_server.py         # Flask API server (port 5123)
+├── voice_client.py         # Python client library
+├── voice_generate.py       # CLI tool
+├── voice_ui.py             # Gradio web interface (port 7860)
+├── create_custom_voice.py  # Voice clone creation
+├── config.json             # All settings
+├── install.sh              # Installer with hardware detection
+├── colab_notebook.ipynb    # Google Colab notebook
+├── requirements-mlx.txt    # MLX environment dependencies
 ├── requirements-cuda.txt   # CUDA/Colab dependencies
-├── colab_notebook.ipynb    # Ready-to-run Google Colab notebook
-├── voice_prompts/          # Voice prompt files (.pt + .wav/.txt for MLX)
-├── bin/                    # Wrapper scripts (canonical source)
-│   ├── changeVoice
-│   ├── startTTSServer
-│   ├── stopTTSServer
-│   ├── createVoice
-│   ├── configureTTS
-│   └── ttsUI
-├── tests/                  # Test suite
-│   └── test_voice.py
-├── .voice_server.pid         # Server PID file (runtime)
-└── .voice_server.log         # Server log (runtime)
-
-~/bin/                      # Installed wrapper scripts (copied from bin/ — re-copy after repo updates)
-├── changeVoice
-├── startTTSServer
-├── stopTTSServer
-├── createVoice
-├── configureTTS
-└── ttsUI
-
-~/.voice_server_token         # Auth token (runtime, 0600 perms)
-~/.voice_history.jsonl        # Generation history
-~/.voice_last_text            # Last generated text (for edit-and-rerun)
+├── voice_prompts/          # Voice files (.pt, .wav, .txt)
+├── bin/                    # Wrapper scripts → installed to ~/bin/
+└── tests/test_voice.py     # Test suite
 ```
-
----
-
-## Version History
-
-All features implemented across 21 phases:
-
-- **Phase 1:** Core usability (`--play`, `--clipboard`, `--trim-silence`, `--dry-run`)
-- **Phase 2:** Workflow (`--voice` aliases, `--history`, `--stats`, prompt management)
-- **Phase 3:** Server enhancements (auto-shutdown, queue system, threading)
-- **Phase 4:** Audio processing (`--normalize`, `--speed`, `--pitch`, `--dialogue`)
-- **Phase 5:** Integration (`--repl`, `--watch`, `--srt`, Python API)
-- **Phase 6:** Advanced (`--ssml` markup support)
-- **Phase 7:** CustomVoice (9 premium speakers, `-m custom -s SPEAKER`)
-- **Phase 8:** Configurable model loading (on-demand, `/load-model` API)
-- **Phase 9:** Installation & Web UI (`install.sh`, Gradio interface, `changeVoice --ui`)
-- **Phase 10:** Security, reliability & UX (auth tokens, input validation, logging, structured errors, progress/ETA, post-generation menu, test suite)
-- **Phase 11:** MLX backend integration (Apple Silicon native inference, separate conda env, lazy imports, dual-format voice prompts, backend dispatch)
-- **Phase 12:** UI auto-load & backend-aware prompts (on-demand model loading, dynamic port fallback, generation timeout increase)
-- **Phase 13:** Text chunking & long-form reliability (sentence-boundary splitting, per-chunk progress, `--max-chunk-chars` CLI flag)
-- **Phase 14:** 0.6B lightweight model support (`--model-size 0.6B`, ~40% faster, lower memory)
-- **Phase 15:** Streaming audio playback (`--stream` for real-time audio as it generates)
-- **Phase 16:** Auto-transcribe reference audio (`createVoice --auto-transcribe` using MLX ASR)
-- **Phase 17:** Stability hardening (float32 clone guard, model download retry, Metal crash recovery)
-- **Phase 18:** UI history integration & improvements (auto-update history panel after generation, cancel clears audio player, MLX memory stats, generation state tracking fixes)
-- **Phase 19:** MLX-First Architecture (MLX as default backend, hardware detection, `configureTTS` command, UI model selection, `/update-model-config` endpoint)
-- **Phase 20:** Cleanup & Stabilization (bug fixes, file rename to `voice_*` prefix, duplicate code consolidation, `MODEL_INFO` lookup fix, graceful `ImportError` handling)
-- **Phase 21b:** Performance & Caching (MLX voice prompt cache, ETA cache with 30s TTL, generation result cache with double-checked locking, cache invalidation on model config change)
-- **Phase 21a:** Voice Management UI (preview/rename/delete/set-default voice prompts via Gradio "Manage Voices" tab, 4 new server endpoints, cross-tab state sync)
-- **Phase 21c:** Google Colab & Linux Support (platform detection, device-aware model loading, CUDA memory cleanup, platform-safe audio/clipboard/open commands, Colab auto-binding, ready-to-run notebook)
