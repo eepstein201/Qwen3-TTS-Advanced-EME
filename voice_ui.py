@@ -135,8 +135,13 @@ def create_voice_prompt(audio_path, transcript, voice_name, auto_transcribed=Fal
 
     try:
         from create_custom_voice import create_and_save_voice_prompt
-        from voice_config import get_backend
-        mlx_only = get_backend() == "mlx"
+        from voice_config import get_backend, IN_COLAB
+        backend = get_backend()
+        # On Colab, always use mlx_only mode to avoid loading a second model
+        # copy into VRAM. The .wav/.txt files are saved, and the server will
+        # create the .pt on-demand via /create-prompt if needed.
+        # On local Mac, respect the backend setting.
+        mlx_only = (backend == "mlx") or IN_COLAB
         create_and_save_voice_prompt(
             audio_path, transcript, voice_name,
             test_generation=False, mlx_only=mlx_only,
