@@ -122,9 +122,7 @@ def update_text_info(text):
 # =============================================================================
 
 def create_voice_prompt(audio_path, transcript, voice_name, auto_transcribed=False):
-    """Create voice prompt via subprocess (handles env switching)."""
-    import subprocess
-
+    """Create voice prompt by calling create_custom_voice directly."""
     if not audio_path:
         raise gr.Error("Please upload an audio file")
     if not transcript or not transcript.strip():
@@ -135,21 +133,15 @@ def create_voice_prompt(audio_path, transcript, voice_name, auto_transcribed=Fal
     # Sanitize voice name
     voice_name = voice_name.strip().replace(" ", "_").replace("/", "_")
 
-    cmd = [
-        os.path.expanduser("~/bin/createVoice"),
-        audio_path,
-        "-n", voice_name,
-        "-t", transcript,
-        "--no-test",
-    ]
-
     try:
-        result = subprocess.run(cmd, capture_output=True, text=True, timeout=120)
-        if result.returncode != 0:
-            raise gr.Error(f"Failed: {result.stderr or result.stdout}")
-        return f"✓ Created voice: {voice_name}.pt", get_voice_prompts()
-    except subprocess.TimeoutExpired:
-        raise gr.Error("Voice creation timed out (>120s)")
+        from create_custom_voice import create_and_save_voice_prompt
+        from voice_config import get_backend
+        mlx_only = get_backend() == "mlx"
+        create_and_save_voice_prompt(
+            audio_path, transcript, voice_name,
+            test_generation=False, mlx_only=mlx_only,
+        )
+        return f"Created voice: {voice_name}", get_voice_prompts()
     except Exception as e:
         raise gr.Error(f"Error: {str(e)}")
 
