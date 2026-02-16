@@ -32,20 +32,22 @@ def create_and_save_voice_prompt(audio_path, transcript, prompt_name,
         test_generation: Run a test generation after creating the prompt.
         mlx_only: If True, only save .wav + .txt (no .pt, no torch needed).
     """
-    # Determine audio format from extension
+    # Load audio — try soundfile first (fast, supports wav/flac/ogg),
+    # fall back to pydub for other formats (m4a, mp3, etc.)
     ext = os.path.splitext(audio_path)[1].lower().lstrip('.')
-    if ext == 'm4a':
-        ext = 'mp4'  # pydub uses mp4 for m4a
-
-    # Convert to wav
-    print(f"Converting {audio_path} to wav format...")
-    audio = AudioSegment.from_file(audio_path, format=ext)
-    wav_path = os.path.join(USER_FILES_DIR, "temp_reference.wav")
-    audio.export(wav_path, format="wav")
-
-    # Load the converted audio
-    ref_audio, ref_sr = sf.read(wav_path)
-    print(f"Audio loaded: {len(ref_audio)/ref_sr:.1f} seconds at {ref_sr}Hz")
+    wav_path = None
+    try:
+        ref_audio, ref_sr = sf.read(audio_path)
+        print(f"Audio loaded: {len(ref_audio)/ref_sr:.1f} seconds at {ref_sr}Hz")
+    except Exception:
+        if ext == 'm4a':
+            ext = 'mp4'
+        print(f"Converting {audio_path} to wav format...")
+        audio = AudioSegment.from_file(audio_path, format=ext)
+        wav_path = os.path.join(USER_FILES_DIR, "temp_reference.wav")
+        audio.export(wav_path, format="wav")
+        ref_audio, ref_sr = sf.read(wav_path)
+        print(f"Audio loaded: {len(ref_audio)/ref_sr:.1f} seconds at {ref_sr}Hz")
 
     # Normalize prompt name
     if not prompt_name.endswith('.pt'):
@@ -56,7 +58,11 @@ def create_and_save_voice_prompt(audio_path, transcript, prompt_name,
     mlx_wav_path = os.path.join(VOICE_PROMPTS_DIR, f"{base_name}.wav")
     mlx_txt_path = os.path.join(VOICE_PROMPTS_DIR, f"{base_name}.txt")
 
-    shutil.copy2(wav_path, mlx_wav_path)
+    # Save .wav — copy from temp or write from loaded audio
+    if wav_path:
+        shutil.copy2(wav_path, mlx_wav_path)
+    else:
+        sf.write(mlx_wav_path, ref_audio, ref_sr)
     with open(mlx_txt_path, "w") as f:
         f.write(transcript)
 
@@ -65,7 +71,7 @@ def create_and_save_voice_prompt(audio_path, transcript, prompt_name,
 
     if mlx_only:
         # Clean up temp and exit early — no torch needed
-        if os.path.exists(wav_path):
+        if wav_path and os.path.exists(wav_path):
             os.remove(wav_path)
         print(f"\nDone (MLX-only mode)! Use with: changeVoice -p {prompt_name} \"Your text here\"")
         return mlx_wav_path
@@ -104,7 +110,7 @@ def create_and_save_voice_prompt(audio_path, transcript, prompt_name,
         subprocess.run(["open", test_output])
 
     # Cleanup temp file
-    if os.path.exists(wav_path):
+    if wav_path and os.path.exists(wav_path):
         os.remove(wav_path)
 
     print(f"\nDone! Use with: changeVoice -p {prompt_name} \"Your text here\"")
