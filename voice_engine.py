@@ -1124,6 +1124,25 @@ def transcribe_audio(audio_path, language="en"):
         return _transcribe_torch(audio_path, language)
 
 
+def unload_asr_model():
+    """Free ASR model from memory to reclaim VRAM/RAM for TTS generation."""
+    global _asr_model_mlx, _asr_model_torch
+    if _asr_model_mlx is not None:
+        _asr_model_mlx = None
+        logger.info("Unloaded MLX ASR model")
+    if _asr_model_torch is not None:
+        _asr_model_torch = None
+        logger.info("Unloaded torch ASR model")
+        try:
+            import torch
+            if torch.cuda.is_available():
+                torch.cuda.empty_cache()
+        except ImportError:
+            pass
+    import gc
+    gc.collect()
+
+
 def is_asr_available():
     """Check if ASR transcription is available.
 
