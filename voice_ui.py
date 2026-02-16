@@ -468,12 +468,14 @@ def _generate_streaming_impl(mode, text, preset, temperature, top_k, top_p, rep_
             yield None, f"Cancelled after {chunk_count} chunks", format_status_display(), gr.update()
             return
 
+        import numpy as np
         output_path = _save_streaming_audio(all_chunks, sample_rate)
         if output_path:
             add_to_history(mode, text, output_path, chunk_count)
-            # Use gr.update with autoplay=False so the saved file doesn't replay
-            # (the audio was already played during streaming)
-            yield gr.update(value=output_path, autoplay=False), f"Complete: {chunk_count} chunks", format_status_display(), get_history_data()
+            # Yield combined audio as (sr, array) — streaming components
+            # need the same format throughout, not a file path switch
+            combined = np.concatenate(all_chunks)
+            yield (sample_rate, combined), f"Complete: {chunk_count} chunks — saved to {os.path.basename(output_path)}", format_status_display(), get_history_data()
         else:
             yield None, "Error: No audio was generated", format_status_display(), gr.update()
 
