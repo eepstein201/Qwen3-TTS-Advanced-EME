@@ -141,7 +141,8 @@ def create_voice_prompt(audio_path, transcript, voice_name, auto_transcribed=Fal
             audio_path, transcript, voice_name,
             test_generation=False, mlx_only=mlx_only,
         )
-        return f"Created voice: {voice_name}", get_voice_prompts()
+        prompts = get_voice_prompts()
+        return f"Created voice: {voice_name}", gr.update(choices=prompts), gr.update(choices=prompts)
     except Exception as e:
         raise gr.Error(f"Error: {str(e)}")
 
@@ -156,6 +157,9 @@ def auto_transcribe_audio(audio_path):
         if not is_asr_available():
             raise gr.Error("Auto-transcribe requires MLX backend")
         transcript = transcribe_audio(audio_path)
+        # Free ASR model to reclaim VRAM for TTS generation
+        from voice_engine import unload_asr_model
+        unload_asr_model()
         return transcript
     except ImportError:
         raise gr.Error("ASR not available - enter transcript manually")
@@ -1058,7 +1062,7 @@ def build_ui():
                 create_btn.click(
                     fn=create_voice_prompt,
                     inputs=[create_audio, create_transcript, create_name],
-                    outputs=[create_status, voice_list]
+                    outputs=[create_status, voice_list, clone_prompt]
                 )
 
             # Manage Voices Tab
