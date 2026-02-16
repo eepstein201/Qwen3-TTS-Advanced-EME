@@ -721,7 +721,8 @@ def get_model_table_data():
             load_time = info.get("load_time_sec")
             load_time_str = f"{load_time:.1f}s" if load_time else "-"
             startup = "Yes" if info.get("load_at_startup") else "No"
-            rows.append([model_type.capitalize(), status, memory, load_time_str, startup])
+            label = "Clone / Create" if model_type == "clone" else model_type.capitalize()
+            rows.append([label, status, memory, load_time_str, startup])
         # ASR row
         from voice_engine import is_asr_loaded, get_asr_model_info
         asr_info = get_asr_model_info()
@@ -1339,7 +1340,7 @@ def build_ui():
                             asr_unload_btn = gr.Button("Unload ASR", size="sm", variant="stop")
 
                         gr.Markdown("### Startup Defaults")
-                        startup_clone = gr.Checkbox(label="Clone at startup", value=True)
+                        startup_clone = gr.Checkbox(label="Clone/Create at startup", value=True)
                         startup_design = gr.Checkbox(label="Design at startup", value=False)
                         startup_custom = gr.Checkbox(label="Custom at startup", value=False)
                         startup_save_btn = gr.Button("Save Startup Config", size="sm")

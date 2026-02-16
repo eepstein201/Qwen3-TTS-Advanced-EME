@@ -690,10 +690,12 @@ def load_voice_prompt_mlx(prompt_name):
     if prompt_name in _mlx_prompt_cache:
         return _mlx_prompt_cache[prompt_name]
 
-    # Strip .pt extension if present to get the base name
+    # Strip known extensions to get the base name
     base = prompt_name
     if base.endswith(".pt"):
         base = base[:-3]
+    elif base.endswith(".wav"):
+        base = base[:-4]
 
     wav_path = os.path.join(VOICE_PROMPTS_DIR, f"{base}.wav")
     txt_path = os.path.join(VOICE_PROMPTS_DIR, f"{base}.txt")
