@@ -87,6 +87,7 @@ def check_auth():
 clone_model = None
 design_model = None
 custom_model = None
+model_load_times = {}  # model_type -> seconds
 
 # Thread safety for generation
 generation_lock = threading.Lock()
@@ -168,6 +169,7 @@ def load_single_model(model_type):
     model_name = info.get("name", info.get("name_template", model_type))
 
     logger.info("Loading %s...", model_name)
+    t0 = time.time()
     model = load_model(model_type)
 
     if model_type == "clone":
@@ -177,7 +179,9 @@ def load_single_model(model_type):
     elif model_type == "custom":
         custom_model = model
 
-    logger.info("Loaded %s model successfully.", model_type)
+    elapsed = round(time.time() - t0, 1)
+    model_load_times[model_type] = elapsed
+    logger.info("Loaded %s model successfully in %.1fs.", model_type, elapsed)
     return True
 
 
@@ -217,6 +221,7 @@ def health():
         "clone_model_loaded": clone_model is not None,
         "design_model_loaded": design_model is not None,
         "custom_model_loaded": custom_model is not None,
+        "model_load_times": dict(model_load_times),
     }
     if backend == "mlx":
         data["mlx_quantization"] = get_mlx_quantization()
@@ -445,11 +450,17 @@ def list_models():
     models_data = {}
     for model_type, info in size_model_info.items():
         loaded = _get_model(model_type) is not None
+        # Check startup config
+        models_cfg = server_config.get("models", {})
+        load_at_startup = models_cfg.get(model_type, {}).get("load_at_startup", False)
+
         entry = {
             "loaded": loaded,
             "description": info["description"],
             "memory_mb": info["memory_mb"],
             "repo_id": info["name"],
+            "load_at_startup": load_at_startup,
+            "load_time_sec": model_load_times.get(model_type),
         }
         # Include MLX repo ID when using MLX backend
         if backend == "mlx":
@@ -577,6 +588,15 @@ def update_model_config():
     # Invalidate generation cache — results from old model are stale
     _gen_cache_invalidate()
 
+    # Sync audio loader cache if config changed
+    new_loader = config.get("advanced", {}).get("audio_loader")
+    if new_loader:
+        try:
+            from voice_engine import set_audio_loader
+            set_audio_loader(new_loader)
+        except (ValueError, ImportError):
+            pass
+
     logger.info("Model config updated: %s. Models unloaded. Generation cache cleared.", ", ".join(changes))
 
     return jsonify({
@@ -585,6 +605,82 @@ def update_model_config():
         "models_unloaded": True,
         "note": "New model will be loaded on next generation",
     })
+
+
+@app.route("/unload-model", methods=["POST"])
+def unload_model():
+    """Unload a single model to free memory."""
+    reset_activity_timer()
+    data = request.json or {}
+    model_type = data.get("model_type")
+
+    if not model_type:
+        return jsonify({"error": "model_type required", "recovery": "config"}), 400
+
+    valid_types = ("clone", "design", "custom")
+    if model_type not in valid_types:
+        return jsonify({
+            "error": f"Unknown model type: {model_type}. Valid: {', '.join(valid_types)}",
+            "recovery": "config",
+        }), 400
+
+    # Check if generation is active for this mode
+    if generation_state["active"] and generation_state["mode"] == model_type:
+        return jsonify({
+            "error": f"Cannot unload {model_type} model while generation is active",
+            "recovery": "retry",
+        }), 409
+
+    global clone_model, design_model, custom_model
+    with generation_lock:
+        if model_type == "clone":
+            if clone_model is None:
+                return jsonify({"status": "already_unloaded", "model": model_type})
+            clone_model = None
+        elif model_type == "design":
+            if design_model is None:
+                return jsonify({"status": "already_unloaded", "model": model_type})
+            design_model = None
+        elif model_type == "custom":
+            if custom_model is None:
+                return jsonify({"status": "already_unloaded", "model": model_type})
+            custom_model = None
+
+    from voice_engine import unload_model_cleanup
+    unload_model_cleanup()
+    _gen_cache_invalidate()
+    model_load_times.pop(model_type, None)
+
+    logger.info("Unloaded %s model.", model_type)
+    return jsonify({"status": "unloaded", "model": model_type})
+
+
+@app.route("/update-startup-config", methods=["POST"])
+def update_startup_config():
+    """Update which models load at startup in config.json."""
+    reset_activity_timer()
+    data = request.json or {}
+
+    valid_types = ("clone", "design", "custom")
+    changes = []
+    config = load_config()
+    if "models" not in config:
+        config["models"] = {}
+
+    for model_type in valid_types:
+        if model_type in data:
+            val = bool(data[model_type])
+            if model_type not in config["models"]:
+                config["models"][model_type] = {}
+            config["models"][model_type]["load_at_startup"] = val
+            changes.append(f"{model_type}={'on' if val else 'off'}")
+
+    if not changes:
+        return jsonify({"error": "No valid model types provided", "recovery": "config"}), 400
+
+    save_config(config)
+    logger.info("Startup config updated: %s", ", ".join(changes))
+    return jsonify({"status": "updated", "changes": changes})
 
 
 @app.route("/prompts", methods=["GET"])
