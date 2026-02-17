@@ -14,7 +14,6 @@ import os
 import platform
 import sys
 
-import requests
 
 # ---------------------------------------------------------------------------
 # Platform detection
@@ -134,6 +133,7 @@ def is_server_running(config_or_url=None):
         url = get_server_url(config_or_url)
 
     try:
+        import requests
         resp = requests.get(f"{url}/health", timeout=2)
         return resp.status_code == 200
     except Exception:
