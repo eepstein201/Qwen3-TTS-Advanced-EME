@@ -1068,25 +1068,41 @@ def normalize_audio(audio, target_db=-3.0):
 def adjust_speed(audio, sample_rate, speed_factor):
     """Adjust audio speed without changing pitch.
 
+    Uses pyrubberband (Rubber Band library) for professional-quality
+    time-stretching. Falls back to librosa's phase vocoder if
+    pyrubberband or the rubberband CLI tool is not installed.
+
     Args:
         speed_factor: >1.0 = faster, <1.0 = slower.
     """
     if speed_factor == 1.0:
         return audio
-    import librosa
-    return librosa.effects.time_stretch(audio, rate=speed_factor)
+    try:
+        import pyrubberband as pyrb
+        return pyrb.time_stretch(audio, sample_rate, speed_factor)
+    except (ImportError, FileNotFoundError):
+        import librosa
+        return librosa.effects.time_stretch(audio, rate=speed_factor)
 
 
 def adjust_pitch(audio, sample_rate, semitones):
     """Adjust audio pitch without changing speed.
+
+    Uses pyrubberband (Rubber Band library) for professional-quality
+    pitch-shifting. Falls back to librosa's phase vocoder if
+    pyrubberband or the rubberband CLI tool is not installed.
 
     Args:
         semitones: positive = higher pitch, negative = lower.
     """
     if semitones == 0:
         return audio
-    import librosa
-    return librosa.effects.pitch_shift(audio, sr=sample_rate, n_steps=semitones)
+    try:
+        import pyrubberband as pyrb
+        return pyrb.pitch_shift(audio, sample_rate, semitones)
+    except (ImportError, FileNotFoundError):
+        import librosa
+        return librosa.effects.pitch_shift(audio, sr=sample_rate, n_steps=semitones)
 
 
 def process_audio(audio, sample_rate, trim=False, normalize=False,

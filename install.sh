@@ -220,6 +220,21 @@ check_prerequisites() {
     fi
     success "Conda is installed"
 
+    # Install rubberband for high-quality audio speed/pitch processing
+    if command -v brew &> /dev/null; then
+        if ! brew list rubberband &> /dev/null 2>&1; then
+            info "Installing rubberband (for high-quality speed/pitch adjustment)..."
+            brew install rubberband
+            success "rubberband installed"
+        else
+            info "rubberband already installed"
+        fi
+    else
+        warn "Homebrew not found — install rubberband manually for best audio quality:"
+        warn "  brew install rubberband"
+        warn "  (falling back to librosa if not installed)"
+    fi
+
     # Check disk space
     AVAILABLE_GB=$(df -g "$HOME" | awk 'NR==2 {print $4}')
     if [[ "$AVAILABLE_GB" -lt "$MIN_DISK_SPACE_GB" ]]; then
