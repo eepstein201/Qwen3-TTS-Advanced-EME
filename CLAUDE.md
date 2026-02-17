@@ -70,6 +70,8 @@ config.json → voice_config.py → voice_engine.py (dispatch)
 ├── voice_prompts/          # .pt (torch) + .wav/.txt (MLX) files
 ├── bin/                    # Wrapper scripts (canonical, copied to ~/bin/)
 ├── tests/test_voice.py     # 266 tests
+├── tests/test_audio_utils.py # 22 tests (audio processing, text chunking)
+├── tests/test_core_infra.py  # 31 tests (errors, caching, config, SSML)
 ├── .voice_server.pid       # Runtime PID file
 └── .voice_server.log       # Runtime log file
 ```
@@ -200,7 +202,7 @@ CLI and UI parse the `recovery` field to show actionable guidance.
 python -m unittest discover -v tests/
 ```
 
-266 tests across 57 classes. No GPU, models, or running server required. Tests auto-skip when optional deps (`soundfile`, `gradio`, `flask`) are missing — run in a conda env for full coverage.
+319 tests across 3 files (test_voice.py, test_audio_utils.py, test_core_infra.py). No GPU, models, or running server required. Tests auto-skip when optional deps (`soundfile`, `gradio`, `flask`) are missing — run in a conda env for full coverage.
 
 ## Models
 
