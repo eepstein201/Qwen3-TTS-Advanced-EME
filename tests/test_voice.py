@@ -3003,5 +3003,83 @@ class TestProsodyUI(unittest.TestCase):
         self.assertEqual(result, DEFAULT_PROSODY_PRESETS["excited"])
 
 
+# =============================================================================
+# Improvement 3: x_vector_only_mode tests
+# =============================================================================
+
+class TestXVectorOnlyMode(unittest.TestCase):
+    """Test x_vector_only_mode parameter propagation."""
+
+    def test_run_inference_accepts_x_vector_only_mode(self):
+        """run_inference should accept x_vector_only_mode parameter."""
+        import inspect
+        from voice_engine import run_inference
+        sig = inspect.signature(run_inference)
+        self.assertIn("x_vector_only_mode", sig.parameters)
+
+    def test_run_inference_streaming_accepts_x_vector_only_mode(self):
+        """run_inference_streaming should accept x_vector_only_mode parameter."""
+        import inspect
+        from voice_engine import run_inference_streaming
+        sig = inspect.signature(run_inference_streaming)
+        self.assertIn("x_vector_only_mode", sig.parameters)
+
+    def test_inference_single_accepts_x_vector_only_mode(self):
+        """_run_inference_single should accept x_vector_only_mode parameter."""
+        import inspect
+        from voice_engine import _run_inference_single
+        sig = inspect.signature(_run_inference_single)
+        self.assertIn("x_vector_only_mode", sig.parameters)
+
+    @_skip_generate
+    def test_generate_via_server_accepts_x_vector_only_mode(self):
+        """generate_via_server should accept x_vector_only_mode parameter."""
+        import inspect
+        from voice_generate import generate_via_server
+        sig = inspect.signature(generate_via_server)
+        self.assertIn("x_vector_only_mode", sig.parameters)
+
+    @_skip_generate
+    def test_generate_streaming_accepts_x_vector_only_mode(self):
+        """generate_streaming in voice_generate should accept x_vector_only_mode."""
+        import inspect
+        from voice_generate import generate_streaming
+        sig = inspect.signature(generate_streaming)
+        self.assertIn("x_vector_only_mode", sig.parameters)
+
+
+@_skip_client
+class TestXVectorOnlyClient(unittest.TestCase):
+    """Test x_vector_only_mode in client."""
+
+    def test_client_generate_accepts_x_vector_only_mode(self):
+        """TTSClient.generate should accept x_vector_only_mode parameter."""
+        import inspect
+        from voice_client import TTSClient
+        sig = inspect.signature(TTSClient.generate)
+        self.assertIn("x_vector_only_mode", sig.parameters)
+
+    def test_client_streaming_accepts_x_vector_only_mode(self):
+        """TTSClient.generate_streaming should accept x_vector_only_mode parameter."""
+        import inspect
+        from voice_client import TTSClient
+        sig = inspect.signature(TTSClient.generate_streaming)
+        self.assertIn("x_vector_only_mode", sig.parameters)
+
+
+class TestCreateVoiceNoTranscript(unittest.TestCase):
+    """Test --no-transcript flag for create_custom_voice."""
+
+    def test_no_transcript_flag_in_parser(self):
+        """create_custom_voice.py should accept --no-transcript flag."""
+        source_path = os.path.join(
+            os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+            "create_custom_voice.py"
+        )
+        with open(source_path) as f:
+            source = f.read()
+        self.assertIn("--no-transcript", source)
+
+
 if __name__ == "__main__":
     unittest.main()

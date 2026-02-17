@@ -632,7 +632,7 @@ class _ProgressPoller:
 def generate_via_server(texts, mode, config, gen_params,
                         prompt_file=None, voice_description=None,
                         speaker=None, instruct=None, auto_load_model=True,
-                        max_chunk_chars=None):
+                        max_chunk_chars=None, x_vector_only_mode=False):
     """Generate audio via the TTS server."""
     url = get_server_url(config)
 
@@ -648,6 +648,8 @@ def generate_via_server(texts, mode, config, gen_params,
 
     if mode == "clone":
         payload["prompt_file"] = prompt_file
+        if x_vector_only_mode:
+            payload["x_vector_only_mode"] = True
     elif mode == "design":
         payload["voice_description"] = voice_description
     elif mode == "custom":
@@ -719,7 +721,7 @@ def generate_via_server(texts, mode, config, gen_params,
 
 def generate_streaming(text, mode, config, gen_params, output_path,
                        prompt_file=None, voice_description=None,
-                       speaker=None, instruct=None):
+                       speaker=None, instruct=None, x_vector_only_mode=False):
     """Generate and stream audio playback in real-time (MLX backend).
 
     Streams from server and plays audio chunks as they arrive.
@@ -740,6 +742,8 @@ def generate_streaming(text, mode, config, gen_params, output_path,
 
     if mode == "clone":
         payload["prompt_file"] = prompt_file
+        if x_vector_only_mode:
+            payload["x_vector_only_mode"] = True
     elif mode == "design":
         payload["voice_description"] = voice_description
     elif mode == "custom":
@@ -2004,7 +2008,8 @@ def main():
         print("Using TTS server (streaming mode)...")
         if mode == "clone":
             generate_streaming(text, mode, config, gen_params, output_path,
-                               prompt_file=prompt_file)
+                               prompt_file=prompt_file,
+                               x_vector_only_mode=getattr(args, 'no_transcript', False))
         elif mode == "design":
             generate_streaming(text, mode, config, gen_params, output_path,
                                voice_description=voice_description)
@@ -2030,7 +2035,8 @@ def main():
         print("Using TTS server...")
         if mode == "clone":
             results = generate_via_server([text], mode, config, gen_params, prompt_file=prompt_file,
-                                          max_chunk_chars=max_chunk_chars)
+                                          max_chunk_chars=max_chunk_chars,
+                                          x_vector_only_mode=getattr(args, 'no_transcript', False))
         elif mode == "design":
             results = generate_via_server([text], mode, config, gen_params, voice_description=voice_description,
                                           max_chunk_chars=max_chunk_chars)
