@@ -148,7 +148,7 @@ def create_voice_prompt(audio_path, transcript, voice_name, no_transcript=False,
         raise gr.Error("Please enter a name for the voice")
 
     # Sanitize voice name
-    voice_name = voice_name.strip().replace(" ", "_").replace("/", "_")
+    voice_name = voice_name.strip().replace(" ", "_").replace("/", "_").replace("\\", "_").replace("..", "")
 
     try:
         from create_custom_voice import create_and_save_voice_prompt

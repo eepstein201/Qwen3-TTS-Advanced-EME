@@ -107,7 +107,11 @@ def create_and_save_voice_prompt(audio_path, transcript, prompt_name,
         test_output = os.path.join(USER_FILES_DIR, f"test_{base_name}.wav")
         sf.write(test_output, wav, sr)
         print(f"Test audio saved to: {test_output}")
-        subprocess.run(["open", test_output])
+        from voice_config import IS_MACOS, IS_LINUX
+        if IS_MACOS:
+            subprocess.run(["open", test_output])
+        elif IS_LINUX:
+            subprocess.run(["xdg-open", test_output], stderr=subprocess.DEVNULL)
 
     # Cleanup temp file
     if wav_path and os.path.exists(wav_path):
