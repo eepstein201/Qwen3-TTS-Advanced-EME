@@ -14,10 +14,10 @@ fi
 # Read backend from config.json
 BACKEND="torch"
 if [ -f "$CONFIG_FILE" ]; then
-    BACKEND=$(python3 -c "
-import json, sys
+    BACKEND=$(CONFIG_FILE="$CONFIG_FILE" python3 -c "
+import json, os, sys
 try:
-    c = json.load(open('$CONFIG_FILE'))
+    c = json.load(open(os.environ['CONFIG_FILE']))
     print(c.get('advanced', {}).get('backend', 'torch'))
 except: print('torch')
 " 2>/dev/null)

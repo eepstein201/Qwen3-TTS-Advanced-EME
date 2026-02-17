@@ -28,7 +28,7 @@ done
 
 if [[ "$MLX_ONLY" == "true" ]]; then
     # --mlx-only doesn't need torch, use the configured backend's env
-    BACKEND=$(python3 -c "import json; c=json.load(open('$CONFIG_FILE')); print(c.get('advanced',{}).get('backend','torch'))" 2>/dev/null)
+    BACKEND=$(CONFIG_FILE="$CONFIG_FILE" python3 -c "import json, os; c=json.load(open(os.environ['CONFIG_FILE'])); print(c.get('advanced',{}).get('backend','torch'))" 2>/dev/null)
     if [[ "$BACKEND" == "mlx" ]]; then
         CONDA_ENV="qwen3-tts-mlx"
     else

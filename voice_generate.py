@@ -21,7 +21,6 @@ import requests
 
 logger = logging.getLogger("tts.cli")
 import soundfile as sf
-import numpy as np
 
 from voice_config import (
     CONFIG_PATH,
@@ -730,6 +729,7 @@ def generate_streaming(text, mode, config, gen_params, output_path,
     import struct
     import subprocess
     import tempfile
+    import numpy as np
 
     url = get_server_url(config)
 
@@ -1144,6 +1144,7 @@ def run_watch_mode(watch_dir, config, args, gen_params, use_server):
 
 def process_dialogue(dialogue_path, config, args, gen_params, use_server):
     """Process a dialogue JSON file with multiple speakers."""
+    import numpy as np
     with open(dialogue_path, "r") as f:
         data = json.load(f)
 
@@ -1286,6 +1287,7 @@ def process_dialogue(dialogue_path, config, args, gen_params, use_server):
 
 def process_srt_file(srt_path, config, args, gen_params, use_server):
     """Process an SRT file and generate audio for each subtitle."""
+    import numpy as np
     entries = parse_srt(srt_path)
     if not entries:
         print(f"Error: No subtitles found in {srt_path}")

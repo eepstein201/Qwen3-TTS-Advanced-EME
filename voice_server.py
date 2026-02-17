@@ -75,7 +75,7 @@ PUBLIC_ENDPOINTS = {"health", "generation_status", "static"}
 def check_auth():
     """Verify Bearer token on all endpoints except public ones."""
     if auth_token is None:
-        return  # Auth not configured (shouldn't happen in normal operation)
+        return jsonify({"error": "Server not ready", "recovery": "retry"}), 503
 
     endpoint = request.endpoint
     if endpoint in PUBLIC_ENDPOINTS:
@@ -1067,7 +1067,11 @@ def generate():
 
                 temp_file = tempfile.NamedTemporaryFile(suffix=".wav", delete=False)
                 os.chmod(temp_file.name, 0o600)
-                shutil.copy2(cached["file"], temp_file.name)
+                try:
+                    shutil.copy2(cached["file"], temp_file.name)
+                except Exception:
+                    os.unlink(temp_file.name)
+                    raise
                 pre_lock_results[i] = {"index": i, "file": temp_file.name, "sample_rate": cached["sample_rate"]}
                 logger.info("Generation cache hit (pre-lock) for text %d/%d", i + 1, len(texts))
 
@@ -1093,10 +1097,14 @@ def generate():
                 cache_key = pre_lock_cache_keys[i]
                 cached = _gen_cache_get(cache_key)
                 if cached:
-    
+
                     temp_file = tempfile.NamedTemporaryFile(suffix=".wav", delete=False)
                     os.chmod(temp_file.name, 0o600)
-                    shutil.copy2(cached["file"], temp_file.name)
+                    try:
+                        shutil.copy2(cached["file"], temp_file.name)
+                    except Exception:
+                        os.unlink(temp_file.name)
+                        raise
                     results.append({"index": i, "file": temp_file.name, "sample_rate": cached["sample_rate"]})
                     logger.info("Generation cache hit (post-lock) for text %d/%d", i + 1, len(texts))
                     continue
@@ -1151,14 +1159,21 @@ def generate():
                 # Save to temp file
                 temp_file = tempfile.NamedTemporaryFile(suffix=".wav", delete=False)
                 os.chmod(temp_file.name, 0o600)
-                sf.write(temp_file.name, wav, sr)
+                try:
+                    sf.write(temp_file.name, wav, sr)
+                except Exception:
+                    os.unlink(temp_file.name)
+                    raise
                 results.append({"index": i, "file": temp_file.name, "sample_rate": sr})
 
                 # Store in generation cache (copy the file so original can be moved)
                 cache_file = tempfile.NamedTemporaryFile(suffix=".wav", delete=False)
                 os.chmod(cache_file.name, 0o600)
-
-                shutil.copy2(temp_file.name, cache_file.name)
+                try:
+                    shutil.copy2(temp_file.name, cache_file.name)
+                except Exception:
+                    os.unlink(cache_file.name)
+                    raise
                 _gen_cache_put(cache_key, cache_file.name, sr)
 
             return jsonify({"results": results})
