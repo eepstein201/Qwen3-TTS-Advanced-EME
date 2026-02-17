@@ -388,6 +388,7 @@ class TTSClient:
         instruct=None,
         voice=None,
         preset=None,
+        prosody=None,
         temperature=None,
         top_k=None,
         top_p=None,
@@ -410,6 +411,7 @@ class TTSClient:
             instruct: Instruction for speech style (for custom mode)
             voice: Voice alias name (overrides prompt/preset)
             preset: Preset name to use
+            prosody: Prosody preset name (resolves to instruct text for custom/design)
             temperature: Sampling temperature
             top_k: Top-k sampling
             top_p: Top-p sampling
@@ -441,6 +443,18 @@ class TTSClient:
                     instruct = alias["instruct"]
             else:
                 raise ValueError(f"Unknown voice alias: {voice}")
+
+        # Resolve prosody preset into instruct text
+        if prosody and not instruct:
+            from voice_config import get_prosody_presets
+            prosody_presets = get_prosody_presets(self.config)
+            if prosody in prosody_presets:
+                instruct = prosody_presets[prosody]
+            else:
+                raise ValueError(
+                    f"Unknown prosody preset: {prosody}. "
+                    f"Available: {', '.join(sorted(prosody_presets.keys()))}"
+                )
 
         # Get generation parameters
         gen_config = self.config.get("generation", {})

@@ -52,6 +52,16 @@
       "top_p": 0.98
     }
   },
+  "prosody_presets": {
+    "excited": "Speak with excitement and high energy",
+    "calm": "Speak in a calm, soothing, relaxed manner",
+    "whisper": "Speak in a soft whisper",
+    "authoritative": "Speak in a confident, authoritative tone",
+    "slow": "Speak slowly and deliberately with clear enunciation",
+    "fast": "Speak quickly with urgency",
+    "dramatic": "Speak with dramatic flair and emotional intensity",
+    "conversational": "Speak in a casual, natural conversational style"
+  },
   "ui": {
     "port": 7860
   },
