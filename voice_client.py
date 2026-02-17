@@ -62,6 +62,17 @@ class TTSClient:
         self.config_path = config_path or CONFIG_PATH
         self.voice_prompts_dir = VOICE_PROMPTS_DIR
         self._config = None
+        self._session = requests.Session()
+
+    def close(self):
+        """Close the HTTP session and release connection pool."""
+        self._session.close()
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *args):
+        self.close()
 
     @property
     def config(self):
@@ -89,14 +100,14 @@ class TTSClient:
         """Get server statistics."""
         if not self.is_server_running():
             raise ConnectionError("TTS server is not running")
-        resp = requests.get(f"{self.server_url}/stats", timeout=5, headers=auth_headers())
+        resp = self._session.get(f"{self.server_url}/stats", timeout=5, headers=auth_headers())
         return resp.json()
 
     def get_health(self):
         """Get server health info including loaded models and backend."""
         if not self.is_server_running():
             raise ConnectionError("TTS server is not running")
-        resp = requests.get(f"{self.server_url}/health", timeout=5)
+        resp = self._session.get(f"{self.server_url}/health", timeout=5)
         return resp.json()
 
     def load_model(self, mode):
@@ -110,7 +121,7 @@ class TTSClient:
         """
         if not self.is_server_running():
             raise ConnectionError("TTS server is not running")
-        resp = requests.post(
+        resp = self._session.post(
             f"{self.server_url}/load-model",
             json={"model_type": mode},
             timeout=120,
@@ -149,7 +160,7 @@ class TTSClient:
         if not data:
             raise ValueError("At least one of model_size or mlx_quantization required")
 
-        resp = requests.post(
+        resp = self._session.post(
             f"{self.server_url}/update-model-config",
             json=data,
             timeout=10,
@@ -174,7 +185,7 @@ class TTSClient:
         """
         if not self.is_server_running():
             raise ConnectionError("TTS server is not running")
-        resp = requests.post(
+        resp = self._session.post(
             f"{self.server_url}/unload-model",
             json={"model_type": mode},
             timeout=10,
@@ -210,7 +221,7 @@ class TTSClient:
             data["custom"] = custom
         if not data:
             raise ValueError("At least one model type required")
-        resp = requests.post(
+        resp = self._session.post(
             f"{self.server_url}/update-startup-config",
             json=data,
             timeout=10,
@@ -232,7 +243,7 @@ class TTSClient:
         """
         if not self.is_server_running():
             raise ConnectionError("TTS server is not running")
-        resp = requests.get(
+        resp = self._session.get(
             f"{self.server_url}/models",
             timeout=5,
             headers=auth_headers(),
@@ -247,7 +258,7 @@ class TTSClient:
         """
         if not self.is_server_running():
             raise ConnectionError("TTS server is not running")
-        resp = requests.post(
+        resp = self._session.post(
             f"{self.server_url}/cancel-generation",
             timeout=5,
             headers=auth_headers(),
@@ -262,7 +273,7 @@ class TTSClient:
         """
         if self.is_server_running():
             try:
-                resp = requests.get(f"{self.server_url}/prompts", timeout=5, headers=auth_headers())
+                resp = self._session.get(f"{self.server_url}/prompts", timeout=5, headers=auth_headers())
                 if resp.status_code == 200:
                     return resp.json().get("prompts", [])
             except Exception:
@@ -282,7 +293,7 @@ class TTSClient:
         """
         if not self.is_server_running():
             raise ConnectionError("TTS server is not running")
-        resp = requests.post(
+        resp = self._session.post(
             f"{self.server_url}/delete-prompt",
             json={"name": name},
             timeout=10,
@@ -305,7 +316,7 @@ class TTSClient:
         """
         if not self.is_server_running():
             raise ConnectionError("TTS server is not running")
-        resp = requests.post(
+        resp = self._session.post(
             f"{self.server_url}/rename-prompt",
             json={"old_name": old_name, "new_name": new_name},
             timeout=10,
@@ -327,7 +338,7 @@ class TTSClient:
         """
         if not self.is_server_running():
             raise ConnectionError("TTS server is not running")
-        resp = requests.get(
+        resp = self._session.get(
             f"{self.server_url}/preview-prompt",
             params={"name": name},
             timeout=10,
@@ -353,7 +364,7 @@ class TTSClient:
         if not self.is_server_running():
             raise ConnectionError("TTS server is not running")
         params = {"name": name} if name else {}
-        resp = requests.get(
+        resp = self._session.get(
             f"{self.server_url}/prompt-details",
             params=params,
             timeout=10,
@@ -530,7 +541,7 @@ class TTSClient:
         else:
             payload["voice_description"] = description
 
-        resp = requests.post(f"{self.server_url}/generate", json=payload, timeout=600, headers=auth_headers())
+        resp = self._session.post(f"{self.server_url}/generate", json=payload, timeout=600, headers=auth_headers())
         if resp.status_code != 200:
             try:
                 error_msg = resp.json().get("error", "Unknown error")
@@ -649,7 +660,7 @@ class TTSClient:
             payload["voice_description"] = description
 
         # Stream from server
-        with requests.post(
+        with self._session.post(
             f"{self.server_url}/generate-stream",
             json=payload,
             headers=auth_headers(),
@@ -666,7 +677,7 @@ class TTSClient:
             buffer = b""
             header_size = 8  # 4 bytes sample_rate + 4 bytes audio_length
 
-            for chunk in resp.iter_content(chunk_size=8192):
+            for chunk in resp.iter_content(chunk_size=65536):
                 buffer += chunk
 
                 # Parse complete chunks from buffer
@@ -782,7 +793,7 @@ class TTSClient:
                 payload["speaker"] = custom_speaker
                 payload["instruct"] = instruct
 
-            resp = requests.post(f"{self.server_url}/generate", json=payload, timeout=600, headers=auth_headers())
+            resp = self._session.post(f"{self.server_url}/generate", json=payload, timeout=600, headers=auth_headers())
             if resp.status_code != 200:
                 try:
                     error_msg = resp.json().get("error", "Unknown error")
