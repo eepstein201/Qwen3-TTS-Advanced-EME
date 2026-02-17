@@ -61,14 +61,14 @@ changeVoice --ui         # Same thing, auto-starts server
 | Sound like a specific person | Yes | No | No |
 | Describe voice in text | No | Yes | No |
 | Pre-trained speakers | No | No | 9 speakers |
-| Reference audio needed | Yes (10-30s) | No | No |
+| Reference audio needed | Yes (5-15s) | No | No |
 | Style instructions | No | Via description | Yes (--instruct) |
 | Prosody presets | No | Yes | Yes |
 | Transcript needed | Optional (--no-transcript) | N/A | N/A |
 
 ### Clone (default) -- sound like anyone
 
-Record or upload 10-30 seconds of clean speech, create a voice prompt, then generate in that voice.
+Record or upload 5-15 seconds of clean speech, create a voice prompt, then generate in that voice.
 
 ```bash
 # Create a voice clone
@@ -112,7 +112,7 @@ Six tabs for everything you need:
 | **Manage Voices** | Preview, rename, delete voices; set your default |
 | **Manage Models** | Load/unload models, set startup defaults, switch audio loader |
 
-Models auto-load on first use. Status indicators show what's loaded. Cancel button stops generation mid-stream.
+Models auto-load on first use. Status indicators show what's loaded. Cancel button stops generation mid-stream. The UI also exposes a programmatic API via `gradio_client` for automation and testing.
 
 ```bash
 ttsUI --port 8080        # Custom port
@@ -279,6 +279,7 @@ All settings live in `config.json`. Edit directly or use `configureTTS`.
 | `advanced.dtype` | `"float32"`, `"float16"`, `"bfloat16"` | `"bfloat16"` | Tensor dtype (torch backend) |
 | `generation.temperature` | `0.0`-`2.0` | `0.7` | Higher = more variation |
 | `generation.max_chunk_chars` | `0`-`10000` | `500` | Auto-splits long text (0 = no splitting) |
+| `generation.max_new_tokens` | `1`-`32768` | `2048` | Max tokens per generation (safety limit) |
 | `models.*.load_at_startup` | `true`/`false` | clone=true | Which models to preload |
 | `server.auto_shutdown_minutes` | `0`+ | `0` | Auto-stop after idle (0 = never) |
 
@@ -335,7 +336,30 @@ A ready-to-run notebook is included (`colab_notebook.ipynb`).
 
 1. Upload `Qwen3-TTS_UserFiles/` to Google Drive at `My Drive/Qwen3-TTS_UserFiles/`
 2. Open `colab_notebook.ipynb` in Colab, select a T4+ GPU runtime
-3. Run all cells -- mounts Drive, installs deps, starts server, opens Gradio with a public URL
+3. Edit the **Settings** form cell at the top to configure your session
+4. Run all cells -- mounts Drive, installs deps, starts server, opens Gradio with a public shareable URL
+
+### Settings Form
+
+The first code cell is a Colab form with these fields:
+
+| Setting | Default | Description |
+|---------|---------|-------------|
+| `MODEL_SIZE` | `1.7B` | `1.7B` or `0.6B` |
+| `PRELOAD_CLONE` | `True` | Load clone model at startup |
+| `PRELOAD_DESIGN` | `False` | Load design model at startup |
+| `PRELOAD_CUSTOM` | `False` | Load custom model at startup |
+| `DEFAULT_MODE` | `design` | Default generation mode |
+| `MAX_NEW_TOKENS` | `2048` | Max tokens per generation (safety limit) |
+| `AUTO_LAUNCH_UI` | `True` | Launch Gradio UI automatically |
+
+### Voice Cloning on Colab
+
+The notebook includes a voice cloning cell:
+
+1. Run the **Voice Cloning** cell -- it prompts you to upload a `.wav` or `.mp3` file (5-15 seconds of clear speech)
+2. The clone model loads automatically if needed
+3. A voice prompt is saved to `voice_prompts/` and can be used immediately in the Gradio UI or via the Python client
 
 The system auto-detects Colab: binds `0.0.0.0`, enables Gradio sharing, uses CUDA.
 
@@ -351,7 +375,7 @@ About 3 GB per model. With all 3 models (clone, design, custom) that is ~10 GB. 
 Yes -- use dialogue mode: `changeVoice --dialogue convo.json -o output`. The JSON file contains an array of objects with `mode`, `speaker`/`prompt`, and `text` fields.
 
 **How do I improve clone quality?**
-Use clean audio: 10-30 seconds of a single speaker, no background noise or music. Generate with `--preset consistent` for reliable results.
+Use clean audio: 5-15 seconds of a single speaker, no background noise or music. Generate with `--preset consistent` for reliable results.
 
 **Is there a web API?**
 Yes -- the server runs on port 5123 with REST endpoints. You can also use the Python API (see above) or the Gradio web interface.
@@ -366,7 +390,7 @@ Yes -- the server runs on port 5123 with REST endpoints. You can also use the Py
 
 **Bad audio quality:** Use `--preset consistent` or lower temperature (`--temperature 0.5`). Set a seed (`--seed 42`).
 
-**Voice clone doesn't match:** Use cleaner source audio. 10-30 seconds of a single speaker, no background noise or music.
+**Voice clone doesn't match:** Use cleaner source audio. 5-15 seconds of a single speaker, no background noise or music.
 
 **Out of memory:** `stopTTSServer` to free everything. Use `--model-size 0.6B` or unload unused models in the Manage Models tab.
 
@@ -401,7 +425,8 @@ python -m unittest discover -v tests/
 └── tests/
     ├── test_voice.py       # Main test suite (266 tests)
     ├── test_audio_utils.py # Audio processing & text chunking tests
-    └── test_core_infra.py  # Error paths, caching, config, SSML tests
+    ├── test_core_infra.py  # Error paths, caching, config, SSML tests
+    └── test_ui_headless.py # Headless Gradio UI integration test
 ```
 
 ## License
