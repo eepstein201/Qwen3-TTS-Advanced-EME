@@ -1,15 +1,18 @@
 #!/usr/bin/env python3
 """Persistent TTS server that keeps models loaded in memory for fast generation."""
 
+import json as _json
 import logging
 import logging.handlers
 import os
 import secrets
+import shutil
 import signal
 import sys
 import tempfile
 import threading
 import time
+from collections import deque
 
 from flask import Flask, request, jsonify, send_file
 import soundfile as sf
@@ -42,10 +45,16 @@ from voice_engine import (
     clear_voice_prompt_cache,
 )
 
+# Pre-computed valid speaker names (keys + display names)
+_VALID_SPEAKER_NAMES = frozenset(CUSTOM_VOICE_SPEAKERS.keys()) | frozenset(
+    v["name"] for v in CUSTOM_VOICE_SPEAKERS.values()
+)
+
 # Auth token for this server session
 auth_token = None
 
 app = Flask(__name__)
+app.json.sort_keys = False
 
 
 def generate_auth_token():
@@ -91,7 +100,7 @@ model_load_times = {}  # model_type -> seconds
 
 # Thread safety for generation
 generation_lock = threading.Lock()
-request_queue = []
+request_queue = set()
 max_concurrent = 1  # TTS generation is memory-intensive, serialize by default
 
 # Auto-shutdown timer
@@ -266,7 +275,6 @@ def _estimate_eta(text_length, elapsed_sec):
     Uses a cached median chars/sec rate (refreshed every 30s) to avoid
     reading the history file on every 1-second progress poll.
     """
-    import json as _json
     from voice_config import HISTORY_FILE
 
     now = time.time()
@@ -278,9 +286,9 @@ def _estimate_eta(text_length, elapsed_sec):
                 _eta_cache["median_rate"] = None
             else:
                 with open(HISTORY_FILE, "r") as f:
-                    lines = f.readlines()
+                    lines = deque(f, maxlen=20)
                 rates = []
-                for line in lines[-20:]:
+                for line in lines:
                     entry = _json.loads(line)
                     dur = entry.get("duration_sec")
                     tl = entry.get("text_length")
@@ -1003,8 +1011,7 @@ def generate():
     if mode == "custom" and speaker:
         speaker_key = speaker.lower() if isinstance(speaker, str) else ""
         # Accept both the key (e.g. "ryan") and the display name (e.g. "Ryan")
-        valid_names = set(CUSTOM_VOICE_SPEAKERS.keys()) | {v["name"] for v in CUSTOM_VOICE_SPEAKERS.values()}
-        if speaker_key not in CUSTOM_VOICE_SPEAKERS and speaker not in valid_names:
+        if speaker_key not in CUSTOM_VOICE_SPEAKERS and speaker not in _VALID_SPEAKER_NAMES:
             return jsonify({
                 "error": f"Unknown speaker: {speaker}. Valid: {', '.join(CUSTOM_VOICE_SPEAKERS.keys())}",
                 "recovery": "config",
@@ -1039,7 +1046,7 @@ def generate():
 
     # Track this request in queue
     request_id = id(request)
-    request_queue.append(request_id)
+    request_queue.add(request_id)
 
     try:
         # --- Double-checked locking: first cache check BEFORE acquiring lock ---
@@ -1056,7 +1063,7 @@ def generate():
             pre_lock_cache_keys[i] = cache_key
             cached = _gen_cache_get(cache_key)
             if cached:
-                import shutil
+
                 temp_file = tempfile.NamedTemporaryFile(suffix=".wav", delete=False)
                 os.chmod(temp_file.name, 0o600)
                 shutil.copy2(cached["file"], temp_file.name)
@@ -1067,7 +1074,7 @@ def generate():
         if len(pre_lock_results) == len(texts):
             results = [pre_lock_results[i] for i in range(len(texts))]
             # Skip to response (no lock needed)
-            request_queue.remove(request_id)
+            request_queue.discard(request_id)
             return jsonify({"results": results})
 
         # Acquire lock for thread-safe generation
@@ -1085,7 +1092,7 @@ def generate():
                 cache_key = pre_lock_cache_keys[i]
                 cached = _gen_cache_get(cache_key)
                 if cached:
-                    import shutil
+    
                     temp_file = tempfile.NamedTemporaryFile(suffix=".wav", delete=False)
                     os.chmod(temp_file.name, 0o600)
                     shutil.copy2(cached["file"], temp_file.name)
@@ -1149,7 +1156,7 @@ def generate():
                 # Store in generation cache (copy the file so original can be moved)
                 cache_file = tempfile.NamedTemporaryFile(suffix=".wav", delete=False)
                 os.chmod(cache_file.name, 0o600)
-                import shutil
+
                 shutil.copy2(temp_file.name, cache_file.name)
                 _gen_cache_put(cache_key, cache_file.name, sr)
 
@@ -1168,7 +1175,7 @@ def generate():
                                  "chunk_index": 0, "chunk_total": 0})
         # Remove from queue
         if request_id in request_queue:
-            request_queue.remove(request_id)
+            request_queue.discard(request_id)
 
 
 @app.route("/generate-stream", methods=["POST"])
