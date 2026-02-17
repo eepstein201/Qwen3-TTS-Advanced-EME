@@ -362,6 +362,7 @@ def _run_inference_torch(model, text, mode, gen_params, language="English",
         "top_k": gen_params.get("top_k", 50),
         "top_p": gen_params.get("top_p", 0.95),
         "repetition_penalty": gen_params.get("repetition_penalty", 1.05),
+        "max_new_tokens": gen_params.get("max_new_tokens", 2048),
     }
 
     seed = gen_params.get("seed")
@@ -520,6 +521,7 @@ def _run_inference_mlx(model, text, mode, gen_params, language="English",
         "top_k": gen_params.get("top_k", 50),
         "top_p": gen_params.get("top_p", 1.0),
         "repetition_penalty": gen_params.get("repetition_penalty", 1.05),
+        "max_new_tokens": gen_params.get("max_new_tokens", 2048),
     }
 
     if mode == "clone":
@@ -626,6 +628,7 @@ def _run_inference_mlx_streaming(model, text, mode, gen_params, language="Englis
         "top_k": gen_params.get("top_k", 50),
         "top_p": gen_params.get("top_p", 1.0),
         "repetition_penalty": gen_params.get("repetition_penalty", 1.05),
+        "max_new_tokens": gen_params.get("max_new_tokens", 2048),
     }
 
     if mode == "clone":
@@ -1026,7 +1029,7 @@ def load_audio(file_path, target_sr=16000):
     return audio, target_sr
 
 
-def load_audio_for_cloning(file_path, max_duration=30, target_sr=16000):
+def load_audio_for_cloning(file_path, max_duration=15, target_sr=16000):
     """Load audio truncated to max_duration seconds. For voice embedding only."""
     if _AUDIO_LOADER == "torchaudio":
         try:

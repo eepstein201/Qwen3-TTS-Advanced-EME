@@ -1035,6 +1035,7 @@ def generate():
         "top_k": data.get("top_k", 50),
         "top_p": data.get("top_p", 0.95),
         "repetition_penalty": data.get("repetition_penalty", 1.05),
+        "max_new_tokens": data.get("max_new_tokens", 2048),
     }
 
     seed = data.get("seed")
@@ -1229,6 +1230,7 @@ def generate_stream():
         "top_k": data.get("top_k", 50),
         "top_p": data.get("top_p", 0.95),
         "repetition_penalty": data.get("repetition_penalty", 1.05),
+        "max_new_tokens": data.get("max_new_tokens", 2048),
     }
     seed = data.get("seed")
     if seed is not None:
