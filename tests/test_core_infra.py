@@ -47,7 +47,7 @@ class TestErrorPaths(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         import voice_server
-        voice_server.auth_token = None
+        voice_server.auth_token = "test_token"
         voice_server.server_config = {
             "security": {"max_text_length": 100, "max_batch_size": 5},
             "auto_shutdown_minutes": 0,
@@ -55,6 +55,7 @@ class TestErrorPaths(unittest.TestCase):
         cls.app = voice_server.app
         cls.app.testing = True
         cls.client = cls.app.test_client()
+        cls.auth = {"Authorization": "Bearer test_token"}
 
     def test_set_audio_loader_invalid(self):
         """set_audio_loader('invalid') raises ValueError."""
@@ -94,20 +95,20 @@ class TestErrorPaths(unittest.TestCase):
 
     def test_generate_endpoint_missing_texts(self):
         """POST /generate with empty body returns 400."""
-        resp = self.client.post("/generate", json={})
+        resp = self.client.post("/generate", json={}, headers=self.auth)
         self.assertEqual(resp.status_code, 400)
         data = resp.get_json()
         self.assertIn("error", data)
 
     def test_generate_endpoint_empty_texts(self):
         """POST /generate with empty texts list returns 400."""
-        resp = self.client.post("/generate", json={"texts": []})
+        resp = self.client.post("/generate", json={"texts": []}, headers=self.auth)
         self.assertEqual(resp.status_code, 400)
 
     def test_generate_endpoint_text_over_limit(self):
         """Text exceeding max_text_length returns 400."""
         long_text = "A" * 200  # server_config max is 100
-        resp = self.client.post("/generate", json={"texts": [long_text]})
+        resp = self.client.post("/generate", json={"texts": [long_text]}, headers=self.auth)
         self.assertEqual(resp.status_code, 400)
         data = resp.get_json()
         self.assertIn("limit", data["error"])
