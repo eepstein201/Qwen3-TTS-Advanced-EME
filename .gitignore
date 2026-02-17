@@ -21,6 +21,7 @@ txt_prompts/
 
 # Voice prompts (user-specific, may contain personal voice data)
 voice_prompts/
+*.pt
 
 # Environment
 .env
