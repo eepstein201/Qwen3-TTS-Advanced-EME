@@ -954,6 +954,102 @@ def set_audio_loader_setting(loader):
         return f"Error: {e}"
 
 
+def _build_common_controls(audio_processing_label="Audio Processing"):
+    """Build the common right-column controls shared by all generation tabs.
+
+    Returns dict with keys: streaming, temp, top_k, top_p, rep, seed,
+    trim, norm, speed, pitch.
+    """
+    streaming = gr.Checkbox(
+        label="Enable Streaming",
+        value=True,
+        info="Hear audio as it generates (MLX: native, torch: chunked)"
+    )
+
+    with gr.Accordion("Advanced Settings", open=False):
+        temp = gr.Slider(0.1, 1.5, value=0.7, step=0.05, label="Temperature")
+        top_k = gr.Slider(1, 100, value=50, step=1, label="Top-K")
+        top_p = gr.Slider(0.1, 1.0, value=0.95, step=0.01, label="Top-P")
+        rep = gr.Slider(1.0, 2.0, value=1.05, step=0.01, label="Repetition Penalty")
+        seed = gr.Textbox(label="Seed (empty for random)", value="")
+
+    with gr.Accordion(audio_processing_label, open=False):
+        if "Style" in audio_processing_label:
+            gr.Markdown("Use speed/pitch to modify the cloned voice's delivery style.", elem_classes=["info-text"])
+        trim = gr.Checkbox(label="Trim Silence", value=False)
+        norm = gr.Checkbox(label="Normalize", value=False)
+        speed = gr.Slider(0.5, 2.0, value=1.0, step=0.05, label="Speed")
+        pitch = gr.Slider(-12, 12, value=0, step=1, label="Pitch (semitones)")
+
+    return {
+        "streaming": streaming, "temp": temp, "top_k": top_k, "top_p": top_p,
+        "rep": rep, "seed": seed, "trim": trim, "norm": norm,
+        "speed": speed, "pitch": pitch,
+    }
+
+
+def _build_generate_buttons_and_output():
+    """Build the Generate/Stop buttons and output components.
+
+    Returns dict with keys: btn, cancel_btn, output, status.
+    """
+    with gr.Row():
+        btn = gr.Button("Generate", variant="primary")
+        cancel_btn = gr.Button("Stop", variant="stop")
+    output = gr.Audio(label="Output", streaming=True, autoplay=True)
+    status = gr.Textbox(label="Status", interactive=False)
+    return {"btn": btn, "cancel_btn": cancel_btn, "output": output, "status": status}
+
+
+def _make_handler(mode):
+    """Create a unified streaming/non-streaming handler for a given mode.
+
+    Returns a generator function that dispatches to the appropriate
+    streaming or non-streaming implementation based on the streaming flag.
+    """
+    streaming_fn = {
+        "clone": generate_clone_streaming,
+        "design": generate_design_streaming,
+        "custom": generate_custom_streaming,
+    }[mode]
+    non_streaming_fn = {
+        "clone": generate_clone,
+        "design": generate_design,
+        "custom": generate_custom,
+    }[mode]
+
+    def handler(*args):
+        # Last arg is always the streaming checkbox; for clone, second-to-last is no_transcript
+        streaming = args[-1] if mode != "clone" else args[-2]
+        if streaming:
+            yield from streaming_fn(*args[:-1])  # strip streaming flag (and no_transcript handled internally)
+        else:
+            yield non_streaming_fn(*args[:-1])
+
+    return handler
+
+
+def _wire_generation_tab(mode, btn, cancel_btn, output, status, model_indicator,
+                         text, text_info, inputs_list, status_html, history_df,
+                         handler, api_name=None):
+    """Wire up the common event handlers for a generation tab."""
+    click_kwargs = {"fn": handler, "inputs": inputs_list, "outputs": [output, status, status_html, history_df]}
+    if api_name:
+        click_kwargs["api_name"] = api_name
+
+    btn.click(**click_kwargs).then(
+        fn=lambda: get_model_status_html(mode),
+        outputs=model_indicator
+    )
+
+    cancel_btn.click(
+        fn=cancel_streaming_generation,
+        outputs=[output, status, status_html]
+    )
+
+    text.change(fn=update_text_info, inputs=text, outputs=text_info)
+
+
 def build_ui():
     """Build the Gradio interface."""
 
@@ -1026,7 +1122,7 @@ def build_ui():
 
         # Tabs for different modes
         with gr.Tabs():
-            # Clone Mode Tab
+            # ---- Clone Mode Tab ----
             with gr.Tab("Clone Mode"):
                 gr.Markdown(
                     "Use a voice prompt file to clone a specific voice. "
@@ -1038,111 +1134,59 @@ def build_ui():
 
                 with gr.Row():
                     with gr.Column(scale=2):
-                        clone_text = gr.Textbox(
-                            label="Text Input",
-                            placeholder="Enter text to synthesize...",
-                            lines=3
-                        )
-                        clone_text_info = gr.Textbox(
-                            label="", show_label=False, interactive=False,
-                            max_lines=1, container=False
-                        )
+                        clone_text = gr.Textbox(label="Text Input", placeholder="Enter text to synthesize...", lines=3)
+                        clone_text_info = gr.Textbox(label="", show_label=False, interactive=False, max_lines=1, container=False)
                         _default_prompt = get_default_clone_prompt()
                         _prompts = get_voice_prompts()
                         clone_prompt = gr.Dropdown(
-                            label="Voice Prompt",
-                            choices=_prompts,
+                            label="Voice Prompt", choices=_prompts,
                             value=_default_prompt if _default_prompt in _prompts else (_prompts[0] if _prompts else None)
                         )
-                        clone_preset = gr.Dropdown(
-                            label="Preset",
-                            choices=get_presets(),
-                            value="(none)"
-                        )
+                        clone_preset = gr.Dropdown(label="Preset", choices=get_presets(), value="(none)")
 
                     with gr.Column(scale=1):
-                        clone_streaming = gr.Checkbox(
-                            label="Enable Streaming",
-                            value=True,
-                            info="Hear audio as it generates (MLX: native, torch: chunked)"
-                        )
+                        clone_ctrls = _build_common_controls(audio_processing_label="Audio Processing (Style Adjustment)")
                         clone_no_transcript = gr.Checkbox(
-                            label="Speaker embedding only",
-                            value=False,
+                            label="Speaker embedding only", value=False,
                             info="Clone using x-vector only (no transcript needed, lower fidelity)"
                         )
 
-                        with gr.Accordion("Advanced Settings", open=False):
-                            clone_temp = gr.Slider(0.1, 1.5, value=0.7, step=0.05, label="Temperature")
-                            clone_top_k = gr.Slider(1, 100, value=50, step=1, label="Top-K")
-                            clone_top_p = gr.Slider(0.1, 1.0, value=0.95, step=0.01, label="Top-P")
-                            clone_rep = gr.Slider(1.0, 2.0, value=1.05, step=0.01, label="Repetition Penalty")
-                            clone_seed = gr.Textbox(label="Seed (empty for random)", value="")
+                clone_btns = _build_generate_buttons_and_output()
 
-                        with gr.Accordion("Audio Processing (Style Adjustment)", open=False):
-                            gr.Markdown("Use speed/pitch to modify the cloned voice's delivery style.", elem_classes=["info-text"])
-                            clone_trim = gr.Checkbox(label="Trim Silence", value=False)
-                            clone_norm = gr.Checkbox(label="Normalize", value=False)
-                            clone_speed = gr.Slider(0.5, 2.0, value=1.0, step=0.05, label="Speed")
-                            clone_pitch = gr.Slider(-12, 12, value=0, step=1, label="Pitch (semitones)")
-
-                with gr.Row():
-                    clone_btn = gr.Button("Generate", variant="primary")
-                    clone_cancel_btn = gr.Button("Stop", variant="stop")
-                clone_output = gr.Audio(label="Output", streaming=True, autoplay=True)
-                clone_status = gr.Textbox(label="Status", interactive=False)
-
-                # Dynamic handler based on streaming checkbox
                 def clone_handler(text, prompt, preset, temp, top_k, top_p, rep, seed,
                                   trim, norm, speed, pitch, streaming, no_transcript):
                     if streaming:
                         yield from generate_clone_streaming(
                             text, prompt, preset, temp, top_k, top_p, rep, seed,
-                            trim, norm, speed, pitch, no_transcript=no_transcript
-                        )
+                            trim, norm, speed, pitch, no_transcript=no_transcript)
                     else:
-                        # Non-streaming: use original function
-                        result = generate_clone(
+                        yield generate_clone(
                             text, prompt, preset, temp, top_k, top_p, rep, seed,
-                            trim, norm, speed, pitch, no_transcript=no_transcript
-                        )
-                        yield result
+                            trim, norm, speed, pitch, no_transcript=no_transcript)
 
-                clone_btn.click(
-                    fn=clone_handler,
-                    inputs=[clone_text, clone_prompt, clone_preset, clone_temp, clone_top_k,
-                            clone_top_p, clone_rep, clone_seed, clone_trim, clone_norm,
-                            clone_speed, clone_pitch, clone_streaming, clone_no_transcript],
-                    outputs=[clone_output, clone_status, status_html, history_df],
-                    api_name="generate_clone",
-                ).then(
-                    fn=lambda: get_model_status_html("clone"),
-                    outputs=clone_model_indicator
+                _wire_generation_tab(
+                    "clone", clone_btns["btn"], clone_btns["cancel_btn"],
+                    clone_btns["output"], clone_btns["status"], clone_model_indicator,
+                    clone_text, clone_text_info,
+                    inputs_list=[clone_text, clone_prompt, clone_preset,
+                                 clone_ctrls["temp"], clone_ctrls["top_k"], clone_ctrls["top_p"],
+                                 clone_ctrls["rep"], clone_ctrls["seed"],
+                                 clone_ctrls["trim"], clone_ctrls["norm"],
+                                 clone_ctrls["speed"], clone_ctrls["pitch"],
+                                 clone_ctrls["streaming"], clone_no_transcript],
+                    status_html=status_html, history_df=history_df,
+                    handler=clone_handler, api_name="generate_clone",
                 )
 
-                clone_cancel_btn.click(
-                    fn=cancel_streaming_generation,
-                    outputs=[clone_output, clone_status, status_html]
-                )
-
-                clone_text.change(fn=update_text_info, inputs=clone_text, outputs=clone_text_info)
-
-            # Design Mode Tab
+            # ---- Design Mode Tab ----
             with gr.Tab("Design Mode"):
                 gr.Markdown("Generate a voice from a text description.")
                 design_model_indicator = gr.HTML(value=get_model_status_html("design"))
 
                 with gr.Row():
                     with gr.Column(scale=2):
-                        design_text = gr.Textbox(
-                            label="Text Input",
-                            placeholder="Enter text to synthesize...",
-                            lines=3
-                        )
-                        design_text_info = gr.Textbox(
-                            label="", show_label=False, interactive=False,
-                            max_lines=1, container=False
-                        )
+                        design_text = gr.Textbox(label="Text Input", placeholder="Enter text to synthesize...", lines=3)
+                        design_text_info = gr.Textbox(label="", show_label=False, interactive=False, max_lines=1, container=False)
                         design_desc = gr.Textbox(
                             label="Voice Description",
                             placeholder="Describe the voice (e.g., 'A warm, friendly female voice with clear articulation')",
@@ -1150,19 +1194,13 @@ def build_ui():
                         )
                         with gr.Row():
                             design_prosody = gr.Dropdown(
-                                label="Style Preset",
-                                choices=get_prosody_choices(),
-                                value="(none)",
-                                info="Appends style to description",
-                                scale=2,
+                                label="Style Preset", choices=get_prosody_choices(), value="(none)",
+                                info="Appends style to description", scale=2,
                             )
                             _enhancer_visible = is_enhancer_available()
                             design_enhance_btn = gr.Button(
-                                "Enhance with AI",
-                                size="sm",
-                                variant="secondary",
-                                visible=_enhancer_visible,
-                                scale=1,
+                                "Enhance with AI", size="sm", variant="secondary",
+                                visible=_enhancer_visible, scale=1,
                             )
 
                         with gr.Accordion("Description Builder", open=False):
@@ -1179,46 +1217,17 @@ def build_ui():
                                 db_accent = gr.Dropdown(label="Accent", choices=_none_opt + VOICE_DESCRIPTION_ATTRIBUTES["accent"], value="(none)")
                             db_compose_btn = gr.Button("Compose Description", size="sm", variant="secondary")
 
-                        design_preset = gr.Dropdown(
-                            label="Preset",
-                            choices=get_presets(),
-                            value="(none)"
-                        )
+                        design_preset = gr.Dropdown(label="Preset", choices=get_presets(), value="(none)")
 
                     with gr.Column(scale=1):
-                        design_streaming = gr.Checkbox(
-                            label="Enable Streaming",
-                            value=True,
-                            info="Hear audio as it generates (MLX: native, torch: chunked)"
-                        )
+                        design_ctrls = _build_common_controls()
 
-                        with gr.Accordion("Advanced Settings", open=False):
-                            design_temp = gr.Slider(0.1, 1.5, value=0.7, step=0.05, label="Temperature")
-                            design_top_k = gr.Slider(1, 100, value=50, step=1, label="Top-K")
-                            design_top_p = gr.Slider(0.1, 1.0, value=0.95, step=0.01, label="Top-P")
-                            design_rep = gr.Slider(1.0, 2.0, value=1.05, step=0.01, label="Repetition Penalty")
-                            design_seed = gr.Textbox(label="Seed (empty for random)", value="")
-
-                        with gr.Accordion("Audio Processing", open=False):
-                            design_trim = gr.Checkbox(label="Trim Silence", value=False)
-                            design_norm = gr.Checkbox(label="Normalize", value=False)
-                            design_speed = gr.Slider(0.5, 2.0, value=1.0, step=0.05, label="Speed")
-                            design_pitch = gr.Slider(-12, 12, value=0, step=1, label="Pitch (semitones)")
-
-                with gr.Row():
-                    design_btn = gr.Button("Generate", variant="primary")
-                    design_cancel_btn = gr.Button("Stop", variant="stop")
-                design_output = gr.Audio(label="Output", streaming=True, autoplay=True)
-                design_status = gr.Textbox(label="Status", interactive=False)
+                design_btns = _build_generate_buttons_and_output()
 
                 # Save as Voice Prompt (Design-then-Clone pipeline)
                 with gr.Accordion("Save as Voice Prompt", open=False):
                     gr.Markdown("Save the generated audio as a reusable voice clone prompt.")
-                    design_save_name = gr.Textbox(
-                        label="Voice Name",
-                        placeholder="e.g., designed_voice",
-                        max_lines=1,
-                    )
+                    design_save_name = gr.Textbox(label="Voice Name", placeholder="e.g., designed_voice", max_lines=1)
                     design_save_btn = gr.Button("Save as Voice Prompt", size="sm", variant="secondary")
                     design_save_status = gr.Textbox(label="", show_label=False, interactive=False, max_lines=1, container=False)
 
@@ -1226,34 +1235,25 @@ def build_ui():
                                    trim, norm, speed, pitch, streaming):
                     if streaming:
                         yield from generate_design_streaming(
-                            text, desc, preset, temp, top_k, top_p, rep, seed,
-                            trim, norm, speed, pitch
-                        )
+                            text, desc, preset, temp, top_k, top_p, rep, seed, trim, norm, speed, pitch)
                     else:
-                        result = generate_design(
-                            text, desc, preset, temp, top_k, top_p, rep, seed,
-                            trim, norm, speed, pitch
-                        )
-                        yield result
+                        yield generate_design(
+                            text, desc, preset, temp, top_k, top_p, rep, seed, trim, norm, speed, pitch)
 
-                design_btn.click(
-                    fn=design_handler,
-                    inputs=[design_text, design_desc, design_preset, design_temp, design_top_k,
-                            design_top_p, design_rep, design_seed, design_trim, design_norm,
-                            design_speed, design_pitch, design_streaming],
-                    outputs=[design_output, design_status, status_html, history_df]
-                ).then(
-                    fn=lambda: get_model_status_html("design"),
-                    outputs=design_model_indicator
-                )
-
-                design_cancel_btn.click(
-                    fn=cancel_streaming_generation,
-                    outputs=[design_output, design_status, status_html]
+                _wire_generation_tab(
+                    "design", design_btns["btn"], design_btns["cancel_btn"],
+                    design_btns["output"], design_btns["status"], design_model_indicator,
+                    design_text, design_text_info,
+                    inputs_list=[design_text, design_desc, design_preset,
+                                 design_ctrls["temp"], design_ctrls["top_k"], design_ctrls["top_p"],
+                                 design_ctrls["rep"], design_ctrls["seed"],
+                                 design_ctrls["trim"], design_ctrls["norm"],
+                                 design_ctrls["speed"], design_ctrls["pitch"],
+                                 design_ctrls["streaming"]],
+                    status_html=status_html, history_df=history_df, handler=design_handler,
                 )
 
                 design_prosody.change(fn=apply_prosody_preset, inputs=[design_prosody, design_desc], outputs=design_desc)
-                design_text.change(fn=update_text_info, inputs=design_text, outputs=design_text_info)
 
                 # Wire up Description Builder
                 db_compose_btn.click(
@@ -1263,11 +1263,7 @@ def build_ui():
                 )
 
                 # Wire up Enhance button
-                design_enhance_btn.click(
-                    fn=enhance_description_with_ai,
-                    inputs=[design_desc],
-                    outputs=design_desc,
-                )
+                design_enhance_btn.click(fn=enhance_description_with_ai, inputs=[design_desc], outputs=design_desc)
 
                 # Wire up Save as Voice Prompt
                 def save_design_as_prompt(voice_name):
@@ -1275,7 +1271,6 @@ def build_ui():
                     if not voice_name or not voice_name.strip():
                         return "Please enter a voice name.", gr.update()
                     voice_name = voice_name.strip().replace(" ", "_").replace("/", "_").replace("\\", "_").replace("..", "")
-                    # Find the most recent design output in history
                     for entry in generation_history:
                         if entry.get("mode") == "Design" and entry.get("path"):
                             audio_path = entry["path"]
@@ -1296,107 +1291,60 @@ def build_ui():
                     return "No recent Design mode output found. Generate audio first.", gr.update()
 
                 design_save_btn.click(
-                    fn=save_design_as_prompt,
-                    inputs=[design_save_name],
+                    fn=save_design_as_prompt, inputs=[design_save_name],
                     outputs=[design_save_status, clone_prompt],
                 )
 
-            # Custom Mode Tab
+            # ---- Custom Mode Tab ----
             with gr.Tab("Custom Mode"):
                 gr.Markdown("Use premium pre-trained speakers.")
                 custom_model_indicator = gr.HTML(value=get_model_status_html("custom"))
 
                 with gr.Row():
                     with gr.Column(scale=2):
-                        custom_text = gr.Textbox(
-                            label="Text Input",
-                            placeholder="Enter text to synthesize...",
-                            lines=3
-                        )
-                        custom_text_info = gr.Textbox(
-                            label="", show_label=False, interactive=False,
-                            max_lines=1, container=False
-                        )
-                        custom_speaker = gr.Dropdown(
-                            label="Speaker",
-                            choices=SPEAKER_CHOICES,
-                            value=SPEAKER_CHOICES[0]
-                        )
+                        custom_text = gr.Textbox(label="Text Input", placeholder="Enter text to synthesize...", lines=3)
+                        custom_text_info = gr.Textbox(label="", show_label=False, interactive=False, max_lines=1, container=False)
+                        custom_speaker = gr.Dropdown(label="Speaker", choices=SPEAKER_CHOICES, value=SPEAKER_CHOICES[0])
                         custom_prosody = gr.Dropdown(
-                            label="Style Preset",
-                            choices=get_prosody_choices(),
-                            value="(none)",
+                            label="Style Preset", choices=get_prosody_choices(), value="(none)",
                             info="Select a preset to fill the instruction field, or type your own below"
                         )
                         custom_instruct = gr.Textbox(
                             label="Style Instruction (optional)",
-                            placeholder="e.g., 'Speak with enthusiasm' or 'Read slowly and clearly'",
-                            lines=1
+                            placeholder="e.g., 'Speak with enthusiasm' or 'Read slowly and clearly'", lines=1
                         )
-                        custom_preset = gr.Dropdown(
-                            label="Preset",
-                            choices=get_presets(),
-                            value="(none)"
-                        )
+                        custom_preset = gr.Dropdown(label="Preset", choices=get_presets(), value="(none)")
 
                     with gr.Column(scale=1):
-                        custom_streaming = gr.Checkbox(
-                            label="Enable Streaming",
-                            value=True,
-                            info="Hear audio as it generates (MLX: native, torch: chunked)"
-                        )
+                        custom_ctrls = _build_common_controls()
 
-                        with gr.Accordion("Advanced Settings", open=False):
-                            custom_temp = gr.Slider(0.1, 1.5, value=0.7, step=0.05, label="Temperature")
-                            custom_top_k = gr.Slider(1, 100, value=50, step=1, label="Top-K")
-                            custom_top_p = gr.Slider(0.1, 1.0, value=0.95, step=0.01, label="Top-P")
-                            custom_rep = gr.Slider(1.0, 2.0, value=1.05, step=0.01, label="Repetition Penalty")
-                            custom_seed = gr.Textbox(label="Seed (empty for random)", value="")
-
-                        with gr.Accordion("Audio Processing", open=False):
-                            custom_trim = gr.Checkbox(label="Trim Silence", value=False)
-                            custom_norm = gr.Checkbox(label="Normalize", value=False)
-                            custom_speed = gr.Slider(0.5, 2.0, value=1.0, step=0.05, label="Speed")
-                            custom_pitch = gr.Slider(-12, 12, value=0, step=1, label="Pitch (semitones)")
-
-                with gr.Row():
-                    custom_btn = gr.Button("Generate", variant="primary")
-                    custom_cancel_btn = gr.Button("Stop", variant="stop")
-                custom_output = gr.Audio(label="Output", streaming=True, autoplay=True)
-                custom_status = gr.Textbox(label="Status", interactive=False)
+                custom_btns = _build_generate_buttons_and_output()
 
                 def custom_handler(text, speaker, instruct, preset, temp, top_k, top_p, rep, seed,
                                    trim, norm, speed, pitch, streaming):
                     if streaming:
                         yield from generate_custom_streaming(
                             text, speaker, instruct, preset, temp, top_k, top_p, rep, seed,
-                            trim, norm, speed, pitch
-                        )
+                            trim, norm, speed, pitch)
                     else:
-                        result = generate_custom(
+                        yield generate_custom(
                             text, speaker, instruct, preset, temp, top_k, top_p, rep, seed,
-                            trim, norm, speed, pitch
-                        )
-                        yield result
+                            trim, norm, speed, pitch)
 
-                custom_btn.click(
-                    fn=custom_handler,
-                    inputs=[custom_text, custom_speaker, custom_instruct, custom_preset,
-                            custom_temp, custom_top_k, custom_top_p, custom_rep, custom_seed,
-                            custom_trim, custom_norm, custom_speed, custom_pitch, custom_streaming],
-                    outputs=[custom_output, custom_status, status_html, history_df]
-                ).then(
-                    fn=lambda: get_model_status_html("custom"),
-                    outputs=custom_model_indicator
-                )
-
-                custom_cancel_btn.click(
-                    fn=cancel_streaming_generation,
-                    outputs=[custom_output, custom_status, status_html]
+                _wire_generation_tab(
+                    "custom", custom_btns["btn"], custom_btns["cancel_btn"],
+                    custom_btns["output"], custom_btns["status"], custom_model_indicator,
+                    custom_text, custom_text_info,
+                    inputs_list=[custom_text, custom_speaker, custom_instruct, custom_preset,
+                                 custom_ctrls["temp"], custom_ctrls["top_k"], custom_ctrls["top_p"],
+                                 custom_ctrls["rep"], custom_ctrls["seed"],
+                                 custom_ctrls["trim"], custom_ctrls["norm"],
+                                 custom_ctrls["speed"], custom_ctrls["pitch"],
+                                 custom_ctrls["streaming"]],
+                    status_html=status_html, history_df=history_df, handler=custom_handler,
                 )
 
                 custom_prosody.change(fn=apply_prosody_preset, inputs=[custom_prosody, custom_instruct], outputs=custom_instruct)
-                custom_text.change(fn=update_text_info, inputs=custom_text, outputs=custom_text_info)
 
             # Create Voice Tab
             with gr.Tab("Create Voice"):
