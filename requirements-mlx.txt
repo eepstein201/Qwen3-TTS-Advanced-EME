@@ -14,3 +14,4 @@ requests
 gradio
 watchdog
 pyrubberband
+click>=8.0

@@ -1,0 +1,16 @@
+[project]
+name = "qwen3-tts"
+version = "2.0.0"
+description = "Text-to-speech with voice cloning, built on Qwen3-TTS"
+requires-python = ">=3.10"
+dependencies = ["click>=8.0"]
+
+[project.scripts]
+tts = "qwen3_tts.cli:cli"
+
+[tool.setuptools.packages.find]
+include = ["qwen3_tts*"]
+
+[build-system]
+requires = ["setuptools>=68.0"]
+build-backend = "setuptools.build_meta"
