@@ -212,7 +212,16 @@ def _load_voice_prompt_torch(prompt_file):
         return None
     from voice_config import get_device
     device = get_device()
-    return torch.load(prompt_path, weights_only=False, map_location=device)
+    try:
+        return torch.load(prompt_path, weights_only=True, map_location=device)
+    except Exception:
+        # Fall back for prompts created with older formats that need pickle.
+        # Only load .pt files from the trusted voice_prompts directory.
+        logger.warning(
+            "Loading %s with weights_only=False — only load trusted .pt files",
+            prompt_file,
+        )
+        return torch.load(prompt_path, weights_only=False, map_location=device)
 
 
 def load_voice_prompt(prompt_file):
