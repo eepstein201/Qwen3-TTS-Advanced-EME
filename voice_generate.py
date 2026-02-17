@@ -1542,6 +1542,9 @@ def main():
     parser.add_argument("-d", "--description", help="Voice description (for design mode)")
     parser.add_argument("-s", "--speaker", help="Premium speaker name for custom mode (ryan, aiden, vivian, etc.)")
     parser.add_argument("-i", "--instruct", help="Style instruction for custom mode (e.g., 'very happy', 'speak slowly')")
+    parser.add_argument("--prosody", metavar="PRESET", help="Prosody preset for custom/design mode (excited, calm, whisper, etc.)")
+    parser.add_argument("--no-transcript", action="store_true", dest="no_transcript",
+                        help="Clone using speaker embedding only (no transcript needed)")
     parser.add_argument("--batch", help="JSON file with array of texts")
     parser.add_argument("--preset", help="Use named preset from config")
 
@@ -1566,6 +1569,7 @@ def main():
     parser.add_argument("--list-presets", action="store_true", help="List available presets")
     parser.add_argument("--list-aliases", action="store_true", help="List available voice aliases")
     parser.add_argument("--list-speakers", action="store_true", help="List premium CustomVoice speakers")
+    parser.add_argument("--list-prosody", action="store_true", help="List available prosody presets")
     parser.add_argument("--list-models", action="store_true", help="List available TTS models and their load status")
     parser.add_argument("--stats", action="store_true", help="Show server statistics")
     parser.add_argument("--edit-config", action="store_true", help="Edit default voice description")
@@ -1674,6 +1678,17 @@ def main():
             print('  "aliases": {')
             print('    "narrator": {"prompt": "narrator.pt", "preset": "consistent"}')
             print('  }')
+        return False
+
+    if args.list_prosody:
+        from voice_config import get_prosody_presets
+        presets = get_prosody_presets(config)
+        print("Available prosody presets (use with --prosody PRESET):\n")
+        for name, text in sorted(presets.items()):
+            print(f"  {name:<18} {text}")
+        print()
+        print("Example: changeVoice -m custom -s ryan --prosody excited \"Hello!\" -o output")
+        print(f"\nCustomize in {CONFIG_PATH} under 'prosody_presets'.")
         return False
 
     if args.list_speakers:
@@ -1953,6 +1968,19 @@ def main():
     mode = args.mode or "clone"
     prompt_file = args.prompt or get_default_clone_prompt(config)
     voice_description = args.description or config.get("default_voice_description", "")
+
+    # Resolve prosody preset into instruct text
+    if args.prosody and not args.instruct:
+        from voice_config import get_prosody_presets
+        prosody_presets = get_prosody_presets(config)
+        if args.prosody in prosody_presets:
+            args.instruct = prosody_presets[args.prosody]
+            print(f"Using prosody preset '{args.prosody}': {args.instruct}")
+        else:
+            available = ", ".join(sorted(prosody_presets.keys()))
+            print(f"Error: Unknown prosody preset '{args.prosody}'")
+            print(f"Available: {available}")
+            sys.exit(1)
 
     # Determine mode
     if args.mode == "design" or args.description:

@@ -373,6 +373,38 @@ def get_model_info(model_type):
 
 
 # ---------------------------------------------------------------------------
+# Prosody presets (instruct text templates for Custom & Design modes)
+# ---------------------------------------------------------------------------
+
+DEFAULT_PROSODY_PRESETS = {
+    "excited": "Speak with excitement and high energy",
+    "calm": "Speak in a calm, soothing, relaxed manner",
+    "whisper": "Speak in a soft whisper",
+    "authoritative": "Speak in a confident, authoritative tone",
+    "slow": "Speak slowly and deliberately with clear enunciation",
+    "fast": "Speak quickly with urgency",
+    "dramatic": "Speak with dramatic flair and emotional intensity",
+    "conversational": "Speak in a casual, natural conversational style",
+}
+
+
+def get_prosody_presets(config=None):
+    """Return prosody presets dict (user-defined + defaults).
+
+    User presets in config.json override defaults with the same key.
+    """
+    if config is None:
+        try:
+            config = load_config()
+        except Exception:
+            config = {}
+    user_presets = config.get("prosody_presets", {})
+    merged = dict(DEFAULT_PROSODY_PRESETS)
+    merged.update(user_presets)
+    return merged
+
+
+# ---------------------------------------------------------------------------
 # Error hierarchy
 # ---------------------------------------------------------------------------
 

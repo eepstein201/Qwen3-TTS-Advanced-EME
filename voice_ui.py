@@ -40,6 +40,7 @@ from voice_config import (
     is_server_running,
     auth_headers,
     load_config,
+    get_prosody_presets,
 )
 
 # Derive speaker choices from canonical source
@@ -47,6 +48,22 @@ SPEAKER_CHOICES = [
     f"{key} ({info['lang']}) - {info['desc']}"
     for key, info in CUSTOM_VOICE_SPEAKERS.items()
 ]
+
+
+def get_prosody_choices():
+    """Return list of prosody preset choices for dropdown, with (none) first."""
+    presets = get_prosody_presets()
+    return ["(none)"] + [f"{name} - {text}" for name, text in sorted(presets.items())]
+
+
+def apply_prosody_preset(choice):
+    """When a prosody preset is selected, return the instruct text to fill in."""
+    if not choice or choice == "(none)":
+        return ""
+    # Extract preset name before " - "
+    name = choice.split(" - ")[0].strip()
+    presets = get_prosody_presets()
+    return presets.get(name, "")
 
 
 # =============================================================================
@@ -1014,6 +1031,12 @@ def build_ui():
                             label="", show_label=False, interactive=False,
                             max_lines=1, container=False
                         )
+                        design_prosody = gr.Dropdown(
+                            label="Style Preset",
+                            choices=get_prosody_choices(),
+                            value="(none)",
+                            info="Select a preset to append style to the voice description"
+                        )
                         design_desc = gr.Textbox(
                             label="Voice Description",
                             placeholder="Describe the voice (e.g., 'A warm, friendly female voice with clear articulation')",
@@ -1081,6 +1104,7 @@ def build_ui():
                     outputs=[design_output, design_status, status_html]
                 )
 
+                design_prosody.change(fn=apply_prosody_preset, inputs=design_prosody, outputs=design_desc)
                 design_text.change(fn=update_text_info, inputs=design_text, outputs=design_text_info)
 
             # Custom Mode Tab
@@ -1103,6 +1127,12 @@ def build_ui():
                             label="Speaker",
                             choices=SPEAKER_CHOICES,
                             value=SPEAKER_CHOICES[0]
+                        )
+                        custom_prosody = gr.Dropdown(
+                            label="Style Preset",
+                            choices=get_prosody_choices(),
+                            value="(none)",
+                            info="Select a preset to fill the instruction field, or type your own below"
                         )
                         custom_instruct = gr.Textbox(
                             label="Style Instruction (optional)",
@@ -1171,6 +1201,7 @@ def build_ui():
                     outputs=[custom_output, custom_status, status_html]
                 )
 
+                custom_prosody.change(fn=apply_prosody_preset, inputs=custom_prosody, outputs=custom_instruct)
                 custom_text.change(fn=update_text_info, inputs=custom_text, outputs=custom_text_info)
 
             # Create Voice Tab

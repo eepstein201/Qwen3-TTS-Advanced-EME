@@ -2875,7 +2875,7 @@ class TestManageModelsUI(unittest.TestCase):
 
 
 # =============================================================================
-# Rubber Band audio processing tests
+# Improvement 1: Rubber Band audio processing tests
 # =============================================================================
 
 class TestRubberBandAudioProcessing(unittest.TestCase):
@@ -2922,6 +2922,85 @@ class TestRubberBandAudioProcessing(unittest.TestCase):
                 self.assertIsInstance(result, np.ndarray)
             except ImportError:
                 pass
+
+
+# =============================================================================
+# Improvement 2: Prosody presets tests
+# =============================================================================
+
+class TestProsodyPresets(unittest.TestCase):
+    """Test prosody preset loading and resolution."""
+
+    def test_default_prosody_presets_exist(self):
+        """DEFAULT_PROSODY_PRESETS should contain standard presets."""
+        from voice_config import DEFAULT_PROSODY_PRESETS
+        self.assertIn("excited", DEFAULT_PROSODY_PRESETS)
+        self.assertIn("calm", DEFAULT_PROSODY_PRESETS)
+        self.assertIn("whisper", DEFAULT_PROSODY_PRESETS)
+        self.assertIn("authoritative", DEFAULT_PROSODY_PRESETS)
+        self.assertIsInstance(DEFAULT_PROSODY_PRESETS["excited"], str)
+
+    def test_get_prosody_presets_returns_defaults(self):
+        """get_prosody_presets with empty config should return defaults."""
+        from voice_config import get_prosody_presets, DEFAULT_PROSODY_PRESETS
+        presets = get_prosody_presets(config={})
+        self.assertEqual(presets, DEFAULT_PROSODY_PRESETS)
+
+    def test_get_prosody_presets_merges_user(self):
+        """User presets should override defaults."""
+        from voice_config import get_prosody_presets
+        config = {"prosody_presets": {"excited": "custom excited text", "newpreset": "new text"}}
+        presets = get_prosody_presets(config)
+        self.assertEqual(presets["excited"], "custom excited text")
+        self.assertEqual(presets["newpreset"], "new text")
+        # Defaults should still be present
+        self.assertIn("calm", presets)
+
+    def test_prosody_presets_in_config_json(self):
+        """config.json should have prosody_presets section."""
+        config_path = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "config.json")
+        with open(config_path) as f:
+            config = json.load(f)
+        self.assertIn("prosody_presets", config)
+        self.assertIn("excited", config["prosody_presets"])
+
+    @_skip_generate
+    def test_prosody_cli_flag_exists(self):
+        """voice_generate.py should accept --prosody flag."""
+        import voice_generate
+        import argparse
+        # Build parser and check --prosody is registered
+        parser = voice_generate.build_parser() if hasattr(voice_generate, 'build_parser') else None
+        if parser is None:
+            # Check that the module has the argparse setup
+            source = open(voice_generate.__file__).read()
+            self.assertIn("--prosody", source)
+
+
+@_skip_ui
+class TestProsodyUI(unittest.TestCase):
+    """Test prosody preset UI helpers."""
+
+    def test_get_prosody_choices_function(self):
+        """get_prosody_choices should return list with (none) first."""
+        import voice_ui
+        choices = voice_ui.get_prosody_choices()
+        self.assertIsInstance(choices, list)
+        self.assertEqual(choices[0], "(none)")
+        self.assertTrue(len(choices) > 1)
+
+    def test_apply_prosody_preset_none(self):
+        """Selecting (none) should return empty string."""
+        import voice_ui
+        result = voice_ui.apply_prosody_preset("(none)")
+        self.assertEqual(result, "")
+
+    def test_apply_prosody_preset_valid(self):
+        """Selecting a valid preset should return its instruction text."""
+        import voice_ui
+        from voice_config import DEFAULT_PROSODY_PRESETS
+        result = voice_ui.apply_prosody_preset("excited")
+        self.assertEqual(result, DEFAULT_PROSODY_PRESETS["excited"])
 
 
 if __name__ == "__main__":
