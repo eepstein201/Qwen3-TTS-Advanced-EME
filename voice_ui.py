@@ -1012,7 +1012,8 @@ def build_ui():
                     inputs=[clone_text, clone_prompt, clone_preset, clone_temp, clone_top_k,
                             clone_top_p, clone_rep, clone_seed, clone_trim, clone_norm,
                             clone_speed, clone_pitch, clone_streaming, clone_no_transcript],
-                    outputs=[clone_output, clone_status, status_html, history_df]
+                    outputs=[clone_output, clone_status, status_html, history_df],
+                    api_name="generate_clone",
                 ).then(
                     fn=lambda: get_model_status_html("clone"),
                     outputs=clone_model_indicator
