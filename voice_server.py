@@ -333,43 +333,46 @@ def _gen_cache_key(text, mode, gen_params, prompt_file=None, voice_description=N
 
 def _gen_cache_get(key):
     """Get a cached generation result. Returns file path or None."""
-    entry = _gen_cache.get(key)
-    if entry and os.path.exists(entry["file"]):
-        return entry
-    # Clean up stale entry
-    if entry:
-        _gen_cache.pop(key, None)
-    return None
+    with _gen_cache_lock:
+        entry = _gen_cache.get(key)
+        if entry and os.path.exists(entry["file"]):
+            return entry
+        # Clean up stale entry
+        if entry:
+            _gen_cache.pop(key, None)
+        return None
 
 
 def _gen_cache_put(key, file_path, sample_rate):
     """Store a generation result in cache, evicting oldest if full."""
-    if len(_gen_cache) >= _GEN_CACHE_MAX:
-        # Evict oldest by timestamp
-        oldest_key = min(_gen_cache, key=lambda k: _gen_cache[k]["timestamp"])
-        old_entry = _gen_cache.pop(oldest_key)
-        # Clean up old file
-        try:
-            if os.path.exists(old_entry["file"]):
-                os.remove(old_entry["file"])
-        except OSError:
-            pass
-    _gen_cache[key] = {
-        "file": file_path,
-        "sample_rate": sample_rate,
-        "timestamp": time.time(),
-    }
+    with _gen_cache_lock:
+        if len(_gen_cache) >= _GEN_CACHE_MAX:
+            # Evict oldest by timestamp
+            oldest_key = min(_gen_cache, key=lambda k: _gen_cache[k]["timestamp"])
+            old_entry = _gen_cache.pop(oldest_key)
+            # Clean up old file
+            try:
+                if os.path.exists(old_entry["file"]):
+                    os.remove(old_entry["file"])
+            except OSError:
+                pass
+        _gen_cache[key] = {
+            "file": file_path,
+            "sample_rate": sample_rate,
+            "timestamp": time.time(),
+        }
 
 
 def _gen_cache_invalidate():
     """Invalidate all cached generation results."""
-    for entry in _gen_cache.values():
-        try:
-            if os.path.exists(entry["file"]):
-                os.remove(entry["file"])
-        except OSError:
-            pass
-    _gen_cache.clear()
+    with _gen_cache_lock:
+        for entry in _gen_cache.values():
+            try:
+                if os.path.exists(entry["file"]):
+                    os.remove(entry["file"])
+            except OSError:
+                pass
+        _gen_cache.clear()
 
 
 @app.route("/stats", methods=["GET"])
