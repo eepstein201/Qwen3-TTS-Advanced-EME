@@ -138,6 +138,8 @@ def main():
                         help="Force .pt creation even when MLX backend is active")
     parser.add_argument("--auto-transcribe", action="store_true",
                         help="Auto-transcribe reference audio using MLX ASR (MLX backend only)")
+    parser.add_argument("--no-transcript", action="store_true",
+                        help="Create voice with empty transcript (x-vector only mode, lower fidelity)")
 
     args = parser.parse_args()
 
@@ -162,10 +164,14 @@ def main():
             print(f"Error: Audio file not found: {audio_path}")
             sys.exit(1)
 
-    # Get transcript — via --transcript, --auto-transcribe, or interactive prompt
+    # Get transcript — via --transcript, --auto-transcribe, --no-transcript, or interactive prompt
     transcript = None
 
-    if args.transcript:
+    if args.no_transcript:
+        transcript = ""
+        print("Using x-vector only mode (no transcript)")
+
+    elif args.transcript:
         transcript = args.transcript
         # Check if transcript is a file path
         transcript_path = os.path.expanduser(transcript)
@@ -237,8 +243,8 @@ def main():
                     transcript = f.read().strip()
                 print(f"Loaded transcript from file ({len(transcript)} chars)")
 
-    if not transcript:
-        print("Error: Transcript required")
+    if transcript is None:
+        print("Error: Transcript required (use --no-transcript for x-vector only mode)")
         sys.exit(1)
 
     # Get prompt name

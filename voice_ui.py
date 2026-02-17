@@ -138,11 +138,11 @@ def update_text_info(text):
 # Voice Creation Functions (via subprocess)
 # =============================================================================
 
-def create_voice_prompt(audio_path, transcript, voice_name, auto_transcribed=False):
+def create_voice_prompt(audio_path, transcript, voice_name, no_transcript=False, auto_transcribed=False):
     """Create voice prompt by calling create_custom_voice directly."""
     if not audio_path:
         raise gr.Error("Please upload an audio file")
-    if not transcript or not transcript.strip():
+    if not no_transcript and (not transcript or not transcript.strip()):
         raise gr.Error("Please enter or auto-transcribe a transcript")
     if not voice_name or not voice_name.strip():
         raise gr.Error("Please enter a name for the voice")
@@ -159,8 +159,9 @@ def create_voice_prompt(audio_path, transcript, voice_name, auto_transcribed=Fal
         # create the .pt on-demand via /create-prompt if needed.
         # On local Mac, respect the backend setting.
         mlx_only = (backend == "mlx") or IN_COLAB
+        effective_transcript = "" if no_transcript else transcript
         create_and_save_voice_prompt(
-            audio_path, transcript, voice_name,
+            audio_path, effective_transcript, voice_name,
             test_generation=False, mlx_only=mlx_only,
         )
         prompts = get_voice_prompts()
@@ -440,7 +441,8 @@ def _get_mode_kwargs(mode, prompt=None, description=None, speaker_choice=None, i
 
 
 def _generate_streaming_impl(mode, text, preset, temperature, top_k, top_p, rep_penalty, seed,
-                              prompt=None, description=None, speaker_choice=None, instruct=None):
+                              prompt=None, description=None, speaker_choice=None, instruct=None,
+                              x_vector_only_mode=False):
     """Unified streaming generation for all modes."""
     # Validate inputs
     error = _validate_inputs(mode, text, description)
@@ -473,6 +475,7 @@ def _generate_streaming_impl(mode, text, preset, temperature, top_k, top_p, rep_
             top_p=top_p,
             seed=seed_val,
             repetition_penalty=rep_penalty,
+            x_vector_only_mode=x_vector_only_mode,
             **mode_kwargs,
         ):
             all_chunks.append(wav_chunk)
@@ -500,7 +503,8 @@ def _generate_streaming_impl(mode, text, preset, temperature, top_k, top_p, rep_
 
 def _generate_non_streaming_impl(mode, text, preset, temperature, top_k, top_p, rep_penalty, seed,
                                   trim_silence, normalize, speed, pitch, progress,
-                                  prompt=None, description=None, speaker_choice=None, instruct=None):
+                                  prompt=None, description=None, speaker_choice=None, instruct=None,
+                                  x_vector_only_mode=False):
     """Unified non-streaming generation for all modes."""
     # Validate inputs
     error = _validate_inputs(mode, text, description)
@@ -543,6 +547,7 @@ def _generate_non_streaming_impl(mode, text, preset, temperature, top_k, top_p, 
                 normalize=normalize,
                 speed=speed if speed != 1.0 else None,
                 pitch=pitch if pitch != 0 else None,
+                x_vector_only_mode=x_vector_only_mode,
                 **mode_kwargs,
             )
         finally:
@@ -564,11 +569,11 @@ def _generate_non_streaming_impl(mode, text, preset, temperature, top_k, top_p, 
 # =============================================================================
 
 def generate_clone_streaming(text, prompt, preset, temperature, top_k, top_p, rep_penalty, seed,
-                             trim_silence, normalize, speed, pitch):
+                             trim_silence, normalize, speed, pitch, no_transcript=False):
     """Generate audio with streaming for clone mode."""
     yield from _generate_streaming_impl(
         "clone", text, preset, temperature, top_k, top_p, rep_penalty, seed,
-        prompt=prompt)
+        prompt=prompt, x_vector_only_mode=no_transcript)
 
 
 def generate_design_streaming(text, description, preset, temperature, top_k, top_p, rep_penalty, seed,
@@ -588,12 +593,12 @@ def generate_custom_streaming(text, speaker_choice, instruct, preset, temperatur
 
 
 def generate_clone(text, prompt, preset, temperature, top_k, top_p, rep_penalty, seed,
-                   trim_silence, normalize, speed, pitch, progress=gr.Progress()):
+                   trim_silence, normalize, speed, pitch, no_transcript=False, progress=gr.Progress()):
     """Generate audio using clone mode."""
     return _generate_non_streaming_impl(
         "clone", text, preset, temperature, top_k, top_p, rep_penalty, seed,
         trim_silence, normalize, speed, pitch, progress,
-        prompt=prompt)
+        prompt=prompt, x_vector_only_mode=no_transcript)
 
 
 def generate_design(text, description, preset, temperature, top_k, top_p, rep_penalty, seed,
@@ -961,6 +966,11 @@ def build_ui():
                             value=True,
                             info="Hear audio as it generates (MLX: native, torch: chunked)"
                         )
+                        clone_no_transcript = gr.Checkbox(
+                            label="Speaker embedding only",
+                            value=False,
+                            info="Clone using x-vector only (no transcript needed, lower fidelity)"
+                        )
 
                         with gr.Accordion("Advanced Settings", open=False):
                             clone_temp = gr.Slider(0.1, 1.5, value=0.7, step=0.05, label="Temperature")
@@ -983,17 +993,17 @@ def build_ui():
 
                 # Dynamic handler based on streaming checkbox
                 def clone_handler(text, prompt, preset, temp, top_k, top_p, rep, seed,
-                                  trim, norm, speed, pitch, streaming):
+                                  trim, norm, speed, pitch, streaming, no_transcript):
                     if streaming:
                         yield from generate_clone_streaming(
                             text, prompt, preset, temp, top_k, top_p, rep, seed,
-                            trim, norm, speed, pitch
+                            trim, norm, speed, pitch, no_transcript=no_transcript
                         )
                     else:
                         # Non-streaming: use original function
                         result = generate_clone(
                             text, prompt, preset, temp, top_k, top_p, rep, seed,
-                            trim, norm, speed, pitch
+                            trim, norm, speed, pitch, no_transcript=no_transcript
                         )
                         yield result
 
@@ -1001,7 +1011,7 @@ def build_ui():
                     fn=clone_handler,
                     inputs=[clone_text, clone_prompt, clone_preset, clone_temp, clone_top_k,
                             clone_top_p, clone_rep, clone_seed, clone_trim, clone_norm,
-                            clone_speed, clone_pitch, clone_streaming],
+                            clone_speed, clone_pitch, clone_streaming, clone_no_transcript],
                     outputs=[clone_output, clone_status, status_html, history_df]
                 ).then(
                     fn=lambda: get_model_status_html("clone"),
@@ -1229,6 +1239,11 @@ def build_ui():
                             placeholder="e.g., my_voice",
                             info="Will create my_voice.pt + .wav + .txt"
                         )
+                        create_no_transcript = gr.Checkbox(
+                            label="Speaker embedding only",
+                            value=False,
+                            info="Create without transcript (x-vector only, lower fidelity)"
+                        )
                         create_btn = gr.Button("Create Voice Prompt", variant="primary")
                         create_status = gr.Textbox(label="Status", interactive=False)
                         voice_list = gr.Dropdown(
@@ -1245,7 +1260,7 @@ def build_ui():
 
                 create_btn.click(
                     fn=create_voice_prompt,
-                    inputs=[create_audio, create_transcript, create_name],
+                    inputs=[create_audio, create_transcript, create_name, create_no_transcript],
                     outputs=[create_status, voice_list, clone_prompt]
                 )
 

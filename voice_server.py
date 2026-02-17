@@ -1007,6 +1007,7 @@ def generate():
                 "recovery": "config",
             }), 400
     instruct = data.get("instruct", "")
+    x_vector_only_mode = data.get("x_vector_only_mode", False)
 
     # Check if required model is loaded
     model = _get_model(mode)
@@ -1133,6 +1134,7 @@ def generate():
                     instruct=instruct,
                     max_chunk_chars=max_chunk_chars,
                     progress_callback=_chunk_progress,
+                    x_vector_only_mode=x_vector_only_mode,
                 )
 
                 # Save to temp file
@@ -1202,6 +1204,7 @@ def generate_stream():
     language = data.get("language", "English")
     speaker = data.get("speaker")
     instruct = data.get("instruct", "")
+    x_vector_only_mode = data.get("x_vector_only_mode", False)
 
     model = _get_model(mode)
     if model is None:
@@ -1260,6 +1263,7 @@ def generate_stream():
                 voice_description=voice_description,
                 speaker=speaker,
                 instruct=instruct,
+                x_vector_only_mode=x_vector_only_mode,
             ):
                 # Check for cancellation
                 if generation_state["cancelled"]:

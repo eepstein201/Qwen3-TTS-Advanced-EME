@@ -323,7 +323,8 @@ def _load_model_torch(model_type):
 
 def _run_inference_torch(model, text, mode, gen_params, language="English",
                          voice_prompt=None, voice_description=None,
-                         speaker=None, instruct=None):
+                         speaker=None, instruct=None,
+                         x_vector_only_mode=False):
     """Run TTS inference using the PyTorch/MPS backend."""
     import torch
 
@@ -357,12 +358,15 @@ def _run_inference_torch(model, text, mode, gen_params, language="English",
     try:
         with torch.inference_mode():
             if mode == "clone":
-                wavs, sr = model.generate_voice_clone(
+                clone_kwargs = dict(
                     text=text,
                     language=language,
                     voice_clone_prompt=voice_prompt,
                     **params,
                 )
+                if x_vector_only_mode:
+                    clone_kwargs["x_vector_only_mode"] = True
+                wavs, sr = model.generate_voice_clone(**clone_kwargs)
             elif mode == "custom":
                 wavs, sr = model.generate_custom_voice(
                     text=text,
@@ -476,7 +480,8 @@ def _load_model_mlx(model_type):
 
 def _run_inference_mlx(model, text, mode, gen_params, language="English",
                        voice_prompt=None, voice_description=None,
-                       speaker=None, instruct=None):
+                       speaker=None, instruct=None,
+                       x_vector_only_mode=False):
     """Run TTS inference using the MLX backend.
 
     Returns (wav_array, sample_rate) where wav_array is a float32 numpy array,
@@ -493,6 +498,7 @@ def _run_inference_mlx(model, text, mode, gen_params, language="English",
         voice_description: Voice description string (design mode).
         speaker: Speaker name string (custom mode).
         instruct: Style instruction string (custom mode).
+        x_vector_only_mode: If True, use empty ref_text for speaker-embedding-only clone.
     """
     t0 = time.time()
 
@@ -503,8 +509,6 @@ def _run_inference_mlx(model, text, mode, gen_params, language="English",
         "repetition_penalty": gen_params.get("repetition_penalty", 1.05),
     }
 
-    speed = gen_params.get("speed", 1.0)
-
     if mode == "clone":
         # MLX clone mode uses ref_audio (wav path) + ref_text directly.
         # voice_prompt should be a dict {"ref_audio": path, "ref_text": str}
@@ -514,7 +518,7 @@ def _run_inference_mlx(model, text, mode, gen_params, language="English",
 
         if isinstance(voice_prompt, dict):
             ref_audio_path = voice_prompt["ref_audio"]
-            ref_text = voice_prompt["ref_text"]
+            ref_text = "" if x_vector_only_mode else voice_prompt["ref_text"]
         else:
             raise TypeError(
                 "MLX clone mode requires a voice prompt dict with 'ref_audio' "
@@ -528,7 +532,6 @@ def _run_inference_mlx(model, text, mode, gen_params, language="English",
             ref_audio=ref_audio_path,
             ref_text=ref_text,
             language=language,
-            speed=speed,
             **params,
         ))
 
@@ -581,7 +584,8 @@ def _run_inference_mlx(model, text, mode, gen_params, language="English",
 
 def _run_inference_mlx_streaming(model, text, mode, gen_params, language="English",
                                   voice_prompt=None, voice_description=None,
-                                  speaker=None, instruct=None):
+                                  speaker=None, instruct=None,
+                                  x_vector_only_mode=False):
     """Run TTS inference using the MLX backend, yielding audio chunks as they generate.
 
     This is a generator that yields (audio_chunk, sample_rate) tuples as they
@@ -597,6 +601,7 @@ def _run_inference_mlx_streaming(model, text, mode, gen_params, language="Englis
         voice_description: Voice description string (design mode).
         speaker: Speaker name string (custom mode).
         instruct: Style instruction string (custom mode).
+        x_vector_only_mode: If True, use empty ref_text for speaker-embedding-only clone.
 
     Yields:
         (audio_chunk, sample_rate) tuples where audio_chunk is a float32 numpy array.
@@ -610,14 +615,12 @@ def _run_inference_mlx_streaming(model, text, mode, gen_params, language="Englis
         "repetition_penalty": gen_params.get("repetition_penalty", 1.05),
     }
 
-    speed = gen_params.get("speed", 1.0)
-
     if mode == "clone":
         if voice_prompt is None:
             raise ValueError("voice_prompt is required for clone mode")
         if isinstance(voice_prompt, dict):
             ref_audio_path = voice_prompt["ref_audio"]
-            ref_text = voice_prompt["ref_text"]
+            ref_text = "" if x_vector_only_mode else voice_prompt["ref_text"]
         else:
             raise TypeError(
                 "MLX clone mode requires a voice prompt dict with 'ref_audio' "
@@ -629,7 +632,6 @@ def _run_inference_mlx_streaming(model, text, mode, gen_params, language="Englis
             ref_audio=ref_audio_path,
             ref_text=ref_text,
             language=language,
-            speed=speed,
             stream=True,  # Enable streaming
             **params,
         )
@@ -759,7 +761,8 @@ def _get_max_chunk_chars():
 def run_inference(model, text, mode, gen_params, language="English",
                   voice_prompt=None, voice_description=None,
                   speaker=None, instruct=None,
-                  max_chunk_chars=None, progress_callback=None):
+                  max_chunk_chars=None, progress_callback=None,
+                  x_vector_only_mode=False):
     """Run TTS inference, dispatching to the configured backend.
 
     For long texts, automatically splits into chunks at sentence boundaries
@@ -797,6 +800,7 @@ def run_inference(model, text, mode, gen_params, language="English",
         return _run_inference_single(
             model, chunks[0], mode, gen_params, language,
             voice_prompt, voice_description, speaker, instruct,
+            x_vector_only_mode=x_vector_only_mode,
         )
 
     # Multi-chunk: generate each, concatenate with silence gaps
@@ -817,6 +821,7 @@ def run_inference(model, text, mode, gen_params, language="English",
         wav, sr = _run_inference_single(
             model, chunk, mode, gen_params, language,
             voice_prompt, voice_description, speaker, instruct,
+            x_vector_only_mode=x_vector_only_mode,
         )
 
         if sample_rate is None:
@@ -840,7 +845,7 @@ def run_inference(model, text, mode, gen_params, language="English",
 def _run_inference_single(model, text, mode, gen_params, language="English",
                           voice_prompt=None, voice_description=None,
                           speaker=None, instruct=None,
-                          _metal_retry=False):
+                          _metal_retry=False, x_vector_only_mode=False):
     """Run TTS inference for a single text chunk.
 
     For MLX backend, includes Metal crash recovery: on certain Metal kernel
@@ -852,6 +857,7 @@ def _run_inference_single(model, text, mode, gen_params, language="English",
             return _run_inference_mlx(
                 model, text, mode, gen_params, language,
                 voice_prompt, voice_description, speaker, instruct,
+                x_vector_only_mode=x_vector_only_mode,
             )
         except RuntimeError as e:
             # Metal kernel crashes often contain "command buffer" or "GPU" in the message
@@ -876,12 +882,12 @@ def _run_inference_single(model, text, mode, gen_params, language="English",
                 wav1, sr = _run_inference_single(
                     model, chunk1, mode, gen_params, language,
                     voice_prompt, voice_description, speaker, instruct,
-                    _metal_retry=True,
+                    _metal_retry=True, x_vector_only_mode=x_vector_only_mode,
                 )
                 wav2, _ = _run_inference_single(
                     model, chunk2, mode, gen_params, language,
                     voice_prompt, voice_description, speaker, instruct,
-                    _metal_retry=True,
+                    _metal_retry=True, x_vector_only_mode=x_vector_only_mode,
                 )
                 # Concatenate with short silence
                 silence = np.zeros(int(sr * 0.1), dtype=np.float32)
@@ -890,13 +896,14 @@ def _run_inference_single(model, text, mode, gen_params, language="English",
     return _run_inference_torch(
         model, text, mode, gen_params, language,
         voice_prompt, voice_description, speaker, instruct,
+        x_vector_only_mode=x_vector_only_mode,
     )
 
 
 def run_inference_streaming(model, text, mode, gen_params, language="English",
                             voice_prompt=None, voice_description=None,
                             speaker=None, instruct=None,
-                            max_chunk_chars=None):
+                            max_chunk_chars=None, x_vector_only_mode=False):
     """Run TTS inference in streaming mode, yielding audio chunks as they generate.
 
     For MLX backend, uses native streaming from model.generate().
@@ -925,6 +932,7 @@ def run_inference_streaming(model, text, mode, gen_params, language="English",
         yield from _run_inference_mlx_streaming(
             model, text, mode, gen_params, language,
             voice_prompt, voice_description, speaker, instruct,
+            x_vector_only_mode=x_vector_only_mode,
         )
     else:
         # Torch fallback: chunk the text and yield per-chunk audio
@@ -944,6 +952,7 @@ def run_inference_streaming(model, text, mode, gen_params, language="English",
             wav, sr = _run_inference_single(
                 model, chunk, mode, gen_params, language,
                 voice_prompt, voice_description, speaker, instruct,
+                x_vector_only_mode=x_vector_only_mode,
             )
             yield wav, sr
 

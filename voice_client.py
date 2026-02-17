@@ -398,6 +398,7 @@ class TTSClient:
         pitch=None,
         normalize=False,
         trim_silence=False,
+        x_vector_only_mode=False,
     ):
         """Generate speech from text via the server.
 
@@ -495,7 +496,8 @@ class TTSClient:
                 output += '.wav'
 
         # Generate audio via server
-        wav, sr = self._generate_via_server(text, mode, prompt, description, speaker, instruct, gen_params)
+        wav, sr = self._generate_via_server(text, mode, prompt, description, speaker, instruct, gen_params,
+                                            x_vector_only_mode=x_vector_only_mode)
 
         # Apply audio processing (lazy import — only if needed)
         needs_processing = trim_silence or normalize or (speed and speed != 1.0) or (pitch and pitch != 0)
@@ -508,7 +510,8 @@ class TTSClient:
         sf.write(output, wav, sr)
         return output
 
-    def _generate_via_server(self, text, mode, prompt, description, speaker, instruct, gen_params):
+    def _generate_via_server(self, text, mode, prompt, description, speaker, instruct, gen_params,
+                             x_vector_only_mode=False):
         """Generate audio via the TTS server."""
         payload = {
             "texts": [text],
@@ -519,6 +522,8 @@ class TTSClient:
 
         if mode == "clone":
             payload["prompt_file"] = prompt
+            if x_vector_only_mode:
+                payload["x_vector_only_mode"] = True
         elif mode == "custom":
             payload["speaker"] = speaker
             payload["instruct"] = instruct or ""
@@ -553,6 +558,7 @@ class TTSClient:
         top_p=None,
         seed=None,
         repetition_penalty=None,
+        x_vector_only_mode=False,
     ):
         """Generate speech with streaming, yielding audio chunks as they're produced.
 
@@ -634,6 +640,8 @@ class TTSClient:
 
         if mode == "clone":
             payload["prompt_file"] = prompt
+            if x_vector_only_mode:
+                payload["x_vector_only_mode"] = True
         elif mode == "custom":
             payload["speaker"] = speaker
             payload["instruct"] = instruct or ""
