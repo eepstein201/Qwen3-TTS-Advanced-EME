@@ -1,0 +1,3 @@
+#!/usr/bin/env bash
+# Short alias for changeVoice (main TTS command)
+exec changeVoice "$@"

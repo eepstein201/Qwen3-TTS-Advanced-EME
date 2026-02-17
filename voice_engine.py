@@ -272,11 +272,60 @@ def voice_prompt_cache_info():
     return _load_voice_prompt_torch.cache_info()
 
 
+def migrate_orphan_mlx_prompts():
+    """Scan voice_prompts/ for .wav+.txt without .pt and auto-create .pt files.
+    Supports users migrating from Mac (MLX) to Colab (PyTorch).
+    """
+    import glob
+    wav_files = glob.glob(os.path.join(VOICE_PROMPTS_DIR, "*.wav"))
+    migrated = 0
+    for wav_path in wav_files:
+        base = os.path.splitext(os.path.basename(wav_path))[0]
+        pt_path = os.path.join(VOICE_PROMPTS_DIR, f"{base}.pt")
+        if not os.path.exists(pt_path):
+            logger.info("Migrating orphan MLX prompt: %s", base)
+            try:
+                _load_voice_prompt_torch(f"{base}.pt")
+                migrated += 1
+            except Exception as e:
+                logger.warning("Failed to migrate prompt '%s': %s", base, e)
+    if migrated:
+        logger.info("Migrated %d orphan MLX prompt(s) to .pt format", migrated)
+    return migrated
+
+
 # ---------------------------------------------------------------------------
 # Torch backend — model loading
 # ---------------------------------------------------------------------------
 
 _RETRY_DELAYS = (5, 15, 45)  # seconds between retry attempts
+
+
+def _apply_cuda_optimizations(config):
+    """Detect CUDA hardware and return optimal settings for model loading.
+
+    Returns:
+        (attn_impl, optimal_dtype, should_compile) tuple.
+    """
+    import torch
+
+    if not torch.cuda.is_available():
+        return ("sdpa", torch.float32, False)
+
+    capability = torch.cuda.get_device_capability()
+
+    # Always apply these on CUDA
+    torch.set_float32_matmul_precision('high')
+    torch.backends.cudnn.benchmark = True
+
+    if capability[0] >= 8:
+        # Ampere+ (A100, A10G, RTX 30xx, etc.)
+        should_compile = config.get("generation", {}).get("compile_model", True)
+        return ("flash_attention_2", torch.bfloat16, should_compile)
+    else:
+        # Turing / T4 (capability 7.x)
+        should_compile = config.get("generation", {}).get("compile_model", False)
+        return ("sdpa", torch.float16, should_compile)
 
 
 def _load_model_torch(model_type):
@@ -300,6 +349,8 @@ def _load_model_torch(model_type):
     }
     torch_dtype = dtype_map[dtype_name]
 
+    attn_impl, optimal_dtype, should_compile = _apply_cuda_optimizations(load_config())
+
     logger.info("Loading %s (%s) with dtype=%s, size=%s [torch backend]...",
                 model_type, repo_id, dtype_name, model_size)
     t0 = time.time()
@@ -309,14 +360,35 @@ def _load_model_torch(model_type):
         try:
             from voice_config import get_device
             device = get_device()
+            # Override dtype with CUDA-optimal dtype when on CUDA
+            if device == "cuda":
+                torch_dtype = optimal_dtype
             # CUDA uses "auto" for multi-GPU support; MPS/CPU use device name directly
             device_map = "auto" if device == "cuda" else device
-            model = Qwen3TTSModel.from_pretrained(
-                repo_id,
-                attn_implementation="sdpa",
+            # Use 8-bit quantization on older CUDA GPUs (Turing/T4)
+            load_in_8bit = False
+            if device == "cuda":
+                cap = torch.cuda.get_device_capability()
+                if cap[0] < 8:
+                    load_in_8bit = True
+            load_kwargs = dict(
+                attn_implementation=attn_impl,
                 device_map=device_map,
                 dtype=torch_dtype,
             )
+            if load_in_8bit:
+                load_kwargs["load_in_8bit"] = True
+            model = Qwen3TTSModel.from_pretrained(repo_id, **load_kwargs)
+            # Apply torch.compile for supported CUDA hardware
+            if should_compile and device == "cuda":
+                logger.info("Applying torch.compile (reduce-overhead) to %s model", model_type)
+                model = torch.compile(model, mode="reduce-overhead")
+            # Fix tokenizer regex if supported
+            try:
+                from transformers import AutoTokenizer
+                model.tokenizer = AutoTokenizer.from_pretrained(repo_id, fix_mistral_regex=True)
+            except TypeError:
+                pass  # Older transformers doesn't support fix_mistral_regex
             elapsed = time.time() - t0
             logger.info("Loaded %s model in %.1fs", model_type, elapsed)
             return model
@@ -1218,6 +1290,25 @@ def preload_asr_model():
             logger.warning("ASR preload failed (will retry on first use): %s", e)
 
     threading.Thread(target=_load, daemon=True).start()
+
+
+def load_asr_model():
+    """Load ASR model synchronously for the current backend. Returns True on success."""
+    global _asr_model_mlx
+    backend = get_backend()
+    if backend == "mlx":
+        if _asr_model_mlx is not None:
+            return True
+        try:
+            from mlx_audio.stt import load_model as load_stt_model
+            _asr_model_mlx = load_stt_model("mlx-community/whisper-large-v3-turbo")
+            logger.info("Loaded MLX ASR model")
+            return True
+        except ImportError as e:
+            raise ImportError(f"ASR requires mlx-audio with STT support: {e}")
+    else:
+        _ensure_asr_torch_loaded()
+        return True
 
 
 def _transcribe_mlx(audio_path, language="en"):

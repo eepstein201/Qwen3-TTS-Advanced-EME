@@ -39,11 +39,14 @@ configureTTS             # Re-run the setup wizard anytime
 configureTTS --show      # Compare current settings to recommendations
 ```
 
+All commands also have kebab-case aliases: `tts`, `tts-server-start`, `tts-server-stop`, `tts-create`, `tts-ui`, `tts-config`.
+
 ## Quick Start
 
 ```bash
 startTTSServer                          # Load model (~30-60s first time)
 changeVoice "Hello, world!" -o hello    # Generate speech -> hello.wav
+echo "Hello world" | tts -o hello       # Pipe text directly
 stopTTSServer                           # Free memory when done
 ```
 
@@ -63,7 +66,7 @@ changeVoice --ui         # Same thing, auto-starts server
 | Pre-trained speakers | No | No | 9 speakers |
 | Reference audio needed | Yes (5-15s) | No | No |
 | Style instructions | No | Via description | Yes (--instruct) |
-| Prosody presets | No | Yes | Yes |
+| Prosody presets | Yes (post-processing) | Yes | Yes |
 | Transcript needed | Optional (--no-transcript) | N/A | N/A |
 
 ### Clone (default) -- sound like anyone
@@ -105,8 +108,8 @@ Six tabs for everything you need:
 
 | Tab | What it does |
 |-----|-------------|
-| **Clone Mode** | Generate with a cloned voice, pick from your voice prompts |
-| **Design Mode** | Type a voice description and generate |
+| **Clone Mode** | Generate with a cloned voice, pick from your voice prompts, style adjustments via post-processing |
+| **Design Mode** | Type a voice description (or use the Description Builder), generate, and optionally save as a reusable voice prompt |
 | **Custom Mode** | Pick a premium speaker, optionally add style instructions |
 | **Create Voice** | Upload audio + transcript (or auto-transcribe) to create a new voice |
 | **Manage Voices** | Preview, rename, delete voices; set your default |
@@ -183,6 +186,7 @@ changeVoice --list-backends                           # Show current config
 
 ```bash
 changeVoice --list-prompts                           # All voice prompts
+changeVoice --voices                                  # Same thing (shorter alias)
 changeVoice --preview-prompt my_voice                # Play a voice preview
 changeVoice --rename-prompt old_name new_name
 changeVoice --delete-prompt unwanted
@@ -280,6 +284,7 @@ All settings live in `config.json`. Edit directly or use `configureTTS`.
 | `generation.temperature` | `0.0`-`2.0` | `0.7` | Higher = more variation |
 | `generation.max_chunk_chars` | `0`-`10000` | `500` | Auto-splits long text (0 = no splitting) |
 | `generation.max_new_tokens` | `1`-`32768` | `2048` | Max tokens per generation (safety limit) |
+| `generation.compile_model` | `true`/`false` | `true` | Enable torch.compile (Ampere+ GPUs) |
 | `models.*.load_at_startup` | `true`/`false` | clone=true | Which models to preload |
 | `server.auto_shutdown_minutes` | `0`+ | `0` | Auto-stop after idle (0 = never) |
 
@@ -335,9 +340,11 @@ configureTTS                                       # Change default permanently
 A ready-to-run notebook is included (`colab_notebook.ipynb`).
 
 1. Upload `Qwen3-TTS_UserFiles/` to Google Drive at `My Drive/Qwen3-TTS_UserFiles/`
-2. Open `colab_notebook.ipynb` in Colab, select a T4+ GPU runtime
+2. Open `colab_notebook.ipynb` in Colab, select a T4+ GPU runtime (L4 recommended for best performance)
 3. Edit the **Settings** form cell at the top to configure your session
-4. Run all cells -- mounts Drive, installs deps, starts server, opens Gradio with a public shareable URL
+4. Run all cells -- detects GPU tier, mounts Drive, installs deps, starts server, opens Gradio with a public shareable URL
+
+The notebook auto-detects your GPU and applies optimal settings: Flash Attention 2 + bfloat16 on Ampere+ GPUs (L4/A100), SDPA + float16 + 8-bit quantization on Turing GPUs (T4).
 
 ### Settings Form
 
@@ -351,6 +358,7 @@ The first code cell is a Colab form with these fields:
 | `PRELOAD_CUSTOM` | `False` | Load custom model at startup |
 | `DEFAULT_MODE` | `design` | Default generation mode |
 | `MAX_NEW_TOKENS` | `2048` | Max tokens per generation (safety limit) |
+| `COMPILE_MODEL` | `True` | Enable torch.compile (best on Ampere+ GPUs) |
 | `AUTO_LAUNCH_UI` | `True` | Launch Gradio UI automatically |
 
 ### Voice Cloning on Colab

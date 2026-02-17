@@ -963,59 +963,99 @@ def prompt_details():
     return jsonify({"prompts": prompts})
 
 
+def _validate_generation_request(data, is_batch=True):
+    """Validate and normalize generation request data.
+    Returns (normalized_data, error_response) — error_response is None on success.
+    """
+    security = server_config.get("security", {})
+    max_text_length = security.get("max_text_length", 10000)
+    max_batch_size = security.get("max_batch_size", 20)
+
+    if is_batch:
+        texts = data.get("texts", [])
+        if isinstance(texts, str):
+            texts = [texts]
+        if not texts:
+            return None, (jsonify({"error": "No texts provided", "recovery": "config"}), 400)
+        if len(texts) > max_batch_size:
+            return None, (jsonify({"error": f"Batch size {len(texts)} exceeds limit of {max_batch_size}", "recovery": "config"}), 400)
+        for i, t in enumerate(texts):
+            if not isinstance(t, str) or not t.strip():
+                return None, (jsonify({"error": f"Text at index {i} is empty or invalid", "recovery": "config"}), 400)
+            if len(t) > max_text_length:
+                return None, (jsonify({"error": f"Text at index {i} exceeds {max_text_length} character limit ({len(t)} chars)", "recovery": "config"}), 400)
+    else:
+        text = data.get("text", "")
+        if not text:
+            return None, (jsonify({"error": "No text provided", "recovery": "config"}), 400)
+        if len(text) > max_text_length:
+            return None, (jsonify({"error": f"Text exceeds {max_text_length} character limit ({len(text)} chars)", "recovery": "config"}), 400)
+
+    mode = data.get("mode", "clone")
+    if mode not in ("clone", "design", "custom"):
+        return None, (jsonify({"error": f"Invalid mode: {mode}. Must be clone, design, or custom", "recovery": "config"}), 400)
+
+    prompt_file = data.get("prompt_file")
+    if prompt_file and (".." in prompt_file or "/" in prompt_file):
+        return None, (jsonify({"error": "Invalid prompt_file: path traversal not allowed", "recovery": "config"}), 400)
+
+    speaker = data.get("speaker")
+    if mode == "custom" and speaker:
+        speaker_key = speaker.lower() if isinstance(speaker, str) else ""
+        if speaker_key not in CUSTOM_VOICE_SPEAKERS and speaker not in _VALID_SPEAKER_NAMES:
+            return None, (jsonify({"error": f"Unknown speaker: {speaker}. Valid: {', '.join(CUSTOM_VOICE_SPEAKERS.keys())}", "recovery": "config"}), 400)
+
+    return data, None
+
+
+def _create_temp_audio_copy(source_path):
+    """Create a secure temp copy of an audio file. Returns temp path."""
+    temp_file = tempfile.NamedTemporaryFile(suffix=".wav", delete=False)
+    os.chmod(temp_file.name, 0o600)
+    try:
+        shutil.copy2(source_path, temp_file.name)
+        return temp_file.name
+    except Exception:
+        os.unlink(temp_file.name)
+        raise
+
+
+def _prepare_mode_params(mode, data):
+    """Load voice prompt for clone, validate speaker for custom.
+    Returns (voice_prompt, error_response_or_None).
+    """
+    voice_prompt = None
+    if mode == "clone":
+        prompt_file = data.get("prompt_file")
+        if not prompt_file:
+            return None, (jsonify({"error": "prompt_file required for clone mode", "recovery": "config"}), 400)
+        voice_prompt = load_voice_prompt(prompt_file)
+        if voice_prompt is None:
+            return None, (jsonify({"error": f"Voice prompt not found: {prompt_file}", "detail": "Check available prompts with 'changeVoice --list-prompts'", "recovery": "config"}), 404)
+    elif mode == "custom":
+        speaker = data.get("speaker")
+        if not speaker:
+            return None, (jsonify({"error": "speaker required for custom mode", "recovery": "config"}), 400)
+    return voice_prompt, None
+
+
 @app.route("/generate", methods=["POST"])
 def generate():
     reset_activity_timer()
 
     data = request.json
+    data, err = _validate_generation_request(data, is_batch=True)
+    if err:
+        return err
     texts = data.get("texts", [])
     if isinstance(texts, str):
         texts = [texts]
 
-    # --- Input validation ---
-    security = server_config.get("security", {})
-    max_text_length = security.get("max_text_length", 10000)
-    max_batch_size = security.get("max_batch_size", 20)
-
-    if not texts:
-        return jsonify({"error": "No texts provided", "recovery": "config"}), 400
-
-    if len(texts) > max_batch_size:
-        return jsonify({
-            "error": f"Batch size {len(texts)} exceeds limit of {max_batch_size}",
-            "recovery": "config",
-        }), 400
-
-    for i, t in enumerate(texts):
-        if not isinstance(t, str) or not t.strip():
-            return jsonify({"error": f"Text at index {i} is empty or invalid", "recovery": "config"}), 400
-        if len(t) > max_text_length:
-            return jsonify({
-                "error": f"Text at index {i} exceeds {max_text_length} character limit ({len(t)} chars)",
-                "recovery": "config",
-            }), 400
-
     mode = data.get("mode", "clone")
-    if mode not in ("clone", "design", "custom"):
-        return jsonify({"error": f"Invalid mode: {mode}. Must be clone, design, or custom", "recovery": "config"}), 400
-
     prompt_file = data.get("prompt_file")
-    if prompt_file and (".." in prompt_file or "/" in prompt_file):
-        return jsonify({"error": "Invalid prompt_file: path traversal not allowed", "recovery": "config"}), 400
-
     voice_description = data.get("voice_description", "")
     language = data.get("language", "English")
-
-    # Custom mode parameters
     speaker = data.get("speaker")
-    if mode == "custom" and speaker:
-        speaker_key = speaker.lower() if isinstance(speaker, str) else ""
-        # Accept both the key (e.g. "ryan") and the display name (e.g. "Ryan")
-        if speaker_key not in CUSTOM_VOICE_SPEAKERS and speaker not in _VALID_SPEAKER_NAMES:
-            return jsonify({
-                "error": f"Unknown speaker: {speaker}. Valid: {', '.join(CUSTOM_VOICE_SPEAKERS.keys())}",
-                "recovery": "config",
-            }), 400
     instruct = data.get("instruct", "")
     x_vector_only_mode = data.get("x_vector_only_mode", False)
 
@@ -1064,15 +1104,8 @@ def generate():
             pre_lock_cache_keys[i] = cache_key
             cached = _gen_cache_get(cache_key)
             if cached:
-
-                temp_file = tempfile.NamedTemporaryFile(suffix=".wav", delete=False)
-                os.chmod(temp_file.name, 0o600)
-                try:
-                    shutil.copy2(cached["file"], temp_file.name)
-                except Exception:
-                    os.unlink(temp_file.name)
-                    raise
-                pre_lock_results[i] = {"index": i, "file": temp_file.name, "sample_rate": cached["sample_rate"]}
+                temp_path = _create_temp_audio_copy(cached["file"])
+                pre_lock_results[i] = {"index": i, "file": temp_path, "sample_rate": cached["sample_rate"]}
                 logger.info("Generation cache hit (pre-lock) for text %d/%d", i + 1, len(texts))
 
         # If ALL texts hit cache, skip the lock entirely
@@ -1097,15 +1130,8 @@ def generate():
                 cache_key = pre_lock_cache_keys[i]
                 cached = _gen_cache_get(cache_key)
                 if cached:
-
-                    temp_file = tempfile.NamedTemporaryFile(suffix=".wav", delete=False)
-                    os.chmod(temp_file.name, 0o600)
-                    try:
-                        shutil.copy2(cached["file"], temp_file.name)
-                    except Exception:
-                        os.unlink(temp_file.name)
-                        raise
-                    results.append({"index": i, "file": temp_file.name, "sample_rate": cached["sample_rate"]})
+                    temp_path = _create_temp_audio_copy(cached["file"])
+                    results.append({"index": i, "file": temp_path, "sample_rate": cached["sample_rate"]})
                     logger.info("Generation cache hit (post-lock) for text %d/%d", i + 1, len(texts))
                     continue
 
@@ -1120,20 +1146,9 @@ def generate():
                 })
 
                 # Resolve voice prompt for clone mode
-                voice_prompt = None
-                if mode == "clone":
-                    if not prompt_file:
-                        return jsonify({"error": "prompt_file required for clone mode", "recovery": "config"}), 400
-                    voice_prompt = load_voice_prompt(prompt_file)
-                    if voice_prompt is None:
-                        return jsonify({
-                            "error": f"Voice prompt not found: {prompt_file}",
-                            "detail": "Check available prompts with 'changeVoice --list-prompts'",
-                            "recovery": "config",
-                        }), 404
-                elif mode == "custom":
-                    if not speaker:
-                        return jsonify({"error": "speaker required for custom mode", "recovery": "config"}), 400
+                voice_prompt, mode_err = _prepare_mode_params(mode, data)
+                if mode_err:
+                    return mode_err
 
                 def _chunk_progress(chunk_idx, chunk_total):
                     generation_state.update({
@@ -1167,14 +1182,8 @@ def generate():
                 results.append({"index": i, "file": temp_file.name, "sample_rate": sr})
 
                 # Store in generation cache (copy the file so original can be moved)
-                cache_file = tempfile.NamedTemporaryFile(suffix=".wav", delete=False)
-                os.chmod(cache_file.name, 0o600)
-                try:
-                    shutil.copy2(temp_file.name, cache_file.name)
-                except Exception:
-                    os.unlink(cache_file.name)
-                    raise
-                _gen_cache_put(cache_key, cache_file.name, sr)
+                cache_path = _create_temp_audio_copy(temp_file.name)
+                _gen_cache_put(cache_key, cache_path, sr)
 
             return jsonify({"results": results})
     except Exception as e:
@@ -1206,26 +1215,12 @@ def generate_stream():
     reset_activity_timer()
 
     data = request.json
+    data, err = _validate_generation_request(data, is_batch=False)
+    if err:
+        return err
+
     text = data.get("text", "")
-    if not text:
-        return jsonify({"error": "No text provided", "recovery": "config"}), 400
-
-    security = server_config.get("security", {})
-    max_text_length = security.get("max_text_length", 10000)
-    if len(text) > max_text_length:
-        return jsonify({
-            "error": f"Text exceeds {max_text_length} character limit ({len(text)} chars)",
-            "recovery": "config",
-        }), 400
-
     mode = data.get("mode", "clone")
-    if mode not in ("clone", "design", "custom"):
-        return jsonify({"error": f"Invalid mode: {mode}", "recovery": "config"}), 400
-
-    prompt_file = data.get("prompt_file")
-    if prompt_file and (".." in prompt_file or "/" in prompt_file):
-        return jsonify({"error": "Invalid prompt_file", "recovery": "config"}), 400
-
     voice_description = data.get("voice_description", "")
     language = data.get("language", "English")
     speaker = data.get("speaker")
@@ -1251,13 +1246,9 @@ def generate_stream():
     if seed is not None:
         gen_params["seed"] = seed
 
-    voice_prompt = None
-    if mode == "clone":
-        if not prompt_file:
-            return jsonify({"error": "prompt_file required for clone mode", "recovery": "config"}), 400
-        voice_prompt = load_voice_prompt(prompt_file)
-        if voice_prompt is None:
-            return jsonify({"error": f"Voice prompt not found: {prompt_file}", "recovery": "config"}), 404
+    voice_prompt, mode_err = _prepare_mode_params(mode, data)
+    if mode_err:
+        return mode_err
 
     def generate_chunks():
         """Generator that yields audio chunks with length-prefixed format.
@@ -1323,17 +1314,25 @@ def generate_stream():
 
 @app.route("/shutdown", methods=["POST"])
 def shutdown():
-    """Graceful shutdown endpoint."""
+    """Graceful shutdown — works even when Gradio prevents sys.exit()."""
     global shutdown_timer
     if shutdown_timer is not None:
         shutdown_timer.cancel()
     if os.path.exists(PID_FILE):
         os.remove(PID_FILE)
+    if os.path.exists(TOKEN_FILE):
+        os.remove(TOKEN_FILE)
+
     func = request.environ.get("werkzeug.server.shutdown")
     if func:
         func()
-    else:
-        os.kill(os.getpid(), signal.SIGTERM)
+        return jsonify({"status": "shutting down"})
+
+    # Fallback: schedule os._exit in a thread (Gradio blocks sys.exit/SIGTERM)
+    def _force_exit():
+        time.sleep(0.5)
+        os._exit(0)
+    threading.Thread(target=_force_exit, daemon=True).start()
     return jsonify({"status": "shutting down"})
 
 
@@ -1400,6 +1399,14 @@ if __name__ == "__main__":
 
     # Load models before starting server
     load_models()
+
+    # Migrate orphan MLX prompts to .pt format (torch backend only)
+    if get_backend() == "torch":
+        try:
+            from voice_engine import migrate_orphan_mlx_prompts
+            migrate_orphan_mlx_prompts()
+        except Exception as e:
+            logger.warning("MLX prompt migration failed: %s", e)
 
     # Write PID file
     write_pid()

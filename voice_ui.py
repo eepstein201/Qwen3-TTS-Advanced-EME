@@ -29,6 +29,7 @@ import tempfile
 from voice_config import (
     CUSTOM_VOICE_SPEAKERS,
     VOICE_PROMPTS_DIR,
+    VOICE_DESCRIPTION_ATTRIBUTES,
     VALID_MODEL_SIZES,
     VALID_MLX_QUANTIZATIONS,
     get_default_clone_prompt,
@@ -56,14 +57,119 @@ def get_prosody_choices():
     return ["(none)"] + [f"{name} - {text}" for name, text in sorted(presets.items())]
 
 
-def apply_prosody_preset(choice):
-    """When a prosody preset is selected, return the instruct text to fill in."""
+def apply_prosody_preset(choice, existing_text=None):
+    """When a prosody preset is selected, append to existing text or fill in.
+
+    If the target field already has content, appends with ". " separator.
+    If empty, fills with the prosody text directly.
+    """
     if not choice or choice == "(none)":
-        return ""
-    # Extract preset name before " - "
+        return existing_text or ""
     name = choice.split(" - ")[0].strip()
     presets = get_prosody_presets()
-    return presets.get(name, "")
+    prosody_text = presets.get(name, "")
+    if not prosody_text:
+        return existing_text or ""
+    if existing_text and existing_text.strip():
+        return f"{existing_text.strip()}. {prosody_text}"
+    return prosody_text
+
+
+# =============================================================================
+# Voice Description Builder
+# =============================================================================
+
+def compose_voice_description(gender, age, tone, texture, pace, accent):
+    """Compose a voice description from dropdown selections."""
+    parts = []
+    if age and age != "(none)":
+        # Extract the age range text
+        age_text = age.lower().split(" (")[0] if " (" in age else age.lower()
+        if gender and gender != "(none)":
+            parts.append(f"A {age_text} {gender.lower()}")
+        else:
+            parts.append(f"A {age_text} speaker")
+    elif gender and gender != "(none)":
+        parts.append(f"A {gender.lower()} speaker")
+
+    qualifiers = []
+    if tone and tone != "(none)":
+        qualifiers.append(tone.lower())
+    if texture and texture != "(none)":
+        qualifiers.append(texture.lower())
+    if qualifiers:
+        parts.append(f"with a {', '.join(qualifiers)} voice")
+
+    if pace and pace != "(none)":
+        parts.append(f"who speaks at a {pace.lower()} pace")
+
+    if accent and accent != "(none)" and accent != "None/Default":
+        parts.append(f"with a {accent} accent")
+
+    if not parts:
+        return ""
+    desc = " ".join(parts)
+    if not desc.endswith("."):
+        desc += "."
+    return desc
+
+
+def enhance_description_with_ai(description):
+    """Enhance a brief voice description using an LLM API."""
+    if not description or not description.strip():
+        raise gr.Error("Please enter a description to enhance")
+
+    config = load_config()
+    enhancer_config = config.get("prompt_enhancer", {})
+
+    if not enhancer_config.get("enabled", False):
+        raise gr.Error("AI enhancement is not enabled. Set prompt_enhancer.enabled=true in config.json")
+
+    api_key_env = enhancer_config.get("api_key_env", "ANTHROPIC_API_KEY")
+    api_key = os.environ.get(api_key_env)
+    if not api_key:
+        raise gr.Error(f"API key not found. Set the {api_key_env} environment variable")
+
+    provider = enhancer_config.get("provider", "anthropic")
+    model = enhancer_config.get("model", "claude-haiku-4-5-20251001")
+
+    system_prompt = (
+        "You are a TTS voice description specialist. Expand the user's brief voice description "
+        "into a detailed, TTS-optimized description. Include gender, age range, tone, texture, "
+        "pace, and accent details. Keep it under 100 words. Output ONLY the description, "
+        "no preamble or explanation."
+    )
+
+    try:
+        if provider == "anthropic":
+            import anthropic
+            client = anthropic.Anthropic(api_key=api_key)
+            response = client.messages.create(
+                model=model,
+                max_tokens=200,
+                system=system_prompt,
+                messages=[{"role": "user", "content": description}],
+            )
+            return response.content[0].text.strip()
+        else:
+            raise gr.Error(f"Unsupported provider: {provider}")
+    except ImportError:
+        raise gr.Error("anthropic package not installed. Run: pip install anthropic")
+    except Exception as e:
+        raise gr.Error(f"Enhancement failed: {e}")
+
+
+def is_enhancer_available():
+    """Check if the AI enhancer is configured and available."""
+    try:
+        config = load_config()
+        enhancer = config.get("prompt_enhancer", {})
+        if not enhancer.get("enabled", False):
+            return False
+        api_key_env = enhancer.get("api_key_env", "ANTHROPIC_API_KEY")
+        return bool(os.environ.get(api_key_env))
+    except Exception:
+        return False
 
 
 # =============================================================================
@@ -251,7 +357,7 @@ def format_status_display():
         status_html = f'<span style="color: orange;">{status}</span>'
 
     return f"""
-    <div style="padding: 10px; background: #f5f5f5; border-radius: 5px; margin-bottom: 15px;">
+    <div style="padding: 10px; background: var(--block-background-fill, #f5f5f5); border-radius: 5px; margin-bottom: 15px; border: 1px solid var(--block-border-color, #e0e0e0);">
         <strong>Status:</strong> {status_html} |
         <strong>Backend:</strong> {backend} |
         <strong>Memory:</strong> {memory} |
@@ -778,21 +884,10 @@ def toggle_asr(action):
     """Load or unload ASR model. Returns (status_msg, table_data)."""
     try:
         if action == "load":
-            from voice_engine import preload_asr_model, is_asr_loaded
+            from voice_engine import is_asr_loaded, load_asr_model
             if is_asr_loaded():
                 return "ASR already loaded", get_model_table_data()
-            # Load synchronously for UI feedback
-            from voice_engine import _ensure_asr_torch_loaded, _transcribe_mlx
-            backend = get_backend()
-            if backend == "mlx":
-                # Trigger MLX ASR load by calling _transcribe_mlx internals
-                from voice_engine import _asr_model_mlx
-                if _asr_model_mlx is None:
-                    from mlx_audio.stt import load_model as load_stt_model
-                    import voice_engine
-                    voice_engine._asr_model_mlx = load_stt_model("mlx-community/whisper-large-v3-turbo")
-            else:
-                _ensure_asr_torch_loaded()
+            load_asr_model()
             return "ASR model loaded", get_model_table_data()
         else:
             from voice_engine import unload_asr_model
@@ -933,7 +1028,12 @@ def build_ui():
         with gr.Tabs():
             # Clone Mode Tab
             with gr.Tab("Clone Mode"):
-                gr.Markdown("Use a voice prompt file to clone a specific voice.")
+                gr.Markdown(
+                    "Use a voice prompt file to clone a specific voice. "
+                    "Clone mode reproduces the voice from your reference audio. "
+                    "For voice design from descriptions, use Design mode. "
+                    "To create a reusable designed voice, generate in Design mode then save as a voice prompt."
+                )
                 clone_model_indicator = gr.HTML(value=get_model_status_html("clone"))
 
                 with gr.Row():
@@ -979,7 +1079,8 @@ def build_ui():
                             clone_rep = gr.Slider(1.0, 2.0, value=1.05, step=0.01, label="Repetition Penalty")
                             clone_seed = gr.Textbox(label="Seed (empty for random)", value="")
 
-                        with gr.Accordion("Audio Processing", open=False):
+                        with gr.Accordion("Audio Processing (Style Adjustment)", open=False):
+                            gr.Markdown("Use speed/pitch to modify the cloned voice's delivery style.", elem_classes=["info-text"])
                             clone_trim = gr.Checkbox(label="Trim Silence", value=False)
                             clone_norm = gr.Checkbox(label="Normalize", value=False)
                             clone_speed = gr.Slider(0.5, 2.0, value=1.0, step=0.05, label="Speed")
@@ -1042,17 +1143,42 @@ def build_ui():
                             label="", show_label=False, interactive=False,
                             max_lines=1, container=False
                         )
-                        design_prosody = gr.Dropdown(
-                            label="Style Preset",
-                            choices=get_prosody_choices(),
-                            value="(none)",
-                            info="Select a preset to append style to the voice description"
-                        )
                         design_desc = gr.Textbox(
                             label="Voice Description",
                             placeholder="Describe the voice (e.g., 'A warm, friendly female voice with clear articulation')",
                             lines=2
                         )
+                        with gr.Row():
+                            design_prosody = gr.Dropdown(
+                                label="Style Preset",
+                                choices=get_prosody_choices(),
+                                value="(none)",
+                                info="Appends style to description",
+                                scale=2,
+                            )
+                            _enhancer_visible = is_enhancer_available()
+                            design_enhance_btn = gr.Button(
+                                "Enhance with AI",
+                                size="sm",
+                                variant="secondary",
+                                visible=_enhancer_visible,
+                                scale=1,
+                            )
+
+                        with gr.Accordion("Description Builder", open=False):
+                            gr.Markdown("Build a voice description from attributes:")
+                            _none_opt = ["(none)"]
+                            with gr.Row():
+                                db_gender = gr.Dropdown(label="Gender", choices=_none_opt + VOICE_DESCRIPTION_ATTRIBUTES["gender"], value="(none)")
+                                db_age = gr.Dropdown(label="Age", choices=_none_opt + VOICE_DESCRIPTION_ATTRIBUTES["age"], value="(none)")
+                            with gr.Row():
+                                db_tone = gr.Dropdown(label="Tone", choices=_none_opt + VOICE_DESCRIPTION_ATTRIBUTES["tone"], value="(none)")
+                                db_texture = gr.Dropdown(label="Texture", choices=_none_opt + VOICE_DESCRIPTION_ATTRIBUTES["texture"], value="(none)")
+                            with gr.Row():
+                                db_pace = gr.Dropdown(label="Pace", choices=_none_opt + VOICE_DESCRIPTION_ATTRIBUTES["pace"], value="(none)")
+                                db_accent = gr.Dropdown(label="Accent", choices=_none_opt + VOICE_DESCRIPTION_ATTRIBUTES["accent"], value="(none)")
+                            db_compose_btn = gr.Button("Compose Description", size="sm", variant="secondary")
+
                         design_preset = gr.Dropdown(
                             label="Preset",
                             choices=get_presets(),
@@ -1085,6 +1211,17 @@ def build_ui():
                 design_output = gr.Audio(label="Output", streaming=True, autoplay=True)
                 design_status = gr.Textbox(label="Status", interactive=False)
 
+                # Save as Voice Prompt (Design-then-Clone pipeline)
+                with gr.Accordion("Save as Voice Prompt", open=False):
+                    gr.Markdown("Save the generated audio as a reusable voice clone prompt.")
+                    design_save_name = gr.Textbox(
+                        label="Voice Name",
+                        placeholder="e.g., designed_voice",
+                        max_lines=1,
+                    )
+                    design_save_btn = gr.Button("Save as Voice Prompt", size="sm", variant="secondary")
+                    design_save_status = gr.Textbox(label="", show_label=False, interactive=False, max_lines=1, container=False)
+
                 def design_handler(text, desc, preset, temp, top_k, top_p, rep, seed,
                                    trim, norm, speed, pitch, streaming):
                     if streaming:
@@ -1115,8 +1252,54 @@ def build_ui():
                     outputs=[design_output, design_status, status_html]
                 )
 
-                design_prosody.change(fn=apply_prosody_preset, inputs=design_prosody, outputs=design_desc)
+                design_prosody.change(fn=apply_prosody_preset, inputs=[design_prosody, design_desc], outputs=design_desc)
                 design_text.change(fn=update_text_info, inputs=design_text, outputs=design_text_info)
+
+                # Wire up Description Builder
+                db_compose_btn.click(
+                    fn=compose_voice_description,
+                    inputs=[db_gender, db_age, db_tone, db_texture, db_pace, db_accent],
+                    outputs=design_desc,
+                )
+
+                # Wire up Enhance button
+                design_enhance_btn.click(
+                    fn=enhance_description_with_ai,
+                    inputs=[design_desc],
+                    outputs=design_desc,
+                )
+
+                # Wire up Save as Voice Prompt
+                def save_design_as_prompt(voice_name):
+                    """Save the most recent Design mode output as a voice prompt."""
+                    if not voice_name or not voice_name.strip():
+                        return "Please enter a voice name.", gr.update()
+                    voice_name = voice_name.strip().replace(" ", "_").replace("/", "_").replace("\\", "_").replace("..", "")
+                    # Find the most recent design output in history
+                    for entry in generation_history:
+                        if entry.get("mode") == "Design" and entry.get("path"):
+                            audio_path = entry["path"]
+                            if os.path.exists(audio_path):
+                                try:
+                                    from create_custom_voice import create_and_save_voice_prompt
+                                    from voice_config import IN_COLAB
+                                    backend = get_backend()
+                                    mlx_only = (backend == "mlx") or IN_COLAB
+                                    create_and_save_voice_prompt(
+                                        audio_path, "", voice_name,
+                                        test_generation=False, mlx_only=mlx_only,
+                                    )
+                                    prompts = get_voice_prompts()
+                                    return f"Saved voice prompt: {voice_name}", gr.update(choices=prompts)
+                                except Exception as e:
+                                    return f"Error: {e}", gr.update()
+                    return "No recent Design mode output found. Generate audio first.", gr.update()
+
+                design_save_btn.click(
+                    fn=save_design_as_prompt,
+                    inputs=[design_save_name],
+                    outputs=[design_save_status, clone_prompt],
+                )
 
             # Custom Mode Tab
             with gr.Tab("Custom Mode"):
@@ -1212,7 +1395,7 @@ def build_ui():
                     outputs=[custom_output, custom_status, status_html]
                 )
 
-                custom_prosody.change(fn=apply_prosody_preset, inputs=custom_prosody, outputs=custom_instruct)
+                custom_prosody.change(fn=apply_prosody_preset, inputs=[custom_prosody, custom_instruct], outputs=custom_instruct)
                 custom_text.change(fn=update_text_info, inputs=custom_text, outputs=custom_text_info)
 
             # Create Voice Tab

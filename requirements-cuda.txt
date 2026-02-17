@@ -14,3 +14,7 @@ accelerate
 bitsandbytes
 scipy
 pyrubberband
+# Flash Attention 2 — optional, auto-detected at runtime.
+# Only installs on Ampere+ GPUs (L4, A100, H100). Safe to skip on T4.
+# Install separately if needed: pip install flash-attn --no-build-isolation
+# flash-attn

@@ -14,16 +14,16 @@ Features: pyrubberband audio processing (with librosa fallback), prosody presets
 
 ## Commands
 
-| Command | Purpose |
-|---------|---------|
-| `changeVoice` | Main TTS CLI — generation, voice management, info queries |
-| `startTTSServer` | Start persistent model server (auto-selects conda env) |
-| `stopTTSServer` | Graceful shutdown with auth token |
-| `createVoice` | Create voice clone from audio (auto-MLX-only when backend is MLX) |
-| `ttsUI` | Launch Gradio web UI (default port 7860, auto-fallback if busy) |
-| `configureTTS` | Reconfigure backend/model/quantization via wizard |
+| Command | Alias | Purpose |
+|---------|-------|---------|
+| `changeVoice` | `tts` | Main TTS CLI — generation, voice management, info queries |
+| `startTTSServer` | `tts-server-start` | Start persistent model server (auto-selects conda env) |
+| `stopTTSServer` | `tts-server-stop` | Graceful shutdown with auth token |
+| `createVoice` | `tts-create` | Create voice clone from audio (auto-MLX-only when backend is MLX) |
+| `ttsUI` | `tts-ui` | Launch Gradio web UI (default port 7860, auto-fallback if busy) |
+| `configureTTS` | `tts-config` | Reconfigure backend/model/quantization via wizard |
 
-Wrapper scripts live in `bin/` (canonical) and are copied to `~/bin/` by `install.sh`. After code changes: `cp bin/* ~/bin/ && chmod +x ~/bin/*`
+Kebab-case aliases are thin `exec` wrappers — both old and new names work. Wrapper scripts live in `bin/` (canonical) and are copied to `~/bin/` by `install.sh`. After code changes: `cp bin/* ~/bin/ && chmod +x ~/bin/*`
 
 ## Architecture
 
@@ -35,9 +35,9 @@ config.json → voice_config.py → voice_engine.py (dispatch)
 
 | Module | Purpose | Heavy imports? |
 |--------|---------|----------------|
-| `voice_config.py` | Constants, config I/O, error classes, `MODEL_INFO`, auth, platform detection | No |
-| `voice_engine.py` | `load_model()`, `run_inference()`, voice prompt cache, audio processing, text chunking, ASR, smart audio loader | No (all lazy) |
-| `voice_server.py` | Flask server: auth, validation, progress, model management, generation/ETA/prompt caches | No (lazy via engine) |
+| `voice_config.py` | Constants, config I/O, error classes, `MODEL_INFO`, auth, platform detection, CUDA capability detection, voice description attributes | No |
+| `voice_engine.py` | `load_model()`, `run_inference()`, voice prompt cache, audio processing, text chunking, ASR, smart audio loader, CUDA optimization, MLX prompt migration | No (all lazy) |
+| `voice_server.py` | Flask server: auth, validation helpers (`_validate_generation_request`, `_create_temp_audio_copy`, `_prepare_mode_params`), progress, model management, generation/ETA/prompt caches | No (lazy via engine) |
 | `voice_client.py` | HTTP client: `TTSClient` with generate, model management, prompt management | No |
 | `voice_generate.py` | CLI generation, progress display, post-gen menu, batch/SSML/SRT/dialogue, voice management | No (lazy) |
 | `voice_ui.py` | Gradio web UI: 6 tabs (Clone/Design/Custom/Create Voice/Manage Voices/Manage Models) | No (HTTP only) |
@@ -50,6 +50,8 @@ config.json → voice_config.py → voice_engine.py (dispatch)
 - **Three separate models** — Clone, Design, Custom are distinct HuggingFace models (~3.5GB torch, ~2.5GB MLX 8-bit each)
 - **Audio loader cache** — `_AUDIO_LOADER` global in voice_engine.py, read once at import, updated only via `set_audio_loader()` — no disk I/O in hot path
 - **Thread-safe ASR** — `_asr_lock` + `_ensure_asr_torch_loaded()` prevents race conditions between preload thread and user requests
+- **CUDA auto-optimization** — `_apply_cuda_optimizations()` detects GPU compute capability and selects optimal attention (FA2 vs SDPA), dtype, quantization, and torch.compile settings
+- **MLX prompt migration** — `migrate_orphan_mlx_prompts()` runs at server startup (torch backend) to convert orphan .wav+.txt to .pt
 
 ## File Layout
 
@@ -120,7 +122,11 @@ All other endpoints require `Authorization: Bearer <token>` (token from `~/.voic
   "generation": {
     "temperature": 0.7, "top_k": 50, "top_p": 0.95,
     "repetition_penalty": 1.05, "seed": null, "max_chunk_chars": 500,
-    "max_new_tokens": 2048
+    "max_new_tokens": 2048, "compile_model": true
+  },
+  "prompt_enhancer": {
+    "enabled": false, "provider": "anthropic",
+    "api_key_env": "ANTHROPIC_API_KEY", "model": "claude-haiku-4-5-20251001"
   },
   "presets": {
     "consistent": { "temperature": 0.5, "top_k": 30, "seed": 42 },
@@ -218,3 +224,16 @@ python -m unittest discover -v tests/
 - `mlx-community/Qwen3-TTS-12Hz-{size}-VoiceDesign-{quant}`
 - `mlx-community/Qwen3-TTS-12Hz-{size}-CustomVoice-{quant}`
 - Quantizations: `4bit`, `8bit` (default), `bf16`
+
+## Hardware Optimization (CUDA)
+
+`_apply_cuda_optimizations()` in `voice_engine.py` auto-detects GPU and applies optimal settings:
+
+| GPU | Compute Cap | Attention | dtype | Quantization | torch.compile |
+|-----|------------|-----------|-------|-------------|---------------|
+| T4 (free Colab) | 7.5 | SDPA | float16 | 8-bit (bitsandbytes) | No |
+| L4 (Colab Pro) | 8.9 | Flash Attention 2 | bfloat16 | None needed | Yes |
+| A100 (Colab Pro+) | 8.0 | Flash Attention 2 | bfloat16 | None needed | Yes |
+| Non-CUDA | N/A | SDPA | float32 | N/A | No |
+
+`get_cuda_capability()` and `get_optimal_attn_config()` in `voice_config.py` expose hardware detection. The Colab notebook auto-configures based on detected GPU tier.
