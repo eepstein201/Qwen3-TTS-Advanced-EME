@@ -154,14 +154,19 @@ class TestServerValidation(unittest.TestCase):
         # We need to mock torch and model-related imports
         # to avoid loading heavy dependencies
         import voice_server
-        voice_server.auth_token = None  # Disable auth for tests
+        voice_server.auth_token = "test_token"
         voice_server.server_config = {
             "security": {"max_text_length": 100, "max_batch_size": 3},
             "auto_shutdown_minutes": 0,
         }
+        # Ensure no models are loaded (another test class may have loaded one)
+        voice_server.clone_model = None
+        voice_server.design_model = None
+        voice_server.custom_model = None
         cls.app = voice_server.app
         cls.app.testing = True
         cls.client = cls.app.test_client()
+        cls.auth = {"Authorization": "Bearer test_token"}
 
     def test_health_endpoint(self):
         resp = self.client.get("/health")
@@ -170,23 +175,23 @@ class TestServerValidation(unittest.TestCase):
         self.assertEqual(data["status"], "ok")
 
     def test_generate_empty_texts(self):
-        resp = self.client.post("/generate", json={"texts": []})
+        resp = self.client.post("/generate", json={"texts": []}, headers=self.auth)
         self.assertEqual(resp.status_code, 400)
         self.assertIn("No texts", resp.get_json()["error"])
 
     def test_generate_batch_too_large(self):
         texts = ["hello"] * 5  # max is 3 in test config
-        resp = self.client.post("/generate", json={"texts": texts})
+        resp = self.client.post("/generate", json={"texts": texts}, headers=self.auth)
         self.assertEqual(resp.status_code, 400)
         self.assertIn("exceeds limit", resp.get_json()["error"])
 
     def test_generate_text_too_long(self):
-        resp = self.client.post("/generate", json={"texts": ["x" * 200]})
+        resp = self.client.post("/generate", json={"texts": ["x" * 200]}, headers=self.auth)
         self.assertEqual(resp.status_code, 400)
         self.assertIn("character limit", resp.get_json()["error"])
 
     def test_generate_invalid_mode(self):
-        resp = self.client.post("/generate", json={"texts": ["hello"], "mode": "invalid"})
+        resp = self.client.post("/generate", json={"texts": ["hello"], "mode": "invalid"}, headers=self.auth)
         self.assertEqual(resp.status_code, 400)
         self.assertIn("Invalid mode", resp.get_json()["error"])
 
@@ -195,7 +200,7 @@ class TestServerValidation(unittest.TestCase):
             "texts": ["hello"],
             "mode": "clone",
             "prompt_file": "../../../etc/passwd",
-        })
+        }, headers=self.auth)
         self.assertEqual(resp.status_code, 400)
         self.assertIn("path traversal", resp.get_json()["error"])
 
@@ -204,7 +209,7 @@ class TestServerValidation(unittest.TestCase):
             "texts": ["hello"],
             "mode": "custom",
             "speaker": "nonexistent_speaker",
-        })
+        }, headers=self.auth)
         self.assertEqual(resp.status_code, 400)
         self.assertIn("Unknown speaker", resp.get_json()["error"])
 
@@ -214,14 +219,14 @@ class TestServerValidation(unittest.TestCase):
             "texts": ["hello"],
             "mode": "custom",
             "speaker": "Ryan",
-        })
+        }, headers=self.auth)
         # Should pass validation (400) and hit model-not-loaded (503)
         self.assertIn(resp.status_code, [200, 503])
 
     def test_error_response_has_recovery_field(self):
         """All error responses should include a recovery hint."""
         # Validation error
-        resp = self.client.post("/generate", json={"texts": []})
+        resp = self.client.post("/generate", json={"texts": []}, headers=self.auth)
         data = resp.get_json()
         self.assertIn("recovery", data)
 
@@ -256,7 +261,7 @@ class TestServerAuth(unittest.TestCase):
     @classmethod
     def tearDownClass(cls):
         import voice_server
-        voice_server.auth_token = None
+        voice_server.auth_token = "test_token"
 
     def test_health_no_auth_required(self):
         resp = self.client.get("/health")
@@ -862,7 +867,7 @@ class TestStreamingServerEndpoint(unittest.TestCase):
     @classmethod
     def tearDownClass(cls):
         import voice_server
-        voice_server.auth_token = None
+        voice_server.auth_token = "test_token"
 
     def test_generate_stream_requires_auth(self):
         """POST /generate-stream requires authentication."""
@@ -1142,7 +1147,7 @@ class TestHealthEndpointInfo(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         import voice_server
-        voice_server.auth_token = None
+        voice_server.auth_token = "test_token"
         voice_server.server_config = {
             "security": {},
             "auto_shutdown_minutes": 0,
@@ -1187,7 +1192,7 @@ class TestGenerationStatus(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         import voice_server
-        voice_server.auth_token = None
+        voice_server.auth_token = "test_token"
         voice_server.server_config = {
             "security": {},
             "auto_shutdown_minutes": 0,
@@ -1238,7 +1243,7 @@ class TestLoadModelEndpoint(unittest.TestCase):
     @classmethod
     def tearDownClass(cls):
         import voice_server
-        voice_server.auth_token = None
+        voice_server.auth_token = "test_token"
 
     def test_load_model_requires_auth(self):
         """POST /load-model requires authentication."""
@@ -1295,7 +1300,7 @@ class TestCancelGenerationEndpoint(unittest.TestCase):
     @classmethod
     def tearDownClass(cls):
         import voice_server
-        voice_server.auth_token = None
+        voice_server.auth_token = "test_token"
 
     def test_cancel_requires_auth(self):
         """POST /cancel-generation requires authentication."""
@@ -1650,7 +1655,7 @@ class TestUpdateModelConfigEndpoint(unittest.TestCase):
     @classmethod
     def tearDownClass(cls):
         import voice_server
-        voice_server.auth_token = None
+        voice_server.auth_token = "test_token"
 
     def test_update_model_config_requires_auth(self):
         """POST /update-model-config requires authentication."""
@@ -1710,7 +1715,7 @@ class TestStreamingEndpointStructure(unittest.TestCase):
     @classmethod
     def tearDownClass(cls):
         import voice_server
-        voice_server.auth_token = None
+        voice_server.auth_token = "test_token"
 
     def test_generate_stream_requires_auth(self):
         """POST /generate-stream requires authentication."""
@@ -1967,7 +1972,7 @@ class TestETACache(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         import voice_server
-        voice_server.auth_token = None
+        voice_server.auth_token = "test_token"
         voice_server.server_config = {
             "security": {},
             "auto_shutdown_minutes": 0,
@@ -2586,7 +2591,7 @@ class TestUnloadModelEndpoint(unittest.TestCase):
     @classmethod
     def tearDownClass(cls):
         import voice_server
-        voice_server.auth_token = None
+        voice_server.auth_token = "test_token"
 
     def test_unload_requires_auth(self):
         """POST /unload-model requires authentication."""
@@ -2655,7 +2660,7 @@ class TestUpdateStartupConfigEndpoint(unittest.TestCase):
     @classmethod
     def tearDownClass(cls):
         import voice_server
-        voice_server.auth_token = None
+        voice_server.auth_token = "test_token"
 
     def test_startup_config_requires_auth(self):
         """POST /update-startup-config requires authentication."""
@@ -2776,7 +2781,7 @@ class TestModelsEndpointEnhanced(unittest.TestCase):
     @classmethod
     def tearDownClass(cls):
         import voice_server
-        voice_server.auth_token = None
+        voice_server.auth_token = "test_token"
         voice_server.model_load_times = {}
 
     def test_models_has_load_at_startup(self):
