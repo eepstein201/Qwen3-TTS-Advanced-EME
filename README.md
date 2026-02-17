@@ -43,10 +43,12 @@ Record or upload 10-30 seconds of clean speech, create a voice prompt, then gene
 # Create a voice clone
 createVoice recording.wav my_voice -t "transcript of what they said"
 createVoice recording.wav my_voice --auto-transcribe    # Let Whisper handle it
+createVoice recording.wav my_voice --no-transcript      # Speaker embedding only (no transcript needed)
 
 # Generate with it
 changeVoice "Hello" -o output                   # Uses default voice
 changeVoice "Hello" -p my_voice.pt -o output    # Specific voice
+changeVoice "Hello" --no-transcript -o output    # Clone without transcript
 ```
 
 ### Design — describe the voice you want
@@ -62,7 +64,9 @@ Speakers: `ryan`, `aiden`, `vivian`, `serena`, `uncle_fu`, `dylan`, `eric`, `ono
 ```bash
 changeVoice "Hello" -m custom -s ryan -o output
 changeVoice "Hello" -m custom -s vivian -i "speak with excitement" -o output
+changeVoice "Hello" -m custom -s ryan --prosody excited -o output   # Use a prosody preset
 changeVoice --list-speakers
+changeVoice --list-prosody
 ```
 
 ## Web Interface
@@ -105,8 +109,8 @@ changeVoice --batch texts.json -o ~/Downloads/       # Batch from JSON array
 changeVoice "Text" --preset consistent -o output     # Reproducible output
 changeVoice "Text" --preset creative -o output        # More variation
 changeVoice "Text" --temperature 0.5 --seed 42 -o output
-changeVoice "Text" --speed 1.2 -o fast               # 20% faster playback
-changeVoice "Text" --pitch -2 -o deep                 # Lower pitch
+changeVoice "Text" --speed 1.2 -o fast               # 20% faster (pyrubberband)
+changeVoice "Text" --pitch -2 -o deep                 # Lower pitch (pyrubberband)
 changeVoice "Text" --normalize --trim-silence -o clean
 ```
 
@@ -221,6 +225,10 @@ All settings live in `config.json`. Edit directly or use `configureTTS`.
 - **consistent** — temperature 0.5, seed 42, top_k 30. Same input = same output.
 - **creative** — temperature 0.9, top_p 0.98. More expressive, varied output.
 
+### Prosody Presets
+
+Quick style selection for custom/design modes — `--prosody excited`, `--prosody calm`, etc. Built-in presets: excited, calm, whisper, authoritative, slow, fast, dramatic, conversational. Add your own in `config.json` under `prosody_presets`.
+
 ## MLX Backend (Apple Silicon)
 
 MLX runs natively on Apple Silicon — lower thermals (~40-50C vs ~80-90C), less battery drain, quantized models use less memory.
@@ -267,7 +275,7 @@ The system auto-detects Colab: binds `0.0.0.0`, enables Gradio sharing, uses CUD
 python -m unittest discover -v tests/
 ```
 
-246 tests, no GPU or running server required. Run inside a conda env (`qwen3-tts` or `qwen3-tts-mlx`) for full coverage — tests gracefully skip when optional dependencies are missing.
+266 tests, no GPU or running server required. Run inside a conda env (`qwen3-tts` or `qwen3-tts-mlx`) for full coverage — tests gracefully skip when optional dependencies are missing.
 
 ## Project Structure
 
