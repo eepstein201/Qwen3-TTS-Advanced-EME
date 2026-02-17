@@ -128,6 +128,32 @@ def get_device():
     return "cpu"
 
 
+def get_cuda_capability():
+    """Return CUDA compute capability as (major, minor) or None if no CUDA."""
+    try:
+        import torch
+        if torch.cuda.is_available():
+            return torch.cuda.get_device_capability()
+    except ImportError:
+        pass
+    return None
+
+
+def get_optimal_attn_config():
+    """Return (attn_implementation, torch_dtype_name, load_in_8bit) based on GPU.
+
+    Turing (T4, CC 7.5): sdpa, float16, True (8-bit via bitsandbytes)
+    Ampere+ (L4/A100, CC >= 8.0): flash_attention_2, bfloat16, False
+    Non-CUDA: sdpa, float32, False
+    """
+    cap = get_cuda_capability()
+    if cap is None:
+        return "sdpa", "float32", False
+    if cap[0] >= 8:
+        return "flash_attention_2", "bfloat16", False
+    return "sdpa", "float16", True
+
+
 def get_server_url(config):
     """Return the server base URL from a config dict."""
     server = config.get("server", {})
@@ -393,6 +419,20 @@ def get_model_info(model_type):
 # ---------------------------------------------------------------------------
 # Prosody presets (instruct text templates for Custom & Design modes)
 # ---------------------------------------------------------------------------
+
+# ---------------------------------------------------------------------------
+# Voice Description Builder attributes (Design mode UI)
+# ---------------------------------------------------------------------------
+
+VOICE_DESCRIPTION_ATTRIBUTES = {
+    "gender": ["Male", "Female", "Androgynous"],
+    "age": ["Young (18-25)", "Adult (25-45)", "Middle-aged (45-60)", "Elderly (60+)"],
+    "tone": ["Warm", "Authoritative", "Gentle", "Energetic", "Calm", "Serious", "Playful"],
+    "texture": ["Smooth", "Gravelly", "Crisp", "Breathy", "Rich", "Clear", "Husky", "Raspy"],
+    "pace": ["Slow and deliberate", "Moderate", "Fast-paced", "Measured", "Unhurried"],
+    "accent": ["Neutral American", "British RP", "Australian", "Southern American", "None/Default"],
+}
+
 
 DEFAULT_PROSODY_PRESETS = {
     "excited": "Speak with excitement and high energy",

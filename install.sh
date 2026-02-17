@@ -508,7 +508,7 @@ create_wrapper_scripts() {
         exit 1
     fi
 
-    for script in changeVoice startTTSServer stopTTSServer createVoice ttsUI configureTTS; do
+    for script in changeVoice startTTSServer stopTTSServer createVoice ttsUI configureTTS tts tts-server-start tts-server-stop tts-create tts-ui tts-config; do
         if [[ -f "$SCRIPT_SRC/$script" ]]; then
             cp "$SCRIPT_SRC/$script" "$BIN_DIR/$script"
             info "Installed $script"
@@ -529,7 +529,7 @@ create_wrapper_scripts() {
 set_permissions() {
     step "Setting executable permissions..."
 
-    for script in changeVoice startTTSServer stopTTSServer createVoice ttsUI configureTTS; do
+    for script in changeVoice startTTSServer stopTTSServer createVoice ttsUI configureTTS tts tts-server-start tts-server-stop tts-create tts-ui tts-config; do
         if [[ -f "$BIN_DIR/$script" ]]; then
             chmod 755 "$BIN_DIR/$script"
         fi

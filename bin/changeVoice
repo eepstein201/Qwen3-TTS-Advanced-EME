@@ -70,6 +70,32 @@ if [ "$SERVER_RUNNING" = false ]; then
     fi
 fi
 
+# Handle --voices shortcut (before server check would normally matter)
+if [ "$1" = "--voices" ]; then
+    exec python ~/Qwen3-TTS_UserFiles/voice_generate.py --list-prompts
+fi
+
+# Handle --help with extended command listing
+if [ "$1" = "--help" ] || [ "$1" = "-h" ]; then
+    python ~/Qwen3-TTS_UserFiles/voice_generate.py --help
+    echo ""
+    echo "Available commands:"
+    echo "  tts                 Short alias for changeVoice"
+    echo "  tts-server-start    Start the TTS server"
+    echo "  tts-server-stop     Stop the TTS server"
+    echo "  tts-create          Create a voice clone from audio"
+    echo "  tts-ui              Launch the Gradio web UI"
+    echo "  tts-config          Reconfigure backend/model/quantization"
+    echo ""
+    echo "  changeVoice         Main TTS CLI (same as tts)"
+    echo "  startTTSServer      Start the TTS server (same as tts-server-start)"
+    echo "  stopTTSServer       Stop the TTS server (same as tts-server-stop)"
+    echo "  createVoice         Create a voice clone (same as tts-create)"
+    echo "  ttsUI               Launch the web UI (same as tts-ui)"
+    echo "  configureTTS        Reconfigure settings (same as tts-config)"
+    exit 0
+fi
+
 # Build base command
 if [ "$SERVER_RUNNING" = true ]; then
     BASE_CMD="python ~/Qwen3-TTS_UserFiles/voice_generate.py --_server-mode"

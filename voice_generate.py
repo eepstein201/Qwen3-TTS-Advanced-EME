@@ -628,23 +628,18 @@ class _ProgressPoller:
             self._stop.wait(1.0)
 
 
-def generate_via_server(texts, mode, config, gen_params,
-                        prompt_file=None, voice_description=None,
-                        speaker=None, instruct=None, auto_load_model=True,
-                        max_chunk_chars=None, x_vector_only_mode=False):
-    """Generate audio via the TTS server."""
-    url = get_server_url(config)
-
+def _build_generation_payload(mode, config, gen_params, prompt_file=None,
+                              voice_description=None, speaker=None,
+                              instruct=None, x_vector_only_mode=False,
+                              max_chunk_chars=None):
+    """Build request payload for /generate or /generate-stream."""
     payload = {
-        "texts": texts,
         "mode": mode,
         "language": config.get("language", "English"),
         **gen_params,
     }
-
     if max_chunk_chars is not None:
         payload["max_chunk_chars"] = max_chunk_chars
-
     if mode == "clone":
         payload["prompt_file"] = prompt_file
         if x_vector_only_mode:
@@ -654,6 +649,24 @@ def generate_via_server(texts, mode, config, gen_params,
     elif mode == "custom":
         payload["speaker"] = speaker
         payload["instruct"] = instruct or ""
+    return payload
+
+
+def generate_via_server(texts, mode, config, gen_params,
+                        prompt_file=None, voice_description=None,
+                        speaker=None, instruct=None, auto_load_model=True,
+                        max_chunk_chars=None, x_vector_only_mode=False):
+    """Generate audio via the TTS server."""
+    url = get_server_url(config)
+
+    payload = _build_generation_payload(
+        mode, config, gen_params,
+        prompt_file=prompt_file, voice_description=voice_description,
+        speaker=speaker, instruct=instruct,
+        x_vector_only_mode=x_vector_only_mode,
+        max_chunk_chars=max_chunk_chars,
+    )
+    payload["texts"] = texts
 
     # Start progress polling
     progress = _ProgressPoller(url, batch_total=len(texts))
@@ -733,22 +746,13 @@ def generate_streaming(text, mode, config, gen_params, output_path,
 
     url = get_server_url(config)
 
-    payload = {
-        "text": text,
-        "mode": mode,
-        "language": config.get("language", "English"),
-        **gen_params,
-    }
-
-    if mode == "clone":
-        payload["prompt_file"] = prompt_file
-        if x_vector_only_mode:
-            payload["x_vector_only_mode"] = True
-    elif mode == "design":
-        payload["voice_description"] = voice_description
-    elif mode == "custom":
-        payload["speaker"] = speaker
-        payload["instruct"] = instruct or ""
+    payload = _build_generation_payload(
+        mode, config, gen_params,
+        prompt_file=prompt_file, voice_description=voice_description,
+        speaker=speaker, instruct=instruct,
+        x_vector_only_mode=x_vector_only_mode,
+    )
+    payload["text"] = text
 
     print("Streaming generation...")
 
@@ -1572,6 +1576,7 @@ def main():
 
     # Utility options
     parser.add_argument("--list-prompts", action="store_true", help="List available voice prompts")
+    parser.add_argument("--voices", action="store_true", help="List available voice prompts (alias for --list-prompts)")
     parser.add_argument("--list-presets", action="store_true", help="List available presets")
     parser.add_argument("--list-aliases", action="store_true", help="List available voice aliases")
     parser.add_argument("--list-speakers", action="store_true", help="List premium CustomVoice speakers")
@@ -1655,7 +1660,7 @@ def main():
         print("Or use: changeVoice --backend mlx \"text\" -o output")
         return False
 
-    if args.list_prompts:
+    if args.list_prompts or args.voices:
         prompts = list_voice_prompts()
         print("Available voice prompts:")
         for p in prompts:
@@ -1940,6 +1945,12 @@ def main():
         texts = [get_text(t) for t in args.text]
         process_batch(texts, args, config, gen_params, use_server)
         return use_server
+
+    # Read from stdin if piped
+    if not args.text and not sys.stdin.isatty():
+        stdin_text = sys.stdin.read().strip()
+        if stdin_text:
+            args.text = [stdin_text]
 
     # Interactive mode if no text
     if not args.text:
