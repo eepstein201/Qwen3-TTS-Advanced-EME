@@ -14,8 +14,10 @@ All backend-specific imports are local to _*_torch() or _*_mlx() functions.
 
 import logging
 import os
+import re
 import threading
 import time
+from collections import OrderedDict
 from functools import lru_cache
 
 import numpy as np
@@ -52,6 +54,14 @@ def set_audio_loader(loader):
 
 
 # ---------------------------------------------------------------------------
+# Pre-compiled regex patterns for text chunking
+# ---------------------------------------------------------------------------
+
+_SENTENCE_SPLIT_RE = re.compile(r'(?<=[.!?])\s+')
+_PARAGRAPH_SPLIT_RE = re.compile(r'\n+')
+_CLAUSE_SPLIT_RE = re.compile(r'(?<=[,;:\u2014])\s+')
+
+# ---------------------------------------------------------------------------
 # Text chunking for long-form reliability
 # ---------------------------------------------------------------------------
 
@@ -73,17 +83,12 @@ def _split_text(text, max_chars=500):
     if len(text) <= max_chars:
         return [text]
 
-    import re
-
-    # Split on sentence boundaries: . ! ? followed by whitespace, or newlines
-    # Keep the delimiter attached to the preceding segment
-    sentence_pattern = r'(?<=[.!?])\s+'
-    sentences = re.split(sentence_pattern, text)
+    sentences = _SENTENCE_SPLIT_RE.split(text)
 
     # Also split on paragraph breaks (multiple newlines)
     expanded = []
     for s in sentences:
-        parts = re.split(r'\n+', s)
+        parts = _PARAGRAPH_SPLIT_RE.split(s)
         expanded.extend(p.strip() for p in parts if p.strip())
     sentences = expanded
 
@@ -102,8 +107,7 @@ def _split_text(text, max_chars=500):
                 chunks.append(current_chunk.strip())
                 current_chunk = ""
 
-            clause_pattern = r'(?<=[,;:—])\s+'
-            clauses = re.split(clause_pattern, sentence)
+            clauses = _CLAUSE_SPLIT_RE.split(sentence)
 
             for clause in clauses:
                 if current_chunk and len(current_chunk) + 1 + len(clause) > max_chars:
@@ -682,7 +686,7 @@ def _run_inference_mlx_streaming(model, text, mode, gen_params, language="Englis
 # MLX voice prompt loading
 # ---------------------------------------------------------------------------
 
-_mlx_prompt_cache = {}
+_mlx_prompt_cache = OrderedDict()
 _MLX_PROMPT_CACHE_MAX = 10
 
 
@@ -697,8 +701,9 @@ def load_voice_prompt_mlx(prompt_name):
         prompt_name: Base name with or without .pt extension.
                      E.g. "my_voice" or "my_voice.pt" — the .pt is stripped.
     """
-    # Check cache first
+    # Check cache first (move to end on hit for LRU eviction)
     if prompt_name in _mlx_prompt_cache:
+        _mlx_prompt_cache.move_to_end(prompt_name)
         return _mlx_prompt_cache[prompt_name]
 
     # Strip known extensions to get the base name
@@ -730,10 +735,9 @@ def load_voice_prompt_mlx(prompt_name):
 
     result = {"ref_audio": wav_path, "ref_text": ref_text}
 
-    # Evict oldest entry if at capacity
+    # Evict least-recently-used entry if at capacity
     if len(_mlx_prompt_cache) >= _MLX_PROMPT_CACHE_MAX:
-        oldest_key = next(iter(_mlx_prompt_cache))
-        del _mlx_prompt_cache[oldest_key]
+        _mlx_prompt_cache.popitem(last=False)
 
     _mlx_prompt_cache[prompt_name] = result
     return result
@@ -1068,7 +1072,7 @@ def trim_silence(audio, sample_rate, threshold_db=-40, min_silence_ms=100):
     start_idx = np.argmax(non_silent)
     start_idx = max(0, start_idx - min_samples)
 
-    end_idx = len(audio) - np.argmax(non_silent[::-1])
+    end_idx = len(audio) - np.argmax(np.flip(non_silent))
     end_idx = min(len(audio), end_idx + min_samples)
 
     return audio[start_idx:end_idx]
