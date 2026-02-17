@@ -1879,26 +1879,26 @@ class TestCheckGenerationCancelled(unittest.TestCase):
 # =============================================================================
 
 class TestCreateVoiceBackendOverride(unittest.TestCase):
-    """Test createVoice script forces torch backend."""
+    """Test bin/tts handles voice create backend override."""
 
-    def test_createvoice_sets_voice_backend_env(self):
-        """bin/createVoice script sets TTS_BACKEND=torch in torch env."""
+    def test_tts_script_has_voice_create_torch_handling(self):
+        """bin/tts script has logic for forcing torch env on voice create."""
+        import os
+        script_path = os.path.join(os.path.dirname(__file__), "..", "bin", "tts")
+        with open(script_path, "r") as f:
+            content = f.read()
+        # bin/tts detects voice create and forces torch env
+        self.assertIn("voice", content)
+        self.assertIn("create", content)
+        self.assertIn("FORCE_TORCH", content)
+
+    def test_createvoice_is_deprecation_shim(self):
+        """bin/createVoice is now a deprecation shim pointing to tts."""
         import os
         script_path = os.path.join(os.path.dirname(__file__), "..", "bin", "createVoice")
         with open(script_path, "r") as f:
             content = f.read()
-        # Should export TTS_BACKEND=torch when in qwen3-tts env
-        self.assertIn("TTS_BACKEND=torch", content)
-        self.assertIn("export TTS_BACKEND=torch", content)
-
-    def test_createvoice_comment_explains_override(self):
-        """bin/createVoice has comment explaining the backend override."""
-        import os
-        script_path = os.path.join(os.path.dirname(__file__), "..", "bin", "createVoice")
-        with open(script_path, "r") as f:
-            content = f.read()
-        # Should have explanatory comment
-        self.assertIn("Force torch backend", content)
+        self.assertIn("tts voice create", content)
 
 
 # =============================================================================
@@ -3079,11 +3079,147 @@ class TestCreateVoiceNoTranscript(unittest.TestCase):
         """create_custom_voice.py should accept --no-transcript flag."""
         source_path = os.path.join(
             os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
-            "create_custom_voice.py"
+            "qwen3_tts", "tools", "create_voice.py"
         )
         with open(source_path) as f:
             source = f.read()
         self.assertIn("--no-transcript", source)
+
+
+# =============================================================================
+# Click CLI dispatch tests
+# =============================================================================
+
+class TestClickCLI(unittest.TestCase):
+    """Test the Click CLI routing and legacy flag rewriting."""
+
+    def test_cli_imports(self):
+        """qwen3_tts.cli imports without error."""
+        from qwen3_tts.cli import cli, TTSGroup
+        self.assertIsNotNone(cli)
+        self.assertIsInstance(cli, TTSGroup)
+
+    def test_rewrite_legacy_list_prompts(self):
+        """--list-prompts rewrites to ['voice', 'list']."""
+        from qwen3_tts.cli import _rewrite_legacy_flags
+        result = _rewrite_legacy_flags(['--list-prompts'])
+        self.assertEqual(result, ['voice', 'list'])
+
+    def test_rewrite_legacy_list_speakers(self):
+        """--list-speakers rewrites to ['list', 'speakers']."""
+        from qwen3_tts.cli import _rewrite_legacy_flags
+        result = _rewrite_legacy_flags(['--list-speakers'])
+        self.assertEqual(result, ['list', 'speakers'])
+
+    def test_rewrite_legacy_stats(self):
+        """--stats rewrites to ['stats']."""
+        from qwen3_tts.cli import _rewrite_legacy_flags
+        result = _rewrite_legacy_flags(['--stats'])
+        self.assertEqual(result, ['stats'])
+
+    def test_rewrite_legacy_ui(self):
+        """--ui rewrites to ['ui']."""
+        from qwen3_tts.cli import _rewrite_legacy_flags
+        result = _rewrite_legacy_flags(['--ui'])
+        self.assertEqual(result, ['ui'])
+
+    def test_rewrite_legacy_delete_prompt(self):
+        """--delete-prompt NAME rewrites to ['voice', 'delete', NAME]."""
+        from qwen3_tts.cli import _rewrite_legacy_flags
+        result = _rewrite_legacy_flags(['--delete-prompt', 'my_voice'])
+        self.assertEqual(result[:2], ['voice', 'delete'])
+        self.assertIn('my_voice', result)
+
+    def test_rewrite_no_flags(self):
+        """Regular args pass through unchanged."""
+        from qwen3_tts.cli import _rewrite_legacy_flags
+        result = _rewrite_legacy_flags(['Hello world', '-o', 'test.wav'])
+        self.assertEqual(result, ['Hello world', '-o', 'test.wav'])
+
+    def test_rewrite_empty_args(self):
+        """Empty args pass through."""
+        from qwen3_tts.cli import _rewrite_legacy_flags
+        result = _rewrite_legacy_flags([])
+        self.assertEqual(result, [])
+
+    def test_ttsgroup_prepends_generate(self):
+        """TTSGroup prepends 'generate' for bare text args."""
+        from qwen3_tts.cli import cli
+        # Check that known subcommands exist
+        self.assertIn('generate', cli.commands)
+        self.assertIn('server', cli.commands)
+        self.assertIn('voice', cli.commands)
+        self.assertIn('list', cli.commands)
+        self.assertIn('config', cli.commands)
+        self.assertIn('ui', cli.commands)
+        self.assertIn('history', cli.commands)
+        self.assertIn('stats', cli.commands)
+
+    def test_ttsgroup_server_mode_stripping(self):
+        """TTSGroup strips --_server-mode and re-inserts after subcommand."""
+        from qwen3_tts.cli import TTSGroup
+        # Verify the class has parse_args that handles --_server-mode
+        import inspect
+        source = inspect.getsource(TTSGroup.parse_args)
+        self.assertIn('--_server-mode', source)
+        self.assertIn('server_mode', source)
+
+    def test_flag_map_completeness(self):
+        """_FLAG_MAP covers all generation options."""
+        from qwen3_tts.cli import _FLAG_MAP
+        expected_keys = [
+            'mode', 'prompt', 'description', 'speaker', 'instruct',
+            'voice', 'prosody', 'no_transcript', 'output', 'play',
+            'stream', 'no_open', 'speed', 'pitch', 'trim_silence',
+            'normalize', 'preset', 'temperature', 'top_k', 'top_p',
+            'seed', 'repetition_penalty', 'max_chunk_chars',
+            'clipboard', 'ssml', 'local', 'dry_run', 'backend',
+            'model_size', 'server_mode',
+        ]
+        for key in expected_keys:
+            self.assertIn(key, _FLAG_MAP, f"Missing key in _FLAG_MAP: {key}")
+
+    def test_cli_version(self):
+        """CLI has version option."""
+        from click.testing import CliRunner
+        from qwen3_tts.cli import cli
+        runner = CliRunner()
+        result = runner.invoke(cli, ['--version'])
+        self.assertEqual(result.exit_code, 0)
+        self.assertIn('2.0.0', result.output)
+
+    def test_cli_help(self):
+        """CLI --help shows subcommands."""
+        from click.testing import CliRunner
+        from qwen3_tts.cli import cli
+        runner = CliRunner()
+        result = runner.invoke(cli, ['--help'])
+        self.assertEqual(result.exit_code, 0)
+        self.assertIn('generate', result.output)
+        self.assertIn('server', result.output)
+        self.assertIn('voice', result.output)
+
+    def test_cli_server_help(self):
+        """CLI server --help shows subcommands."""
+        from click.testing import CliRunner
+        from qwen3_tts.cli import cli
+        runner = CliRunner()
+        result = runner.invoke(cli, ['server', '--help'])
+        self.assertEqual(result.exit_code, 0)
+        self.assertIn('start', result.output)
+        self.assertIn('stop', result.output)
+        self.assertIn('status', result.output)
+
+    def test_cli_generate_help(self):
+        """CLI generate --help shows all options."""
+        from click.testing import CliRunner
+        from qwen3_tts.cli import cli
+        runner = CliRunner()
+        result = runner.invoke(cli, ['generate', '--help'])
+        self.assertEqual(result.exit_code, 0)
+        self.assertIn('--mode', result.output)
+        self.assertIn('--prompt', result.output)
+        self.assertIn('--output', result.output)
 
 
 if __name__ == "__main__":

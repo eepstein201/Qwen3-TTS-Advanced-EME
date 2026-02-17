@@ -1,3 +1,322 @@
-#!/usr/bin/env bash
-# Short alias for changeVoice (main TTS command)
-exec changeVoice "$@"
+#!/bin/bash
+# Qwen3-TTS unified CLI entry point
+# Handles conda env selection, server lifecycle, and post-generation menu
+#
+# Exit codes from Python:
+#   0  = success
+#   1  = error
+#   2  = post-generation menu (re-run loop)
+#   10 = start server (daemonize)
+#   11 = stop server
+#   12 = tail server log
+
+USER_FILES="$HOME/Qwen3-TTS_UserFiles"
+CONFIG_FILE="$USER_FILES/config.json"
+PID_FILE="$USER_FILES/.voice_server.pid"
+LOG_FILE="$USER_FILES/.voice_server.log"
+TOKEN_FILE="$HOME/.voice_server_token"
+
+# ---- Conda setup ----
+
+_source_conda() {
+    if [[ -f "$HOME/miniforge3/etc/profile.d/conda.sh" ]]; then
+        source "$HOME/miniforge3/etc/profile.d/conda.sh"
+    elif [[ -f "$HOME/miniconda3/etc/profile.d/conda.sh" ]]; then
+        source "$HOME/miniconda3/etc/profile.d/conda.sh"
+    fi
+}
+
+_read_backend() {
+    BACKEND="torch"
+    if [ -f "$CONFIG_FILE" ]; then
+        BACKEND=$(CONFIG_FILE="$CONFIG_FILE" python3 -c "
+import json, os
+try:
+    c = json.load(open(os.environ['CONFIG_FILE']))
+    print(c.get('advanced', {}).get('backend', 'torch'))
+except: print('torch')
+" 2>/dev/null)
+    fi
+}
+
+_activate_env() {
+    local backend="$1"
+    local force_torch="$2"
+
+    if [[ "$force_torch" == "true" ]]; then
+        CONDA_ENV="qwen3-tts"
+    elif [[ "$backend" == "mlx" ]]; then
+        CONDA_ENV="qwen3-tts-mlx"
+    else
+        CONDA_ENV="qwen3-tts"
+    fi
+
+    # Verify environment exists
+    if ! conda env list 2>/dev/null | grep -q "^${CONDA_ENV} "; then
+        echo "Error: conda environment '$CONDA_ENV' not found."
+        echo "Please run './install.sh' from ~/Qwen3-TTS_UserFiles to set it up."
+        exit 1
+    fi
+
+    conda deactivate 2>/dev/null
+    conda activate "$CONDA_ENV"
+
+    # MPS fallback for torch backend on Apple Silicon
+    if [[ "$CONDA_ENV" == "qwen3-tts" ]]; then
+        export PYTORCH_ENABLE_MPS_FALLBACK=1
+    fi
+}
+
+# ---- Server lifecycle ----
+
+_start_server() {
+    if [ -f "$PID_FILE" ]; then
+        local PID
+        PID=$(cat "$PID_FILE")
+        if kill -0 "$PID" 2>/dev/null; then
+            echo "TTS Server is already running (PID: $PID)"
+            return 0
+        else
+            rm -f "$PID_FILE"
+        fi
+    fi
+
+    echo "Starting TTS Server..."
+    echo "This will load the models into memory (may take 30-60 seconds)..."
+
+    local server_args=""
+    if [[ "${TTS_SERVER_PUBLIC:-}" == "1" ]]; then
+        server_args="--public"
+    fi
+
+    nohup python "$USER_FILES/qwen3_tts/server/app.py" $server_args > "$LOG_FILE" 2>&1 &
+
+    echo "Waiting for server to be ready..."
+    for i in {1..120}; do
+        if curl -s http://127.0.0.1:5123/health > /dev/null 2>&1; then
+            echo "TTS Server is ready! (backend: $BACKEND)"
+            echo "Use 'tts' to generate. Use 'tts server stop' to shut down."
+            return 0
+        fi
+        sleep 1
+        if [ $((i % 10)) -eq 0 ]; then
+            echo "  Still loading models... ($i seconds)"
+        fi
+    done
+
+    echo "Error: Server failed to start. Check log: tts server log"
+    return 1
+}
+
+_stop_server() {
+    # Try graceful shutdown via API
+    if [ -f "$TOKEN_FILE" ]; then
+        local TOKEN
+        TOKEN=$(cat "$TOKEN_FILE")
+        curl -s -X POST -H "Authorization: Bearer $TOKEN" http://127.0.0.1:5123/shutdown > /dev/null 2>&1
+    else
+        curl -s -X POST http://127.0.0.1:5123/shutdown > /dev/null 2>&1
+    fi
+
+    if [ $? -eq 0 ]; then
+        echo "TTS Server shutting down gracefully..."
+        sleep 2
+    fi
+
+    # Check PID file and kill if still running
+    if [ -f "$PID_FILE" ]; then
+        local PID
+        PID=$(cat "$PID_FILE")
+        if kill -0 "$PID" 2>/dev/null; then
+            echo "Stopping server (PID: $PID)..."
+            kill "$PID" 2>/dev/null
+            sleep 1
+            if kill -0 "$PID" 2>/dev/null; then
+                kill -9 "$PID" 2>/dev/null
+            fi
+        fi
+        rm -f "$PID_FILE"
+    fi
+
+    rm -f "$TOKEN_FILE"
+    echo "TTS Server stopped."
+}
+
+_tail_log() {
+    if [ -f "$LOG_FILE" ]; then
+        tail -f "$LOG_FILE"
+    else
+        echo "No log file found at $LOG_FILE"
+        echo "Has the server been started?"
+    fi
+}
+
+# ---- Post-generation menu ----
+
+_post_gen_menu() {
+    local LAST_TEXT_FILE="$HOME/.voice_last_text"
+
+    while true; do
+        echo ""
+        echo "What would you like to do?"
+        echo "  1. Same settings (re-generate with same arguments)"
+        echo "  2. Edit text (open in editor, then re-generate)"
+        echo "  3. New settings (start fresh with interactive mode)"
+        echo "  4. Exit"
+        echo ""
+        read -p "Select [1-4]: " CHOICE
+
+        case "$CHOICE" in
+            1)
+                _run_python "$@"
+                local rc=$?
+                if [ $rc -ne 2 ]; then return $rc; fi
+                ;;
+            2)
+                if [ -f "$LAST_TEXT_FILE" ]; then
+                    ${EDITOR:-nano} "$LAST_TEXT_FILE"
+                    local EDITED_TEXT
+                    EDITED_TEXT=$(cat "$LAST_TEXT_FILE")
+                    if [ -n "$EDITED_TEXT" ]; then
+                        _run_python --text-override "$EDITED_TEXT" "$@"
+                        local rc=$?
+                        if [ $rc -ne 2 ]; then return $rc; fi
+                    else
+                        echo "Text is empty, skipping generation."
+                    fi
+                else
+                    echo "No previous text found."
+                fi
+                ;;
+            3)
+                _run_python generate
+                local rc=$?
+                if [ $rc -ne 2 ]; then return $rc; fi
+                ;;
+            4|"")
+                break
+                ;;
+            *)
+                echo "Invalid choice."
+                ;;
+        esac
+    done
+
+    # Ask about stopping server
+    echo ""
+    read -p "Would you like to stop the TTS server? [y/N]: " STOP_SERVER
+    STOP_SERVER=${STOP_SERVER:-N}
+    if [[ "$STOP_SERVER" =~ ^[Yy]$ ]]; then
+        _stop_server
+    else
+        echo "Server still running. Use 'tts server stop' to stop it later."
+    fi
+}
+
+# ---- Python invocation ----
+
+_run_python() {
+    export PYTHONPATH="$USER_FILES:$PYTHONPATH"
+    python -m qwen3_tts.cli "$@"
+    return $?
+}
+
+# ---- Detect if command needs server ----
+
+_needs_server() {
+    # Return 1 (false) if server is NOT needed, 0 (true) if it IS needed
+    local first_arg="$1"
+
+    case "$first_arg" in
+        server|config|history|stats|--help|-h|--version)
+            return 1 ;;
+        voice)
+            # Only preview and info need the server
+            case "$2" in
+                preview|info) return 0 ;;
+                *) return 1 ;;
+            esac
+            ;;
+        list)
+            # 'list models' checks server but handles offline gracefully
+            return 1 ;;
+        --list-*|--voices|--history|--edit-config)
+            return 1 ;;
+        *)
+            return 0 ;;
+    esac
+}
+
+# ---- Check for --mlx-only in voice create ----
+
+_voice_create_needs_torch() {
+    for arg in "$@"; do
+        if [[ "$arg" == "--mlx-only" ]]; then
+            return 1  # Does NOT need torch
+        fi
+    done
+    return 0  # Needs torch by default
+}
+
+# ---- Main ----
+
+_source_conda
+_read_backend
+
+# Special env handling for voice create
+FORCE_TORCH=false
+if [[ "$1" == "voice" && "$2" == "create" ]]; then
+    if _voice_create_needs_torch "$@"; then
+        FORCE_TORCH=true
+    fi
+fi
+
+_activate_env "$BACKEND" "$FORCE_TORCH"
+
+# Check if server is needed and offer to start it
+if _needs_server "$@"; then
+    if ! curl -s http://127.0.0.1:5123/health > /dev/null 2>&1; then
+        echo "TTS Server is not running."
+        echo "Starting the server keeps models in memory for faster generation (~2-5 sec vs ~30-60 sec)."
+        read -p "Would you like to start the TTS server? [Y/n]: " START_SERVER
+        START_SERVER=${START_SERVER:-Y}
+
+        if [[ "$START_SERVER" =~ ^[Yy]$ ]]; then
+            echo ""
+            _start_server
+            if [ $? -eq 0 ]; then
+                # Add server mode flag for generate commands
+                set -- --_server-mode "$@"
+            else
+                echo "Failed to start server. Falling back to local generation."
+            fi
+            echo ""
+        fi
+    else
+        # Server is running, add server mode flag
+        set -- --_server-mode "$@"
+    fi
+fi
+
+# Run the CLI
+_run_python "$@"
+RESULT=$?
+
+# Handle special exit codes
+case $RESULT in
+    2)
+        _post_gen_menu "$@"
+        ;;
+    10)
+        _start_server
+        ;;
+    11)
+        _stop_server
+        ;;
+    12)
+        _tail_log
+        ;;
+    *)
+        exit $RESULT
+        ;;
+esac

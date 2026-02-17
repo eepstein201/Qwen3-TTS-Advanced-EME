@@ -1,3 +1,3 @@
 #!/usr/bin/env bash
-# Kebab-case alias for ttsUI
-exec ttsUI "$@"
+echo "Note: 'tts-ui' is now 'tts ui'. See 'tts --help'." >&2
+exec tts ui "$@"
