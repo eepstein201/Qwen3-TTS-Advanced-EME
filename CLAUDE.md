@@ -14,41 +14,64 @@ Features: pyrubberband audio processing (with librosa fallback), prosody presets
 
 ## Commands
 
-| Command | Alias | Purpose |
-|---------|-------|---------|
-| `changeVoice` | `tts` | Main TTS CLI — generation, voice management, info queries |
-| `startTTSServer` | `tts-server-start` | Start persistent model server (auto-selects conda env) |
-| `stopTTSServer` | `tts-server-stop` | Graceful shutdown with auth token |
-| `createVoice` | `tts-create` | Create voice clone from audio (auto-MLX-only when backend is MLX) |
-| `ttsUI` | `tts-ui` | Launch Gradio web UI (default port 7860, auto-fallback if busy) |
-| `configureTTS` | `tts-config` | Reconfigure backend/model/quantization via wizard |
+| Command | Purpose |
+|---------|---------|
+| `tts [TEXT]` | Generate audio (default command) |
+| `tts server start` | Start persistent model server |
+| `tts server stop` | Graceful shutdown |
+| `tts server status` | Health + models + memory |
+| `tts server log` | Tail server log |
+| `tts voice list` | List voice prompts |
+| `tts voice create [AUDIO]` | Create voice clone from audio |
+| `tts voice delete NAME` | Delete a prompt |
+| `tts voice rename OLD NEW` | Rename a prompt |
+| `tts voice preview NAME` | Play a prompt |
+| `tts list speakers` | Premium speakers |
+| `tts list presets` | Generation presets |
+| `tts list aliases` | Voice aliases |
+| `tts list prosody` | Prosody presets |
+| `tts list models` | Models + load status |
+| `tts list backends` | Available backends |
+| `tts config` | Run config wizard |
+| `tts config show` | Show current settings |
+| `tts ui` | Launch Gradio web UI |
+| `tts history [N]` | Last N generations |
+| `tts stats` | Server statistics |
+| `tts batch FILE` | Batch JSON |
+| `tts srt FILE` | SRT subtitles |
+| `tts dialogue FILE` | Multi-speaker dialogue |
+| `tts repl` | Interactive REPL |
+| `tts watch DIR` | Watch for .txt files |
 
-Kebab-case aliases are thin `exec` wrappers — both old and new names work. Wrapper scripts live in `bin/` (canonical) and are copied to `~/bin/` by `install.sh`. After code changes: `cp bin/* ~/bin/ && chmod +x ~/bin/*`
+Old commands (`changeVoice`, `startTTSServer`, `stopTTSServer`, `createVoice`, `ttsUI`, `configureTTS` and their kebab-case aliases) still work as deprecation shims.
+
+The unified CLI is built on Click. Wrapper scripts live in `bin/` (canonical) and are copied to `~/bin/` by `install.sh`. After code changes: `cp bin/* ~/bin/ && chmod +x ~/bin/*`
 
 ## Architecture
 
 ```
-config.json → voice_config.py → voice_engine.py (dispatch)
-                                 ├── backend="torch" → lazy import torch/qwen_tts
-                                 └── backend="mlx"   → lazy import mlx_audio
+config.json → qwen3_tts.core.config → qwen3_tts.core.engine (dispatch)
+                                       ├── backend="torch" → lazy import torch/qwen_tts
+                                       └── backend="mlx"   → lazy import mlx_audio
 ```
 
 | Module | Purpose | Heavy imports? |
 |--------|---------|----------------|
-| `voice_config.py` | Constants, config I/O, error classes, `MODEL_INFO`, auth, platform detection, CUDA capability detection, voice description attributes | No |
-| `voice_engine.py` | `load_model()`, `run_inference()`, voice prompt cache, audio processing, text chunking, ASR, smart audio loader, CUDA optimization, MLX prompt migration | No (all lazy) |
-| `voice_server.py` | Flask server: auth, validation helpers (`_validate_generation_request`, `_create_temp_audio_copy`, `_prepare_mode_params`), progress, model management, generation/ETA/prompt caches | No (lazy via engine) |
-| `voice_client.py` | HTTP client: `TTSClient` with generate, model management, prompt management | No |
-| `voice_generate.py` | CLI generation, progress display, post-gen menu, batch/SSML/SRT/dialogue, voice management | No (lazy) |
-| `voice_ui.py` | Gradio web UI: 6 tabs (Clone/Design/Custom/Create Voice/Manage Voices/Manage Models) | No (HTTP only) |
-| `create_custom_voice.py` | Voice clone prompt creation, saves .pt + .wav/.txt dual format | Yes (via engine) |
+| `qwen3_tts/core/config.py` | Constants, config I/O, error classes, `MODEL_INFO`, auth, platform detection, CUDA capability detection, voice description attributes | No |
+| `qwen3_tts/core/engine.py` | `load_model()`, `run_inference()`, voice prompt cache, audio processing, text chunking, ASR, smart audio loader, CUDA optimization, MLX prompt migration | No (all lazy) |
+| `qwen3_tts/server/app.py` | Flask server: auth, validation helpers (`_validate_generation_request`, `_create_temp_audio_copy`, `_prepare_mode_params`), progress, model management, generation/ETA/prompt caches | No (lazy via engine) |
+| `qwen3_tts/server/client.py` | HTTP client: `TTSClient` with generate, model management, prompt management | No |
+| `qwen3_tts/interface/generate.py` | CLI generation, progress display, post-gen menu, batch/SSML/SRT/dialogue, voice management | No (lazy) |
+| `qwen3_tts/interface/ui.py` | Gradio web UI: 6 tabs (Clone/Design/Custom/Create Voice/Manage Voices/Manage Models) | No (HTTP only) |
+| `qwen3_tts/tools/create_voice.py` | Voice clone prompt creation, saves .pt + .wav/.txt dual format | Yes (via engine) |
+| `qwen3_tts/cli.py` | Click-based unified CLI with subcommands | No (all lazy) |
 
 ### Design Principles
 
 - **Lazy imports everywhere** — neither `torch` nor `mlx` imported at module scope in any file
 - **Two conda envs** — `qwen3-tts` (torch) and `qwen3-tts-mlx` (mlx) due to `transformers` version conflict
 - **Three separate models** — Clone, Design, Custom are distinct HuggingFace models (~3.5GB torch, ~2.5GB MLX 8-bit each)
-- **Audio loader cache** — `_AUDIO_LOADER` global in voice_engine.py, read once at import, updated only via `set_audio_loader()` — no disk I/O in hot path
+- **Audio loader cache** — `_AUDIO_LOADER` global in `qwen3_tts/core/engine.py`, read once at import, updated only via `set_audio_loader()` — no disk I/O in hot path
 - **Thread-safe ASR** — `_asr_lock` + `_ensure_asr_torch_loaded()` prevents race conditions between preload thread and user requests
 - **CUDA auto-optimization** — `_apply_cuda_optimizations()` detects GPU compute capability and selects optimal attention (FA2 vs SDPA), dtype, quantization, and torch.compile settings
 - **MLX prompt migration** — `migrate_orphan_mlx_prompts()` runs at server startup (torch backend) to convert orphan .wav+.txt to .pt
@@ -57,25 +80,37 @@ config.json → voice_config.py → voice_engine.py (dispatch)
 
 ```
 ~/Qwen3-TTS_UserFiles/
-├── voice_config.py         # Config, constants, errors (no heavy imports)
-├── voice_engine.py         # Model loading, inference, audio processing
-├── voice_server.py         # Flask server (port 5123)
-├── voice_client.py         # HTTP client library
-├── voice_generate.py       # CLI generation
-├── voice_ui.py             # Gradio web UI (port 7860)
-├── create_custom_voice.py  # Voice clone creation
-├── config.json             # All settings
-├── install.sh              # Installation with hardware detection
-├── colab_notebook.ipynb    # Google Colab notebook
-├── requirements-mlx.txt    # MLX env dependencies
-├── requirements-cuda.txt   # CUDA/Colab dependencies
-├── voice_prompts/          # .pt (torch) + .wav/.txt (MLX) files
-├── bin/                    # Wrapper scripts (canonical, copied to ~/bin/)
-├── tests/test_voice.py     # 266 tests
-├── tests/test_audio_utils.py # 22 tests (audio processing, text chunking)
-├── tests/test_core_infra.py  # 31 tests (errors, caching, config, SSML)
-├── .voice_server.pid       # Runtime PID file
-└── .voice_server.log       # Runtime log file
+├── pyproject.toml              # Package metadata, Click entry points
+├── qwen3_tts/                  # Main package
+│   ├── __init__.py
+│   ├── cli.py                  # Click-based unified CLI with subcommands
+│   ├── core/
+│   │   ├── __init__.py
+│   │   ├── config.py           # Config, constants, errors (no heavy imports)
+│   │   └── engine.py           # Model loading, inference, audio processing
+│   ├── server/
+│   │   ├── __init__.py
+│   │   ├── app.py              # Flask server (port 5123)
+│   │   └── client.py           # HTTP client library
+│   ├── interface/
+│   │   ├── __init__.py
+│   │   ├── generate.py         # CLI generation
+│   │   └── ui.py               # Gradio web UI (port 7860)
+│   └── tools/
+│       ├── __init__.py
+│       └── create_voice.py     # Voice clone creation
+├── config.json                 # All settings
+├── install.sh                  # Installation with hardware detection
+├── colab_notebook.ipynb        # Google Colab notebook
+├── requirements-mlx.txt        # MLX env dependencies
+├── requirements-cuda.txt       # CUDA/Colab dependencies
+├── voice_prompts/              # .pt (torch) + .wav/.txt (MLX) files
+├── bin/                        # Wrapper scripts (canonical, copied to ~/bin/)
+├── tests/test_voice.py         # Test suite
+├── tests/test_audio_utils.py   # Audio processing, text chunking tests
+├── tests/test_core_infra.py    # Errors, caching, config, SSML tests
+├── .voice_server.pid           # Runtime PID file
+└── .voice_server.log           # Runtime log file
 ```
 
 ## Server API
@@ -175,16 +210,16 @@ All other endpoints require `Authorization: Bearer <token>` (token from `~/.voic
 | Conda env | `qwen3-tts-mlx` | `qwen3-tts` | pip install |
 | Audio play | `afplay` | `afplay` | `ffplay` |
 
-Platform constants in `voice_config.py`: `IN_COLAB`, `IS_MACOS`, `IS_LINUX`, `get_device()`
+Platform constants in `qwen3_tts/core/config.py`: `IN_COLAB`, `IS_MACOS`, `IS_LINUX`, `get_device()`
 
 ## Caching (4 layers)
 
 | Cache | Location | Strategy | Invalidation |
 |-------|----------|----------|-------------|
-| Voice prompt | voice_engine.py | LRU(10) torch .pt / dict for MLX .wav | `clear_voice_prompt_cache()` |
-| ETA | voice_server.py | 30s TTL, avoids .jsonl reads per poll | Auto-expires |
-| Generation result | voice_server.py | 5 entries, SHA256 key (text+mode+params) | Model config change, manual |
-| Audio loader | voice_engine.py | `_AUDIO_LOADER` global, no disk I/O | `set_audio_loader()` only |
+| Voice prompt | `qwen3_tts/core/engine.py` | LRU(10) torch .pt / dict for MLX .wav | `clear_voice_prompt_cache()` |
+| ETA | `qwen3_tts/server/app.py` | 30s TTL, avoids .jsonl reads per poll | Auto-expires |
+| Generation result | `qwen3_tts/server/app.py` | 5 entries, SHA256 key (text+mode+params) | Model config change, manual |
+| Audio loader | `qwen3_tts/core/engine.py` | `_AUDIO_LOADER` global, no disk I/O | `set_audio_loader()` only |
 
 ## Logging
 
@@ -209,7 +244,7 @@ CLI and UI parse the `recovery` field to show actionable guidance.
 python -m unittest discover -v tests/
 ```
 
-319 tests across 3 files (test_voice.py, test_audio_utils.py, test_core_infra.py). No GPU, models, or running server required. Tests auto-skip when optional deps (`soundfile`, `gradio`, `flask`) are missing — run in a conda env for full coverage.
+334+ tests across 3 files (test_voice.py, test_audio_utils.py, test_core_infra.py). No GPU, models, or running server required. Tests auto-skip when optional deps (`soundfile`, `gradio`, `flask`, `click`) are missing — run in a conda env for full coverage.
 
 ## Models
 
@@ -227,7 +262,7 @@ python -m unittest discover -v tests/
 
 ## Hardware Optimization (CUDA)
 
-`_apply_cuda_optimizations()` in `voice_engine.py` auto-detects GPU and applies optimal settings:
+`_apply_cuda_optimizations()` in `qwen3_tts/core/engine.py` auto-detects GPU and applies optimal settings:
 
 | GPU | Compute Cap | Attention | dtype | Quantization | torch.compile |
 |-----|------------|-----------|-------|-------------|---------------|
@@ -236,4 +271,4 @@ python -m unittest discover -v tests/
 | A100 (Colab Pro+) | 8.0 | Flash Attention 2 | bfloat16 | None needed | Yes |
 | Non-CUDA | N/A | SDPA | float32 | N/A | No |
 
-`get_cuda_capability()` and `get_optimal_attn_config()` in `voice_config.py` expose hardware detection. The Colab notebook auto-configures based on detected GPU tier.
+`get_cuda_capability()` and `get_optimal_attn_config()` in `qwen3_tts/core/config.py` expose hardware detection. The Colab notebook auto-configures based on detected GPU tier.
