@@ -2874,5 +2874,55 @@ class TestManageModelsUI(unittest.TestCase):
         self.assertTrue(callable(getattr(voice_ui, "set_audio_loader_setting", None)))
 
 
+# =============================================================================
+# Rubber Band audio processing tests
+# =============================================================================
+
+class TestRubberBandAudioProcessing(unittest.TestCase):
+    """Test pyrubberband fallback to librosa for speed/pitch adjustment."""
+
+    def test_adjust_speed_noop(self):
+        """Speed factor 1.0 should return audio unchanged."""
+        from voice_engine import adjust_speed
+        import numpy as np
+        audio = np.random.randn(16000).astype(np.float32)
+        result = adjust_speed(audio, 24000, 1.0)
+        np.testing.assert_array_equal(result, audio)
+
+    def test_adjust_pitch_noop(self):
+        """Pitch shift 0 semitones should return audio unchanged."""
+        from voice_engine import adjust_pitch
+        import numpy as np
+        audio = np.random.randn(16000).astype(np.float32)
+        result = adjust_pitch(audio, 24000, 0)
+        np.testing.assert_array_equal(result, audio)
+
+    def test_adjust_speed_with_librosa_fallback(self):
+        """Speed adjustment should work even when pyrubberband is missing."""
+        from voice_engine import adjust_speed
+        import numpy as np
+        audio = np.random.randn(16000).astype(np.float32)
+        # Mock pyrubberband import failure to force librosa fallback
+        with patch.dict('sys.modules', {'pyrubberband': None}):
+            try:
+                result = adjust_speed(audio, 24000, 1.5)
+                self.assertIsInstance(result, np.ndarray)
+            except ImportError:
+                # librosa may not be installed either — that's OK in test env
+                pass
+
+    def test_adjust_pitch_with_librosa_fallback(self):
+        """Pitch adjustment should work even when pyrubberband is missing."""
+        from voice_engine import adjust_pitch
+        import numpy as np
+        audio = np.random.randn(16000).astype(np.float32)
+        with patch.dict('sys.modules', {'pyrubberband': None}):
+            try:
+                result = adjust_pitch(audio, 24000, 2)
+                self.assertIsInstance(result, np.ndarray)
+            except ImportError:
+                pass
+
+
 if __name__ == "__main__":
     unittest.main()

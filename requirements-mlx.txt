@@ -12,3 +12,4 @@ pydub
 requests
 gradio
 watchdog
+pyrubberband
