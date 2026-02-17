@@ -119,7 +119,8 @@ All other endpoints require `Authorization: Bearer <token>` (token from `~/.voic
   "security": { "max_text_length": 10000, "max_batch_size": 20 },
   "generation": {
     "temperature": 0.7, "top_k": 50, "top_p": 0.95,
-    "repetition_penalty": 1.05, "seed": null, "max_chunk_chars": 500
+    "repetition_penalty": 1.05, "seed": null, "max_chunk_chars": 500,
+    "max_new_tokens": 2048
   },
   "presets": {
     "consistent": { "temperature": 0.5, "top_k": 30, "seed": 42 },

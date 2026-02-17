@@ -410,6 +410,7 @@ class TTSClient:
         normalize=False,
         trim_silence=False,
         x_vector_only_mode=False,
+        max_new_tokens=None,
     ):
         """Generate speech from text via the server.
 
@@ -475,6 +476,7 @@ class TTSClient:
             "top_k": top_k if top_k is not None else gen_config.get("top_k", 50),
             "top_p": top_p if top_p is not None else gen_config.get("top_p", 0.95),
             "repetition_penalty": repetition_penalty if repetition_penalty is not None else gen_config.get("repetition_penalty", 1.05),
+            "max_new_tokens": max_new_tokens if max_new_tokens is not None else gen_config.get("max_new_tokens", 2048),
         }
 
         if seed is not None:
@@ -570,6 +572,7 @@ class TTSClient:
         seed=None,
         repetition_penalty=None,
         x_vector_only_mode=False,
+        max_new_tokens=None,
     ):
         """Generate speech with streaming, yielding audio chunks as they're produced.
 
@@ -619,6 +622,7 @@ class TTSClient:
             "top_k": top_k if top_k is not None else gen_config.get("top_k", 50),
             "top_p": top_p if top_p is not None else gen_config.get("top_p", 0.95),
             "repetition_penalty": repetition_penalty if repetition_penalty is not None else gen_config.get("repetition_penalty", 1.05),
+            "max_new_tokens": max_new_tokens if max_new_tokens is not None else gen_config.get("max_new_tokens", 2048),
         }
 
         if seed is not None:
