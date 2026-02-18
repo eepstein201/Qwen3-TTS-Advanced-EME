@@ -23,6 +23,11 @@ txt_prompts/
 voice_prompts/
 *.pt
 
+# Build artifacts
+*.egg-info/
+dist/
+build/
+
 # Environment
 .env
 .venv/
