@@ -793,5 +793,57 @@ class TestAppHelperFunctions(unittest.TestCase):
             self.assertIsNotNone(error)
 
 
+# =========================================================================
+# build_ui_and_launch Tests
+# =========================================================================
+
+class TestBuildUIAndLaunch(unittest.TestCase):
+    """build_ui_and_launch should respect TTS_UI_NO_BROWSER and TTS_UI_SHARE env vars."""
+
+    @unittest.mock.patch('qwen3_tts.interface.ui._find_available_port', return_value=7860)
+    @unittest.mock.patch('qwen3_tts.interface.ui.build_ui')
+    def test_inbrowser_true_by_default(self, mock_build_ui, _mock_port):
+        """Browser should open by default when TTS_UI_NO_BROWSER is not set."""
+        mock_demo = MagicMock()
+        mock_build_ui.return_value = mock_demo
+        config = {"ui": {"port": 7860}}
+        clean_env = {k: v for k, v in os.environ.items()
+                     if k not in ('TTS_UI_NO_BROWSER', 'TTS_UI_SHARE')}
+        with unittest.mock.patch.dict(os.environ, clean_env, clear=True):
+            from qwen3_tts.interface.generate import build_ui_and_launch
+            build_ui_and_launch(config)
+        call_kwargs = mock_demo.launch.call_args[1]
+        self.assertTrue(call_kwargs.get('inbrowser'),
+                        "Expected inbrowser=True when TTS_UI_NO_BROWSER is not set")
+
+    @unittest.mock.patch('qwen3_tts.interface.ui._find_available_port', return_value=7860)
+    @unittest.mock.patch('qwen3_tts.interface.ui.build_ui')
+    def test_inbrowser_false_when_no_browser_set(self, mock_build_ui, _mock_port):
+        """Browser should NOT open when TTS_UI_NO_BROWSER=1."""
+        mock_demo = MagicMock()
+        mock_build_ui.return_value = mock_demo
+        config = {"ui": {"port": 7860}}
+        with unittest.mock.patch.dict(os.environ, {'TTS_UI_NO_BROWSER': '1'}):
+            from qwen3_tts.interface.generate import build_ui_and_launch
+            build_ui_and_launch(config)
+        call_kwargs = mock_demo.launch.call_args[1]
+        self.assertFalse(call_kwargs.get('inbrowser'),
+                         "Expected inbrowser=False when TTS_UI_NO_BROWSER=1")
+
+    @unittest.mock.patch('qwen3_tts.interface.ui._find_available_port', return_value=7860)
+    @unittest.mock.patch('qwen3_tts.interface.ui.build_ui')
+    def test_share_true_when_env_var_set(self, mock_build_ui, _mock_port):
+        """Share should be True when TTS_UI_SHARE=1."""
+        mock_demo = MagicMock()
+        mock_build_ui.return_value = mock_demo
+        config = {"ui": {"port": 7860}}
+        with unittest.mock.patch.dict(os.environ, {'TTS_UI_SHARE': '1', 'TTS_UI_NO_BROWSER': '1'}):
+            from qwen3_tts.interface.generate import build_ui_and_launch
+            build_ui_and_launch(config)
+        call_kwargs = mock_demo.launch.call_args[1]
+        self.assertTrue(call_kwargs.get('share'),
+                        "Expected share=True when TTS_UI_SHARE=1")
+
+
 if __name__ == "__main__":
     unittest.main()
