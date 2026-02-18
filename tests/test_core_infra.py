@@ -463,5 +463,66 @@ class TestEnsureServerRunning(unittest.TestCase):
         self.assertIn("qwen3_tts/server/app.py", source)
 
 
+# =========================================================================
+# Deprecated Command Reference Tests
+# =========================================================================
+
+_DEPRECATED_COMMANDS = [
+    "startTTSServer", "stopTTSServer", "changeVoice",
+    "createVoice", "ttsUI", "configureTTS",
+]
+
+
+@_skip_generate
+class TestDeprecatedRefsGenerate(unittest.TestCase):
+    """generate.py must not contain deprecated command names in user messages."""
+
+    def test_no_deprecated_commands(self):
+        from qwen3_tts.interface import generate
+        source = inspect.getsource(generate)
+        for cmd in _DEPRECATED_COMMANDS:
+            self.assertNotIn(cmd, source, f"Found deprecated '{cmd}' in generate.py")
+
+
+class TestDeprecatedRefsEngine(unittest.TestCase):
+    """engine.py must not contain deprecated command names."""
+
+    def test_no_deprecated_commands(self):
+        from qwen3_tts.core import engine
+        source = inspect.getsource(engine)
+        for cmd in _DEPRECATED_COMMANDS:
+            self.assertNotIn(cmd, source, f"Found deprecated '{cmd}' in engine.py")
+
+
+class TestDeprecatedRefsCreateVoice(unittest.TestCase):
+    """create_voice.py must not contain deprecated command names."""
+
+    def test_no_deprecated_commands(self):
+        from qwen3_tts.tools import create_voice
+        source = inspect.getsource(create_voice)
+        for cmd in _DEPRECATED_COMMANDS:
+            self.assertNotIn(cmd, source, f"Found deprecated '{cmd}' in create_voice.py")
+
+
+try:
+    import gradio  # noqa: F401
+    HAS_GRADIO = True
+except ImportError:
+    HAS_GRADIO = False
+
+_skip_gradio = unittest.skipUnless(HAS_GRADIO, "requires gradio")
+
+
+@_skip_gradio
+class TestDeprecatedRefsUI(unittest.TestCase):
+    """ui.py must not contain deprecated command names."""
+
+    def test_no_deprecated_commands(self):
+        from qwen3_tts.interface import ui
+        source = inspect.getsource(ui)
+        for cmd in _DEPRECATED_COMMANDS:
+            self.assertNotIn(cmd, source, f"Found deprecated '{cmd}' in ui.py")
+
+
 if __name__ == "__main__":
     unittest.main()

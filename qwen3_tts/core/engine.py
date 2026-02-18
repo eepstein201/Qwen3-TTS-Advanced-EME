@@ -627,7 +627,7 @@ def _run_inference_mlx(model, text, mode, gen_params, language="English",
             raise TypeError(
                 "MLX clone mode requires a voice prompt dict with 'ref_audio' "
                 "and 'ref_text' keys. Torch .pt prompts are not compatible "
-                "with the MLX backend. Re-create the prompt with 'createVoice' "
+                "with the MLX backend. Re-create the prompt with 'tts voice create' "
                 "to generate MLX-compatible files (.wav + .txt)."
             )
 
@@ -815,7 +815,7 @@ def load_voice_prompt_mlx(prompt_name):
             raise FileNotFoundError(
                 f"Voice prompt '{base}' only has a .pt file (torch format). "
                 f"The MLX backend requires .wav and .txt files. "
-                f"Re-create the prompt with 'createVoice' to generate "
+                f"Re-create the prompt with 'tts voice create' to generate "
                 f"MLX-compatible files."
             )
         raise FileNotFoundError(

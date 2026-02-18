@@ -590,7 +590,7 @@ class TestMLXVoicePrompt(unittest.TestCase):
             with self.assertRaises(FileNotFoundError) as ctx:
                 load_voice_prompt_mlx("legacy")
             self.assertIn("only has a .pt file", str(ctx.exception))
-            self.assertIn("createVoice", str(ctx.exception))
+            self.assertIn("tts voice create", str(ctx.exception))
 
     def test_load_voice_prompt_dispatch_torch(self):
         """load_voice_prompt dispatches to torch backend."""
@@ -712,7 +712,7 @@ class TestMLXInferenceCloneValidation(unittest.TestCase):
                 voice_prompt="some_tensor_object",
             )
         self.assertIn("MLX clone mode requires a voice prompt dict", str(ctx.exception))
-        self.assertIn("createVoice", str(ctx.exception))
+        self.assertIn("tts voice create", str(ctx.exception))
 
 
 # =============================================================================

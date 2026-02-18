@@ -3,9 +3,7 @@
 Qwen3-TTS Web Interface - Gradio-based UI for TTS generation.
 
 Launch with:
-    ttsUI
-    # or
-    python ~/Qwen3-TTS_UserFiles/voice_ui.py
+    tts ui
 
 Opens a web browser at http://localhost:7860
 """
@@ -200,7 +198,7 @@ def apply_model_settings(model_size, mlx_quantization):
     client = TTSClient()
 
     if not client.is_server_running():
-        return "Error: Server not running. Start with 'startTTSServer'.", format_status_display()
+        return "Error: Server not running. Start with 'tts server start'.", format_status_display()
 
     try:
         result = client.update_model_config(
@@ -619,7 +617,7 @@ def _generate_non_streaming_impl(mode, text, preset, temperature, top_k, top_p, 
 
     client = TTSClient()
     if not client.is_server_running():
-        return None, "Error: TTS server is not running. Start it with 'startTTSServer'.", gr.update(), gr.update()
+        return None, "Error: TTS server is not running. Start it with 'tts server start'.", gr.update(), gr.update()
 
     try:
         _ensure_model_loaded(client, mode, progress)
@@ -666,7 +664,7 @@ def _generate_non_streaming_impl(mode, text, preset, temperature, top_k, top_p, 
     except Exception as e:
         error_msg = str(e)
         if "restart" in error_msg.lower() or "not running" in error_msg.lower():
-            gr.Warning("Server issue — try restarting with 'startTTSServer'")
+            gr.Warning("Server issue — try restarting with 'tts server start'")
         return None, f"Error: {error_msg}", format_status_display(), gr.update()
 
 
@@ -1584,13 +1582,13 @@ def build_ui():
         gr.Markdown("""
         ---
         **Tips:**
-        - Start the TTS server first: `startTTSServer`
+        - Start the TTS server first: `tts server start`
         - Models auto-load on first use — no need to pre-load all three
         - Use **Model Settings** above to switch between model sizes (0.6B/1.7B) and quantizations (4bit/8bit/bf16)
         - Clone mode uses a voice prompt (.pt for PyTorch, .wav+.txt for MLX)
         - Design mode creates voices from text descriptions
         - Custom mode uses premium pre-trained speakers
-        - Run `configureTTS` to optimize settings for your hardware
+        - Run `tts config` to optimize settings for your hardware
         """)
 
     # Preload ASR model in background (non-blocking)
@@ -1659,7 +1657,7 @@ def main():
         print("WARNING: TTS Server is not running!")
         print("=" * 60)
         print("\nStart the server first for best experience:")
-        print("  startTTSServer")
+        print("  tts server start")
         print("\nThe UI will still load, but generation will fail until")
         print("the server is running.")
         print("=" * 60 + "\n")

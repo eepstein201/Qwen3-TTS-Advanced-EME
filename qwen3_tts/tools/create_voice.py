@@ -73,7 +73,7 @@ def create_and_save_voice_prompt(audio_path, transcript, prompt_name,
         # Clean up temp and exit early — no torch needed
         if wav_path and os.path.exists(wav_path):
             os.remove(wav_path)
-        print(f"\nDone (MLX-only mode)! Use with: changeVoice -p {prompt_name} \"Your text here\"")
+        print(f"\nDone (MLX-only mode)! Use with: tts -p {prompt_name} \"Your text here\"")
         return mlx_wav_path
 
     # --- Save PyTorch .pt file (requires torch + qwen-tts) ---
@@ -117,7 +117,7 @@ def create_and_save_voice_prompt(audio_path, transcript, prompt_name,
     if wav_path and os.path.exists(wav_path):
         os.remove(wav_path)
 
-    print(f"\nDone! Use with: changeVoice -p {prompt_name} \"Your text here\"")
+    print(f"\nDone! Use with: tts -p {prompt_name} \"Your text here\"")
     print(f"  (Works with both torch and MLX backends)")
     return output_path
 
@@ -126,10 +126,10 @@ def main():
     parser = argparse.ArgumentParser(
         description="Create a custom voice clone prompt from reference audio",
         epilog="""Examples:
-  createVoice audio.wav -t "Hello world" -n my_voice
-  createVoice audio.m4a -t transcript.txt -n my_voice --mlx-only
-  createVoice audio.wav -n my_voice --auto-transcribe  # MLX ASR
-  createVoice                                          # Interactive mode
+  tts voice create audio.wav -t "Hello world" -n my_voice
+  tts voice create audio.m4a -t transcript.txt -n my_voice --mlx-only
+  tts voice create audio.wav -n my_voice --auto-transcribe  # MLX ASR
+  tts voice create                                          # Interactive mode
 """,
     )
     parser.add_argument("audio", nargs="?", help="Path to reference audio file")

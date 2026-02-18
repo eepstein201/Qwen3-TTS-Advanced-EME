@@ -327,7 +327,7 @@ def preview_voice_prompt(prompt_name, config):
             print(f"Error: {error_msg}")
             return False
     else:
-        print("Error: TTS server must be running for preview. Start with 'startTTSServer'.")
+        print("Error: TTS server must be running for preview. Start with 'tts server start'.")
         return False
 
 
@@ -731,7 +731,7 @@ def generate_via_server(texts, mode, config, gen_params,
         if detail:
             msg += f" [{detail}]"
         if recovery == "restart":
-            msg += "\n  Suggestion: Try restarting the server with 'startTTSServer'."
+            msg += "\n  Suggestion: Try restarting the server with 'tts server start'."
         elif recovery == "config":
             msg += f"\n  Suggestion: Check your configuration in {CONFIG_PATH}."
         elif recovery == "retry":
@@ -864,7 +864,7 @@ def generate_local(text, mode, gen_params, language="English",
                 base = prompt_file[:-3] if prompt_file.endswith(".pt") else prompt_file
                 print(f"Error: MLX voice prompt not found for '{base}'.")
                 print(f"  Need: voice_prompts/{base}.wav + voice_prompts/{base}.txt")
-                print(f"  Create with: createVoice <audio> -t <transcript> -n {base} --mlx-only")
+                print(f"  Create with: tts voice create <audio> -t <transcript> -n {base} --mlx-only")
             else:
                 print(f"Error: Voice prompt not found: {os.path.join(VOICE_PROMPTS_DIR, prompt_file)}")
             sys.exit(1)
@@ -1675,7 +1675,7 @@ def main():
                 print(f"  {mt}: {info['name']}")
         print()
         print(f"To change: edit {CONFIG_PATH} -> advanced.backend")
-        print("Or use: changeVoice --backend mlx \"text\" -o output")
+        print("Or use: tts --backend mlx \"text\" -o output")
         return False
 
     if args.list_prompts or args.voices:
@@ -1716,7 +1716,7 @@ def main():
         for name, text in sorted(presets.items()):
             print(f"  {name:<18} {text}")
         print()
-        print("Example: changeVoice -m custom -s ryan --prosody excited \"Hello!\" -o output")
+        print("Example: tts -m custom -s ryan --prosody excited \"Hello!\" -o output")
         print(f"\nCustomize in {CONFIG_PATH} under 'prosody_presets'.")
         return False
 
@@ -1738,7 +1738,7 @@ def main():
             if info["lang"] not in ("English", "Chinese"):
                 print(f"    {key:<12} - {info['desc']} ({info['lang']})")
         print()
-        print("Example: changeVoice 'Hello world' -m custom -s ryan -o output")
+        print("Example: tts 'Hello world' -m custom -s ryan -o output")
         return False
 
     if args.list_models:
@@ -1803,7 +1803,7 @@ def main():
             else:
                 print("Error: Failed to get stats")
         else:
-            print("Server not running. Start with 'startTTSServer'.")
+            print("Server not running. Start with 'tts server start'.")
         return False
 
     if args.edit_config:
