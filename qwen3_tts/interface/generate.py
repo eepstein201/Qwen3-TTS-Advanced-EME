@@ -20,7 +20,6 @@ import time
 import requests
 
 logger = logging.getLogger("tts.cli")
-import soundfile as sf
 
 from qwen3_tts.core.config import (
     CONFIG_PATH,
@@ -743,6 +742,7 @@ def generate_streaming(text, mode, config, gen_params, output_path,
     import subprocess
     import tempfile
     import numpy as np
+    import soundfile as sf
 
     url = get_server_url(config)
 
@@ -890,6 +890,7 @@ def generate_local(text, mode, gen_params, language="English",
 
 def run_repl(config, use_server):
     """Run interactive REPL mode for rapid TTS iteration."""
+    import soundfile as sf
     print("\n=== TTS REPL Mode ===")
     print("Commands:")
     print("  Type text to generate speech")
@@ -1074,6 +1075,7 @@ def run_watch_mode(watch_dir, config, args, gen_params, use_server):
 
     class TTSHandler(FileSystemEventHandler):
         def on_created(self, event):
+            import soundfile as sf
             if event.is_directory or not event.src_path.endswith(".txt"):
                 return
             if event.src_path in processed_files:
@@ -1149,6 +1151,7 @@ def run_watch_mode(watch_dir, config, args, gen_params, use_server):
 def process_dialogue(dialogue_path, config, args, gen_params, use_server):
     """Process a dialogue JSON file with multiple speakers."""
     import numpy as np
+    import soundfile as sf
     with open(dialogue_path, "r") as f:
         data = json.load(f)
 
@@ -1292,6 +1295,7 @@ def process_dialogue(dialogue_path, config, args, gen_params, use_server):
 def process_srt_file(srt_path, config, args, gen_params, use_server):
     """Process an SRT file and generate audio for each subtitle."""
     import numpy as np
+    import soundfile as sf
     entries = parse_srt(srt_path)
     if not entries:
         print(f"Error: No subtitles found in {srt_path}")
@@ -1400,6 +1404,7 @@ def get_generation_params(args, config):
 
 def interactive_mode(use_server, config, gen_params):
     """Run in interactive mode with prompts."""
+    import soundfile as sf
     print("\n=== Qwen3-TTS Generator ===\n")
 
     print("How would you like to generate speech?")
@@ -1490,6 +1495,7 @@ def interactive_mode(use_server, config, gen_params):
 
 def process_batch(texts, args, config, gen_params, use_server):
     """Process multiple texts."""
+    import soundfile as sf
     output_dir = os.path.expanduser(args.output or config.get("output_directory", "~/Downloads"))
     if not os.path.isdir(output_dir):
         os.makedirs(output_dir, exist_ok=True)
@@ -1544,6 +1550,7 @@ def process_batch(texts, args, config, gen_params, use_server):
 # ---------------------------------------------------------------------------
 
 def main():
+    import soundfile as sf
     parser = argparse.ArgumentParser(description="Qwen3-TTS Generator")
     parser.add_argument("text", nargs="*", help="Text(s) to synthesize or path to text file")
     parser.add_argument("-o", "--output", help="Output filename or directory for batch")
