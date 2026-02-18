@@ -1417,7 +1417,7 @@ if __name__ == "__main__":
     if get_backend() == "torch":
         try:
             from qwen3_tts.core.engine import migrate_orphan_mlx_prompts
-            migrate_orphan_mlx_prompts()
+            migrate_orphan_mlx_prompts(clone_model=clone_model)
         except Exception as e:
             logger.warning("MLX prompt migration failed: %s", e)
 

@@ -288,20 +288,39 @@ def voice_prompt_cache_info():
     return _load_voice_prompt_torch.cache_info()
 
 
-def migrate_orphan_mlx_prompts():
+def migrate_orphan_mlx_prompts(clone_model=None):
     """Scan voice_prompts/ for .wav+.txt without .pt and auto-create .pt files.
+
     Supports users migrating from Mac (MLX) to Colab (PyTorch).
+
+    Args:
+        clone_model: Optional pre-loaded clone model. If None, loads on demand.
     """
     import glob
+    import torch
+
     wav_files = glob.glob(os.path.join(VOICE_PROMPTS_DIR, "*.wav"))
     migrated = 0
+    model = None  # Lazy: only load if migration needed and no model passed
     for wav_path in wav_files:
         base = os.path.splitext(os.path.basename(wav_path))[0]
         pt_path = os.path.join(VOICE_PROMPTS_DIR, f"{base}.pt")
         if not os.path.exists(pt_path):
             logger.info("Migrating orphan MLX prompt: %s", base)
             try:
-                _load_voice_prompt_torch(f"{base}.pt")
+                if model is None:
+                    model = clone_model or load_model("clone")
+                ref_audio, ref_sr = load_audio_for_cloning(wav_path)
+                transcript = ""
+                txt_path = os.path.join(VOICE_PROMPTS_DIR, f"{base}.txt")
+                if os.path.exists(txt_path):
+                    with open(txt_path, "r") as f:
+                        transcript = f.read().strip()
+                if not transcript:
+                    logger.warning("No transcript for %s, using empty string", base)
+                voice_prompt = create_voice_prompt(model, ref_audio, ref_sr, transcript)
+                torch.save(voice_prompt, pt_path)
+                logger.info("Auto-created and saved %s", pt_path)
                 migrated += 1
             except Exception as e:
                 logger.warning("Failed to migrate prompt '%s': %s", base, e)

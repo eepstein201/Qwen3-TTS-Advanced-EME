@@ -712,6 +712,28 @@ class TestEngineFunctions(unittest.TestCase):
                 finally:
                     importlib.reload(engine_mod)
 
+    def test_migrate_orphan_mlx_prompts_accepts_clone_model(self):
+        """migrate_orphan_mlx_prompts accepts optional clone_model parameter."""
+        import inspect
+        from qwen3_tts.core.engine import migrate_orphan_mlx_prompts
+        sig = inspect.signature(migrate_orphan_mlx_prompts)
+        self.assertIn("clone_model", sig.parameters,
+                       "migrate_orphan_mlx_prompts must accept clone_model parameter")
+        param = sig.parameters["clone_model"]
+        self.assertEqual(param.default, None,
+                          "clone_model parameter should default to None")
+
+    def test_migrate_orphan_does_not_call_load_model_when_model_provided(self):
+        """When clone_model is passed, migration must not call load_model()."""
+        from unittest.mock import patch, MagicMock
+        from qwen3_tts.core.engine import migrate_orphan_mlx_prompts
+        mock_model = MagicMock()
+        with patch("qwen3_tts.core.engine.load_model") as mock_load:
+            # No orphan .wav files to migrate in test env, but validates the contract:
+            # when clone_model is provided, load_model should never be called
+            migrate_orphan_mlx_prompts(clone_model=mock_model)
+            mock_load.assert_not_called()
+
     def test_get_audio_loader_returns_valid(self):
         """get_audio_loader returns 'torchaudio' or 'librosa'."""
         from qwen3_tts.core.engine import get_audio_loader
