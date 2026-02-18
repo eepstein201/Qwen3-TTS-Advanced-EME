@@ -797,6 +797,7 @@ class TestAppHelperFunctions(unittest.TestCase):
 # build_ui_and_launch Tests
 # =========================================================================
 
+@_skip_gradio
 class TestBuildUIAndLaunch(unittest.TestCase):
     """build_ui_and_launch should respect TTS_UI_NO_BROWSER and TTS_UI_SHARE env vars."""
 
@@ -884,6 +885,7 @@ class TestBuildUIAndLaunch(unittest.TestCase):
 # get_server_status Tests
 # =========================================================================
 
+@_skip_gradio
 class TestGetServerStatus(unittest.TestCase):
     """get_server_status() should correctly parse stats response."""
 
@@ -923,6 +925,8 @@ class TestGetServerStatus(unittest.TestCase):
         }
         from qwen3_tts.interface.ui import get_server_status
         _, memory, models, _ = get_server_status()
+        self.assertEqual(memory, "0.0MB",
+            "0.0 MB must be used directly, not skipped as falsy")
         self.assertEqual(models, "Clone")
 
     @unittest.mock.patch('qwen3_tts.interface.ui.TTSClient')
