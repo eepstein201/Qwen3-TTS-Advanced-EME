@@ -438,8 +438,13 @@ def stats():
     if backend == "mlx":
         try:
             import mlx.core as mx
-            active_mem = mx.metal.get_active_memory()
-            peak_mem = mx.metal.get_peak_memory()
+            try:
+                active_mem = mx.get_active_memory()
+                peak_mem = mx.get_peak_memory()
+            except AttributeError:
+                # Fallback for older MLX versions
+                active_mem = mx.metal.get_active_memory()
+                peak_mem = mx.metal.get_peak_memory()
             stats_data["mlx_memory_active_mb"] = round(active_mem / (1024 * 1024), 2)
             stats_data["mlx_memory_peak_mb"] = round(peak_mem / (1024 * 1024), 2)
         except Exception:
