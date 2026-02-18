@@ -2164,7 +2164,7 @@ class TestDeletePromptEndpoint(unittest.TestCase):
         resp = self.client.post("/delete-prompt", json={"name": "../etc/passwd"},
                                 headers=self.auth)
         self.assertEqual(resp.status_code, 400)
-        self.assertIn("path traversal", resp.get_json()["error"])
+        self.assertIn("Invalid prompt name", resp.get_json()["error"])
 
     def test_delete_nonexistent(self):
         """POST /delete-prompt returns 404 for missing prompt."""
