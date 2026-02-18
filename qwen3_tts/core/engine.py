@@ -415,7 +415,7 @@ def _load_model_torch(model_type):
             load_kwargs = dict(
                 attn_implementation=attn_impl,
                 device_map=device_map,
-                torch_dtype=torch_dtype,
+                dtype=torch_dtype,
             )
             if load_in_8bit:
                 load_kwargs["load_in_8bit"] = True

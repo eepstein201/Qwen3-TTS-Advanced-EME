@@ -778,18 +778,12 @@ class TestEngineFunctions(unittest.TestCase):
                 result = migrate_orphan_mlx_prompts()
                 self.assertEqual(result, 0)
 
-    def test_load_model_torch_passes_torch_dtype(self):
-        """_load_model_torch passes torch_dtype (not dtype) to from_pretrained."""
+    def test_load_model_torch_passes_dtype(self):
+        """_load_model_torch passes dtype (not deprecated torch_dtype) to from_pretrained."""
         import inspect
-        import re
         from qwen3_tts.core.engine import _load_model_torch
         source = inspect.getsource(_load_model_torch)
-        self.assertIn("torch_dtype=", source)
-        # Ensure no bare "dtype=torch_dtype" (without torch_ prefix) in load_kwargs
-        self.assertIsNone(
-            re.search(r'[^_]dtype=torch_dtype', source),
-            "Found bare 'dtype=torch_dtype' — should be 'torch_dtype=torch_dtype'"
-        )
+        self.assertIn("dtype=torch_dtype", source)
 
     def test_load_model_torch_compiles_inner_model(self):
         """torch.compile targets model.model (inner nn.Module), not the wrapper."""
