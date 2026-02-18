@@ -84,12 +84,12 @@ _start_server() {
     echo "Starting TTS Server..."
     echo "This will load the models into memory (may take 30-60 seconds)..."
 
-    local server_args=""
+    local -a server_args=()
     if [[ "${TTS_SERVER_PUBLIC:-}" == "1" ]]; then
-        server_args="--public"
+        server_args+=("--public")
     fi
 
-    nohup python "$USER_FILES/qwen3_tts/server/app.py" $server_args > "$LOG_FILE" 2>&1 &
+    nohup python "$USER_FILES/qwen3_tts/server/app.py" "${server_args[@]}" > "$LOG_FILE" 2>&1 &
 
     echo "Waiting for server to be ready..."
     for i in {1..120}; do
