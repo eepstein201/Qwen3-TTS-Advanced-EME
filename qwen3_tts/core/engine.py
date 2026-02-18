@@ -329,8 +329,14 @@ def _apply_cuda_optimizations(config):
 
     if capability[0] >= 8:
         # Ampere+ (A100, A10G, RTX 30xx, etc.)
+        from qwen3_tts.core.config import _has_flash_attn
+        if _has_flash_attn():
+            attn_impl = "flash_attention_2"
+        else:
+            attn_impl = "sdpa"
+            logger.info("flash_attn not installed — using SDPA attention (still fast on Ampere+)")
         should_compile = config.get("generation", {}).get("compile_model", True)
-        return ("flash_attention_2", torch.bfloat16, should_compile)
+        return (attn_impl, torch.bfloat16, should_compile)
     else:
         # Turing / T4 (capability 7.x)
         should_compile = config.get("generation", {}).get("compile_model", False)
