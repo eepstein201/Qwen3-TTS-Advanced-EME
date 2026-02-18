@@ -844,6 +844,41 @@ class TestBuildUIAndLaunch(unittest.TestCase):
         self.assertTrue(call_kwargs.get('share'),
                         "Expected share=True when TTS_UI_SHARE=1")
 
+    @unittest.mock.patch('qwen3_tts.interface.ui._find_available_port', return_value=7860)
+    @unittest.mock.patch('qwen3_tts.interface.ui.build_ui')
+    def test_share_false_by_default(self, mock_build_ui, _mock_port):
+        """Share should be False by default when TTS_UI_SHARE is not set."""
+        mock_demo = MagicMock()
+        mock_build_ui.return_value = mock_demo
+        config = {"ui": {"port": 7860}}
+        clean_env = {k: v for k, v in os.environ.items()
+                     if k not in ('TTS_UI_NO_BROWSER', 'TTS_UI_SHARE')}
+        with unittest.mock.patch.dict(os.environ, clean_env, clear=True):
+            from qwen3_tts.interface.generate import build_ui_and_launch
+            build_ui_and_launch(config)
+        call_kwargs = mock_demo.launch.call_args[1]
+        self.assertFalse(call_kwargs.get('share'),
+                         "Expected share=False when TTS_UI_SHARE is not set")
+
+    @unittest.mock.patch('qwen3_tts.core.config.IN_COLAB', True)
+    @unittest.mock.patch('qwen3_tts.interface.ui._find_available_port', return_value=7860)
+    @unittest.mock.patch('qwen3_tts.interface.ui.build_ui')
+    def test_colab_forces_share_and_disables_browser(self, mock_build_ui, _mock_port):
+        """In Colab, share=True and inbrowser=False regardless of env vars."""
+        mock_demo = MagicMock()
+        mock_build_ui.return_value = mock_demo
+        config = {"ui": {"port": 7860}}
+        clean_env = {k: v for k, v in os.environ.items()
+                     if k not in ('TTS_UI_NO_BROWSER', 'TTS_UI_SHARE')}
+        with unittest.mock.patch.dict(os.environ, clean_env, clear=True):
+            from qwen3_tts.interface.generate import build_ui_and_launch
+            build_ui_and_launch(config)
+        call_kwargs = mock_demo.launch.call_args[1]
+        self.assertTrue(call_kwargs.get('share'),
+                        "Expected share=True in Colab environment")
+        self.assertFalse(call_kwargs.get('inbrowser'),
+                         "Expected inbrowser=False in Colab environment")
+
 
 if __name__ == "__main__":
     unittest.main()
