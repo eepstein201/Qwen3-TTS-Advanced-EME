@@ -293,15 +293,16 @@ def stop():
 @server.command()
 def status():
     """Show server health, loaded models, and memory usage."""
-    from qwen3_tts.core.config import get_server_url, is_server_running, auth_headers
+    from qwen3_tts.core.config import load_config, get_server_url, is_server_running, auth_headers
     import json
     import requests
 
-    if not is_server_running():
+    config = load_config()
+    if not is_server_running(config):
         click.echo("TTS Server is not running.")
         sys.exit(1)
 
-    url = get_server_url()
+    url = get_server_url(config)
     try:
         resp = requests.get(f"{url}/health", timeout=5)
         health = resp.json()
@@ -419,14 +420,15 @@ def preview(name):
 @click.argument('name')
 def info(name):
     """Show voice prompt metadata."""
-    from qwen3_tts.core.config import get_server_url, is_server_running, auth_headers
+    from qwen3_tts.core.config import load_config, get_server_url, is_server_running, auth_headers
     import json
     import requests
 
-    if not is_server_running():
+    config = load_config()
+    if not is_server_running(config):
         click.echo("Server not running. Start with: tts server start")
         sys.exit(1)
-    url = get_server_url()
+    url = get_server_url(config)
     resp = requests.get(f"{url}/prompt-details", params={"name": name},
                         headers=auth_headers(), timeout=10)
     if resp.status_code == 200:
@@ -508,17 +510,18 @@ def prosody():
 def models():
     """List TTS models and their load status."""
     from qwen3_tts.core.config import (
-        get_server_url, is_server_running, auth_headers,
+        load_config, get_server_url, is_server_running, auth_headers,
         get_backend, MODEL_INFO, get_model_size
     )
     import requests
 
+    config = load_config()
     backend = get_backend()
     size = get_model_size()
     click.echo(f"Backend: {backend}, Model size: {size}")
 
-    if is_server_running():
-        url = get_server_url()
+    if is_server_running(config):
+        url = get_server_url(config)
         try:
             resp = requests.get(f"{url}/models", headers=auth_headers(), timeout=5)
             data = resp.json()
@@ -640,14 +643,15 @@ def history(count):
 @cli.command()
 def stats():
     """Show server statistics."""
-    from qwen3_tts.core.config import get_server_url, is_server_running, auth_headers
+    from qwen3_tts.core.config import load_config, get_server_url, is_server_running, auth_headers
     import json
     import requests
 
-    if not is_server_running():
+    config = load_config()
+    if not is_server_running(config):
         click.echo("Server not running. Start with: tts server start")
         sys.exit(1)
-    url = get_server_url()
+    url = get_server_url(config)
     resp = requests.get(f"{url}/stats", headers=auth_headers(), timeout=10)
     if resp.status_code == 200:
         click.echo(json.dumps(resp.json(), indent=2))
@@ -699,3 +703,7 @@ def repl(**kwargs):
 def watch(directory, **kwargs):
     """Watch directory for .txt files and generate audio."""
     _call_generate(watch_dir=directory, **kwargs)
+
+
+if __name__ == '__main__':
+    cli()
