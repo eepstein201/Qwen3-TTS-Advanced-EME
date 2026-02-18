@@ -290,6 +290,44 @@ class TestConfigEdgeCases(unittest.TestCase):
         self.assertIn("mlx", VALID_BACKENDS)
 
 
+class TestConfigValidation(unittest.TestCase):
+    """Test validate_config() catches bad values."""
+
+    def test_valid_config_no_issues(self):
+        """A well-formed config produces no validation issues."""
+        from voice_config import validate_config
+        config = {
+            "advanced": {"backend": "mlx", "model_size": "1.7B"},
+            "generation": {"temperature": 0.7},
+            "security": {"max_text_length": 10000},
+        }
+        self.assertEqual(validate_config(config), [])
+
+    def test_invalid_backend(self):
+        from voice_config import validate_config
+        issues = validate_config({"advanced": {"backend": "invalid"}})
+        self.assertTrue(any("backend" in i for i in issues))
+
+    def test_invalid_model_size(self):
+        from voice_config import validate_config
+        issues = validate_config({"advanced": {"model_size": "99B"}})
+        self.assertTrue(any("model_size" in i for i in issues))
+
+    def test_temperature_out_of_range(self):
+        from voice_config import validate_config
+        issues = validate_config({"generation": {"temperature": 5.0}})
+        self.assertTrue(any("temperature" in i for i in issues))
+
+    def test_negative_max_text_length(self):
+        from voice_config import validate_config
+        issues = validate_config({"security": {"max_text_length": -1}})
+        self.assertTrue(any("max_text_length" in i for i in issues))
+
+    def test_empty_config_no_issues(self):
+        from voice_config import validate_config
+        self.assertEqual(validate_config({}), [])
+
+
 # =========================================================================
 # SSML Edge Cases
 # =========================================================================

@@ -10,9 +10,12 @@ This module provides:
 """
 
 import json
+import logging
 import os
 import platform
 import sys
+
+logger = logging.getLogger("tts.config")
 
 
 # ---------------------------------------------------------------------------
@@ -42,6 +45,26 @@ TOKEN_FILE = os.path.expanduser("~/.voice_server_token")
 _config_cache = {"data": None, "mtime": 0}
 
 
+def validate_config(config):
+    """Validate config structure and values. Logs warnings for issues."""
+    issues = []
+    backend = config.get("advanced", {}).get("backend")
+    if backend and backend not in ("torch", "mlx"):
+        issues.append(f"Invalid backend: {backend}")
+    size = config.get("advanced", {}).get("model_size")
+    if size and size not in ("1.7B", "0.6B"):
+        issues.append(f"Invalid model_size: {size}")
+    temp = config.get("generation", {}).get("temperature")
+    if temp is not None and not (0.0 <= temp <= 2.0):
+        issues.append(f"temperature {temp} out of range 0.0-2.0")
+    mtl = config.get("security", {}).get("max_text_length")
+    if mtl is not None and (not isinstance(mtl, int) or mtl <= 0):
+        issues.append("max_text_length must be positive integer")
+    for issue in issues:
+        logger.warning("Config validation: %s", issue)
+    return issues
+
+
 def load_config():
     """Load configuration from config.json with mtime-based caching.
 
@@ -59,6 +82,7 @@ def load_config():
         data = json.load(f)
     _config_cache["data"] = data
     _config_cache["mtime"] = current_mtime
+    validate_config(data)
     return data
 
 
