@@ -394,10 +394,13 @@ def _load_model_torch(model_type):
             if load_in_8bit:
                 load_kwargs["load_in_8bit"] = True
             model = Qwen3TTSModel.from_pretrained(repo_id, **load_kwargs)
-            # Apply torch.compile for supported CUDA hardware
+            # Apply torch.compile to inner nn.Module for supported CUDA hardware
             if should_compile and device == "cuda":
-                logger.info("Applying torch.compile (reduce-overhead) to %s model", model_type)
-                model = torch.compile(model, mode="reduce-overhead")
+                try:
+                    logger.info("Applying torch.compile (reduce-overhead) to %s model", model_type)
+                    model.model = torch.compile(model.model, mode="reduce-overhead")
+                except Exception as e:
+                    logger.warning("torch.compile failed (%s) — running without compilation", e)
             # Fix tokenizer regex if supported
             try:
                 from transformers import AutoTokenizer

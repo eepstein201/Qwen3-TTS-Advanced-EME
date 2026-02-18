@@ -769,6 +769,34 @@ class TestEngineFunctions(unittest.TestCase):
             "Found bare 'dtype=torch_dtype' — should be 'torch_dtype=torch_dtype'"
         )
 
+    def test_load_model_torch_compiles_inner_model(self):
+        """torch.compile targets model.model (inner nn.Module), not the wrapper."""
+        import inspect
+        from qwen3_tts.core.engine import _load_model_torch
+        source = inspect.getsource(_load_model_torch)
+        self.assertIn("model.model", source)
+        self.assertIn("torch.compile(model.model", source)
+
+    def test_load_model_torch_compile_has_fallback(self):
+        """torch.compile is wrapped in its own try/except for graceful degradation."""
+        import inspect
+        from qwen3_tts.core.engine import _load_model_torch
+        source = inspect.getsource(_load_model_torch)
+        lines = source.split('\n')
+        compile_line = None
+        for i, line in enumerate(lines):
+            if 'torch.compile(' in line and not line.lstrip().startswith('#'):
+                compile_line = i
+                break
+        self.assertIsNotNone(compile_line, "torch.compile not found in source")
+        # Check for a try: within 3 lines before torch.compile (not the outer retry try)
+        nearby_before = '\n'.join(lines[max(0, compile_line - 3):compile_line])
+        nearby_after = '\n'.join(lines[compile_line:compile_line + 4])
+        self.assertIn('try:', nearby_before,
+                       "torch.compile should have a nearby try: block")
+        self.assertIn('except', nearby_after,
+                       "torch.compile should have a nearby except block")
+
 
 # =========================================================================
 # Task 9: App Helper Function Tests
