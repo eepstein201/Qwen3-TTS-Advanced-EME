@@ -1038,7 +1038,7 @@ def _prepare_mode_params(mode, data):
             return None, (jsonify({"error": "prompt_file required for clone mode", "recovery": "config"}), 400)
         voice_prompt = load_voice_prompt(prompt_file)
         if voice_prompt is None:
-            return None, (jsonify({"error": f"Voice prompt not found: {prompt_file}", "detail": "Check available prompts with 'changeVoice --list-prompts'", "recovery": "config"}), 404)
+            return None, (jsonify({"error": f"Voice prompt not found: {prompt_file}", "detail": "Check available prompts with 'tts voice list'", "recovery": "config"}), 404)
     elif mode == "custom":
         speaker = data.get("speaker")
         if not speaker:
@@ -1425,7 +1425,7 @@ if __name__ == "__main__":
         reset_activity_timer()
 
     print(f"\nTTS Server running on http://{host}:{port}")
-    print("Use stopTTSServer to shut down.\n")
+    print("Use 'tts server stop' to shut down.\n")
 
     # Enable threading for concurrent request handling
     # Generation is serialized via lock, but multiple requests can queue

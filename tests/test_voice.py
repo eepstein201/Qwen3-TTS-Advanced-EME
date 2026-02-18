@@ -79,7 +79,7 @@ class TestTTSConfig(unittest.TestCase):
         err = ServerConnectionError("details here")
         formatted = err.format_cli()
         self.assertIn("Cannot connect", formatted)
-        self.assertIn("startTTSServer", formatted)
+        self.assertIn("tts server start", formatted)
 
     def test_error_format_gradio(self):
         from voice_config import GenerationError
