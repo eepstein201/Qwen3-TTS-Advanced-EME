@@ -363,6 +363,9 @@ The first code cell is a Colab form with these fields:
 | `MAX_NEW_TOKENS` | `2048` | Max tokens per generation (safety limit) |
 | `COMPILE_MODEL` | `True` | Enable torch.compile (best on Ampere+ GPUs) |
 | `AUTO_LAUNCH_UI` | `True` | Launch Gradio UI automatically |
+| `INSTALL_FLASH_ATTN` | `False` | Install Flash Attention 2 for Ampere+ GPUs (~5 min build) |
+| `USE_UV` | `True` | Use uv package manager for faster installs |
+| `DEFAULT_VOICE_DESC` | `"A warm, friendly voice..."` | Default voice description for design mode |
 
 ### Voice Cloning on Colab
 
@@ -407,13 +410,15 @@ Yes -- the server runs on port 5123 with REST endpoints. You can also use the Py
 
 **MLX errors:** Make sure `advanced.backend` in config.json matches your conda env. Run `install.sh` to fix.
 
+**Cannot load .pt with weights_only=True:** PyTorch 2.6+ requires safe globals for custom classes in .pt files. Update to the latest code (which registers the class automatically). If the error persists, set `TTS_ALLOW_UNSAFE_PICKLE=1` as a workaround.
+
 ## Testing
 
 ```bash
 python -m unittest discover -v tests/
 ```
 
-334+ tests, no GPU or running server required. Run inside a conda env (`qwen3-tts` or `qwen3-tts-mlx`) for full coverage -- tests gracefully skip when optional dependencies are missing.
+402+ tests, no GPU or running server required. Run inside a conda env (`qwen3-tts` or `qwen3-tts-mlx`) for full coverage -- tests gracefully skip when optional dependencies are missing.
 
 ## Project Structure
 
@@ -433,7 +438,7 @@ python -m unittest discover -v tests/
 │   └── tools/
 │       └── create_voice.py     # Voice clone creation
 ├── bin/                        # Bash wrappers → ~/bin/
-├── tests/                      # 334+ tests
+├── tests/                      # 402+ tests
 ├── config.json                 # All settings
 ├── install.sh                  # Installer with hardware detection
 ├── colab_notebook.ipynb        # Google Colab notebook
