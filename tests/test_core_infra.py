@@ -797,6 +797,16 @@ class TestEngineFunctions(unittest.TestCase):
         self.assertIn('except', nearby_after,
                        "torch.compile should have a nearby except block")
 
+    def test_load_voice_prompt_torch_registers_safe_globals(self):
+        """_load_voice_prompt_torch registers VoiceClonePromptItem via add_safe_globals."""
+        import inspect
+        from qwen3_tts.core.engine import _load_voice_prompt_torch
+        source = inspect.getsource(_load_voice_prompt_torch)
+        self.assertIn("add_safe_globals", source,
+                       "Must register VoiceClonePromptItem via torch.serialization.add_safe_globals")
+        self.assertIn("VoiceClonePromptItem", source,
+                       "Must import VoiceClonePromptItem for safe loading")
+
     def test_colab_notebook_syspath_uses_home_dir(self):
         """Colab notebook adds HOME_DIR (not its parent) to sys.path."""
         import json

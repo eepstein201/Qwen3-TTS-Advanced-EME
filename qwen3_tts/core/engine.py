@@ -223,6 +223,13 @@ def _load_voice_prompt_torch(prompt_file):
         return None
     from qwen3_tts.core.config import get_device
     device = get_device()
+    # Register VoiceClonePromptItem as a safe global so torch.load(weights_only=True)
+    # can deserialize .pt files containing this class (PyTorch 2.6+ requirement).
+    try:
+        from qwen_tts.inference.qwen3_tts_model import VoiceClonePromptItem
+        torch.serialization.add_safe_globals([VoiceClonePromptItem])
+    except ImportError:
+        pass  # qwen_tts not installed — fall through to exception handler
     try:
         return torch.load(prompt_path, weights_only=True, map_location=device)
     except Exception:
