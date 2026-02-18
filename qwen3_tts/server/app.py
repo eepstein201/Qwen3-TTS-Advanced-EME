@@ -301,7 +301,7 @@ def _estimate_eta(text_length, elapsed_sec):
                     _eta_cache["median_rate"] = rates[len(rates) // 2]
                 else:
                     _eta_cache["median_rate"] = None
-        except Exception:
+        except (_json.JSONDecodeError, OSError, KeyError, ValueError):
             _eta_cache["median_rate"] = None
         _eta_cache["last_updated"] = now
 
@@ -420,7 +420,7 @@ def stats():
             try:
                 allocated = torch.mps.current_allocated_memory()
                 stats_data["mps_memory_allocated_mb"] = round(allocated / (1024 * 1024), 2)
-            except Exception:
+            except (AttributeError, RuntimeError):
                 stats_data["mps_memory_allocated_mb"] = "unavailable"
 
         if torch.cuda.is_available():
@@ -429,7 +429,7 @@ def stats():
                 reserved = torch.cuda.memory_reserved()
                 stats_data["cuda_memory_allocated_mb"] = round(allocated / (1024 * 1024), 2)
                 stats_data["cuda_memory_reserved_mb"] = round(reserved / (1024 * 1024), 2)
-            except Exception:
+            except (AttributeError, RuntimeError):
                 pass
     except ImportError:
         pass
@@ -447,7 +447,7 @@ def stats():
                 peak_mem = mx.metal.get_peak_memory()
             stats_data["mlx_memory_active_mb"] = round(active_mem / (1024 * 1024), 2)
             stats_data["mlx_memory_peak_mb"] = round(peak_mem / (1024 * 1024), 2)
-        except Exception:
+        except (ImportError, AttributeError, RuntimeError):
             pass
 
     return jsonify(stats_data)
@@ -524,7 +524,7 @@ def load_model_endpoint():
             "detail": str(e),
             "recovery": "config",
         }), 500
-    except Exception as e:
+    except (RuntimeError, OSError, ValueError) as e:
         logger.error("Failed to load model %s: %s", model_type, e, exc_info=True)
         return jsonify({
             "error": f"Failed to load model: {model_type}",
@@ -782,7 +782,7 @@ def delete_prompt():
         if default_base == base:
             config["default_clone_prompt"] = ""
             save_config(config)
-    except Exception:
+    except (OSError, _json.JSONDecodeError, KeyError):
         pass
 
     # Clear voice prompt cache
@@ -870,7 +870,7 @@ def rename_prompt():
             else:
                 config["default_clone_prompt"] = new_base
             save_config(config)
-    except Exception:
+    except (OSError, _json.JSONDecodeError, KeyError):
         pass
 
     # Clear voice prompt cache
@@ -1028,7 +1028,7 @@ def _create_temp_audio_copy(source_path):
     try:
         shutil.copy2(source_path, temp_file.name)
         return temp_file.name
-    except Exception:
+    except OSError:
         os.unlink(temp_file.name)
         raise
 

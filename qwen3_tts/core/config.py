@@ -104,7 +104,7 @@ def get_default_clone_prompt(config=None):
     if config is None:
         try:
             config = load_config()
-        except Exception:
+        except (json.JSONDecodeError, OSError):
             config = {}
 
     configured = config.get("default_clone_prompt")
@@ -202,9 +202,12 @@ def is_server_running(config_or_url=None):
 
     try:
         import requests
+    except ImportError:
+        return False
+    try:
         resp = requests.get(f"{url}/health", timeout=2)
         return resp.status_code == 200
-    except Exception:
+    except (requests.RequestException, OSError):
         return False
 
 
@@ -228,7 +231,7 @@ def get_torch_dtype_name():
     try:
         config = load_config()
         dtype = config.get("advanced", {}).get("dtype", "float32")
-    except Exception:
+    except (json.JSONDecodeError, OSError):
         dtype = "float32"
     if dtype not in VALID_DTYPES:
         dtype = "float32"
@@ -256,7 +259,7 @@ def get_backend():
     try:
         config = load_config()
         backend = config.get("advanced", {}).get("backend", _default)
-    except Exception:
+    except (json.JSONDecodeError, OSError):
         backend = _default
     if backend not in VALID_BACKENDS:
         backend = _default
@@ -273,7 +276,7 @@ def get_mlx_quantization():
     try:
         config = load_config()
         quant = config.get("advanced", {}).get("mlx_quantization", "8bit")
-    except Exception:
+    except (json.JSONDecodeError, OSError):
         quant = "8bit"
     if quant not in VALID_MLX_QUANTIZATIONS:
         quant = "8bit"
@@ -297,7 +300,7 @@ def get_model_size():
     try:
         config = load_config()
         size = config.get("advanced", {}).get("model_size", "1.7B")
-    except Exception:
+    except (json.JSONDecodeError, OSError):
         size = "1.7B"
     if size not in VALID_MODEL_SIZES:
         size = "1.7B"
@@ -478,7 +481,7 @@ def get_prosody_presets(config=None):
     if config is None:
         try:
             config = load_config()
-        except Exception:
+        except (json.JSONDecodeError, OSError):
             config = {}
     user_presets = config.get("prosody_presets", {})
     merged = dict(DEFAULT_PROSODY_PRESETS)
