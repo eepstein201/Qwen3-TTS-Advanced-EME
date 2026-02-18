@@ -219,15 +219,17 @@ def _load_voice_prompt_torch(prompt_file):
     try:
         return torch.load(prompt_path, weights_only=True, map_location=device)
     except Exception:
-        # Fall back for prompts created with older formats that need pickle.
-        # SECURITY: weights_only=False enables arbitrary code execution.
-        # Only allow this for files inside the trusted voice_prompts/ directory.
+        allow_unsafe = os.environ.get("TTS_ALLOW_UNSAFE_PICKLE") == "1"
         real_prompt = os.path.realpath(prompt_path)
         real_prompts_dir = os.path.realpath(VOICE_PROMPTS_DIR)
         if not real_prompt.startswith(real_prompts_dir + os.sep):
             raise ValueError(
-                f"Refusing to load {prompt_file} with weights_only=False: "
-                f"file is outside the trusted voice_prompts/ directory"
+                f"Refusing to load {prompt_file}: outside voice_prompts/ directory"
+            )
+        if not allow_unsafe:
+            raise RuntimeError(
+                f"Cannot load {prompt_file} with weights_only=True. "
+                f"If this is a trusted file, set TTS_ALLOW_UNSAFE_PICKLE=1"
             )
         logger.warning(
             "Loading %s with weights_only=False — only load trusted .pt files",
