@@ -727,11 +727,17 @@ def list_prompts():
 # ---------------------------------------------------------------------------
 
 def _validate_prompt_name(name):
-    """Validate a prompt name for path traversal. Returns error response or None."""
-    if not name:
+    """Validate prompt name — whitelist safe characters only."""
+    if not name or not name.strip():
         return jsonify({"error": "Missing prompt name", "recovery": "config"}), 400
-    if ".." in name or "/" in name:
-        return jsonify({"error": "Invalid prompt name: path traversal not allowed", "recovery": "config"}), 400
+    name = name.strip()
+    if len(name) > 255:
+        return jsonify({"error": "Prompt name too long", "recovery": "config"}), 400
+    import re
+    if not re.match(r'^[a-zA-Z0-9_\-\.]+$', name):
+        return jsonify({"error": "Invalid prompt name: only alphanumeric, dash, underscore, dot allowed", "recovery": "config"}), 400
+    if ".." in name:
+        return jsonify({"error": "Invalid prompt name", "recovery": "config"}), 400
     return None
 
 
