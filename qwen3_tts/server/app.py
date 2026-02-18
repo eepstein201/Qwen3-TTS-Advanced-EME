@@ -61,9 +61,10 @@ def generate_auth_token():
     """Generate a new auth token and write it to TOKEN_FILE."""
     global auth_token
     auth_token = secrets.token_hex(32)
-    with open(TOKEN_FILE, "w") as f:
+    # Atomic creation with restricted permissions (no race window)
+    fd = os.open(TOKEN_FILE, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+    with os.fdopen(fd, 'w') as f:
         f.write(auth_token)
-    os.chmod(TOKEN_FILE, 0o600)
     return auth_token
 
 
