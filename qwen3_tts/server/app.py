@@ -254,12 +254,13 @@ def generation_status():
 @app.route("/cancel-generation", methods=["POST"])
 def cancel_generation():
     """Cancel the current streaming generation. Requires auth."""
-    if not generation_state["active"]:
-        return jsonify({"status": "no_active_generation"})
-
-    generation_state["cancelled"] = True
-    logger.info("Generation cancellation requested")
-    return jsonify({"status": "cancellation_requested", "generation_id": generation_state.get("generation_id")})
+    with generation_lock:
+        if not generation_state["active"]:
+            return jsonify({"status": "no_active_generation"})
+        generation_state["cancelled"] = True
+        logger.info("Generation cancellation requested")
+    return jsonify({"status": "cancellation_requested",
+                    "generation_id": generation_state.get("generation_id")})
 
 
 # ---------------------------------------------------------------------------
