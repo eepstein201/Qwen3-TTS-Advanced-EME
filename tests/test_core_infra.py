@@ -524,5 +524,274 @@ class TestDeprecatedRefsUI(unittest.TestCase):
             self.assertNotIn(cmd, source, f"Found deprecated '{cmd}' in ui.py")
 
 
+# =========================================================================
+# Task 6: Config Function Tests
+# =========================================================================
+
+class TestConfigFunctions(unittest.TestCase):
+    """Tests for config.py utility functions."""
+
+    def test_save_config_roundtrip(self):
+        """save_config writes JSON that load_config can read back."""
+        import json
+        import tempfile
+        from qwen3_tts.core import config as cfg
+
+        original_path = cfg.CONFIG_PATH
+        try:
+            with tempfile.NamedTemporaryFile(mode='w', suffix='.json', delete=False) as f:
+                json.dump({"test_key": "test_value"}, f)
+                tmp_path = f.name
+            cfg.CONFIG_PATH = tmp_path
+            cfg._config_cache["data"] = None
+            cfg._config_cache["mtime"] = 0
+
+            test_config = {"generation": {"temperature": 0.5}, "test": True}
+            cfg.save_config(test_config)
+
+            with open(tmp_path) as f:
+                loaded = json.load(f)
+            self.assertEqual(loaded["generation"]["temperature"], 0.5)
+            self.assertTrue(loaded["test"])
+        finally:
+            cfg.CONFIG_PATH = original_path
+            cfg._config_cache["data"] = None
+            cfg._config_cache["mtime"] = 0
+            os.unlink(tmp_path)
+
+    def test_get_device_returns_valid_string(self):
+        """get_device returns one of 'cuda', 'mps', or 'cpu'."""
+        from qwen3_tts.core.config import get_device
+        result = get_device()
+        self.assertIn(result, ("cuda", "mps", "cpu"))
+
+    def test_get_server_url_returns_url(self):
+        """get_server_url returns a proper URL string."""
+        from qwen3_tts.core.config import get_server_url
+        config = {"server": {"host": "127.0.0.1", "port": 5123}}
+        result = get_server_url(config)
+        self.assertEqual(result, "http://127.0.0.1:5123")
+
+    def test_get_server_url_defaults(self):
+        """get_server_url uses defaults when config is empty."""
+        from qwen3_tts.core.config import get_server_url
+        result = get_server_url({})
+        self.assertEqual(result, "http://127.0.0.1:5123")
+
+    def test_get_torch_dtype_name_returns_valid(self):
+        """get_torch_dtype_name returns a valid dtype string."""
+        from qwen3_tts.core.config import get_torch_dtype_name
+        result = get_torch_dtype_name()
+        self.assertIn(result, ("float32", "float16", "bfloat16"))
+
+    def test_get_mlx_quantization_returns_valid(self):
+        """get_mlx_quantization returns a valid quantization string."""
+        from qwen3_tts.core.config import get_mlx_quantization
+        result = get_mlx_quantization()
+        self.assertIn(result, ("4bit", "8bit", "bf16"))
+
+    def test_get_torch_model_name_returns_hf_id(self):
+        """get_torch_model_name returns a HuggingFace model ID."""
+        from qwen3_tts.core.config import get_torch_model_name
+        result = get_torch_model_name("clone")
+        self.assertIn("Qwen", result)
+        self.assertIn("Base", result)
+
+    def test_get_mlx_model_name_returns_hf_id(self):
+        """get_mlx_model_name returns a HuggingFace model ID."""
+        from qwen3_tts.core.config import get_mlx_model_name
+        result = get_mlx_model_name("clone")
+        self.assertIn("mlx-community", result)
+        self.assertIn("Base", result)
+
+    def test_get_prosody_presets_returns_dict(self):
+        """get_prosody_presets returns a dict with expected keys."""
+        from qwen3_tts.core.config import get_prosody_presets
+        result = get_prosody_presets()
+        self.assertIsInstance(result, dict)
+        self.assertIn("excited", result)
+        self.assertIn("calm", result)
+        self.assertIn("whisper", result)
+
+    def test_get_optimal_attn_config_no_cuda(self):
+        """get_optimal_attn_config returns sdpa/float32 when no CUDA."""
+        from unittest.mock import patch
+        from qwen3_tts.core.config import get_optimal_attn_config
+        with patch("qwen3_tts.core.config.get_cuda_capability", return_value=None):
+            attn, dtype, load_8bit = get_optimal_attn_config()
+            self.assertEqual(attn, "sdpa")
+            self.assertEqual(dtype, "float32")
+            self.assertFalse(load_8bit)
+
+    def test_get_optimal_attn_config_ampere(self):
+        """get_optimal_attn_config returns flash_attention_2 for Ampere+ GPU."""
+        from unittest.mock import patch
+        from qwen3_tts.core.config import get_optimal_attn_config
+        with patch("qwen3_tts.core.config.get_cuda_capability", return_value=(8, 0)):
+            attn, dtype, load_8bit = get_optimal_attn_config()
+            self.assertEqual(attn, "flash_attention_2")
+            self.assertEqual(dtype, "bfloat16")
+            self.assertFalse(load_8bit)
+
+    def test_get_optimal_attn_config_turing(self):
+        """get_optimal_attn_config returns sdpa/float16/8bit for Turing GPU."""
+        from unittest.mock import patch
+        from qwen3_tts.core.config import get_optimal_attn_config
+        with patch("qwen3_tts.core.config.get_cuda_capability", return_value=(7, 5)):
+            attn, dtype, load_8bit = get_optimal_attn_config()
+            self.assertEqual(attn, "sdpa")
+            self.assertEqual(dtype, "float16")
+            self.assertTrue(load_8bit)
+
+
+# =========================================================================
+# Task 7: Engine Function Tests
+# =========================================================================
+
+class TestEngineFunctions(unittest.TestCase):
+    """Tests for engine.py utility functions."""
+
+    def test_get_audio_loader_returns_valid(self):
+        """get_audio_loader returns 'torchaudio' or 'librosa'."""
+        from qwen3_tts.core.engine import get_audio_loader
+        result = get_audio_loader()
+        self.assertIn(result, ("torchaudio", "librosa"))
+
+    def test_is_asr_available_returns_bool(self):
+        """is_asr_available returns a boolean."""
+        from qwen3_tts.core.engine import is_asr_available
+        result = is_asr_available()
+        self.assertIsInstance(result, bool)
+
+    def test_is_asr_loaded_returns_bool(self):
+        """is_asr_loaded returns False when no model loaded."""
+        from qwen3_tts.core.engine import is_asr_loaded
+        result = is_asr_loaded()
+        self.assertIsInstance(result, bool)
+
+    def test_get_asr_model_info_returns_dict(self):
+        """get_asr_model_info returns dict with expected keys."""
+        from qwen3_tts.core.engine import get_asr_model_info
+        result = get_asr_model_info()
+        self.assertIsInstance(result, dict)
+        self.assertIn("loaded", result)
+        self.assertIn("backend", result)
+        self.assertIn("model_name", result)
+
+    def test_get_asr_model_info_not_loaded(self):
+        """get_asr_model_info returns loaded=False when no model."""
+        from qwen3_tts.core.engine import get_asr_model_info
+        result = get_asr_model_info()
+        # In test environment, no ASR model should be loaded
+        self.assertFalse(result["loaded"])
+
+    def test_migrate_orphan_mlx_prompts_empty_dir(self):
+        """migrate_orphan_mlx_prompts handles empty/missing directory."""
+        import tempfile
+        from unittest.mock import patch
+        from qwen3_tts.core.engine import migrate_orphan_mlx_prompts
+        with tempfile.TemporaryDirectory() as tmpdir:
+            with patch("qwen3_tts.core.engine.VOICE_PROMPTS_DIR", tmpdir):
+                result = migrate_orphan_mlx_prompts()
+                self.assertEqual(result, 0)
+
+
+# =========================================================================
+# Task 9: App Helper Function Tests
+# =========================================================================
+
+@_skip_server
+class TestAppHelperFunctions(unittest.TestCase):
+    """Tests for app.py helper functions."""
+
+    def test_gen_cache_key_deterministic(self):
+        """_gen_cache_key returns same hash for same inputs."""
+        from qwen3_tts.server.app import _gen_cache_key
+        key1 = _gen_cache_key("hello", "clone", {"temperature": 0.7}, prompt_file="voice.pt")
+        key2 = _gen_cache_key("hello", "clone", {"temperature": 0.7}, prompt_file="voice.pt")
+        self.assertEqual(key1, key2)
+
+    def test_gen_cache_key_different_text(self):
+        """_gen_cache_key returns different hash for different text."""
+        from qwen3_tts.server.app import _gen_cache_key
+        key1 = _gen_cache_key("hello", "clone", {"temperature": 0.7})
+        key2 = _gen_cache_key("world", "clone", {"temperature": 0.7})
+        self.assertNotEqual(key1, key2)
+
+    def test_gen_cache_key_is_hex_string(self):
+        """_gen_cache_key returns a hex string of length 16."""
+        from qwen3_tts.server.app import _gen_cache_key
+        key = _gen_cache_key("test", "design", {})
+        self.assertEqual(len(key), 16)
+        int(key, 16)  # Should not raise
+
+    def test_generate_auth_token_creates_file(self):
+        """generate_auth_token creates token file with correct perms."""
+        import tempfile
+        import stat
+        import qwen3_tts.server.app as app_mod
+        original_token_file = app_mod.TOKEN_FILE
+        try:
+            tmp = tempfile.mktemp(suffix=".token")
+            app_mod.TOKEN_FILE = tmp
+            token = app_mod.generate_auth_token()
+            self.assertEqual(len(token), 64)  # 32 bytes = 64 hex chars
+            self.assertTrue(os.path.exists(tmp))
+            mode = os.stat(tmp).st_mode
+            self.assertEqual(stat.S_IMODE(mode), 0o600)
+            with open(tmp) as f:
+                self.assertEqual(f.read(), token)
+        finally:
+            app_mod.TOKEN_FILE = original_token_file
+            if os.path.exists(tmp):
+                os.unlink(tmp)
+
+    def test_create_temp_audio_copy(self):
+        """_create_temp_audio_copy creates a copy with restricted perms."""
+        import tempfile
+        import stat
+        from qwen3_tts.server.app import _create_temp_audio_copy
+        with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as src:
+            src.write(b"fake audio data")
+            src_path = src.name
+        try:
+            tmp_path = _create_temp_audio_copy(src_path)
+            self.assertTrue(os.path.exists(tmp_path))
+            mode = os.stat(tmp_path).st_mode
+            self.assertEqual(stat.S_IMODE(mode), 0o600)
+            with open(tmp_path, 'rb') as f:
+                self.assertEqual(f.read(), b"fake audio data")
+            os.unlink(tmp_path)
+        finally:
+            os.unlink(src_path)
+
+    def test_estimate_eta_no_history(self):
+        """_estimate_eta returns None when no history."""
+        import qwen3_tts.server.app as app_mod
+        # Reset cache to force recalculation
+        app_mod._eta_cache["last_updated"] = 0
+        app_mod._eta_cache["median_rate"] = None
+        from unittest.mock import patch
+        with patch("os.path.exists", return_value=False):
+            result = app_mod._estimate_eta(100, 5.0)
+            self.assertIsNone(result)
+
+    def test_prepare_mode_params_clone_no_prompt(self):
+        """_prepare_mode_params returns error when clone mode has no prompt."""
+        from qwen3_tts.server.app import _prepare_mode_params, app
+        with app.app_context():
+            voice_prompt, error = _prepare_mode_params("clone", {})
+            self.assertIsNone(voice_prompt)
+            self.assertIsNotNone(error)
+
+    def test_prepare_mode_params_custom_no_speaker(self):
+        """_prepare_mode_params returns error when custom mode has no speaker."""
+        from qwen3_tts.server.app import _prepare_mode_params, app
+        with app.app_context():
+            voice_prompt, error = _prepare_mode_params("custom", {})
+            self.assertIsNone(voice_prompt)
+            self.assertIsNotNone(error)
+
+
 if __name__ == "__main__":
     unittest.main()
