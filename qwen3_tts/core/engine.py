@@ -36,12 +36,18 @@ from qwen3_tts.core.config import (
 
 logger = logging.getLogger("tts.engine")
 
-# Audio loader preference — read once at import, updated only via set_audio_loader()
-_AUDIO_LOADER = load_config().get("advanced", {}).get("audio_loader", "torchaudio")
+# Audio loader preference — lazy init on first access, thread-safe updates
+_AUDIO_LOADER = None
+_AUDIO_LOADER_LOCK = threading.Lock()
 
 
 def get_audio_loader():
-    """Return cached audio loader preference. No disk I/O."""
+    """Return cached audio loader preference. Lazy-loads from config on first call."""
+    global _AUDIO_LOADER
+    if _AUDIO_LOADER is None:
+        with _AUDIO_LOADER_LOCK:
+            if _AUDIO_LOADER is None:
+                _AUDIO_LOADER = load_config().get("advanced", {}).get("audio_loader", "torchaudio")
     return _AUDIO_LOADER
 
 
@@ -50,7 +56,8 @@ def set_audio_loader(loader):
     global _AUDIO_LOADER
     if loader not in ("torchaudio", "librosa"):
         raise ValueError(f"Invalid audio loader: {loader}")
-    _AUDIO_LOADER = loader
+    with _AUDIO_LOADER_LOCK:
+        _AUDIO_LOADER = loader
 
 
 # ---------------------------------------------------------------------------
@@ -1089,7 +1096,7 @@ def create_voice_prompt(model, ref_audio, ref_sr, transcript):
 
 def load_audio(file_path, target_sr=16000):
     """Load audio file, resample to target_sr. Uses cached loader preference."""
-    if _AUDIO_LOADER == "torchaudio":
+    if get_audio_loader() == "torchaudio":
         try:
             import torchaudio
             waveform, sr = torchaudio.load(file_path)
@@ -1113,7 +1120,7 @@ def load_audio(file_path, target_sr=16000):
 
 def load_audio_for_cloning(file_path, max_duration=15, target_sr=16000):
     """Load audio truncated to max_duration seconds. For voice embedding only."""
-    if _AUDIO_LOADER == "torchaudio":
+    if get_audio_loader() == "torchaudio":
         try:
             import torchaudio
             info = torchaudio.info(file_path)
