@@ -797,6 +797,27 @@ class TestEngineFunctions(unittest.TestCase):
         self.assertIn('except', nearby_after,
                        "torch.compile should have a nearby except block")
 
+    def test_colab_notebook_syspath_uses_home_dir(self):
+        """Colab notebook adds HOME_DIR (not its parent) to sys.path."""
+        import json
+        notebook_path = os.path.join(
+            os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+            'colab_notebook.ipynb'
+        )
+        with open(notebook_path) as f:
+            nb = json.load(f)
+        setup_source = None
+        for cell in nb['cells']:
+            src = ''.join(cell['source'])
+            if 'HOME_DIR' in src and 'sys.path' in src:
+                setup_source = src
+                break
+        self.assertIsNotNone(setup_source, "Setup cell with sys.path not found")
+        self.assertIn('HOME_DIR not in sys.path', setup_source,
+                       "sys.path check should use HOME_DIR directly")
+        self.assertNotIn('project_parent', setup_source,
+                          "Should not use dirname(HOME_DIR) for sys.path")
+
 
 # =========================================================================
 # Task 9: App Helper Function Tests
