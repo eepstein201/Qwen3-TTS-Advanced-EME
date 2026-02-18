@@ -401,5 +401,67 @@ class TestDryRunAndInteractive(unittest.TestCase):
         self.assertTrue(callable(voice_generate.interactive_mode))
 
 
+# =========================================================================
+# Gradio UI Launch Tests
+# =========================================================================
+
+class TestLaunchGradioUI(unittest.TestCase):
+    """Verify launch_gradio_ui no longer shells out to voice_ui.py."""
+
+    def test_no_voice_ui_reference(self):
+        """launch_gradio_ui source must not reference voice_ui.py."""
+        from qwen3_tts.interface.generate import launch_gradio_ui
+        source = inspect.getsource(launch_gradio_ui)
+        self.assertNotIn("voice_ui.py", source)
+
+    def test_no_subprocess_run(self):
+        """launch_gradio_ui must not call subprocess.run."""
+        from qwen3_tts.interface.generate import launch_gradio_ui
+        source = inspect.getsource(launch_gradio_ui)
+        self.assertNotIn("subprocess.run", source)
+
+    def test_calls_build_ui_and_launch(self):
+        """launch_gradio_ui delegates to build_ui_and_launch."""
+        from unittest.mock import patch
+        from qwen3_tts.interface import generate as gen_mod
+
+        with patch.object(gen_mod, "build_ui_and_launch") as mock_build:
+            with patch.object(gen_mod, "ensure_server_running", return_value=True):
+                gen_mod.launch_gradio_ui({"ui": {"port": 7860}})
+        mock_build.assert_called_once()
+
+
+# =========================================================================
+# ensure_server_running Tests
+# =========================================================================
+
+class TestEnsureServerRunning(unittest.TestCase):
+    """Verify ensure_server_running uses new CLI paths."""
+
+    def test_no_startTTSServer_reference(self):
+        """ensure_server_running must not reference startTTSServer."""
+        from qwen3_tts.interface.generate import ensure_server_running
+        source = inspect.getsource(ensure_server_running)
+        self.assertNotIn("startTTSServer", source)
+
+    def test_no_voice_server_py_reference(self):
+        """ensure_server_running must not reference voice_server.py."""
+        from qwen3_tts.interface.generate import ensure_server_running
+        source = inspect.getsource(ensure_server_running)
+        self.assertNotIn("voice_server.py", source)
+
+    def test_has_tts_bin_reference(self):
+        """ensure_server_running should reference ~/bin/tts."""
+        from qwen3_tts.interface.generate import ensure_server_running
+        source = inspect.getsource(ensure_server_running)
+        self.assertIn("~/bin/tts", source)
+
+    def test_has_server_app_reference(self):
+        """ensure_server_running should reference qwen3_tts/server/app.py."""
+        from qwen3_tts.interface.generate import ensure_server_running
+        source = inspect.getsource(ensure_server_running)
+        self.assertIn("qwen3_tts/server/app.py", source)
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -501,18 +501,18 @@ def ensure_server_running(config):
     print("TTS Server is not running.")
     print("Starting server (this may take 30-60 seconds to load models)...")
 
-    start_script = os.path.expanduser("~/bin/startTTSServer")
+    start_script = os.path.expanduser("~/bin/tts")
     if os.path.exists(start_script):
-        result = subprocess.run([start_script], capture_output=False)
+        result = subprocess.run([start_script, "server", "start"], capture_output=False)
         return result.returncode == 0
 
-    # Fallback: start server directly
-    server_script = os.path.expanduser("~/Qwen3-TTS_UserFiles/voice_server.py")
+    # Fallback: start server directly via qwen3_tts/server/app.py
+    server_module = os.path.expanduser("~/Qwen3-TTS_UserFiles/qwen3_tts/server/app.py")
     log_file = os.path.expanduser("~/Qwen3-TTS_UserFiles/.voice_server.log")
 
     with open(log_file, "w") as log:
         subprocess.Popen(
-            [sys.executable, server_script],
+            [sys.executable, server_module],
             stdout=log, stderr=log,
             start_new_session=True,
         )
@@ -530,6 +530,18 @@ def ensure_server_running(config):
     return False
 
 
+def build_ui_and_launch(config):
+    """Build and launch the Gradio UI in-process."""
+    from qwen3_tts.interface.ui import build_ui, _find_available_port
+    preferred = config.get("ui", {}).get("port", 7860)
+    port = _find_available_port(preferred)
+    if port is None:
+        print(f"Error: No available port found near {preferred}.")
+        return
+    demo = build_ui()
+    demo.launch(server_port=port)
+
+
 def launch_gradio_ui(config):
     """Launch the Gradio web interface, starting server if needed."""
     if not ensure_server_running(config):
@@ -537,9 +549,8 @@ def launch_gradio_ui(config):
         print("Please check the server logs and try again.")
         return
 
-    ui_script = os.path.expanduser("~/Qwen3-TTS_UserFiles/voice_ui.py")
     print("\nLaunching Gradio web interface...")
-    subprocess.run([sys.executable, ui_script])
+    build_ui_and_launch(config)
 
 
 def load_model_on_server(config, model_type):
