@@ -308,14 +308,17 @@ def get_server_status():
     try:
         stats = client.get_stats()
         # Check for MLX memory first, then MPS, then CUDA
-        memory_val = (stats.get('mlx_memory_active_mb')
-                      or stats.get('mps_memory_allocated_mb')
-                      or stats.get('cuda_memory_allocated_mb')
-                      or 'N/A')
+        # Use explicit None check so 0.0 is a valid value, not skipped
+        memory_val = None
+        for _key in ('mlx_memory_active_mb', 'mps_memory_allocated_mb', 'cuda_memory_allocated_mb'):
+            _v = stats.get(_key)
+            if _v is not None:
+                memory_val = _v
+                break
         if isinstance(memory_val, (int, float)):
-            memory = f"{memory_val:.0f}MB"
+            memory = f"{memory_val:.1f}MB"
         else:
-            memory = str(memory_val)
+            memory = 'N/A'
 
         # Check for loaded models - server returns clone_model_loaded, etc.
         loaded_models = []
@@ -1060,6 +1063,8 @@ def build_ui():
             refresh_btn = gr.Button("Refresh Status", size="sm")
             stop_btn = gr.Button("Stop Server", size="sm", variant="stop")
         refresh_btn.click(fn=format_status_display, outputs=status_html)
+        if hasattr(gr, 'Timer'):
+            gr.Timer(value=5).tick(fn=format_status_display, outputs=status_html)
         stop_btn.click(
             fn=stop_server,
             outputs=status_html,

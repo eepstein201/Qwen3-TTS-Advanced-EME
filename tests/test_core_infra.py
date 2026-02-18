@@ -880,5 +880,71 @@ class TestBuildUIAndLaunch(unittest.TestCase):
                          "Expected inbrowser=False in Colab environment")
 
 
+# =========================================================================
+# get_server_status Tests
+# =========================================================================
+
+class TestGetServerStatus(unittest.TestCase):
+    """get_server_status() should correctly parse stats response."""
+
+    @unittest.mock.patch('qwen3_tts.interface.ui.TTSClient')
+    def test_small_memory_not_shown_as_zero(self, mock_client_class):
+        """A non-zero memory value (e.g. 0.3 MB) must not display as '0MB'."""
+        mock_client = MagicMock()
+        mock_client_class.return_value = mock_client
+        mock_client.is_server_running.return_value = True
+        mock_client.get_stats.return_value = {
+            'mlx_memory_active_mb': 0.3,
+            'backend': 'mlx',
+            'mlx_quantization': '8bit',
+            'clone_model_loaded': False,
+            'design_model_loaded': False,
+            'custom_model_loaded': False,
+        }
+        from qwen3_tts.interface.ui import get_server_status
+        _, memory, _, _ = get_server_status()
+        self.assertNotEqual(memory, "0MB",
+            "Memory value 0.3 MB must not round to '0MB'")
+
+    @unittest.mock.patch('qwen3_tts.interface.ui.TTSClient')
+    def test_zero_memory_via_or_chain_not_skipped(self, mock_client_class):
+        """If mlx_memory_active_mb is 0.0 (falsy), fall through to next key correctly."""
+        mock_client = MagicMock()
+        mock_client_class.return_value = mock_client
+        mock_client.is_server_running.return_value = True
+        mock_client.get_stats.return_value = {
+            'mlx_memory_active_mb': 0.0,
+            'mps_memory_allocated_mb': 512.0,
+            'backend': 'mlx',
+            'mlx_quantization': '8bit',
+            'clone_model_loaded': True,
+            'design_model_loaded': False,
+            'custom_model_loaded': False,
+        }
+        from qwen3_tts.interface.ui import get_server_status
+        _, memory, models, _ = get_server_status()
+        self.assertEqual(models, "Clone")
+
+    @unittest.mock.patch('qwen3_tts.interface.ui.TTSClient')
+    def test_loaded_models_shown_correctly(self, mock_client_class):
+        """Loaded models should be listed in status, not 'None'."""
+        mock_client = MagicMock()
+        mock_client_class.return_value = mock_client
+        mock_client.is_server_running.return_value = True
+        mock_client.get_stats.return_value = {
+            'mlx_memory_active_mb': 2500.5,
+            'backend': 'mlx',
+            'mlx_quantization': '8bit',
+            'clone_model_loaded': True,
+            'design_model_loaded': True,
+            'custom_model_loaded': False,
+        }
+        from qwen3_tts.interface.ui import get_server_status
+        _, _, models, _ = get_server_status()
+        self.assertIn("Clone", models)
+        self.assertIn("Design", models)
+        self.assertNotEqual(models, "None")
+
+
 if __name__ == "__main__":
     unittest.main()
