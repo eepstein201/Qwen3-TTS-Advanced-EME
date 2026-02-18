@@ -507,7 +507,7 @@ class TTSError(Exception):
         if self.technical_detail:
             parts[0] += f" [{self.technical_detail}]"
         suggestions = {
-            "restart": "Try restarting the server with 'startTTSServer'.",
+            "restart": "Try restarting the server with 'tts server start'.",
             "config": f"Check your configuration in {CONFIG_PATH}.",
             "bug": "This is an unexpected error — please report it.",
             "retry": "Try again; the issue may be transient.",
@@ -529,7 +529,7 @@ class TTSError(Exception):
         if self.technical_detail:
             html += f'<br><small style="color:#666;">{self.technical_detail}</small>'
         suggestions = {
-            "restart": "Try restarting the server with <code>startTTSServer</code>.",
+            "restart": "Try restarting the server with <code>tts server start</code>.",
             "config": f"Check your configuration in <code>{CONFIG_PATH}</code>.",
             "bug": "This is an unexpected error — please report it.",
             "retry": "Try again; the issue may be transient.",
@@ -587,6 +587,6 @@ class AuthenticationError(TTSError):
     def __init__(self, detail=None):
         super().__init__(
             "Authentication failed.",
-            technical_detail=detail or "Cannot authenticate. Run 'startTTSServer' to generate auth token.",
+            technical_detail=detail or "Cannot authenticate. Run 'tts server start' to generate auth token.",
             recovery="restart",
         )
