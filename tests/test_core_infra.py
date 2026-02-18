@@ -818,6 +818,26 @@ class TestEngineFunctions(unittest.TestCase):
         self.assertNotIn('project_parent', setup_source,
                           "Should not use dirname(HOME_DIR) for sys.path")
 
+    def test_colab_notebook_pythonpath_uses_home_dir(self):
+        """Colab server subprocess PYTHONPATH uses HOME_DIR, not dirname."""
+        import json
+        notebook_path = os.path.join(
+            os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+            'colab_notebook.ipynb'
+        )
+        with open(notebook_path) as f:
+            nb = json.load(f)
+        server_source = None
+        for cell in nb['cells']:
+            src = ''.join(cell['source'])
+            if 'subprocess.Popen' in src and 'PYTHONPATH' in src:
+                server_source = src
+                break
+        self.assertIsNotNone(server_source, "Server cell with PYTHONPATH not found")
+        self.assertNotIn("os.path.dirname(os.path.expanduser('~/Qwen3-TTS_UserFiles'))",
+                          server_source,
+                          "PYTHONPATH should use project dir directly, not dirname()")
+
 
 # =========================================================================
 # Task 9: App Helper Function Tests
