@@ -6,6 +6,12 @@
 
 Clone any voice from an audio sample, design voices from text descriptions, or choose from 9 premium speakers. Powered by Qwen3-TTS models with a persistent server for fast generation.
 
+## Why use this?
+* **Auto-Transcribe Cloning:** No need to type transcripts manually. Whisper automatically transcribes your reference audio, or use `--no-transcript` to skip transcription entirely.
+* **Apple Silicon Native:** Runs on MLX for macOS — lower thermals, less battery drain, and fast inference without a GPU.
+* **Flexible Interface:** Web UI (Gradio) for visual control, CLI for automation/scripting, or Python API for integration.
+* **Performance Choices:** Choose 0.6B models (fast, lightweight) or 1.7B models (maximum fidelity) based on your hardware.
+
 **Platforms:** Mac (Apple Silicon with MLX, Intel with PyTorch), Linux with NVIDIA GPU, Google Colab
 
 ```python
@@ -36,7 +42,7 @@ The installer detects your hardware, walks you through backend/model/quantizatio
 
 ```bash
 tts config               # Re-run the setup wizard anytime
-tts config --show        # Compare current settings to recommendations
+tts config show          # Compare current settings to recommendations
 ```
 
 ## Quick Start
@@ -387,7 +393,7 @@ Yes -- the server runs on port 5123 with REST endpoints. You can also use the Py
 
 ## Troubleshooting
 
-**Server won't start:** `tts server log` for details. Kill stuck processes: `pkill -f voice_server.py && rm .voice_server.pid`
+**Server won't start:** `tts server log` for details. Kill stuck processes: `pkill -f qwen3_tts/server/app.py && rm .voice_server.pid`
 
 **Wrong conda env:** Wrapper scripts auto-switch, but if you updated them: `cp bin/* ~/bin/ && chmod +x ~/bin/*`
 
