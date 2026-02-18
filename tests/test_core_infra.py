@@ -624,14 +624,26 @@ class TestConfigFunctions(unittest.TestCase):
             self.assertFalse(load_8bit)
 
     def test_get_optimal_attn_config_ampere(self):
-        """get_optimal_attn_config returns flash_attention_2 for Ampere+ GPU."""
+        """get_optimal_attn_config returns flash_attention_2 for Ampere+ GPU with flash_attn installed."""
         from unittest.mock import patch
         from qwen3_tts.core.config import get_optimal_attn_config
         with patch("qwen3_tts.core.config.get_cuda_capability", return_value=(8, 0)):
-            attn, dtype, load_8bit = get_optimal_attn_config()
-            self.assertEqual(attn, "flash_attention_2")
-            self.assertEqual(dtype, "bfloat16")
-            self.assertFalse(load_8bit)
+            with patch("qwen3_tts.core.config._has_flash_attn", return_value=True):
+                attn, dtype, load_8bit = get_optimal_attn_config()
+                self.assertEqual(attn, "flash_attention_2")
+                self.assertEqual(dtype, "bfloat16")
+                self.assertFalse(load_8bit)
+
+    def test_get_optimal_attn_config_ampere_no_flash_attn(self):
+        """get_optimal_attn_config falls back to sdpa when flash_attn not installed."""
+        from unittest.mock import patch
+        from qwen3_tts.core.config import get_optimal_attn_config
+        with patch("qwen3_tts.core.config.get_cuda_capability", return_value=(8, 9)):
+            with patch("qwen3_tts.core.config._has_flash_attn", return_value=False):
+                attn, dtype, load_8bit = get_optimal_attn_config()
+                self.assertEqual(attn, "sdpa")
+                self.assertEqual(dtype, "bfloat16")
+                self.assertFalse(load_8bit)
 
     def test_get_optimal_attn_config_turing(self):
         """get_optimal_attn_config returns sdpa/float16/8bit for Turing GPU."""

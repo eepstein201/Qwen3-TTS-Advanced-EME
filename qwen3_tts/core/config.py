@@ -163,18 +163,28 @@ def get_cuda_capability():
     return None
 
 
+def _has_flash_attn():
+    """Check if flash_attn package is importable."""
+    try:
+        import flash_attn  # noqa: F401
+        return True
+    except ImportError:
+        return False
+
+
 def get_optimal_attn_config():
     """Return (attn_implementation, torch_dtype_name, load_in_8bit) based on GPU.
 
     Turing (T4, CC 7.5): sdpa, float16, True (8-bit via bitsandbytes)
-    Ampere+ (L4/A100, CC >= 8.0): flash_attention_2, bfloat16, False
+    Ampere+ (L4/A100, CC >= 8.0): flash_attention_2 (if installed) or sdpa, bfloat16, False
     Non-CUDA: sdpa, float32, False
     """
     cap = get_cuda_capability()
     if cap is None:
         return "sdpa", "float32", False
     if cap[0] >= 8:
-        return "flash_attention_2", "bfloat16", False
+        attn = "flash_attention_2" if _has_flash_attn() else "sdpa"
+        return attn, "bfloat16", False
     return "sdpa", "float16", True
 
 
