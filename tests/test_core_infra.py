@@ -1103,5 +1103,35 @@ class TestGetServerStatus(unittest.TestCase):
         self.assertNotEqual(models, "None")
 
 
+@_skip_gradio
+class TestManageVoicesRaceCondition(unittest.TestCase):
+    """Manage Voices buttons must start non-interactive to prevent race condition."""
+
+    def test_action_buttons_start_non_interactive(self):
+        """Action buttons are created with interactive=False."""
+        import inspect
+        from qwen3_tts.interface import ui
+        source = inspect.getsource(ui.build_ui)
+        lines = source.split('\n')
+        for line in lines:
+            if 'manage_default_btn' in line and 'gr.Button' in line:
+                self.assertIn('interactive=False', line,
+                              "manage_default_btn must start non-interactive")
+                break
+        else:
+            self.fail("manage_default_btn gr.Button declaration not found")
+
+    def test_select_event_enables_buttons(self):
+        """on_table_select returns gr.update(interactive=True) for buttons."""
+        import inspect
+        from qwen3_tts.interface import ui
+        source = inspect.getsource(ui.build_ui)
+        # The .select() outputs list must include manage_default_btn
+        self.assertIn('manage_default_btn', source)
+        # on_table_select must return interactive updates
+        self.assertIn('gr.update(interactive=True)', source,
+                       "on_table_select must enable buttons via gr.update")
+
+
 if __name__ == "__main__":
     unittest.main()

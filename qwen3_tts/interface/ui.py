@@ -1425,11 +1425,11 @@ def build_ui():
                             max_lines=1
                         )
                         with gr.Row():
-                            manage_preview_btn = gr.Button("Preview", size="sm")
-                            manage_default_btn = gr.Button("Set Default", size="sm")
+                            manage_preview_btn = gr.Button("Preview", size="sm", interactive=False)
+                            manage_default_btn = gr.Button("Set Default", size="sm", interactive=False)
                         with gr.Row():
-                            manage_rename_btn = gr.Button("Rename", size="sm", variant="secondary")
-                            manage_delete_btn = gr.Button("Delete", size="sm", variant="stop")
+                            manage_rename_btn = gr.Button("Rename", size="sm", variant="secondary", interactive=False)
+                            manage_delete_btn = gr.Button("Delete", size="sm", variant="stop", interactive=False)
                         manage_status = gr.Textbox(
                             label="", show_label=False, interactive=False,
                             max_lines=2, container=False
@@ -1437,23 +1437,23 @@ def build_ui():
 
                 # Row selection -> populate selected name
                 def on_table_select(evt: gr.SelectData, table_data):
+                    active = gr.update(interactive=True)
+                    inactive = gr.update(interactive=False)
                     try:
                         row_idx = evt.index[0]
                         if hasattr(table_data, "iloc"):
-                            # pandas DataFrame from Gradio Dataframe component
                             if row_idx < len(table_data):
-                                return str(table_data.iloc[row_idx, 0])
+                                return str(table_data.iloc[row_idx, 0]), active, active, active, active
                         elif table_data and row_idx < len(table_data):
-                            # list of lists fallback
-                            return table_data[row_idx][0]
+                            return table_data[row_idx][0], active, active, active, active
                     except (IndexError, TypeError, KeyError):
                         pass
-                    return ""
+                    return "", inactive, inactive, inactive, inactive
 
                 manage_table.select(
                     fn=on_table_select,
                     inputs=[manage_table],
-                    outputs=[manage_selected]
+                    outputs=[manage_selected, manage_preview_btn, manage_default_btn, manage_rename_btn, manage_delete_btn]
                 )
 
                 manage_refresh_btn.click(

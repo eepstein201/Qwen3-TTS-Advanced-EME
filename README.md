@@ -418,7 +418,7 @@ Yes -- the server runs on port 5123 with REST endpoints. You can also use the Py
 python -m unittest discover -v tests/
 ```
 
-402+ tests, no GPU or running server required. Run inside a conda env (`qwen3-tts` or `qwen3-tts-mlx`) for full coverage -- tests gracefully skip when optional dependencies are missing.
+405+ tests, no GPU or running server required. Run inside a conda env (`qwen3-tts` or `qwen3-tts-mlx`) for full coverage -- tests gracefully skip when optional dependencies are missing.
 
 ## Project Structure
 
@@ -438,7 +438,7 @@ python -m unittest discover -v tests/
 │   └── tools/
 │       └── create_voice.py     # Voice clone creation
 ├── bin/                        # Bash wrappers → ~/bin/
-├── tests/                      # 402+ tests
+├── tests/                      # 405+ tests
 ├── config.json                 # All settings
 ├── install.sh                  # Installer with hardware detection
 ├── colab_notebook.ipynb        # Google Colab notebook
