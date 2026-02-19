@@ -46,3 +46,6 @@ venv/
 # OS
 .DS_Store
 Thumbs.db
+
+# Development instructions (local only)
+CLAUDE.md

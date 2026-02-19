@@ -1,6 +1,6 @@
 {
   "default_voice_description": "A calm, friendly male voice with clear articulation and moderate pace.",
-  "default_clone_prompt": "test_voice.pt",
+  "default_clone_prompt": "",
   "output_directory": "~/Downloads",
   "language": "English",
   "server": {
@@ -75,7 +75,7 @@
   },
   "aliases": {
     "default": {
-      "prompt": "LaLa_2.pt",
+      "prompt": "my_voice.pt",
       "preset": "consistent"
     }
   }
