@@ -89,7 +89,7 @@ _start_server() {
         server_args+=("--public")
     fi
 
-    nohup python "$USER_FILES/qwen3_tts/server/app.py" "${server_args[@]}" > "$LOG_FILE" 2>&1 &
+    nohup env PYTHONPATH="$USER_FILES:$PYTHONPATH" python "$USER_FILES/qwen3_tts/server/app.py" "${server_args[@]}" > "$LOG_FILE" 2>&1 &
 
     echo "Waiting for server to be ready..."
     for i in {1..300}; do

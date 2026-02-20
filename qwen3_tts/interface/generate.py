@@ -510,11 +510,14 @@ def ensure_server_running(config):
     server_module = os.path.expanduser("~/Qwen3-TTS_UserFiles/qwen3_tts/server/app.py")
     log_file = os.path.expanduser("~/Qwen3-TTS_UserFiles/.voice_server.log")
 
+    user_files = os.path.expanduser("~/Qwen3-TTS_UserFiles")
+    env = {**os.environ, "PYTHONPATH": user_files + os.pathsep + os.environ.get("PYTHONPATH", "")}
     with open(log_file, "w") as log:
         subprocess.Popen(
             [sys.executable, server_module],
             stdout=log, stderr=log,
             start_new_session=True,
+            env=env,
         )
 
     print("Waiting for server to be ready...")
