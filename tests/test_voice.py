@@ -154,7 +154,7 @@ class TestServerValidation(unittest.TestCase):
         # We need to mock torch and model-related imports
         # to avoid loading heavy dependencies
         import voice_server
-        voice_server.auth_token = "test_token"
+        voice_server.auth_token = "test_token"  # nosec B105
         voice_server.server_config = {
             "security": {"max_text_length": 100, "max_batch_size": 3},
             "auto_shutdown_minutes": 0,
@@ -251,7 +251,7 @@ class TestServerAuth(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         import voice_server
-        voice_server.auth_token = "test_secret_token"
+        voice_server.auth_token = "test_secret_token"  # nosec B105
         voice_server.server_config = {
             "security": {},
             "auto_shutdown_minutes": 0,
@@ -265,7 +265,7 @@ class TestServerAuth(unittest.TestCase):
     @classmethod
     def tearDownClass(cls):
         import voice_server
-        voice_server.auth_token = "test_token"
+        voice_server.auth_token = "test_token"  # nosec B105
 
     def test_health_no_auth_required(self):
         resp = self.client.get("/health")
@@ -860,7 +860,7 @@ class TestStreamingServerEndpoint(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         import voice_server
-        voice_server.auth_token = "test_token"
+        voice_server.auth_token = "test_token"  # nosec B105
         voice_server.server_config = {
             "security": {"max_text_length": 1000, "max_batch_size": 10},
             "auto_shutdown_minutes": 0,
@@ -874,7 +874,7 @@ class TestStreamingServerEndpoint(unittest.TestCase):
     @classmethod
     def tearDownClass(cls):
         import voice_server
-        voice_server.auth_token = "test_token"
+        voice_server.auth_token = "test_token"  # nosec B105
 
     def test_generate_stream_requires_auth(self):
         """POST /generate-stream requires authentication."""
@@ -1154,7 +1154,7 @@ class TestHealthEndpointInfo(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         import voice_server
-        voice_server.auth_token = "test_token"
+        voice_server.auth_token = "test_token"  # nosec B105
         voice_server.server_config = {
             "security": {},
             "auto_shutdown_minutes": 0,
@@ -1201,7 +1201,7 @@ class TestGenerationStatus(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         import voice_server
-        voice_server.auth_token = "test_token"
+        voice_server.auth_token = "test_token"  # nosec B105
         voice_server.server_config = {
             "security": {},
             "auto_shutdown_minutes": 0,
@@ -1242,7 +1242,7 @@ class TestLoadModelEndpoint(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         import voice_server
-        voice_server.auth_token = "test_token"
+        voice_server.auth_token = "test_token"  # nosec B105
         voice_server.server_config = {
             "security": {},
             "auto_shutdown_minutes": 0,
@@ -1256,7 +1256,7 @@ class TestLoadModelEndpoint(unittest.TestCase):
     @classmethod
     def tearDownClass(cls):
         import voice_server
-        voice_server.auth_token = "test_token"
+        voice_server.auth_token = "test_token"  # nosec B105
 
     def test_load_model_requires_auth(self):
         """POST /load-model requires authentication."""
@@ -1295,7 +1295,7 @@ class TestCancelGenerationEndpoint(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         import voice_server
-        voice_server.auth_token = "test_token"
+        voice_server.auth_token = "test_token"  # nosec B105
         voice_server.server_config = {
             "security": {},
             "auto_shutdown_minutes": 0,
@@ -1315,7 +1315,7 @@ class TestCancelGenerationEndpoint(unittest.TestCase):
     @classmethod
     def tearDownClass(cls):
         import voice_server
-        voice_server.auth_token = "test_token"
+        voice_server.auth_token = "test_token"  # nosec B105
 
     def test_cancel_requires_auth(self):
         """POST /cancel-generation requires authentication."""
@@ -1658,7 +1658,7 @@ class TestUpdateModelConfigEndpoint(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         import voice_server
-        voice_server.auth_token = "test_token"
+        voice_server.auth_token = "test_token"  # nosec B105
         voice_server.server_config = {
             "security": {"max_text_length": 10000},
             "auto_shutdown_minutes": 0,
@@ -1672,7 +1672,7 @@ class TestUpdateModelConfigEndpoint(unittest.TestCase):
     @classmethod
     def tearDownClass(cls):
         import voice_server
-        voice_server.auth_token = "test_token"
+        voice_server.auth_token = "test_token"  # nosec B105
 
     def test_update_model_config_requires_auth(self):
         """POST /update-model-config requires authentication."""
@@ -1720,7 +1720,7 @@ class TestStreamingEndpointStructure(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         import voice_server
-        voice_server.auth_token = "test_token"
+        voice_server.auth_token = "test_token"  # nosec B105
         voice_server.server_config = {
             "security": {"max_text_length": 10000},
             "auto_shutdown_minutes": 0,
@@ -1734,7 +1734,7 @@ class TestStreamingEndpointStructure(unittest.TestCase):
     @classmethod
     def tearDownClass(cls):
         import voice_server
-        voice_server.auth_token = "test_token"
+        voice_server.auth_token = "test_token"  # nosec B105
 
     def test_generate_stream_requires_auth(self):
         """POST /generate-stream requires authentication."""
@@ -1991,7 +1991,7 @@ class TestETACache(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         import voice_server
-        voice_server.auth_token = "test_token"
+        voice_server.auth_token = "test_token"  # nosec B105
         voice_server.server_config = {
             "security": {},
             "auto_shutdown_minutes": 0,
@@ -2154,7 +2154,7 @@ class TestDeletePromptEndpoint(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         import voice_server
-        voice_server.auth_token = "test_secret_token"
+        voice_server.auth_token = "test_secret_token"  # nosec B105
         voice_server.server_config = {
             "security": {"max_text_length": 100, "max_batch_size": 3},
             "auto_shutdown_minutes": 0,
@@ -2217,7 +2217,7 @@ class TestRenamePromptEndpoint(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         import voice_server
-        voice_server.auth_token = "test_secret_token"
+        voice_server.auth_token = "test_secret_token"  # nosec B105
         voice_server.server_config = {
             "security": {"max_text_length": 100, "max_batch_size": 3},
             "auto_shutdown_minutes": 0,
@@ -2296,7 +2296,7 @@ class TestPreviewPromptEndpoint(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         import voice_server
-        voice_server.auth_token = "test_secret_token"
+        voice_server.auth_token = "test_secret_token"  # nosec B105
         voice_server.server_config = {
             "security": {"max_text_length": 100, "max_batch_size": 3},
             "auto_shutdown_minutes": 0,
@@ -2345,7 +2345,7 @@ class TestPromptDetailsEndpoint(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         import voice_server
-        voice_server.auth_token = "test_secret_token"
+        voice_server.auth_token = "test_secret_token"  # nosec B105
         voice_server.server_config = {
             "security": {"max_text_length": 100, "max_batch_size": 3},
             "auto_shutdown_minutes": 0,
@@ -2607,7 +2607,7 @@ class TestUnloadModelEndpoint(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         import voice_server
-        voice_server.auth_token = "test_token"
+        voice_server.auth_token = "test_token"  # nosec B105
         voice_server.server_config = {
             "security": {},
             "auto_shutdown_minutes": 0,
@@ -2622,7 +2622,7 @@ class TestUnloadModelEndpoint(unittest.TestCase):
     @classmethod
     def tearDownClass(cls):
         import voice_server
-        voice_server.auth_token = "test_token"
+        voice_server.auth_token = "test_token"  # nosec B105
 
     def test_unload_requires_auth(self):
         """POST /unload-model requires authentication."""
@@ -2679,7 +2679,7 @@ class TestUpdateStartupConfigEndpoint(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         import voice_server
-        voice_server.auth_token = "test_token"
+        voice_server.auth_token = "test_token"  # nosec B105
         voice_server.server_config = {
             "security": {},
             "auto_shutdown_minutes": 0,
@@ -2693,7 +2693,7 @@ class TestUpdateStartupConfigEndpoint(unittest.TestCase):
     @classmethod
     def tearDownClass(cls):
         import voice_server
-        voice_server.auth_token = "test_token"
+        voice_server.auth_token = "test_token"  # nosec B105
 
     def test_startup_config_requires_auth(self):
         """POST /update-startup-config requires authentication."""
@@ -2796,7 +2796,7 @@ class TestModelsEndpointEnhanced(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         import voice_server
-        voice_server.auth_token = "test_token"
+        voice_server.auth_token = "test_token"  # nosec B105
         voice_server.server_config = {
             "security": {},
             "auto_shutdown_minutes": 0,
@@ -2816,7 +2816,7 @@ class TestModelsEndpointEnhanced(unittest.TestCase):
     @classmethod
     def tearDownClass(cls):
         import voice_server
-        voice_server.auth_token = "test_token"
+        voice_server.auth_token = "test_token"  # nosec B105
         voice_server.model_load_times = {}
 
     def test_models_has_load_at_startup(self):
