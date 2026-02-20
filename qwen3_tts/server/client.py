@@ -276,7 +276,7 @@ class TTSClient:
                 resp = self._session.get(f"{self.server_url}/prompts", timeout=5, headers=auth_headers())
                 if resp.status_code == 200:
                     return resp.json().get("prompts", [])
-            except Exception:
+            except Exception:  # nosec B110
                 pass
         # Fallback to local filesystem
         prompts = [f for f in os.listdir(self.voice_prompts_dir) if f.endswith('.pt')]

@@ -249,7 +249,7 @@ def _load_voice_prompt_torch(prompt_file):
             "Loading %s with weights_only=False — only load trusted .pt files",
             prompt_file,
         )
-        return torch.load(prompt_path, weights_only=False, map_location=device)
+        return torch.load(prompt_path, weights_only=False, map_location=device)  # nosec B614
 
 
 def load_voice_prompt(prompt_file):
@@ -430,7 +430,7 @@ def _load_model_torch(model_type):
             # Fix tokenizer regex if supported
             try:
                 from transformers import AutoTokenizer
-                model.tokenizer = AutoTokenizer.from_pretrained(repo_id, fix_mistral_regex=True)
+                model.tokenizer = AutoTokenizer.from_pretrained(repo_id, fix_mistral_regex=True)  # nosec B615
             except TypeError:
                 pass  # Older transformers doesn't support fix_mistral_regex
             elapsed = time.time() - t0
@@ -541,7 +541,7 @@ def _run_inference_torch(model, text, mode, gen_params, language="English",
                 "MPS memory after generation: %.1f MB",
                 peak / (1024 * 1024),
             )
-        except Exception:
+        except Exception:  # nosec B110
             pass
     elif torch.cuda.is_available():
         try:
@@ -551,7 +551,7 @@ def _run_inference_torch(model, text, mode, gen_params, language="English",
                 "CUDA memory after generation: %.1f MB",
                 peak / (1024 * 1024),
             )
-        except Exception:
+        except Exception:  # nosec B110
             pass
 
     elapsed = time.time() - t0

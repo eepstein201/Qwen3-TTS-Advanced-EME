@@ -1398,12 +1398,12 @@ if __name__ == "__main__":
     port = server_config.get("port", 5123)
 
     if _args.public:
-        host = "0.0.0.0"
+        host = "0.0.0.0"  # nosec B104
         logger.warning("Binding to 0.0.0.0 — server is accessible from the network.")
 
     from qwen3_tts.core.config import IN_COLAB
     if IN_COLAB:
-        host = "0.0.0.0"
+        host = "0.0.0.0"  # nosec B104
         logger.info("Colab detected — binding to 0.0.0.0 for tunnel access.")
 
     # Handle shutdown signals

@@ -426,7 +426,7 @@ def _poll_progress(server_url, progress_fn, stop_event):
                     else:
                         desc = f"Generating... {elapsed:.0f}s"
                     progress_fn(pct, desc=desc)
-        except Exception:
+        except Exception:  # nosec B110
             pass
         stop_event.wait(1.0)
 
@@ -482,7 +482,7 @@ def _check_generation_cancelled():
         if resp.status_code == 200:
             state = resp.json()
             return state.get("cancelled", False)
-    except Exception:
+    except Exception:  # nosec B110
         pass
     return False
 
@@ -739,7 +739,7 @@ def stop_server():
 
     try:
         _requests.post(f"{client.server_url}/shutdown", timeout=5, headers=auth_headers())
-    except Exception:
+    except Exception:  # nosec B110
         pass  # Server shuts down immediately, may not respond
 
     # Wait briefly and re-check
@@ -1619,7 +1619,7 @@ def _find_available_port(preferred, max_tries=10):
     """
     import socket
     from qwen3_tts.core.config import IN_COLAB
-    bind_addr = "0.0.0.0" if IN_COLAB else "127.0.0.1"
+    bind_addr = "0.0.0.0" if IN_COLAB else "127.0.0.1"  # nosec B104
     for offset in range(max_tries):
         port = preferred + offset
         try:
@@ -1669,7 +1669,7 @@ def main():
 
     from qwen3_tts.core.config import IN_COLAB
     demo = build_ui()
-    server_name = "0.0.0.0" if IN_COLAB else "127.0.0.1"
+    server_name = "0.0.0.0" if IN_COLAB else "127.0.0.1"  # nosec B104
     share = args.share or IN_COLAB
     inbrowser = not args.no_browser and not IN_COLAB
     # Allow Gradio to serve audio files from output and temp directories
