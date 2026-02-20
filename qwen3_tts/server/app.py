@@ -523,16 +523,17 @@ def load_model_endpoint():
         with generation_lock:
             success = load_single_model(model_type)
     except ImportError as e:
+        logger.error("Backend not available for model loading %s: %s", model_type, e, exc_info=True)
         return jsonify({
             "error": f"Backend not available for model loading: {model_type}",
-            "detail": str(e),
+            "detail": "Required backend not available. Check server logs for details.",
             "recovery": "config",
         }), 500
     except (RuntimeError, OSError, ValueError) as e:
         logger.error("Failed to load model %s: %s", model_type, e, exc_info=True)
         return jsonify({
             "error": f"Failed to load model: {model_type}",
-            "detail": str(e),
+            "detail": "Model load failed. Check server logs for details.",
             "recovery": "restart",
         }), 500
 
@@ -856,7 +857,8 @@ def rename_prompt():
                 os.rename(current, rollback_to)
             except OSError:
                 pass
-        return jsonify({"error": f"Rename failed: {e}", "recovery": "retry"}), 500
+        logger.error("Rename failed %s -> %s: %s", old_name, new_name, e, exc_info=True)
+        return jsonify({"error": "Rename failed. Check server logs for details.", "recovery": "retry"}), 500
 
     # Update default if the renamed prompt was the default
     try:
@@ -1207,7 +1209,7 @@ def generate():
         logger.error("Generation failed: %s", e, exc_info=True)
         return jsonify({
             "error": "Audio generation failed",
-            "detail": str(e),
+            "detail": "An internal error occurred. Check server logs for details.",
             "recovery": "retry",
         }), 500
     finally:
