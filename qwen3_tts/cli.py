@@ -571,9 +571,9 @@ def backends():
 def config(ctx):
     """Configure TTS settings."""
     if ctx.invoked_subcommand is None:
-        import subprocess
+        import subprocess  # nosec B404
         wizard = os.path.expanduser('~/Qwen3-TTS_UserFiles/install.sh')
-        subprocess.run([wizard, '--reconfigure'])
+        subprocess.run([wizard, '--reconfigure'])  # nosec B603
 
 
 @config.command()

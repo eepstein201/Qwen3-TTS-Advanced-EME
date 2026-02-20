@@ -1673,7 +1673,7 @@ def main():
     share = args.share or IN_COLAB
     inbrowser = not args.no_browser and not IN_COLAB
     # Allow Gradio to serve audio files from output and temp directories
-    allowed = [os.path.expanduser("~/Downloads"), "/tmp"]
+    allowed = [os.path.expanduser("~/Downloads"), tempfile.gettempdir()]
     demo.launch(
         server_name=server_name,
         server_port=port,
