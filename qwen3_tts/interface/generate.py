@@ -12,7 +12,7 @@ import logging
 import os
 import re
 import shutil
-import subprocess
+import subprocess  # nosec B404
 import sys
 import threading
 import time
@@ -170,10 +170,10 @@ def open_file(path):
         print(f"File saved: {path}")
         return
     if IS_MACOS:
-        subprocess.run(["open", path])  # nosec B603
+        subprocess.run(["open", path])  # nosec B603 B607
     elif IS_LINUX:
         try:
-            subprocess.run(["xdg-open", path])  # nosec B603
+            subprocess.run(["xdg-open", path])  # nosec B603 B607
         except FileNotFoundError:
             logger.warning("xdg-open not found — cannot open file automatically")
 
@@ -637,7 +637,7 @@ class _ProgressPoller:
 
                         sys.stderr.write(line)
                         sys.stderr.flush()
-            except Exception:
+            except Exception:  # nosec B110
                 pass
 
             tick += 1
@@ -756,7 +756,7 @@ def generate_streaming(text, mode, config, gen_params, output_path,
     Also saves the complete audio to output_path.
     """
     import struct
-    import subprocess
+    import subprocess  # nosec B404
     import tempfile
     import numpy as np
     import soundfile as sf
@@ -823,7 +823,7 @@ def generate_streaming(text, mode, config, gen_params, output_path,
                 sf.write(temp.name, chunk, sr)
                 try:
                     play_audio(temp.name)
-                except Exception:
+                except Exception:  # nosec B110
                     pass
                 finally:
                     os.unlink(temp.name)
@@ -1767,7 +1767,7 @@ def main():
                 resp = requests.get(f"{url}/models", timeout=5, headers=auth_headers())
                 if resp.status_code == 200:
                     server_status = resp.json().get("models", {})
-            except Exception:
+            except Exception:  # nosec B110
                 pass
 
         for model_type, info in MODEL_INFO.items():
