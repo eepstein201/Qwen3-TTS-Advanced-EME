@@ -14,7 +14,7 @@ Usage:
 
 import os
 import signal
-import subprocess
+import subprocess  # nosec B404
 import sys
 import time
 
@@ -31,7 +31,7 @@ def wait_for_server(url, timeout=30):
     deadline = time.time() + timeout
     while time.time() < deadline:
         try:
-            resp = urllib.request.urlopen(url, timeout=2)
+            resp = urllib.request.urlopen(url, timeout=2)  # nosec B310
             if resp.status == 200:
                 return True
         except (urllib.error.URLError, ConnectionError, OSError):

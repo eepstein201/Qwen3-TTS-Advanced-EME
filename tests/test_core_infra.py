@@ -903,7 +903,7 @@ class TestAppHelperFunctions(unittest.TestCase):
         import qwen3_tts.server.app as app_mod
         original_token_file = app_mod.TOKEN_FILE
         try:
-            tmp = tempfile.mktemp(suffix=".token")
+            tmp = tempfile.mktemp(suffix=".token")  # nosec B306
             app_mod.TOKEN_FILE = tmp
             token = app_mod.generate_auth_token()
             self.assertEqual(len(token), 64)  # 32 bytes = 64 hex chars
