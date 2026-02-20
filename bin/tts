@@ -82,7 +82,7 @@ _start_server() {
     fi
 
     echo "Starting TTS Server..."
-    echo "This will load the models into memory (may take 30-60 seconds)..."
+    echo "This will load the models into memory (may take 30-180 seconds on first run)..."
 
     local -a server_args=()
     if [[ "${TTS_SERVER_PUBLIC:-}" == "1" ]]; then
@@ -92,7 +92,7 @@ _start_server() {
     nohup python "$USER_FILES/qwen3_tts/server/app.py" "${server_args[@]}" > "$LOG_FILE" 2>&1 &
 
     echo "Waiting for server to be ready..."
-    for i in {1..120}; do
+    for i in {1..300}; do
         if curl -s http://127.0.0.1:5123/health > /dev/null 2>&1; then
             echo "TTS Server is ready! (backend: $BACKEND)"
             echo "Use 'tts' to generate. Use 'tts server stop' to shut down."

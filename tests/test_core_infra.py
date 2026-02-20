@@ -52,6 +52,8 @@ class TestErrorPaths(unittest.TestCase):
             "security": {"max_text_length": 100, "max_batch_size": 5},
             "auto_shutdown_minutes": 0,
         }
+        import qwen3_tts.server.app as _srv
+        _srv._models_loaded.set()  # simulate models ready for tests that need a live server
         cls.app = voice_server.app
         cls.app.testing = True
         cls.client = cls.app.test_client()

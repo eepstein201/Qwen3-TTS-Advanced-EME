@@ -110,6 +110,7 @@ last_activity = time.time()
 
 # Store config globally for auto-shutdown settings
 server_config = {}
+_models_loaded = threading.Event()  # set once load_models() completes
 
 # Generation state for progress tracking
 generation_state = {
@@ -222,6 +223,9 @@ def load_models():
 
 @app.route("/health", methods=["GET"])
 def health():
+    # Return 503 while models are still loading so the startup poll keeps waiting
+    if not _models_loaded.is_set():
+        return jsonify({"status": "loading"}), 503
     reset_activity_timer()
     backend = get_backend()
     data = {
@@ -1410,17 +1414,6 @@ if __name__ == "__main__":
     generate_auth_token()
     print(f"Auth token written to {TOKEN_FILE}")
 
-    # Load models before starting server
-    load_models()
-
-    # Migrate orphan MLX prompts to .pt format (torch backend only)
-    if get_backend() == "torch":
-        try:
-            from qwen3_tts.core.engine import migrate_orphan_mlx_prompts
-            migrate_orphan_mlx_prompts(clone_model=clone_model)
-        except Exception as e:
-            logger.warning("MLX prompt migration failed: %s", e)
-
     # Write PID file
     write_pid()
 
@@ -1430,7 +1423,31 @@ if __name__ == "__main__":
         print(f"Auto-shutdown enabled: {auto_shutdown_minutes} minutes of inactivity")
         reset_activity_timer()
 
-    print(f"\nTTS Server running on http://{host}:{port}")
+    # Load models in a background daemon thread so Flask starts immediately.
+    # /health returns 503 {"status": "loading"} until models are ready,
+    # then 200 {"status": "ok"} — the startup health-check poll handles this.
+    def _background_load():
+        try:
+            load_models()
+            if get_backend() == "torch":
+                try:
+                    from qwen3_tts.core.engine import migrate_orphan_mlx_prompts
+                    migrate_orphan_mlx_prompts(clone_model=clone_model)
+                except Exception as e:
+                    logger.warning("MLX prompt migration failed: %s", e)
+        except Exception as e:
+            logger.error("Model loading failed in background thread: %s", e)
+        finally:
+            # Always set — even on failure, so health stops returning 503.
+            _models_loaded.set()
+            logger.info("Background model loading complete.")
+
+    _loader = threading.Thread(target=_background_load, daemon=True, name="model-loader")
+    _loader.start()
+    logger.info("Model loading started in background thread — Flask starting now.")
+
+    print(f"\nTTS Server starting on http://{host}:{port}")
+    print("Models loading in background — /health returns 200 when ready.")
     print("Use 'tts server stop' to shut down.\n")
 
     # Enable threading for concurrent request handling

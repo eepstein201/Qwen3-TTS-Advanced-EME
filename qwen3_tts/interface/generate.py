@@ -499,7 +499,7 @@ def ensure_server_running(config):
         return True
 
     print("TTS Server is not running.")
-    print("Starting server (this may take 30-60 seconds to load models)...")
+    print("Starting server (this may take 30-180 seconds on first run to download models)...")
 
     start_script = os.path.expanduser("~/bin/tts")
     if os.path.exists(start_script):
@@ -518,7 +518,7 @@ def ensure_server_running(config):
         )
 
     print("Waiting for server to be ready...")
-    for i in range(120):
+    for i in range(300):
         if is_server_running(config):
             print("TTS Server is ready!")
             return True

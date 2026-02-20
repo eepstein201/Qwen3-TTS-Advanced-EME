@@ -163,6 +163,8 @@ class TestServerValidation(unittest.TestCase):
         voice_server.clone_model = None
         voice_server.design_model = None
         voice_server.custom_model = None
+        import qwen3_tts.server.app as _srv
+        _srv._models_loaded.set()  # simulate models ready for tests that need a live server
         cls.app = voice_server.app
         cls.app.testing = True
         cls.client = cls.app.test_client()
@@ -254,6 +256,8 @@ class TestServerAuth(unittest.TestCase):
             "security": {},
             "auto_shutdown_minutes": 0,
         }
+        import qwen3_tts.server.app as _srv
+        _srv._models_loaded.set()  # simulate models ready for tests that need a live server
         cls.app = voice_server.app
         cls.app.testing = True
         cls.client = cls.app.test_client()
@@ -860,6 +864,8 @@ class TestStreamingServerEndpoint(unittest.TestCase):
             "security": {"max_text_length": 1000, "max_batch_size": 10},
             "auto_shutdown_minutes": 0,
         }
+        import qwen3_tts.server.app as _srv
+        _srv._models_loaded.set()  # simulate models ready for tests that need a live server
         cls.app = voice_server.app
         cls.app.testing = True
         cls.client = cls.app.test_client()
@@ -1152,6 +1158,8 @@ class TestHealthEndpointInfo(unittest.TestCase):
             "security": {},
             "auto_shutdown_minutes": 0,
         }
+        import qwen3_tts.server.app as _srv
+        _srv._models_loaded.set()  # simulate models ready for tests that need a live server
         cls.app = voice_server.app
         cls.app.testing = True
         cls.client = cls.app.test_client()
@@ -1197,6 +1205,8 @@ class TestGenerationStatus(unittest.TestCase):
             "security": {},
             "auto_shutdown_minutes": 0,
         }
+        import qwen3_tts.server.app as _srv
+        _srv._models_loaded.set()  # simulate models ready for tests that need a live server
         cls.app = voice_server.app
         cls.app.testing = True
         cls.client = cls.app.test_client()
@@ -1236,6 +1246,8 @@ class TestLoadModelEndpoint(unittest.TestCase):
             "security": {},
             "auto_shutdown_minutes": 0,
         }
+        import qwen3_tts.server.app as _srv
+        _srv._models_loaded.set()  # simulate models ready for tests that need a live server
         cls.app = voice_server.app
         cls.app.testing = True
         cls.client = cls.app.test_client()
@@ -1293,6 +1305,8 @@ class TestCancelGenerationEndpoint(unittest.TestCase):
             "cancelled": False,
             "generation_id": None,
         })
+        import qwen3_tts.server.app as _srv
+        _srv._models_loaded.set()  # simulate models ready for tests that need a live server
         cls.app = voice_server.app
         cls.app.testing = True
         cls.client = cls.app.test_client()
@@ -1648,6 +1662,8 @@ class TestUpdateModelConfigEndpoint(unittest.TestCase):
             "security": {"max_text_length": 10000},
             "auto_shutdown_minutes": 0,
         }
+        import qwen3_tts.server.app as _srv
+        _srv._models_loaded.set()  # simulate models ready for tests that need a live server
         cls.app = voice_server.app
         cls.app.testing = True
         cls.client = cls.app.test_client()
@@ -1708,6 +1724,8 @@ class TestStreamingEndpointStructure(unittest.TestCase):
             "security": {"max_text_length": 10000},
             "auto_shutdown_minutes": 0,
         }
+        import qwen3_tts.server.app as _srv
+        _srv._models_loaded.set()  # simulate models ready for tests that need a live server
         cls.app = voice_server.app
         cls.app.testing = True
         cls.client = cls.app.test_client()
@@ -1977,6 +1995,8 @@ class TestETACache(unittest.TestCase):
             "security": {},
             "auto_shutdown_minutes": 0,
         }
+        import qwen3_tts.server.app as _srv
+        _srv._models_loaded.set()  # simulate models ready for tests that need a live server
         cls.app = voice_server.app
         cls.app.testing = True
         cls.client = cls.app.test_client()
@@ -2138,6 +2158,8 @@ class TestDeletePromptEndpoint(unittest.TestCase):
             "security": {"max_text_length": 100, "max_batch_size": 3},
             "auto_shutdown_minutes": 0,
         }
+        import qwen3_tts.server.app as _srv
+        _srv._models_loaded.set()  # simulate models ready for tests that need a live server
         cls.app = voice_server.app
         cls.app.testing = True
         cls.client = cls.app.test_client()
@@ -2199,6 +2221,8 @@ class TestRenamePromptEndpoint(unittest.TestCase):
             "security": {"max_text_length": 100, "max_batch_size": 3},
             "auto_shutdown_minutes": 0,
         }
+        import qwen3_tts.server.app as _srv
+        _srv._models_loaded.set()  # simulate models ready for tests that need a live server
         cls.app = voice_server.app
         cls.app.testing = True
         cls.client = cls.app.test_client()
@@ -2276,6 +2300,8 @@ class TestPreviewPromptEndpoint(unittest.TestCase):
             "security": {"max_text_length": 100, "max_batch_size": 3},
             "auto_shutdown_minutes": 0,
         }
+        import qwen3_tts.server.app as _srv
+        _srv._models_loaded.set()  # simulate models ready for tests that need a live server
         cls.app = voice_server.app
         cls.app.testing = True
         cls.client = cls.app.test_client()
@@ -2323,6 +2349,8 @@ class TestPromptDetailsEndpoint(unittest.TestCase):
             "security": {"max_text_length": 100, "max_batch_size": 3},
             "auto_shutdown_minutes": 0,
         }
+        import qwen3_tts.server.app as _srv
+        _srv._models_loaded.set()  # simulate models ready for tests that need a live server
         cls.app = voice_server.app
         cls.app.testing = True
         cls.client = cls.app.test_client()
@@ -2584,6 +2612,8 @@ class TestUnloadModelEndpoint(unittest.TestCase):
             "auto_shutdown_minutes": 0,
             "models": {"clone": {"load_at_startup": True}},
         }
+        import qwen3_tts.server.app as _srv
+        _srv._models_loaded.set()  # simulate models ready for tests that need a live server
         cls.app = voice_server.app
         cls.app.testing = True
         cls.client = cls.app.test_client()
@@ -2653,6 +2683,8 @@ class TestUpdateStartupConfigEndpoint(unittest.TestCase):
             "security": {},
             "auto_shutdown_minutes": 0,
         }
+        import qwen3_tts.server.app as _srv
+        _srv._models_loaded.set()  # simulate models ready for tests that need a live server
         cls.app = voice_server.app
         cls.app.testing = True
         cls.client = cls.app.test_client()
@@ -2774,6 +2806,8 @@ class TestModelsEndpointEnhanced(unittest.TestCase):
             },
         }
         voice_server.model_load_times = {"clone": 5.2}
+        import qwen3_tts.server.app as _srv
+        _srv._models_loaded.set()  # simulate models ready for tests that need a live server
         cls.app = voice_server.app
         cls.app.testing = True
         cls.client = cls.app.test_client()
