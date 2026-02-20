@@ -2475,6 +2475,18 @@ class TestVoiceManagementUI(unittest.TestCase):
         from voice_ui import set_voice_default
         self.assertTrue(callable(set_voice_default))
 
+    def test_delete_voice_prompt_rejects_path_traversal(self):
+        """delete_voice_prompt must reject names with .. or /"""
+        from voice_generate import delete_voice_prompt
+        result = delete_voice_prompt("../evil_file")
+        self.assertFalse(result, "Expected False for traversal name '../evil_file'")
+
+    def test_rename_voice_prompt_rejects_path_traversal(self):
+        """rename_voice_prompt must reject names with .. or /"""
+        from voice_generate import rename_voice_prompt
+        result = rename_voice_prompt("../evil", "safe_name")
+        self.assertFalse(result, "Expected False for traversal name '../evil'")
+
 
 # =============================================================================
 # Phase 21c: Platform detection and Colab support tests

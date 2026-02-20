@@ -251,6 +251,9 @@ def get_voice_alias(alias_name, config):
 
 def delete_voice_prompt(prompt_name):
     """Delete a voice prompt file."""
+    if ".." in prompt_name or "/" in prompt_name or "\\" in prompt_name:
+        print(f"Error: Invalid prompt name: {prompt_name!r}")
+        return False
     prompt_path = os.path.join(VOICE_PROMPTS_DIR, prompt_name)
     if not prompt_name.endswith('.pt'):
         prompt_path += '.pt'
@@ -272,6 +275,10 @@ def delete_voice_prompt(prompt_name):
 
 def rename_voice_prompt(old_name, new_name):
     """Rename a voice prompt file."""
+    for _name in (old_name, new_name):
+        if ".." in _name or "/" in _name or "\\" in _name:
+            print(f"Error: Invalid prompt name: {_name!r}")
+            return False
     if not old_name.endswith('.pt'):
         old_name += '.pt'
     if not new_name.endswith('.pt'):
