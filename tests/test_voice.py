@@ -242,7 +242,7 @@ class TestServerValidation(unittest.TestCase):
     def test_generate_generic_exception_returns_sanitized_detail(self):
         """Generic exceptions in /generate must not expose raw exception messages."""
         from unittest.mock import patch, MagicMock
-        secret_msg = "secret_internal_state_xyz_path=/home/user/.ssh/id_rsa"
+        secret_msg = "secret_internal_state_xyz_path=/home/user/.ssh/id_rsa"  # nosec B105
         with patch('qwen3_tts.server.app._get_model', return_value=MagicMock()), \
              patch('qwen3_tts.server.app.run_inference',
                    side_effect=RuntimeError(secret_msg)):
@@ -261,7 +261,7 @@ class TestServerValidation(unittest.TestCase):
     def test_load_model_exception_returns_sanitized_detail(self):
         """Exceptions in /load-model must not expose raw exception messages."""
         from unittest.mock import patch
-        secret_msg = "secret_module_path=/home/user/lib/secret.py"
+        secret_msg = "secret_module_path=/home/user/lib/secret.py"  # nosec B105
         with patch('qwen3_tts.server.app.load_single_model',
                    side_effect=RuntimeError(secret_msg)):
             resp = self.client.post(
@@ -276,7 +276,7 @@ class TestServerValidation(unittest.TestCase):
     def test_rename_prompt_oserror_returns_sanitized_detail(self):
         """OSError in /rename-prompt must not expose internal file paths."""
         from unittest.mock import patch
-        secret_path = "/home/user/.ssh/voice_prompts/secret_file.pt"
+        secret_path = "/home/user/.ssh/voice_prompts/secret_file.pt"  # nosec B105
 
         def mock_exists(path):
             # Old file exists as .pt; new file does not exist (no collision)
