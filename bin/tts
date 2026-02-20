@@ -93,7 +93,7 @@ _start_server() {
 
     echo "Waiting for server to be ready..."
     for i in {1..300}; do
-        if curl -s http://127.0.0.1:5123/health > /dev/null 2>&1; then
+        if curl -s -o /dev/null -w "%{http_code}" http://127.0.0.1:5123/health 2>/dev/null | grep -q "200"; then
             echo "TTS Server is ready! (backend: $BACKEND)"
             echo "Use 'tts' to generate. Use 'tts server stop' to shut down."
             return 0
