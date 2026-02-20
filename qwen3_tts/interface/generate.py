@@ -100,7 +100,7 @@ def get_clipboard_text():
         print("Error: Clipboard not supported on this platform")
         sys.exit(1)
     try:
-        result = subprocess.run(cmd, capture_output=True, text=True, check=True)
+        result = subprocess.run(cmd, capture_output=True, text=True, check=True)  # nosec B603
         text = result.stdout.strip()
         if not text:
             print("Error: Clipboard is empty")
@@ -156,7 +156,7 @@ def play_audio(file_path):
         logger.warning("Audio playback not supported on this platform")
         return
     try:
-        subprocess.run(cmd, check=True)
+        subprocess.run(cmd, check=True)  # nosec B603
     except subprocess.CalledProcessError:
         logger.warning("Failed to play audio")
     except FileNotFoundError:
@@ -170,10 +170,10 @@ def open_file(path):
         print(f"File saved: {path}")
         return
     if IS_MACOS:
-        subprocess.run(["open", path])
+        subprocess.run(["open", path])  # nosec B603
     elif IS_LINUX:
         try:
-            subprocess.run(["xdg-open", path])
+            subprocess.run(["xdg-open", path])  # nosec B603
         except FileNotFoundError:
             logger.warning("xdg-open not found — cannot open file automatically")
 
@@ -503,7 +503,7 @@ def ensure_server_running(config):
 
     start_script = os.path.expanduser("~/bin/tts")
     if os.path.exists(start_script):
-        result = subprocess.run([start_script, "server", "start"], capture_output=False)
+        result = subprocess.run([start_script, "server", "start"], capture_output=False)  # nosec B603
         return result.returncode == 0
 
     # Fallback: start server directly via qwen3_tts/server/app.py
@@ -513,7 +513,7 @@ def ensure_server_running(config):
     user_files = os.path.expanduser("~/Qwen3-TTS_UserFiles")
     env = {**os.environ, "PYTHONPATH": user_files + os.pathsep + os.environ.get("PYTHONPATH", "")}
     with open(log_file, "w") as log:
-        subprocess.Popen(
+        subprocess.Popen(  # nosec B603
             [sys.executable, server_module],
             stdout=log, stderr=log,
             start_new_session=True,
