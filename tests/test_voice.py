@@ -90,7 +90,7 @@ class TestTTSConfig(unittest.TestCase):
     def test_read_auth_token_missing(self):
         from voice_config import TOKEN_FILE, read_auth_token
         # Use a temp path that doesn't exist
-        with patch("voice_config.TOKEN_FILE", "/tmp/nonexistent_token_test_xyz"):
+        with patch("voice_config.TOKEN_FILE", os.path.join(tempfile.gettempdir(), "nonexistent_token_test_xyz")):
             result = read_auth_token()
         # If the real file exists, it returns its content; with patched path it's None
         # Can't reliably test with real TOKEN_FILE, so test the function signature
@@ -392,8 +392,9 @@ class TestAutoIncrementFilename(unittest.TestCase):
     def test_no_conflict(self):
         from voice_generate import auto_increment_filename
         # Non-existent file should return as-is
-        result = auto_increment_filename("/tmp/nonexistent_test_xyz.wav")
-        self.assertEqual(result, "/tmp/nonexistent_test_xyz.wav")
+        _tmp = os.path.join(tempfile.gettempdir(), "nonexistent_test_xyz.wav")
+        result = auto_increment_filename(_tmp)
+        self.assertEqual(result, _tmp)
 
     def test_conflict_increments(self):
         from voice_generate import auto_increment_filename
@@ -410,7 +411,7 @@ class TestAutoIncrementFilename(unittest.TestCase):
     def test_already_numbered(self):
         from voice_generate import auto_increment_filename
         # Create files with _2 suffix
-        with tempfile.NamedTemporaryFile(suffix="_2.wav", delete=False, dir="/tmp", prefix="test_") as f:
+        with tempfile.NamedTemporaryFile(suffix="_2.wav", delete=False, dir=tempfile.gettempdir(), prefix="test_") as f:
             path = f.name
         try:
             result = auto_increment_filename(path)
