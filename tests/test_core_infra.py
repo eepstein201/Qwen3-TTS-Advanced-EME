@@ -47,7 +47,7 @@ class TestErrorPaths(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         import voice_server
-        voice_server.auth_token = "test_token"
+        voice_server.auth_token = "test_token"  # nosec B105
         voice_server.server_config = {
             "security": {"max_text_length": 100, "max_batch_size": 5},
             "auto_shutdown_minutes": 0,
@@ -211,7 +211,7 @@ class TestVoicePromptCacheEdgeCases(unittest.TestCase):
         try:
             for i in range(_MLX_PROMPT_CACHE_MAX):
                 _mlx_prompt_cache[f"voice_{i}"] = {
-                    "ref_audio": f"/tmp/v{i}.wav",
+                    "ref_audio": f"/tmp/v{i}.wav",  # nosec B108
                     "ref_text": "text",
                 }
             self.assertEqual(len(_mlx_prompt_cache), _MLX_PROMPT_CACHE_MAX)
@@ -219,7 +219,7 @@ class TestVoicePromptCacheEdgeCases(unittest.TestCase):
             if len(_mlx_prompt_cache) >= _MLX_PROMPT_CACHE_MAX:
                 oldest_key = next(iter(_mlx_prompt_cache))
                 del _mlx_prompt_cache[oldest_key]
-            _mlx_prompt_cache["voice_new"] = {"ref_audio": "/tmp/new.wav", "ref_text": "new"}
+            _mlx_prompt_cache["voice_new"] = {"ref_audio": "/tmp/new.wav", "ref_text": "new"}  # nosec B108
             self.assertEqual(len(_mlx_prompt_cache), _MLX_PROMPT_CACHE_MAX)
         finally:
             _mlx_prompt_cache.clear()
@@ -231,14 +231,14 @@ class TestVoicePromptCacheEdgeCases(unittest.TestCase):
         try:
             for i in range(_MLX_PROMPT_CACHE_MAX):
                 _mlx_prompt_cache[f"voice_{i}"] = {
-                    "ref_audio": f"/tmp/v{i}.wav",
+                    "ref_audio": f"/tmp/v{i}.wav",  # nosec B108
                     "ref_text": "text",
                 }
             # Evict oldest (voice_0) and insert new
             oldest_key = next(iter(_mlx_prompt_cache))
             self.assertEqual(oldest_key, "voice_0")
             del _mlx_prompt_cache[oldest_key]
-            _mlx_prompt_cache["voice_extra"] = {"ref_audio": "/tmp/extra.wav", "ref_text": "extra"}
+            _mlx_prompt_cache["voice_extra"] = {"ref_audio": "/tmp/extra.wav", "ref_text": "extra"}  # nosec B108
             self.assertNotIn("voice_0", _mlx_prompt_cache)
             self.assertIn("voice_extra", _mlx_prompt_cache)
         finally:

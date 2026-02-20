@@ -46,7 +46,7 @@ def main():
         # 1. Launch Gradio UI on isolated port
         print(f"Launching Gradio UI on port {UI_PORT}...")
         env = os.environ.copy()
-        ui_proc = subprocess.Popen(
+        ui_proc = subprocess.Popen(  # nosec B603
             [sys.executable, "-c",
              f"import sys; sys.path.insert(0, '{PROJECT_DIR}'); "
              f"from voice_ui import build_ui; "
