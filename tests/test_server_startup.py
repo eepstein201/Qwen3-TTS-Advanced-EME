@@ -54,7 +54,7 @@ class TestHealthEndpointDuringLoading(unittest.TestCase):
     def setUpClass(cls):
         import qwen3_tts.server.app as srv
         # Minimal config so app doesn't crash
-        srv.auth_token = "test_token_startup"
+        srv.auth_token = "test_token_startup"  # nosec B105
         srv.server_config = {
             "security": {"max_text_length": 10000, "max_batch_size": 20},
             "auto_shutdown_minutes": 0,
