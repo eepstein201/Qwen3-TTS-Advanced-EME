@@ -277,6 +277,26 @@ python -m unittest discover -v tests/
 
 ## Recent Significant Changes
 
+### 2026-02-21 — Statusline management system: add, toggle, and generate
+
+**New commands:**
+- `claude-statusline-add` — Interactive command to register existing statusline scripts or generate new ones from templates
+- `claude-statusline-toggle` — Switch between registered statuslines via interactive menu
+
+**Architecture:**
+- `~/.claude/statuslines/` — Dedicated directory for all statusline scripts (migrated from scattered locations)
+- `~/.claude/statusline-add.sh` — Main script with validation, file operations, rollback logic, and template-based generator
+- `~/.claude/statusline-toggle.sh` — Toggle script with `STATUSLINES` associative array, auto-updated by add command
+- New statuslines are added via `STATUSLINES["id"]="path|description"` entries
+
+**Key features:**
+- `register_existing()` — Validates ID format/uniqueness, copies script, updates toggle array, optionally activates
+- `create_new_with_claude()` — Collects component preferences (Model/Dir/Git/Progress/Cost/Timer), generates bash script, previews output, registers automatically
+- JSON sanitization (`jq --arg`), rollback on failure, backup before modification
+- Two layout options: single-line compact and two-line detailed
+
+**Tests:** `tests/test_statusline_add.sh`, `tests/test_register_existing.sh`, `tests/test_create_new_with_claude.sh`, `tests/test_statusline_integration.sh`, `tests/test_statusline_migration.sh`
+
 ### 2026-02-20 — Tokenizer improvements: pySBD + num2words + token-aware chunking
 
 **Changes:**
