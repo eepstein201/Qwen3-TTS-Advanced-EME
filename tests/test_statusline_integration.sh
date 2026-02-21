@@ -55,9 +55,9 @@ echo ""
 echo "Group 3: Toggle script format (3 tests)"
 echo "----------------------------------------"
 
-grep -q 'declare -A STATUSLINES' "$HOME/.claude/statusline-toggle.sh" && pass "Toggle uses associative array" || fail "Toggle uses associative array"
-grep -q 'STATUSLINES\["original"\]' "$HOME/.claude/statusline-toggle.sh" && pass "Toggle has original entry" || fail "Toggle has original entry"
-grep -q 'STATUSLINES\["starship"\]' "$HOME/.claude/statusline-toggle.sh" && pass "Toggle has starship entry" || fail "Toggle has starship entry"
+grep -q 'STATUSLINES=' "$HOME/.claude/statusline-toggle.sh" && pass "Toggle defines STATUSLINES array" || fail "Toggle defines STATUSLINES array"
+grep -q '"original|' "$HOME/.claude/statusline-toggle.sh" && pass "Toggle has original entry" || fail "Toggle has original entry"
+grep -q '"starship|' "$HOME/.claude/statusline-toggle.sh" && pass "Toggle has starship entry" || fail "Toggle has starship entry"
 
 echo ""
 
