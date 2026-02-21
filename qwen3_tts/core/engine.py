@@ -524,7 +524,6 @@ def migrate_orphan_mlx_prompts(clone_model=None):
         clone_model: Optional pre-loaded clone model. If None, loads on demand.
     """
     import glob
-    import torch
 
     wav_files = glob.glob(os.path.join(VOICE_PROMPTS_DIR, "*.wav"))
     migrated = 0
@@ -546,6 +545,7 @@ def migrate_orphan_mlx_prompts(clone_model=None):
                 if not transcript:
                     logger.warning("No transcript for %s, using empty string", base)
                 voice_prompt = create_voice_prompt(model, ref_audio, ref_sr, transcript)
+                import torch  # lazy: only needed when saving .pt
                 torch.save(voice_prompt, pt_path)
                 logger.info("Auto-created and saved %s", pt_path)
                 migrated += 1
