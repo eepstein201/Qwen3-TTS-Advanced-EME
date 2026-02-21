@@ -172,7 +172,16 @@ def _normalize_text(text, language="English"):
     except Exception:
         pass
 
-    # 3. Currencies: $5.00 → "five dollars"
+    # 3. Phone numbers: (800) 555-1234 or 555-1234 → "8 0 0 5 5 5 1 2 3 4"
+    try:
+        def _expand_phone(m):
+            digits = _re.sub(r'\D', '', m.group())
+            return " ".join(digits)
+        text = _re.sub(r'(?:\(\d{3}\)\s*|\d{3}[-.])\d{3}[-.]?\d{4}', _expand_phone, text)
+    except Exception:
+        pass
+
+    # 4. Currencies: $5.00 → "five dollars"
     try:
         symbols_pat = "[" + _re.escape("".join(_CURRENCY_MAP.keys())) + "]"
 

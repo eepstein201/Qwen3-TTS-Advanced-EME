@@ -356,6 +356,23 @@ class TestNormalizeText(unittest.TestCase):
         self.assertNotIn("https://", result)
         self.assertIn("example", result)
 
+    def test_normalize_phone_7digit(self):
+        """555-1234 — bare phone digits are expanded, not left as numerals."""
+        from qwen3_tts.core.engine import _normalize_text
+        result = _normalize_text("Call 555-1234 today.", "English")
+        self.assertNotIn("555-1234", result)
+        # cardinal expansion converts the component numbers to words
+        self.assertIn("five", result)
+
+    def test_normalize_phone_10digit(self):
+        """(800) 555-1234 → digit-by-digit then each digit becomes a word."""
+        from qwen3_tts.core.engine import _normalize_text
+        result = _normalize_text("Call (800) 555-1234 now.", "English")
+        self.assertNotIn("(800)", result)
+        self.assertNotIn("555-1234", result)
+        # phone expansion → "8 0 0 5 5 5 1 2 3 4"; cardinal step → "eight zero zero …"
+        self.assertIn("eight", result)
+
 
 @_skip_pysbd
 class TestPysbdSentenceSplitting(unittest.TestCase):
