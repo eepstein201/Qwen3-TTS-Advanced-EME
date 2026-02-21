@@ -204,7 +204,7 @@ def _normalize_text(text, language="English"):
     except Exception:
         pass
 
-    # 4. Ordinals: 3rd, 21st, etc.
+    # 5. Ordinals: 3rd, 21st, etc.
     try:
         def _expand_ordinal(m):
             try:
@@ -216,7 +216,7 @@ def _normalize_text(text, language="English"):
     except Exception:
         pass
 
-    # 5. ISO dates: YYYY-MM-DD
+    # 6. ISO dates: YYYY-MM-DD
     try:
         def _expand_iso_date(m):
             year, month, day = int(m.group(1)), int(m.group(2)), int(m.group(3))
@@ -236,7 +236,7 @@ def _normalize_text(text, language="English"):
     except Exception:
         pass
 
-    # 6. US dates: MM/DD/YYYY
+    # 7. US dates: MM/DD/YYYY
     try:
         def _expand_us_date(m):
             month, day, year = int(m.group(1)), int(m.group(2)), int(m.group(3))
@@ -256,14 +256,14 @@ def _normalize_text(text, language="English"):
     except Exception:
         pass
 
-    # 7. Abbreviations
+    # 8. Abbreviations
     try:
         for pattern, replacement in _ABBREV_TABLE:
             text = _re.sub(pattern, replacement, text)
     except Exception:
         pass
 
-    # 8. Cardinal numbers (standalone integers)
+    # 9. Cardinal numbers (standalone integers)
     if _n2w:
         try:
             def _expand_cardinal(m):
