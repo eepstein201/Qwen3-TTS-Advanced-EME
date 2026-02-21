@@ -14,4 +14,6 @@ requests
 gradio
 watchdog
 pyrubberband
+pySBD>=0.3.4
+num2words>=0.5.13
 click>=8.0

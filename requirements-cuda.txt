@@ -14,6 +14,8 @@ accelerate
 bitsandbytes
 scipy
 pyrubberband
+pySBD>=0.3.4
+num2words>=0.5.13
 click>=8.0
 # Flash Attention 2 — optional, auto-detected at runtime.
 # Only installs on Ampere+ GPUs (L4, A100, H100). Safe to skip on T4.
