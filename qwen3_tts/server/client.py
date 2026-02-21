@@ -38,7 +38,6 @@ import os
 import shutil
 
 import requests
-import soundfile as sf
 
 from qwen3_tts.core.config import (
     CONFIG_PATH,
@@ -520,6 +519,7 @@ class TTSClient:
                                 speed=speed, pitch=pitch)
 
         # Save output
+        import soundfile as sf  # lazy — not needed at module import time
         sf.write(output, wav, sr)
         return output
 
@@ -552,6 +552,7 @@ class TTSClient:
             raise Exception(f"Server error: {error_msg}")
 
         result = resp.json()["results"][0]
+        import soundfile as sf  # lazy — not needed at module import time
         wav, sr = sf.read(result["file"])
         os.remove(result["file"])
         return wav, sr
@@ -806,6 +807,7 @@ class TTSClient:
                 raise Exception(f"Server error: {error_msg}")
 
             result = resp.json()["results"][0]
+            import soundfile as sf  # lazy — not needed at module import time
             wav, sr = sf.read(result["file"])
             os.remove(result["file"])
 
@@ -844,6 +846,7 @@ class TTSClient:
             if not output.endswith('.wav'):
                 output += '.wav'
 
+        import soundfile as sf  # lazy — not needed at module import time
         sf.write(output, combined, sample_rate)
         return output
 

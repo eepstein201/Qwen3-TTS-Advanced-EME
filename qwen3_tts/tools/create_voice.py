@@ -15,9 +15,6 @@ import shutil
 import subprocess  # nosec B404
 import sys
 
-import soundfile as sf
-from pydub import AudioSegment
-
 from qwen3_tts.core.config import VOICE_PROMPTS_DIR, USER_FILES_DIR, get_backend
 
 
@@ -32,6 +29,9 @@ def create_and_save_voice_prompt(audio_path, transcript, prompt_name,
         test_generation: Run a test generation after creating the prompt.
         mlx_only: If True, only save .wav + .txt (no .pt, no torch needed).
     """
+    import soundfile as sf  # lazy — not needed at module import time
+    from pydub import AudioSegment  # lazy — only used for non-wav format fallback
+
     # Load audio — try soundfile first (fast, supports wav/flac/ogg),
     # fall back to pydub for other formats (m4a, mp3, etc.)
     ext = os.path.splitext(audio_path)[1].lower().lstrip('.')
