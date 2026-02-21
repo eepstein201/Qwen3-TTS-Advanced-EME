@@ -481,6 +481,14 @@ Python imports have also moved to package paths:
 | `from voice_client import generate` | `from qwen3_tts.server.client import generate` |
 | `from voice_config import ...` | `from qwen3_tts.core.config import ...` |
 
+## Text Processing Roadmap
+
+**Current:** pySBD sentence splitting prevents false breaks on "Dr. Smith" and decimal numbers. num2words expands numbers, dates, currencies, ordinals, and common abbreviations before synthesis. Token-aware chunking (torch backend) ensures chunks never silently exceed the model's context window.
+
+**Future options (not yet implemented):**
+- **NLTK punkt tokenizer** — Moderate-weight alternative to pySBD; requires punkt data download at first use. Good for multi-language academic text.
+- **NVIDIA NeMo text processing** — Production-grade normalization covering dates, times, measures, addresses, financial data. ~500MB+ in new dependencies; suitable for high-volume or broadcast-quality TTS.
+
 ## License
 
 The source code in this repository is licensed under Apache 2.0. See [LICENSE](LICENSE).

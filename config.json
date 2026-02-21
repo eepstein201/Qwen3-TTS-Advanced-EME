@@ -40,6 +40,7 @@
     "repetition_penalty": 1.05,
     "seed": null,
     "max_chunk_chars": 500,
+    "max_chunk_tokens": 200,
     "max_new_tokens": 2048,
     "compile_model": true
   },

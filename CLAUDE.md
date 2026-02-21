@@ -194,6 +194,7 @@ All other endpoints require `Authorization: Bearer <token>` (token from `~/.voic
 | `advanced.mlx_quantization` | `"4bit"`, `"8bit"`, `"bf16"` | `"8bit"` |
 | `advanced.audio_loader` | `"torchaudio"`, `"librosa"` | `"torchaudio"` |
 | `generation.max_chunk_chars` | `0`-`10000` | `500` (0 disables chunking) |
+| `generation.max_chunk_tokens` | positive integer | `200` (torch backend; ignored by MLX) |
 
 ## Security
 
@@ -275,6 +276,22 @@ python -m unittest discover -v tests/
 `get_cuda_capability()` and `get_optimal_attn_config()` in `qwen3_tts/core/config.py` expose hardware detection. The Colab notebook auto-configures based on detected GPU tier.
 
 ## Recent Significant Changes
+
+### 2026-02-20 — Tokenizer improvements: pySBD + num2words + token-aware chunking
+
+**Changes:**
+- `qwen3_tts/core/engine.py`: Added `_map_language()`, `_normalize_text()`, `_get_max_chunk_tokens()`; replaced `_SENTENCE_SPLIT_RE` with pySBD in `_split_text()`; added `tokenizer`/`max_tokens` params to `_split_text()`; updated `run_inference()` and `run_inference_streaming()` to normalize text and use token-aware chunking on torch backend.
+- `config.json`: Added `generation.max_chunk_tokens: 200`.
+- `requirements-mlx.txt`, `requirements-cuda.txt`, `pyproject.toml`: Added `pySBD>=0.3.4`, `num2words>=0.5.13`.
+- `tests/test_audio_utils.py`: Added `TestMapLanguage`, `TestNormalizeText`, `TestPysbdSentenceSplitting`, `TestGetMaxChunkTokens`, `TestTokenAwareChunking`.
+
+## Text Processing Roadmap
+
+**Current (implemented):** pySBD sentence splitting, num2words text normalization, token-aware chunking (torch backend).
+
+**Future options (not yet implemented):**
+- **NLTK punkt tokenizer** — Moderate-weight alternative to pySBD; requires punkt data download at first use. Good for multi-language academic text.
+- **NVIDIA NeMo text processing** — Production-grade normalization covering dates, times, measures, addresses, financial data. ~500MB+ in new dependencies; suitable for high-volume or broadcast-quality TTS.
 
 ### 2026-02-20 — Security remediation: all Bandit + CodeQL alerts resolved
 

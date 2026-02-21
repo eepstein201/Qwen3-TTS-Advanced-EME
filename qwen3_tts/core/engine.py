@@ -69,28 +69,249 @@ _PARAGRAPH_SPLIT_RE = re.compile(r'\n+')
 _CLAUSE_SPLIT_RE = re.compile(r'(?<=[,;:\u2014])\s+')
 
 # ---------------------------------------------------------------------------
+# Language mapping helpers
+# ---------------------------------------------------------------------------
+
+_PYSBD_LANG_MAP = {
+    "english": "en",
+    "spanish": "es",
+    "french": "fr",
+    "german": "de",
+    "italian": "it",
+    "japanese": "ja",
+    "chinese": "zh",
+    "russian": "ru",
+    "dutch": "nl",
+    "polish": "pl",
+}
+
+
+def _map_language(language):
+    """Map a full language name to a pySBD/num2words 2-letter ISO code.
+
+    Returns 'en' for any unrecognized or missing language.
+    """
+    return _PYSBD_LANG_MAP.get((language or "english").lower(), "en")
+
+
+# ---------------------------------------------------------------------------
+# Text normalization
+# ---------------------------------------------------------------------------
+
+# Abbreviation table — longer patterns first to avoid partial matches
+_ABBREV_TABLE = [
+    (r'\bProf\.', "Professor"),
+    (r'\bDr\.', "Doctor"),
+    (r'\bMrs\.', "Missus"),
+    (r'\bMr\.', "Mister"),
+    (r'\be\.g\.', "for example"),
+    (r'\bi\.e\.', "that is"),
+    (r'\bvs\.', "versus"),
+    (r'\betc\.', "et cetera"),
+    (r'\bapprox\.', "approximately"),
+    (r'\byrs\.', "years"),
+    (r'\byrs\b', "years"),
+]
+
+# Currency symbols → (singular, plural)
+_CURRENCY_MAP = {
+    "$": ("dollar", "dollars"),
+    "€": ("euro", "euros"),
+    "£": ("pound", "pounds"),
+    "¥": ("yen", "yen"),
+}
+
+
+def _normalize_text(text, language="English"):
+    """Normalize text for TTS: expand numbers, dates, abbreviations, and URLs.
+
+    Called before chunking in run_inference(). All steps are wrapped in
+    try/except so a failure never blocks generation.
+
+    Args:
+        text: Raw input text.
+        language: Language name string (e.g. "English").
+
+    Returns:
+        Normalized text string.
+    """
+    import re as _re
+
+    if not text:
+        return text
+
+    lang = _map_language(language)
+
+    try:
+        from num2words import num2words as _n2w
+    except ImportError:
+        _n2w = None
+
+    # 1. Emails: user@example.com → "user at example dot com"
+    try:
+        def _expand_email(m):
+            addr = m.group()
+            local, _, domain = addr.partition("@")
+            domain_parts = domain.split(".")
+            return local + " at " + " dot ".join(domain_parts)
+        text = _re.sub(
+            r'\b[A-Za-z0-9._%+\-]+@[A-Za-z0-9.\-]+\.[A-Za-z]{2,}\b',
+            _expand_email, text)
+    except Exception:
+        pass
+
+    # 2. URLs: https://example.com → "example dot com"
+    try:
+        def _expand_url(m):
+            url = m.group()
+            url = _re.sub(r'^https?://', '', url)
+            url = _re.sub(r'^www\.', '', url)
+            url = url.replace(".", " dot ").rstrip()
+            return url
+        text = _re.sub(r'https?://\S+', _expand_url, text)
+    except Exception:
+        pass
+
+    # 3. Currencies: $5.00 → "five dollars"
+    try:
+        symbols_pat = "[" + _re.escape("".join(_CURRENCY_MAP.keys())) + "]"
+
+        def _expand_currency(m):
+            symbol = m.group(1)
+            amount_str = m.group(2)
+            singular, plural = _CURRENCY_MAP.get(symbol, ("unit", "units"))
+            try:
+                amount = float(amount_str)
+                whole = int(amount)
+                if _n2w:
+                    words = _n2w(whole, lang=lang)
+                else:
+                    words = str(whole)
+                label = singular if whole == 1 else plural
+                return f"{words} {label}"
+            except Exception:
+                return m.group()
+        text = _re.sub(rf'({symbols_pat})(\d+(?:\.\d+)?)', _expand_currency, text)
+    except Exception:
+        pass
+
+    # 4. Ordinals: 3rd, 21st, etc.
+    try:
+        def _expand_ordinal(m):
+            try:
+                n = int(m.group(1))
+                return _n2w(n, lang=lang, to="ordinal") if _n2w else m.group()
+            except Exception:
+                return m.group()
+        text = _re.sub(r'\b(\d+)(?:st|nd|rd|th)\b', _expand_ordinal, text)
+    except Exception:
+        pass
+
+    # 5. ISO dates: YYYY-MM-DD
+    try:
+        def _expand_iso_date(m):
+            year, month, day = int(m.group(1)), int(m.group(2)), int(m.group(3))
+            try:
+                import calendar
+                month_name = calendar.month_name[month]
+                if _n2w:
+                    day_word = _n2w(day, lang=lang, to="ordinal")
+                    year_word = _n2w(year, lang=lang)
+                else:
+                    day_word = str(day)
+                    year_word = str(year)
+                return f"{month_name} {day_word}, {year_word}"
+            except Exception:
+                return m.group()
+        text = _re.sub(r'\b(\d{4})-(\d{2})-(\d{2})\b', _expand_iso_date, text)
+    except Exception:
+        pass
+
+    # 6. US dates: MM/DD/YYYY
+    try:
+        def _expand_us_date(m):
+            month, day, year = int(m.group(1)), int(m.group(2)), int(m.group(3))
+            try:
+                import calendar
+                month_name = calendar.month_name[month]
+                if _n2w:
+                    day_word = _n2w(day, lang=lang, to="ordinal")
+                    year_word = _n2w(year, lang=lang)
+                else:
+                    day_word = str(day)
+                    year_word = str(year)
+                return f"{month_name} {day_word}, {year_word}"
+            except Exception:
+                return m.group()
+        text = _re.sub(r'\b(\d{1,2})/(\d{1,2})/(\d{4})\b', _expand_us_date, text)
+    except Exception:
+        pass
+
+    # 7. Abbreviations
+    try:
+        for pattern, replacement in _ABBREV_TABLE:
+            text = _re.sub(pattern, replacement, text)
+    except Exception:
+        pass
+
+    # 8. Cardinal numbers (standalone integers)
+    if _n2w:
+        try:
+            def _expand_cardinal(m):
+                try:
+                    return _n2w(int(m.group()), lang=lang)
+                except Exception:
+                    return m.group()
+            text = _re.sub(r'(?<![.\w])\b\d+\b(?![.\w])', _expand_cardinal, text)
+        except Exception:
+            pass
+
+    return text
+
+
+# ---------------------------------------------------------------------------
 # Text chunking for long-form reliability
 # ---------------------------------------------------------------------------
 
-def _split_text(text, max_chars=500):
+def _split_text(text, max_chars=500, language="English", tokenizer=None, max_tokens=None):
     """Split text into chunks at sentence boundaries.
 
     Splits on sentence-ending punctuation (. ! ?) followed by whitespace,
-    or on newlines. If a single sentence exceeds max_chars, falls back to
+    or on newlines. If a single sentence exceeds the limit, falls back to
     clause boundaries (, ; — :). Never splits mid-word.
+
+    When tokenizer and max_tokens are provided, uses token counts instead of
+    character counts to measure chunk sizes (torch backend only).
 
     Args:
         text: Input text to split.
-        max_chars: Maximum characters per chunk.
+        max_chars: Maximum characters per chunk (used when tokenizer is None).
+        language: Language name string for pySBD segmenter.
+        tokenizer: Optional tokenizer for token-aware chunking.
+        max_tokens: Maximum tokens per chunk (used when tokenizer is provided).
 
     Returns:
-        List of text chunks. Returns [text] unchanged if len(text) <= max_chars.
+        List of text chunks. Returns [text] unchanged if it fits in one chunk.
     """
     text = text.strip()
-    if len(text) <= max_chars:
+
+    def _measure(chunk):
+        if tokenizer is not None and max_tokens is not None:
+            return len(tokenizer.encode(chunk, add_special_tokens=False))
+        return len(chunk)
+
+    limit = max_tokens if (tokenizer is not None and max_tokens is not None) else max_chars
+
+    if _measure(text) <= limit:
         return [text]
 
-    sentences = _SENTENCE_SPLIT_RE.split(text)
+    # Sentence splitting: pySBD when available, regex fallback
+    try:
+        import pysbd
+        segmenter = pysbd.Segmenter(language=_map_language(language), clean=False)
+        sentences = segmenter.segment(text)
+    except ImportError:
+        sentences = _SENTENCE_SPLIT_RE.split(text)
 
     # Also split on paragraph breaks (multiple newlines)
     expanded = []
@@ -103,13 +324,11 @@ def _split_text(text, max_chars=500):
     current_chunk = ""
 
     for sentence in sentences:
-        # If adding this sentence would exceed max_chars
-        if current_chunk and len(current_chunk) + 1 + len(sentence) > max_chars:
+        if current_chunk and _measure(current_chunk) + 1 + _measure(sentence) > limit:
             chunks.append(current_chunk.strip())
             current_chunk = ""
 
-        # If a single sentence exceeds max_chars, split on clause boundaries
-        if len(sentence) > max_chars:
+        if _measure(sentence) > limit:
             if current_chunk:
                 chunks.append(current_chunk.strip())
                 current_chunk = ""
@@ -117,18 +336,17 @@ def _split_text(text, max_chars=500):
             clauses = _CLAUSE_SPLIT_RE.split(sentence)
 
             for clause in clauses:
-                if current_chunk and len(current_chunk) + 1 + len(clause) > max_chars:
+                if current_chunk and _measure(current_chunk) + 1 + _measure(clause) > limit:
                     chunks.append(current_chunk.strip())
                     current_chunk = ""
 
-                # If even a single clause exceeds max_chars, force-split on word boundaries
-                if len(clause) > max_chars:
+                if _measure(clause) > limit:
                     if current_chunk:
                         chunks.append(current_chunk.strip())
                         current_chunk = ""
                     words = clause.split()
                     for word in words:
-                        if current_chunk and len(current_chunk) + 1 + len(word) > max_chars:
+                        if current_chunk and _measure(current_chunk) + 1 + _measure(word) > limit:
                             chunks.append(current_chunk.strip())
                             current_chunk = ""
                         current_chunk = (current_chunk + " " + word).strip() if current_chunk else word
@@ -898,6 +1116,15 @@ def _get_max_chunk_chars():
         return 500
 
 
+def _get_max_chunk_tokens():
+    """Read max_chunk_tokens from config, defaulting to 200."""
+    try:
+        config = load_config()
+        return config.get("generation", {}).get("max_chunk_tokens", 200)
+    except Exception:
+        return 200
+
+
 def run_inference(model, text, mode, gen_params, language="English",
                   voice_prompt=None, voice_description=None,
                   speaker=None, instruct=None,
@@ -927,9 +1154,24 @@ def run_inference(model, text, mode, gen_params, language="English",
     if max_chunk_chars is None:
         max_chunk_chars = _get_max_chunk_chars()
 
-    # Split into chunks if text is long enough
-    if max_chunk_chars > 0 and len(text) > max_chunk_chars:
-        chunks = _split_text(text, max_chars=max_chunk_chars)
+    # Normalize text (expand numbers, dates, abbreviations) before chunking
+    text = _normalize_text(text, language)
+
+    # Resolve tokenizer for token-aware chunking (torch backend only)
+    tokenizer = getattr(model, "tokenizer", None)
+    max_tokens = _get_max_chunk_tokens() if tokenizer is not None else None
+
+    # Split into chunks
+    if tokenizer is not None and max_tokens is not None:
+        token_count = len(tokenizer.encode(text, add_special_tokens=False))
+        if token_count > max_tokens:
+            chunks = _split_text(text, max_chars=max_chunk_chars,
+                                 language=language, tokenizer=tokenizer,
+                                 max_tokens=max_tokens)
+        else:
+            chunks = [text]
+    elif max_chunk_chars > 0 and len(text) > max_chunk_chars:
+        chunks = _split_text(text, max_chars=max_chunk_chars, language=language)
     else:
         chunks = [text]
 
@@ -1080,8 +1322,20 @@ def run_inference_streaming(model, text, mode, gen_params, language="English",
         if max_chunk_chars is None:
             max_chunk_chars = _get_max_chunk_chars()
 
-        if max_chunk_chars > 0 and len(text) > max_chunk_chars:
-            chunks = _split_text(text, max_chars=max_chunk_chars)
+        text = _normalize_text(text, language)
+        tokenizer = getattr(model, "tokenizer", None)
+        max_tokens = _get_max_chunk_tokens() if tokenizer is not None else None
+
+        if tokenizer is not None and max_tokens is not None:
+            token_count = len(tokenizer.encode(text, add_special_tokens=False))
+            if token_count > max_tokens:
+                chunks = _split_text(text, max_chars=max_chunk_chars,
+                                     language=language, tokenizer=tokenizer,
+                                     max_tokens=max_tokens)
+            else:
+                chunks = [text]
+        elif max_chunk_chars > 0 and len(text) > max_chunk_chars:
+            chunks = _split_text(text, max_chars=max_chunk_chars, language=language)
         else:
             chunks = [text]
 
