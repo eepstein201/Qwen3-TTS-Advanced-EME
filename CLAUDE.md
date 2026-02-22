@@ -246,7 +246,7 @@ CLI and UI parse the `recovery` field to show actionable guidance.
 python -m unittest discover -v tests/
 ```
 
-334+ tests across 3 files (test_voice.py, test_audio_utils.py, test_core_infra.py). No GPU, models, or running server required. Tests auto-skip when optional deps (`soundfile`, `gradio`, `flask`, `click`) are missing — run in a conda env for full coverage.
+480+ tests across 4 files (test_voice.py, test_audio_utils.py, test_core_infra.py, test_flash_attn_install.py). No GPU, models, or running server required. Tests auto-skip when optional deps (`soundfile`, `gradio`, `flask`, `click`) are missing — run in a conda env for full coverage.
 
 ## Models
 
@@ -276,6 +276,26 @@ python -m unittest discover -v tests/
 `get_cuda_capability()` and `get_optimal_attn_config()` in `qwen3_tts/core/config.py` expose hardware detection. The Colab notebook auto-configures based on detected GPU tier.
 
 ## Recent Significant Changes
+
+### 2026-02-22 — Bug fix: Colab flash-attn wheel selection uses GitHub API instead of guessed URL
+
+**Root causes fixed:**
+1. The code constructed a single URL by joining the detected CUDA and PyTorch version strings
+   (e.g. `cu128torch2100`) and immediately tried to `pip install` it. Flash-attn 2.7.4 was
+   published before PyTorch 2.10 or CUDA 12.8 existed, so those wheels were never built —
+   the guessed URL always returned 404.
+2. No fallback existed to try a compatible older-version wheel (CUDA/PyTorch are
+   forward-compatible within a major version, so `cu124/torch260` wheels work on
+   `cu128/torch2100` runtimes).
+
+**Fix (`colab_notebook.ipynb`, Cell 1 flash-attn block):**
+- One `urllib` call to the GitHub releases API (`/releases/tags/v{_FA_VERSION}`) retrieves
+  the list of *actually available* wheel assets for the target version.
+- Regex filters to wheels matching the installed Python version.
+- Selects candidates whose `cu` and `torch` tags are ≤ installed versions (highest first),
+  then tries each in order until one succeeds.
+- Edge-case fallback if all candidates are newer than installed (tries highest available).
+- All failures remain non-fatal; SDPA is used if no wheel installs cleanly.
 
 ### 2026-02-21 — Statusline management system: add, toggle, and generate
 
@@ -365,7 +385,7 @@ python -m unittest discover -v tests/
   Added pre-built wheel download block (Dao-AILab GitHub releases), dynamically
   matched to runtime CUDA/PyTorch/Python versions. 300s subprocess timeout + SDPA
   fallback when wheel is not available.
-- Tests: `tests/test_flash_attn_install.py` (10 tests for URL construction logic).
+- Tests: `tests/test_flash_attn_install.py` (27 tests: URL construction, version normalization, candidate parsing, wheel selection).
 
 **Branches cleaned up:** `fix-flash-attn` and `codebase-remediation` worktrees
 removed (both were fully merged into main with no unique commits).
