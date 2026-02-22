@@ -3265,6 +3265,28 @@ class TestClickCLI(unittest.TestCase):
         self.assertIn('--_server-mode', source)
         self.assertIn('server_mode', source)
 
+    def test_ui_rejects_server_mode_flag(self):
+        """tts ui does not accept --_server-mode (it's a generate-only flag)."""
+        from click.testing import CliRunner
+        from qwen3_tts.cli import cli
+        runner = CliRunner()
+        result = runner.invoke(cli, ['ui', '--_server-mode'])
+        # ui command should NOT fail with "No such option: --_server-mode"
+        self.assertNotEqual(result.exit_code, 2,
+                            f"ui rejected --_server-mode: {result.output}")
+
+    def test_ttsgroup_skips_server_mode_for_non_generate_commands(self):
+        """TTSGroup.parse_args does NOT re-insert --_server-mode for ui, config, etc."""
+        from click.testing import CliRunner
+        from qwen3_tts.cli import cli
+        runner = CliRunner()
+        # Commands that should NOT get --_server-mode re-inserted
+        non_generate_cmds = ['ui', 'config', 'history', 'stats']
+        for cmd in non_generate_cmds:
+            result = runner.invoke(cli, ['--_server-mode', cmd, '--help'])
+            self.assertNotIn('No such option', result.output,
+                             f"--_server-mode leaked to '{cmd}': {result.output}")
+
     def test_flag_map_completeness(self):
         """_FLAG_MAP covers all generation options."""
         from qwen3_tts.cli import _FLAG_MAP

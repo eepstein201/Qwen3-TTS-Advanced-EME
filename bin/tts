@@ -228,7 +228,7 @@ _needs_server() {
     local first_arg="$1"
 
     case "$first_arg" in
-        server|config|history|stats|--help|-h|--version)
+        server|config|history|stats|ui|--help|-h|--version)
             return 1 ;;
         voice)
             # Only preview and info need the server

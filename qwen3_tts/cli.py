@@ -105,10 +105,11 @@ class TTSGroup(click.Group):
         # If no args at all (bare `tts`), route to generate (interactive mode)
         if not args:
             args = ['generate']
-        # Re-insert --_server-mode after the subcommand name
+        # Re-insert --_server-mode only for commands that accept it (generation commands)
         if server_mode:
-            # Find where the subcommand is and insert after it
-            args.insert(1, '--_server-mode')
+            _GENERATION_COMMANDS = {'generate', 'batch', 'srt', 'dialogue', 'repl', 'watch'}
+            if args and args[0] in _GENERATION_COMMANDS:
+                args.insert(1, '--_server-mode')
         return super().parse_args(ctx, args)
 
 
