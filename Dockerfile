@@ -1,0 +1,36 @@
+FROM nvidia/cuda:12.4.1-runtime-ubuntu22.04
+ENV DEBIAN_FRONTEND=noninteractive PYTHONUNBUFFERED=1
+
+# Install system dependencies
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    python3.11 python3.11-dev python3-pip ffmpeg rubberband-cli git \
+    && rm -rf /var/lib/apt/lists/*
+
+# Set Python 3.11 as default
+RUN ln -sf /usr/bin/python3.11 /usr/bin/python3 && \
+    pip install --upgrade pip
+
+WORKDIR /app
+
+# Copy package definition first (for better caching)
+COPY pyproject.toml README.md ./
+
+# CRITICAL: Standard install, NOT editable mode (-e) for production
+RUN pip install --no-cache-dir ".[torch,server,audio]"
+
+# Copy source code
+COPY qwen3_tts/ ./qwen3_tts/
+COPY config.json ./
+
+# Expose ports
+EXPOSE 5123 7860
+
+# Volumes for persistence
+VOLUME ["/root/.cache/huggingface", "/app/voice_prompts"]
+
+# Health check
+HEALTHCHECK --interval=30s --timeout=10s --start-period=60s --retries=3 \
+    CMD curl -f http://127.0.0.1:5123/health || exit 1
+
+ENTRYPOINT ["tts"]
+CMD ["server", "start", "--public"]

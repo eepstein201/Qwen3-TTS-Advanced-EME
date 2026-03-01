@@ -584,15 +584,28 @@ def load_model_on_server(config, model_type):
 
 
 class _ProgressPoller:
-    """Background thread that polls /generation-status and displays progress."""
+    """Background thread that polls /generation-status and displays progress.
+
+    Uses Rich for pretty progress bars if available, falls back to print-based progress.
+    """
 
     SPINNER = "⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏"
+
+    # Try to import Rich
+    try:
+        from rich.progress import Progress, SpinnerColumn, TextColumn, BarColumn, TimeElapsedColumn, TimeRemainingColumn
+        from rich.console import Console
+        HAS_RICH = True
+    except ImportError:
+        HAS_RICH = False
 
     def __init__(self, server_url, batch_total=1):
         self.server_url = server_url
         self.batch_total = batch_total
         self._stop = threading.Event()
         self._thread = None
+        self._rich_progress = None
+        self._rich_task_id = None
 
     def start(self):
         import threading
@@ -603,11 +616,74 @@ class _ProgressPoller:
         self._stop.set()
         if self._thread:
             self._thread.join(timeout=2)
-        # Clear the progress line
-        sys.stderr.write("\r" + " " * 80 + "\r")
-        sys.stderr.flush()
+        # Clean up Rich display if used
+        if self.HAS_RICH and self._rich_progress:
+            self._rich_progress.stop()
+        else:
+            # Clear the progress line (fallback)
+            sys.stderr.write("\r" + " " * 80 + "\r")
+            sys.stderr.flush()
 
     def _run(self):
+        # Use Rich if available
+        if self.HAS_RICH:
+            self._run_rich()
+        else:
+            self._run_fallback()
+
+    def _run_rich(self):
+        """Run with Rich progress bar."""
+        from rich.progress import Progress, SpinnerColumn, TextColumn, BarColumn, TimeElapsedColumn, TaskID
+        from rich.console import Console
+
+        console = Console(stderr=True)
+
+        with Progress(
+            SpinnerColumn(),
+            TextColumn("[progress.description]{task.description}"),
+            BarColumn(),
+            TextColumn("[progress.percentage]{task.percentage:>3.0f}%"),
+            TimeElapsedColumn(),
+            TimeRemainingColumn(),
+            console=console,
+            transient=True,
+        ) as progress:
+            task_id = progress.add_task(
+                "Generating audio...",
+                total=100 if self.batch_total > 1 else None,
+            )
+
+            while not self._stop.is_set():
+                try:
+                    resp = requests.get(f"{self.server_url}/generation-status", timeout=2)
+                    if resp.status_code == 200:
+                        state = resp.json()
+                        if state.get("active"):
+                            elapsed = state.get("elapsed_sec", 0)
+                            eta = state.get("eta_sec")
+
+                            # Chunk progress suffix
+                            chunk_total = state.get("chunk_total", 0)
+                            chunk_suffix = ""
+                            if chunk_total > 1:
+                                chunk_idx = state.get("chunk_index", 0) + 1
+                                chunk_suffix = f" [chunk {chunk_idx}/{chunk_total}]"
+                                progress.update(task_id, description=f"Generating...{chunk_suffix}")
+
+                            if self.batch_total > 1:
+                                idx = state.get("batch_index", 0) + 1
+                                progress.update(task_id, description=f"[{idx}/{self.batch_total}] Generating...{chunk_suffix}")
+                                if eta is not None:
+                                    total_est = elapsed + eta
+                                    pct = min(95, int(elapsed / total_est * 100)) if total_est > 0 else 0
+                                    progress.update(task_id, completed=pct)
+                except Exception:
+                    pass
+
+                self._stop.wait(1.0)
+
+    def _run_fallback(self):
+        """Run with print-based progress (original implementation)."""
         tick = 0
         while not self._stop.is_set():
             try:

@@ -1,0 +1,25 @@
+version: '3.8'
+
+services:
+  qwen3-tts:
+    build: .
+    ports:
+      - "5123:5123"  # TTS server
+      - "7860:7860"  # Gradio UI
+    volumes:
+      - huggingface_cache:/root/.cache/huggingface
+      - voice_prompts:/app/voice_prompts
+    environment:
+      - TTS_SERVER_PUBLIC=1
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
+    restart: unless-stopped
+
+volumes:
+  huggingface_cache:
+  voice_prompts:

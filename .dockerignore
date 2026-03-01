@@ -1,0 +1,56 @@
+# Git
+.git
+.gitignore
+.github
+
+# Worktrees
+.worktrees
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+*.egg-info/
+dist/
+build/
+
+# Virtual environments
+.venv/
+venv/
+env/
+ENV/
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# Testing
+.pytest_cache/
+.coverage
+htmlcov/
+
+# Audio files (user-specific)
+*.wav
+*.mp3
+*.mp4
+*.m4a
+
+# Voice prompts (user-specific, may contain personal voice data)
+voice_prompts/
+*.pt
+
+# Logs and runtime
+*.log
+.voice_server.pid
+.voice_server_test.pid
+
+# Colab
+.ipynb_checkpoints/
+
+# Claude data
+.auto-claude/
+.claude/
