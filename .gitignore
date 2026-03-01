@@ -30,6 +30,7 @@ build/
 
 # Environment
 .env
+.env.claude
 .venv/
 env/
 venv/
