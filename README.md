@@ -1,496 +1,242 @@
 # Qwen3-TTS Voice Generation System
 
 ![Python 3.10+](https://img.shields.io/badge/python-3.10%2B-blue)
+![Version](https://img.shields.io/badge/version-3.0.0-green)
 ![License](https://img.shields.io/badge/license-Apache%202.0-green)
 ![Platforms](https://img.shields.io/badge/platform-macOS%20%7C%20Linux%20%7C%20Colab-lightgrey)
 
-Clone any voice from an audio sample, design voices from text descriptions, or choose from 9 premium speakers. Powered by Qwen3-TTS models with a persistent server for fast generation.
+Clone any voice from an audio sample, design voices from text descriptions, or choose from 9 premium speakers. Powered by Qwen3-TTS models with a high-concurrency, asynchronous FastAPI server.
 
-## Why use this?
-* **Auto-Transcribe Cloning:** No need to type transcripts manually. Whisper automatically transcribes your reference audio, or use `--no-transcript` to skip transcription entirely.
-* **Apple Silicon Native:** Runs on MLX for macOS — lower thermals, less battery drain, and fast inference without a GPU.
-* **Flexible Interface:** Web UI (Gradio) for visual control, CLI for automation/scripting, or Python API for integration.
-* **Performance Choices:** Choose 0.6B models (fast, lightweight) or 1.7B models (maximum fidelity) based on your hardware.
+## Table of Contents
+1. [Features](#features)
+2. [System Requirements](#system-requirements)
+3. [Installation](#installation)
+4. [Quick Start](#quick-start)
+5. [Voice Modes](#three-voice-modes)
+6. [Hardware Backends](#hardware-backends)
+7. [Interfaces (CLI, UI, Python)](#interfaces)
+8. [Deployment (Docker & Colab)](#deployment)
+9. [Configuration](#configuration)
+10. [Troubleshooting & FAQ](#troubleshooting--faq)
+11. [Developer & v3.0 Architecture](#developer--v30-architecture)
 
-**Platforms:** Mac (Apple Silicon with MLX, Intel with PyTorch), Linux with NVIDIA GPU, Google Colab
+---
 
-```python
-from qwen3_tts.server.client import generate
-generate("Hello world!", output="hello.wav")  # That's it.
-```
+## Features
+
+* **Zero-Shot Voice Cloning:** Record 5-15 seconds of audio to clone a voice. Whisper automatically handles transcription, or use embedding-only mode to skip transcripts entirely.
+* **Voice Design:** Generate unique voices purely from text descriptions (e.g., *"A warm British female voice"*).
+* **Apple Silicon Native:** Optimized MLX backend for macOS. Runs fast on unified memory with lower thermals.
+* **Production-Grade Server:** Built on FastAPI/Uvicorn. Features real streaming, GPU concurrency locks to prevent Out-Of-Memory (OOM) crashes, and worker-safe state.
+* **High-Speed vLLM Integration:** 3-4x faster inference on NVIDIA GPUs using the official vLLM-Omni backend.
+
+---
 
 ## System Requirements
 
-| Resource | Minimum | Recommended |
-|----------|---------|-------------|
-| Python | 3.10 | 3.11 |
-| RAM | 8 GB | 16 GB |
-| Disk | ~3 GB per model | ~10 GB (all 3 models) |
-| macOS | Apple Silicon M1+ | M2+ |
-| Linux / Colab | NVIDIA T4+ (CUDA) | A10G / L4 |
+| Resource | Minimum | Recommended (1.7B Model) |
+|----------|---------|--------------------------|
+| **Python** | 3.10 | 3.12 |
+| **RAM** | 8 GB | 16 GB |
+| **Disk** | ~3 GB per model | ~10 GB (all 3 models) |
+| **macOS** | Apple Silicon M1 | M2+ |
+| **Linux/Colab** | NVIDIA T4+ (CUDA 7.0+) | A10G / L4 / A100 |
 
-Note: 0.6B models use half the memory and run ~40% faster than the default 1.7B.
+> **Note:** Use the `0.6B` model variants if you are resource-constrained. They use half the memory and run ~40% faster than the default `1.7B` models.
 
-## Install
+---
 
+## Installation
+
+This is a pure Python package using the `hatchling` build system.
+
+**1. Clone the repository and navigate to the directory:**
 ```bash
 cd ~/Qwen3-TTS_UserFiles
-./install.sh
 ```
 
-The installer detects your hardware, walks you through backend/model/quantization choices, creates the right conda environment, and installs commands to `~/bin/`.
+**2. Install based on your hardware:**
+
+* **macOS (Apple Silicon / MLX):**
+```bash
+pip install -e ".[mlx,server,audio,rich]"
+```
+* **Linux / Intel Mac (Standard PyTorch):**
+```bash
+pip install -e ".[torch,server,audio,cuda,rich]"
+```
+* **Linux (vLLM-Omni for Maximum Speed):**
+```bash
+pip install -e ".[torch,vllm,server,audio,cuda,rich]"
+```
+
+**3. Pro-Tip: Add a Shell Alias**
+To run the `tts` command from anywhere without polluting your global shell or manually activating environments, add this to your `~/.zshrc` or `~/.bashrc`:
 
 ```bash
-tts config               # Re-run the setup wizard anytime
-tts config show          # Compare current settings to recommendations
+# For Conda users
+alias tts="conda run --no-capture-output -n qwen3-tts tts"
+# (Use 'qwen3-tts-mlx' for Apple Silicon envs)
 ```
+
+---
 
 ## Quick Start
 
+Start the server in the background (models take 30-60s to load on first boot):
 ```bash
-tts server start                        # Load model (~30-60s first time)
-tts "Hello, world!" -o hello            # Generate speech -> hello.wav
-echo "Hello world" | tts -o hello       # Pipe text directly
-tts server stop                         # Free memory when done
+tts server start
 ```
 
-Or skip straight to the web UI:
-
+Generate your first audio:
 ```bash
-tts ui                   # Opens http://localhost:7860
-tts --ui                 # Same thing, auto-starts server
+tts "Hello, world!" -o hello
 ```
+
+Open the Web UI:
+```bash
+tts ui
+```
+
+Stop the server and free memory:
+```bash
+tts server stop
+```
+
+---
 
 ## Three Voice Modes
 
 | Feature | Clone | Design | Custom |
 |---------|-------|--------|--------|
-| Sound like a specific person | Yes | No | No |
-| Describe voice in text | No | Yes | No |
-| Pre-trained speakers | No | No | 9 speakers |
-| Reference audio needed | Yes (5-15s) | No | No |
-| Style instructions | No | Via description | Yes (--instruct) |
-| Prosody presets | Yes (post-processing) | Yes | Yes |
-| Transcript needed | Optional (--no-transcript) | N/A | N/A |
+| **Purpose** | Sound like a specific person | Describe a voice via text | 9 premium pre-trained voices |
+| **Requires Audio?** | Yes (5-15s) | No | No |
+| **Requires Text?** | Optional (`--no-transcript`) | Yes | No |
+| **Style Control** | Post-processing | Description prompt | `--instruct` flag |
 
-### Clone (default) -- sound like anyone
-
-Record or upload 5-15 seconds of clean speech, create a voice prompt, then generate in that voice.
-
+### 1. Clone Mode
 ```bash
-# Create a voice clone
-tts voice create recording.wav --name my_voice -t "transcript of what they said"
-tts voice create recording.wav --name my_voice --auto-transcribe    # Let Whisper handle it
-tts voice create recording.wav --name my_voice --no-transcript      # Speaker embedding only (no transcript needed)
+# Create the voice
+tts voice create recording.wav --name my_voice --auto-transcribe
 
-# Generate with it
-tts "Hello" -o output                   # Uses default voice
-tts "Hello" -p my_voice.pt -o output    # Specific voice
-tts "Hello" --no-transcript -o output    # Clone without transcript
+# Use the voice
+tts "Hello" -p my_voice.pt -o output
 ```
 
-### Design -- describe the voice you want
-
+### 2. Design Mode
 ```bash
 tts "Hello" -m design -d "A warm, friendly female voice with a slight British accent" -o output
 ```
 
-### Custom -- 9 premium pre-trained speakers
-
-Speakers: `ryan`, `aiden`, `vivian`, `serena`, `uncle_fu`, `dylan`, `eric`, `ono_anna`, `sohee`
-
+### 3. Custom Mode
+Built-in speakers: `ryan`, `aiden`, `vivian`, `serena`, `uncle_fu`, `dylan`, `eric`, `ono_anna`, `sohee`.
 ```bash
-tts "Hello" -m custom -s ryan -o output
-tts "Hello" -m custom -s vivian -i "speak with excitement" -o output
-tts "Hello" -m custom -s ryan --prosody excited -o output   # Use a prosody preset
-tts list speakers
+tts "Hello" -m custom -s ryan --prosody excited -o output
 ```
 
-## Web Interface
+---
 
-Six tabs for everything you need:
+## Hardware Backends
 
-| Tab | What it does |
-|-----|-------------|
-| **Clone Mode** | Generate with a cloned voice, pick from your voice prompts, style adjustments via post-processing |
-| **Design Mode** | Type a voice description (or use the Description Builder), generate, and optionally save as a reusable voice prompt |
-| **Custom Mode** | Pick a premium speaker, optionally add style instructions |
-| **Create Voice** | Upload audio + transcript (or auto-transcribe) to create a new voice |
-| **Manage Voices** | Preview, rename, delete voices; set your default |
-| **Manage Models** | Load/unload models, set startup defaults, switch audio loader |
+You can configure your backend permanently via `tts config` or `config.json`. 
 
-Models auto-load on first use. Status indicators show what's loaded. Cancel button stops generation mid-stream. The UI also exposes a programmatic API via `gradio_client` for automation and testing.
+1.  **MLX (Apple Silicon):** Native macOS backend. Uses `.wav` + `.txt` file pairs for cloning. Quantization options: `4bit`, `8bit` (default), `bf16`.
+2.  **PyTorch:** Standard backend. Auto-detects Flash Attention 2 on Ampere+ GPUs.
+3.  **vLLM-Omni (Linux/NVIDIA):** 3-4x faster throughput. Safely managed via POSIX process groups to prevent zombie VRAM leaks.
+    * *Usage:* `tts server start --backend vllm`
 
+---
+
+## Interfaces
+
+### Command Line Interface (CLI)
+The `tts` command is fully featured with Rich progress bars.
 ```bash
-tts ui --port 8080       # Custom port
-tts ui --share           # Public URL (Colab does this automatically)
-tts ui --no-browser      # Don't open browser
+tts "Text" --stream -o output                        # Stream real-time
+tts "Text" --preset creative -o output               # Use generation presets
+tts "Text" --speed 1.2 --normalize -o processed      # Audio post-processing
+tts batch texts.json -o ~/Downloads/                 # Batch processing
+tts server status                                    # Check memory/health
 ```
 
-## CLI Reference
-
-### Generation
-
+### Gradio Web UI
+Run `tts ui` to launch a local browser interface with tabs for Cloning, Designing, Custom Voices, Model Management, and Voice Prompt Management.
 ```bash
-tts "Text" -o output                                # Basic
-tts "Text" -o output --play                          # Auto-play after
-tts "Text" --stream -o output                        # Stream as it generates
-tts --clipboard -o from_clip                         # From clipboard
-tts "One" "Two" "Three" -o ~/Downloads/              # Batch from args
-tts batch texts.json -o ~/Downloads/                 # Batch from JSON array
+tts ui --port 8080 --share  # Run on custom port and generate public URL
 ```
 
-### Tuning Output
-
-```bash
-tts "Text" --preset consistent -o output              # Reproducible output
-tts "Text" --preset creative -o output                 # More variation
-tts "Text" --temperature 0.5 --seed 42 -o output
-tts "Text" --speed 1.2 -o fast                        # 20% faster (pyrubberband)
-tts "Text" --pitch -2 -o deep                          # Lower pitch (pyrubberband)
-tts "Text" --normalize --trim-silence -o clean
-```
-
-### Advanced
-
-```bash
-tts repl                                             # Interactive REPL
-tts watch ~/Desktop/tts_input -o output              # Watch folder for .txt files
-tts srt subtitles.srt -o subs                        # Generate from SRT subtitles
-tts dialogue convo.json -o dialogue                  # Multi-speaker dialogue
-tts --dry-run "Text" -o output                       # Preview settings without generating
-tts                                                  # Interactive mode (no args)
-```
-
-#### SSML Markup
-
-Pass `--ssml` to enable SSML tag processing in your text:
-
-```bash
-tts 'Hello <break time="500ms"/> world.' --ssml -o output
-```
-
-| Tag | Example | Effect |
-|-----|---------|--------|
-| `<break>` | `<break time="500ms"/>` | Insert pause |
-| `<sub>` | `<sub alias="doctor">Dr.</sub>` | Text substitution |
-| `<say-as>` | `<say-as interpret-as="characters">ABC</say-as>` | Spell out as "A B C" |
-| `<emphasis>` | `<emphasis>important</emphasis>` | Emphasis |
-| `<prosody>` | `<prosody rate="slow" pitch="low">text</prosody>` | Speed/pitch hints |
-
-### Backend & Model Overrides
-
-```bash
-tts --backend mlx "Text" -o output                   # Force MLX for this run
-tts --model-size 0.6B "Text" -o output               # Use lighter model
-tts list backends                                    # Show current config
-```
-
-### Voice Management (CLI)
-
-```bash
-tts voice list                                       # All voice prompts
-tts voice preview my_voice                           # Play a voice preview
-tts voice rename old_name new_name
-tts voice delete unwanted
-```
-
-### Info & Stats
-
-```bash
-tts stats                                            # Server memory, cache, uptime
-tts history 10                                       # Last 10 generations
-tts list presets
-tts list aliases
-tts list models
-tts list prosody                                     # List prosody presets
-```
-
-## Voice Aliases
-
-Save voice + preset combinations in `config.json`:
-
-```json
-"aliases": {
-  "narrator": { "prompt": "narrator.pt", "preset": "consistent" },
-  "designer": { "mode": "design", "description": "A warm British female voice", "preset": "creative" },
-  "ryan_excited": { "mode": "custom", "speaker": "ryan", "instruct": "speak with excitement" }
-}
-```
-
-Supported fields: `mode`, `prompt`, `preset`, `description`, `speaker`, `instruct`.
-
-```bash
-tts "Text" -v narrator -o output
-```
-
-## Python API
-
+### Python API
+You can integrate Qwen3-TTS directly into your Python apps.
 ```python
-# Quick one-liner (creates client internally)
-from qwen3_tts.server.client import generate
-generate("Hello!", output="hello.wav")
-
-# Full client usage
 from qwen3_tts.server.client import TTSClient
 
 client = TTSClient()
-
-# Generate speech
 audio_path = client.generate(
     "Hello world",
-    output="output.wav",
-    mode="clone",              # "clone", "design", or "custom"
-    voice="narrator",          # Voice alias
-    speed=1.1,
-    normalize=True,
+    mode="clone",
+    voice="narrator",
+    output="output.wav"
 )
 
-# Streaming generation
+# Real-time streaming
 for wav_chunk, sr in client.generate_streaming("Long text...", output="stream.wav"):
-    pass  # Audio plays as it generates
-
-# Model management
-client.load_model("design")
-client.unload_model("design")
-client.get_models()                                    # Status of all models
-client.update_model_config(model_size="0.6B")          # Switch model variant
-client.update_startup_config(clone=True, design=False)  # Startup defaults
-
-# Voice management
-client.list_prompts()
-client.get_prompt_details("my_voice")
-client.preview_prompt("my_voice")
-client.rename_prompt("old", "new")
-client.delete_prompt("unwanted")
-
-# Multi-speaker dialogue
-lines = [
-    {"mode": "custom", "speaker": "ryan", "text": "Hello!"},
-    {"mode": "custom", "speaker": "aiden", "text": "Hi there!"},
-]
-client.generate_dialogue(lines, output="dialogue.wav")
+    pass 
 ```
+
+---
+
+## Deployment
+
+### Docker
+Production-ready containers are available. We do not use editable installs (`-e`) in the Dockerfile to ensure clean, lean images.
+```bash
+docker build -t qwen3-tts .
+docker compose up -d
+```
+
+### Google Colab
+Use `colab_notebook.ipynb` to run this in the cloud. It features automatic hardware detection, optimal PyTorch compilation for Ampere GPUs, and runs FastAPI in the foreground to prevent Colab from killing the process.
+
+---
 
 ## Configuration
 
-All settings live in `config.json`. Edit directly or use `tts config`.
+Settings are stored in `config.json`.
 
-| Setting | Values | Default | Description |
-|---------|--------|---------|-------------|
-| `language` | `"English"`, etc. | `"English"` | Default language for generation |
-| `advanced.backend` | `"mlx"`, `"torch"` | Platform-aware | MLX on Apple Silicon, torch elsewhere |
-| `advanced.model_size` | `"1.7B"`, `"0.6B"` | `"1.7B"` | 0.6B is ~40% faster, uses less memory |
-| `advanced.mlx_quantization` | `"4bit"`, `"8bit"`, `"bf16"` | `"8bit"` | MLX quantization level |
-| `advanced.audio_loader` | `"torchaudio"`, `"librosa"` | `"torchaudio"` | Audio loading backend |
-| `advanced.dtype` | `"float32"`, `"float16"`, `"bfloat16"` | `"bfloat16"` | Tensor dtype (torch backend) |
-| `generation.temperature` | `0.0`-`2.0` | `0.7` | Higher = more variation |
-| `generation.max_chunk_chars` | `0`-`10000` | `500` | Auto-splits long text (0 = no splitting) |
-| `generation.max_new_tokens` | `1`-`32768` | `2048` | Max tokens per generation (safety limit) |
-| `generation.compile_model` | `true`/`false` | `true` | Enable torch.compile (Ampere+ GPUs) |
-| `models.*.load_at_startup` | `true`/`false` | clone=true | Which models to preload |
-| `server.auto_shutdown_minutes` | `0`+ | `0` | Auto-stop after idle (0 = never) |
+| Key | Default | Description |
+|-----|---------|-------------|
+| `advanced.backend` | Auto | `mlx`, `torch`, or `vllm` |
+| `advanced.model_size` | `1.7B` | `1.7B` (High fidelity) or `0.6B` (Fast/Light) |
+| `advanced.vllm_gpu_memory_utilization`| `0.7` | VRAM reservation for vLLM (0.1 - 1.0) |
+| `generation.max_chunk_chars` | `500` | Auto-splits long texts to prevent timeouts |
+| `generation.temperature` | `0.7` | Higher = more varied output |
 
-### Presets
+*You can use environment variables to override settings per session (e.g., `TTS_BACKEND=vllm tts "text"`).*
 
-- **consistent** -- temperature 0.5, seed 42, top_k 30. Same input = same output.
-- **creative** -- temperature 0.9, top_p 0.98. More expressive, varied output.
+---
 
-### Prosody Presets
+## Troubleshooting & FAQ
 
-Quick style selection for custom/design modes -- `--prosody excited`, `--prosody calm`, etc. Built-in presets: excited, calm, whisper, authoritative, slow, fast, dramatic, conversational. Add your own in `config.json` under `prosody_presets`.
+* **Server won't start:** Run `tts server log` to view the error trace.
+* **CUDA Out of Memory:** The server locks concurrent requests to prevent this. If it happens on boot, run `tts server stop` to clear VRAM, then switch to the lighter model: `tts config` -> `0.6B`. If using vLLM, lower the `vllm_gpu_memory_utilization` to `0.5`.
+* **Subprocess/vLLM won't die:** The FastAPI server traps `SIGTERM` and kills the process group. If you force-killed the terminal (`kill -9`), find the PID with `nvidia-smi` and kill it manually.
+* **Bad Audio Quality:** Lower the temperature (`--temperature 0.5`) or use `--preset consistent`. Ensure your reference audio has absolutely zero background noise.
 
-### Environment Overrides
+---
 
-Override config.json for a single session:
+## Developer & v3.0 Architecture
 
+Run the test suite using `pytest` (23+ tests covering endpoints, metadata, and core infra):
 ```bash
-TTS_BACKEND=torch tts "Text" -o output
-TTS_MODEL_SIZE=0.6B tts "Text" -o output
+pytest tests/ -v
 ```
 
-## MLX Backend (Apple Silicon)
-
-MLX runs natively on Apple Silicon -- lower thermals (~40-50C vs ~80-90C), less battery drain, quantized models use less memory.
-
-```bash
-tts config                                     # Switch backend in the wizard
-# or edit config.json: "advanced": {"backend": "mlx"}
-tts server stop && tts server start            # Restart to apply
-```
-
-MLX voice cloning uses `.wav` + `.txt` file pairs instead of `.pt` tensors. `tts voice create` saves all formats automatically.
-
-**Quantization:** `4bit` (smallest, fastest) | `8bit` (default, balanced) | `bf16` (highest quality)
-
-## Model Size Guide
-
-| | 1.7B (default) | 0.6B (lite) |
-|---|---|---|
-| Quality | Higher fidelity | Good for most uses |
-| Speed | Baseline | ~40% faster |
-| RAM (torch) | ~3.5 GB/model | ~2 GB/model |
-| RAM (MLX 8-bit) | ~2.5 GB/model | ~1.5 GB/model |
-| Best for | Production, voice cloning | Quick iteration, low memory |
-
-```bash
-tts --model-size 0.6B "Text" -o output             # One-off override
-tts config                                         # Change default permanently
-```
-
-## Google Colab
-
-A ready-to-run notebook is included (`colab_notebook.ipynb`).
-
-1. Upload `Qwen3-TTS_UserFiles/` to Google Drive at `My Drive/Qwen3-TTS_UserFiles/`
-2. Open `colab_notebook.ipynb` in Colab, select a T4+ GPU runtime (L4 recommended for best performance)
-3. Edit the **Settings** form cell at the top to configure your session
-4. Run all cells -- detects GPU tier, mounts Drive, installs deps (uses `uv` for faster pip installs when available), starts server, opens Gradio with a public shareable URL
-
-The notebook auto-detects your GPU and applies optimal settings: Flash Attention 2 + bfloat16 on Ampere+ GPUs (L4/A100), SDPA + float16 + 8-bit quantization on Turing GPUs (T4).
-
-### Settings Form
-
-The first code cell is a Colab form with these fields:
-
-| Setting | Default | Description |
-|---------|---------|-------------|
-| `MODEL_SIZE` | `1.7B` | `1.7B` or `0.6B` |
-| `PRELOAD_CLONE` | `True` | Load clone model at startup |
-| `PRELOAD_DESIGN` | `False` | Load design model at startup |
-| `PRELOAD_CUSTOM` | `False` | Load custom model at startup |
-| `DEFAULT_MODE` | `design` | Default generation mode |
-| `MAX_NEW_TOKENS` | `2048` | Max tokens per generation (safety limit) |
-| `COMPILE_MODEL` | `True` | Enable torch.compile (best on Ampere+ GPUs) |
-| `AUTO_LAUNCH_UI` | `True` | Launch Gradio UI automatically |
-| `INSTALL_FLASH_ATTN` | `False` | Install Flash Attention 2 for Ampere+ GPUs (~5 min build) |
-| `USE_UV` | `True` | Use uv package manager for faster installs |
-| `DEFAULT_VOICE_DESC` | `"A warm, friendly voice..."` | Default voice description for design mode |
-
-### Voice Cloning on Colab
-
-The notebook includes a voice cloning cell:
-
-1. Run the **Voice Cloning** cell -- it prompts you to upload a `.wav` or `.mp3` file (5-15 seconds of clear speech)
-2. The clone model loads automatically if needed
-3. A voice prompt is saved to `voice_prompts/` and can be used immediately in the Gradio UI or via the Python client
-
-The system auto-detects Colab: binds `0.0.0.0`, enables Gradio sharing, uses CUDA.
-
-## FAQ
-
-**Do I need a GPU?**
-No on Mac -- MLX runs on the Neural Engine / GPU built into Apple Silicon. On Linux, yes -- you need an NVIDIA GPU with CUDA support.
-
-**How much disk space?**
-About 3 GB per model. With all 3 models (clone, design, custom) that is ~10 GB. MLX 4-bit models are smaller.
-
-**Can I use multiple voices in one file?**
-Yes -- use dialogue mode: `tts dialogue convo.json -o output`. The JSON file contains an array of objects with `mode`, `speaker`/`prompt`, and `text` fields.
-
-**How do I improve clone quality?**
-Use clean audio: 5-15 seconds of a single speaker, no background noise or music. Generate with `--preset consistent` for reliable results.
-
-**Is there a web API?**
-Yes -- the server runs on port 5123 with REST endpoints. You can also use the Python API (see above) or the Gradio web interface.
-
-## Troubleshooting
-
-**Server won't start:** `tts server log` for details. Kill stuck processes: `pkill -f qwen3_tts/server/app.py && rm .voice_server.pid`
-
-**Wrong conda env:** Wrapper scripts auto-switch, but if you updated them: `cp bin/* ~/bin/ && chmod +x ~/bin/*`
-
-**Slow generation:** Make sure the server is running (`tts server start`). Without it, models reload every time.
-
-**Bad audio quality:** Use `--preset consistent` or lower temperature (`--temperature 0.5`). Set a seed (`--seed 42`).
-
-**Voice clone doesn't match:** Use cleaner source audio. 5-15 seconds of a single speaker, no background noise or music.
-
-**Out of memory:** `tts server stop` to free everything. Use `--model-size 0.6B` or unload unused models in the Manage Models tab.
-
-**MLX errors:** Make sure `advanced.backend` in config.json matches your conda env. Run `install.sh` to fix.
-
-**Cannot load .pt with weights_only=True:** PyTorch 2.6+ requires safe globals for custom classes in .pt files. Update to the latest code (which registers the class automatically). If the error persists, set `TTS_ALLOW_UNSAFE_PICKLE=1` as a workaround.
-
-## Testing
-
-```bash
-python -m unittest discover -v tests/
-```
-
-405+ tests, no GPU or running server required. Run inside a conda env (`qwen3-tts` or `qwen3-tts-mlx`) for full coverage -- tests gracefully skip when optional dependencies are missing.
-
-## Project Structure
-
-```
-~/Qwen3-TTS_UserFiles/
-├── qwen3_tts/                  # Python package
-│   ├── cli.py                  # Click CLI entry point
-│   ├── core/
-│   │   ├── config.py           # Config, constants, platform detection
-│   │   └── engine.py           # Inference, audio processing, ASR
-│   ├── server/
-│   │   ├── app.py              # Flask API server (port 5123)
-│   │   └── client.py           # Python client library
-│   ├── interface/
-│   │   ├── generate.py         # CLI generation logic
-│   │   └── ui.py               # Gradio web interface (port 7860)
-│   └── tools/
-│       └── create_voice.py     # Voice clone creation
-├── bin/                        # Bash wrappers → ~/bin/
-├── tests/                      # 405+ tests
-├── config.json                 # All settings
-├── install.sh                  # Installer with hardware detection
-├── colab_notebook.ipynb        # Google Colab notebook
-├── pyproject.toml              # Package metadata and dependencies
-└── voice_prompts/              # Voice files (.pt, .wav, .txt)
-```
-
-## Migration from v1
-
-The v2 unified CLI consolidates all commands under a single `tts` entry point. Old commands still work as deprecation shims but will be removed in a future release.
-
-| Old Command | New Command |
-|-------------|-------------|
-| `startTTSServer` | `tts server start` |
-| `stopTTSServer` | `tts server stop` |
-| `changeVoice "Hello" -o hello` | `tts "Hello" -o hello` |
-| `changeVoice --list-prompts` | `tts voice list` |
-| `changeVoice --list-speakers` | `tts list speakers` |
-| `changeVoice --preview-prompt NAME` | `tts voice preview NAME` |
-| `changeVoice --rename-prompt OLD NEW` | `tts voice rename OLD NEW` |
-| `changeVoice --delete-prompt NAME` | `tts voice delete NAME` |
-| `changeVoice --stats` | `tts stats` |
-| `changeVoice --history` | `tts history` |
-| `changeVoice --repl` | `tts repl` |
-| `changeVoice --batch FILE` | `tts batch FILE` |
-| `changeVoice --srt FILE` | `tts srt FILE` |
-| `changeVoice --dialogue FILE` | `tts dialogue FILE` |
-| `changeVoice --watch DIR` | `tts watch DIR` |
-| `createVoice audio.wav name` | `tts voice create audio.wav --name name` |
-| `ttsUI` | `tts ui` |
-| `configureTTS` | `tts config` |
-| `configureTTS --show` | `tts config show` |
-| `cat .voice_server.log` | `tts server log` |
-
-Python imports have also moved to package paths:
-
-| Old Import | New Import |
-|------------|-----------|
-| `from voice_client import TTSClient` | `from qwen3_tts.server.client import TTSClient` |
-| `from voice_client import generate` | `from qwen3_tts.server.client import generate` |
-| `from voice_config import ...` | `from qwen3_tts.core.config import ...` |
-
-## Text Processing Roadmap
-
-**Current:** pySBD sentence splitting prevents false breaks on "Dr. Smith" and decimal numbers. num2words expands numbers, dates, currencies, ordinals, and common abbreviations before synthesis. Token-aware chunking (torch backend) ensures chunks never silently exceed the model's context window.
-
-**Future options (not yet implemented):**
-- **NLTK punkt tokenizer** — Moderate-weight alternative to pySBD; requires punkt data download at first use. Good for multi-language academic text.
-- **NVIDIA NeMo text processing** — Production-grade normalization covering dates, times, measures, addresses, financial data. ~500MB+ in new dependencies; suitable for high-volume or broadcast-quality TTS.
+### v3.0 Release Notes
+* **Flask to FastAPI:** Replaced synchronous Flask with ASGI FastAPI.
+* **True Streaming:** Replaced fake chunk collection with `asyncio.Queue` and thread-safe event loops for zero-latency audio streaming.
+* **Thread Safety:** Eliminated global variables. State and models are now isolated in `app.state` to support Uvicorn multi-worker deployments.
+* **GPU Serialization:** Introduced strict `asyncio.Lock()` to prevent concurrent API requests from crashing the GPU.
+* **Package Modernization:** Migrated from `setuptools` to `hatchling`. Eliminated 11 legacy bash shims in favor of standard Python entry points (`[project.scripts]`).
 
 ## License
-
-The source code in this repository is licensed under Apache 2.0. See [LICENSE](LICENSE).
-
-The Qwen3-TTS model weights are subject to their own license provided by Qwen Research/Alibaba Cloud.
+The source code in this repository is licensed under Apache 2.0. The Qwen3-TTS model weights are subject to their own license provided by Qwen Research/Alibaba Cloud.
