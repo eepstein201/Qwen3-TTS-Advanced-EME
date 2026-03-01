@@ -49,7 +49,7 @@ def validate_config(config):
     """Validate config structure and values. Logs warnings for issues."""
     issues = []
     backend = config.get("advanced", {}).get("backend")
-    if backend and backend not in ("torch", "mlx"):
+    if backend and backend not in VALID_BACKENDS:
         issues.append(f"Invalid backend: {backend}")
     size = config.get("advanced", {}).get("model_size")
     if size and size not in ("1.7B", "0.6B"):
@@ -60,6 +60,13 @@ def validate_config(config):
     mtl = config.get("security", {}).get("max_text_length")
     if mtl is not None and (not isinstance(mtl, int) or mtl <= 0):
         issues.append("max_text_length must be positive integer")
+    # vLLM-specific validation
+    vllm_gpu = config.get("advanced", {}).get("vllm_gpu_memory_utilization")
+    if vllm_gpu is not None and not (0.0 < vllm_gpu <= 1.0):
+        issues.append(f"vllm_gpu_memory_utilization {vllm_gpu} out of range 0.0-1.0")
+    vllm_port = config.get("advanced", {}).get("vllm_port")
+    if vllm_port is not None and not (1024 <= vllm_port <= 65535):
+        issues.append(f"vllm_port {vllm_port} out of range 1024-65535")
     for issue in issues:
         logger.warning("Config validation: %s", issue)
     return issues
@@ -226,7 +233,7 @@ def is_server_running(config_or_url=None):
 # ---------------------------------------------------------------------------
 
 VALID_DTYPES = ("float32", "float16", "bfloat16")
-VALID_BACKENDS = ("torch", "mlx")
+VALID_BACKENDS = ("torch", "mlx", "vllm")
 VALID_MLX_QUANTIZATIONS = ("4bit", "8bit", "bf16")
 VALID_MODEL_SIZES = ("1.7B", "0.6B")
 
@@ -315,6 +322,41 @@ def get_model_size():
     if size not in VALID_MODEL_SIZES:
         size = "1.7B"
     return size
+
+
+def get_vllm_gpu_util():
+    """Read the configured vLLM GPU memory utilization from config.json.
+
+    Returns:
+        A float between 0.0 and 1.0 representing GPU memory fraction.
+        Defaults to 0.7 if not set or invalid.
+    """
+    try:
+        config = load_config()
+        util = config.get("advanced", {}).get("vllm_gpu_memory_utilization", 0.7)
+    except (json.JSONDecodeError, OSError):
+        util = 0.7
+    if not isinstance(util, (int, float)) or not (0.0 < util <= 1.0):
+        util = 0.7
+    return float(util)
+
+
+def get_vllm_port():
+    """Read the configured vLLM port from config.json.
+
+    Returns:
+        An integer port number, or None for auto-find (default).
+    """
+    try:
+        config = load_config()
+        port = config.get("advanced", {}).get("vllm_port")
+    except (json.JSONDecodeError, OSError):
+        port = None
+    if port is not None:
+        if not isinstance(port, int) or not (1024 <= port <= 65535):
+            logger.warning("Invalid vllm_port %s, using auto-find", port)
+            port = None
+    return port
 
 
 # ---------------------------------------------------------------------------

@@ -99,6 +99,9 @@ design_model = None
 custom_model = None
 model_load_times = {}  # model_type -> seconds
 
+# vLLM adapter (only used when backend="vllm")
+vllm_adapter = None
+
 # Thread safety for generation
 generation_lock = threading.Lock()
 request_queue = set()
@@ -1361,9 +1364,14 @@ def write_pid():
 
 
 def cleanup_pid(signum=None, frame=None):
-    global shutdown_timer
+    global shutdown_timer, vllm_adapter
     if shutdown_timer is not None:
         shutdown_timer.cancel()
+    # Stop vLLM adapter if running
+    if vllm_adapter is not None:
+        logger.info("Stopping vLLM adapter...")
+        vllm_adapter.stop()
+        vllm_adapter = None
     if os.path.exists(PID_FILE):
         os.remove(PID_FILE)
     if os.path.exists(TOKEN_FILE):
@@ -1429,14 +1437,45 @@ if __name__ == "__main__":
     # /health returns 503 {"status": "loading"} until models are ready,
     # then 200 {"status": "ok"} — the startup health-check poll handles this.
     def _background_load():
+        global vllm_adapter
         try:
-            load_models()
-            if get_backend() == "torch":
+            backend = get_backend()
+            if backend == "vllm":
+                # Start vLLM-Omni subprocess
+                import asyncio
+
+                from qwen3_tts.core.engine_vllm import VLLMAdapter
+                from qwen3_tts.core.config import (
+                    get_vllm_gpu_util,
+                    get_vllm_port,
+                    get_torch_model_name,
+                )
+
+                model_name = get_torch_model_name("clone")  # vLLM uses torch model names
+                vllm_adapter = VLLMAdapter(
+                    model_name=model_name,
+                    gpu_memory_utilization=get_vllm_gpu_util(),
+                    port=get_vllm_port(),
+                )
+
+                # Run async start in new event loop (background thread)
+                loop = asyncio.new_event_loop()
+                asyncio.set_event_loop(loop)
                 try:
-                    from qwen3_tts.core.engine import migrate_orphan_mlx_prompts
-                    migrate_orphan_mlx_prompts(clone_model=clone_model)
-                except Exception as e:
-                    logger.warning("MLX prompt migration failed: %s", e)
+                    loop.run_until_complete(vllm_adapter.start())
+                finally:
+                    loop.close()
+
+                logger.info("vLLM-Omni adapter ready at %s", vllm_adapter.base_url)
+            else:
+                # torch/mlx backend: load models normally
+                load_models()
+                if backend == "torch":
+                    try:
+                        from qwen3_tts.core.engine import migrate_orphan_mlx_prompts
+                        migrate_orphan_mlx_prompts(clone_model=clone_model)
+                    except Exception as e:
+                        logger.warning("MLX prompt migration failed: %s", e)
         except Exception as e:
             logger.error("Model loading failed in background thread: %s", e)
         finally:

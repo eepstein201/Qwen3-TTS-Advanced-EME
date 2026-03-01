@@ -1,12 +1,30 @@
 {
   "default_voice_description": "A calm, friendly male voice with clear articulation and moderate pace.",
-  "default_clone_prompt": "lt2",
+  "default_clone_prompt": "test_voice.pt",
   "output_directory": "~/Downloads",
   "language": "English",
   "server": {
     "host": "127.0.0.1",
     "port": 5123,
-    "auto_shutdown_minutes": 0
+    "auto_shutdown_minutes": 0,
+    "models": {
+      "clone": {
+        "load_at_startup": true,
+        "description": "Voice cloning from audio samples (clone mode, -p prompt.pt)"
+      },
+      "design": {
+        "load_at_startup": false,
+        "description": "Generate voice from text description (design mode, -d 'description')"
+      },
+      "custom": {
+        "load_at_startup": false,
+        "description": "9 premium pre-trained speakers (custom mode, -s ryan)"
+      }
+    },
+    "security": {
+      "max_text_length": 10000,
+      "max_batch_size": 20
+    }
   },
   "models": {
     "clone": {
@@ -29,9 +47,11 @@
   "advanced": {
     "dtype": "bfloat16",
     "backend": "mlx",
-    "mlx_quantization": "bf16",
+    "mlx_quantization": "8bit",
     "model_size": "1.7B",
-    "audio_loader": "librosa"
+    "audio_loader": "librosa",
+    "vllm_gpu_memory_utilization": 0.7,
+    "vllm_port": null
   },
   "generation": {
     "temperature": 0.7,
