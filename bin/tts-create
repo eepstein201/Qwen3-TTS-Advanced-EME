@@ -1,3 +1,0 @@
-#!/usr/bin/env bash
-echo "Note: 'tts-create' is now 'tts voice create'. See 'tts --help'." >&2
-exec tts voice create "$@"

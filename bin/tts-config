@@ -1,3 +1,0 @@
-#!/usr/bin/env bash
-echo "Note: 'tts-config' is now 'tts config'. See 'tts --help'." >&2
-exec tts config "$@"
