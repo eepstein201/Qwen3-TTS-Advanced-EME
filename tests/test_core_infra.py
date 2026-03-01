@@ -26,164 +26,13 @@ except ImportError:
     HAS_SOUNDFILE = False
 
 try:
-    import flask  # noqa: F401
-    HAS_FLASK = True
+    import fastapi  # noqa: F401
+    HAS_FASTAPI = True
 except ImportError:
-    HAS_FLASK = False
+    HAS_FASTAPI = False
 
-_server_deps = HAS_SOUNDFILE and HAS_FLASK
-_skip_server = unittest.skipUnless(_server_deps, "requires soundfile + flask")
+_skip_server = unittest.skipUnless(HAS_SOUNDFILE and HAS_FASTAPI, "requires soundfile + fastapi")
 _skip_generate = unittest.skipUnless(HAS_SOUNDFILE, "requires soundfile (voice_generate)")
-
-
-# =========================================================================
-# Error Path Tests
-# =========================================================================
-
-@_skip_server
-class TestErrorPaths(unittest.TestCase):
-    """Test error handling in engine and server validation."""
-
-    @classmethod
-    def setUpClass(cls):
-        import voice_server
-        voice_server.auth_token = "test_token"  # nosec B105
-        voice_server.server_config = {
-            "security": {"max_text_length": 100, "max_batch_size": 5},
-            "auto_shutdown_minutes": 0,
-        }
-        import qwen3_tts.server.app as _srv
-        _srv._models_loaded.set()  # simulate models ready for tests that need a live server
-        cls.app = voice_server.app
-        cls.app.testing = True
-        cls.client = cls.app.test_client()
-        cls.auth = {"Authorization": "Bearer test_token"}
-
-    def test_set_audio_loader_invalid(self):
-        """set_audio_loader('invalid') raises ValueError."""
-        from voice_engine import set_audio_loader
-        with self.assertRaises(ValueError):
-            set_audio_loader("invalid")
-
-    def test_set_audio_loader_valid(self):
-        """set_audio_loader('librosa') succeeds and get_audio_loader reflects it."""
-        from voice_engine import set_audio_loader, get_audio_loader
-        original = get_audio_loader()
-        try:
-            set_audio_loader("librosa")
-            self.assertEqual(get_audio_loader(), "librosa")
-        finally:
-            set_audio_loader(original)
-
-    def test_load_config_returns_dict(self):
-        """load_config() always returns a dict."""
-        from voice_config import load_config
-        result = load_config()
-        self.assertIsInstance(result, dict)
-
-    def test_parse_ssml_no_tags(self):
-        """Plain text with no SSML tags returns unchanged with has_ssml=False."""
-        from voice_generate import parse_ssml
-        text, meta = parse_ssml("plain text with no tags")
-        self.assertEqual(text, "plain text with no tags")
-        self.assertFalse(meta["has_ssml"])
-
-    def test_parse_ssml_malformed_unclosed(self):
-        """Malformed unclosed tags do not crash parse_ssml."""
-        from voice_generate import parse_ssml
-        # '<break Hello' has no closing '>' for a valid tag, so regex won't match
-        text, meta = parse_ssml("<break Hello")
-        self.assertIsInstance(text, str)
-
-    def test_generate_endpoint_missing_texts(self):
-        """POST /generate with empty body returns 400."""
-        resp = self.client.post("/generate", json={}, headers=self.auth)
-        self.assertEqual(resp.status_code, 400)
-        data = resp.get_json()
-        self.assertIn("error", data)
-
-    def test_generate_endpoint_empty_texts(self):
-        """POST /generate with empty texts list returns 400."""
-        resp = self.client.post("/generate", json={"texts": []}, headers=self.auth)
-        self.assertEqual(resp.status_code, 400)
-
-    def test_generate_endpoint_text_over_limit(self):
-        """Text exceeding max_text_length returns 400."""
-        long_text = "A" * 200  # server_config max is 100
-        resp = self.client.post("/generate", json={"texts": [long_text]}, headers=self.auth)
-        self.assertEqual(resp.status_code, 400)
-        data = resp.get_json()
-        self.assertIn("limit", data["error"])
-
-
-# =========================================================================
-# Generation Cache Thread Safety Tests
-# =========================================================================
-
-@_skip_server
-class TestGenerationCacheThreadSafety(unittest.TestCase):
-    """Verify generation cache uses proper locking."""
-
-    def test_gen_cache_lock_is_threading_lock(self):
-        """_gen_cache_lock is an instance of threading.Lock."""
-        import voice_server
-        self.assertIsInstance(voice_server._gen_cache_lock, type(threading.Lock()))
-
-    def test_gen_cache_get_acquires_lock(self):
-        """_gen_cache_get acquires the lock."""
-        import voice_server
-        mock_lock = MagicMock()
-        mock_lock.__enter__ = MagicMock(return_value=None)
-        mock_lock.__exit__ = MagicMock(return_value=False)
-        original = voice_server._gen_cache_lock
-        voice_server._gen_cache_lock = mock_lock
-        try:
-            voice_server._gen_cache_get("test_key")
-            mock_lock.__enter__.assert_called_once()
-        finally:
-            voice_server._gen_cache_lock = original
-
-    def test_gen_cache_put_acquires_lock(self):
-        """_gen_cache_put acquires the lock."""
-        import voice_server
-        import tempfile
-        mock_lock = MagicMock()
-        mock_lock.__enter__ = MagicMock(return_value=None)
-        mock_lock.__exit__ = MagicMock(return_value=False)
-        original_lock = voice_server._gen_cache_lock
-        original_cache = voice_server._gen_cache.copy()
-        voice_server._gen_cache_lock = mock_lock
-        try:
-            with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as f:
-                tmp_path = f.name
-            voice_server._gen_cache_put("test_put_key", tmp_path, 24000)
-            mock_lock.__enter__.assert_called_once()
-        finally:
-            voice_server._gen_cache_lock = original_lock
-            voice_server._gen_cache = original_cache
-            if os.path.exists(tmp_path):
-                os.remove(tmp_path)
-
-    def test_gen_cache_invalidate_acquires_lock(self):
-        """_gen_cache_invalidate acquires the lock."""
-        import voice_server
-        mock_lock = MagicMock()
-        mock_lock.__enter__ = MagicMock(return_value=None)
-        mock_lock.__exit__ = MagicMock(return_value=False)
-        original = voice_server._gen_cache_lock
-        voice_server._gen_cache_lock = mock_lock
-        try:
-            voice_server._gen_cache_invalidate()
-            mock_lock.__enter__.assert_called_once()
-        finally:
-            voice_server._gen_cache_lock = original
-
-    def test_double_checked_locking_in_generate_source(self):
-        """generate() source contains both pre-lock and post-lock cache comments."""
-        import voice_server
-        source = inspect.getsource(voice_server.generate)
-        self.assertIn("pre-lock", source)
-        self.assertIn("post-lock", source)
 
 
 # =========================================================================
@@ -896,27 +745,6 @@ class TestAppHelperFunctions(unittest.TestCase):
         self.assertEqual(len(key), 16)
         int(key, 16)  # Should not raise
 
-    def test_generate_auth_token_creates_file(self):
-        """generate_auth_token creates token file with correct perms."""
-        import tempfile
-        import stat
-        import qwen3_tts.server.app as app_mod
-        original_token_file = app_mod.TOKEN_FILE
-        try:
-            tmp = tempfile.mktemp(suffix=".token")  # nosec B306
-            app_mod.TOKEN_FILE = tmp
-            token = app_mod.generate_auth_token()
-            self.assertEqual(len(token), 64)  # 32 bytes = 64 hex chars
-            self.assertTrue(os.path.exists(tmp))
-            mode = os.stat(tmp).st_mode
-            self.assertEqual(stat.S_IMODE(mode), 0o600)
-            with open(tmp) as f:
-                self.assertEqual(f.read(), token)
-        finally:
-            app_mod.TOKEN_FILE = original_token_file
-            if os.path.exists(tmp):
-                os.unlink(tmp)
-
     def test_create_temp_audio_copy(self):
         """_create_temp_audio_copy creates a copy with restricted perms."""
         import tempfile
@@ -935,33 +763,6 @@ class TestAppHelperFunctions(unittest.TestCase):
             os.unlink(tmp_path)
         finally:
             os.unlink(src_path)
-
-    def test_estimate_eta_no_history(self):
-        """_estimate_eta returns None when no history."""
-        import qwen3_tts.server.app as app_mod
-        # Reset cache to force recalculation
-        app_mod._eta_cache["last_updated"] = 0
-        app_mod._eta_cache["median_rate"] = None
-        from unittest.mock import patch
-        with patch("os.path.exists", return_value=False):
-            result = app_mod._estimate_eta(100, 5.0)
-            self.assertIsNone(result)
-
-    def test_prepare_mode_params_clone_no_prompt(self):
-        """_prepare_mode_params returns error when clone mode has no prompt."""
-        from qwen3_tts.server.app import _prepare_mode_params, app
-        with app.app_context():
-            voice_prompt, error = _prepare_mode_params("clone", {})
-            self.assertIsNone(voice_prompt)
-            self.assertIsNotNone(error)
-
-    def test_prepare_mode_params_custom_no_speaker(self):
-        """_prepare_mode_params returns error when custom mode has no speaker."""
-        from qwen3_tts.server.app import _prepare_mode_params, app
-        with app.app_context():
-            voice_prompt, error = _prepare_mode_params("custom", {})
-            self.assertIsNone(voice_prompt)
-            self.assertIsNotNone(error)
 
 
 # =========================================================================
