@@ -1325,83 +1325,86 @@ async def generate_stream(request: Request, req: GenerateRequest, _auth: None = 
     queue: asyncio.Queue = asyncio.Queue()
     loop = asyncio.get_event_loop()
     stop_event = threading.Event()
+    inference_lock = state.inference_lock
 
     async def audio_stream_generator():
         """Async generator that yields audio chunks."""
-        gen_id = str(uuid.uuid4())[:8]
-        state.generation_state.update({
-            "active": True,
-            "start_time": time.time(),
-            "text_length": len(text),
-            "mode": mode,
-            "generation_id": gen_id,
-            "cancelled": False,
-        })
+        # Acquire inference_lock to serialize GPU access
+        async with inference_lock:
+            gen_id = str(uuid.uuid4())[:8]
+            state.generation_state.update({
+                "active": True,
+                "start_time": time.time(),
+                "text_length": len(text),
+                "mode": mode,
+                "generation_id": gen_id,
+                "cancelled": False,
+            })
 
-        def inference_thread():
-            """Run inference in a thread and push chunks to queue."""
+            def inference_thread():
+                """Run inference in a thread and push chunks to queue."""
+                try:
+                    from qwen3_tts.core.engine import run_inference_streaming
+
+                    chunk_idx = 0
+                    for wav_chunk, sr in run_inference_streaming(
+                        model=model,
+                        text=text,
+                        mode=mode,
+                        gen_params=gen_params,
+                        language=language,
+                        voice_prompt=voice_prompt,
+                        voice_description=voice_description,
+                        speaker=speaker,
+                        instruct=instruct,
+                        x_vector_only_mode=x_vector_only_mode,
+                    ):
+                        if stop_event.is_set():
+                            logger.info("Generation cancelled after %d chunks", chunk_idx)
+                            break
+
+                        chunk_idx += 1
+                        state.generation_state["chunk_index"] = chunk_idx
+
+                        # Length-prefixed format: [sample_rate:4][length:4][audio:length]
+                        audio_bytes = wav_chunk.astype("<f4").tobytes()
+                        header = struct.pack("<II", sr, len(audio_bytes))
+
+                        # Use call_soon_threadsafe to safely put from thread to async queue
+                        loop.call_soon_threadsafe(queue.put_nowait, header + audio_bytes)
+
+                except Exception as e:
+                    logger.error("Streaming inference failed: %s", e, exc_info=True)
+                    loop.call_soon_threadsafe(queue.put_nowait, None)
+                else:
+                    # Signal completion
+                    loop.call_soon_threadsafe(queue.put_nowait, None)
+
+            # Start inference thread
+            thread = threading.Thread(target=inference_thread, daemon=True)
+            thread.start()
+
             try:
-                from qwen3_tts.core.engine import run_inference_streaming
-
-                chunk_idx = 0
-                for wav_chunk, sr in run_inference_streaming(
-                    model=model,
-                    text=text,
-                    mode=mode,
-                    gen_params=gen_params,
-                    language=language,
-                    voice_prompt=voice_prompt,
-                    voice_description=voice_description,
-                    speaker=speaker,
-                    instruct=instruct,
-                    x_vector_only_mode=x_vector_only_mode,
-                ):
-                    if stop_event.is_set():
-                        logger.info("Generation cancelled after %d chunks", chunk_idx)
+                # Yield chunks as they arrive
+                while True:
+                    chunk = await queue.get()
+                    if chunk is None:
                         break
-
-                    chunk_idx += 1
-                    state.generation_state["chunk_index"] = chunk_idx
-
-                    # Length-prefixed format: [sample_rate:4][length:4][audio:length]
-                    audio_bytes = wav_chunk.astype("<f4").tobytes()
-                    header = struct.pack("<II", sr, len(audio_bytes))
-
-                    # Use call_soon_threadsafe to safely put from thread to async queue
-                    loop.call_soon_threadsafe(queue.put_nowait, header + audio_bytes)
-
-            except Exception as e:
-                logger.error("Streaming inference failed: %s", e, exc_info=True)
-                loop.call_soon_threadsafe(queue.put_nowait, None)
-            else:
-                # Signal completion
-                loop.call_soon_threadsafe(queue.put_nowait, None)
-
-        # Start inference thread
-        thread = threading.Thread(target=inference_thread, daemon=True)
-        thread.start()
-
-        try:
-            # Yield chunks as they arrive
-            while True:
-                chunk = await queue.get()
-                if chunk is None:
-                    break
-                yield chunk
-        finally:
-            stop_event.set()
-            # Reset generation state if still our generation
-            if state.generation_state.get("generation_id") == gen_id:
-                state.generation_state.update({
-                    "active": False,
-                    "start_time": 0.0,
-                    "text_length": 0,
-                    "mode": "",
-                    "chunk_index": 0,
-                    "chunk_total": 0,
-                    "generation_id": None,
-                    "cancelled": False,
-                })
+                    yield chunk
+            finally:
+                stop_event.set()
+                # Reset generation state if still our generation
+                if state.generation_state.get("generation_id") == gen_id:
+                    state.generation_state.update({
+                        "active": False,
+                        "start_time": 0.0,
+                        "text_length": 0,
+                        "mode": "",
+                        "chunk_index": 0,
+                        "chunk_total": 0,
+                        "generation_id": None,
+                        "cancelled": False,
+                    })
 
     return StreamingResponse(
         audio_stream_generator(),
