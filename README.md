@@ -10,12 +10,12 @@ Clone any voice from an audio sample, design voices from text descriptions, or c
 ## Table of Contents
 1. [Features & Capabilities](#features--capabilities)
 2. [System Requirements & Optimal Configurations](#system-requirements--optimal-configurations)
-3. [Installation Paths (Docker vs Native)](#installation-paths)
-4. [Quick Start](#quick-start)
-5. [Voice Modes](#three-voice-modes)
-6. [Hardware Backends](#hardware-backends)
-7. [Interfaces (CLI, UI, Python)](#interfaces)
-8. [Google Colab](#google-colab)
+3. [Run on Google Colab (Zero Install)](#run-on-google-colab-zero-install)
+4. [Local Installation Paths (Docker vs Native)](#local-installation-paths)
+5. [Quick Start (Local)](#quick-start-local)
+6. [Voice Modes](#three-voice-modes)
+7. [Hardware Backends](#hardware-backends)
+8. [Interfaces (CLI, UI, Python)](#interfaces)
 9. [Configuration](#configuration)
 10. [Troubleshooting & FAQ](#troubleshooting--faq)
 11. [Developer & v3.0 Architecture](#developer--v30-architecture)
@@ -26,81 +26,79 @@ Clone any voice from an audio sample, design voices from text descriptions, or c
 
 Qwen3-TTS isn't just a research script; it is engineered to be a production-ready synthesis engine. Here is what sets it apart:
 
+### ☁️ Zero-Setup Cloud Execution
+* **1-Click Google Colab Deployment:** Test the entire system without installing a single package locally. The included Colab notebook automatically detects cloud GPUs, configures optimal performance settings, and generates a shareable public URL for the Web UI.
+
 ### 🎙️ The Audio Engine
 * **Zero-Shot Voice Cloning:** Clone any human voice using just 5 to 15 seconds of reference audio. 
-    * *Why it matters:* You don't need hours of clean studio data or expensive model fine-tuning. Whisper auto-transcription handles the text extraction, or you can use "embedding-only" mode to clone a voice without knowing the transcript at all.
-* **Prompt-Based Voice Design:** Generate entirely new, unique voices by simply describing them in text (e.g., *"A warm, friendly British female voice speaking quickly"*). 
-    * *Why it matters:* Gives you infinite creative control for video game NPCs, audiobooks, or brand personas without ever needing to hire a voice actor.
-* **Premium Pre-Trained Speakers:** Includes 9 highly optimized, built-in voices.
-    * *Why it matters:* Plug-and-play readiness. If you just need a high-quality voice immediately, you can bypass cloning/designing entirely.
+    * *Why it matters:* You don't need hours of clean studio data. Whisper auto-transcription handles the text extraction, or use "embedding-only" mode to clone a voice without a transcript.
+* **Prompt-Based Voice Design:** Generate entirely new voices by simply describing them (e.g., *"A warm, friendly British female voice speaking quickly"*). 
+    * *Why it matters:* Gives you infinite creative control for video game NPCs, audiobooks, or brand personas without hiring a voice actor.
+* **Premium Pre-Trained Speakers:** Includes 9 highly optimized, built-in voices for immediate plug-and-play generation.
 
 ### ⚙️ Production Architecture (v3.0)
-* **True Zero-Latency Streaming:** Built on FastAPI with asynchronous queues.
-    * *Why it matters:* Unlike systems that wait for the entire audio file to generate before playing, this streams raw audio bytes back to the client the millisecond they are inferred. Essential for real-time conversational AI or interactive agents.
-* **Bulletproof GPU Serialization:** Strict `asyncio` locking mechanisms for hardware access.
-    * *Why it matters:* AI models are notorious for Out-Of-Memory (OOM) crashes when multiple users hit an endpoint simultaneously. This server queues concurrent requests, ensuring your GPU never crashes under high traffic.
+* **True Zero-Latency Streaming:** Built on FastAPI with asynchronous queues. Streams raw audio bytes back to the client the millisecond they are inferred.
+* **Bulletproof GPU Serialization:** Strict `asyncio` locking queues concurrent requests, ensuring your GPU never crashes under high web traffic.
 
 ### 💻 Hardware Flexibility
-* **Apple Silicon Native (MLX):** Deeply optimized for macOS using the MLX framework.
-    * *Why it matters:* Most open-source TTS runs terribly on Macs. This utilizes unified memory to run fast, quiet, and cool on M1/M2/M3 chips without draining your battery or requiring an expensive cloud GPU.
-* **High-Speed vLLM Integration:** Official support for vLLM-Omni on Linux/NVIDIA setups.
-    * *Why it matters:* Yields 3-4x faster generation speeds using PagedAttention memory management. If you are deploying this to a production server, this dramatically reduces your compute costs and latency.
-
-### 🛠️ Developer Experience
-* **Tri-Interface Access:** A Gradio Web UI for visual control, a robust CLI for bash scripting, and a Python client for direct app integration.
-    * *Why it matters:* Adapts perfectly to your workflow, whether you are a non-technical creator, a power-user running cron jobs, or an engineer building a SaaS product.
+* **Apple Silicon Native (MLX):** Deeply optimized for macOS. Utilizes unified memory to run fast, quiet, and cool on M1/M2/M3 chips without draining your battery.
+* **High-Speed vLLM Integration:** Official support for vLLM-Omni on Linux/NVIDIA setups, yielding 3-4x faster generation speeds using PagedAttention memory management.
 
 ---
 
 ## System Requirements & Optimal Configurations
 
-Qwen3-TTS performance relies heavily on your hardware and backend combination. Below are the minimum requirements and the exact recommended settings for each deployment type to avoid Out-of-Memory (OOM) crashes and maximize speed.
+Qwen3-TTS performance relies heavily on your hardware and backend combination. Below are the exact recommended settings for each deployment type to avoid Out-of-Memory (OOM) crashes and maximize speed.
 
-### General Base Requirements (All Systems)
+### General Base Requirements (All Local Systems)
 * **Python:** 3.10+ (3.12 recommended for native installs)
 * **Disk Space:** ~3 GB per model (Total ~10 GB to cache Clone, Design, and Custom models)
 
----
-
 ### 1. Apple Silicon (macOS)
-Runs natively using the MLX framework, leveraging unified memory for high efficiency and lower thermals.
-
 | Hardware | Recommendation | Optimal `config.json` Settings |
 | :--- | :--- | :--- |
 | **Minimum** | Base M1 (8GB Unified Memory) | `backend: "mlx"`, `model_size: "0.6B"`, `mlx_quantization: "4bit"` |
 | **Recommended** | M2/M3/M4 (16GB+ Unified) | `backend: "mlx"`, `model_size: "1.7B"`, `mlx_quantization: "8bit"` |
 
-* **Pro-Tip:** If using an 8GB Mac, loading multiple models simultaneously will crash it. Unload unused models via the UI or CLI before switching tasks.
-
----
-
 ### 2. Standard PyTorch (Linux / Intel Mac)
-The standard engine utilizing native PyTorch and HuggingFace Transformers.
-
 | Hardware | Recommendation | Optimal `config.json` Settings |
 | :--- | :--- | :--- |
 | **Minimum** | NVIDIA T4 16GB | `backend: "torch"`, `model_size: "1.7B"`, `dtype: "float16"`, `compile_model: false` |
 | **Recommended**| NVIDIA L4 / A10G (Ampere+) | `backend: "torch"`, `model_size: "1.7B"`, `dtype: "bfloat16"`, `compile_model: true` |
 
-* **Pro-Tip:** Setting `compile_model: true` on Ampere-architecture GPUs (L4, A100) enables `torch.compile` and Flash Attention 2, significantly speeding up inference, but adds a ~1 minute delay on the very first generation.
-
----
-
 ### 3. Production vLLM-Omni (Linux NVIDIA GPUs)
-The high-throughput engine. Yields 3-4x faster generation (RTF ~0.399 on H100) using PagedAttention. **Requires Linux and CUDA.**
-
+*Yields 3-4x faster generation. Requires Linux and CUDA.*
 | Hardware | Recommendation | Optimal `config.json` Settings |
 | :--- | :--- | :--- |
 | **Minimum** | NVIDIA T4 16GB (Compute 7.0+) | `backend: "vllm"`, `model_size: "1.7B"`, `vllm_gpu_memory_utilization: 0.7` |
 | **Recommended**| NVIDIA L4 / A100 (24GB+ VRAM)| `backend: "vllm"`, `model_size: "1.7B"`, `vllm_gpu_memory_utilization: 0.9` |
 
-* **Pro-Tip:** vLLM is incredibly greedy. By default, it attempts to pre-allocate 90% of your GPU memory. If you are running on a smaller 16GB card (like a T4), you *must* drop `vllm_gpu_memory_utilization` to `0.7` or the FastAPI server overhead will trigger an immediate OOM crash.
+---
+
+## Run on Google Colab (Zero Install)
+
+The fastest way to use Qwen3-TTS is via the cloud. This requires **zero local installation**, keeps your hardware clean, and automatically leverages NVIDIA cloud GPUs.
+
+A highly optimized notebook (`colab_notebook.ipynb`) is included in the repository. 
+
+**Steps to Run:**
+1. Upload the entire `Qwen3-TTS_UserFiles/` directory to your Google Drive (e.g., to `My Drive/Qwen3-TTS_UserFiles/`).
+2. Open `colab_notebook.ipynb` in Google Colab.
+3. Select a **GPU Runtime** (T4 is free, L4 is recommended for best performance).
+4. Edit the **Settings Form** at the top of the notebook to configure your defaults (e.g., `1.7B` vs `0.6B` model).
+5. **Run All Cells**.
+
+**What the Notebook Automates:**
+* Connects to your Google Drive to save your cloned voices persistently.
+* Auto-detects the GPU tier and applies optimal settings (Flash Attention 2 for Ampere+, SDPA for Turing).
+* Starts the FastAPI server in the background so Colab doesn't kill it.
+* Generates a **Public Gradio URL** so you can access the Web UI from any browser.
 
 ---
 
-## Installation Paths
+## Local Installation Paths
 
-There are two ways to install Qwen3-TTS. **Choose your path based on your hardware to avoid massive performance penalties.**
+If you prefer to run the system locally, there are two ways to install Qwen3-TTS. **Choose your path based on your hardware to avoid massive performance penalties.**
 
 > ### ⚠️ Crucial Hardware Caveats
 > * **Linux / NVIDIA Users:** You are highly encouraged to use **Path 1: Docker**. It keeps your host OS perfectly clean, prevents Python dependency conflicts, and ensures CUDA parity.
@@ -166,7 +164,7 @@ alias tts="conda run --no-capture-output -n qwen3-tts-mlx tts"
 
 ---
 
-## Quick Start
+## Quick Start (Local)
 
 Start the server in the background (models take 30-60s to load on first boot):
 ```bash
@@ -267,11 +265,6 @@ audio_path = client.generate(
 for wav_chunk, sr in client.generate_streaming("Long text...", output="stream.wav"):
     pass 
 ```
-
----
-
-## Google Colab
-Use `colab_notebook.ipynb` to run this in the cloud. It features automatic hardware detection, optimal PyTorch compilation for Ampere GPUs, and runs FastAPI in the foreground to prevent Colab from killing the process.
 
 ---
 
