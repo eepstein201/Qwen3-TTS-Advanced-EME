@@ -1,3 +1,0 @@
-#!/usr/bin/env bash
-echo "Note: 'changeVoice' is now 'tts'. See 'tts --help'." >&2
-exec tts "$@"

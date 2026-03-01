@@ -1,3 +1,0 @@
-#!/usr/bin/env bash
-echo "Note: 'tts-server-stop' is now 'tts server stop'. See 'tts --help'." >&2
-exec tts server stop "$@"

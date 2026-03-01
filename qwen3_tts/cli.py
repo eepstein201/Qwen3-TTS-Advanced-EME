@@ -10,7 +10,10 @@ Usage:
 """
 
 import os
+import subprocess
 import sys
+import time
+from pathlib import Path
 
 import click
 
@@ -190,7 +193,7 @@ def _call_generate(text=(), **kwargs):
 # ---------------------------------------------------------------------------
 
 @click.group(cls=TTSGroup)
-@click.version_option(version='2.0.0', prog_name='Qwen3-TTS')
+@click.version_option(version='3.0.0', prog_name='Qwen3-TTS')
 def cli():
     """Qwen3-TTS -- Text to speech with voice cloning."""
     pass
@@ -270,6 +273,31 @@ def generate(text, **kwargs):
 # server group
 # ---------------------------------------------------------------------------
 
+def _start_server_daemon(public=False):
+    """Start the TTS server as a daemon (background subprocess).
+
+    Args:
+        public: If True, bind to 0.0.0.0 instead of 127.0.0.1
+
+    Returns:
+        subprocess.Popen: The server process object
+    """
+    from qwen3_tts.core.config import PID_FILE, load_config
+
+    if public:
+        os.environ['TTS_SERVER_PUBLIC'] = '1'
+
+    proc = subprocess.Popen(
+        [sys.executable, '-m', 'qwen3_tts.server.app'],
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+        start_new_session=True,
+    )
+    # Write PID file
+    PID_FILE.write_text(str(proc.pid))
+    return proc
+
+
 @cli.group()
 def server():
     """Manage the TTS server."""
@@ -278,17 +306,67 @@ def server():
 
 @server.command()
 @click.option('--public', is_flag=True, help='Bind to 0.0.0.0')
-def start(public):
-    """Start the TTS server."""
-    if public:
-        os.environ['TTS_SERVER_PUBLIC'] = '1'
-    sys.exit(10)
+@click.option('--foreground', is_flag=True, help='Run in foreground (for Colab/notebooks)')
+def start(public, foreground):
+    """Start the TTS server.
+
+    By default, the server runs in the background as a daemon.
+    Use --foreground to run in the foreground (useful for Colab).
+    """
+    from qwen3_tts.core.config import load_config, is_server_running, get_server_url
+
+    config = load_config()
+
+    # Check if already running
+    if is_server_running(config):
+        click.echo(f"TTS Server is already running at {get_server_url(config)}")
+        sys.exit(1)
+
+    if foreground:
+        # Run in foreground (for Colab/notebooks)
+        click.echo("Starting TTS server in foreground...")
+        from qwen3_tts.server.app import app
+        host = config.get("server", {}).get("host", "127.0.0.1")
+        if public:
+            host = "0.0.0.0"
+        port = config.get("server", {}).get("port", 5123)
+        app.run(host=host, port=port, debug=False)
+    else:
+        # Run as daemon (background subprocess)
+        proc = _start_server_daemon(public=public)
+        click.echo(f"TTS Server started with PID {proc.pid}")
+        click.echo(f"Logs: {config.get('log_file', '~/.voice_server.log')}")
 
 
 @server.command()
 def stop():
     """Stop the TTS server."""
-    sys.exit(11)
+    from qwen3_tts.core.config import load_config, PID_FILE, get_server_url, auth_headers
+    import requests
+
+    config = load_config()
+
+    # Check if PID file exists
+    if not PID_FILE.exists():
+        click.echo("TTS Server is not running (no PID file found).")
+        sys.exit(1)
+
+    # Send shutdown request
+    url = get_server_url(config)
+    try:
+        resp = requests.post(f"{url}/shutdown", headers=auth_headers(), timeout=5)
+        if resp.status_code == 200:
+            click.echo("TTS Server shutdown signal sent.")
+        else:
+            click.echo(f"Warning: unexpected response {resp.status_code}")
+    except requests.exceptions.ConnectionError:
+        click.echo("Server not responding (may have already stopped)")
+    except Exception as e:
+        click.echo(f"Error contacting server: {e}")
+
+    # Clean up PID file
+    PID_FILE.unlink(missing_ok=True)
+    click.echo("TTS Server stopped.")
 
 
 @server.command()
@@ -330,7 +408,41 @@ def status():
 @server.command()
 def log():
     """Tail the server log."""
-    sys.exit(12)
+    from qwen3_tts.core.config import load_config
+    import shutil
+
+    config = load_config()
+    log_file = Path(config.get("log_file", "~/.voice_server.log")).expanduser()
+
+    if not log_file.exists():
+        click.echo(f"Log file not found: {log_file}")
+        sys.exit(1)
+
+    # Get terminal width
+    width = shutil.get_terminal_size(fallback=(80, 24)).columns
+
+    # Tail the log file
+    try:
+        # Use tail command if available, otherwise Python fallback
+        result = subprocess.run(
+            ['tail', '-f', str(log_file)],
+            text=True,
+        )
+        sys.exit(result.returncode)
+    except FileNotFoundError:
+        # Fallback: read and print new lines
+        click.echo(f"Tailing {log_file} (Ctrl+C to stop)...")
+        with open(log_file, 'r') as f:
+            f.seek(0, 2)  # Seek to end
+            try:
+                while True:
+                    line = f.readline()
+                    if line:
+                        click.echo(line.rstrip())
+                    else:
+                        time.sleep(0.1)
+            except KeyboardInterrupt:
+                click.echo("\nStopped tailing log.")
 
 
 # ---------------------------------------------------------------------------
