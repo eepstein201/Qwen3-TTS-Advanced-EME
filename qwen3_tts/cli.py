@@ -288,7 +288,7 @@ def _start_server_daemon(public=False):
         os.environ['TTS_SERVER_PUBLIC'] = '1'
 
     proc = subprocess.Popen(
-        [sys.executable, '-m', 'qwen3_tts.server.app_fastapi'],
+        [sys.executable, '-m', 'qwen3_tts.server.app'],
         stdout=subprocess.DEVNULL,
         stderr=subprocess.DEVNULL,
         start_new_session=True,
@@ -325,7 +325,7 @@ def start(public, foreground):
     if foreground:
         # Run in foreground (for Colab/notebooks)
         click.echo("Starting TTS server in foreground...")
-        from qwen3_tts.server.app_fastapi import app
+        from qwen3_tts.server.app import app
         host = config.get("server", {}).get("host", "127.0.0.1")
         if public:
             host = "0.0.0.0"

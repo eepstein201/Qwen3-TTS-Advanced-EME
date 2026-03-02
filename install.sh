@@ -301,7 +301,7 @@ create_mlx_env() {
         else
             info "Keeping existing environment. Updating packages..."
             conda activate "$MLX_ENV_NAME"
-            pip install --upgrade -r "$USER_FILES_DIR/requirements-mlx.txt"
+            pip install --upgrade -e "$USER_FILES_DIR/[mlx,server,audio,rich]"
             conda deactivate 2>/dev/null || true
             success "Packages updated!"
             return
@@ -315,7 +315,7 @@ create_mlx_env() {
     conda activate "$MLX_ENV_NAME"
 
     info "Installing MLX dependencies..."
-    pip install -r "$USER_FILES_DIR/requirements-mlx.txt"
+    pip install -e "$USER_FILES_DIR/[mlx,server,audio,rich]"
 
     conda deactivate 2>/dev/null || true
 

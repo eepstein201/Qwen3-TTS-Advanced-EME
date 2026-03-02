@@ -726,21 +726,21 @@ class TestAppHelperFunctions(unittest.TestCase):
 
     def test_gen_cache_key_deterministic(self):
         """_gen_cache_key returns same hash for same inputs."""
-        from qwen3_tts.server.app_fastapi import _gen_cache_key
+        from qwen3_tts.server.app import _gen_cache_key
         key1 = _gen_cache_key("hello", "clone", {"temperature": 0.7}, prompt_file="voice.pt")
         key2 = _gen_cache_key("hello", "clone", {"temperature": 0.7}, prompt_file="voice.pt")
         self.assertEqual(key1, key2)
 
     def test_gen_cache_key_different_text(self):
         """_gen_cache_key returns different hash for different text."""
-        from qwen3_tts.server.app_fastapi import _gen_cache_key
+        from qwen3_tts.server.app import _gen_cache_key
         key1 = _gen_cache_key("hello", "clone", {"temperature": 0.7})
         key2 = _gen_cache_key("world", "clone", {"temperature": 0.7})
         self.assertNotEqual(key1, key2)
 
     def test_gen_cache_key_is_hex_string(self):
         """_gen_cache_key returns a hex string of length 16."""
-        from qwen3_tts.server.app_fastapi import _gen_cache_key
+        from qwen3_tts.server.app import _gen_cache_key
         key = _gen_cache_key("test", "design", {})
         self.assertEqual(len(key), 16)
         int(key, 16)  # Should not raise
@@ -749,7 +749,7 @@ class TestAppHelperFunctions(unittest.TestCase):
         """_create_temp_audio_copy creates a copy with restricted perms."""
         import tempfile
         import stat
-        from qwen3_tts.server.app_fastapi import _create_temp_audio_copy
+        from qwen3_tts.server.app import _create_temp_audio_copy
         with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as src:
             src.write(b"fake audio data")
             src_path = src.name

@@ -806,7 +806,7 @@ def _load_model_mlx(model_type):
         raise ImportError(
             "MLX backend selected but mlx-audio is not installed. "
             "Activate the MLX environment: conda activate qwen3-tts-mlx\n"
-            "Or install dependencies: pip install -r requirements-mlx.txt"
+            "Or install dependencies: pip install -e .[mlx]"
         )
 
     repo_id = get_mlx_model_name(model_type)

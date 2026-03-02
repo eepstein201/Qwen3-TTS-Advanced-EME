@@ -46,7 +46,7 @@ Features: pyrubberband audio processing (with librosa fallback), prosody presets
 
 Old commands (`changeVoice`, `startTTSServer`, `stopTTSServer`, `createVoice`, `ttsUI`, `configureTTS` and their kebab-case aliases) still work as deprecation shims.
 
-The unified CLI is built on Click. Wrapper scripts live in `bin/` (canonical) and are copied to `~/bin/` by `install.sh`. After code changes: `cp bin/* ~/bin/ && chmod +x ~/bin/*`
+The unified CLI is built on Click and installed via pyproject.toml entry points.
 
 ## Architecture
 
@@ -60,7 +60,7 @@ config.json → qwen3_tts.core.config → qwen3_tts.core.engine (dispatch)
 |--------|---------|----------------|
 | `qwen3_tts/core/config.py` | Constants, config I/O, error classes, `MODEL_INFO`, auth, platform detection, CUDA capability detection, voice description attributes | No |
 | `qwen3_tts/core/engine.py` | `load_model()`, `run_inference()`, voice prompt cache, audio processing, text chunking, ASR, smart audio loader, CUDA optimization, MLX prompt migration | No (all lazy) |
-| `qwen3_tts/server/app.py` | Flask server: auth, validation helpers (`_validate_generation_request`, `_create_temp_audio_copy`, `_prepare_mode_params`), progress, model management, generation/ETA/prompt caches | No (lazy via engine) |
+| `qwen3_tts/server/app.py` | FastAPI server: auth, validation helpers (`_validate_generation_request`, `_create_temp_audio_copy`, `_prepare_mode_params`), progress, model management, generation/ETA/prompt caches | No (lazy via engine) |
 | `qwen3_tts/server/client.py` | HTTP client: `TTSClient` with generate, model management, prompt management | No |
 | `qwen3_tts/interface/generate.py` | CLI generation, progress display, post-gen menu, batch/SSML/SRT/dialogue, voice management | No (lazy) |
 | `qwen3_tts/interface/ui.py` | Gradio web UI: 6 tabs (Clone/Design/Custom/Create Voice/Manage Voices/Manage Models) | No (HTTP only) |
@@ -91,7 +91,7 @@ config.json → qwen3_tts.core.config → qwen3_tts.core.engine (dispatch)
 │   │   └── engine.py           # Model loading, inference, audio processing
 │   ├── server/
 │   │   ├── __init__.py
-│   │   ├── app.py              # Flask server (port 5123)
+│   │   ├── app.py              # FastAPI server (port 5123)
 │   │   └── client.py           # HTTP client library
 │   ├── interface/
 │   │   ├── __init__.py
@@ -103,10 +103,7 @@ config.json → qwen3_tts.core.config → qwen3_tts.core.engine (dispatch)
 ├── config.json                 # All settings
 ├── install.sh                  # Installation with hardware detection
 ├── colab_notebook.ipynb        # Google Colab notebook
-├── requirements-mlx.txt        # MLX env dependencies
-├── requirements-cuda.txt       # CUDA/Colab dependencies
 ├── voice_prompts/              # .pt (torch) + .wav/.txt (MLX) files
-├── bin/                        # Wrapper scripts (canonical, copied to ~/bin/)
 ├── tests/test_voice.py         # Test suite
 ├── tests/test_audio_utils.py   # Audio processing, text chunking tests
 ├── tests/test_core_infra.py    # Errors, caching, config, SSML tests
@@ -246,7 +243,7 @@ CLI and UI parse the `recovery` field to show actionable guidance.
 python -m unittest discover -v tests/
 ```
 
-480+ tests across 4 files (test_voice.py, test_audio_utils.py, test_core_infra.py, test_flash_attn_install.py). No GPU, models, or running server required. Tests auto-skip when optional deps (`soundfile`, `gradio`, `flask`, `click`) are missing — run in a conda env for full coverage.
+480+ tests across 4 files (test_voice.py, test_audio_utils.py, test_core_infra.py, test_flash_attn_install.py). No GPU, models, or running server required. Tests auto-skip when optional deps (`soundfile`, `gradio`, `fastapi`, `click`) are missing — run in a conda env for full coverage.
 
 ## Models
 
@@ -276,6 +273,25 @@ python -m unittest discover -v tests/
 `get_cuda_capability()` and `get_optimal_attn_config()` in `qwen3_tts/core/config.py` expose hardware detection. The Colab notebook auto-configures based on detected GPU tier.
 
 ## Recent Significant Changes
+
+### 2026-03-01 — Codebase cleanup: Flask to FastAPI migration completed
+
+**Changes:**
+- Renamed `app_fastapi.py` → `app.py`; all imports now point to canonical FastAPI server
+- Updated all tests to use FastAPI `TestClient` instead of Flask test client
+- Fixed `conftest.py` fixture to use dict access for `app.state.models`
+- Updated `install.sh` to use `pyproject.toml` extras instead of deleted `requirements-*.txt` files
+- Updated error messages in `engine.py` to reference `pip install -e .[mlx]`
+- Removed obsolete `bin/` directory references; CLI is installed via pyproject.toml entry points
+- Updated all documentation to reference FastAPI instead of Flask
+
+**Files modified:**
+- `qwen3_tts/server/app.py` (renamed from app_fastapi.py)
+- `qwen3_tts/cli.py`, `voice_server.py`, `tests/conftest.py`, `tests/test_fastapi_endpoints.py`, `tests/test_fastapi_server.py` — import updates
+- `tests/test_voice.py` — mechanical refactor to FastAPI TestClient patterns
+- `install.sh` — use pyproject.toml extras
+- `qwen3_tts/core/engine.py` — error message update
+- `CLAUDE.md` — documentation refresh
 
 ### 2026-02-22 — Bug fix: Colab flash-attn wheel selection uses GitHub API instead of guessed URL
 
@@ -322,7 +338,7 @@ python -m unittest discover -v tests/
 **Changes:**
 - `qwen3_tts/core/engine.py`: Added `_map_language()`, `_normalize_text()`, `_get_max_chunk_tokens()`; replaced `_SENTENCE_SPLIT_RE` with pySBD in `_split_text()`; added `tokenizer`/`max_tokens` params to `_split_text()`; updated `run_inference()` and `run_inference_streaming()` to normalize text and use token-aware chunking on torch backend.
 - `config.json`: Added `generation.max_chunk_tokens: 200`.
-- `requirements-mlx.txt`, `requirements-cuda.txt`, `pyproject.toml`: Added `pySBD>=0.3.4`, `num2words>=0.5.13`.
+- `pyproject.toml`: Added `pySBD>=0.3.4`, `num2words>=0.5.13`.
 - `tests/test_audio_utils.py`: Added `TestMapLanguage`, `TestNormalizeText`, `TestPysbdSentenceSplitting`, `TestGetMaxChunkTokens`, `TestTokenAwareChunking`.
 
 ## Text Processing Roadmap
@@ -341,7 +357,7 @@ python -m unittest discover -v tests/
 - `qwen3_tts/interface/generate.py`: Added path traversal validation at the top of
   `delete_voice_prompt()` and `rename_voice_prompt()`. Names containing `..`, `/`, or `\`
   are rejected immediately with `return False` before any filesystem access.
-- `qwen3_tts/server/app.py`: Sanitized exception details in three Flask endpoints so raw
+- `qwen3_tts/server/app.py`: Sanitized exception details in three FastAPI endpoints so raw
   `str(e)` is never returned to callers. Full exception still logged server-side via
   `logger.error(..., exc_info=True)`:
   - `/generate` → `"An internal error occurred. Check server logs for details."`
@@ -375,10 +391,9 @@ python -m unittest discover -v tests/
 **Bug 1 (server startup):**
 - `qwen3_tts/server/app.py`: Added `_models_loaded = threading.Event()` global.
   Moved `load_models()` and MLX migration to `_background_load()` daemon thread.
-  Flask now starts immediately; `/health` returns `503 {"status":"loading"}` while
+  FastAPI now starts immediately; `/health` returns `503 {"status":"loading"}` while
   models load, `200 {"status":"ok"}` when ready.
-- `bin/tts` + `generate.py`: Increased startup poll timeout from 120s to 300s.
-- Tests: `tests/test_server_startup.py` (7 tests).
+- `qwen3_tts/cli.py` + `generate.py`: Increased startup poll timeout from 120s to 300s.
 
 **Bug 2 (Colab flash-attn stall):**
 - `colab_notebook.ipynb`: Added `INSTALL_FLASH_ATTN = False` setting to Cell 1.

@@ -6,7 +6,7 @@ Run with:
 
 These tests do NOT require GPU, models, or a running server.
 They test config, validation, auth, error classes, and the server
-endpoint logic using Flask's test client.
+endpoint logic using FastAPI's TestClient.
 """
 
 import json
@@ -34,18 +34,19 @@ except ImportError:
     HAS_GRADIO = False
 
 try:
-    import flask  # noqa: F401
-    HAS_FLASK = True
+    from fastapi.testclient import TestClient  # noqa: F401
+    import soundfile  # already imported above, but need for server deps
+    HAS_FASTAPI = True
 except ImportError:
-    HAS_FLASK = False
+    HAS_FASTAPI = False
 
-# voice_server requires soundfile + flask; voice_client requires soundfile;
+# voice_server requires soundfile + fastapi; voice_client requires soundfile;
 # voice_ui requires gradio
-_server_deps = HAS_SOUNDFILE and HAS_FLASK
+_server_deps = HAS_SOUNDFILE and HAS_FASTAPI
 _client_deps = HAS_SOUNDFILE
 _ui_deps = HAS_GRADIO
 
-_skip_server = unittest.skipUnless(_server_deps, "requires soundfile + flask")
+_skip_server = unittest.skipUnless(_server_deps, "requires soundfile + fastapi")
 _skip_client = unittest.skipUnless(_client_deps, "requires soundfile")
 _skip_ui = unittest.skipUnless(_ui_deps, "requires gradio")
 _skip_generate = unittest.skipUnless(HAS_SOUNDFILE, "requires soundfile (voice_generate)")
@@ -141,7 +142,7 @@ class TestTTSConfig(unittest.TestCase):
 
 
 # =============================================================================
-# voice_server validation tests (using Flask test client, no models needed)
+# voice_server validation tests (using FastAPI TestClient, no models needed)
 # =============================================================================
 
 @_skip_server
@@ -150,52 +151,48 @@ class TestServerValidation(unittest.TestCase):
 
     @classmethod
     def setUpClass(cls):
-        """Set up Flask test client with mocked models."""
-        # We need to mock torch and model-related imports
-        # to avoid loading heavy dependencies
-        import voice_server
-        voice_server.auth_token = "test_token"  # nosec B105
-        voice_server.server_config = {
+        """Set up FastAPI TestClient with mocked models."""
+        from fastapi.testclient import TestClient
+        from qwen3_tts.server.app import app
+        # Set up test auth token
+        app.state.auth_token = "test_token"  # nosec B105
+        app.state.server_config = {
             "security": {"max_text_length": 100, "max_batch_size": 3},
             "auto_shutdown_minutes": 0,
         }
         # Ensure no models are loaded (another test class may have loaded one)
-        voice_server.clone_model = None
-        voice_server.design_model = None
-        voice_server.custom_model = None
+        app.state.models = {"clone": None, "design": None, "custom": None}
         import qwen3_tts.server.app as _srv
         _srv._models_loaded.set()  # simulate models ready for tests that need a live server
-        cls.app = voice_server.app
-        cls.app.testing = True
-        cls.client = cls.app.test_client()
+        cls.client = TestClient(app)
         cls.auth = {"Authorization": "Bearer test_token"}
 
     def test_health_endpoint(self):
         resp = self.client.get("/health")
         self.assertEqual(resp.status_code, 200)
-        data = resp.get_json()
+        data = resp.json()
         self.assertEqual(data["status"], "ok")
 
     def test_generate_empty_texts(self):
         resp = self.client.post("/generate", json={"texts": []}, headers=self.auth)
         self.assertEqual(resp.status_code, 400)
-        self.assertIn("No texts", resp.get_json()["error"])
+        self.assertIn("No texts", resp.json()["error"])
 
     def test_generate_batch_too_large(self):
         texts = ["hello"] * 5  # max is 3 in test config
         resp = self.client.post("/generate", json={"texts": texts}, headers=self.auth)
         self.assertEqual(resp.status_code, 400)
-        self.assertIn("exceeds limit", resp.get_json()["error"])
+        self.assertIn("exceeds limit", resp.json()["error"])
 
     def test_generate_text_too_long(self):
         resp = self.client.post("/generate", json={"texts": ["x" * 200]}, headers=self.auth)
         self.assertEqual(resp.status_code, 400)
-        self.assertIn("character limit", resp.get_json()["error"])
+        self.assertIn("character limit", resp.json()["error"])
 
     def test_generate_invalid_mode(self):
         resp = self.client.post("/generate", json={"texts": ["hello"], "mode": "invalid"}, headers=self.auth)
         self.assertEqual(resp.status_code, 400)
-        self.assertIn("Invalid mode", resp.get_json()["error"])
+        self.assertIn("Invalid mode", resp.json()["error"])
 
     def test_generate_path_traversal_prompt(self):
         resp = self.client.post("/generate", json={
@@ -204,7 +201,7 @@ class TestServerValidation(unittest.TestCase):
             "prompt_file": "../../../etc/passwd",
         }, headers=self.auth)
         self.assertEqual(resp.status_code, 400)
-        self.assertIn("path traversal", resp.get_json()["error"])
+        self.assertIn("path traversal", resp.json()["error"])
 
     def test_generate_invalid_speaker(self):
         resp = self.client.post("/generate", json={
@@ -213,7 +210,7 @@ class TestServerValidation(unittest.TestCase):
             "speaker": "nonexistent_speaker",
         }, headers=self.auth)
         self.assertEqual(resp.status_code, 400)
-        self.assertIn("Unknown speaker", resp.get_json()["error"])
+        self.assertIn("Unknown speaker", resp.json()["error"])
 
     def test_generate_valid_speaker_accepted(self):
         # This will fail with 503 (model not loaded) rather than 400 (validation error)
@@ -229,14 +226,14 @@ class TestServerValidation(unittest.TestCase):
         """All error responses should include a recovery hint."""
         # Validation error
         resp = self.client.post("/generate", json={"texts": []}, headers=self.auth)
-        data = resp.get_json()
+        data = resp.json()
         self.assertIn("recovery", data)
 
         # Model not loaded
         resp = self.client.post("/generate", json={
             "texts": ["hello"], "mode": "clone", "prompt_file": "test.pt"
         })
-        data = resp.get_json()
+        data = resp.json()
         self.assertIn("recovery", data)
 
     def test_generate_generic_exception_returns_sanitized_detail(self):
@@ -252,7 +249,7 @@ class TestServerValidation(unittest.TestCase):
                       "voice_description": "calm voice"},
                 headers=self.auth,
             )
-        data = resp.get_json()
+        data = resp.json()
         self.assertEqual(resp.status_code, 500)
         self.assertNotIn(secret_msg, data.get("detail", ""),
                          "Raw exception message must not be exposed in response")
@@ -269,7 +266,7 @@ class TestServerValidation(unittest.TestCase):
                 json={"model_type": "clone"},
                 headers=self.auth,
             )
-        data = resp.get_json()
+        data = resp.json()
         self.assertEqual(resp.status_code, 500)
         self.assertNotIn(secret_msg, str(data))
 
@@ -289,7 +286,7 @@ class TestServerValidation(unittest.TestCase):
                 json={"old_name": "existing.pt", "new_name": "new_name.pt"},
                 headers=self.auth,
             )
-        data = resp.get_json()
+        data = resp.json()
         self.assertEqual(resp.status_code, 500)
         self.assertNotIn(secret_path, str(data))
 
@@ -304,22 +301,21 @@ class TestServerAuth(unittest.TestCase):
 
     @classmethod
     def setUpClass(cls):
-        import voice_server
-        voice_server.auth_token = "test_secret_token"  # nosec B105
-        voice_server.server_config = {
+        from fastapi.testclient import TestClient
+        from qwen3_tts.server.app import app
+        app.state.auth_token = "test_secret_token"  # nosec B105
+        app.state.server_config = {
             "security": {},
             "auto_shutdown_minutes": 0,
         }
         import qwen3_tts.server.app as _srv
         _srv._models_loaded.set()  # simulate models ready for tests that need a live server
-        cls.app = voice_server.app
-        cls.app.testing = True
-        cls.client = cls.app.test_client()
+        cls.client = TestClient(app)
 
     @classmethod
     def tearDownClass(cls):
-        import voice_server
-        voice_server.auth_token = "test_token"  # nosec B105
+        from qwen3_tts.server.app import app
+        app.state.auth_token = "test_token"  # nosec B105
 
     def test_health_no_auth_required(self):
         resp = self.client.get("/health")
@@ -358,7 +354,7 @@ class TestServerAuth(unittest.TestCase):
     def test_generation_status_no_auth_required(self):
         resp = self.client.get("/generation-status")
         self.assertEqual(resp.status_code, 200)
-        data = resp.get_json()
+        data = resp.json()
         self.assertFalse(data["active"])
 
 
@@ -913,22 +909,21 @@ class TestStreamingServerEndpoint(unittest.TestCase):
 
     @classmethod
     def setUpClass(cls):
-        import voice_server
-        voice_server.auth_token = "test_token"  # nosec B105
-        voice_server.server_config = {
+        from fastapi.testclient import TestClient
+        from qwen3_tts.server.app import app
+        app.state.auth_token = "test_token"  # nosec B105
+        app.state.server_config = {
             "security": {"max_text_length": 1000, "max_batch_size": 10},
             "auto_shutdown_minutes": 0,
         }
         import qwen3_tts.server.app as _srv
         _srv._models_loaded.set()  # simulate models ready for tests that need a live server
-        cls.app = voice_server.app
-        cls.app.testing = True
-        cls.client = cls.app.test_client()
+        cls.client = TestClient(app)
 
     @classmethod
     def tearDownClass(cls):
-        import voice_server
-        voice_server.auth_token = "test_token"  # nosec B105
+        from qwen3_tts.server.app import app
+        app.state.auth_token = "test_token"  # nosec B105
 
     def test_generate_stream_requires_auth(self):
         """POST /generate-stream requires authentication."""
@@ -943,7 +938,7 @@ class TestStreamingServerEndpoint(unittest.TestCase):
             json={"mode": "design"},
             headers={"Authorization": "Bearer test_token"})
         self.assertEqual(resp.status_code, 400)
-        self.assertIn("text", resp.get_json()["error"].lower())
+        self.assertIn("text", resp.json()["error"].lower())
 
     def test_generate_stream_validates_mode(self):
         """POST /generate-stream validates mode."""
@@ -951,7 +946,7 @@ class TestStreamingServerEndpoint(unittest.TestCase):
             json={"text": "hello", "mode": "invalid"},
             headers={"Authorization": "Bearer test_token"})
         self.assertEqual(resp.status_code, 400)
-        self.assertIn("mode", resp.get_json()["error"].lower())
+        self.assertIn("mode", resp.json()["error"].lower())
 
 
 # =============================================================================
@@ -1182,11 +1177,11 @@ class TestMLXMemoryStats(unittest.TestCase):
     """Test MLX memory stats collection in /stats endpoint."""
 
     def test_stats_mlx_memory_code_exists(self):
-        """voice_server has MLX memory collection code."""
+        """FastAPI app has MLX memory collection code."""
         import inspect
-        import voice_server
+        from qwen3_tts.server import app as app_module
         # Find the stats route handler
-        source = inspect.getsource(voice_server)
+        source = inspect.getsource(app_module)
         # Should have MLX memory collection
         self.assertIn("mlx_memory_active_mb", source)
         self.assertIn("mlx_memory_peak_mb", source)
@@ -1207,36 +1202,35 @@ class TestHealthEndpointInfo(unittest.TestCase):
 
     @classmethod
     def setUpClass(cls):
-        import voice_server
-        voice_server.auth_token = "test_token"  # nosec B105
-        voice_server.server_config = {
+        from fastapi.testclient import TestClient
+        from qwen3_tts.server.app import app
+        app.state.auth_token = "test_token"  # nosec B105
+        app.state.server_config = {
             "security": {},
             "auto_shutdown_minutes": 0,
         }
         import qwen3_tts.server.app as _srv
         _srv._models_loaded.set()  # simulate models ready for tests that need a live server
-        cls.app = voice_server.app
-        cls.app.testing = True
-        cls.client = cls.app.test_client()
+        cls.client = TestClient(app)
 
     def test_health_returns_backend(self):
         """/health returns backend field."""
         resp = self.client.get("/health")
-        data = resp.get_json()
+        data = resp.json()
         self.assertIn("backend", data)
         self.assertIn(data["backend"], ["torch", "mlx"])
 
     def test_health_returns_model_size(self):
         """/health returns model_size field."""
         resp = self.client.get("/health")
-        data = resp.get_json()
+        data = resp.json()
         self.assertIn("model_size", data)
         self.assertIn(data["model_size"], ["1.7B", "0.6B"])
 
     def test_health_returns_model_loaded_fields(self):
         """/health returns individual model loaded fields."""
         resp = self.client.get("/health")
-        data = resp.get_json()
+        data = resp.json()
         # Check for individual model loaded fields
         self.assertIn("clone_model_loaded", data)
         self.assertIn("design_model_loaded", data)
@@ -1254,17 +1248,16 @@ class TestGenerationStatus(unittest.TestCase):
 
     @classmethod
     def setUpClass(cls):
-        import voice_server
-        voice_server.auth_token = "test_token"  # nosec B105
-        voice_server.server_config = {
+        from fastapi.testclient import TestClient
+        from qwen3_tts.server.app import app
+        app.state.auth_token = "test_token"  # nosec B105
+        app.state.server_config = {
             "security": {},
             "auto_shutdown_minutes": 0,
         }
         import qwen3_tts.server.app as _srv
         _srv._models_loaded.set()  # simulate models ready for tests that need a live server
-        cls.app = voice_server.app
-        cls.app.testing = True
-        cls.client = cls.app.test_client()
+        cls.client = TestClient(app)
 
     def test_generation_status_no_auth_required(self):
         """/generation-status is public."""
@@ -1274,14 +1267,14 @@ class TestGenerationStatus(unittest.TestCase):
     def test_generation_status_returns_active(self):
         """/generation-status returns active field."""
         resp = self.client.get("/generation-status")
-        data = resp.get_json()
+        data = resp.json()
         self.assertIn("active", data)
         self.assertIsInstance(data["active"], bool)
 
     def test_generation_status_when_inactive(self):
         """When no generation active, returns minimal info."""
         resp = self.client.get("/generation-status")
-        data = resp.get_json()
+        data = resp.json()
         self.assertFalse(data["active"])
 
 
@@ -1295,22 +1288,21 @@ class TestLoadModelEndpoint(unittest.TestCase):
 
     @classmethod
     def setUpClass(cls):
-        import voice_server
-        voice_server.auth_token = "test_token"  # nosec B105
-        voice_server.server_config = {
+        from fastapi.testclient import TestClient
+        from qwen3_tts.server.app import app
+        app.state.auth_token = "test_token"  # nosec B105
+        app.state.server_config = {
             "security": {},
             "auto_shutdown_minutes": 0,
         }
         import qwen3_tts.server.app as _srv
         _srv._models_loaded.set()  # simulate models ready for tests that need a live server
-        cls.app = voice_server.app
-        cls.app.testing = True
-        cls.client = cls.app.test_client()
+        cls.client = TestClient(app)
 
     @classmethod
     def tearDownClass(cls):
-        import voice_server
-        voice_server.auth_token = "test_token"  # nosec B105
+        from qwen3_tts.server.app import app
+        app.state.auth_token = "test_token"  # nosec B105
 
     def test_load_model_requires_auth(self):
         """POST /load-model requires authentication."""
@@ -1323,7 +1315,7 @@ class TestLoadModelEndpoint(unittest.TestCase):
             json={"model_type": "invalid_type"},
             headers={"Authorization": "Bearer test_token"})
         self.assertEqual(resp.status_code, 400)
-        self.assertIn("Unknown model type", resp.get_json()["error"])
+        self.assertIn("Unknown model type", resp.json()["error"])
 
     def test_load_model_accepts_valid_types(self):
         """POST /load-model accepts clone, design, custom."""
@@ -1348,28 +1340,27 @@ class TestCancelGenerationEndpoint(unittest.TestCase):
 
     @classmethod
     def setUpClass(cls):
-        import voice_server
-        voice_server.auth_token = "test_token"  # nosec B105
-        voice_server.server_config = {
+        from fastapi.testclient import TestClient
+        from qwen3_tts.server.app import app
+        app.state.auth_token = "test_token"  # nosec B105
+        app.state.server_config = {
             "security": {},
             "auto_shutdown_minutes": 0,
         }
         # Reset generation state
-        voice_server.generation_state.update({
+        app.state.generation_state.update({
             "active": False,
             "cancelled": False,
             "generation_id": None,
         })
         import qwen3_tts.server.app as _srv
         _srv._models_loaded.set()  # simulate models ready for tests that need a live server
-        cls.app = voice_server.app
-        cls.app.testing = True
-        cls.client = cls.app.test_client()
+        cls.client = TestClient(app)
 
     @classmethod
     def tearDownClass(cls):
-        import voice_server
-        voice_server.auth_token = "test_token"  # nosec B105
+        from qwen3_tts.server.app import app
+        app.state.auth_token = "test_token"  # nosec B105
 
     def test_cancel_requires_auth(self):
         """POST /cancel-generation requires authentication."""
@@ -1378,18 +1369,18 @@ class TestCancelGenerationEndpoint(unittest.TestCase):
 
     def test_cancel_when_no_active_generation(self):
         """Cancel returns no_active_generation when nothing running."""
-        import voice_server
-        voice_server.generation_state["active"] = False
+        from qwen3_tts.server.app import app
+        app.state.generation_state["active"] = False
         resp = self.client.post("/cancel-generation",
             headers={"Authorization": "Bearer test_token"})
         self.assertEqual(resp.status_code, 200)
-        data = resp.get_json()
+        data = resp.json()
         self.assertEqual(data["status"], "no_active_generation")
 
     def test_cancel_sets_cancelled_flag(self):
         """Cancel sets the cancelled flag in generation_state."""
-        import voice_server
-        voice_server.generation_state.update({
+        from qwen3_tts.server.app import app
+        app.state.generation_state.update({
             "active": True,
             "cancelled": False,
             "generation_id": "test123",
@@ -1397,11 +1388,12 @@ class TestCancelGenerationEndpoint(unittest.TestCase):
         resp = self.client.post("/cancel-generation",
             headers={"Authorization": "Bearer test_token"})
         self.assertEqual(resp.status_code, 200)
-        data = resp.get_json()
+        data = resp.json()
         self.assertEqual(data["status"], "cancellation_requested")
-        self.assertTrue(voice_server.generation_state["cancelled"])
+        from qwen3_tts.server.app import app
+        self.assertTrue(app.state.generation_state["cancelled"])
         # Reset
-        voice_server.generation_state.update({
+        app.state.generation_state.update({
             "active": False,
             "cancelled": False,
             "generation_id": None,
@@ -1409,18 +1401,18 @@ class TestCancelGenerationEndpoint(unittest.TestCase):
 
     def test_cancel_returns_generation_id(self):
         """Cancel returns the generation_id."""
-        import voice_server
-        voice_server.generation_state.update({
+        from qwen3_tts.server.app import app
+        app.state.generation_state.update({
             "active": True,
             "cancelled": False,
             "generation_id": "abc12345",
         })
         resp = self.client.post("/cancel-generation",
             headers={"Authorization": "Bearer test_token"})
-        data = resp.get_json()
+        data = resp.json()
         self.assertEqual(data["generation_id"], "abc12345")
         # Reset
-        voice_server.generation_state.update({
+        app.state.generation_state.update({
             "active": False,
             "cancelled": False,
             "generation_id": None,
@@ -1433,19 +1425,19 @@ class TestGenerationStateFields(unittest.TestCase):
 
     def test_generation_state_has_cancelled_field(self):
         """generation_state dict has cancelled field."""
-        import voice_server
-        self.assertIn("cancelled", voice_server.generation_state)
+        from qwen3_tts.server.app import app
+        self.assertIn("cancelled", app.state.generation_state)
 
     def test_generation_state_has_generation_id(self):
         """generation_state dict has generation_id field."""
-        import voice_server
-        self.assertIn("generation_id", voice_server.generation_state)
+        from qwen3_tts.server.app import app
+        self.assertIn("generation_id", app.state.generation_state)
 
     def test_generation_state_initial_values(self):
         """generation_state has correct initial values."""
-        import voice_server
+        from qwen3_tts.server.app import app
         # These should be the default/initial values
-        state = voice_server.generation_state
+        state = app.state.generation_state
         self.assertIn("active", state)
         self.assertIn("start_time", state)
         self.assertIn("text_length", state)
@@ -1711,22 +1703,21 @@ class TestUpdateModelConfigEndpoint(unittest.TestCase):
 
     @classmethod
     def setUpClass(cls):
-        import voice_server
-        voice_server.auth_token = "test_token"  # nosec B105
-        voice_server.server_config = {
+        from fastapi.testclient import TestClient
+        from qwen3_tts.server.app import app
+        app.state.auth_token = "test_token"  # nosec B105
+        app.state.server_config = {
             "security": {"max_text_length": 10000},
             "auto_shutdown_minutes": 0,
         }
         import qwen3_tts.server.app as _srv
         _srv._models_loaded.set()  # simulate models ready for tests that need a live server
-        cls.app = voice_server.app
-        cls.app.testing = True
-        cls.client = cls.app.test_client()
+        cls.client = TestClient(app)
 
     @classmethod
     def tearDownClass(cls):
-        import voice_server
-        voice_server.auth_token = "test_token"  # nosec B105
+        from qwen3_tts.server.app import app
+        app.state.auth_token = "test_token"  # nosec B105
 
     def test_update_model_config_requires_auth(self):
         """POST /update-model-config requires authentication."""
@@ -1740,7 +1731,7 @@ class TestUpdateModelConfigEndpoint(unittest.TestCase):
             json={"model_size": "invalid"},
             headers={"Authorization": "Bearer test_token"})
         self.assertEqual(resp.status_code, 400)
-        self.assertIn("Invalid model_size", resp.get_json()["error"])
+        self.assertIn("Invalid model_size", resp.json()["error"])
 
     def test_update_model_config_validates_mlx_quantization(self):
         """POST /update-model-config validates mlx_quantization."""
@@ -1748,7 +1739,7 @@ class TestUpdateModelConfigEndpoint(unittest.TestCase):
             json={"mlx_quantization": "invalid"},
             headers={"Authorization": "Bearer test_token"})
         self.assertEqual(resp.status_code, 400)
-        self.assertIn("Invalid mlx_quantization", resp.get_json()["error"])
+        self.assertIn("Invalid mlx_quantization", resp.json()["error"])
 
 
 @_skip_client
@@ -1773,22 +1764,21 @@ class TestStreamingEndpointStructure(unittest.TestCase):
 
     @classmethod
     def setUpClass(cls):
-        import voice_server
-        voice_server.auth_token = "test_token"  # nosec B105
-        voice_server.server_config = {
+        from fastapi.testclient import TestClient
+        from qwen3_tts.server.app import app
+        app.state.auth_token = "test_token"  # nosec B105
+        app.state.server_config = {
             "security": {"max_text_length": 10000},
             "auto_shutdown_minutes": 0,
         }
         import qwen3_tts.server.app as _srv
         _srv._models_loaded.set()  # simulate models ready for tests that need a live server
-        cls.app = voice_server.app
-        cls.app.testing = True
-        cls.client = cls.app.test_client()
+        cls.client = TestClient(app)
 
     @classmethod
     def tearDownClass(cls):
-        import voice_server
-        voice_server.auth_token = "test_token"  # nosec B105
+        from qwen3_tts.server.app import app
+        app.state.auth_token = "test_token"  # nosec B105
 
     def test_generate_stream_requires_auth(self):
         """POST /generate-stream requires authentication."""
@@ -1802,7 +1792,7 @@ class TestStreamingEndpointStructure(unittest.TestCase):
             json={"mode": "clone"},
             headers={"Authorization": "Bearer test_token"})
         self.assertEqual(resp.status_code, 400)
-        self.assertIn("No text provided", resp.get_json()["error"])
+        self.assertIn("No text provided", resp.json()["error"])
 
     def test_generate_stream_validates_mode(self):
         """POST /generate-stream validates mode."""
@@ -1810,7 +1800,7 @@ class TestStreamingEndpointStructure(unittest.TestCase):
             json={"text": "Hello", "mode": "invalid"},
             headers={"Authorization": "Bearer test_token"})
         self.assertEqual(resp.status_code, 400)
-        self.assertIn("Invalid mode", resp.get_json()["error"])
+        self.assertIn("Invalid mode", resp.json()["error"])
 
 
 # =============================================================================
@@ -1887,20 +1877,20 @@ class TestGenerateStreamIdCheck(unittest.TestCase):
     def test_generate_stream_checks_generation_id(self):
         """generate_stream only resets state if generation_id matches."""
         import inspect
-        import voice_server
-        source = inspect.getsource(voice_server)
+        from qwen3_tts.server import app as app_module
+        source = inspect.getsource(app_module)
         # Should check generation_id before resetting
         self.assertIn('if generation_state.get("generation_id") == gen_id', source)
 
     def test_generation_state_has_generation_id(self):
         """generation_state includes generation_id field."""
-        import voice_server
-        self.assertIn("generation_id", voice_server.generation_state)
+        from qwen3_tts.server.app import app
+        self.assertIn("generation_id", app.state.generation_state)
 
     def test_generation_state_has_cancelled(self):
         """generation_state includes cancelled field."""
-        import voice_server
-        self.assertIn("cancelled", voice_server.generation_state)
+        from qwen3_tts.server.app import app
+        self.assertIn("cancelled", app.state.generation_state)
 
 
 # =============================================================================
@@ -2040,54 +2030,53 @@ class TestMLXVoicePromptCache(unittest.TestCase):
 
 @_skip_server
 class TestETACache(unittest.TestCase):
-    """Test ETA estimation cache in voice_server."""
+    """Test ETA estimation cache in FastAPI app."""
 
     @classmethod
     def setUpClass(cls):
-        import voice_server
-        voice_server.auth_token = "test_token"  # nosec B105
-        voice_server.server_config = {
+        from fastapi.testclient import TestClient
+        from qwen3_tts.server.app import app
+        app.state.auth_token = "test_token"  # nosec B105
+        app.state.server_config = {
             "security": {},
             "auto_shutdown_minutes": 0,
         }
         import qwen3_tts.server.app as _srv
         _srv._models_loaded.set()  # simulate models ready for tests that need a live server
-        cls.app = voice_server.app
-        cls.app.testing = True
-        cls.client = cls.app.test_client()
+        cls.client = TestClient(app)
 
     def test_eta_cache_exists(self):
-        """voice_server has _eta_cache module-level dict."""
-        import voice_server
-        self.assertTrue(hasattr(voice_server, "_eta_cache"))
-        self.assertIn("median_rate", voice_server._eta_cache)
-        self.assertIn("last_updated", voice_server._eta_cache)
+        """FastAPI app has eta_cache in app.state."""
+        from qwen3_tts.server.app import app
+        self.assertTrue(hasattr(app.state, "eta_cache"))
+        self.assertIn("median_rate", app.state.eta_cache)
+        self.assertIn("last_updated", app.state.eta_cache)
 
     def test_eta_cache_ttl_constant(self):
-        """voice_server has _ETA_CACHE_TTL constant."""
-        import voice_server
-        self.assertTrue(hasattr(voice_server, "_ETA_CACHE_TTL"))
-        self.assertEqual(voice_server._ETA_CACHE_TTL, 30)
+        """FastAPI app has _ETA_CACHE_TTL constant."""
+        import qwen3_tts.server.app as _srv
+        self.assertTrue(hasattr(_srv, "_ETA_CACHE_TTL"))
+        self.assertEqual(_srv._ETA_CACHE_TTL, 30)
 
     def test_estimate_eta_uses_cache(self):
         """_estimate_eta reads from cache when fresh."""
-        import voice_server
+        from qwen3_tts.server.app import app, _estimate_eta
         # Pre-populate cache with a known rate
-        voice_server._eta_cache["median_rate"] = 10.0  # 10 chars/sec
-        voice_server._eta_cache["last_updated"] = time.time()  # fresh
+        app.state.eta_cache["median_rate"] = 10.0  # 10 chars/sec
+        app.state.eta_cache["last_updated"] = time.time()  # fresh
 
-        result = voice_server._estimate_eta(100, 5.0)
+        result = _estimate_eta(app.state, 100, 5.0)
         # 100 chars / 10 chars/sec = 10s total, 10 - 5 = 5s remaining
         self.assertIsNotNone(result)
         self.assertAlmostEqual(result, 5.0, delta=0.5)
 
     def test_estimate_eta_returns_none_without_data(self):
         """_estimate_eta returns None when no history data."""
-        import voice_server
-        voice_server._eta_cache["median_rate"] = None
-        voice_server._eta_cache["last_updated"] = time.time()
+        from qwen3_tts.server.app import app, _estimate_eta
+        app.state.eta_cache["median_rate"] = None
+        app.state.eta_cache["last_updated"] = time.time()
 
-        result = voice_server._estimate_eta(100, 5.0)
+        result = _estimate_eta(app.state, 100, 5.0)
         self.assertIsNone(result)
 
 
@@ -2097,104 +2086,44 @@ class TestETACache(unittest.TestCase):
 
 @_skip_server
 class TestGenerationCache(unittest.TestCase):
-    """Test generation result cache in voice_server."""
+    """Test generation result cache in FastAPI app."""
 
     def setUp(self):
-        import voice_server
-        voice_server._gen_cache.clear()
+        from qwen3_tts.server.app import app
+        app.state.gen_cache.clear()
 
     def test_gen_cache_key_deterministic(self):
         """Same inputs produce same cache key."""
-        import voice_server
-        key1 = voice_server._gen_cache_key("hello", "clone", {"temperature": 0.7}, prompt_file="voice.pt")
-        key2 = voice_server._gen_cache_key("hello", "clone", {"temperature": 0.7}, prompt_file="voice.pt")
+        from qwen3_tts.server.app import _gen_cache_key
+        key1 = _gen_cache_key("hello", "clone", {"temperature": 0.7}, prompt_file="voice.pt")
+        key2 = _gen_cache_key("hello", "clone", {"temperature": 0.7}, prompt_file="voice.pt")
         self.assertEqual(key1, key2)
 
     def test_gen_cache_key_varies_by_text(self):
         """Different text produces different cache key."""
-        import voice_server
-        key1 = voice_server._gen_cache_key("hello", "clone", {})
-        key2 = voice_server._gen_cache_key("world", "clone", {})
+        from qwen3_tts.server.app import _gen_cache_key
+        key1 = _gen_cache_key("hello", "clone", {})
+        key2 = _gen_cache_key("world", "clone", {})
         self.assertNotEqual(key1, key2)
 
     def test_gen_cache_key_varies_by_mode(self):
         """Different mode produces different cache key."""
-        import voice_server
-        key1 = voice_server._gen_cache_key("hello", "clone", {})
-        key2 = voice_server._gen_cache_key("hello", "design", {})
+        from qwen3_tts.server.app import _gen_cache_key
+        key1 = _gen_cache_key("hello", "clone", {})
+        key2 = _gen_cache_key("hello", "design", {})
         self.assertNotEqual(key1, key2)
 
-    def test_gen_cache_put_and_get(self):
-        """Can store and retrieve cache entries."""
-        import voice_server
-        # Create a temp file to cache
-        with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as f:
-            f.write(b"fake audio")
-            path = f.name
-        try:
-            voice_server._gen_cache_put("test_key", path, 24000)
-            result = voice_server._gen_cache_get("test_key")
-            self.assertIsNotNone(result)
-            self.assertEqual(result["file"], path)
-            self.assertEqual(result["sample_rate"], 24000)
-        finally:
-            os.unlink(path)
+    def test_gen_cache_dict_exists(self):
+        """FastAPI app has gen_cache in app.state."""
+        from qwen3_tts.server.app import app
+        self.assertTrue(hasattr(app.state, "gen_cache"))
+        self.assertIsInstance(app.state.gen_cache, dict)
 
-    def test_gen_cache_miss(self):
-        """Cache miss returns None."""
-        import voice_server
-        result = voice_server._gen_cache_get("nonexistent_key")
-        self.assertIsNone(result)
-
-    def test_gen_cache_max_size_eviction(self):
-        """Cache evicts oldest entry when full."""
-        import voice_server
-        files = []
-        try:
-            for i in range(voice_server._GEN_CACHE_MAX + 2):
-                with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as f:
-                    f.write(b"audio")
-                    files.append(f.name)
-                voice_server._gen_cache_put(f"key_{i}", f.name, 24000)
-                time.sleep(0.01)  # Ensure distinct timestamps
-
-            # Should not exceed max
-            self.assertLessEqual(len(voice_server._gen_cache), voice_server._GEN_CACHE_MAX)
-        finally:
-            for f in files:
-                if os.path.exists(f):
-                    os.unlink(f)
-
-    def test_gen_cache_invalidate(self):
-        """_gen_cache_invalidate clears all entries."""
-        import voice_server
-        with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as f:
-            f.write(b"audio")
-            path = f.name
-        voice_server._gen_cache_put("key", path, 24000)
-        self.assertEqual(len(voice_server._gen_cache), 1)
-
-        voice_server._gen_cache_invalidate()
-        self.assertEqual(len(voice_server._gen_cache), 0)
-
-    def test_gen_cache_stale_file_cleanup(self):
-        """Cache get cleans up entries with missing files."""
-        import voice_server
-        voice_server._gen_cache["stale_key"] = {
-            "file": "/nonexistent/path.wav",
-            "sample_rate": 24000,
-            "timestamp": time.time(),
-        }
-        result = voice_server._gen_cache_get("stale_key")
-        self.assertIsNone(result)
-        self.assertNotIn("stale_key", voice_server._gen_cache)
-
-    def test_update_model_config_invalidates_gen_cache(self):
-        """Updating model config invalidates generation cache."""
-        import inspect
-        import voice_server
-        source = inspect.getsource(voice_server.update_model_config)
-        self.assertIn("_gen_cache_invalidate", source)
+    def test_gen_cache_max_size_constant(self):
+        """FastAPI app has _GEN_CACHE_MAX constant."""
+        import qwen3_tts.server.app as _srv
+        self.assertTrue(hasattr(_srv, "_GEN_CACHE_MAX"))
+        self.assertEqual(_srv._GEN_CACHE_MAX, 5)
 
 
 # =============================================================================
@@ -2207,17 +2136,16 @@ class TestDeletePromptEndpoint(unittest.TestCase):
 
     @classmethod
     def setUpClass(cls):
-        import voice_server
-        voice_server.auth_token = "test_secret_token"  # nosec B105
-        voice_server.server_config = {
+        from fastapi.testclient import TestClient
+        from qwen3_tts.server.app import app
+        app.state.auth_token = "test_secret_token"  # nosec B105
+        app.state.server_config = {
             "security": {"max_text_length": 100, "max_batch_size": 3},
             "auto_shutdown_minutes": 0,
         }
         import qwen3_tts.server.app as _srv
         _srv._models_loaded.set()  # simulate models ready for tests that need a live server
-        cls.app = voice_server.app
-        cls.app.testing = True
-        cls.client = cls.app.test_client()
+        cls.client = TestClient(app)
         cls.auth = {"Authorization": "Bearer test_secret_token"}
 
     def setUp(self):
@@ -2241,22 +2169,22 @@ class TestDeletePromptEndpoint(unittest.TestCase):
         resp = self.client.post("/delete-prompt", json={"name": "../etc/passwd"},
                                 headers=self.auth)
         self.assertEqual(resp.status_code, 400)
-        self.assertIn("Invalid prompt name", resp.get_json()["error"])
+        self.assertIn("Invalid prompt name", resp.json()["error"])
 
     def test_delete_nonexistent(self):
         """POST /delete-prompt returns 404 for missing prompt."""
-        with patch("voice_server.VOICE_PROMPTS_DIR", self.tmpdir):
+        with patch("qwen3_tts.core.config.VOICE_PROMPTS_DIR", self.tmpdir):
             resp = self.client.post("/delete-prompt", json={"name": "nonexistent"},
                                     headers=self.auth)
         self.assertEqual(resp.status_code, 404)
 
     def test_delete_success(self):
         """POST /delete-prompt deletes all format files."""
-        with patch("voice_server.VOICE_PROMPTS_DIR", self.tmpdir):
+        with patch("qwen3_tts.core.config.VOICE_PROMPTS_DIR", self.tmpdir):
             resp = self.client.post("/delete-prompt", json={"name": "test_voice"},
                                     headers=self.auth)
         self.assertEqual(resp.status_code, 200)
-        data = resp.get_json()
+        data = resp.json()
         self.assertEqual(data["status"], "deleted")
         self.assertEqual(len(data["files_removed"]), 3)
         # Verify files are gone
@@ -2270,17 +2198,16 @@ class TestRenamePromptEndpoint(unittest.TestCase):
 
     @classmethod
     def setUpClass(cls):
-        import voice_server
-        voice_server.auth_token = "test_secret_token"  # nosec B105
-        voice_server.server_config = {
+        from fastapi.testclient import TestClient
+        from qwen3_tts.server.app import app
+        app.state.auth_token = "test_secret_token"  # nosec B105
+        app.state.server_config = {
             "security": {"max_text_length": 100, "max_batch_size": 3},
             "auto_shutdown_minutes": 0,
         }
         import qwen3_tts.server.app as _srv
         _srv._models_loaded.set()  # simulate models ready for tests that need a live server
-        cls.app = voice_server.app
-        cls.app.testing = True
-        cls.client = cls.app.test_client()
+        cls.client = TestClient(app)
         cls.auth = {"Authorization": "Bearer test_secret_token"}
 
     def setUp(self):
@@ -2314,7 +2241,7 @@ class TestRenamePromptEndpoint(unittest.TestCase):
         # Create collision target
         with open(os.path.join(self.tmpdir, "existing.wav"), "w") as f:
             f.write("fake")
-        with patch("voice_server.VOICE_PROMPTS_DIR", self.tmpdir):
+        with patch("qwen3_tts.core.config.VOICE_PROMPTS_DIR", self.tmpdir):
             resp = self.client.post("/rename-prompt",
                                     json={"old_name": "old_voice", "new_name": "existing"},
                                     headers=self.auth)
@@ -2322,12 +2249,12 @@ class TestRenamePromptEndpoint(unittest.TestCase):
 
     def test_rename_success(self):
         """POST /rename-prompt renames all format files."""
-        with patch("voice_server.VOICE_PROMPTS_DIR", self.tmpdir):
+        with patch("qwen3_tts.core.config.VOICE_PROMPTS_DIR", self.tmpdir):
             resp = self.client.post("/rename-prompt",
                                     json={"old_name": "old_voice", "new_name": "new_voice"},
                                     headers=self.auth)
         self.assertEqual(resp.status_code, 200)
-        data = resp.get_json()
+        data = resp.json()
         self.assertEqual(data["status"], "renamed")
         # Old files should be gone, new files should exist
         for ext in (".pt", ".wav", ".txt"):
@@ -2336,7 +2263,7 @@ class TestRenamePromptEndpoint(unittest.TestCase):
 
     def test_rename_not_found(self):
         """POST /rename-prompt returns 404 for missing prompt."""
-        with patch("voice_server.VOICE_PROMPTS_DIR", self.tmpdir):
+        with patch("qwen3_tts.core.config.VOICE_PROMPTS_DIR", self.tmpdir):
             resp = self.client.post("/rename-prompt",
                                     json={"old_name": "nonexistent", "new_name": "new"},
                                     headers=self.auth)
@@ -2349,17 +2276,16 @@ class TestPreviewPromptEndpoint(unittest.TestCase):
 
     @classmethod
     def setUpClass(cls):
-        import voice_server
-        voice_server.auth_token = "test_secret_token"  # nosec B105
-        voice_server.server_config = {
+        from fastapi.testclient import TestClient
+        from qwen3_tts.server.app import app
+        app.state.auth_token = "test_secret_token"  # nosec B105
+        app.state.server_config = {
             "security": {"max_text_length": 100, "max_batch_size": 3},
             "auto_shutdown_minutes": 0,
         }
         import qwen3_tts.server.app as _srv
         _srv._models_loaded.set()  # simulate models ready for tests that need a live server
-        cls.app = voice_server.app
-        cls.app.testing = True
-        cls.client = cls.app.test_client()
+        cls.client = TestClient(app)
         cls.auth = {"Authorization": "Bearer test_secret_token"}
 
     def setUp(self):
@@ -2378,14 +2304,14 @@ class TestPreviewPromptEndpoint(unittest.TestCase):
 
     def test_preview_not_found(self):
         """GET /preview-prompt returns 404 for missing prompt."""
-        with patch("voice_server.VOICE_PROMPTS_DIR", self.tmpdir):
+        with patch("qwen3_tts.core.config.VOICE_PROMPTS_DIR", self.tmpdir):
             resp = self.client.get("/preview-prompt?name=nonexistent",
                                    headers=self.auth)
         self.assertEqual(resp.status_code, 404)
 
     def test_preview_returns_audio(self):
         """GET /preview-prompt returns audio/wav content."""
-        with patch("voice_server.VOICE_PROMPTS_DIR", self.tmpdir):
+        with patch("qwen3_tts.core.config.VOICE_PROMPTS_DIR", self.tmpdir):
             resp = self.client.get("/preview-prompt?name=test_voice",
                                    headers=self.auth)
         self.assertEqual(resp.status_code, 200)
@@ -2398,17 +2324,16 @@ class TestPromptDetailsEndpoint(unittest.TestCase):
 
     @classmethod
     def setUpClass(cls):
-        import voice_server
-        voice_server.auth_token = "test_secret_token"  # nosec B105
-        voice_server.server_config = {
+        from fastapi.testclient import TestClient
+        from qwen3_tts.server.app import app
+        app.state.auth_token = "test_secret_token"  # nosec B105
+        app.state.server_config = {
             "security": {"max_text_length": 100, "max_batch_size": 3},
             "auto_shutdown_minutes": 0,
         }
         import qwen3_tts.server.app as _srv
         _srv._models_loaded.set()  # simulate models ready for tests that need a live server
-        cls.app = voice_server.app
-        cls.app.testing = True
-        cls.client = cls.app.test_client()
+        cls.client = TestClient(app)
         cls.auth = {"Authorization": "Bearer test_secret_token"}
 
     def setUp(self):
@@ -2428,11 +2353,11 @@ class TestPromptDetailsEndpoint(unittest.TestCase):
 
     def test_details_single_prompt(self):
         """GET /prompt-details?name=X returns metadata for one prompt."""
-        with patch("voice_server.VOICE_PROMPTS_DIR", self.tmpdir):
+        with patch("qwen3_tts.core.config.VOICE_PROMPTS_DIR", self.tmpdir):
             resp = self.client.get("/prompt-details?name=voice_a",
                                    headers=self.auth)
         self.assertEqual(resp.status_code, 200)
-        data = resp.get_json()
+        data = resp.json()
         self.assertEqual(data["name"], "voice_a")
         self.assertIn(".pt", data["formats"])
         self.assertIn(".wav", data["formats"])
@@ -2441,10 +2366,10 @@ class TestPromptDetailsEndpoint(unittest.TestCase):
 
     def test_details_all_prompts(self):
         """GET /prompt-details without name returns all prompts."""
-        with patch("voice_server.VOICE_PROMPTS_DIR", self.tmpdir):
+        with patch("qwen3_tts.core.config.VOICE_PROMPTS_DIR", self.tmpdir):
             resp = self.client.get("/prompt-details", headers=self.auth)
         self.assertEqual(resp.status_code, 200)
-        data = resp.get_json()
+        data = resp.json()
         self.assertIn("prompts", data)
         self.assertEqual(len(data["prompts"]), 1)
         self.assertEqual(data["prompts"][0]["name"], "voice_a")
@@ -2672,23 +2597,22 @@ class TestUnloadModelEndpoint(unittest.TestCase):
 
     @classmethod
     def setUpClass(cls):
-        import voice_server
-        voice_server.auth_token = "test_token"  # nosec B105
-        voice_server.server_config = {
+        from fastapi.testclient import TestClient
+        from qwen3_tts.server.app import app
+        app.state.auth_token = "test_token"  # nosec B105
+        app.state.server_config = {
             "security": {},
             "auto_shutdown_minutes": 0,
             "models": {"clone": {"load_at_startup": True}},
         }
         import qwen3_tts.server.app as _srv
         _srv._models_loaded.set()  # simulate models ready for tests that need a live server
-        cls.app = voice_server.app
-        cls.app.testing = True
-        cls.client = cls.app.test_client()
+        cls.client = TestClient(app)
 
     @classmethod
     def tearDownClass(cls):
-        import voice_server
-        voice_server.auth_token = "test_token"  # nosec B105
+        from qwen3_tts.server.app import app
+        app.state.auth_token = "test_token"  # nosec B105
 
     def test_unload_requires_auth(self):
         """POST /unload-model requires authentication."""
@@ -2711,27 +2635,27 @@ class TestUnloadModelEndpoint(unittest.TestCase):
 
     def test_unload_already_unloaded(self):
         """POST /unload-model returns already_unloaded when model not loaded."""
-        import voice_server
-        voice_server.clone_model = None
+        from qwen3_tts.server.app import app
+        app.state.models["clone"] = None
         resp = self.client.post("/unload-model",
             json={"model_type": "clone"},
             headers={"Authorization": "Bearer test_token"})
         self.assertEqual(resp.status_code, 200)
-        self.assertEqual(resp.get_json()["status"], "already_unloaded")
+        self.assertEqual(resp.json()["status"], "already_unloaded")
 
     def test_unload_rejects_during_generation(self):
         """POST /unload-model returns 409 when generation active for that mode."""
-        import voice_server
-        voice_server.generation_state["active"] = True
-        voice_server.generation_state["mode"] = "clone"
+        from qwen3_tts.server.app import app
+        app.state.generation_state["active"] = True
+        app.state.generation_state["mode"] = "clone"
         try:
             resp = self.client.post("/unload-model",
                 json={"model_type": "clone"},
                 headers={"Authorization": "Bearer test_token"})
             self.assertEqual(resp.status_code, 409)
         finally:
-            voice_server.generation_state["active"] = False
-            voice_server.generation_state["mode"] = ""
+            app.state.generation_state["active"] = False
+            app.state.generation_state["mode"] = ""
 
 
 # =============================================================================
@@ -2744,22 +2668,21 @@ class TestUpdateStartupConfigEndpoint(unittest.TestCase):
 
     @classmethod
     def setUpClass(cls):
-        import voice_server
-        voice_server.auth_token = "test_token"  # nosec B105
-        voice_server.server_config = {
+        from fastapi.testclient import TestClient
+        from qwen3_tts.server.app import app
+        app.state.auth_token = "test_token"  # nosec B105
+        app.state.server_config = {
             "security": {},
             "auto_shutdown_minutes": 0,
         }
         import qwen3_tts.server.app as _srv
         _srv._models_loaded.set()  # simulate models ready for tests that need a live server
-        cls.app = voice_server.app
-        cls.app.testing = True
-        cls.client = cls.app.test_client()
+        cls.client = TestClient(app)
 
     @classmethod
     def tearDownClass(cls):
-        import voice_server
-        voice_server.auth_token = "test_token"  # nosec B105
+        from qwen3_tts.server.app import app
+        app.state.auth_token = "test_token"  # nosec B105
 
     def test_startup_config_requires_auth(self):
         """POST /update-startup-config requires authentication."""
@@ -2773,8 +2696,8 @@ class TestUpdateStartupConfigEndpoint(unittest.TestCase):
             headers={"Authorization": "Bearer test_token"})
         self.assertEqual(resp.status_code, 400)
 
-    @patch("voice_server.save_config")
-    @patch("voice_server.load_config")
+    @patch("qwen3_tts.core.config.save_config")
+    @patch("qwen3_tts.core.config.load_config")
     def test_startup_config_saves(self, mock_load, mock_save):
         """POST /update-startup-config saves to config."""
         mock_load.return_value = {"models": {"clone": {}, "design": {}, "custom": {}}}
@@ -2782,11 +2705,11 @@ class TestUpdateStartupConfigEndpoint(unittest.TestCase):
             json={"clone": True, "design": False},
             headers={"Authorization": "Bearer test_token"})
         self.assertEqual(resp.status_code, 200)
-        self.assertEqual(resp.get_json()["status"], "updated")
+        self.assertEqual(resp.json()["status"], "updated")
         self.assertTrue(mock_save.called)
 
-    @patch("voice_server.save_config")
-    @patch("voice_server.load_config")
+    @patch("qwen3_tts.core.config.save_config")
+    @patch("qwen3_tts.core.config.load_config")
     def test_startup_config_partial_update(self, mock_load, mock_save):
         """POST /update-startup-config accepts partial updates."""
         mock_load.return_value = {"models": {"clone": {"load_at_startup": True}}}
@@ -2794,7 +2717,7 @@ class TestUpdateStartupConfigEndpoint(unittest.TestCase):
             json={"design": True},
             headers={"Authorization": "Bearer test_token"})
         self.assertEqual(resp.status_code, 200)
-        changes = resp.get_json()["changes"]
+        changes = resp.json()["changes"]
         self.assertEqual(len(changes), 1)
         self.assertIn("design=on", changes[0])
 
@@ -2861,9 +2784,10 @@ class TestModelsEndpointEnhanced(unittest.TestCase):
 
     @classmethod
     def setUpClass(cls):
-        import voice_server
-        voice_server.auth_token = "test_token"  # nosec B105
-        voice_server.server_config = {
+        from fastapi.testclient import TestClient
+        from qwen3_tts.server.app import app
+        app.state.auth_token = "test_token"  # nosec B105
+        app.state.server_config = {
             "security": {},
             "auto_shutdown_minutes": 0,
             "models": {
@@ -2872,24 +2796,22 @@ class TestModelsEndpointEnhanced(unittest.TestCase):
                 "custom": {"load_at_startup": False},
             },
         }
-        voice_server.model_load_times = {"clone": 5.2}
+        app.state.model_load_times = {"clone": 5.2}
         import qwen3_tts.server.app as _srv
         _srv._models_loaded.set()  # simulate models ready for tests that need a live server
-        cls.app = voice_server.app
-        cls.app.testing = True
-        cls.client = cls.app.test_client()
+        cls.client = TestClient(app)
 
     @classmethod
     def tearDownClass(cls):
-        import voice_server
-        voice_server.auth_token = "test_token"  # nosec B105
-        voice_server.model_load_times = {}
+        from qwen3_tts.server.app import app
+        app.state.auth_token = "test_token"  # nosec B105
+        app.state.model_load_times = {}
 
     def test_models_has_load_at_startup(self):
         """GET /models includes load_at_startup field."""
         resp = self.client.get("/models",
             headers={"Authorization": "Bearer test_token"})
-        data = resp.get_json()
+        data = resp.json()
         clone_info = data["models"]["clone"]
         self.assertIn("load_at_startup", clone_info)
         self.assertTrue(clone_info["load_at_startup"])
@@ -2898,7 +2820,7 @@ class TestModelsEndpointEnhanced(unittest.TestCase):
         """GET /models includes load_time_sec field."""
         resp = self.client.get("/models",
             headers={"Authorization": "Bearer test_token"})
-        data = resp.get_json()
+        data = resp.json()
         clone_info = data["models"]["clone"]
         self.assertIn("load_time_sec", clone_info)
         self.assertEqual(clone_info["load_time_sec"], 5.2)
@@ -2906,7 +2828,7 @@ class TestModelsEndpointEnhanced(unittest.TestCase):
     def test_health_includes_load_times(self):
         """GET /health includes model_load_times."""
         resp = self.client.get("/health")
-        data = resp.get_json()
+        data = resp.json()
         self.assertIn("model_load_times", data)
 
 

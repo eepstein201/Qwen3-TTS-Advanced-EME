@@ -174,7 +174,7 @@ def fastapi_client(tmp_config):
 
     import asyncio
     import threading
-    from qwen3_tts.server.app_fastapi import app
+    from qwen3_tts.server.app import app
 
     # Store original state for cleanup
     original_state = {}
@@ -306,26 +306,26 @@ def loaded_models(fastapi_client):
             # Models are "loaded" for this test
             response = fastapi_client.post("/generate", json={...})
     """
-    from qwen3_tts.server.app_fastapi import app
+    from qwen3_tts.server.app import app
 
     # Store original state
-    original_clone = getattr(app.state, 'clone_model', None)
-    original_design = getattr(app.state, 'design_model', None)
-    original_custom = getattr(app.state, 'custom_model', None)
+    original_clone = app.state.models.get("clone")
+    original_design = app.state.models.get("design")
+    original_custom = app.state.models.get("custom")
 
     try:
         # Set fake loaded models
-        app.state.clone_model = MagicMock()
-        app.state.design_model = MagicMock()
-        app.state.custom_model = MagicMock()
+        app.state.models["clone"] = MagicMock()
+        app.state.models["design"] = MagicMock()
+        app.state.models["custom"] = MagicMock()
 
         yield
 
     finally:
         # Restore
-        app.state.clone_model = original_clone
-        app.state.design_model = original_design
-        app.state.custom_model = original_custom
+        app.state.models["clone"] = original_clone
+        app.state.models["design"] = original_design
+        app.state.models["custom"] = original_custom
 
 
 def pytest_configure(config):

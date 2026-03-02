@@ -30,7 +30,7 @@ except ImportError:
 _skip = pytest.mark.skipif(not HAS_DEPS, reason="requires fastapi, soundfile, numpy")
 
 if HAS_DEPS:
-    from qwen3_tts.server.app_fastapi import app
+    from qwen3_tts.server.app import app
 
 
 # Pytest-style tests using fixtures from conftest.py

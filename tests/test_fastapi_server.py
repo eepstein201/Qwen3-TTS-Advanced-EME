@@ -9,7 +9,7 @@ from pathlib import Path
 
 from fastapi.testclient import TestClient
 
-from qwen3_tts.server.app_fastapi import app
+from qwen3_tts.server.app import app
 
 
 class TestFastAPIServer(unittest.TestCase):

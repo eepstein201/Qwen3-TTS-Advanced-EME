@@ -1483,7 +1483,7 @@ def run_server(host="127.0.0.1", port=5123, public=False):
     print("Use 'tts server stop' to shut down.\n")
 
     uvicorn.run(
-        "qwen3_tts.server.app_fastapi:app",
+        "qwen3_tts.server.app:app",
         host=host,
         port=port,
         log_level="info",
