@@ -152,6 +152,7 @@ class TestServerValidation(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         """Set up FastAPI TestClient with mocked models."""
+        import threading
         from fastapi.testclient import TestClient
         from qwen3_tts.server.app import app
         # Set up test auth token
@@ -162,8 +163,8 @@ class TestServerValidation(unittest.TestCase):
         }
         # Ensure no models are loaded (another test class may have loaded one)
         app.state.models = {"clone": None, "design": None, "custom": None}
-        import qwen3_tts.server.app as _srv
-        _srv._models_loaded.set()  # simulate models ready for tests that need a live server
+        app.state.models_loaded = threading.Event()
+        app.state.models_loaded.set()  # simulate models ready for tests that need a live server
         cls.client = TestClient(app)
         cls.auth = {"Authorization": "Bearer test_token"}
 
