@@ -12,7 +12,6 @@ MLX_ENV_NAME="qwen3-tts-mlx"
 TORCH_ENV_NAME="qwen3-tts"
 PYTHON_VERSION="3.11"
 USER_FILES_DIR="$HOME/Qwen3-TTS_UserFiles"
-BIN_DIR="$HOME/bin"
 VOICE_PROMPTS_DIR="$USER_FILES_DIR/voice_prompts"
 MIN_DISK_SPACE_GB=15
 
@@ -392,12 +391,10 @@ create_directories() {
 
     mkdir -p "$USER_FILES_DIR"
     mkdir -p "$VOICE_PROMPTS_DIR"
-    mkdir -p "$BIN_DIR"
 
     success "Directories created:"
     info "  $USER_FILES_DIR"
     info "  $VOICE_PROMPTS_DIR"
-    info "  $BIN_DIR"
 }
 
 # =============================================================================
@@ -494,83 +491,27 @@ EOF
 }
 
 # =============================================================================
-# Create Wrapper Scripts
-# =============================================================================
-
-create_wrapper_scripts() {
-    step "Installing wrapper scripts to ~/bin/..."
-
-    SCRIPT_SRC="$USER_FILES_DIR/bin"
-
-    if [[ ! -d "$SCRIPT_SRC" ]]; then
-        error "bin/ directory not found in $USER_FILES_DIR"
-        error "Please ensure you cloned the complete repository."
-        exit 1
-    fi
-
-    for script in changeVoice startTTSServer stopTTSServer createVoice ttsUI configureTTS tts tts-server-start tts-server-stop tts-create tts-ui tts-config; do
-        if [[ -f "$SCRIPT_SRC/$script" ]]; then
-            cp "$SCRIPT_SRC/$script" "$BIN_DIR/$script"
-            info "Installed $script"
-        else
-            if [[ "$script" != "configureTTS" ]]; then
-                warn "Script $script not found in $SCRIPT_SRC, skipping."
-            fi
-        fi
-    done
-
-    success "Wrapper scripts installed"
-}
-
-# =============================================================================
-# Set Permissions
-# =============================================================================
-
-set_permissions() {
-    step "Setting executable permissions..."
-
-    for script in changeVoice startTTSServer stopTTSServer createVoice ttsUI configureTTS tts tts-server-start tts-server-stop tts-create tts-ui tts-config; do
-        if [[ -f "$BIN_DIR/$script" ]]; then
-            chmod 755 "$BIN_DIR/$script"
-        fi
-    done
-
-    success "Permissions set"
-}
-
-# =============================================================================
 # Update PATH
 # =============================================================================
 
 update_path() {
-    step "Checking PATH configuration..."
+    step "CLI access setup..."
 
-    if [[ ":$PATH:" != *":$HOME/bin:"* ]]; then
-        warn "~/bin is not in your PATH."
-
-        if [[ "$SHELL" == *"zsh"* ]]; then
-            SHELL_RC="$HOME/.zshrc"
-        else
-            SHELL_RC="$HOME/.bashrc"
-        fi
-
-        echo ""
-        read -p "Add ~/bin to PATH in $SHELL_RC? [Y/n]: " ADD_PATH
-        ADD_PATH=${ADD_PATH:-Y}
-
-        if [[ "$ADD_PATH" =~ ^[Yy]$ ]]; then
-            echo '' >> "$SHELL_RC"
-            echo '# Added by Qwen3-TTS installer' >> "$SHELL_RC"
-            echo 'export PATH="$HOME/bin:$PATH"' >> "$SHELL_RC"
-            success "Added ~/bin to PATH in $SHELL_RC"
-            warn "Run 'source $SHELL_RC' or open a new terminal to use the commands."
-        else
-            warn "Please add ~/bin to your PATH manually:"
-            echo '  export PATH="$HOME/bin:$PATH"'
-        fi
+    # Determine which environment was installed
+    if [[ "$IS_INTEL" == true ]]; then
+        ACTIVE_ENV="$TORCH_ENV_NAME"
     else
-        success "~/bin is already in PATH"
+        ACTIVE_ENV="$MLX_ENV_NAME"
     fi
+
+    echo ""
+    echo "The 'tts' command is installed via pip entry points."
+    echo "To use it, simply activate your conda environment:"
+    echo ""
+    echo -e "  ${CYAN}conda activate $ACTIVE_ENV${NC}"
+    echo -e "  ${CYAN}tts --help${NC}"
+    echo ""
+    success "CLI ready! Use 'conda activate $ACTIVE_ENV' to access the 'tts' command."
 }
 
 # =============================================================================
@@ -821,9 +762,13 @@ dry_run() {
         echo "  3. Create MLX environment '$MLX_ENV_NAME' (Apple Silicon default)"
         echo "     Optional: Create PyTorch fallback environment"
     fi
-    echo "  4. Create directories ($USER_FILES_DIR, $BIN_DIR)"
+    echo "  4. Create directories ($USER_FILES_DIR, voice_prompts/)"
     echo "  5. Create config.json with selected settings"
-    echo "  6. Install wrapper scripts to ~/bin/"
+    if [[ "$IS_INTEL" == true ]]; then
+        echo "  6. CLI installed via pip entry point (use: conda activate $TORCH_ENV_NAME && tts)"
+    else
+        echo "  6. CLI installed via pip entry point (use: conda activate $MLX_ENV_NAME && tts)"
+    fi
     echo "  7. Optional: Pre-download models"
     echo ""
     echo "Run without --dry-run to perform installation."
@@ -888,8 +833,6 @@ main() {
     fi
 
     create_config
-    create_wrapper_scripts
-    set_permissions
     update_path
     download_models
     print_summary

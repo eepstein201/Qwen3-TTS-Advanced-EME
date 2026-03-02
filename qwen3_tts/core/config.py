@@ -12,6 +12,7 @@ This module provides:
 import json
 import logging
 import os
+import pathlib
 import platform
 import sys
 
@@ -34,9 +35,9 @@ USER_FILES_DIR = os.path.expanduser("~/Qwen3-TTS_UserFiles")
 CONFIG_PATH = os.path.join(USER_FILES_DIR, "config.json")
 VOICE_PROMPTS_DIR = os.path.join(USER_FILES_DIR, "voice_prompts")
 HISTORY_FILE = os.path.expanduser("~/.voice_history.jsonl")
-PID_FILE = os.path.join(USER_FILES_DIR, ".voice_server.pid")
-LOG_FILE = os.path.join(USER_FILES_DIR, ".voice_server.log")
-TOKEN_FILE = os.path.expanduser("~/.voice_server_token")
+PID_FILE = pathlib.Path(os.path.join(USER_FILES_DIR, ".voice_server.pid"))
+LOG_FILE = pathlib.Path(os.path.join(USER_FILES_DIR, ".voice_server.log"))
+TOKEN_FILE = pathlib.Path(os.path.expanduser("~/.voice_server_token"))
 
 # ---------------------------------------------------------------------------
 # Config helpers
