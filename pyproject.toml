@@ -82,6 +82,12 @@ vllm = [
 
 [project.scripts]
 tts = "qwen3_tts.cli:cli"
+test = "qwen3_tts.test_cli:test"
+test-unit = "qwen3_tts.test_cli:test_unit"
+test-integration = "qwen3_tts.test_cli:test_integration"
+test-quick = "qwen3_tts.test_cli:test_quick"
+test-parallel = "qwen3_tts.test_cli:test_parallel"
+test-cov = "qwen3_tts.test_cli:test_cov"
 
 [tool.hatch.build.targets.wheel]
 packages = ["qwen3_tts"]

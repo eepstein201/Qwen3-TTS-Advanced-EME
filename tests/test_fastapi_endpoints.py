@@ -35,6 +35,7 @@ if HAS_DEPS:
 
 # Pytest-style tests using fixtures from conftest.py
 
+@pytest.mark.unit
 @_skip
 def test_asyncio_lock_works():
     """Verify asyncio.Lock works for GPU serialization."""
@@ -49,6 +50,7 @@ def test_asyncio_lock_works():
     assert result is True
 
 
+@pytest.mark.unit
 @_skip
 def test_fastapi_app_exists():
     """FastAPI app should be importable and valid."""
@@ -56,6 +58,7 @@ def test_fastapi_app_exists():
     assert isinstance(app, FastAPI)
 
 
+@pytest.mark.unit
 @_skip
 def test_fastapi_routes_exist():
     """FastAPI app should have all expected routes."""
@@ -73,12 +76,14 @@ def test_fastapi_routes_exist():
         assert route in routes, f"Route {route} should exist"
 
 
+@pytest.mark.unit
 @_skip
 def test_fastapi_lifespan_configured():
     """FastAPI app should have lifespan configured for startup/shutdown."""
     assert app.router.lifespan_context is not None
 
 
+@pytest.mark.unit
 @_skip
 def test_public_endpoints_no_auth(fastapi_client):
     """Public endpoints should work without auth token."""
@@ -91,6 +96,7 @@ def test_public_endpoints_no_auth(fastapi_client):
             f"{endpoint} should be public, got {response.status_code}"
 
 
+@pytest.mark.unit
 @_skip
 def test_protected_endpoints_require_auth(fastapi_client):
     """Protected endpoints should return 401 without auth token."""
@@ -102,6 +108,7 @@ def test_protected_endpoints_require_auth(fastapi_client):
     assert response.status_code == 401, "Should require auth"
 
 
+@pytest.mark.unit
 @_skip
 def test_valid_auth_accepted(fastapi_client):
     """Valid auth token should be accepted."""
@@ -110,6 +117,7 @@ def test_valid_auth_accepted(fastapi_client):
     assert response.status_code != 401, "Valid auth token should be accepted"
 
 
+@pytest.mark.unit
 @_skip
 def test_invalid_auth_rejected():
     """Invalid auth token should be rejected."""
@@ -123,6 +131,7 @@ def test_invalid_auth_rejected():
     assert response.status_code == 401
 
 
+@pytest.mark.unit
 @_skip
 def test_missing_auth_rejected():
     """Missing auth header should be rejected."""
@@ -133,6 +142,7 @@ def test_missing_auth_rejected():
     assert response.status_code == 401
 
 
+@pytest.mark.unit
 @_skip
 def test_streaming_requires_auth():
     """Streaming endpoint should reject requests without auth token."""
@@ -146,6 +156,7 @@ def test_streaming_requires_auth():
     assert response.status_code == 401
 
 
+@pytest.mark.unit
 @_skip
 def test_streaming_with_auth(fastapi_client):
     """Streaming endpoint with auth should not return 401."""

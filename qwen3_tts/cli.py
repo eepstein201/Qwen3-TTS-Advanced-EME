@@ -818,5 +818,114 @@ def watch(directory, **kwargs):
     _call_generate(watch_dir=directory, **kwargs)
 
 
+# ---------------------------------------------------------------------------
+# uninstall group
+# ---------------------------------------------------------------------------
+
+@cli.group()
+def uninstall():
+    """Uninstall and clean up TTS components."""
+    pass
+
+
+@uninstall.command()
+@click.option('--dry-run', is_flag=True, help='Preview changes without deleting')
+def models(dry_run):
+    """Remove cached TTS models from HuggingFace cache."""
+    from qwen3_tts.tools.uninstall import uninstall_models
+    uninstall_models(dry_run=dry_run)
+
+
+@uninstall.command()
+@click.option('--dry-run', is_flag=True, help='Preview changes without deleting')
+def voices(dry_run):
+    """Remove all voice prompts."""
+    from qwen3_tts.tools.uninstall import uninstall_voices
+    uninstall_voices(dry_run=dry_run)
+
+
+@uninstall.command()
+@click.option('--dry-run', is_flag=True, help='Preview changes without deleting')
+def config_cmd(dry_run):
+    """Reset config.json to defaults."""
+    from qwen3_tts.tools.uninstall import uninstall_config
+    uninstall_config(dry_run=dry_run)
+
+
+@uninstall.command()
+def environment():
+    """Print conda environment removal commands (does NOT execute)."""
+    from qwen3_tts.tools.uninstall import print_environment_instructions
+    print_environment_instructions()
+
+
+@uninstall.command()
+@click.option('--dry-run', is_flag=True, help='Preview changes without deleting')
+def all_cmd(dry_run):
+    """Run all uninstall steps except conda environments."""
+    from qwen3_tts.tools.uninstall import uninstall_all
+    uninstall_all(dry_run=dry_run)
+
+
+# ---------------------------------------------------------------------------
+# cache group
+# ---------------------------------------------------------------------------
+
+@cli.group()
+def cache():
+    """Manage TTS model cache."""
+    pass
+
+
+@cache.command()
+def list():
+    """List all cached models."""
+    from qwen3_tts.tools.model_cache import list_models_cmd
+    list_models_cmd()
+
+
+@cache.command()
+def size():
+    """Show total cache size."""
+    from qwen3_tts.tools.model_cache import get_size_cmd
+    get_size_cmd()
+
+
+@cache.command()
+@click.option('--unused', type=int, default=30, help='Remove models not accessed in N days (default: 30)')
+def prune(unused):
+    """Remove models not used in N days."""
+    from qwen3_tts.tools.model_cache import prune_models_cmd
+    prune_models_cmd(days=unused, dry_run=False)
+
+
+@cache.command()
+@click.option('--force', is_flag=True, help='Skip confirmation prompt')
+def clear(force):
+    """Remove all cached models."""
+    from qwen3_tts.tools.model_cache import clear_cache_cmd
+    clear_cache_cmd(force=force)
+
+
+# ---------------------------------------------------------------------------
+# doctor / healthcheck
+# ---------------------------------------------------------------------------
+
+@cli.command()
+@click.option('--fix', is_flag=True, help='Show suggested fixes for issues')
+def doctor(fix):
+    """Check TTS installation health."""
+    from qwen3_tts.tools.healthcheck import run_healthcheck
+    sys.exit(run_healthcheck())
+
+
+@cli.command('healthcheck', hidden=True)
+@click.option('--fix', is_flag=True, help='Show suggested fixes for issues')
+def healthcheck_cmd(fix):
+    """Alias for doctor command."""
+    from qwen3_tts.tools.healthcheck import run_healthcheck
+    sys.exit(run_healthcheck())
+
+
 if __name__ == '__main__':
     cli()

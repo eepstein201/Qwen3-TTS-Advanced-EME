@@ -25,11 +25,15 @@ import numpy as np
 from qwen3_tts.core.config import (
     VOICE_PROMPTS_DIR,
     get_torch_dtype_name,
+    get_torch_quantization,
     get_backend,
     get_mlx_model_name,
     get_torch_model_name,
     get_model_size,
     get_model_info,
+    get_voice_prompt_cache_max,
+    get_generation_cache_max,
+    get_eta_cache_ttl,
     CONFIG_PATH,
     load_config,
 )
@@ -418,7 +422,7 @@ def _install_mps_patch():
 # Voice prompt cache
 # ---------------------------------------------------------------------------
 
-@lru_cache(maxsize=10)
+@lru_cache(maxsize=10)  # Matches config default for cache.voice_prompt_max
 def _load_voice_prompt_torch(prompt_file):
     """Load and cache a .pt voice prompt (torch backend).
 
@@ -510,7 +514,7 @@ def voice_prompt_cache_info():
             currsize=len(_mlx_prompt_cache),
             hits=0,  # dict cache doesn't track hits
             misses=0,
-            maxsize=_MLX_PROMPT_CACHE_MAX,
+            maxsize=get_voice_prompt_cache_max(),
         )
     return _load_voice_prompt_torch.cache_info()
 
@@ -602,6 +606,7 @@ def _load_model_torch(model_type):
     Retries up to 3 times with exponential backoff on download/load failures.
     """
     import torch
+    import sys
     from qwen_tts import Qwen3TTSModel
 
     _install_mps_patch()
@@ -619,8 +624,11 @@ def _load_model_torch(model_type):
 
     attn_impl, optimal_dtype, should_compile = _apply_cuda_optimizations(load_config())
 
-    logger.info("Loading %s (%s) with dtype=%s, size=%s [torch backend]...",
-                model_type, repo_id, dtype_name, model_size)
+    # Read torch_quantization setting
+    torch_quant = get_torch_quantization()
+
+    logger.info("Loading %s (%s) with dtype=%s, quant=%s, size=%s [torch backend]...",
+                model_type, repo_id, dtype_name, torch_quant, model_size)
     t0 = time.time()
 
     last_error = None
@@ -633,19 +641,74 @@ def _load_model_torch(model_type):
                 torch_dtype = optimal_dtype
             # CUDA uses "auto" for multi-GPU support; MPS/CPU use device name directly
             device_map = "auto" if device == "cuda" else device
-            # Use 8-bit quantization on older CUDA GPUs (Turing/T4)
-            load_in_8bit = False
-            if device == "cuda":
-                cap = torch.cuda.get_device_capability()
-                if cap[0] < 8:
-                    load_in_8bit = True
+
+            # Build load_kwargs based on quantization setting
             load_kwargs = dict(
                 attn_implementation=attn_impl,
                 device_map=device_map,
-                dtype=torch_dtype,
             )
-            if load_in_8bit:
+
+            # Handle 4-bit quantization (requires bitsandbytes on CUDA/Linux)
+            if torch_quant == "4bit":
+                if not (torch.cuda.is_available() and sys.platform.startswith("linux")):
+                    raise RuntimeError(
+                        "4-bit quantization requires CUDA on Linux. "
+                        "Set torch_quantization to 'none' or '8bit', or use a different backend."
+                    )
+                try:
+                    from transformers import BitsAndBytesConfig
+                    import bitsandbytes  # noqa: F401 - Verify import
+                except ImportError as e:
+                    raise RuntimeError(
+                        "4-bit quantization requires bitsandbytes. "
+                        f"Install with: pip install bitsandbytes. Error: {e}"
+                    )
+                load_kwargs["quantization_config"] = BitsAndBytesConfig(
+                    load_in_4bit=True,
+                    bnb_4bit_compute_dtype=torch_dtype,
+                    bnb_4bit_use_double_quant=True,
+                )
+                logger.info("Using 4-bit quantization (bitsandbytes NF4)")
+            # Handle 8-bit quantization
+            elif torch_quant == "8bit":
+                if not torch.cuda.is_available():
+                    raise RuntimeError(
+                        "8-bit quantization requires CUDA. "
+                        "Set torch_quantization to 'none' or use a different backend."
+                    )
+                try:
+                    import bitsandbytes  # noqa: F401 - Verify import
+                except ImportError as e:
+                    raise RuntimeError(
+                        "8-bit quantization requires bitsandbytes. "
+                        f"Install with: pip install bitsandbytes. Error: {e}"
+                    )
                 load_kwargs["load_in_8bit"] = True
+                logger.info("Using 8-bit quantization (bitsandbytes)")
+            # No quantization (torch_quant == "none")
+            else:
+                load_kwargs["dtype"] = torch_dtype
+                # Auto-enable 8-bit on older CUDA GPUs (Turing/T4) for memory efficiency
+                if device == "cuda":
+                    cap = torch.cuda.get_device_capability()
+                    if cap[0] < 8:
+                        load_kwargs["load_in_8bit"] = True
+                        logger.info("Auto-enabled 8-bit quantization for GPU compute capability %s", cap)
+
+            # Check if model is already cached (for better user feedback)
+            from huggingface_hub import snapshot_download
+            try:
+                # Try to get snapshot info without downloading
+                snapshot_download(repo_id, local_files_only=True, allow_patterns=["*.json", "*.txt", "*.bin", "*.safetensors"])
+                model_cached = True
+            except Exception:
+                model_cached = False
+
+            if not model_cached:
+                logger.info("Downloading %s model (this may take several minutes on first run)...", model_type)
+                logger.info("Model size: ~%s — ensure stable internet connection",
+                            "3.5GB" if model_size == "1.7B" else "2GB")
+
             model = Qwen3TTSModel.from_pretrained(repo_id, **load_kwargs)
             # Apply torch.compile to inner nn.Module for supported CUDA hardware
             if should_compile and device == "cuda":
@@ -1041,7 +1104,6 @@ def _run_inference_mlx_streaming(model, text, mode, gen_params, language="Englis
 # ---------------------------------------------------------------------------
 
 _mlx_prompt_cache = OrderedDict()
-_MLX_PROMPT_CACHE_MAX = 10
 
 
 def load_voice_prompt_mlx(prompt_name):
@@ -1089,8 +1151,9 @@ def load_voice_prompt_mlx(prompt_name):
 
     result = {"ref_audio": wav_path, "ref_text": ref_text}
 
-    # Evict least-recently-used entry if at capacity
-    if len(_mlx_prompt_cache) >= _MLX_PROMPT_CACHE_MAX:
+    # Evict least-recently-used entry if at capacity (uses config value)
+    max_cache_size = get_voice_prompt_cache_max()
+    if len(_mlx_prompt_cache) >= max_cache_size:
         _mlx_prompt_cache.popitem(last=False)
 
     _mlx_prompt_cache[prompt_name] = result

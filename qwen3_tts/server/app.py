@@ -57,6 +57,8 @@ from qwen3_tts.core.config import (
     get_model_size,
     get_model_info,
     get_mlx_model_name,
+    get_generation_cache_max,
+    get_eta_cache_ttl,
 )
 
 # Pre-computed valid speaker names (keys + display names)
@@ -64,9 +66,15 @@ _VALID_SPEAKER_NAMES = frozenset(CUSTOM_VOICE_SPEAKERS.keys()) | frozenset(
     v["name"] for v in CUSTOM_VOICE_SPEAKERS.values()
 )
 
-# Generation cache TTL
-_ETA_CACHE_TTL = 30  # seconds
-_GEN_CACHE_MAX = 5  # max cached results
+
+def _get_eta_cache_ttl() -> int:
+    """Get ETA cache TTL from config (cached for performance)."""
+    return get_eta_cache_ttl()
+
+
+def _get_gen_cache_max() -> int:
+    """Get generation cache max size from config (cached for performance)."""
+    return get_generation_cache_max()
 
 
 # ---------------------------------------------------------------------------
@@ -194,7 +202,7 @@ def _estimate_eta(app_state, text_length: int, elapsed_sec: float) -> Optional[f
     now = time.time()
 
     # Refresh cache if stale
-    if now - app_state.eta_cache["last_updated"] > _ETA_CACHE_TTL:
+    if now - app_state.eta_cache["last_updated"] > _get_eta_cache_ttl():
         try:
             if not os.path.exists(HISTORY_FILE):
                 app_state.eta_cache["median_rate"] = None
@@ -444,6 +452,23 @@ async def health(request: Request):
     else:
         data["dtype"] = get_torch_dtype_name()
     return data
+
+
+@app.get("/ready")
+async def ready(request: Request):
+    """Readiness probe endpoint for Kubernetes-style deployments.
+
+    Returns 503 while models are loading, 200 when ready.
+    Unlike /health which returns loading status, this endpoint is intended
+    for container orchestration readiness probes.
+    """
+    state = request.app.state
+    reset_activity_timer(state)
+
+    if not state.models_loaded.is_set():
+        raise HTTPException(status_code=503, detail="Models not loaded")
+
+    return {"status": "ready"}
 
 
 @app.get("/generation-status")
@@ -1213,7 +1238,7 @@ async def generate(request: Request, req: GenerateRequest, _auth: None = Depends
                     cache_path = _create_temp_audio_copy(temp_file.name)
                     with state.gen_cache_lock:
                         # Evict oldest if full
-                        if len(state.gen_cache) >= _GEN_CACHE_MAX:
+                        if len(state.gen_cache) >= _get_gen_cache_max():
                             oldest_key = min(state.gen_cache, key=lambda k: state.gen_cache[k]["timestamp"])
                             old_entry = state.gen_cache.pop(oldest_key)
                             try:

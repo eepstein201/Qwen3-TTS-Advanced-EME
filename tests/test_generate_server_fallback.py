@@ -14,6 +14,8 @@ import sys
 import unittest
 from unittest.mock import MagicMock, mock_open, patch
 
+import pytest
+
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 try:
@@ -27,6 +29,7 @@ _skip = unittest.skipUnless(HAS_DEPS, "requires qwen3_tts.interface.generate")
 _CONFIG = {"server": {"host": "127.0.0.1", "port": 5123}}
 
 
+@pytest.mark.unit
 @_skip
 class TestEnsureServerRunningFallbackPythonpath(unittest.TestCase):
     """Popen fallback must pass PYTHONPATH so qwen3_tts is importable in daemon."""

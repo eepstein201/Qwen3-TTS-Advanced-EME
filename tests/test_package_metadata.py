@@ -7,7 +7,10 @@ import subprocess
 import sys
 import unittest
 
+import pytest
 
+
+@pytest.mark.unit
 class TestPackageMetadata(unittest.TestCase):
     """Test package metadata and entry points."""
 

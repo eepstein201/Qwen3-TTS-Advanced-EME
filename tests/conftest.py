@@ -2,6 +2,7 @@
 """Shared pytest fixtures for qwen3-tts test suite.
 
 Provides common test utilities:
+- unused_port: OS-assigned unused port for parallel test execution
 - fastapi_client: FastAPI TestClient with mocked auth
 - tmp_config: Temporary config file for isolated testing
 - mock_engine: Mocked engine module for testing without models
@@ -15,6 +16,7 @@ Usage:
 """
 import json
 import os
+import socket
 import sys
 import tempfile
 from unittest.mock import MagicMock
@@ -30,6 +32,102 @@ try:
     HAS_FASTAPI = True
 except ImportError:
     HAS_FASTAPI = False
+
+
+@pytest.fixture
+def unused_port():
+    """Get an OS-assigned unused port for this test.
+
+    This fixture enables parallel test execution with pytest-xdist
+    by ensuring each worker gets its own unique port. When multiple
+    workers run tests simultaneously, they won't collide on port 5123.
+
+    Example:
+        def test_with_port(unused_port):
+            port = unused_port
+            # Use this port for test server or client
+
+    The port is guaranteed to be free at fixture yield time.
+    """
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+        s.bind(('', 0))
+        s.listen(1)
+        port = s.getsockname()[1]
+    yield port
+
+
+@pytest.fixture(autouse=True)
+def initialize_app_state_for_xdist():
+    """Auto-initialize app.state for all tests to support xdist parallel execution.
+
+    With pytest-xdist, each worker has its own app instance. Tests that create
+    their own TestClient(app) directly need app.state initialized. This fixture
+    runs automatically for all tests to ensure app.state has minimal required
+    attributes.
+
+    This is autouse=True so it applies to all tests without needing to request it.
+    """
+    if not HAS_FASTAPI:
+        yield
+        return
+
+    import asyncio
+    import threading
+    from qwen3_tts.server.app import app
+
+    # Check if already initialized (another test in same worker may have set it up)
+    if hasattr(app.state, '_xdist_initialized'):
+        yield
+        return
+
+    # Store original state for cleanup
+    original_state = {}
+    for key in dir(app.state):
+        if not key.startswith('_'):
+            original_state[key] = getattr(app.state, key, None)
+
+    try:
+        # Minimal app.state initialization for xdist workers
+        app.state.auth_token = "xdist_test_token"  # nosec B105
+        app.state._xdist_initialized = True  # Mark as initialized
+        app.state.test_port = 5123  # Default port for bare TestClient tests
+        app.state.models = {"clone": None, "design": None, "custom": None}
+        app.state.model_load_times = {}
+        app.state.generation_lock = threading.Lock()
+        app.state.generation_state = {
+            "active": False,
+            "start_time": 0.0,
+            "text_length": 0,
+            "mode": "",
+            "batch_index": 0,
+            "batch_total": 0,
+            "chunk_index": 0,
+            "chunk_total": 0,
+            "generation_id": None,
+            "cancelled": False,
+        }
+        app.state.request_queue = set()
+        app.state.last_activity = 0
+        app.state.models_loaded = threading.Event()
+        app.state.gen_cache = {}
+        app.state.gen_cache_lock = threading.Lock()
+        app.state.inference_lock = asyncio.Lock()
+        app.state.eta_cache = {"median_rate": None, "last_updated": 0}
+        app.state.shutdown_timer = None
+
+        yield
+
+    finally:
+        # Cleanup - restore original state
+        app.state._xdist_initialized = False
+        for key, value in original_state.items():
+            if value is None:
+                try:
+                    delattr(app.state, key)
+                except AttributeError:
+                    pass
+            else:
+                setattr(app.state, key, value)
 
 
 @pytest.fixture
@@ -153,14 +251,16 @@ def mock_engine():
 
 
 @pytest.fixture
-def fastapi_client(tmp_config):
+def fastapi_client(tmp_config, unused_port):
     """Create a FastAPI TestClient with mocked auth and minimal setup.
 
     This fixture:
-    1. Sets up a minimal test config
-    2. Initializes app.state with required attributes (mimics lifespan)
-    3. Mocks the auth token
-    4. Returns a wrapper client that automatically adds auth headers
+    1. Uses an OS-assigned unique port for parallel test execution (xdist)
+    2. Sets up a minimal test config
+    3. Initializes app.state with required attributes (mimics lifespan)
+    4. Mocks the auth token
+    5. Stores the port in app.state for endpoint construction
+    6. Returns a wrapper client that automatically adds auth headers
 
     Skips if FastAPI or soundfile are not installed.
 
@@ -186,6 +286,7 @@ def fastapi_client(tmp_config):
         # Initialize app.state with minimal required attributes (mimics lifespan)
         test_token = "test_token_fixture"  # nosec B105
         app.state.auth_token = test_token
+        app.state.test_port = unused_port  # Store dynamic port for any URL construction
         app.state.models = {"clone": None, "design": None, "custom": None}
         app.state.model_load_times = {}
         app.state.generation_lock = threading.Lock()
@@ -209,16 +310,22 @@ def fastapi_client(tmp_config):
         app.state.inference_lock = asyncio.Lock()
         app.state.eta_cache = {"median_rate": None, "last_updated": 0}
         app.state.shutdown_timer = None
-        app.state.server_config = tmp_config["data"]
+
+        # Update server_config with the dynamic port
+        test_config = tmp_config["data"].copy()
+        test_config["server"] = test_config["server"].copy()
+        test_config["server"]["port"] = unused_port
+        app.state.server_config = test_config
 
         # Create TestClient with app state override
         raw_client = TestClient(app)
 
         # Return a wrapper that automatically adds auth headers
         class AuthenticatedTestClient:
-            def __init__(self, client, token):
+            def __init__(self, client, token, port):
                 self._client = client
                 self._token = token
+                self.port = port  # Expose the dynamic port for tests
 
             def get(self, path, **kwargs):
                 headers = kwargs.pop('headers', {})
@@ -240,7 +347,7 @@ def fastapi_client(tmp_config):
                 headers['Authorization'] = f'Bearer {self._token}'
                 return self._client.delete(path, headers=headers, **kwargs)
 
-        yield AuthenticatedTestClient(raw_client, test_token)
+        yield AuthenticatedTestClient(raw_client, test_token, unused_port)
 
     finally:
         # Restore original state
@@ -291,7 +398,7 @@ def authenticated_fastapi_client(fastapi_client):
             headers['Authorization'] = f'Bearer {self.token}'
             return self.client.delete(path, headers=headers, **kwargs)
 
-    return AuthenticatedClient(fastapi_client, fastapi_client.auth_token)
+    return AuthenticatedClient(fastapi_client, fastapi_client._token)
 
 
 @pytest.fixture

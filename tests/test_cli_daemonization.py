@@ -12,7 +12,10 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
+import pytest
 
+
+@pytest.mark.unit
 class TestCLIDaemonization(unittest.TestCase):
     """Test server daemonization functionality."""
 

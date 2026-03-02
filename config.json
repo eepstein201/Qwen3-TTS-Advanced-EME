@@ -31,10 +31,16 @@
     "dtype": "bfloat16",
     "backend": "mlx",
     "mlx_quantization": "8bit",
+    "torch_quantization": "none",
     "model_size": "1.7B",
     "audio_loader": "torchaudio",
     "vllm_gpu_memory_utilization": 0.7,
     "vllm_port": null
+  },
+  "cache": {
+    "voice_prompt_max": 10,
+    "generation_max": 5,
+    "eta_ttl_seconds": 30
   },
   "generation": {
     "temperature": 0.7,

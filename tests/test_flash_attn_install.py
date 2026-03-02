@@ -14,6 +14,8 @@ Run: python -m pytest tests/test_flash_attn_install.py -v
 import re
 import unittest
 
+import pytest
+
 
 def _build_flash_attn_wheel_url(flash_attn_version, cuda_ver_str, torch_ver_str, py_ver_str):
     """
@@ -111,7 +113,9 @@ def _normalize_torch_version(torch_string):
     return ''.join(parts[:3])
 
 
+@pytest.mark.unit
 class TestFlashAttnWheelUrlConstruction(unittest.TestCase):
+    """Unit tests for flash-attn wheel URL construction."""
 
     def test_typical_l4_environment_url(self):
         """L4 GPU: CUDA 12.4, torch 2.6.0, Python 3.12 produces a valid URL."""
@@ -196,6 +200,7 @@ _SAMPLE_ASSETS = [
 ]
 
 
+@pytest.mark.unit
 class TestParseWheelCandidates(unittest.TestCase):
 
     def test_filters_to_matching_python_version(self):
@@ -234,6 +239,7 @@ class TestParseWheelCandidates(unittest.TestCase):
         self.assertEqual(result, [])
 
 
+@pytest.mark.unit
 class TestSelectBestWheel(unittest.TestCase):
 
     def test_prefers_highest_compatible_cuda_and_torch(self):

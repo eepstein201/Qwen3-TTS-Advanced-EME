@@ -14,9 +14,12 @@ import tempfile
 import unittest
 from unittest.mock import patch, MagicMock
 
+import pytest
+
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 
+@pytest.mark.unit
 class TestTTSClientInit(unittest.TestCase):
     """Test TTSClient initialization."""
 

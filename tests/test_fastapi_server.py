@@ -7,11 +7,14 @@ proper streaming, and app.state for worker-safe operations.
 import unittest
 from pathlib import Path
 
+import pytest
+
 from fastapi.testclient import TestClient
 
 from qwen3_tts.server.app import app
 
 
+@pytest.mark.unit
 class TestFastAPIServer(unittest.TestCase):
     """Test FastAPI server endpoints."""
 

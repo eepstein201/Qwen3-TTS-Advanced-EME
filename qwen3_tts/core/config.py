@@ -236,6 +236,7 @@ def is_server_running(config_or_url=None):
 VALID_DTYPES = ("float32", "float16", "bfloat16")
 VALID_BACKENDS = ("torch", "mlx", "vllm")
 VALID_MLX_QUANTIZATIONS = ("4bit", "8bit", "bf16")
+VALID_TORCH_QUANTIZATIONS = ("none", "8bit", "4bit")
 VALID_MODEL_SIZES = ("1.7B", "0.6B")
 
 
@@ -325,6 +326,28 @@ def get_model_size():
     return size
 
 
+def get_torch_quantization():
+    """Read the configured torch quantization from config.json (advanced.torch_quantization).
+
+    Returns:
+        A string: "none", "8bit", or "4bit".
+        Defaults to "none" if not set or invalid.
+
+    Note:
+        4-bit quantization requires bitsandbytes on CUDA/Linux only.
+        8-bit quantization requires bitsandbytes.
+        "none" means no quantization (use full precision).
+    """
+    try:
+        config = load_config()
+        quant = config.get("advanced", {}).get("torch_quantization", "none")
+    except (json.JSONDecodeError, OSError):
+        quant = "none"
+    if quant not in VALID_TORCH_QUANTIZATIONS:
+        quant = "none"
+    return quant
+
+
 def get_vllm_gpu_util():
     """Read the configured vLLM GPU memory utilization from config.json.
 
@@ -358,6 +381,61 @@ def get_vllm_port():
             logger.warning("Invalid vllm_port %s, using auto-find", port)
             port = None
     return port
+
+
+# ---------------------------------------------------------------------------
+# Cache configuration
+# ---------------------------------------------------------------------------
+
+def get_voice_prompt_cache_max():
+    """Read the configured voice prompt cache max size from config.json.
+
+    Returns:
+        An integer representing the maximum number of voice prompts to cache.
+        Defaults to 10 if not set or invalid.
+    """
+    try:
+        config = load_config()
+        max_size = config.get("cache", {}).get("voice_prompt_max", 10)
+    except (json.JSONDecodeError, OSError):
+        max_size = 10
+    if not isinstance(max_size, int) or max_size < 1:
+        max_size = 10
+    return max_size
+
+
+def get_generation_cache_max():
+    """Read the configured generation cache max size from config.json.
+
+    Returns:
+        An integer representing the maximum number of generations to cache.
+        Defaults to 5 if not set or invalid.
+    """
+    try:
+        config = load_config()
+        max_size = config.get("cache", {}).get("generation_max", 5)
+    except (json.JSONDecodeError, OSError):
+        max_size = 5
+    if not isinstance(max_size, int) or max_size < 1:
+        max_size = 5
+    return max_size
+
+
+def get_eta_cache_ttl():
+    """Read the configured ETA cache TTL from config.json.
+
+    Returns:
+        An integer representing the TTL in seconds for ETA cache entries.
+        Defaults to 30 if not set or invalid.
+    """
+    try:
+        config = load_config()
+        ttl = config.get("cache", {}).get("eta_ttl_seconds", 30)
+    except (json.JSONDecodeError, OSError):
+        ttl = 30
+    if not isinstance(ttl, int) or ttl < 0:
+        ttl = 30
+    return ttl
 
 
 # ---------------------------------------------------------------------------
