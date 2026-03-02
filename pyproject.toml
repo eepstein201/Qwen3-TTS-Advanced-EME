@@ -68,6 +68,10 @@ dev = [
     "pytest>=8.0",
     "pytest-asyncio>=0.23",
     "httpx>=0.27",
+    "pytest-xdist>=3.0",      # parallel execution
+    "pytest-timeout>=2.3",    # catch hanging tests
+    "pytest-random-order>=1.1", # find interdependent tests
+    "pytest-cov>=5.0",        # coverage reporting
 ]
 
 # vLLM-Omni backend (Linux/CUDA only)
@@ -86,3 +90,9 @@ packages = ["qwen3_tts"]
 asyncio_mode = "auto"
 testpaths = ["tests"]
 pythonpath = "."
+markers = [
+    "unit: fast tests, no external services",
+    "integration: requires FastAPI/server",
+    "slow: marks tests as slow (deselect with '-m \"not slow\"')",
+    "requires_server: needs a running server",
+]
