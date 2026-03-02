@@ -955,16 +955,11 @@ class TestStreamingServerEndpoint(unittest.TestCase):
     def setUpClass(cls):
         from fastapi.testclient import TestClient
         from qwen3_tts.server.app import app
-        app.state.auth_token = "test_token"  # nosec B105
-        app.state.server_config = {
+        _setup_fastapi_app_state(app, server_config={
             "security": {"max_text_length": 1000, "max_batch_size": 10},
             "auto_shutdown_minutes": 0,
-        }
-        import threading
-        from qwen3_tts.server.app import app
-        app.state.models_loaded = threading.Event()
-        app.state.models_loaded.set()  # simulate models ready for tests that need a live server
-        app.state.model_load_times = {}  # FastAPI compatibility
+        })
+        app.state.models_loaded.set()  # simulate models ready
         cls.client = TestClient(app)
 
     @classmethod
@@ -1251,16 +1246,8 @@ class TestHealthEndpointInfo(unittest.TestCase):
     def setUpClass(cls):
         from fastapi.testclient import TestClient
         from qwen3_tts.server.app import app
-        app.state.auth_token = "test_token"  # nosec B105
-        app.state.server_config = {
-            "security": {},
-            "auto_shutdown_minutes": 0,
-        }
-        import threading
-        from qwen3_tts.server.app import app
-        app.state.models_loaded = threading.Event()
-        app.state.models_loaded.set()  # simulate models ready for tests that need a live server
-        app.state.model_load_times = {}  # FastAPI compatibility
+        _setup_fastapi_app_state(app, server_config={"security": {}, "auto_shutdown_minutes": 0})
+        app.state.models_loaded.set()
         cls.client = TestClient(app)
 
     def test_health_returns_backend(self):
@@ -1300,16 +1287,11 @@ class TestGenerationStatus(unittest.TestCase):
     def setUpClass(cls):
         from fastapi.testclient import TestClient
         from qwen3_tts.server.app import app
-        app.state.auth_token = "test_token"  # nosec B105
-        app.state.server_config = {
+        _setup_fastapi_app_state(app, server_config={
             "security": {},
             "auto_shutdown_minutes": 0,
-        }
-        import threading
-        from qwen3_tts.server.app import app
-        app.state.models_loaded = threading.Event()
+        })
         app.state.models_loaded.set()  # simulate models ready for tests that need a live server
-        app.state.model_load_times = {}  # FastAPI compatibility
         cls.client = TestClient(app)
 
     def test_generation_status_no_auth_required(self):
@@ -1343,16 +1325,8 @@ class TestLoadModelEndpoint(unittest.TestCase):
     def setUpClass(cls):
         from fastapi.testclient import TestClient
         from qwen3_tts.server.app import app
-        app.state.auth_token = "test_token"  # nosec B105
-        app.state.server_config = {
-            "security": {},
-            "auto_shutdown_minutes": 0,
-        }
-        import threading
-        from qwen3_tts.server.app import app
-        app.state.models_loaded = threading.Event()
+        _setup_fastapi_app_state(app, server_config={"security": {}, "auto_shutdown_minutes": 0})
         app.state.models_loaded.set()  # simulate models ready for tests that need a live server
-        app.state.model_load_times = {}  # FastAPI compatibility
         cls.client = TestClient(app)
 
     @classmethod
@@ -1398,22 +1372,11 @@ class TestCancelGenerationEndpoint(unittest.TestCase):
     def setUpClass(cls):
         from fastapi.testclient import TestClient
         from qwen3_tts.server.app import app
-        app.state.auth_token = "test_token"  # nosec B105
-        app.state.server_config = {
+        _setup_fastapi_app_state(app, server_config={
             "security": {},
             "auto_shutdown_minutes": 0,
-        }
-        # Reset generation state
-        app.state.generation_state.update({
-            "active": False,
-            "cancelled": False,
-            "generation_id": None,
         })
-        import threading
-        from qwen3_tts.server.app import app
-        app.state.models_loaded = threading.Event()
-        app.state.models_loaded.set()  # simulate models ready for tests that need a live server
-        app.state.model_load_times = {}  # FastAPI compatibility
+        app.state.models_loaded.set()
         cls.client = TestClient(app)
 
     @classmethod
@@ -1764,16 +1727,11 @@ class TestUpdateModelConfigEndpoint(unittest.TestCase):
     def setUpClass(cls):
         from fastapi.testclient import TestClient
         from qwen3_tts.server.app import app
-        app.state.auth_token = "test_token"  # nosec B105
-        app.state.server_config = {
+        _setup_fastapi_app_state(app, server_config={
             "security": {"max_text_length": 10000},
             "auto_shutdown_minutes": 0,
-        }
-        import threading
-        from qwen3_tts.server.app import app
-        app.state.models_loaded = threading.Event()
+        })
         app.state.models_loaded.set()  # simulate models ready for tests that need a live server
-        app.state.model_load_times = {}  # FastAPI compatibility
         cls.client = TestClient(app)
 
     @classmethod
@@ -1828,16 +1786,11 @@ class TestStreamingEndpointStructure(unittest.TestCase):
     def setUpClass(cls):
         from fastapi.testclient import TestClient
         from qwen3_tts.server.app import app
-        app.state.auth_token = "test_token"  # nosec B105
-        app.state.server_config = {
+        _setup_fastapi_app_state(app, server_config={
             "security": {"max_text_length": 10000},
             "auto_shutdown_minutes": 0,
-        }
-        import threading
-        from qwen3_tts.server.app import app
-        app.state.models_loaded = threading.Event()
-        app.state.models_loaded.set()  # simulate models ready for tests that need a live server
-        app.state.model_load_times = {}  # FastAPI compatibility
+        })
+        app.state.models_loaded.set()
         cls.client = TestClient(app)
 
     @classmethod
@@ -2101,16 +2054,9 @@ class TestETACache(unittest.TestCase):
     def setUpClass(cls):
         from fastapi.testclient import TestClient
         from qwen3_tts.server.app import app
-        app.state.auth_token = "test_token"  # nosec B105
-        app.state.server_config = {
-            "security": {},
-            "auto_shutdown_minutes": 0,
-        }
-        import threading
-        from qwen3_tts.server.app import app
-        app.state.models_loaded = threading.Event()
-        app.state.models_loaded.set()  # simulate models ready for tests that need a live server
-        app.state.model_load_times = {}  # FastAPI compatibility
+
+        _setup_fastapi_app_state(app, server_config={"security": {}, "auto_shutdown_minutes": 0})
+        app.state.models_loaded.set()
         cls.client = TestClient(app)
 
     def test_eta_cache_exists(self):
@@ -2206,16 +2152,12 @@ class TestDeletePromptEndpoint(unittest.TestCase):
     def setUpClass(cls):
         from fastapi.testclient import TestClient
         from qwen3_tts.server.app import app
-        app.state.auth_token = "test_secret_token"  # nosec B105
-        app.state.server_config = {
+        _setup_fastapi_app_state(app, server_config={
             "security": {"max_text_length": 100, "max_batch_size": 3},
             "auto_shutdown_minutes": 0,
-        }
-        import threading
-        from qwen3_tts.server.app import app
-        app.state.models_loaded = threading.Event()
-        app.state.models_loaded.set()  # simulate models ready for tests that need a live server
-        app.state.model_load_times = {}  # FastAPI compatibility
+        })
+        app.state.auth_token = "test_secret_token"  # nosec B105
+        app.state.models_loaded.set()
         cls.client = TestClient(app)
         cls.auth = {"Authorization": "Bearer test_secret_token"}
 
@@ -2244,14 +2186,14 @@ class TestDeletePromptEndpoint(unittest.TestCase):
 
     def test_delete_nonexistent(self):
         """POST /delete-prompt returns 404 for missing prompt."""
-        with patch("qwen3_tts.core.config.VOICE_PROMPTS_DIR", self.tmpdir):
+        with patch("qwen3_tts.server.app.VOICE_PROMPTS_DIR", self.tmpdir):
             resp = self.client.post("/delete-prompt", json={"name": "nonexistent"},
                                     headers=self.auth)
         self.assertEqual(resp.status_code, 404)
 
     def test_delete_success(self):
         """POST /delete-prompt deletes all format files."""
-        with patch("qwen3_tts.core.config.VOICE_PROMPTS_DIR", self.tmpdir):
+        with patch("qwen3_tts.server.app.VOICE_PROMPTS_DIR", self.tmpdir):
             resp = self.client.post("/delete-prompt", json={"name": "test_voice"},
                                     headers=self.auth)
         self.assertEqual(resp.status_code, 200)
@@ -2271,18 +2213,13 @@ class TestRenamePromptEndpoint(unittest.TestCase):
     def setUpClass(cls):
         from fastapi.testclient import TestClient
         from qwen3_tts.server.app import app
-        app.state.auth_token = "test_secret_token"  # nosec B105
-        app.state.server_config = {
+        _setup_fastapi_app_state(app, server_config={
             "security": {"max_text_length": 100, "max_batch_size": 3},
             "auto_shutdown_minutes": 0,
-        }
-        import threading
-        from qwen3_tts.server.app import app
-        app.state.models_loaded = threading.Event()
-        app.state.models_loaded.set()  # simulate models ready for tests that need a live server
-        app.state.model_load_times = {}  # FastAPI compatibility
+        })
+        app.state.models_loaded.set()
         cls.client = TestClient(app)
-        cls.auth = {"Authorization": "Bearer test_secret_token"}
+        cls.auth = {"Authorization": "Bearer test_token"}
 
     def setUp(self):
         self.tmpdir = tempfile.mkdtemp()
@@ -2315,7 +2252,7 @@ class TestRenamePromptEndpoint(unittest.TestCase):
         # Create collision target
         with open(os.path.join(self.tmpdir, "existing.wav"), "w") as f:
             f.write("fake")
-        with patch("qwen3_tts.core.config.VOICE_PROMPTS_DIR", self.tmpdir):
+        with patch("qwen3_tts.server.app.VOICE_PROMPTS_DIR", self.tmpdir):
             resp = self.client.post("/rename-prompt",
                                     json={"old_name": "old_voice", "new_name": "existing"},
                                     headers=self.auth)
@@ -2323,7 +2260,7 @@ class TestRenamePromptEndpoint(unittest.TestCase):
 
     def test_rename_success(self):
         """POST /rename-prompt renames all format files."""
-        with patch("qwen3_tts.core.config.VOICE_PROMPTS_DIR", self.tmpdir):
+        with patch("qwen3_tts.server.app.VOICE_PROMPTS_DIR", self.tmpdir):
             resp = self.client.post("/rename-prompt",
                                     json={"old_name": "old_voice", "new_name": "new_voice"},
                                     headers=self.auth)
@@ -2337,7 +2274,7 @@ class TestRenamePromptEndpoint(unittest.TestCase):
 
     def test_rename_not_found(self):
         """POST /rename-prompt returns 404 for missing prompt."""
-        with patch("qwen3_tts.core.config.VOICE_PROMPTS_DIR", self.tmpdir):
+        with patch("qwen3_tts.server.app.VOICE_PROMPTS_DIR", self.tmpdir):
             resp = self.client.post("/rename-prompt",
                                     json={"old_name": "nonexistent", "new_name": "new"},
                                     headers=self.auth)
@@ -2352,16 +2289,12 @@ class TestPreviewPromptEndpoint(unittest.TestCase):
     def setUpClass(cls):
         from fastapi.testclient import TestClient
         from qwen3_tts.server.app import app
-        app.state.auth_token = "test_secret_token"  # nosec B105
-        app.state.server_config = {
+        _setup_fastapi_app_state(app, server_config={
             "security": {"max_text_length": 100, "max_batch_size": 3},
             "auto_shutdown_minutes": 0,
-        }
-        import threading
-        from qwen3_tts.server.app import app
-        app.state.models_loaded = threading.Event()
+        })
         app.state.models_loaded.set()  # simulate models ready for tests that need a live server
-        app.state.model_load_times = {}  # FastAPI compatibility
+        app.state.auth_token = "test_secret_token"  # nosec B105
         cls.client = TestClient(app)
         cls.auth = {"Authorization": "Bearer test_secret_token"}
 
@@ -2381,18 +2314,18 @@ class TestPreviewPromptEndpoint(unittest.TestCase):
 
     def test_preview_not_found(self):
         """GET /preview-prompt returns 404 for missing prompt."""
-        with patch("qwen3_tts.core.config.VOICE_PROMPTS_DIR", self.tmpdir):
+        with patch("qwen3_tts.server.app.VOICE_PROMPTS_DIR", self.tmpdir):
             resp = self.client.get("/preview-prompt?name=nonexistent",
                                    headers=self.auth)
         self.assertEqual(resp.status_code, 404)
 
     def test_preview_returns_audio(self):
         """GET /preview-prompt returns audio/wav content."""
-        with patch("qwen3_tts.core.config.VOICE_PROMPTS_DIR", self.tmpdir):
+        with patch("qwen3_tts.server.app.VOICE_PROMPTS_DIR", self.tmpdir):
             resp = self.client.get("/preview-prompt?name=test_voice",
                                    headers=self.auth)
         self.assertEqual(resp.status_code, 200)
-        self.assertIn("audio/wav", resp.content_type)
+        self.assertIn("audio/wav", resp.headers.get("content-type", ""))
 
 
 @_skip_server
@@ -2403,16 +2336,12 @@ class TestPromptDetailsEndpoint(unittest.TestCase):
     def setUpClass(cls):
         from fastapi.testclient import TestClient
         from qwen3_tts.server.app import app
-        app.state.auth_token = "test_secret_token"  # nosec B105
-        app.state.server_config = {
+        _setup_fastapi_app_state(app, server_config={
             "security": {"max_text_length": 100, "max_batch_size": 3},
             "auto_shutdown_minutes": 0,
-        }
-        import threading
-        from qwen3_tts.server.app import app
-        app.state.models_loaded = threading.Event()
+        })
+        app.state.auth_token = "test_secret_token"  # nosec B105
         app.state.models_loaded.set()  # simulate models ready for tests that need a live server
-        app.state.model_load_times = {}  # FastAPI compatibility
         cls.client = TestClient(app)
         cls.auth = {"Authorization": "Bearer test_secret_token"}
 
@@ -2433,7 +2362,7 @@ class TestPromptDetailsEndpoint(unittest.TestCase):
 
     def test_details_single_prompt(self):
         """GET /prompt-details?name=X returns metadata for one prompt."""
-        with patch("qwen3_tts.core.config.VOICE_PROMPTS_DIR", self.tmpdir):
+        with patch("qwen3_tts.server.app.VOICE_PROMPTS_DIR", self.tmpdir):
             resp = self.client.get("/prompt-details?name=voice_a",
                                    headers=self.auth)
         self.assertEqual(resp.status_code, 200)
@@ -2446,7 +2375,7 @@ class TestPromptDetailsEndpoint(unittest.TestCase):
 
     def test_details_all_prompts(self):
         """GET /prompt-details without name returns all prompts."""
-        with patch("qwen3_tts.core.config.VOICE_PROMPTS_DIR", self.tmpdir):
+        with patch("qwen3_tts.server.app.VOICE_PROMPTS_DIR", self.tmpdir):
             resp = self.client.get("/prompt-details", headers=self.auth)
         self.assertEqual(resp.status_code, 200)
         data = resp.json()
@@ -2679,17 +2608,12 @@ class TestUnloadModelEndpoint(unittest.TestCase):
     def setUpClass(cls):
         from fastapi.testclient import TestClient
         from qwen3_tts.server.app import app
-        app.state.auth_token = "test_token"  # nosec B105
-        app.state.server_config = {
+        _setup_fastapi_app_state(app, server_config={
             "security": {},
             "auto_shutdown_minutes": 0,
             "models": {"clone": {"load_at_startup": True}},
-        }
-        import threading
-        from qwen3_tts.server.app import app
-        app.state.models_loaded = threading.Event()
-        app.state.models_loaded.set()  # simulate models ready for tests that need a live server
-        app.state.model_load_times = {}  # FastAPI compatibility
+        })
+        app.state.models_loaded.set()
         cls.client = TestClient(app)
 
     @classmethod
@@ -2714,7 +2638,7 @@ class TestUnloadModelEndpoint(unittest.TestCase):
         resp = self.client.post("/unload-model",
             json={},
             headers={"Authorization": "Bearer test_token"})
-        self.assertEqual(resp.status_code, 400)
+        self.assertEqual(resp.status_code, 422)  # FastAPI validation error
 
     def test_unload_already_unloaded(self):
         """POST /unload-model returns already_unloaded when model not loaded."""
@@ -2753,16 +2677,11 @@ class TestUpdateStartupConfigEndpoint(unittest.TestCase):
     def setUpClass(cls):
         from fastapi.testclient import TestClient
         from qwen3_tts.server.app import app
-        app.state.auth_token = "test_token"  # nosec B105
-        app.state.server_config = {
+        _setup_fastapi_app_state(app, server_config={
             "security": {},
             "auto_shutdown_minutes": 0,
-        }
-        import threading
-        from qwen3_tts.server.app import app
-        app.state.models_loaded = threading.Event()
-        app.state.models_loaded.set()  # simulate models ready for tests that need a live server
-        app.state.model_load_times = {}  # FastAPI compatibility
+        })
+        app.state.models_loaded.set()
         cls.client = TestClient(app)
 
     @classmethod
@@ -2782,8 +2701,8 @@ class TestUpdateStartupConfigEndpoint(unittest.TestCase):
             headers={"Authorization": "Bearer test_token"})
         self.assertEqual(resp.status_code, 400)
 
-    @patch("qwen3_tts.core.config.save_config")
-    @patch("qwen3_tts.core.config.load_config")
+    @patch("qwen3_tts.server.app.save_config")
+    @patch("qwen3_tts.server.app.load_config")
     def test_startup_config_saves(self, mock_load, mock_save):
         """POST /update-startup-config saves to config."""
         mock_load.return_value = {"models": {"clone": {}, "design": {}, "custom": {}}}
@@ -2794,8 +2713,8 @@ class TestUpdateStartupConfigEndpoint(unittest.TestCase):
         self.assertEqual(resp.json()["status"], "updated")
         self.assertTrue(mock_save.called)
 
-    @patch("qwen3_tts.core.config.save_config")
-    @patch("qwen3_tts.core.config.load_config")
+    @patch("qwen3_tts.server.app.save_config")
+    @patch("qwen3_tts.server.app.load_config")
     def test_startup_config_partial_update(self, mock_load, mock_save):
         """POST /update-startup-config accepts partial updates."""
         mock_load.return_value = {"models": {"clone": {"load_at_startup": True}}}
@@ -2872,8 +2791,7 @@ class TestModelsEndpointEnhanced(unittest.TestCase):
     def setUpClass(cls):
         from fastapi.testclient import TestClient
         from qwen3_tts.server.app import app
-        app.state.auth_token = "test_token"  # nosec B105
-        app.state.server_config = {
+        _setup_fastapi_app_state(app, server_config={
             "security": {},
             "auto_shutdown_minutes": 0,
             "models": {
@@ -2881,13 +2799,9 @@ class TestModelsEndpointEnhanced(unittest.TestCase):
                 "design": {"load_at_startup": False},
                 "custom": {"load_at_startup": False},
             },
-        }
-        app.state.model_load_times = {"clone": 5.2}
-        import threading
-        from qwen3_tts.server.app import app
-        app.state.models_loaded = threading.Event()
-        app.state.models_loaded.set()  # simulate models ready for tests that need a live server
-        app.state.model_load_times = {}  # FastAPI compatibility
+        })
+        app.state.model_load_times = {"clone": 5.2}  # Override for testing
+        app.state.models_loaded.set()  # simulate models ready
         cls.client = TestClient(app)
 
     @classmethod
