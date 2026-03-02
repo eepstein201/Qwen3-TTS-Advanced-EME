@@ -1892,6 +1892,15 @@ class TestGenerationFunctionsReturnHistory(unittest.TestCase):
 class TestGenerateStreamIdCheck(unittest.TestCase):
     """Test generate_stream generation_id race condition fix."""
 
+    @classmethod
+    def setUpClass(cls):
+        from fastapi.testclient import TestClient
+        from qwen3_tts.server.app import app
+        _setup_fastapi_app_state(app)
+        app.state.models_loaded.set()
+        cls.client = TestClient(app)
+        cls.auth = {"Authorization": "Bearer test_token"}
+
     def test_generate_stream_checks_generation_id(self):
         """generate_stream only resets state if generation_id matches."""
         import inspect

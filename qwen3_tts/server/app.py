@@ -808,7 +808,7 @@ async def delete_prompt(request: Request, req: DeletePromptRequest, _auth: None 
     name = req.name
     err = _validate_prompt_name(name)
     if err:
-        raise HTTPException(status_code=err[1], detail=err[0])
+        raise HTTPException(status_code=err[1], detail=err[0]["error"])
 
     base = _strip_extension(name)
 
@@ -851,7 +851,7 @@ async def rename_prompt(request: Request, req: RenamePromptRequest, _auth: None 
     for name_val in (req.old_name, req.new_name):
         err = _validate_prompt_name(name_val)
         if err:
-            raise HTTPException(status_code=err[1], detail=err[0])
+            raise HTTPException(status_code=err[1], detail=err[0]["error"])
 
     old_base = _strip_extension(req.old_name)
     new_base = _strip_extension(req.new_name)
@@ -923,7 +923,7 @@ async def preview_prompt(request: Request, _auth: None = Depends(verify_auth)):
     name = request.query_params.get("name", "")
     err = _validate_prompt_name(name)
     if err:
-        raise HTTPException(status_code=err[1], detail=err[0])
+        raise HTTPException(status_code=err[1], detail=err[0]["error"])
 
     base = _strip_extension(name)
     wav_path = os.path.join(VOICE_PROMPTS_DIR, f"{base}.wav")
@@ -970,7 +970,7 @@ async def prompt_details(request: Request, _auth: None = Depends(verify_auth)):
     if name:
         err = _validate_prompt_name(name)
         if err:
-            raise HTTPException(status_code=err[1], detail=err[0])
+            raise HTTPException(status_code=err[1], detail=err[0]["error"])
         base = _strip_extension(name)
         info = _prompt_info(base)
         if not info["formats"]:
