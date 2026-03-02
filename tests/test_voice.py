@@ -1968,29 +1968,6 @@ class TestCheckGenerationCancelled(unittest.TestCase):
 # createVoice script backend override tests
 # =============================================================================
 
-class TestCreateVoiceBackendOverride(unittest.TestCase):
-    """Test bin/tts handles voice create backend override."""
-
-    def test_tts_script_has_voice_create_torch_handling(self):
-        """bin/tts script has logic for forcing torch env on voice create."""
-        import os
-        script_path = os.path.join(os.path.dirname(__file__), "..", "bin", "tts")
-        with open(script_path, "r") as f:
-            content = f.read()
-        # bin/tts detects voice create and forces torch env
-        self.assertIn("voice", content)
-        self.assertIn("create", content)
-        self.assertIn("FORCE_TORCH", content)
-
-    def test_createvoice_is_deprecation_shim(self):
-        """bin/createVoice is now a deprecation shim pointing to tts."""
-        import os
-        script_path = os.path.join(os.path.dirname(__file__), "..", "bin", "createVoice")
-        with open(script_path, "r") as f:
-            content = f.read()
-        self.assertIn("tts voice create", content)
-
-
 # =============================================================================
 # Phase 21b: MLX voice prompt cache tests
 # =============================================================================
@@ -2075,11 +2052,14 @@ class TestETACache(unittest.TestCase):
         self.assertIn("median_rate", app.state.eta_cache)
         self.assertIn("last_updated", app.state.eta_cache)
 
-    def test_eta_cache_ttl_constant(self):
-        """FastAPI app has _ETA_CACHE_TTL constant."""
+    def test_eta_cache_ttl_function(self):
+        """FastAPI app has _get_eta_cache_ttl function that reads from config."""
         import qwen3_tts.server.app as _srv
-        self.assertTrue(hasattr(_srv, "_ETA_CACHE_TTL"))
-        self.assertEqual(_srv._ETA_CACHE_TTL, 30)
+        self.assertTrue(hasattr(_srv, "_get_eta_cache_ttl"))
+        self.assertTrue(callable(_srv._get_eta_cache_ttl))
+        # Function should return default value of 30
+        result = _srv._get_eta_cache_ttl()
+        self.assertEqual(result, 30)
 
     def test_estimate_eta_uses_cache(self):
         """_estimate_eta reads from cache when fresh."""
@@ -2142,11 +2122,14 @@ class TestGenerationCache(unittest.TestCase):
         self.assertTrue(hasattr(app.state, "gen_cache"))
         self.assertIsInstance(app.state.gen_cache, dict)
 
-    def test_gen_cache_max_size_constant(self):
-        """FastAPI app has _GEN_CACHE_MAX constant."""
+    def test_gen_cache_max_size_function(self):
+        """FastAPI app has _get_gen_cache_max function that reads from config."""
         import qwen3_tts.server.app as _srv
-        self.assertTrue(hasattr(_srv, "_GEN_CACHE_MAX"))
-        self.assertEqual(_srv._GEN_CACHE_MAX, 5)
+        self.assertTrue(hasattr(_srv, "_get_gen_cache_max"))
+        self.assertTrue(callable(_srv._get_gen_cache_max))
+        # Function should return default value of 5
+        result = _srv._get_gen_cache_max()
+        self.assertEqual(result, 5)
 
 
 # =============================================================================

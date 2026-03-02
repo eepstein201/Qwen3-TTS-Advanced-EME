@@ -877,8 +877,8 @@ def cache():
     pass
 
 
-@cache.command()
-def list():
+@cache.command(name="list")  # Explicit CLI command name preserves "tts cache list"
+def list_cmd():  # Python function name avoids shadowing built-in list()
     """List all cached models."""
     from qwen3_tts.tools.model_cache import list_models_cmd
     list_models_cmd()

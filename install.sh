@@ -408,13 +408,85 @@ create_config() {
 
     if [[ -f "$CONFIG_FILE" ]] && [[ "$RECONFIGURE_ONLY" != true ]]; then
         warn "config.json already exists."
-        read -p "Overwrite with new settings? [y/N]: " OVERWRITE
-        if [[ ! "$OVERWRITE" =~ ^[Yy]$ ]]; then
-            info "Keeping existing config.json"
+        read -p "Merge new settings into existing config? [Y/n]: " MERGE
+        if [[ "$MERGE" =~ ^[Nn]$ ]]; then
+            info "Keeping existing config.json (skipping update)."
             return
         fi
+        # Merge new fields into existing config using Python
+        info "Merging new settings into existing config.json..."
+        python3 << PYTHON_EOF
+import json
+
+config_file = "$CONFIG_FILE"
+selected_backend = "$SELECTED_BACKEND"
+
+with open(config_file, 'r') as f:
+    config = json.load(f)
+
+# Add advanced section fields if missing
+if "advanced" not in config:
+    config["advanced"] = {}
+if "torch_quantization" not in config.get("advanced", {}):
+    config["advanced"]["torch_quantization"] = "none"
+if "audio_loader" not in config.get("advanced", {}):
+    config["advanced"]["audio_loader"] = "torchaudio"
+if "vllm_gpu_memory_utilization" not in config.get("advanced", {}):
+    config["advanced"]["vllm_gpu_memory_utilization"] = 0.7
+if "vllm_port" not in config.get("advanced", {}):
+    config["advanced"]["vllm_port"] = None
+
+# Add cache section if missing
+if "cache" not in config:
+    config["cache"] = {}
+if "voice_prompt_max" not in config.get("cache", {}):
+    config["cache"]["voice_prompt_max"] = 10
+if "generation_max" not in config.get("cache", {}):
+    config["cache"]["generation_max"] = 5
+if "eta_ttl_seconds" not in config.get("cache", {}):
+    config["cache"]["eta_ttl_seconds"] = 30
+
+# Add generation section fields if missing
+if "generation" not in config:
+    config["generation"] = {}
+if "max_chunk_tokens" not in config.get("generation", {}):
+    config["generation"]["max_chunk_tokens"] = 200
+if "max_new_tokens" not in config.get("generation", {}):
+    config["generation"]["max_new_tokens"] = 2048
+if "compile_model" not in config.get("generation", {}):
+    config["generation"]["compile_model"] = True
+
+# Add prosody_presets section if missing
+if "prosody_presets" not in config:
+    config["prosody_presets"] = {
+        "excited": "Speak with excitement and high energy",
+        "calm": "Speak in a calm, soothing, relaxed manner",
+        "whisper": "Speak in a soft whisper",
+        "authoritative": "Speak in a confident, authoritative tone",
+        "slow": "Speak slowly and deliberately with clear enunciation",
+        "fast": "Speak quickly with urgency",
+        "dramatic": "Speak with dramatic flair and emotional intensity",
+        "conversational": "Speak in a casual, natural conversational style"
+    }
+
+# Add prompt_enhancer section if missing
+if "prompt_enhancer" not in config:
+    config["prompt_enhancer"] = {
+        "enabled": False,
+        "provider": "anthropic",
+        "api_key_env": "ANTHROPIC_API_KEY",
+        "model": "claude-haiku-4-5-20251001"
+    }
+
+with open(config_file, 'w') as f:
+    json.dump(config, f, indent=2)
+print("Merged new settings into config.json")
+PYTHON_EOF
+        success "Config merged with new settings!"
+        return
     fi
 
+    # Create new config file
     cat > "$CONFIG_FILE" << EOF
 {
   "default_voice_description": "A calm, friendly male voice with clear articulation and moderate pace.",
@@ -449,7 +521,16 @@ create_config() {
     "dtype": "bfloat16",
     "backend": "$SELECTED_BACKEND",
     "mlx_quantization": "$SELECTED_QUANT",
-    "model_size": "$SELECTED_SIZE"
+    "torch_quantization": "none",
+    "model_size": "$SELECTED_SIZE",
+    "audio_loader": "torchaudio",
+    "vllm_gpu_memory_utilization": 0.7,
+    "vllm_port": null
+  },
+  "cache": {
+    "voice_prompt_max": 10,
+    "generation_max": 5,
+    "eta_ttl_seconds": 30
   },
   "generation": {
     "temperature": 0.7,
@@ -457,7 +538,26 @@ create_config() {
     "top_p": 0.95,
     "repetition_penalty": 1.05,
     "seed": null,
-    "max_chunk_chars": 500
+    "max_chunk_chars": 500,
+    "max_chunk_tokens": 200,
+    "max_new_tokens": 2048,
+    "compile_model": true
+  },
+  "prosody_presets": {
+    "excited": "Speak with excitement and high energy",
+    "calm": "Speak in a calm, soothing, relaxed manner",
+    "whisper": "Speak in a soft whisper",
+    "authoritative": "Speak in a confident, authoritative tone",
+    "slow": "Speak slowly and deliberately with clear enunciation",
+    "fast": "Speak quickly with urgency",
+    "dramatic": "Speak with dramatic flair and emotional intensity",
+    "conversational": "Speak in a casual, natural conversational style"
+  },
+  "prompt_enhancer": {
+    "enabled": false,
+    "provider": "anthropic",
+    "api_key_env": "ANTHROPIC_API_KEY",
+    "model": "claude-haiku-4-5-20251001"
   },
   "presets": {
     "consistent": {

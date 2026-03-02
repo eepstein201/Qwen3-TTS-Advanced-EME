@@ -276,11 +276,70 @@ Settings are stored in `config.json`.
 |-----|---------|-------------|
 | `advanced.backend` | Auto | `mlx`, `torch`, or `vllm` |
 | `advanced.model_size` | `1.7B` | `1.7B` (High fidelity) or `0.6B` (Fast/Light) |
+| `advanced.torch_quantization` | `none` | PyTorch backend quantization: `none`, `8bit`, `4bit` |
+| `advanced.mlx_quantization` | `8bit` | MLX backend quantization: `4bit`, `8bit`, `bf16` |
 | `advanced.vllm_gpu_memory_utilization`| `0.7` | VRAM reservation for vLLM (0.1 - 1.0) |
+| `cache.voice_prompt_max` | `10` | Max voice prompts cached in memory (LRU) |
+| `cache.generation_max` | `5` | Max generation results cached (SHA256 key) |
+| `cache.eta_ttl_seconds` | `30` | ETA cache TTL in seconds |
 | `generation.max_chunk_chars` | `500` | Auto-splits long texts to prevent timeouts |
+| `generation.max_chunk_tokens` | `200` | Max tokens per chunk (torch backend) |
 | `generation.temperature` | `0.7` | Higher = more varied output |
 
 *You can use environment variables to override settings per session (e.g., `TTS_BACKEND=vllm tts "text"`).*
+
+---
+
+## Utility Commands
+
+### Health Check
+```bash
+tts doctor          # Run diagnostics
+tts doctor --fix    # Auto-fix common issues
+```
+Checks installation, dependencies, model cache, and server status.
+
+### Cache Management
+```bash
+tts cache list      # Show cached models
+tts cache size      # Show disk usage
+tts cache prune     # Remove old/unused entries
+tts cache clear     # Empty entire cache
+```
+Voice prompts and generation results are cached for performance. Use these commands to manage disk usage.
+
+### Uninstall / Cleanup
+```bash
+tts uninstall models    # Remove downloaded models (~10GB)
+tts uninstall voices    # Remove voice prompts
+tts uninstall config    # Remove config.json
+tts uninstall all       # Full cleanup (everything above)
+tts uninstall environment  # Remove conda envs
+```
+
+---
+
+## API Endpoints
+
+The FastAPI server (port 5123) provides the following endpoints:
+
+| Endpoint | Auth Required | Description |
+|----------|---------------|-------------|
+| `GET /health` | No | Health check (always available) |
+| `GET /ready` | No | Kubernetes readiness probe (503 while loading) |
+| `GET /generation-status` | No | Poll generation progress |
+| `POST /generate` | Yes | Generate audio with caching |
+| `POST /generate-stream` | Yes | Stream audio in real-time |
+| `POST /load-model` | Yes | Load a model on-demand |
+| `POST /unload-model` | Yes | Unload model to free memory |
+| `GET /models` | Yes | List model status and memory |
+| `GET /prompts` | Yes | List voice prompts |
+| `POST /delete-prompt` | Yes | Delete a voice prompt |
+| `POST /rename-prompt` | Yes | Rename a voice prompt |
+| `GET /stats` | Yes | Memory and cache statistics |
+| `POST /shutdown` | Yes | Graceful server shutdown |
+
+Authentication uses Bearer tokens from `~/.voice_server_token`.
 
 ---
 
