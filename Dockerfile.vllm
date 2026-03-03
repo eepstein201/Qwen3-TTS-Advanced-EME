@@ -15,11 +15,16 @@ WORKDIR /app
 COPY pyproject.toml README.md ./
 
 # Install with vLLM support
-RUN pip install --no-cache-dir ".[torch,server,audio,vllm]"
+RUN pip install --no-cache-dir ".[torch,server,audio,vllm,ui]"
 
 # Copy source code
 COPY qwen3_tts/ ./qwen3_tts/
 COPY config.json ./
+
+# Create expected directory structure (code resolves ~/Qwen3-TTS_UserFiles/)
+RUN mkdir -p /root/Qwen3-TTS_UserFiles /app/voice_prompts && \
+    ln -sf /app/config.json /root/Qwen3-TTS_UserFiles/config.json && \
+    ln -sf /app/voice_prompts /root/Qwen3-TTS_UserFiles/voice_prompts
 
 # Expose ports
 EXPOSE 5123 7860

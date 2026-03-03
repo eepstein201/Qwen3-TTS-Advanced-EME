@@ -16,11 +16,16 @@ WORKDIR /app
 COPY pyproject.toml README.md ./
 
 # CRITICAL: Standard install, NOT editable mode (-e) for production
-RUN pip install --no-cache-dir ".[torch,server,audio]"
+RUN pip install --no-cache-dir ".[torch,server,audio,ui]"
 
 # Copy source code
 COPY qwen3_tts/ ./qwen3_tts/
 COPY config.json ./
+
+# Create expected directory structure (code resolves ~/Qwen3-TTS_UserFiles/)
+RUN mkdir -p /root/Qwen3-TTS_UserFiles /app/voice_prompts && \
+    ln -sf /app/config.json /root/Qwen3-TTS_UserFiles/config.json && \
+    ln -sf /app/voice_prompts /root/Qwen3-TTS_UserFiles/voice_prompts
 
 # Expose ports
 EXPOSE 5123 7860

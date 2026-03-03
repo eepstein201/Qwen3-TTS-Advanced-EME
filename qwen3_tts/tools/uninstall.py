@@ -231,6 +231,10 @@ def uninstall_config(dry_run: bool = False) -> None:
             "backend": current_config.get("advanced", {}).get("backend", "mlx"),
             "mlx_quantization": "8bit",
             "model_size": current_config.get("advanced", {}).get("model_size", "1.7B"),
+            "torch_quantization": "none",
+            "audio_loader": "torchaudio",
+            "vllm_gpu_memory_utilization": 0.7,
+            "vllm_port": None,
         },
         "generation": {
             "temperature": 0.7,
@@ -239,6 +243,9 @@ def uninstall_config(dry_run: bool = False) -> None:
             "repetition_penalty": 1.05,
             "seed": None,
             "max_chunk_chars": 500,
+            "max_new_tokens": 2048,
+            "compile_model": True,
+            "max_chunk_tokens": 200,
         },
         "presets": {
             "consistent": {"temperature": 0.5, "top_k": 30, "seed": 42},
@@ -247,6 +254,27 @@ def uninstall_config(dry_run: bool = False) -> None:
         "ui": {"port": 7860},
         "aliases": {
             "default": {"prompt": "default_clone.pt", "preset": "consistent"},
+        },
+        "cache": {
+            "voice_prompt_max": 10,
+            "generation_max": 5,
+            "eta_ttl_seconds": 30,
+        },
+        "prosody_presets": {
+            "excited": "Speak with excitement and high energy",
+            "calm": "Speak in a calm, soothing, relaxed manner",
+            "whisper": "Speak in a soft whisper",
+            "authoritative": "Speak in a confident, authoritative tone",
+            "slow": "Speak slowly and deliberately with clear enunciation",
+            "fast": "Speak quickly with urgency",
+            "dramatic": "Speak with dramatic flair and emotional intensity",
+            "conversational": "Speak in a casual, natural conversational style",
+        },
+        "prompt_enhancer": {
+            "enabled": False,
+            "provider": "anthropic",
+            "api_key_env": "ANTHROPIC_API_KEY",
+            "model": "claude-haiku-4-5-20251001",
         },
     }
 
