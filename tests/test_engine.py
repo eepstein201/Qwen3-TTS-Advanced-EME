@@ -56,30 +56,23 @@ class TestEngineFunctions(unittest.TestCase):
 
     def test_cuda_optimizations_falls_back_to_sdpa_without_flash_attn(self):
         """_apply_cuda_optimizations uses sdpa when flash_attn not installed on Ampere+."""
-        # Create a mock torch module for CUDA simulation
+        import qwen3_tts.core.engine as engine_mod
         mock_torch = MagicMock()
         mock_torch.cuda.is_available.return_value = True
         mock_torch.cuda.get_device_capability.return_value = (8, 9)
         mock_torch.bfloat16 = "bfloat16_sentinel"
         mock_torch.backends.cudnn = MagicMock()
-        # Temporarily replace torch in sys.modules and reimport
         with patch("qwen3_tts.core.config._has_flash_attn", return_value=False):
             with patch.dict(sys.modules, {"torch": mock_torch}):
-                # Force reimport to pick up mocked torch
-                import importlib
-                import qwen3_tts.core.engine as engine_mod
-                importlib.reload(engine_mod)
-                try:
-                    config = {"generation": {"compile_model": True}}
-                    attn, dtype, compile_ = engine_mod._apply_cuda_optimizations(config)
-                    self.assertEqual(attn, "sdpa")
-                    self.assertEqual(dtype, "bfloat16_sentinel")
-                    self.assertTrue(compile_)
-                finally:
-                    importlib.reload(engine_mod)
+                config = {"generation": {"compile_model": True}}
+                attn, dtype, compile_ = engine_mod._apply_cuda_optimizations(config)
+                self.assertEqual(attn, "sdpa")
+                self.assertEqual(dtype, "bfloat16_sentinel")
+                self.assertTrue(compile_)
 
     def test_cuda_optimizations_uses_flash_attn_when_available(self):
         """_apply_cuda_optimizations uses flash_attention_2 when flash_attn installed on Ampere+."""
+        import qwen3_tts.core.engine as engine_mod
         mock_torch = MagicMock()
         mock_torch.cuda.is_available.return_value = True
         mock_torch.cuda.get_device_capability.return_value = (8, 0)
@@ -87,17 +80,11 @@ class TestEngineFunctions(unittest.TestCase):
         mock_torch.backends.cudnn = MagicMock()
         with patch("qwen3_tts.core.config._has_flash_attn", return_value=True):
             with patch.dict(sys.modules, {"torch": mock_torch}):
-                import importlib
-                import qwen3_tts.core.engine as engine_mod
-                importlib.reload(engine_mod)
-                try:
-                    config = {"generation": {"compile_model": True}}
-                    attn, dtype, compile_ = engine_mod._apply_cuda_optimizations(config)
-                    self.assertEqual(attn, "flash_attention_2")
-                    self.assertEqual(dtype, "bfloat16_sentinel")
-                    self.assertTrue(compile_)
-                finally:
-                    importlib.reload(engine_mod)
+                config = {"generation": {"compile_model": True}}
+                attn, dtype, compile_ = engine_mod._apply_cuda_optimizations(config)
+                self.assertEqual(attn, "flash_attention_2")
+                self.assertEqual(dtype, "bfloat16_sentinel")
+                self.assertTrue(compile_)
 
     def test_migrate_orphan_mlx_prompts_accepts_clone_model(self):
         """migrate_orphan_mlx_prompts accepts optional clone_model parameter."""

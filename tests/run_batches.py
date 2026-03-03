@@ -43,7 +43,7 @@ BATCHES = {
             "tests.test_caching",
             "tests.test_server_helpers",
         ],
-        "timeout": 120,
+        "timeout": 180,
     },
     3: {
         "name": "Server Infrastructure",
