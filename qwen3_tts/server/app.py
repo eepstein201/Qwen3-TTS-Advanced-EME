@@ -364,14 +364,14 @@ async def lifespan(app: FastAPI):
     logger.info("FastAPI server starting...")
 
     # Start background model loading
-    loader = threading.Thread(target=_background_load, args=(app,), daemon=True)
+    loader = threading.Thread(target=_background_load, args=(app.state,), daemon=True)
     loader.start()
 
     yield
 
     # Shutdown
     logger.info("FastAPI server shutting down...")
-    cleanup_resources(app)
+    cleanup_resources(app.state)
 
     # Clean up token file
     try:
