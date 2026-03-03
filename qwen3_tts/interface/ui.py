@@ -388,19 +388,39 @@ def get_presets():
 
 
 def _ensure_model_loaded(client, mode, progress):
-    """Check if the required model is loaded; if not, load it on demand."""
+    """Check if the required model is loaded; if not, load it on demand.
+
+    Args:
+        client: TTSClient instance
+        mode: Model type (clone/design/custom)
+        progress: gr.Progress() callback for status updates
+
+    Raises:
+        gr.Error: If model loading fails
+    """
     try:
         health = client.get_health()
         key = f"{mode}_model_loaded"
         if health.get(key):
+            progress(1.0, desc=f"✓ {mode.capitalize()} model ready")
             return  # already loaded
     except Exception:
-        return  # can't reach server; generate will report the error
+        progress(0.1, desc="Connecting to server...")
+        # Can't reach server; generate will report the error
+        return
 
-    progress(0, desc=f"Loading {mode} model (first use)...")
+    # Check for previous load error (NO try-except - let gr.Error bubble up)
+    errors = health.get("model_load_errors", {})
+    if mode in errors and errors[mode]:
+        progress(0.0, desc=f"✗ {mode.capitalize()} model failed to load")
+        raise gr.Error(f"{mode.capitalize()} model error: {errors[mode]}")
+
+    progress(0.2, desc=f"Loading {mode} model...")
     try:
         client.load_model(mode)
+        progress(1.0, desc=f"✓ {mode.capitalize()} model loaded")
     except Exception as e:
+        progress(0.0, desc=f"✗ Failed to load {mode} model")
         raise gr.Error(f"Failed to load {mode} model: {e}")
 
 
@@ -549,7 +569,7 @@ def _get_mode_kwargs(mode, prompt=None, description=None, speaker_choice=None, i
 
 def _generate_streaming_impl(mode, text, preset, temperature, top_k, top_p, rep_penalty, seed,
                               prompt=None, description=None, speaker_choice=None, instruct=None,
-                              x_vector_only_mode=False):
+                              x_vector_only_mode=False, progress=gr.Progress()):
     """Unified streaming generation for all modes."""
     # Validate inputs
     error = _validate_inputs(mode, text, description)
@@ -563,7 +583,7 @@ def _generate_streaming_impl(mode, text, preset, temperature, top_k, top_p, rep_
         return
 
     try:
-        _ensure_model_loaded(client, mode, lambda p, desc="": None)
+        _ensure_model_loaded(client, mode, progress)
 
         seed_val = int(seed) if seed and str(seed).strip() else None
         preset_val = preset if preset and preset != "(none)" else None
@@ -609,7 +629,7 @@ def _generate_streaming_impl(mode, text, preset, temperature, top_k, top_p, rep_
 
 
 def _generate_non_streaming_impl(mode, text, preset, temperature, top_k, top_p, rep_penalty, seed,
-                                  trim_silence, normalize, speed, pitch, progress,
+                                  trim_silence, normalize, speed, pitch, progress=gr.Progress(),
                                   prompt=None, description=None, speaker_choice=None, instruct=None,
                                   x_vector_only_mode=False):
     """Unified non-streaming generation for all modes."""
@@ -914,19 +934,34 @@ def update_startup_defaults(clone_startup, design_startup, custom_startup):
 
 
 def get_model_status_html(model_type):
-    """Compact colored indicator for a model's load status."""
+    """Compact colored indicator for a model's load status.
+
+    Shows:
+    - Green if model is loaded
+    - Red with error message if load failed
+    - Yellow if not loaded (will load on demand)
+    - Gray if server offline
+    """
     client = TTSClient()
     try:
         if not client.is_server_running():
-            return '<span style="color: gray;">Server offline</span>'
+            return '<span style="color: gray;">⚪ Server offline</span>'
+
         health = client.get_health()
         loaded = health.get(f"{model_type}_model_loaded", False)
-        if loaded:
-            return f'<span style="color: green; font-weight: bold;">● {model_type.capitalize()} loaded</span>'
+        errors = health.get("model_load_errors", {})
+        error_msg = errors.get(model_type)
+
+        if error_msg:
+            # Truncate very long error messages
+            display_error = error_msg if len(error_msg) <= 60 else error_msg[:57] + "..."
+            return f'<span style="color: red;">🔴 {model_type.capitalize()} error: {display_error}</span>'
+        elif loaded:
+            return f'<span style="color: green; font-weight: bold;">🟢 {model_type.capitalize()} loaded</span>'
         else:
-            return f'<span style="color: gray;">○ {model_type.capitalize()} not loaded</span>'
+            return f'<span style="color: #b0b000;">🟡 {model_type.capitalize()} not loaded — will load on demand</span>'
     except Exception:
-        return '<span style="color: gray;">Unknown</span>'
+        return '<span style="color: gray;">⚪ Unknown</span>'
 
 
 def get_audio_loader_setting():
@@ -1126,7 +1161,7 @@ def build_ui():
         # Tabs for different modes
         with gr.Tabs():
             # ---- Clone Mode Tab ----
-            with gr.Tab("Clone Mode"):
+            with gr.Tab("Clone Mode") as clone_tab:
                 gr.Markdown(
                     "Use a voice prompt file to clone a specific voice. "
                     "Clone mode reproduces the voice from your reference audio. "
@@ -1182,7 +1217,7 @@ def build_ui():
                 )
 
             # ---- Design Mode Tab ----
-            with gr.Tab("Design Mode"):
+            with gr.Tab("Design Mode") as design_tab:
                 gr.Markdown("Generate a voice from a text description.")
                 design_model_indicator = gr.HTML(value=get_model_status_html("design"))
 
@@ -1299,7 +1334,7 @@ def build_ui():
                 )
 
             # ---- Custom Mode Tab ----
-            with gr.Tab("Custom Mode"):
+            with gr.Tab("Custom Mode") as custom_tab:
                 gr.Markdown("Use premium pre-trained speakers.")
                 custom_model_indicator = gr.HTML(value=get_model_status_html("custom"))
 
@@ -1348,6 +1383,20 @@ def build_ui():
                 )
 
                 custom_prosody.change(fn=apply_prosody_preset, inputs=[custom_prosody, custom_instruct], outputs=custom_instruct)
+
+            # Tab selection handlers - update model status when switching tabs
+            clone_tab.select(
+                fn=lambda: get_model_status_html("clone"),
+                outputs=clone_model_indicator
+            )
+            design_tab.select(
+                fn=lambda: get_model_status_html("design"),
+                outputs=design_model_indicator
+            )
+            custom_tab.select(
+                fn=lambda: get_model_status_html("custom"),
+                outputs=custom_model_indicator
+            )
 
             # Create Voice Tab
             with gr.Tab("Create Voice"):
@@ -1553,12 +1602,28 @@ def build_ui():
                     fn=lambda mt: toggle_model(mt, "load"),
                     inputs=[model_type_select],
                     outputs=[model_manage_status, model_table, status_html]
+                ).then(
+                    fn=lambda mt: (
+                        get_model_status_html("clone") if mt == "clone" else gr.update(),
+                        get_model_status_html("design") if mt == "design" else gr.update(),
+                        get_model_status_html("custom") if mt == "custom" else gr.update(),
+                    ),
+                    inputs=[model_type_select],
+                    outputs=[clone_model_indicator, design_model_indicator, custom_model_indicator]
                 )
 
                 model_unload_btn.click(
                     fn=lambda mt: toggle_model(mt, "unload"),
                     inputs=[model_type_select],
                     outputs=[model_manage_status, model_table, status_html]
+                ).then(
+                    fn=lambda mt: (
+                        get_model_status_html("clone") if mt == "clone" else gr.update(),
+                        get_model_status_html("design") if mt == "design" else gr.update(),
+                        get_model_status_html("custom") if mt == "custom" else gr.update(),
+                    ),
+                    inputs=[model_type_select],
+                    outputs=[clone_model_indicator, design_model_indicator, custom_model_indicator]
                 )
 
                 asr_load_btn.click(
@@ -1582,6 +1647,16 @@ def build_ui():
                     inputs=[audio_loader_select],
                     outputs=audio_loader_status
                 )
+
+        # Update all model status indicators on UI load
+        demo.load(
+            fn=lambda: (
+                get_model_status_html("clone"),
+                get_model_status_html("design"),
+                get_model_status_html("custom")
+            ),
+            outputs=[clone_model_indicator, design_model_indicator, custom_model_indicator]
+        )
 
         # Footer
         gr.Markdown("""
