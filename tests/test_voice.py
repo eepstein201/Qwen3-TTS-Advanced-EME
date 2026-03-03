@@ -104,7 +104,7 @@ class TestTTSConfig(unittest.TestCase):
 
     def test_imports_no_torch(self):
         """qwen3_tts.core.config must not import torch."""
-        from qwen3_tts.core.config import config  # noqa: F401
+        from qwen3_tts.core import config  # noqa: F401
         self.assertNotIn("torch", sys.modules.keys() - {"torch"})
 
     def test_error_hierarchy(self):
@@ -846,7 +846,7 @@ class TestLazyImports(unittest.TestCase):
 
     def test_config_no_torch(self):
         """qwen3_tts.core.config must not import torch (regression check)."""
-        from qwen3_tts.core.config import config  # noqa: F401
+        from qwen3_tts.core import config  # noqa: F401
         # config module should never cause torch to load
         self.assertNotIn("torch", dir(config))
 
