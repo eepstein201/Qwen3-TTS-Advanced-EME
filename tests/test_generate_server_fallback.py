@@ -14,7 +14,36 @@ import sys
 import unittest
 from unittest.mock import MagicMock, mock_open, patch
 
-import pytest
+try:
+    import pytest
+    HAS_PYTEST = True
+except ImportError:
+    HAS_PYTEST = False
+    # Dummy decorator for when pytest is not available
+    class _DummyMarkerFunc:
+        """Represents a marker function like skipif that takes condition and returns decorator."""
+        def __init__(self, name=None):
+            self._name = name
+        def __call__(self, condition, **kwargs):
+            # skipif, etc. take condition as first arg, return a decorator
+            return lambda f: f
+    class _DummyMarker:
+        def __call__(self, func):
+            return func
+        def __getattr__(self, name):
+            # Return special function for skipif, otherwise return a callable marker
+            if name == 'skipif':
+                return _DummyMarkerFunc(name)
+            return _DummyMarkerFunc(name)
+        @property
+        def unit(self):
+            return self
+    class _DummyMark:
+        def __getattr__(self, name):
+            return _DummyMarkerFunc()
+    class _DummyPytest:
+        mark = _DummyMark()
+    pytest = _DummyPytest()
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 

@@ -300,7 +300,7 @@ create_mlx_env() {
         else
             info "Keeping existing environment. Updating packages..."
             conda activate "$MLX_ENV_NAME"
-            pip install --upgrade -e "$USER_FILES_DIR/[mlx,server,audio,rich]"
+            pip install --upgrade -e "$USER_FILES_DIR/[mlx,server,audio,rich,ui]"
             conda deactivate 2>/dev/null || true
             success "Packages updated!"
             return
@@ -314,7 +314,7 @@ create_mlx_env() {
     conda activate "$MLX_ENV_NAME"
 
     info "Installing MLX dependencies..."
-    pip install -e "$USER_FILES_DIR/[mlx,server,audio,rich]"
+    pip install -e "$USER_FILES_DIR/[mlx,server,audio,rich,ui]"
 
     conda deactivate 2>/dev/null || true
 
@@ -358,7 +358,7 @@ create_torch_env() {
         else
             info "Keeping existing environment. Updating packages..."
             conda activate "$TORCH_ENV_NAME"
-            pip install --upgrade qwen-tts flask librosa soundfile numpy pydub requests gradio watchdog
+            pip install --upgrade -e "$USER_FILES_DIR/[torch,server,audio,ui,rich]"
             conda deactivate 2>/dev/null || true
             success "Packages updated!"
             return
@@ -375,7 +375,7 @@ create_torch_env() {
     pip install torch torchvision torchaudio
 
     info "Installing Qwen3-TTS and dependencies..."
-    pip install qwen-tts flask librosa soundfile numpy pydub requests gradio watchdog
+    pip install -e "$USER_FILES_DIR/[torch,server,audio,ui,rich]"
 
     conda deactivate 2>/dev/null || true
 

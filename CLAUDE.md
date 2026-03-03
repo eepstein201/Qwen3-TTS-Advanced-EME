@@ -239,11 +239,46 @@ CLI and UI parse the `recovery` field to show actionable guidance.
 
 ## Testing
 
+**Preferred: Batch runner** (prevents hangs from cascading failures):
+```bash
+# Run all batches
+python tests/run_batches.py
+
+# Run specific batch
+python tests/run_batches.py --batch 1
+
+# Continue on failure
+python tests/run_batches.py --continue
+
+# List all batches
+python tests/run_batches.py --list
+```
+
+**Or use Makefile:**
+```bash
+make test-batch        # Run all batches
+make test-core         # Batch 1: Core utilities
+make test-voice        # Batch 2: Voice & CLI
+make test-server       # Batch 3: Server infrastructure
+make test-engine       # Batch 4: Engine & UI
+make test-optional     # Batch 5: Optional (pytest-dependent)
+```
+
+**Full test suite** (may hang):
 ```bash
 python -m unittest discover -v tests/
 ```
 
-480+ tests across 4 files (test_voice.py, test_audio_utils.py, test_core_infra.py, test_flash_attn_install.py). No GPU, models, or running server required. Tests auto-skip when optional deps (`soundfile`, `gradio`, `fastapi`, `click`) are missing — run in a conda env for full coverage.
+**Batches:**
+| Batch | Tests | Risk | Timeout |
+|-------|-------|------|---------|
+| 1: Core Utilities | audio_utils, text_processing, package_metadata, deprecated_refs, config | Low | 60s |
+| 2: Voice & CLI | voice, cli_daemonization, caching, server_helpers | Medium | 120s |
+| 3: Server Infrastructure | fastapi_server, fastapi_endpoints, client | High | 180s |
+| 4: Engine & UI | engine, generate_server_fallback, ui_headless | Highest | 240s |
+| 5: Optional | flash_attn_install | Low | 30s |
+
+480+ tests across 16 test files. No GPU, models, or running server required. Tests auto-skip when optional deps (`soundfile`, `gradio`, `fastapi`, `click`, `pytest`) are missing — run in a conda env for full coverage.
 
 ## Models
 
