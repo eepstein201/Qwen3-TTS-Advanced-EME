@@ -432,17 +432,19 @@ def cleanup_resources(app_state):
     # Cancel shutdown timer
     shutdown_timer = getattr(app_state, "shutdown_timer", None)
     if shutdown_timer is not None:
-        app_state.shutdown_timer.cancel()
+        shutdown_timer.cancel()
 
     # Clean up models
-    for name in ("clone", "design", "custom"):
-        model = app_state.models.get(name)
-        if model is not None:
-            try:
-                del model
-                app_state.models[name] = None
-            except Exception:
-                pass
+    models = getattr(app_state, "models", None)
+    if models is not None:
+        for name in ("clone", "design", "custom"):
+            model = models.get(name)
+            if model is not None:
+                try:
+                    del model
+                    models[name] = None
+                except Exception:
+                    pass
 
     # Clean up PID file
     try:
@@ -454,8 +456,9 @@ def cleanup_resources(app_state):
 
 def cleanup_pid(app_state):
     """Clean up PID file and exit."""
-    if app_state.shutdown_timer is not None:
-        app_state.shutdown_timer.cancel()
+    shutdown_timer = getattr(app_state, "shutdown_timer", None)
+    if shutdown_timer is not None:
+        shutdown_timer.cancel()
     if os.path.exists(PID_FILE):
         os.remove(PID_FILE)
     if os.path.exists(TOKEN_FILE):
@@ -482,12 +485,13 @@ async def health(request: Request):
     reset_activity_timer(state)
 
     if not state.models_loaded.is_set():
+        from fastapi.responses import JSONResponse
         data = {"status": "loading"}
         # Include model load errors even during loading
         data["model_load_errors"] = {
             k: v for k, v in state.model_load_errors.items() if v is not None
         }
-        return data, 503
+        return JSONResponse(content=data, status_code=503)
 
     backend = get_backend()
     data = {
