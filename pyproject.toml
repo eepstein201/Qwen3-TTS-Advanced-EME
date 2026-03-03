@@ -96,6 +96,7 @@ packages = ["qwen3_tts"]
 asyncio_mode = "auto"
 testpaths = ["tests"]
 pythonpath = "."
+addopts = "-v --tb=short"
 markers = [
     "unit: fast tests, no external services",
     "integration: requires FastAPI/server",
