@@ -344,6 +344,9 @@ async def lifespan(app: FastAPI):
     # ETA cache
     app.state.eta_cache = {"median_rate": None, "last_updated": 0}
 
+    # Model load error tracking
+    app.state.model_load_errors = {"clone": None, "design": None, "custom": None}
+
     # Auto-shutdown timer
     app.state.shutdown_timer = None
 
@@ -409,7 +412,9 @@ def _background_load(app_state):
             app_state.model_load_times[model_type] = round(time.time() - t0, 1)
             logger.info("Loaded %s model successfully in %.1fs.", model_type, app_state.model_load_times[model_type])
         except Exception as e:
-            logger.error("Failed to load %s model: %s", model_type, e)
+            error_msg = str(e)
+            logger.error("Failed to load %s model: %s", model_type, error_msg, exc_info=True)
+            app_state.model_load_errors[model_type] = error_msg
 
     # MLX prompt migration for torch backend
     if get_backend() == "torch":
@@ -425,7 +430,8 @@ def _background_load(app_state):
 def cleanup_resources(app_state):
     """Clean up resources on shutdown."""
     # Cancel shutdown timer
-    if app_state.shutdown_timer is not None:
+    shutdown_timer = getattr(app_state, "shutdown_timer", None)
+    if shutdown_timer is not None:
         app_state.shutdown_timer.cancel()
 
     # Clean up models
@@ -476,7 +482,12 @@ async def health(request: Request):
     reset_activity_timer(state)
 
     if not state.models_loaded.is_set():
-        return {"status": "loading"}, 503
+        data = {"status": "loading"}
+        # Include model load errors even during loading
+        data["model_load_errors"] = {
+            k: v for k, v in state.model_load_errors.items() if v is not None
+        }
+        return data, 503
 
     backend = get_backend()
     data = {
@@ -487,6 +498,10 @@ async def health(request: Request):
         "design_model_loaded": state.models.get("design") is not None,
         "custom_model_loaded": state.models.get("custom") is not None,
         "model_load_times": state.model_load_times,
+    }
+    # Include model load errors if any
+    data["model_load_errors"] = {
+        k: v for k, v in state.model_load_errors.items() if v is not None
     }
     if backend == "mlx":
         data["mlx_quantization"] = get_mlx_quantization()
@@ -664,17 +679,28 @@ async def load_model_endpoint(request: Request, req: LoadModelRequest, _auth: No
         state.models[model_type] = model
         state.model_load_times[model_type] = round(time.time() - t0, 1)
         logger.info("Loaded %s model successfully in %.1fs.", model_type, state.model_load_times[model_type])
+        # Clear any previous load error for this model
+        state.model_load_errors[model_type] = None
     except ImportError as e:
         logger.error("Backend not available for model loading %s: %s", model_type, e, exc_info=True)
+        state.model_load_errors[model_type] = str(e)
         raise HTTPException(
             status_code=500,
-            detail="Required backend not available. Check server logs for details.",
+            detail={"error": "import_error", "message": str(e)},
         )
     except (RuntimeError, OSError, ValueError) as e:
         logger.error("Failed to load model %s: %s", model_type, e, exc_info=True)
+        state.model_load_errors[model_type] = str(e)
         raise HTTPException(
             status_code=500,
-            detail="Model load failed. Check server logs for details.",
+            detail={"error": "load_failed", "message": str(e)},
+        )
+    except Exception as e:
+        logger.error("Unexpected error loading model %s: %s", model_type, e, exc_info=True)
+        state.model_load_errors[model_type] = str(e)
+        raise HTTPException(
+            status_code=500,
+            detail={"error": "unknown_error", "message": str(e)},
         )
 
     return {"status": "loaded", "model": model_type}
@@ -1373,9 +1399,10 @@ async def generate_stream(request: Request, req: GenerateRequest, _auth: None = 
     # Check if required model is loaded
     model = state.models.get(mode)
     if model is None:
+        error_msg = state.model_load_errors.get(mode, "Model not loaded")
         raise HTTPException(
             status_code=503,
-            detail={"error": "model_not_loaded", "detail": f"The '{mode}' model is not loaded"},
+            detail={"error": "model_not_loaded", "message": error_msg, "model_type": mode},
         )
 
     # Generation parameters

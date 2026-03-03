@@ -113,6 +113,7 @@ def initialize_app_state_for_xdist():
         app.state.gen_cache_lock = threading.Lock()
         app.state.inference_lock = asyncio.Lock()
         app.state.eta_cache = {"median_rate": None, "last_updated": 0}
+        app.state.model_load_errors = {"clone": None, "design": None, "custom": None}
         app.state.shutdown_timer = None
 
         yield
@@ -309,6 +310,7 @@ def fastapi_client(tmp_config, unused_port):
         app.state.gen_cache_lock = threading.Lock()
         app.state.inference_lock = asyncio.Lock()
         app.state.eta_cache = {"median_rate": None, "last_updated": 0}
+        app.state.model_load_errors = {"clone": None, "design": None, "custom": None}
         app.state.shutdown_timer = None
 
         # Update server_config with the dynamic port
