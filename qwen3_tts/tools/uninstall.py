@@ -19,6 +19,7 @@ from qwen3_tts.core.config import (
     LOG_FILE,
     PID_FILE,
 )
+from qwen3_tts.tools.model_cache import _MLX_MODEL_PREFIXES, _TORCH_MODEL_PREFIXES
 
 # HuggingFace cache location
 HF_CACHE = pathlib.Path.home() / ".cache" / "huggingface" / "hub"
@@ -51,15 +52,16 @@ def _get_models_size() -> int:
     total = 0
     if HF_CACHE.exists():
         for model_dir in HF_CACHE.iterdir():
-            if model_dir.name.startswith(("models--Qwen--", "models--mlx-community--")):
-                if model_dir.is_dir():
-                    # Calculate directory size
-                    for item in model_dir.rglob("*"):
-                        if item.is_file():
-                            try:
-                                total += item.stat().st_size
-                            except OSError:
-                                pass
+            if model_dir.is_dir() and any(
+                model_dir.name.startswith(prefix) for prefix in _TORCH_MODEL_PREFIXES + _MLX_MODEL_PREFIXES
+            ):
+                # Calculate directory size
+                for item in model_dir.rglob("*"):
+                    if item.is_file():
+                        try:
+                            total += item.stat().st_size
+                        except OSError:
+                            pass
     return total
 
 
@@ -68,9 +70,10 @@ def _list_cached_models() -> list[str]:
     models = []
     if HF_CACHE.exists():
         for model_dir in HF_CACHE.iterdir():
-            if model_dir.name.startswith(("models--Qwen--", "models--mlx-community--Qwen3-TTS")):
-                if model_dir.is_dir():
-                    models.append(model_dir.name)
+            if model_dir.is_dir() and any(
+                model_dir.name.startswith(prefix) for prefix in _TORCH_MODEL_PREFIXES + _MLX_MODEL_PREFIXES
+            ):
+                models.append(model_dir.name)
     return sorted(models)
 
 
@@ -261,6 +264,7 @@ def print_environment_instructions() -> None:
 
     # Detect which environments exist
     conda_envs = []
+    miniforge_envs = None  # Initialize to prevent undefined variable
     if os.path.exists(os.path.expanduser("~/miniforge3/envs")):
         miniforge_envs = os.path.expanduser("~/miniforge3/envs")
     elif os.path.exists(os.path.expanduser("~/miniconda3/envs")):

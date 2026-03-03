@@ -22,6 +22,7 @@ from qwen3_tts.core.config import (
     PID_FILE,
     LOG_FILE,
 )
+from qwen3_tts.tools.model_cache import _MLX_MODEL_PREFIXES, _TORCH_MODEL_PREFIXES
 
 # HuggingFace cache location
 HF_CACHE = pathlib.Path.home() / ".cache" / "huggingface" / "hub"
@@ -160,11 +161,10 @@ def check_model_cache() -> tuple:
     model_count = 0
     total_size = 0
 
-    torch_prefixes = ("models--Qwen--Qwen3-TTS",)
-    mlx_prefixes = ("models--mlx-community--Qwen3-TTS",)
-
     for model_dir in HF_CACHE.iterdir():
-        if model_dir.name.startswith(torch_prefixes + mlx_prefixes) and model_dir.is_dir():
+        if model_dir.is_dir() and any(
+            model_dir.name.startswith(prefix) for prefix in _TORCH_MODEL_PREFIXES + _MLX_MODEL_PREFIXES
+        ):
             model_count += 1
             # Simple size estimate
             try:

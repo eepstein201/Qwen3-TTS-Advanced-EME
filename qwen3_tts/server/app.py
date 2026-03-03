@@ -78,6 +78,47 @@ def _get_gen_cache_max() -> int:
 
 
 # ---------------------------------------------------------------------------
+# Temp file cleanup tracking
+# ---------------------------------------------------------------------------
+
+_pending_cleanup = set()
+_cleanup_lock = threading.Lock()
+
+
+def _mark_for_cleanup(filepath: str) -> None:
+    """Mark a temp file for deferred cleanup after client download."""
+    with _cleanup_lock:
+        _pending_cleanup.add(filepath)
+
+
+def _cleanup_pending_files() -> None:
+    """Clean up temp files that have been marked for cleanup."""
+    with _cleanup_lock:
+        files_to_cleanup = list(_pending_cleanup)
+        _pending_cleanup.clear()
+    # Delete files outside the lock to avoid blocking
+    for filepath in files_to_cleanup:
+        try:
+            if os.path.exists(filepath):
+                os.unlink(filepath)
+        except OSError:
+            pass
+
+
+def _cleanup_worker() -> None:
+    """Background worker that cleans up temp files after a delay."""
+    import time
+    time.sleep(60)  # Wait 60 seconds for client to download
+    _cleanup_pending_files()
+
+
+def _schedule_cleanup() -> None:
+    """Schedule background cleanup of marked temp files."""
+    thread = threading.Thread(target=_cleanup_worker, daemon=True)
+    thread.start()
+
+
+# ---------------------------------------------------------------------------
 # Pydantic models for request validation
 # ---------------------------------------------------------------------------
 
@@ -1148,15 +1189,20 @@ async def generate(request: Request, req: GenerateRequest, _auth: None = Depends
             pre_lock_cache_keys[i] = cache_key
             with state.gen_cache_lock:
                 entry = state.gen_cache.get(cache_key)
-            if entry and os.path.exists(entry["file"]):
-                temp_path = _create_temp_audio_copy(entry["file"])
-                pre_lock_results[i] = {"index": i, "file": temp_path, "sample_rate": entry["sample_rate"]}
+            # Check both old structure (file) and new structure (main_file)
+            cache_file = entry.get("main_file") or entry.get("file")
+            if cache_file and os.path.exists(cache_file):
+                # Create temp copy for serving (will be cleaned up after response)
+                temp_path = _create_temp_audio_copy(cache_file)
+                _mark_for_cleanup(temp_path)
+                pre_lock_results[i] = {"index": i, "file": temp_path, "sample_rate": entry["sample_rate"], "cleanup": True}
                 logger.info("Generation cache hit (pre-lock) for text %d/%d", i + 1, len(texts))
 
         # If ALL texts hit cache, skip the lock entirely
         if len(pre_lock_results) == len(texts):
             results = [pre_lock_results[i] for i in range(len(texts))]
             state.request_queue.discard(request_id)
+            _schedule_cleanup()
             return {"results": results}
 
         # Acquire locks for thread-safe generation
@@ -1174,9 +1220,13 @@ async def generate(request: Request, req: GenerateRequest, _auth: None = Depends
                     cache_key = pre_lock_cache_keys[i]
                     with state.gen_cache_lock:
                         entry = state.gen_cache.get(cache_key)
-                    if entry and os.path.exists(entry["file"]):
-                        temp_path = _create_temp_audio_copy(entry["file"])
-                        results.append({"index": i, "file": temp_path, "sample_rate": entry["sample_rate"]})
+                    # Check both old structure (file) and new structure (main_file)
+                    cache_file = entry.get("main_file") or entry.get("file")
+                    if cache_file and os.path.exists(cache_file):
+                        # Create temp copy for serving (will be cleaned up after response)
+                        temp_path = _create_temp_audio_copy(cache_file)
+                        _mark_for_cleanup(temp_path)
+                        results.append({"index": i, "file": temp_path, "sample_rate": entry["sample_rate"], "cleanup": True})
                         logger.info("Generation cache hit (post-lock) for text %d/%d", i + 1, len(texts))
                         continue
 
@@ -1232,26 +1282,37 @@ async def generate(request: Request, req: GenerateRequest, _auth: None = Depends
                     except Exception:
                         os.unlink(temp_file.name)
                         raise
-                    results.append({"index": i, "file": temp_file.name, "sample_rate": sr})
 
-                    # Store in generation cache
-                    cache_path = _create_temp_audio_copy(temp_file.name)
+                    # Store in generation cache (use the temp file directly, mark for cleanup)
                     with state.gen_cache_lock:
                         # Evict oldest if full
                         if len(state.gen_cache) >= _get_gen_cache_max():
                             oldest_key = min(state.gen_cache, key=lambda k: state.gen_cache[k]["timestamp"])
                             old_entry = state.gen_cache.pop(oldest_key)
                             try:
-                                if os.path.exists(old_entry["file"]):
-                                    os.remove(old_entry["file"])
+                                # Clean up old cache file and its temp copy (if any)
+                                old_main = old_entry.get("main_file")
+                                old_temp = old_entry.get("temp_file")
+                                if old_temp and os.path.exists(old_temp):
+                                    os.unlink(old_temp)
+                                if old_main and old_main != old_temp and os.path.exists(old_main):
+                                    os.remove(old_main)
                             except OSError:
                                 pass
+                        # Store both the cache file (persistent) and temp file (for current response)
+                        # Create persistent copy for cache
+                        cache_path = _create_temp_audio_copy(temp_file.name)
                         state.gen_cache[cache_key] = {
-                            "file": cache_path,
+                            "main_file": cache_path,
+                            "temp_file": temp_file.name,  # Tracked for cleanup after response
                             "sample_rate": sr,
                             "timestamp": time.time(),
                         }
 
+                    # Return temp file path for immediate response (will be cleaned up after serving)
+                    results.append({"index": i, "file": temp_file.name, "sample_rate": sr, "cleanup": True})
+
+                _schedule_cleanup()
                 return {"results": results}
 
     except HTTPException:

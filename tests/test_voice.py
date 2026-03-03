@@ -3226,7 +3226,7 @@ class TestClickCLI(unittest.TestCase):
         runner = CliRunner()
         result = runner.invoke(cli, ['--version'])
         self.assertEqual(result.exit_code, 0)
-        self.assertIn('2.0.0', result.output)
+        self.assertIn('3.0.0', result.output)
 
     def test_cli_help(self):
         """CLI --help shows subcommands."""
