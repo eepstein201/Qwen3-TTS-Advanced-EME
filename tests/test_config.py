@@ -54,32 +54,32 @@ class TestConfigEdgeCases(unittest.TestCase):
 
     def test_get_backend_returns_string(self):
         """get_backend() returns 'torch' or 'mlx'."""
-        from voice_config import get_backend
+        from qwen3_tts.core.config import get_backend
         result = get_backend()
         self.assertIn(result, ("torch", "mlx"))
 
     def test_get_model_size_default(self):
         """get_model_size() returns '1.7B' or '0.6B'."""
-        from voice_config import get_model_size
+        from qwen3_tts.core.config import get_model_size
         result = get_model_size()
         self.assertIn(result, ("1.7B", "0.6B"))
 
     def test_model_info_keys(self):
         """MODEL_INFO has size-based keys."""
-        from voice_config import MODEL_INFO
+        from qwen3_tts.core.config import MODEL_INFO
         self.assertIn("1.7B", MODEL_INFO)
         self.assertIn("0.6B", MODEL_INFO)
 
     def test_custom_speakers_have_fields(self):
         """Each entry in CUSTOM_VOICE_SPEAKERS has a 'name' key."""
-        from voice_config import CUSTOM_VOICE_SPEAKERS
+        from qwen3_tts.core.config import CUSTOM_VOICE_SPEAKERS
         self.assertGreater(len(CUSTOM_VOICE_SPEAKERS), 0)
         for key, entry in CUSTOM_VOICE_SPEAKERS.items():
             self.assertIn("name", entry, f"Speaker '{key}' missing 'name' field")
 
     def test_prosody_presets_all_strings(self):
         """All values in DEFAULT_PROSODY_PRESETS are non-empty strings."""
-        from voice_config import DEFAULT_PROSODY_PRESETS
+        from qwen3_tts.core.config import DEFAULT_PROSODY_PRESETS
         self.assertGreater(len(DEFAULT_PROSODY_PRESETS), 0)
         for key, value in DEFAULT_PROSODY_PRESETS.items():
             self.assertIsInstance(value, str, f"Preset '{key}' is not a string")
@@ -87,7 +87,7 @@ class TestConfigEdgeCases(unittest.TestCase):
 
     def test_valid_backends_constant(self):
         """VALID_BACKENDS contains 'torch' and 'mlx'."""
-        from voice_config import VALID_BACKENDS
+        from qwen3_tts.core.config import VALID_BACKENDS
         self.assertIn("torch", VALID_BACKENDS)
         self.assertIn("mlx", VALID_BACKENDS)
 
@@ -98,7 +98,7 @@ class TestConfigValidation(unittest.TestCase):
 
     def test_valid_config_no_issues(self):
         """A well-formed config produces no validation issues."""
-        from voice_config import validate_config
+        from qwen3_tts.core.config import validate_config
         config = {
             "advanced": {"backend": "mlx", "model_size": "1.7B"},
             "generation": {"temperature": 0.7},
@@ -107,27 +107,27 @@ class TestConfigValidation(unittest.TestCase):
         self.assertEqual(validate_config(config), [])
 
     def test_invalid_backend(self):
-        from voice_config import validate_config
+        from qwen3_tts.core.config import validate_config
         issues = validate_config({"advanced": {"backend": "invalid"}})
         self.assertTrue(any("backend" in i for i in issues))
 
     def test_invalid_model_size(self):
-        from voice_config import validate_config
+        from qwen3_tts.core.config import validate_config
         issues = validate_config({"advanced": {"model_size": "99B"}})
         self.assertTrue(any("model_size" in i for i in issues))
 
     def test_temperature_out_of_range(self):
-        from voice_config import validate_config
+        from qwen3_tts.core.config import validate_config
         issues = validate_config({"generation": {"temperature": 5.0}})
         self.assertTrue(any("temperature" in i for i in issues))
 
     def test_negative_max_text_length(self):
-        from voice_config import validate_config
+        from qwen3_tts.core.config import validate_config
         issues = validate_config({"security": {"max_text_length": -1}})
         self.assertTrue(any("max_text_length" in i for i in issues))
 
     def test_empty_config_no_issues(self):
-        from voice_config import validate_config
+        from qwen3_tts.core.config import validate_config
         self.assertEqual(validate_config({}), [])
 
 
