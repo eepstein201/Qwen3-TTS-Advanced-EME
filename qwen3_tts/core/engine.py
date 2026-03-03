@@ -434,14 +434,24 @@ def _install_mps_patch():
 # Voice prompt cache
 # ---------------------------------------------------------------------------
 
-@lru_cache(maxsize=10)  # Matches config default for cache.voice_prompt_max
+_torch_prompt_cache = OrderedDict()
+
+
 def _load_voice_prompt_torch(prompt_file):
     """Load and cache a .pt voice prompt (torch backend).
 
     If the .pt file doesn't exist but .wav + .txt files do, auto-creates
     the .pt using the already-loaded clone model (avoids loading a second model).
+
+    Results are cached (up to cache.voice_prompt_max entries, default 10) for
+    repeated lookups. Cache is config-aware and respects the voice_prompt_max setting.
     """
     import torch
+
+    # Check cache first (move to end on hit for LRU eviction)
+    if prompt_file in _torch_prompt_cache:
+        _torch_prompt_cache.move_to_end(prompt_file)
+        return _torch_prompt_cache[prompt_file]
 
     prompt_path = os.path.join(VOICE_PROMPTS_DIR, prompt_file)
     if not os.path.exists(prompt_path):
@@ -462,6 +472,11 @@ def _load_voice_prompt_torch(prompt_file):
             voice_prompt = create_voice_prompt(model, ref_audio, ref_sr, transcript)
             torch.save(voice_prompt, prompt_path)
             logger.info("Auto-created and saved %s", prompt_path)
+            # Cache the result
+            max_size = get_voice_prompt_cache_max()
+            if len(_torch_prompt_cache) >= max_size:
+                _torch_prompt_cache.popitem(last=False)
+            _torch_prompt_cache[prompt_file] = voice_prompt
             return voice_prompt
         return None
     from qwen3_tts.core.config import get_device
@@ -474,7 +489,13 @@ def _load_voice_prompt_torch(prompt_file):
     except ImportError:
         pass  # qwen_tts not installed — fall through to exception handler
     try:
-        return torch.load(prompt_path, weights_only=True, map_location=device)
+        result = torch.load(prompt_path, weights_only=True, map_location=device)
+        # Cache the result
+        max_size = get_voice_prompt_cache_max()
+        if len(_torch_prompt_cache) >= max_size:
+            _torch_prompt_cache.popitem(last=False)
+        _torch_prompt_cache[prompt_file] = result
+        return result
     except Exception:
         allow_unsafe = os.environ.get("TTS_ALLOW_UNSAFE_PICKLE") == "1"
         real_prompt = os.path.realpath(prompt_path)
@@ -492,7 +513,13 @@ def _load_voice_prompt_torch(prompt_file):
             "Loading %s with weights_only=False — only load trusted .pt files",
             prompt_file,
         )
-        return torch.load(prompt_path, weights_only=False, map_location=device)  # nosec B614
+        result = torch.load(prompt_path, weights_only=False, map_location=device)  # nosec B614
+        # Cache the result
+        max_size = get_voice_prompt_cache_max()
+        if len(_torch_prompt_cache) >= max_size:
+            _torch_prompt_cache.popitem(last=False)
+        _torch_prompt_cache[prompt_file] = result
+        return result
 
 
 def load_voice_prompt(prompt_file):
@@ -509,26 +536,31 @@ def load_voice_prompt(prompt_file):
 
 def clear_voice_prompt_cache():
     """Clear both torch and MLX voice prompt caches."""
-    _load_voice_prompt_torch.cache_clear()
+    _torch_prompt_cache.clear()
     _mlx_prompt_cache.clear()
 
 
 def voice_prompt_cache_info():
     """Return cache statistics for the active backend.
 
-    For torch: returns lru_cache info (named tuple with hits, misses, etc.)
+    For torch: returns simple namespace with currsize/maxsize (manual OrderedDict cache).
     For mlx: returns a simple namespace with hits/currsize.
     """
+    from types import SimpleNamespace
     backend = get_backend()
     if backend == "mlx":
-        from types import SimpleNamespace
         return SimpleNamespace(
             currsize=len(_mlx_prompt_cache),
             hits=0,  # dict cache doesn't track hits
             misses=0,
             maxsize=get_voice_prompt_cache_max(),
         )
-    return _load_voice_prompt_torch.cache_info()
+    return SimpleNamespace(
+        currsize=len(_torch_prompt_cache),
+        hits=0,  # manual cache doesn't track hits
+        misses=0,
+        maxsize=get_voice_prompt_cache_max(),
+    )
 
 
 def migrate_orphan_mlx_prompts(clone_model=None):
@@ -771,6 +803,7 @@ def _run_inference_torch(model, text, mode, gen_params, language="English",
 
     # Float32 guard: clone mode on MPS requires float32 to avoid NaN/Inf errors.
     # If a non-float32 dtype is configured, override for this call and warn.
+    original_dtype = None
     if mode == "clone" and torch.backends.mps.is_available():
         dtype_name = get_torch_dtype_name()
         if dtype_name != "float32":
@@ -780,7 +813,8 @@ def _run_inference_torch(model, text, mode, gen_params, language="English",
                 "Set advanced.dtype to 'float32' in %s to silence this warning.",
                 dtype_name, CONFIG_PATH,
             )
-            # Cast model to float32 for this call, restore after
+            # Save original dtype and cast model to float32 for this call
+            original_dtype = next(model.parameters()).dtype
             model.float()
 
     params = {
@@ -833,6 +867,10 @@ def _run_inference_torch(model, text, mode, gen_params, language="English",
                 )
             raise
         raise
+    finally:
+        # Restore original dtype if we overrode it
+        if original_dtype is not None:
+            model.to(original_dtype)
 
     # Device memory management
     if torch.backends.mps.is_available():
@@ -862,7 +900,44 @@ def _run_inference_torch(model, text, mode, gen_params, language="English",
         len(text), elapsed, mode,
     )
 
-    return wavs[0], sr
+    wav = _validate_audio(wavs[0], sr, mode=mode)
+    return wav, sr
+
+
+def _validate_audio(wav, sample_rate, mode="unknown"):
+    """Check generated audio for common quality issues.
+
+    Logs warnings for issues found, never blocks. Returns the audio
+    with issues corrected (NaN replaced, clipping normalized).
+
+    Args:
+        wav: Audio numpy array
+        sample_rate: Sample rate in Hz
+        mode: TTS mode (for logging)
+
+    Returns:
+        Validated/corrected audio array
+    """
+    if wav is None or len(wav) == 0:
+        logger.warning("Generated audio is empty (mode=%s)", mode)
+        return wav
+
+    # NaN check
+    if np.any(np.isnan(wav)):
+        logger.warning("Generated audio contains NaN values (mode=%s), replacing with zeros", mode)
+        wav = np.nan_to_num(wav, nan=0.0)
+
+    # Clipping check
+    peak = np.max(np.abs(wav))
+    if peak > 1.0:
+        logger.warning("Generated audio is clipping (peak=%.2f, mode=%s), normalizing", peak, mode)
+        wav = wav / peak
+
+    # All-silence check
+    if np.max(np.abs(wav)) < 1e-6:
+        logger.warning("Generated audio is silent (mode=%s)", mode)
+
+    return wav
 
 
 # ---------------------------------------------------------------------------
@@ -1020,6 +1095,7 @@ def _run_inference_mlx(model, text, mode, gen_params, language="English",
         len(text), elapsed, mode,
     )
 
+    wav = _validate_audio(wav, sr, mode=mode)
     return wav, sr
 
 

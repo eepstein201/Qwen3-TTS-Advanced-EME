@@ -8,6 +8,7 @@
 """
 
 import asyncio
+import atexit
 import hashlib
 import json
 import logging
@@ -28,6 +29,7 @@ from pathlib import Path
 from typing import Optional, List
 
 from fastapi import FastAPI, Request, Response, HTTPException, Depends
+from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse, FileResponse
 from pydantic import BaseModel, Field
 import uvicorn
@@ -127,6 +129,39 @@ class RenamePromptRequest(BaseModel):
 
 
 # ---------------------------------------------------------------------------
+# Pydantic models for response validation
+# ---------------------------------------------------------------------------
+
+class ErrorResponse(BaseModel):
+    error: str
+    detail: str = ""
+    recovery: str = "retry"
+
+
+class GenerateResult(BaseModel):
+    index: int
+    audio_base64: Optional[str] = None
+    sample_rate: int
+
+
+class GenerateResponse(BaseModel):
+    results: List[GenerateResult]
+
+
+class HealthResponse(BaseModel):
+    status: str
+    backend: Optional[str] = None
+    model_size: Optional[str] = None
+    clone_model_loaded: Optional[bool] = None
+    design_model_loaded: Optional[bool] = None
+    custom_model_loaded: Optional[bool] = None
+    model_load_times: Optional[dict] = None
+    model_load_errors: Optional[dict] = None
+    mlx_quantization: Optional[str] = None
+    dtype: Optional[str] = None
+
+
+# ---------------------------------------------------------------------------
 # Auth dependency
 # ---------------------------------------------------------------------------
 
@@ -142,6 +177,56 @@ async def verify_auth(request: Request) -> None:
 # ---------------------------------------------------------------------------
 # Helper functions
 # ---------------------------------------------------------------------------
+
+
+def _validate_generation_request(req: GenerateRequest, security_config: dict) -> None:
+    """Shared validation for /generate and /generate-stream.
+
+    Raises HTTPException for:
+    - Path traversal in prompt_file
+    - Invalid speaker name for custom mode
+    - Invalid mode
+    """
+    # Path traversal check
+    if req.prompt_file and (".." in req.prompt_file or "/" in req.prompt_file):
+        raise HTTPException(
+            status_code=400,
+            detail="Invalid prompt_file: path traversal not allowed",
+        )
+
+    # Speaker validation for custom mode
+    if req.mode == "custom" and req.speaker:
+        speaker_key = req.speaker.lower() if isinstance(req.speaker, str) else ""
+        if speaker_key not in CUSTOM_VOICE_SPEAKERS and req.speaker not in _VALID_SPEAKER_NAMES:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Unknown speaker: {req.speaker}. Valid: {', '.join(CUSTOM_VOICE_SPEAKERS.keys())}",
+            )
+
+    # Mode validation
+    if req.mode not in ("clone", "design", "custom"):
+        raise HTTPException(
+            status_code=400,
+            detail=f"Invalid mode: {req.mode}. Must be clone, design, or custom",
+        )
+
+
+def _error_response(status_code: int, error: str, detail: str = "", recovery: str = "retry") -> None:
+    """Raise HTTPException with standardized error format.
+
+    Args:
+        status_code: HTTP status code
+        error: Short error identifier
+        detail: Detailed error message
+        recovery: Suggested recovery action
+
+    Raises:
+        HTTPException with structured detail dict
+    """
+    raise HTTPException(
+        status_code=status_code,
+        detail={"error": error, "detail": detail, "recovery": recovery},
+    )
 
 
 def _validate_prompt_name(name: str) -> Optional[tuple]:
@@ -246,7 +331,9 @@ def auto_shutdown(app_state):
     """Auto-shutdown due to inactivity."""
     logger.info("Auto-shutdown: No activity for %d minutes.",
                 app_state.server_config.get("auto_shutdown_minutes", 0))
-    cleanup_pid(app_state)
+    cleanup_resources(app_state)
+    # Signal uvicorn to stop gracefully
+    os.kill(os.getpid(), signal.SIGTERM)
 
 
 # ---------------------------------------------------------------------------
@@ -291,6 +378,9 @@ async def lifespan(app: FastAPI):
     # Auto-shutdown timer
     app.state.shutdown_timer = None
 
+    # Graceful shutdown event
+    app.state.shutdown_event = asyncio.Event()
+
     # Server config (loaded from config.json)
     config = load_config()
     app.state.server_config = config.get("server", {})
@@ -301,6 +391,9 @@ async def lifespan(app: FastAPI):
     with open(TOKEN_FILE, "w") as f:
         f.write(app.state.auth_token)
     os.chmod(TOKEN_FILE, 0o600)
+
+    # Register atexit handler as safety net for cleanup
+    atexit.register(cleanup_resources, app.state)
 
     logger.info("FastAPI server starting...")
 
@@ -387,6 +480,18 @@ def cleanup_resources(app_state):
                 except Exception:
                     pass
 
+    # Clean up generation cache temp files
+    gen_cache = getattr(app_state, "gen_cache", None)
+    if gen_cache:
+        for entry in gen_cache.values():
+            main_file = entry.get("main_file") or entry.get("file")
+            if main_file and os.path.exists(main_file):
+                try:
+                    os.remove(main_file)
+                except OSError:
+                    pass
+        gen_cache.clear()
+
     # Clean up PID file
     try:
         if os.path.exists(PID_FILE):
@@ -396,7 +501,7 @@ def cleanup_resources(app_state):
 
 
 def cleanup_pid(app_state):
-    """Clean up PID file and exit."""
+    """Clean up PID file and initiate graceful shutdown."""
     shutdown_timer = getattr(app_state, "shutdown_timer", None)
     if shutdown_timer is not None:
         shutdown_timer.cancel()
@@ -404,7 +509,13 @@ def cleanup_pid(app_state):
         os.remove(PID_FILE)
     if os.path.exists(TOKEN_FILE):
         os.remove(TOKEN_FILE)
-    os._exit(0)
+    # Set shutdown event for graceful termination
+    shutdown_event = getattr(app_state, "shutdown_event", None)
+    if shutdown_event is not None:
+        shutdown_event.set()
+    cleanup_resources(app_state)
+    # Signal uvicorn to stop gracefully
+    os.kill(os.getpid(), signal.SIGTERM)
 
 
 # Create FastAPI app
@@ -414,12 +525,22 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
+# CORS: allow Gradio UI and local development
+_cors_origins = ["http://localhost:7860", "http://127.0.0.1:7860"]
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=_cors_origins,
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
 
 # ---------------------------------------------------------------------------
 # Public endpoints (no auth)
 # ---------------------------------------------------------------------------
 
-@app.get("/health")
+@app.get("/health", response_model=HealthResponse)
 async def health(request: Request):
     """Health check endpoint."""
     state = request.app.state
@@ -1051,7 +1172,7 @@ async def cancel_generation(request: Request, _auth: None = Depends(verify_auth)
     }
 
 
-@app.post("/generate")
+@app.post("/generate", response_model=GenerateResponse)
 async def generate(request: Request, req: GenerateRequest, _auth: None = Depends(verify_auth)):
     """Generate audio from text."""
     state = request.app.state
@@ -1178,31 +1299,31 @@ async def generate(request: Request, req: GenerateRequest, _auth: None = Depends
             state.request_queue.discard(request_id)
             return {"results": results}
 
-        # Acquire locks for thread-safe generation
+        # Acquire inference_lock for GPU serialization (generation_lock used only for state updates)
         async with state.inference_lock:
-            async with state.generation_lock:
-                results = []
+            results = []
 
-                for i, text in enumerate(texts):
-                    # Use pre-lock cache hit if available
-                    if i in pre_lock_results:
-                        results.append(pre_lock_results[i])
-                        continue
+            for i, text in enumerate(texts):
+                # Use pre-lock cache hit if available
+                if i in pre_lock_results:
+                    results.append(pre_lock_results[i])
+                    continue
 
-                    # Post-lock cache check
-                    cache_key = pre_lock_cache_keys[i]
-                    with state.gen_cache_lock:
-                        entry = state.gen_cache.get(cache_key)
-                    if entry:
-                        cache_file = entry.get("main_file") or entry.get("file")
-                        if cache_file and os.path.exists(cache_file):
-                            with open(cache_file, "rb") as f:
-                                b64_audio = base64.b64encode(f.read()).decode("utf-8")
-                            results.append({"index": i, "audio_base64": b64_audio, "sample_rate": entry["sample_rate"]})
-                            logger.info("Generation cache hit (post-lock) for text %d/%d", i + 1, len(texts))
-                            continue
+                # Post-lock cache check
+                cache_key = pre_lock_cache_keys[i]
+                with state.gen_cache_lock:
+                    entry = state.gen_cache.get(cache_key)
+                if entry:
+                    cache_file = entry.get("main_file") or entry.get("file")
+                    if cache_file and os.path.exists(cache_file):
+                        with open(cache_file, "rb") as f:
+                            b64_audio = base64.b64encode(f.read()).decode("utf-8")
+                        results.append({"index": i, "audio_base64": b64_audio, "sample_rate": entry["sample_rate"]})
+                        logger.info("Generation cache hit (post-lock) for text %d/%d", i + 1, len(texts))
+                    continue
 
-                    # Update generation state
+                # Brief lock to set generation state
+                async with state.generation_lock:
                     state.generation_state.update({
                         "active": True,
                         "start_time": time.time(),
@@ -1212,70 +1333,84 @@ async def generate(request: Request, req: GenerateRequest, _auth: None = Depends
                         "batch_total": len(texts),
                     })
 
-                    # Prepare mode-specific params
-                    voice_prompt = None
-                    if mode == "clone":
-                        if not prompt_file:
-                            raise HTTPException(status_code=400, detail="prompt_file required for clone mode")
-                        voice_prompt = load_voice_prompt(prompt_file)
-                        if voice_prompt is None:
-                            raise HTTPException(
-                                status_code=404,
-                                detail=f"Voice prompt not found: {prompt_file}",
-                            )
+                # Prepare mode-specific params
+                voice_prompt = None
+                if mode == "clone":
+                    if not prompt_file:
+                        raise HTTPException(status_code=400, detail="prompt_file required for clone mode")
+                    voice_prompt = load_voice_prompt(prompt_file)
+                    if voice_prompt is None:
+                        raise HTTPException(
+                            status_code=404,
+                            detail=f"Voice prompt not found: {prompt_file}",
+                        )
 
-                    def _chunk_progress(chunk_idx, chunk_total):
-                        state.generation_state.update({
-                            "chunk_index": chunk_idx,
-                            "chunk_total": chunk_total,
-                        })
+                def _chunk_progress(chunk_idx, chunk_total):
+                    state.generation_state.update({
+                        "chunk_index": chunk_idx,
+                        "chunk_total": chunk_total,
+                    })
 
-                    # Run inference (offloaded to thread pool to avoid blocking event loop)
-                    wav, sr = await asyncio.to_thread(
-                        run_inference,
-                        model=model,
-                        text=text,
-                        mode=mode,
-                        gen_params=gen_params,
-                        language=language,
-                        voice_prompt=voice_prompt,
-                        voice_description=voice_description,
-                        speaker=speaker,
-                        instruct=instruct,
-                        max_chunk_chars=max_chunk_chars,
-                        progress_callback=_chunk_progress,
-                        x_vector_only_mode=x_vector_only_mode,
+                # Run inference (offloaded to thread pool to avoid blocking event loop)
+                wav, sr = await asyncio.to_thread(
+                    run_inference,
+                    model=model,
+                    text=text,
+                    mode=mode,
+                    gen_params=gen_params,
+                    language=language,
+                    voice_prompt=voice_prompt,
+                    voice_description=voice_description,
+                    speaker=speaker,
+                    instruct=instruct,
+                    max_chunk_chars=max_chunk_chars,
+                    progress_callback=_chunk_progress,
+                    x_vector_only_mode=x_vector_only_mode,
+                )
+
+                # Encode audio to base64 WAV in memory
+                buf = io.BytesIO()
+                sf.write(buf, wav, sr, format="WAV")
+                b64_audio = base64.b64encode(buf.getvalue()).decode("utf-8")
+
+                # Store persistent cache file for future hits
+                cache_file = tempfile.NamedTemporaryFile(suffix=".wav", delete=False)
+                cache_file.close()  # Close handle before sf.write to avoid leak
+                os.chmod(cache_file.name, 0o600)
+                sf.write(cache_file.name, wav, sr)
+
+                with state.gen_cache_lock:
+                    if len(state.gen_cache) >= _get_gen_cache_max():
+                        oldest_key = min(state.gen_cache, key=lambda k: state.gen_cache[k]["timestamp"])
+                        old_entry = state.gen_cache.pop(oldest_key)
+                        old_main = old_entry.get("main_file")
+                        if old_main and os.path.exists(old_main):
+                            try:
+                                os.remove(old_main)
+                            except OSError:
+                                pass
+                    state.gen_cache[cache_key] = {
+                        "main_file": cache_file.name,
+                        "sample_rate": sr,
+                        "timestamp": time.time(),
+                    }
+
+                results.append({"index": i, "audio_base64": b64_audio, "sample_rate": sr})
+
+            # Content negotiation: return binary WAV if Accept header contains audio/wav
+            accept = request.headers.get("accept", "application/json")
+            if "audio/wav" in accept and len(results) == 1:
+                # Single text generation with audio/wav Accept: return binary WAV directly
+                result = results[0]
+                if result.get("audio_base64"):
+                    audio_bytes = base64.b64decode(result["audio_base64"])
+                    return Response(
+                        content=audio_bytes,
+                        media_type="audio/wav",
+                        headers={"X-Sample-Rate": str(result["sample_rate"])},
                     )
 
-                    # Encode audio to base64 WAV in memory
-                    buf = io.BytesIO()
-                    sf.write(buf, wav, sr, format="WAV")
-                    b64_audio = base64.b64encode(buf.getvalue()).decode("utf-8")
-
-                    # Store persistent cache file for future hits
-                    cache_file = tempfile.NamedTemporaryFile(suffix=".wav", delete=False)
-                    os.chmod(cache_file.name, 0o600)
-                    sf.write(cache_file.name, wav, sr)
-
-                    with state.gen_cache_lock:
-                        if len(state.gen_cache) >= _get_gen_cache_max():
-                            oldest_key = min(state.gen_cache, key=lambda k: state.gen_cache[k]["timestamp"])
-                            old_entry = state.gen_cache.pop(oldest_key)
-                            old_main = old_entry.get("main_file")
-                            if old_main and os.path.exists(old_main):
-                                try:
-                                    os.remove(old_main)
-                                except OSError:
-                                    pass
-                        state.gen_cache[cache_key] = {
-                            "main_file": cache_file.name,
-                            "sample_rate": sr,
-                            "timestamp": time.time(),
-                        }
-
-                    results.append({"index": i, "audio_base64": b64_audio, "sample_rate": sr})
-
-                return {"results": results}
+            return {"results": results}
 
     except HTTPException:
         raise
@@ -1325,12 +1460,8 @@ async def generate_stream(request: Request, req: GenerateRequest, _auth: None = 
             detail=f"Text exceeds {max_text_length} character limit ({len(text)} chars)",
         )
 
-    mode = req.mode
-    if mode not in ("clone", "design", "custom"):
-        raise HTTPException(
-            status_code=400,
-            detail=f"Invalid mode: {mode}. Must be clone, design, or custom",
-        )
+    # Shared validation (path traversal, speaker, mode)
+    _validate_generation_request(req, security)
 
     # Check if required model is loaded
     model = state.models.get(mode)
@@ -1483,12 +1614,9 @@ async def shutdown(request: Request, _auth: None = Depends(verify_auth)):
     except OSError:
         pass
 
-    # Schedule exit in a thread (Gradio blocks sys.exit)
-    def _force_exit():
-        time.sleep(0.5)
-        os._exit(0)
-
-    threading.Thread(target=_force_exit, daemon=True).start()
+    # Signal uvicorn to stop gracefully
+    cleanup_resources(state)
+    os.kill(os.getpid(), signal.SIGTERM)
     return {"status": "shutting down"}
 
 
@@ -1523,8 +1651,17 @@ def run_server(host="127.0.0.1", port=5123, public=False):
         logger.info("Colab detected — binding to 0.0.0.0 for tunnel access.")
 
     # Handle shutdown signals
-    signal.signal(signal.SIGTERM, lambda s, f: cleanup_pid(app.state))
-    signal.signal(signal.SIGINT, lambda s, f: cleanup_pid(app.state))
+    def _signal_handler(signum, frame):
+        """Handle shutdown signals gracefully."""
+        # Set shutdown event
+        shutdown_event = getattr(app.state, "shutdown_event", None)
+        if shutdown_event is not None:
+            shutdown_event.set()
+        cleanup_resources(app.state)
+        os.kill(os.getpid(), signal.SIGTERM)
+
+    signal.signal(signal.SIGTERM, _signal_handler)
+    signal.signal(signal.SIGINT, _signal_handler)
 
     # Print startup info
     print(f"\nFastAPI TTS Server starting on http://{host}:{port}")

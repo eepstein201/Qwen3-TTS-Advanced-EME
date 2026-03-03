@@ -15,6 +15,7 @@ import os
 import pathlib
 import platform
 import sys
+import threading
 
 logger = logging.getLogger("tts.config")
 
@@ -43,6 +44,7 @@ TOKEN_FILE = pathlib.Path(os.path.expanduser("~/.voice_server_token"))
 # Config helpers
 # ---------------------------------------------------------------------------
 
+_config_lock = threading.Lock()
 _config_cache = {"data": None, "mtime": 0}
 
 
@@ -88,29 +90,34 @@ def load_config():
     """Load configuration from config.json with mtime-based caching.
 
     Returns a cached copy if config.json has not been modified since the last read.
+    Thread-safe: uses lock to prevent concurrent reads/writes.
     """
-    try:
-        current_mtime = os.path.getmtime(CONFIG_PATH)
-    except OSError:
-        current_mtime = 0
+    with _config_lock:
+        try:
+            current_mtime = os.path.getmtime(CONFIG_PATH)
+        except OSError:
+            current_mtime = 0
 
-    if _config_cache["data"] is not None and current_mtime == _config_cache["mtime"]:
-        return _config_cache["data"]
+        if _config_cache["data"] is not None and current_mtime == _config_cache["mtime"]:
+            return _config_cache["data"]
 
-    with open(CONFIG_PATH, "r") as f:
-        data = json.load(f)
-    _config_cache["data"] = data
-    _config_cache["mtime"] = current_mtime
-    validate_config(data)
-    return data
+        with open(CONFIG_PATH, "r") as f:
+            data = json.load(f)
+        _config_cache["data"] = data
+        _config_cache["mtime"] = current_mtime
+        validate_config(data)
+        return data
 
 
 def save_config(config):
-    """Save configuration to config.json and invalidate the cache."""
-    with open(CONFIG_PATH, "w") as f:
-        json.dump(config, f, indent=2)
-    _config_cache["data"] = None
-    _config_cache["mtime"] = 0
+    """Save configuration to config.json and invalidate the cache.
+    Thread-safe: uses lock to prevent concurrent reads/writes.
+    """
+    with _config_lock:
+        with open(CONFIG_PATH, "w") as f:
+            json.dump(config, f, indent=2)
+        _config_cache["data"] = None
+        _config_cache["mtime"] = 0
 
 
 def get_default_clone_prompt(config=None):
