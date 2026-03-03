@@ -128,7 +128,9 @@ class TTSClient:
         )
         if resp.status_code != 200:
             try:
-                error_msg = resp.json().get("error", "Unknown error")
+                error_data = resp.json()
+                # Prefer structured error message
+                error_msg = error_data.get("message") or error_data.get("detail", "Unknown error")
             except (ValueError, requests.exceptions.JSONDecodeError):
                 error_msg = f"Server returned HTTP {resp.status_code}"
             raise Exception(f"Failed to load {mode} model: {error_msg}")
@@ -674,7 +676,11 @@ class TTSClient:
         ) as resp:
             if resp.status_code != 200:
                 try:
-                    error_msg = resp.json().get("error", "Unknown error")
+                    error_data = resp.json()
+                    error_msg = error_data.get("message") or error_data.get("error", "Unknown error")
+                    # Include model_type if present
+                    if "model_type" in error_data:
+                        error_msg = f"{error_data['model_type']} model: {error_msg}"
                 except (ValueError, requests.exceptions.JSONDecodeError):
                     error_msg = f"Server returned HTTP {resp.status_code}"
                 raise Exception(f"Server streaming error: {error_msg}")
