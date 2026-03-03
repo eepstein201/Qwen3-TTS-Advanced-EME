@@ -67,7 +67,7 @@ class TestSSMLEdgeCases(unittest.TestCase):
 
     def test_ssml_sub_replacement(self):
         """<sub alias='hello'>hi</sub> replaces content with alias."""
-        from voice_generate import parse_ssml
+        from qwen3_tts.interface.generate import parse_ssml
         text, meta = parse_ssml('Say <sub alias="hello">hi</sub> please')
         self.assertIn("hello", text)
         self.assertNotIn("<sub", text)
@@ -75,13 +75,13 @@ class TestSSMLEdgeCases(unittest.TestCase):
 
     def test_ssml_say_as_characters(self):
         """<say-as interpret-as='characters'>ABC</say-as> spells out as 'A B C'."""
-        from voice_generate import parse_ssml
+        from qwen3_tts.interface.generate import parse_ssml
         text, meta = parse_ssml('<say-as interpret-as="characters">ABC</say-as>')
         self.assertIn("A B C", text)
 
     def test_ssml_prosody_rate_slow(self):
         """<prosody rate='slow'> sets speed=0.8 in metadata."""
-        from voice_generate import parse_ssml
+        from qwen3_tts.interface.generate import parse_ssml
         text, meta = parse_ssml('<prosody rate="slow">Hello world</prosody>')
         self.assertTrue(meta["has_ssml"])
         self.assertIsNotNone(meta["prosody"])
@@ -89,7 +89,7 @@ class TestSSMLEdgeCases(unittest.TestCase):
 
     def test_ssml_prosody_pitch_high(self):
         """<prosody pitch='high'> sets pitch=2 in metadata."""
-        from voice_generate import parse_ssml
+        from qwen3_tts.interface.generate import parse_ssml
         text, meta = parse_ssml('<prosody pitch="high">Hello world</prosody>')
         self.assertTrue(meta["has_ssml"])
         self.assertIsNotNone(meta["prosody"])
@@ -97,7 +97,7 @@ class TestSSMLEdgeCases(unittest.TestCase):
 
     def test_ssml_nested_emphasis_sub(self):
         """Nested <emphasis><sub alias='hello'>hi</sub></emphasis> produces 'hello'."""
-        from voice_generate import parse_ssml
+        from qwen3_tts.interface.generate import parse_ssml
         text, meta = parse_ssml('<emphasis><sub alias="hello">hi</sub></emphasis>')
         self.assertIn("hello", text)
         self.assertNotIn("<", text)
@@ -114,21 +114,21 @@ class TestDryRunAndInteractive(unittest.TestCase):
 
     def test_dry_run_flag_in_source(self):
         """voice_generate.py source contains '--dry-run' argument."""
-        import voice_generate
-        source = inspect.getsource(voice_generate)
+        import qwen3_tts.interface.generate
+        source = inspect.getsource(qwen3_tts.interface.generate)
         self.assertIn("--dry-run", source)
 
     def test_dry_run_marker_in_source(self):
         """voice_generate.py source contains 'DRY RUN' marker text."""
-        import voice_generate
-        source = inspect.getsource(voice_generate)
+        import qwen3_tts.interface.generate
+        source = inspect.getsource(qwen3_tts.interface.generate)
         self.assertIn("DRY RUN", source)
 
     def test_interactive_mode_function_exists(self):
         """voice_generate has a callable interactive_mode function."""
-        import voice_generate
-        self.assertTrue(hasattr(voice_generate, "interactive_mode"))
-        self.assertTrue(callable(voice_generate.interactive_mode))
+        import qwen3_tts.interface.generate
+        self.assertTrue(hasattr(qwen3_tts.interface.generate, "interactive_mode"))
+        self.assertTrue(callable(qwen3_tts.interface.generate.interactive_mode))
 
 
 if __name__ == "__main__":

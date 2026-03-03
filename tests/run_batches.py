@@ -259,9 +259,9 @@ Examples:
         "--batch",
         "-b",
         type=int,
-        choices=range(1, 5),
+        choices=range(1, len(BATCHES) + 1),
         metavar="N",
-        help="Run only batch N (1-4)",
+        help=f"Run only batch N (1-{len(BATCHES)})",
     )
 
     parser.add_argument(

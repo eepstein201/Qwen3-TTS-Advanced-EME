@@ -123,17 +123,17 @@ class TestEnsureServerRunning(unittest.TestCase):
         source = inspect.getsource(ensure_server_running)
         self.assertNotIn("voice_server.py", source)
 
-    def test_has_tts_bin_reference(self):
-        """ensure_server_running should reference ~/bin/tts."""
+    def test_has_tts_lookup(self):
+        """ensure_server_running should use shutil.which to find tts."""
         from qwen3_tts.interface.generate import ensure_server_running
         source = inspect.getsource(ensure_server_running)
-        self.assertIn("~/bin/tts", source)
+        self.assertIn("shutil.which", source)
 
-    def test_has_server_app_reference(self):
-        """ensure_server_running should reference qwen3_tts/server/app.py."""
+    def test_has_server_module_reference(self):
+        """ensure_server_running should reference qwen3_tts.server.app module."""
         from qwen3_tts.interface.generate import ensure_server_running
         source = inspect.getsource(ensure_server_running)
-        self.assertIn("qwen3_tts/server/app.py", source)
+        self.assertIn("qwen3_tts.server.app", source)
 
 
 # =========================================================================

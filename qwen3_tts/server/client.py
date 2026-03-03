@@ -2,7 +2,7 @@
 """
 TTS Client Library - HTTP-only Python API for Qwen3-TTS generation.
 
-This module NEVER imports torch or voice_engine — it communicates
+This module NEVER imports torch or qwen3_tts.core.engine — it communicates
 exclusively over HTTP to the TTS server.
 
 Usage:
@@ -279,9 +279,15 @@ class TTSClient:
                     return resp.json().get("prompts", [])
             except Exception:  # nosec B110
                 pass
-        # Fallback to local filesystem
-        prompts = [f for f in os.listdir(self.voice_prompts_dir) if f.endswith('.pt')]
-        return sorted(prompts)
+        # Fallback to local filesystem (.pt for torch, .wav+.txt for MLX)
+        try:
+            files = os.listdir(self.voice_prompts_dir)
+        except OSError:
+            return []
+        pt_prompts = {f for f in files if f.endswith('.pt')}
+        txt_bases = {f[:-4] for f in files if f.endswith('.txt')}
+        mlx_prompts = {f for f in files if f.endswith('.wav') and f[:-4] in txt_bases}
+        return sorted(pt_prompts | mlx_prompts)
 
     def delete_prompt(self, name):
         """Delete a voice prompt and all its format files.
@@ -872,7 +878,10 @@ def generate(text, **kwargs):
         Path to the generated audio file
     """
     client = TTSClient()
-    return client.generate(text, **kwargs)
+    try:
+        return client.generate(text, **kwargs)
+    finally:
+        client.close()
 
 
 if __name__ == "__main__":

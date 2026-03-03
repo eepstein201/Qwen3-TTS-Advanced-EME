@@ -262,7 +262,6 @@ def main():
     # Determine mlx_only mode:
     # - Explicitly set via --mlx-only flag
     # - Auto-enabled when backend is MLX (unless --force-torch is set)
-    from qwen3_tts.core.config import get_backend
     use_mlx_only = args.mlx_only
     if not use_mlx_only and not args.force_torch and get_backend() == "mlx":
         use_mlx_only = True

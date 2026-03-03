@@ -32,8 +32,6 @@ from qwen3_tts.core.config import (
     get_model_size,
     get_model_info,
     get_voice_prompt_cache_max,
-    get_generation_cache_max,
-    get_eta_cache_ttl,
     CONFIG_PATH,
     load_config,
 )
@@ -139,8 +137,6 @@ def _normalize_text(text, language="English"):
     Returns:
         Normalized text string.
     """
-    import re as _re
-
     if not text:
         return text
 
@@ -158,7 +154,7 @@ def _normalize_text(text, language="English"):
             local, _, domain = addr.partition("@")
             domain_parts = domain.split(".")
             return local + " at " + " dot ".join(domain_parts)
-        text = _re.sub(
+        text = re.sub(
             r'\b[A-Za-z0-9._%+\-]+@[A-Za-z0-9.\-]+\.[A-Za-z]{2,}\b',
             _expand_email, text)
     except Exception:
@@ -168,26 +164,26 @@ def _normalize_text(text, language="English"):
     try:
         def _expand_url(m):
             url = m.group()
-            url = _re.sub(r'^https?://', '', url)
-            url = _re.sub(r'^www\.', '', url)
+            url = re.sub(r'^https?://', '', url)
+            url = re.sub(r'^www\.', '', url)
             url = url.replace(".", " dot ").rstrip()
             return url
-        text = _re.sub(r'https?://\S+', _expand_url, text)
+        text = re.sub(r'https?://\S+', _expand_url, text)
     except Exception:
         pass
 
     # 3. Phone numbers: (800) 555-1234 or 555-1234 → "8 0 0 5 5 5 1 2 3 4"
     try:
         def _expand_phone(m):
-            digits = _re.sub(r'\D', '', m.group())
+            digits = re.sub(r'\D', '', m.group())
             return " ".join(digits)
-        text = _re.sub(r'(?:\(\d{3}\)\s*|\d{3}[-.])\d{3}[-.]?\d{4}', _expand_phone, text)
+        text = re.sub(r'(?:\(\d{3}\)\s*|\d{3}[-.])\d{3}[-.]?\d{4}', _expand_phone, text)
     except Exception:
         pass
 
     # 4. Currencies: $5.00 → "five dollars"
     try:
-        symbols_pat = "[" + _re.escape("".join(_CURRENCY_MAP.keys())) + "]"
+        symbols_pat = "[" + re.escape("".join(_CURRENCY_MAP.keys())) + "]"
 
         def _expand_currency(m):
             symbol = m.group(1)
@@ -204,7 +200,7 @@ def _normalize_text(text, language="English"):
                 return f"{words} {label}"
             except Exception:
                 return m.group()
-        text = _re.sub(rf'({symbols_pat})(\d+(?:\.\d+)?)', _expand_currency, text)
+        text = re.sub(rf'({symbols_pat})(\d+(?:\.\d+)?)', _expand_currency, text)
     except Exception:
         pass
 
@@ -216,7 +212,7 @@ def _normalize_text(text, language="English"):
                 return _n2w(n, lang=lang, to="ordinal") if _n2w else m.group()
             except Exception:
                 return m.group()
-        text = _re.sub(r'\b(\d+)(?:st|nd|rd|th)\b', _expand_ordinal, text)
+        text = re.sub(r'\b(\d+)(?:st|nd|rd|th)\b', _expand_ordinal, text)
     except Exception:
         pass
 
@@ -236,7 +232,7 @@ def _normalize_text(text, language="English"):
                 return f"{month_name} {day_word}, {year_word}"
             except Exception:
                 return m.group()
-        text = _re.sub(r'\b(\d{4})-(\d{2})-(\d{2})\b', _expand_iso_date, text)
+        text = re.sub(r'\b(\d{4})-(\d{2})-(\d{2})\b', _expand_iso_date, text)
     except Exception:
         pass
 
@@ -256,14 +252,14 @@ def _normalize_text(text, language="English"):
                 return f"{month_name} {day_word}, {year_word}"
             except Exception:
                 return m.group()
-        text = _re.sub(r'\b(\d{1,2})/(\d{1,2})/(\d{4})\b', _expand_us_date, text)
+        text = re.sub(r'\b(\d{1,2})/(\d{1,2})/(\d{4})\b', _expand_us_date, text)
     except Exception:
         pass
 
     # 8. Abbreviations
     try:
         for pattern, replacement in _ABBREV_TABLE:
-            text = _re.sub(pattern, replacement, text)
+            text = re.sub(pattern, replacement, text)
     except Exception:
         pass
 
@@ -275,7 +271,7 @@ def _normalize_text(text, language="English"):
                     return _n2w(int(m.group()), lang=lang)
                 except Exception:
                     return m.group()
-            text = _re.sub(r'(?<![.\w])\b\d+\b(?![.\w])', _expand_cardinal, text)
+            text = re.sub(r'(?<![.\w])\b\d+\b(?![.\w])', _expand_cardinal, text)
         except Exception:
             pass
 

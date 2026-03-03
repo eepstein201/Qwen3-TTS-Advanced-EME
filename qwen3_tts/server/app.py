@@ -27,9 +27,8 @@ import uuid
 from collections import deque
 from contextlib import asynccontextmanager
 from pathlib import Path
-from typing import Dict, Generator, Optional, List
+from typing import Optional, List
 
-import soundfile as sf
 from fastapi import FastAPI, Request, Response, HTTPException, Depends
 from fastapi.responses import StreamingResponse, FileResponse
 from pydantic import BaseModel, Field
@@ -273,11 +272,6 @@ def _estimate_eta(app_state, text_length: int, elapsed_sec: float) -> Optional[f
     estimated_total = text_length / median_rate
     remaining = max(0, estimated_total - elapsed_sec)
     return round(remaining, 1)
-
-
-def _get_model(app_state, model_type: str):
-    """Return the loaded model for a given type, or None."""
-    return getattr(app_state.models, model_type, None)
 
 
 def reset_activity_timer(app_state):
@@ -1171,7 +1165,7 @@ async def generate(request: Request, req: GenerateRequest, _auth: None = Depends
     if model is None:
         from qwen3_tts.core.config import get_model_info
         info = get_model_info(mode)
-        detail = info.get(get_model_size(), {}).get(mode, {}).get('description', '')
+        detail = info.get('description', '')
         raise HTTPException(
             status_code=503,
             detail={
@@ -1220,13 +1214,14 @@ async def generate(request: Request, req: GenerateRequest, _auth: None = Depends
             with state.gen_cache_lock:
                 entry = state.gen_cache.get(cache_key)
             # Check both old structure (file) and new structure (main_file)
-            cache_file = entry.get("main_file") or entry.get("file")
-            if cache_file and os.path.exists(cache_file):
-                # Create temp copy for serving (will be cleaned up after response)
-                temp_path = _create_temp_audio_copy(cache_file)
-                _mark_for_cleanup(temp_path)
-                pre_lock_results[i] = {"index": i, "file": temp_path, "sample_rate": entry["sample_rate"], "cleanup": True}
-                logger.info("Generation cache hit (pre-lock) for text %d/%d", i + 1, len(texts))
+            if entry:
+                cache_file = entry.get("main_file") or entry.get("file")
+                if cache_file and os.path.exists(cache_file):
+                    # Create temp copy for serving (will be cleaned up after response)
+                    temp_path = _create_temp_audio_copy(cache_file)
+                    _mark_for_cleanup(temp_path)
+                    pre_lock_results[i] = {"index": i, "file": temp_path, "sample_rate": entry["sample_rate"], "cleanup": True}
+                    logger.info("Generation cache hit (pre-lock) for text %d/%d", i + 1, len(texts))
 
         # If ALL texts hit cache, skip the lock entirely
         if len(pre_lock_results) == len(texts):
@@ -1251,14 +1246,15 @@ async def generate(request: Request, req: GenerateRequest, _auth: None = Depends
                     with state.gen_cache_lock:
                         entry = state.gen_cache.get(cache_key)
                     # Check both old structure (file) and new structure (main_file)
-                    cache_file = entry.get("main_file") or entry.get("file")
-                    if cache_file and os.path.exists(cache_file):
-                        # Create temp copy for serving (will be cleaned up after response)
-                        temp_path = _create_temp_audio_copy(cache_file)
-                        _mark_for_cleanup(temp_path)
-                        results.append({"index": i, "file": temp_path, "sample_rate": entry["sample_rate"], "cleanup": True})
-                        logger.info("Generation cache hit (post-lock) for text %d/%d", i + 1, len(texts))
-                        continue
+                    if entry:
+                        cache_file = entry.get("main_file") or entry.get("file")
+                        if cache_file and os.path.exists(cache_file):
+                            # Create temp copy for serving (will be cleaned up after response)
+                            temp_path = _create_temp_audio_copy(cache_file)
+                            _mark_for_cleanup(temp_path)
+                            results.append({"index": i, "file": temp_path, "sample_rate": entry["sample_rate"], "cleanup": True})
+                            logger.info("Generation cache hit (post-lock) for text %d/%d", i + 1, len(texts))
+                            continue
 
                     # Update generation state
                     state.generation_state.update({
@@ -1308,6 +1304,7 @@ async def generate(request: Request, req: GenerateRequest, _auth: None = Depends
                     temp_file = tempfile.NamedTemporaryFile(suffix=".wav", delete=False)
                     os.chmod(temp_file.name, 0o600)
                     try:
+                        import soundfile as sf
                         sf.write(temp_file.name, wav, sr)
                     except Exception:
                         os.unlink(temp_file.name)

@@ -43,6 +43,19 @@ Features: pyrubberband audio processing (with librosa fallback), prosody presets
 | `tts dialogue FILE` | Multi-speaker dialogue |
 | `tts repl` | Interactive REPL |
 | `tts watch DIR` | Watch for .txt files |
+| `tts doctor` | Check installation health |
+| `tts voice info NAME` | Show prompt metadata (via server) |
+| `tts config edit` | Edit default voice description |
+| `tts config path` | Print config.json path |
+| `tts uninstall models` | Remove cached HuggingFace models |
+| `tts uninstall voices` | Remove all voice prompts |
+| `tts uninstall config` | Reset config.json to defaults |
+| `tts uninstall environment` | Print conda removal commands |
+| `tts uninstall all` | Run all uninstall steps |
+| `tts cache list` | List all cached models |
+| `tts cache size` | Show total cache size |
+| `tts cache prune` | Remove models unused for N days |
+| `tts cache clear` | Remove all cached models |
 
 Old commands (`changeVoice`, `startTTSServer`, `stopTTSServer`, `createVoice`, `ttsUI`, `configureTTS` and their kebab-case aliases) still work as deprecation shims.
 
@@ -65,6 +78,9 @@ config.json → qwen3_tts.core.config → qwen3_tts.core.engine (dispatch)
 | `qwen3_tts/interface/generate.py` | CLI generation, progress display, post-gen menu, batch/SSML/SRT/dialogue, voice management | No (lazy) |
 | `qwen3_tts/interface/ui.py` | Gradio web UI: 6 tabs (Clone/Design/Custom/Create Voice/Manage Voices/Manage Models) | No (HTTP only) |
 | `qwen3_tts/tools/create_voice.py` | Voice clone prompt creation, saves .pt + .wav/.txt dual format | Yes (via engine) |
+| `qwen3_tts/tools/model_cache.py` | HuggingFace cache management (list, size, prune, clear) | No |
+| `qwen3_tts/tools/healthcheck.py` | Installation health checks (deps, config, server) | No |
+| `qwen3_tts/tools/uninstall.py` | Uninstall utilities (models, voices, config, all) | No |
 | `qwen3_tts/cli.py` | Click-based unified CLI with subcommands | No (all lazy) |
 
 ### Design Principles
@@ -99,14 +115,18 @@ config.json → qwen3_tts.core.config → qwen3_tts.core.engine (dispatch)
 │   │   └── ui.py               # Gradio web UI (port 7860)
 │   └── tools/
 │       ├── __init__.py
-│       └── create_voice.py     # Voice clone creation
+│       ├── create_voice.py     # Voice clone creation
+│       ├── model_cache.py      # Cache management (list, size, prune, clear)
+│       ├── healthcheck.py      # Installation health checks
+│       └── uninstall.py        # Uninstall/cleanup utilities
 ├── config.json                 # All settings
-├── install.sh                  # Installation with hardware detection
+├── install.sh                  # Installation with hardware detection (macOS only)
 ├── colab_notebook.ipynb        # Google Colab notebook
 ├── voice_prompts/              # .pt (torch) + .wav/.txt (MLX) files
-├── tests/test_voice.py         # Test suite
-├── tests/test_audio_utils.py   # Audio processing, text chunking tests
-├── tests/test_core_infra.py    # Errors, caching, config, SSML tests
+├── tests/                      # 16 test files, 480+ tests
+│   ├── run_batches.py          # Batch test runner
+│   ├── conftest.py             # Shared fixtures (pytest)
+│   └── test_*.py               # Test modules
 ├── .voice_server.pid           # Runtime PID file
 └── .voice_server.log           # Runtime log file
 ```
@@ -115,12 +135,13 @@ config.json → qwen3_tts.core.config → qwen3_tts.core.engine (dispatch)
 
 Base: `http://127.0.0.1:5123`
 
-Public (no auth): `/health`, `/generation-status`
+Public (no auth): `/health`, `/ready`, `/generation-status`
 
 All other endpoints require `Authorization: Bearer <token>` (token from `~/.voice_server_token`).
 
 | Endpoint | Method | Purpose |
 |----------|--------|---------|
+| `/ready` | GET | Readiness probe (503 while loading, 200 when ready) |
 | `/generate` | POST | Generate audio (checks generation cache first) |
 | `/generate-stream` | POST | Stream audio chunks (float32) |
 | `/load-model` | POST | Load clone/design/custom model |
@@ -171,13 +192,20 @@ All other endpoints require `Authorization: Bearer <token>` (token from `~/.voic
     "whisper": "Speak in a soft whisper", ...
   },
   "ui": { "port": 7860 },
-  "aliases": { "default": { "prompt": "my_voice.pt", "preset": "consistent" } },
+  "aliases": { "default": { "prompt": "default_clone.pt", "preset": "consistent" } },
+  "cache": {
+    "voice_prompt_max": 10, "generation_max": 5, "eta_ttl_seconds": 30
+  },
+  "default_speaker": "ryan",
   "advanced": {
     "dtype": "bfloat16",
     "backend": "mlx",
     "mlx_quantization": "8bit",
+    "torch_quantization": "none",
     "model_size": "1.7B",
-    "audio_loader": "torchaudio"
+    "audio_loader": "torchaudio",
+    "vllm_gpu_memory_utilization": 0.7,
+    "vllm_port": null
   }
 }
 ```
@@ -186,10 +214,16 @@ All other endpoints require `Authorization: Bearer <token>` (token from `~/.voic
 
 | Key | Options | Default |
 |-----|---------|---------|
-| `advanced.backend` | `"mlx"`, `"torch"` | `"mlx"` (Apple Silicon), `"torch"` (elsewhere) |
+| `advanced.backend` | `"mlx"`, `"torch"`, `"vllm"` | `"mlx"` (Apple Silicon), `"torch"` (elsewhere) |
 | `advanced.model_size` | `"1.7B"`, `"0.6B"` | `"1.7B"` |
 | `advanced.mlx_quantization` | `"4bit"`, `"8bit"`, `"bf16"` | `"8bit"` |
+| `advanced.torch_quantization` | `"none"`, `"8bit"`, `"4bit"` | `"none"` |
 | `advanced.audio_loader` | `"torchaudio"`, `"librosa"` | `"torchaudio"` |
+| `advanced.vllm_gpu_memory_utilization` | `0.0`-`1.0` | `0.7` |
+| `advanced.vllm_port` | `1024`-`65535` or `null` | `null` (auto-find) |
+| `cache.voice_prompt_max` | positive integer | `10` |
+| `cache.generation_max` | positive integer | `5` |
+| `cache.eta_ttl_seconds` | non-negative integer | `30` |
 | `generation.max_chunk_chars` | `0`-`10000` | `500` (0 disables chunking) |
 | `generation.max_chunk_tokens` | positive integer | `200` (torch backend; ignored by MLX) |
 
@@ -309,6 +343,47 @@ python -m unittest discover -v tests/
 
 ## Recent Significant Changes
 
+### 2026-03-02 — Full codebase review: 45+ bugs and cleanup issues fixed
+
+**Scope:** 4 critical, 16 important, 25+ minor fixes across all modules.
+
+**Critical fixes:**
+- `app.py`: Generation cache crash — `None.get()` on every uncached request (added `if entry:` guard)
+- `app.py`: `get_model_info()` double-lookup always returned empty string (use flat dict directly)
+- `cli.py`: Missing `import uvicorn` in `tts server start --foreground` (NameError at runtime)
+- `colab_notebook.ipynb`: Still installed Flask instead of FastAPI; missing pySBD/num2words deps
+
+**Important fixes:**
+- `config.py`: `ModelNotLoadedError` broken MODEL_INFO lookup (needs size dimension)
+- `config.py`: `is_server_running()` returned False during model loading (now accepts 503)
+- `cli.py`: `tts list models` showed "unknown" offline (MODEL_INFO needs size key)
+- `generate.py`: `list_voice_prompts()` now includes MLX `.wav+.txt` prompts
+- `generate.py`: `delete_voice_prompt()`/`rename_voice_prompt()` now handle all formats with rollback
+- `generate.py`: Replaced hardcoded `~/bin/tts` and `~/Qwen3-TTS_UserFiles` paths
+- `cli.py`: Fixed wrong log file path, dead `--fix` flag, voice create name passthrough
+- `app.py`: Made `soundfile` lazy import, removed dead `_get_model()`, unused typing imports
+- `engine.py`: Removed unused `get_generation_cache_max`/`get_eta_cache_ttl` imports
+- `run_batches.py`: Fixed batch 5 selection (range was 1-4, now dynamic)
+- `client.py`: Fixed fallback `list_prompts()` to include MLX prompts; fixed session leak
+
+**Test cleanup:**
+- Migrated 138+ deprecated shim imports across 4 test files to canonical `qwen3_tts.*` paths
+- Fixed test_cli_daemonization foreground flag assertion
+- Removed dead `authenticated_fastapi_client` fixture from conftest.py
+
+**Minor cleanup:**
+- Removed dead code: `_make_handler()` in ui.py, redundant imports, duplicate imports
+- Fixed `uninstall` subcommand names (config_cmd/all_cmd → config/all)
+- Updated stale docstrings/comments referencing old module names
+- Initialized `speaker_name = None` to prevent potential unbound variable
+
+**CLAUDE.md updates:**
+- Added 14 missing CLI commands (doctor, voice info, config edit/path, uninstall/cache subcommands)
+- Added `/ready` endpoint, `cache.*` config keys, vLLM backend/config documentation
+- Added missing tools modules (model_cache.py, healthcheck.py, uninstall.py)
+- Fixed stale references (test_core_infra.py, my_voice.pt alias, install.sh scope)
+- Removed unrelated statusline changelog entry
+
 ### 2026-03-02 — Model loading progress & error handling improvements
 
 **Goal:** Fix "Unknown error" when generating audio with unloaded models and add clear loading progress indication in Gradio UI.
@@ -384,26 +459,6 @@ python -m unittest discover -v tests/
 - Edge-case fallback if all candidates are newer than installed (tries highest available).
 - All failures remain non-fatal; SDPA is used if no wheel installs cleanly.
 
-### 2026-02-21 — Statusline management system: add, toggle, and generate
-
-**New commands:**
-- `claude-statusline-add` — Interactive command to register existing statusline scripts or generate new ones from templates
-- `claude-statusline-toggle` — Switch between registered statuslines via interactive menu
-
-**Architecture:**
-- `~/.claude/statuslines/` — Dedicated directory for all statusline scripts (migrated from scattered locations)
-- `~/.claude/statusline-add.sh` — Main script with validation, file operations, rollback logic, and template-based generator
-- `~/.claude/statusline-toggle.sh` — Toggle script with `STATUSLINES` associative array, auto-updated by add command
-- New statuslines are added via `STATUSLINES["id"]="path|description"` entries
-
-**Key features:**
-- `register_existing()` — Validates ID format/uniqueness, copies script, updates toggle array, optionally activates
-- `create_new_with_claude()` — Collects component preferences (Model/Dir/Git/Progress/Cost/Timer), generates bash script, previews output, registers automatically
-- JSON sanitization (`jq --arg`), rollback on failure, backup before modification
-- Two layout options: single-line compact and two-line detailed
-
-**Tests:** `tests/test_statusline_add.sh`, `tests/test_register_existing.sh`, `tests/test_create_new_with_claude.sh`, `tests/test_statusline_integration.sh`, `tests/test_statusline_migration.sh`
-
 ### 2026-02-20 — Tokenizer improvements: pySBD + num2words + token-aware chunking
 
 **Changes:**
@@ -438,7 +493,7 @@ python -m unittest discover -v tests/
 
 **False-positive suppressions (`# nosec` annotations — not security issues):**
 - `tests/test_ui_headless.py`: B404, B310, B603
-- `tests/test_core_infra.py`: B105, B108, B306
+- `tests/test_config.py`: B105, B108, B306
 - `tests/test_voice.py`: B105 ×3 (test fixture strings simulating leaked secrets)
 - `qwen3_tts/cli.py`: B404, B603
 - `qwen3_tts/tools/create_voice.py`: B404, B603, B607 ×2

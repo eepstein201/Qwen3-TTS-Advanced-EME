@@ -224,7 +224,7 @@ def is_server_running(config_or_url=None):
         return False
     try:
         resp = requests.get(f"{url}/health", timeout=2)
-        return resp.status_code == 200
+        return resp.status_code in (200, 503)
     except (requests.RequestException, OSError):
         return False
 
@@ -264,7 +264,7 @@ def get_backend():
     allowing --backend CLI flag to work without modifying config.json.
 
     Returns:
-        A string: "torch" or "mlx".
+        A string: "torch", "mlx", or "vllm".
         Defaults to "mlx" on macOS ARM64 (Apple Silicon optimized),
         "torch" on all other platforms (Colab/Linux/Intel Mac).
     """
@@ -713,9 +713,15 @@ class ModelNotLoadedError(TTSError):
     """Required model is not loaded on the server."""
 
     def __init__(self, model_type, detail=None):
+        if not detail:
+            try:
+                size = get_model_size()
+            except Exception:
+                size = "1.7B"
+            detail = MODEL_INFO.get(size, {}).get(model_type, {}).get("description", "")
         super().__init__(
             f"The '{model_type}' model is not loaded.",
-            technical_detail=detail or MODEL_INFO.get(model_type, {}).get("description", ""),
+            technical_detail=detail,
             recovery="restart",
         )
         self.model_type = model_type

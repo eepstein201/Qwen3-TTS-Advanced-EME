@@ -68,9 +68,16 @@ def voice_prompt_exists(prompt_file):
 
 
 def list_voice_prompts():
-    """List available voice clone prompts."""
-    prompts = [f for f in os.listdir(VOICE_PROMPTS_DIR) if f.endswith('.pt')]
-    return sorted(prompts)
+    """List available voice clone prompts (.pt for torch, .wav+.txt for MLX)."""
+    try:
+        files = os.listdir(VOICE_PROMPTS_DIR)
+    except OSError:
+        return []
+    pt_prompts = {f for f in files if f.endswith('.pt')}
+    # Include MLX prompts: .wav files that have a matching .txt
+    txt_bases = {f[:-4] for f in files if f.endswith('.txt')}
+    mlx_prompts = {f for f in files if f.endswith('.wav') and f[:-4] in txt_bases}
+    return sorted(pt_prompts | mlx_prompts)
 
 
 def get_text(text_or_file):
@@ -250,53 +257,87 @@ def get_voice_alias(alias_name, config):
 # ---------------------------------------------------------------------------
 
 def delete_voice_prompt(prompt_name):
-    """Delete a voice prompt file."""
+    """Delete a voice prompt file (supports .pt, .wav+.txt formats)."""
     if ".." in prompt_name or "/" in prompt_name or "\\" in prompt_name:
         print(f"Error: Invalid prompt name: {prompt_name!r}")
         return False
-    prompt_path = os.path.join(VOICE_PROMPTS_DIR, prompt_name)
-    if not prompt_name.endswith('.pt'):
-        prompt_path += '.pt'
-        prompt_name += '.pt'
 
-    if not os.path.exists(prompt_path):
+    # Strip known extensions to get the base name
+    base = prompt_name
+    for ext in ('.pt', '.wav', '.txt'):
+        if base.endswith(ext):
+            base = base[:-len(ext)]
+            break
+
+    # Find all format files that exist
+    pt_path = os.path.join(VOICE_PROMPTS_DIR, f"{base}.pt")
+    wav_path = os.path.join(VOICE_PROMPTS_DIR, f"{base}.wav")
+    txt_path = os.path.join(VOICE_PROMPTS_DIR, f"{base}.txt")
+    to_delete = [p for p in (pt_path, wav_path, txt_path) if os.path.exists(p)]
+
+    if not to_delete:
         print(f"Error: Voice prompt not found: {prompt_name}")
         return False
 
-    confirm = input(f"Delete '{prompt_name}'? This cannot be undone. [y/N]: ").strip().lower()
+    filenames = ", ".join(os.path.basename(p) for p in to_delete)
+    confirm = input(f"Delete '{base}' ({filenames})? This cannot be undone. [y/N]: ").strip().lower()
     if confirm != 'y':
         print("Cancelled.")
         return False
 
-    os.remove(prompt_path)
-    print(f"Deleted: {prompt_name}")
+    for p in to_delete:
+        os.remove(p)
+    print(f"Deleted: {filenames}")
     return True
 
 
 def rename_voice_prompt(old_name, new_name):
-    """Rename a voice prompt file."""
+    """Rename a voice prompt file (supports .pt, .wav+.txt formats)."""
     for _name in (old_name, new_name):
         if ".." in _name or "/" in _name or "\\" in _name:
             print(f"Error: Invalid prompt name: {_name!r}")
             return False
-    if not old_name.endswith('.pt'):
-        old_name += '.pt'
-    if not new_name.endswith('.pt'):
-        new_name += '.pt'
 
-    old_path = os.path.join(VOICE_PROMPTS_DIR, old_name)
-    new_path = os.path.join(VOICE_PROMPTS_DIR, new_name)
+    # Strip known extensions to get base names
+    old_base = old_name
+    new_base = new_name
+    for ext in ('.pt', '.wav', '.txt'):
+        if old_base.endswith(ext):
+            old_base = old_base[:-len(ext)]
+        if new_base.endswith(ext):
+            new_base = new_base[:-len(ext)]
 
-    if not os.path.exists(old_path):
+    # Find all format files that exist for old name
+    rename_pairs = []
+    for ext in ('.pt', '.wav', '.txt'):
+        old_path = os.path.join(VOICE_PROMPTS_DIR, f"{old_base}{ext}")
+        new_path = os.path.join(VOICE_PROMPTS_DIR, f"{new_base}{ext}")
+        if os.path.exists(old_path):
+            if os.path.exists(new_path):
+                print(f"Error: Voice prompt already exists: {new_base}{ext}")
+                return False
+            rename_pairs.append((old_path, new_path))
+
+    if not rename_pairs:
         print(f"Error: Voice prompt not found: {old_name}")
         return False
 
-    if os.path.exists(new_path):
-        print(f"Error: Voice prompt already exists: {new_name}")
+    completed = []
+    try:
+        for old_path, new_path in rename_pairs:
+            os.rename(old_path, new_path)
+            completed.append((old_path, new_path))
+    except OSError as e:
+        # Rollback completed renames on failure
+        for done_old, done_new in completed:
+            try:
+                os.rename(done_new, done_old)
+            except OSError:
+                pass
+        print(f"Error: Rename failed: {e}")
         return False
 
-    os.rename(old_path, new_path)
-    print(f"Renamed: {old_name} -> {new_name}")
+    print(f"Renamed: {old_base} -> {new_base}")
     return True
 
 
@@ -480,7 +521,7 @@ def srt_time_to_ms(time_str):
 def process_audio_args(audio, sample_rate, args):
     """Apply audio processing based on argparse args.
 
-    Lazily imports voice_engine only when processing is actually needed.
+    Lazily imports qwen3_tts.core.engine only when processing is actually needed.
     """
     needs = args.trim_silence or args.normalize or (args.speed and args.speed != 1.0) or (args.pitch and args.pitch != 0)
     if not needs:
@@ -508,23 +549,19 @@ def ensure_server_running(config):
     print("TTS Server is not running.")
     print("Starting server (this may take 30-180 seconds on first run to download models)...")
 
-    start_script = os.path.expanduser("~/bin/tts")
-    if os.path.exists(start_script):
-        result = subprocess.run([start_script, "server", "start"], capture_output=False)  # nosec B603
+    import shutil
+    tts_cmd = shutil.which("tts")
+    if tts_cmd:
+        result = subprocess.run([tts_cmd, "server", "start"], capture_output=False)  # nosec B603
         return result.returncode == 0
 
-    # Fallback: start server directly via qwen3_tts/server/app.py
-    server_module = os.path.expanduser("~/Qwen3-TTS_UserFiles/qwen3_tts/server/app.py")
-    log_file = os.path.expanduser("~/Qwen3-TTS_UserFiles/.voice_server.log")
-
-    user_files = os.path.expanduser("~/Qwen3-TTS_UserFiles")
-    env = {**os.environ, "PYTHONPATH": user_files + os.pathsep + os.environ.get("PYTHONPATH", "")}
-    with open(log_file, "w") as log:
+    # Fallback: start server directly as a module
+    from qwen3_tts.core.config import LOG_FILE
+    with open(LOG_FILE, "w") as log:
         subprocess.Popen(  # nosec B603
-            [sys.executable, server_module],
+            [sys.executable, "-m", "qwen3_tts.server.app"],
             stdout=log, stderr=log,
             start_new_session=True,
-            env=env,
         )
 
     print("Waiting for server to be ready...")
@@ -608,7 +645,6 @@ class _ProgressPoller:
         self._rich_task_id = None
 
     def start(self):
-        import threading
         self._thread = threading.Thread(target=self._run, daemon=True)
         self._thread.start()
 
@@ -633,7 +669,7 @@ class _ProgressPoller:
 
     def _run_rich(self):
         """Run with Rich progress bar."""
-        from rich.progress import Progress, SpinnerColumn, TextColumn, BarColumn, TimeElapsedColumn, TaskID
+        from rich.progress import Progress, SpinnerColumn, TextColumn, BarColumn, TimeElapsedColumn
         from rich.console import Console
 
         console = Console(stderr=True)
@@ -930,13 +966,13 @@ def generate_streaming(text, mode, config, gen_params, output_path,
 
 
 # ---------------------------------------------------------------------------
-# Local generation (lazy import of voice_engine)
+# Local generation (lazy import of qwen3_tts.core.engine)
 # ---------------------------------------------------------------------------
 
 def generate_local(text, mode, gen_params, language="English",
                    prompt_file=None, voice_description=None,
                    speaker=None, instruct=None, max_chunk_chars=None):
-    """Generate speech locally using voice_engine (imports torch on first call)."""
+    """Generate speech locally using qwen3_tts.core.engine (imports torch on first call)."""
     from qwen3_tts.core.engine import load_model, run_inference, load_voice_prompt
 
     print(f"Loading {mode} model locally...")
@@ -2107,6 +2143,7 @@ def main():
             sys.exit(1)
 
     # Determine mode
+    speaker_name = None
     if args.mode == "design" or args.description:
         mode = "design"
     if args.mode == "custom" or args.speaker:

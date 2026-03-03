@@ -49,7 +49,7 @@ def main():
         ui_proc = subprocess.Popen(  # nosec B603
             [sys.executable, "-c",
              f"import sys; sys.path.insert(0, '{PROJECT_DIR}'); "
-             f"from voice_ui import build_ui; "
+             f"from qwen3_tts.interface.ui import build_ui; "
              f"demo = build_ui(); "
              f"import os; "
              f"demo.launch(server_name='127.0.0.1', server_port={UI_PORT}, "

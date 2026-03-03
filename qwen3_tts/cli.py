@@ -325,6 +325,7 @@ def start(public, foreground):
     if foreground:
         # Run in foreground (for Colab/notebooks)
         click.echo("Starting TTS server in foreground...")
+        import uvicorn
         from qwen3_tts.server.app import app
         host = config.get("server", {}).get("host", "127.0.0.1")
         if public:
@@ -335,7 +336,8 @@ def start(public, foreground):
         # Run as daemon (background subprocess)
         proc = _start_server_daemon(public=public)
         click.echo(f"TTS Server started with PID {proc.pid}")
-        click.echo(f"Logs: {config.get('log_file', '~/.voice_server.log')}")
+        from qwen3_tts.core.config import LOG_FILE
+        click.echo(f"Logs: {LOG_FILE}")
 
 
 @server.command()
@@ -408,18 +410,13 @@ def status():
 @server.command()
 def log():
     """Tail the server log."""
-    from qwen3_tts.core.config import load_config
-    import shutil
+    from qwen3_tts.core.config import LOG_FILE
 
-    config = load_config()
-    log_file = Path(config.get("log_file", "~/.voice_server.log")).expanduser()
+    log_file = LOG_FILE
 
     if not log_file.exists():
         click.echo(f"Log file not found: {log_file}")
         sys.exit(1)
-
-    # Get terminal width
-    width = shutil.get_terminal_size(fallback=(80, 24)).columns
 
     # Tail the log file
     try:
@@ -484,7 +481,7 @@ def create(audio, name, transcript, mlx_only, no_transcript, auto_transcribe):
     if audio:
         argv.append(audio)
     if name:
-        argv.append(name)
+        argv.extend(['-n', name])
     if transcript:
         argv.extend(['-t', transcript])
     if mlx_only:
@@ -649,7 +646,8 @@ def models():
     else:
         click.echo("\nServer not running — showing configured models:")
         for mt in ("clone", "design", "custom"):
-            click.echo(f"  {mt}: {MODEL_INFO.get(mt, {}).get('name', 'unknown')}")
+            info = MODEL_INFO.get(size, {}).get(mt, {})
+            click.echo(f"  {mt}: {info.get('name', 'unknown')}")
 
 
 @list_group.command()
@@ -844,7 +842,7 @@ def voices(dry_run):
     uninstall_voices(dry_run=dry_run)
 
 
-@uninstall.command()
+@uninstall.command('config')
 @click.option('--dry-run', is_flag=True, help='Preview changes without deleting')
 def config_cmd(dry_run):
     """Reset config.json to defaults."""
@@ -859,7 +857,7 @@ def environment():
     print_environment_instructions()
 
 
-@uninstall.command()
+@uninstall.command('all')
 @click.option('--dry-run', is_flag=True, help='Preview changes without deleting')
 def all_cmd(dry_run):
     """Run all uninstall steps except conda environments."""
@@ -912,16 +910,14 @@ def clear(force):
 # ---------------------------------------------------------------------------
 
 @cli.command()
-@click.option('--fix', is_flag=True, help='Show suggested fixes for issues')
-def doctor(fix):
+def doctor():
     """Check TTS installation health."""
     from qwen3_tts.tools.healthcheck import run_healthcheck
     sys.exit(run_healthcheck())
 
 
 @cli.command('healthcheck', hidden=True)
-@click.option('--fix', is_flag=True, help='Show suggested fixes for issues')
-def healthcheck_cmd(fix):
+def healthcheck_cmd():
     """Alias for doctor command."""
     from qwen3_tts.tools.healthcheck import run_healthcheck
     sys.exit(run_healthcheck())

@@ -394,45 +394,6 @@ def fastapi_client(tmp_config, unused_port):
 
 
 @pytest.fixture
-def authenticated_fastapi_client(fastapi_client):
-    """Create a FastAPI TestClient with valid auth headers pre-configured.
-
-    Returns a client helper that automatically adds auth headers.
-
-    Example:
-        def test_protected_endpoint(authenticated_fastapi_client):
-            response = authenticated_fastapi_client.get("/models")
-            assert response.status_code == 200
-    """
-    class AuthenticatedClient:
-        def __init__(self, client, token):
-            self.client = client
-            self.token = token
-
-        def get(self, path, **kwargs):
-            headers = kwargs.pop('headers', {})
-            headers['Authorization'] = f'Bearer {self.token}'
-            return self.client.get(path, headers=headers, **kwargs)
-
-        def post(self, path, **kwargs):
-            headers = kwargs.pop('headers', {})
-            headers['Authorization'] = f'Bearer {self.token}'
-            return self.client.post(path, headers=headers, **kwargs)
-
-        def put(self, path, **kwargs):
-            headers = kwargs.pop('headers', {})
-            headers['Authorization'] = f'Bearer {self.token}'
-            return self.client.put(path, headers=headers, **kwargs)
-
-        def delete(self, path, **kwargs):
-            headers = kwargs.pop('headers', {})
-            headers['Authorization'] = f'Bearer {self.token}'
-            return self.client.delete(path, headers=headers, **kwargs)
-
-    return AuthenticatedClient(fastapi_client, fastapi_client._token)
-
-
-@pytest.fixture
 def loaded_models(fastapi_client):
     """Context manager that temporarily marks models as loaded.
 

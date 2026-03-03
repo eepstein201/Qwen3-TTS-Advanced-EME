@@ -404,7 +404,7 @@ class TestServerAuth(unittest.TestCase):
 
 
 # =============================================================================
-# SSML parsing tests (from voice_generate, lightweight)
+# SSML parsing tests (from qwen3_tts.interface.generate, lightweight)
 # =============================================================================
 
 @_skip_generate
@@ -412,30 +412,30 @@ class TestSSMLParsing(unittest.TestCase):
     """Test SSML parsing in voice_generate."""
 
     def test_no_ssml(self):
-        from voice_generate import parse_ssml
+        from qwen3_tts.interface.generate import parse_ssml
         text, meta = parse_ssml("Hello world")
         self.assertEqual(text, "Hello world")
         self.assertFalse(meta["has_ssml"])
 
     def test_break_tag(self):
-        from voice_generate import parse_ssml
+        from qwen3_tts.interface.generate import parse_ssml
         text, meta = parse_ssml('Hello <break time="500ms"/> world')
         self.assertTrue(meta["has_ssml"])
         self.assertNotIn("<break", text)
 
     def test_sub_tag(self):
-        from voice_generate import parse_ssml
+        from qwen3_tts.interface.generate import parse_ssml
         text, meta = parse_ssml('<sub alias="World Wide Web">WWW</sub>')
         self.assertIn("World Wide Web", text)
         self.assertNotIn("WWW", text)
 
     def test_say_as_characters(self):
-        from voice_generate import parse_ssml
+        from qwen3_tts.interface.generate import parse_ssml
         text, meta = parse_ssml('<say-as interpret-as="characters">ABC</say-as>')
         self.assertIn("A B C", text)
 
     def test_prosody_speed(self):
-        from voice_generate import parse_ssml
+        from qwen3_tts.interface.generate import parse_ssml
         text, meta = parse_ssml('<prosody rate="fast">Quick text</prosody>')
         self.assertTrue(meta["has_ssml"])
         self.assertEqual(meta["prosody"]["speed"], 1.2)
@@ -450,7 +450,7 @@ class TestSRTParsing(unittest.TestCase):
     """Test SRT parsing."""
 
     def test_parse_srt(self):
-        from voice_generate import parse_srt
+        from qwen3_tts.interface.generate import parse_srt
         srt_content = """1
 00:00:01,000 --> 00:00:03,000
 Hello world
@@ -471,7 +471,7 @@ Second subtitle
             os.unlink(srt_path)
 
     def test_srt_time_to_ms(self):
-        from voice_generate import srt_time_to_ms
+        from qwen3_tts.interface.generate import srt_time_to_ms
         self.assertEqual(srt_time_to_ms("00:01:30,500"), 90500)
         self.assertEqual(srt_time_to_ms("01:00:00,000"), 3600000)
 
@@ -485,14 +485,14 @@ class TestAutoIncrementFilename(unittest.TestCase):
     """Test auto_increment_filename helper."""
 
     def test_no_conflict(self):
-        from voice_generate import auto_increment_filename
+        from qwen3_tts.interface.generate import auto_increment_filename
         # Non-existent file should return as-is
         _tmp = os.path.join(tempfile.gettempdir(), "nonexistent_test_xyz.wav")
         result = auto_increment_filename(_tmp)
         self.assertEqual(result, _tmp)
 
     def test_conflict_increments(self):
-        from voice_generate import auto_increment_filename
+        from qwen3_tts.interface.generate import auto_increment_filename
         # Create a temp file
         with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as f:
             path = f.name
@@ -504,7 +504,7 @@ class TestAutoIncrementFilename(unittest.TestCase):
             os.unlink(path)
 
     def test_already_numbered(self):
-        from voice_generate import auto_increment_filename
+        from qwen3_tts.interface.generate import auto_increment_filename
         # Create files with _2 suffix
         with tempfile.NamedTemporaryFile(suffix="_2.wav", delete=False, dir=tempfile.gettempdir(), prefix="test_") as f:
             path = f.name
@@ -642,7 +642,7 @@ class TestMLXVoicePrompt(unittest.TestCase):
 
     def test_load_voice_prompt_mlx_success(self):
         """Load MLX prompt from .wav + .txt pair."""
-        from voice_engine import load_voice_prompt_mlx
+        from qwen3_tts.core.engine import load_voice_prompt_mlx
         # Create fake wav and txt
         wav_path = os.path.join(self.tmpdir, "test_voice.wav")
         txt_path = os.path.join(self.tmpdir, "test_voice.txt")
@@ -651,7 +651,7 @@ class TestMLXVoicePrompt(unittest.TestCase):
         with open(txt_path, "w") as f:
             f.write("Hello, this is a test transcript.")
 
-        with patch("voice_engine.VOICE_PROMPTS_DIR", self.tmpdir):
+        with patch("qwen3_tts.core.engine.VOICE_PROMPTS_DIR", self.tmpdir):
             result = load_voice_prompt_mlx("test_voice.pt")
 
         self.assertIsInstance(result, dict)
@@ -660,7 +660,7 @@ class TestMLXVoicePrompt(unittest.TestCase):
 
     def test_load_voice_prompt_mlx_strips_pt(self):
         """Prompt name with .pt extension is handled correctly."""
-        from voice_engine import load_voice_prompt_mlx
+        from qwen3_tts.core.engine import load_voice_prompt_mlx
         wav_path = os.path.join(self.tmpdir, "voice.wav")
         txt_path = os.path.join(self.tmpdir, "voice.txt")
         with open(wav_path, "wb") as f:
@@ -668,25 +668,25 @@ class TestMLXVoicePrompt(unittest.TestCase):
         with open(txt_path, "w") as f:
             f.write("transcript")
 
-        with patch("voice_engine.VOICE_PROMPTS_DIR", self.tmpdir):
+        with patch("qwen3_tts.core.engine.VOICE_PROMPTS_DIR", self.tmpdir):
             result = load_voice_prompt_mlx("voice.pt")
         self.assertEqual(result["ref_audio"], wav_path)
 
     def test_load_voice_prompt_mlx_missing_files(self):
         """Raises FileNotFoundError when wav/txt missing."""
-        from voice_engine import load_voice_prompt_mlx
-        with patch("voice_engine.VOICE_PROMPTS_DIR", self.tmpdir):
+        from qwen3_tts.core.engine import load_voice_prompt_mlx
+        with patch("qwen3_tts.core.engine.VOICE_PROMPTS_DIR", self.tmpdir):
             with self.assertRaises(FileNotFoundError):
                 load_voice_prompt_mlx("nonexistent")
 
     def test_load_voice_prompt_mlx_pt_only_error(self):
         """Clear error when only .pt exists (no MLX-compatible files)."""
-        from voice_engine import load_voice_prompt_mlx
+        from qwen3_tts.core.engine import load_voice_prompt_mlx
         pt_path = os.path.join(self.tmpdir, "legacy.pt")
         with open(pt_path, "wb") as f:
             f.write(b"fake tensor data")
 
-        with patch("voice_engine.VOICE_PROMPTS_DIR", self.tmpdir):
+        with patch("qwen3_tts.core.engine.VOICE_PROMPTS_DIR", self.tmpdir):
             with self.assertRaises(FileNotFoundError) as ctx:
                 load_voice_prompt_mlx("legacy")
             self.assertIn("only has a .pt file", str(ctx.exception))
@@ -694,19 +694,19 @@ class TestMLXVoicePrompt(unittest.TestCase):
 
     def test_load_voice_prompt_dispatch_torch(self):
         """load_voice_prompt dispatches to torch backend."""
-        from voice_engine import load_voice_prompt
-        with patch("voice_engine.get_backend", return_value="torch"):
-            with patch("voice_engine._load_voice_prompt_torch", return_value="mock_tensor") as mock:
+        from qwen3_tts.core.engine import load_voice_prompt
+        with patch("qwen3_tts.core.engine.get_backend", return_value="torch"):
+            with patch("qwen3_tts.core.engine._load_voice_prompt_torch", return_value="mock_tensor") as mock:
                 result = load_voice_prompt("test.pt")
         mock.assert_called_once_with("test.pt")
         self.assertEqual(result, "mock_tensor")
 
     def test_load_voice_prompt_dispatch_mlx(self):
         """load_voice_prompt dispatches to MLX backend."""
-        from voice_engine import load_voice_prompt
+        from qwen3_tts.core.engine import load_voice_prompt
         mock_result = {"ref_audio": "/fake/path.wav", "ref_text": "text"}
-        with patch("voice_engine.get_backend", return_value="mlx"):
-            with patch("voice_engine.load_voice_prompt_mlx", return_value=mock_result) as mock:
+        with patch("qwen3_tts.core.engine.get_backend", return_value="mlx"):
+            with patch("qwen3_tts.core.engine.load_voice_prompt_mlx", return_value=mock_result) as mock:
                 result = load_voice_prompt("test.pt")
         mock.assert_called_once_with("test.pt")
         self.assertEqual(result, mock_result)
@@ -720,33 +720,33 @@ class TestBackendDispatch(unittest.TestCase):
     """Test that public API dispatches to correct backend functions."""
 
     def test_load_model_dispatch_torch(self):
-        from voice_engine import load_model
-        with patch("voice_engine.get_backend", return_value="torch"):
-            with patch("voice_engine._load_model_torch", return_value="torch_model") as mock:
+        from qwen3_tts.core.engine import load_model
+        with patch("qwen3_tts.core.engine.get_backend", return_value="torch"):
+            with patch("qwen3_tts.core.engine._load_model_torch", return_value="torch_model") as mock:
                 result = load_model("clone")
         mock.assert_called_once_with("clone")
         self.assertEqual(result, "torch_model")
 
     def test_load_model_dispatch_mlx(self):
-        from voice_engine import load_model
-        with patch("voice_engine.get_backend", return_value="mlx"):
-            with patch("voice_engine._load_model_mlx", return_value="mlx_model") as mock:
+        from qwen3_tts.core.engine import load_model
+        with patch("qwen3_tts.core.engine.get_backend", return_value="mlx"):
+            with patch("qwen3_tts.core.engine._load_model_mlx", return_value="mlx_model") as mock:
                 result = load_model("design")
         mock.assert_called_once_with("design")
         self.assertEqual(result, "mlx_model")
 
     def test_run_inference_dispatch_torch(self):
-        from voice_engine import run_inference
-        with patch("voice_engine.get_backend", return_value="torch"):
-            with patch("voice_engine._run_inference_torch", return_value=("wav", 24000)) as mock:
+        from qwen3_tts.core.engine import run_inference
+        with patch("qwen3_tts.core.engine.get_backend", return_value="torch"):
+            with patch("qwen3_tts.core.engine._run_inference_torch", return_value=("wav", 24000)) as mock:
                 result = run_inference("model", "text", "clone", {})
         mock.assert_called_once()
         self.assertEqual(result, ("wav", 24000))
 
     def test_run_inference_dispatch_mlx(self):
-        from voice_engine import run_inference
-        with patch("voice_engine.get_backend", return_value="mlx"):
-            with patch("voice_engine._run_inference_mlx", return_value=("wav", 24000)) as mock:
+        from qwen3_tts.core.engine import run_inference
+        with patch("qwen3_tts.core.engine.get_backend", return_value="mlx"):
+            with patch("qwen3_tts.core.engine._run_inference_mlx", return_value=("wav", 24000)) as mock:
                 result = run_inference("model", "text", "design", {})
         mock.assert_called_once()
         self.assertEqual(result, ("wav", 24000))
@@ -789,7 +789,7 @@ class TestMLXInferenceCloneValidation(unittest.TestCase):
 
     def test_clone_requires_voice_prompt(self):
         """_run_inference_mlx raises ValueError without voice_prompt in clone mode."""
-        from voice_engine import _run_inference_mlx
+        from qwen3_tts.core.engine import _run_inference_mlx
         with self.assertRaises(ValueError) as ctx:
             _run_inference_mlx(
                 model=MagicMock(),
@@ -802,7 +802,7 @@ class TestMLXInferenceCloneValidation(unittest.TestCase):
 
     def test_clone_rejects_non_dict_prompt(self):
         """_run_inference_mlx raises TypeError for non-dict voice_prompt."""
-        from voice_engine import _run_inference_mlx
+        from qwen3_tts.core.engine import _run_inference_mlx
         with self.assertRaises(TypeError) as ctx:
             _run_inference_mlx(
                 model=MagicMock(),
@@ -920,17 +920,17 @@ class TestStreaming(unittest.TestCase):
 
     def test_run_inference_streaming_exists(self):
         """run_inference_streaming function is importable."""
-        from voice_engine import run_inference_streaming
+        from qwen3_tts.core.engine import run_inference_streaming
         self.assertTrue(callable(run_inference_streaming))
 
     def test_mlx_streaming_function_exists(self):
         """_run_inference_mlx_streaming function is importable."""
-        from voice_engine import _run_inference_mlx_streaming
+        from qwen3_tts.core.engine import _run_inference_mlx_streaming
         self.assertTrue(callable(_run_inference_mlx_streaming))
 
     def test_streaming_torch_falls_back_to_chunked(self):
         """run_inference_streaming for torch uses chunked inference (not native streaming)."""
-        from voice_engine import run_inference_streaming
+        from qwen3_tts.core.engine import run_inference_streaming
         import inspect
         source = inspect.getsource(run_inference_streaming)
         # Torch backend falls back to chunked approach
@@ -938,7 +938,7 @@ class TestStreaming(unittest.TestCase):
 
     def test_streaming_mlx_function_signature(self):
         """_run_inference_mlx_streaming has correct parameters."""
-        from voice_engine import _run_inference_mlx_streaming
+        from qwen3_tts.core.engine import _run_inference_mlx_streaming
         import inspect
         sig = inspect.signature(_run_inference_mlx_streaming)
         params = list(sig.parameters.keys())
@@ -1001,12 +1001,12 @@ class TestASR(unittest.TestCase):
 
     def test_transcribe_audio_exists(self):
         """transcribe_audio function is importable."""
-        from voice_engine import transcribe_audio
+        from qwen3_tts.core.engine import transcribe_audio
         self.assertTrue(callable(transcribe_audio))
 
     def test_is_asr_available_exists(self):
         """is_asr_available function is importable."""
-        from voice_engine import is_asr_available
+        from qwen3_tts.core.engine import is_asr_available
         self.assertTrue(callable(is_asr_available))
 
     def test_asr_models_are_lazy_loaded(self):
@@ -1017,15 +1017,15 @@ class TestASR(unittest.TestCase):
 
     def test_is_asr_available_mlx_with_stt(self):
         """is_asr_available returns True when MLX + mlx_audio.stt available."""
-        from voice_engine import is_asr_available
-        with patch("voice_engine.get_backend", return_value="mlx"):
+        from qwen3_tts.core.engine import is_asr_available
+        with patch("qwen3_tts.core.engine.get_backend", return_value="mlx"):
             with patch.dict(sys.modules, {"mlx_audio.stt": MagicMock()}):
                 result = is_asr_available()
         self.assertIsInstance(result, bool)
 
     def test_transcribe_audio_mlx_returns_string(self):
         """transcribe_audio returns a string via MLX path."""
-        from voice_engine import transcribe_audio
+        from qwen3_tts.core.engine import transcribe_audio
 
         mock_result = MagicMock()
         mock_result.text = "Hello world"
@@ -1033,8 +1033,8 @@ class TestASR(unittest.TestCase):
         mock_model = MagicMock()
         mock_model.generate.return_value = mock_result
 
-        with patch("voice_engine.get_backend", return_value="mlx"):
-            with patch("voice_engine._asr_model_mlx", mock_model):
+        with patch("qwen3_tts.core.engine.get_backend", return_value="mlx"):
+            with patch("qwen3_tts.core.engine._asr_model_mlx", mock_model):
                 result = transcribe_audio("/fake/path.wav")
 
         self.assertIsInstance(result, str)
@@ -1042,25 +1042,25 @@ class TestASR(unittest.TestCase):
 
     def test_is_asr_available_torch_with_transformers(self):
         """is_asr_available returns True when torch + transformers importable."""
-        from voice_engine import is_asr_available
+        from qwen3_tts.core.engine import is_asr_available
         # Check if transformers is actually importable in this env
         try:
             from transformers import pipeline  # noqa: F401
             has_transformers = True
         except (ImportError, Exception):
             has_transformers = False
-        with patch("voice_engine.get_backend", return_value="torch"):
+        with patch("qwen3_tts.core.engine.get_backend", return_value="torch"):
             result = is_asr_available()
         self.assertEqual(result, has_transformers)
 
     def test_transcribe_audio_torch_dispatches(self):
         """transcribe_audio uses torch path when backend is torch."""
-        from voice_engine import transcribe_audio
+        from qwen3_tts.core.engine import transcribe_audio
 
         mock_pipe = MagicMock(return_value={"text": "Torch transcript"})
 
-        with patch("voice_engine.get_backend", return_value="torch"):
-            with patch("voice_engine._asr_model_torch", mock_pipe):
+        with patch("qwen3_tts.core.engine.get_backend", return_value="torch"):
+            with patch("qwen3_tts.core.engine._asr_model_torch", mock_pipe):
                 result = transcribe_audio("/fake/path.wav")
 
         self.assertEqual(result, "Torch transcript")
@@ -1068,12 +1068,12 @@ class TestASR(unittest.TestCase):
 
     def test_transcribe_audio_torch_passes_language(self):
         """Torch ASR passes language via generate_kwargs."""
-        from voice_engine import transcribe_audio
+        from qwen3_tts.core.engine import transcribe_audio
 
         mock_pipe = MagicMock(return_value={"text": "Bonjour"})
 
-        with patch("voice_engine.get_backend", return_value="torch"):
-            with patch("voice_engine._asr_model_torch", mock_pipe):
+        with patch("qwen3_tts.core.engine.get_backend", return_value="torch"):
+            with patch("qwen3_tts.core.engine._asr_model_torch", mock_pipe):
                 transcribe_audio("/fake/path.wav", language="fr")
 
         call_kwargs = mock_pipe.call_args[1]
@@ -1089,34 +1089,34 @@ class TestStability(unittest.TestCase):
 
     def test_retry_delays_constant_exists(self):
         """_RETRY_DELAYS constant is defined."""
-        from voice_engine import _RETRY_DELAYS
+        from qwen3_tts.core.engine import _RETRY_DELAYS
         self.assertEqual(len(_RETRY_DELAYS), 3)
         self.assertEqual(_RETRY_DELAYS, (5, 15, 45))
 
     def test_retry_delays_is_exponential(self):
         """_RETRY_DELAYS uses exponential backoff pattern."""
-        from voice_engine import _RETRY_DELAYS
+        from qwen3_tts.core.engine import _RETRY_DELAYS
         # Each delay should be roughly 3x the previous (5 -> 15 -> 45)
         self.assertEqual(_RETRY_DELAYS[1], _RETRY_DELAYS[0] * 3)
         self.assertEqual(_RETRY_DELAYS[2], _RETRY_DELAYS[1] * 3)
 
     def test_max_chunk_chars_helper_exists(self):
         """_get_max_chunk_chars helper function exists."""
-        from voice_engine import _get_max_chunk_chars
+        from qwen3_tts.core.engine import _get_max_chunk_chars
         self.assertTrue(callable(_get_max_chunk_chars))
 
     def test_max_chunk_chars_default(self):
         """_get_max_chunk_chars returns default 500."""
-        from voice_engine import _get_max_chunk_chars
-        with patch("voice_engine.load_config", return_value={}):
+        from qwen3_tts.core.engine import _get_max_chunk_chars
+        with patch("qwen3_tts.core.engine.load_config", return_value={}):
             result = _get_max_chunk_chars()
         self.assertEqual(result, 500)
 
     def test_max_chunk_chars_from_config(self):
         """_get_max_chunk_chars reads from config."""
-        from voice_engine import _get_max_chunk_chars
+        from qwen3_tts.core.engine import _get_max_chunk_chars
         config = {"generation": {"max_chunk_chars": 300}}
-        with patch("voice_engine.load_config", return_value=config):
+        with patch("qwen3_tts.core.engine.load_config", return_value=config):
             result = _get_max_chunk_chars()
         self.assertEqual(result, 300)
 
@@ -1126,7 +1126,7 @@ class TestFloat32Guard(unittest.TestCase):
 
     def test_float32_guard_exists_in_torch_inference(self):
         """_run_inference_torch has float32 guard logic."""
-        from voice_engine import _run_inference_torch
+        from qwen3_tts.core.engine import _run_inference_torch
         import inspect
         source = inspect.getsource(_run_inference_torch)
         # Should have float32 override logic for clone mode
@@ -1139,7 +1139,7 @@ class TestMLXMetalRecovery(unittest.TestCase):
 
     def test_run_inference_handles_exceptions(self):
         """run_inference wraps inference in try/except."""
-        from voice_engine import _run_inference_single
+        from qwen3_tts.core.engine import _run_inference_single
         import inspect
         source = inspect.getsource(_run_inference_single)
         # Should have exception handling
@@ -1155,13 +1155,13 @@ class TestTextChunking(unittest.TestCase):
 
     def test_split_text_short(self):
         """Short text is not split."""
-        from voice_engine import _split_text
+        from qwen3_tts.core.engine import _split_text
         chunks = _split_text("Hello world.", max_chars=500)
         self.assertEqual(chunks, ["Hello world."])
 
     def test_split_text_sentences(self):
         """Text is split on sentence boundaries."""
-        from voice_engine import _split_text
+        from qwen3_tts.core.engine import _split_text
         text = "First sentence. Second sentence. Third sentence."
         chunks = _split_text(text, max_chars=30)
         self.assertGreater(len(chunks), 1)
@@ -1171,7 +1171,7 @@ class TestTextChunking(unittest.TestCase):
 
     def test_split_text_preserves_content(self):
         """All content is preserved after splitting."""
-        from voice_engine import _split_text
+        from qwen3_tts.core.engine import _split_text
         text = "The quick brown fox jumps over the lazy dog. A second sentence follows."
         chunks = _split_text(text, max_chars=50)
         combined = " ".join(chunks)
@@ -1181,28 +1181,28 @@ class TestTextChunking(unittest.TestCase):
 
     def test_split_text_question_mark(self):
         """Text splits on question marks."""
-        from voice_engine import _split_text
+        from qwen3_tts.core.engine import _split_text
         text = "Is this a question? Yes it is."
         chunks = _split_text(text, max_chars=25)
         self.assertGreater(len(chunks), 1)
 
     def test_split_text_exclamation(self):
         """Text splits on exclamation marks."""
-        from voice_engine import _split_text
+        from qwen3_tts.core.engine import _split_text
         text = "Hello! How are you today?"
         chunks = _split_text(text, max_chars=15)
         self.assertGreater(len(chunks), 1)
 
     def test_split_text_newlines(self):
         """Text splits on newlines."""
-        from voice_engine import _split_text
+        from qwen3_tts.core.engine import _split_text
         text = "First paragraph.\n\nSecond paragraph."
         chunks = _split_text(text, max_chars=20)
         self.assertGreater(len(chunks), 1)
 
     def test_split_text_comma_fallback(self):
         """Very long sentence falls back to clause boundaries."""
-        from voice_engine import _split_text
+        from qwen3_tts.core.engine import _split_text
         # A single long sentence with commas but no periods
         text = "This is a very long sentence, with several clauses, that should be split at commas when needed"
         chunks = _split_text(text, max_chars=40)
@@ -1479,14 +1479,14 @@ class TestStreamingClientMethod(unittest.TestCase):
 
     def test_generate_streaming_method_exists(self):
         """TTSClient has generate_streaming method."""
-        from voice_client import TTSClient
+        from qwen3_tts.server.client import TTSClient
         client = TTSClient()
         self.assertTrue(hasattr(client, "generate_streaming"))
         self.assertTrue(callable(getattr(client, "generate_streaming")))
 
     def test_cancel_generation_method_exists(self):
         """TTSClient has cancel_generation method."""
-        from voice_client import TTSClient
+        from qwen3_tts.server.client import TTSClient
         client = TTSClient()
         self.assertTrue(hasattr(client, "cancel_generation"))
         self.assertTrue(callable(getattr(client, "cancel_generation")))
@@ -1494,7 +1494,7 @@ class TestStreamingClientMethod(unittest.TestCase):
     def test_generate_streaming_signature(self):
         """generate_streaming has expected parameters."""
         import inspect
-        from voice_client import TTSClient
+        from qwen3_tts.server.client import TTSClient
         sig = inspect.signature(TTSClient.generate_streaming)
         params = list(sig.parameters.keys())
         # Should have text, mode, and various optional params
@@ -1585,13 +1585,13 @@ class TestUICancelFunction(unittest.TestCase):
 
     def test_cancel_streaming_generation_returns_tuple(self):
         """cancel_streaming_generation returns a tuple."""
-        from voice_ui import cancel_streaming_generation
+        from qwen3_tts.interface.ui import cancel_streaming_generation
         from unittest.mock import patch, MagicMock
 
         mock_client = MagicMock()
         mock_client.cancel_generation.return_value = {"status": "no_active_generation"}
 
-        with patch("voice_ui.TTSClient", return_value=mock_client):
+        with patch("qwen3_tts.interface.ui.TTSClient", return_value=mock_client):
             result = cancel_streaming_generation()
 
         self.assertIsInstance(result, tuple)
@@ -1600,13 +1600,13 @@ class TestUICancelFunction(unittest.TestCase):
 
     def test_cancel_streaming_generation_clears_audio(self):
         """cancel_streaming_generation returns None for audio to clear player."""
-        from voice_ui import cancel_streaming_generation
+        from qwen3_tts.interface.ui import cancel_streaming_generation
         from unittest.mock import patch, MagicMock
 
         mock_client = MagicMock()
         mock_client.cancel_generation.return_value = {"status": "cancellation_requested"}
 
-        with patch("voice_ui.TTSClient", return_value=mock_client):
+        with patch("qwen3_tts.interface.ui.TTSClient", return_value=mock_client):
             result = cancel_streaming_generation()
 
         # First element (audio) should be None to clear the player
@@ -1634,19 +1634,19 @@ class TestUITextInfo(unittest.TestCase):
 
     def test_update_text_info_empty(self):
         """update_text_info returns empty string for empty input."""
-        from voice_ui import update_text_info
+        from qwen3_tts.interface.ui import update_text_info
         self.assertEqual(update_text_info(""), "")
         self.assertEqual(update_text_info(None), "")
 
     def test_update_text_info_short(self):
         """update_text_info shows char count for short text."""
-        from voice_ui import update_text_info
+        from qwen3_tts.interface.ui import update_text_info
         result = update_text_info("Hello")
         self.assertIn("5 chars", result)
 
     def test_update_text_info_long(self):
         """update_text_info shows chunks estimate for long text."""
-        from voice_ui import update_text_info
+        from qwen3_tts.interface.ui import update_text_info
         long_text = "A" * 1000  # 1000 chars = ~2 chunks
         result = update_text_info(long_text)
         self.assertIn("1000 chars", result)
@@ -1671,7 +1671,7 @@ class TestUIModelSettings(unittest.TestCase):
 
     def test_get_current_model_settings_returns_tuple(self):
         """get_current_model_settings returns a 3-tuple."""
-        from voice_ui import get_current_model_settings
+        from qwen3_tts.interface.ui import get_current_model_settings
         result = get_current_model_settings()
         self.assertIsInstance(result, tuple)
         self.assertEqual(len(result), 3)
@@ -1683,7 +1683,7 @@ class TestUIModelSettings(unittest.TestCase):
 
     def test_apply_model_settings_returns_tuple(self):
         """apply_model_settings returns a 2-tuple (message, status_html)."""
-        from voice_ui import apply_model_settings
+        from qwen3_tts.interface.ui import apply_model_settings
         # Without server running, should return error message
         result = apply_model_settings("1.7B", "8bit")
         self.assertIsInstance(result, tuple)
@@ -1694,8 +1694,8 @@ class TestUIModelSettings(unittest.TestCase):
 
     def test_apply_model_settings_requires_server(self):
         """apply_model_settings returns error when server not running."""
-        from voice_ui import apply_model_settings
-        with unittest.mock.patch("voice_ui.TTSClient") as MockClient:
+        from qwen3_tts.interface.ui import apply_model_settings
+        with unittest.mock.patch("qwen3_tts.interface.ui.TTSClient") as MockClient:
             MockClient.return_value.is_server_running.return_value = False
             msg, _ = apply_model_settings("0.6B", "4bit")
         self.assertIn("not running", msg.lower())
@@ -1769,7 +1769,7 @@ class TestClientUpdateModelConfig(unittest.TestCase):
 
     def test_update_model_config_method_exists(self):
         """TTSClient has update_model_config method."""
-        from voice_client import TTSClient
+        from qwen3_tts.server.client import TTSClient
         client = TTSClient()
         self.assertTrue(hasattr(client, "update_model_config"))
         self.assertTrue(callable(client.update_model_config))
@@ -1931,7 +1931,7 @@ class TestCheckGenerationCancelled(unittest.TestCase):
 
     def test_returns_false_on_error(self):
         """_check_generation_cancelled returns False on connection error."""
-        from voice_ui import _check_generation_cancelled
+        from qwen3_tts.interface.ui import _check_generation_cancelled
         from unittest.mock import patch
 
         with patch("requests.get", side_effect=Exception("Connection error")):
@@ -1940,7 +1940,7 @@ class TestCheckGenerationCancelled(unittest.TestCase):
 
     def test_returns_false_when_not_cancelled(self):
         """_check_generation_cancelled returns False when not cancelled."""
-        from voice_ui import _check_generation_cancelled
+        from qwen3_tts.interface.ui import _check_generation_cancelled
         from unittest.mock import patch, MagicMock
 
         mock_resp = MagicMock()
@@ -1953,7 +1953,7 @@ class TestCheckGenerationCancelled(unittest.TestCase):
 
     def test_returns_true_when_cancelled(self):
         """_check_generation_cancelled returns True when cancelled."""
-        from voice_ui import _check_generation_cancelled
+        from qwen3_tts.interface.ui import _check_generation_cancelled
         from unittest.mock import patch, MagicMock
 
         mock_resp = MagicMock()
@@ -1978,7 +1978,7 @@ class TestMLXVoicePromptCache(unittest.TestCase):
 
     def setUp(self):
         # Clear cache before each test (earlier test classes may have populated it)
-        from voice_engine import _mlx_prompt_cache
+        from qwen3_tts.core.engine import _mlx_prompt_cache
         _mlx_prompt_cache.clear()
         self.tmpdir = tempfile.mkdtemp()
         # Create fake wav and txt
@@ -1992,28 +1992,28 @@ class TestMLXVoicePromptCache(unittest.TestCase):
         import shutil
         shutil.rmtree(self.tmpdir, ignore_errors=True)
         # Clear cache between tests
-        from voice_engine import _mlx_prompt_cache
+        from qwen3_tts.core.engine import _mlx_prompt_cache
         _mlx_prompt_cache.clear()
 
     def test_mlx_cache_returns_consistent_results(self):
         """Cached result is identical to first load."""
-        from voice_engine import load_voice_prompt_mlx
-        with patch("voice_engine.VOICE_PROMPTS_DIR", self.tmpdir):
+        from qwen3_tts.core.engine import load_voice_prompt_mlx
+        with patch("qwen3_tts.core.engine.VOICE_PROMPTS_DIR", self.tmpdir):
             first = load_voice_prompt_mlx("voice_a")
             second = load_voice_prompt_mlx("voice_a")
         self.assertIs(first, second)  # Same object from cache
 
     def test_mlx_cache_stores_entries(self):
         """Loading a prompt adds it to the cache."""
-        from voice_engine import load_voice_prompt_mlx, _mlx_prompt_cache
-        with patch("voice_engine.VOICE_PROMPTS_DIR", self.tmpdir):
+        from qwen3_tts.core.engine import load_voice_prompt_mlx, _mlx_prompt_cache
+        with patch("qwen3_tts.core.engine.VOICE_PROMPTS_DIR", self.tmpdir):
             load_voice_prompt_mlx("voice_a")
         self.assertIn("voice_a", _mlx_prompt_cache)
 
     def test_clear_voice_prompt_cache_clears_mlx(self):
         """clear_voice_prompt_cache clears MLX cache."""
-        from voice_engine import load_voice_prompt_mlx, clear_voice_prompt_cache, _mlx_prompt_cache
-        with patch("voice_engine.VOICE_PROMPTS_DIR", self.tmpdir):
+        from qwen3_tts.core.engine import load_voice_prompt_mlx, clear_voice_prompt_cache, _mlx_prompt_cache
+        with patch("qwen3_tts.core.engine.VOICE_PROMPTS_DIR", self.tmpdir):
             load_voice_prompt_mlx("voice_a")
         self.assertEqual(len(_mlx_prompt_cache), 1)
         clear_voice_prompt_cache()
@@ -2021,9 +2021,9 @@ class TestMLXVoicePromptCache(unittest.TestCase):
 
     def test_mlx_cache_info_returns_currsize(self):
         """voice_prompt_cache_info returns MLX cache size."""
-        from voice_engine import load_voice_prompt_mlx, voice_prompt_cache_info
-        with patch("voice_engine.get_backend", return_value="mlx"):
-            with patch("voice_engine.VOICE_PROMPTS_DIR", self.tmpdir):
+        from qwen3_tts.core.engine import load_voice_prompt_mlx, voice_prompt_cache_info
+        with patch("qwen3_tts.core.engine.get_backend", return_value="mlx"):
+            with patch("qwen3_tts.core.engine.VOICE_PROMPTS_DIR", self.tmpdir):
                 load_voice_prompt_mlx("voice_a")
             info = voice_prompt_cache_info()
         self.assertEqual(info.currsize, 1)
@@ -2383,28 +2383,28 @@ class TestClientPromptManagement(unittest.TestCase):
 
     def test_delete_prompt_method_exists(self):
         """TTSClient has delete_prompt method."""
-        from voice_client import TTSClient
+        from qwen3_tts.server.client import TTSClient
         self.assertTrue(hasattr(TTSClient, "delete_prompt"))
 
     def test_rename_prompt_method_exists(self):
         """TTSClient has rename_prompt method."""
-        from voice_client import TTSClient
+        from qwen3_tts.server.client import TTSClient
         self.assertTrue(hasattr(TTSClient, "rename_prompt"))
 
     def test_preview_prompt_method_exists(self):
         """TTSClient has preview_prompt method."""
-        from voice_client import TTSClient
+        from qwen3_tts.server.client import TTSClient
         self.assertTrue(hasattr(TTSClient, "preview_prompt"))
 
     def test_get_prompt_details_method_exists(self):
         """TTSClient has get_prompt_details method."""
-        from voice_client import TTSClient
+        from qwen3_tts.server.client import TTSClient
         self.assertTrue(hasattr(TTSClient, "get_prompt_details"))
 
     def test_list_prompts_uses_server(self):
         """list_prompts calls server /prompts when running."""
         import inspect
-        from voice_client import TTSClient
+        from qwen3_tts.server.client import TTSClient
         source = inspect.getsource(TTSClient.list_prompts)
         self.assertIn("/prompts", source)
         self.assertIn("is_server_running", source)
@@ -2433,38 +2433,38 @@ class TestVoiceManagementUI(unittest.TestCase):
 
     def test_get_prompt_table_data_exists(self):
         """voice_ui has get_prompt_table_data function."""
-        from voice_ui import get_prompt_table_data
+        from qwen3_tts.interface.ui import get_prompt_table_data
         self.assertTrue(callable(get_prompt_table_data))
 
     def test_preview_voice_exists(self):
         """voice_ui has preview_voice function."""
-        from voice_ui import preview_voice
+        from qwen3_tts.interface.ui import preview_voice
         self.assertTrue(callable(preview_voice))
 
     def test_rename_voice_exists(self):
         """voice_ui has rename_voice function."""
-        from voice_ui import rename_voice
+        from qwen3_tts.interface.ui import rename_voice
         self.assertTrue(callable(rename_voice))
 
     def test_delete_voice_exists(self):
         """voice_ui has delete_voice function."""
-        from voice_ui import delete_voice
+        from qwen3_tts.interface.ui import delete_voice
         self.assertTrue(callable(delete_voice))
 
     def test_set_voice_default_exists(self):
         """voice_ui has set_voice_default function."""
-        from voice_ui import set_voice_default
+        from qwen3_tts.interface.ui import set_voice_default
         self.assertTrue(callable(set_voice_default))
 
     def test_delete_voice_prompt_rejects_path_traversal(self):
         """delete_voice_prompt must reject names with .. or /"""
-        from voice_generate import delete_voice_prompt
+        from qwen3_tts.interface.generate import delete_voice_prompt
         result = delete_voice_prompt("../evil_file")
         self.assertFalse(result, "Expected False for traversal name '../evil_file'")
 
     def test_rename_voice_prompt_rejects_path_traversal(self):
         """rename_voice_prompt must reject names with .. or /"""
-        from voice_generate import rename_voice_prompt
+        from qwen3_tts.interface.generate import rename_voice_prompt
         result = rename_voice_prompt("../evil", "safe_name")
         self.assertFalse(result, "Expected False for traversal name '../evil'")
 
@@ -2533,7 +2533,7 @@ class TestDeviceAwareEngine(unittest.TestCase):
     def test_load_model_torch_uses_get_device(self):
         """_load_model_torch uses get_device() for device_map."""
         import inspect
-        from voice_engine import _load_model_torch
+        from qwen3_tts.core.engine import _load_model_torch
         source = inspect.getsource(_load_model_torch)
         self.assertIn("get_device", source)
         self.assertNotIn('device_map="mps"', source)
@@ -2541,14 +2541,14 @@ class TestDeviceAwareEngine(unittest.TestCase):
     def test_install_mps_patch_checks_platform(self):
         """_install_mps_patch checks IS_MACOS before patching."""
         import inspect
-        from voice_engine import _install_mps_patch
+        from qwen3_tts.core.engine import _install_mps_patch
         source = inspect.getsource(_install_mps_patch)
         self.assertIn("IS_MACOS", source)
 
     def test_cuda_memory_cleanup_exists(self):
         """_run_inference_torch has CUDA memory cleanup code."""
         import inspect
-        from voice_engine import _run_inference_torch
+        from qwen3_tts.core.engine import _run_inference_torch
         source = inspect.getsource(_run_inference_torch)
         self.assertIn("torch.cuda.is_available", source)
         self.assertIn("torch.cuda.empty_cache", source)
@@ -2561,7 +2561,7 @@ class TestPlatformSafeCommands(unittest.TestCase):
     def test_play_audio_checks_platform(self):
         """play_audio checks platform before choosing command."""
         import inspect
-        from voice_generate import play_audio
+        from qwen3_tts.interface.generate import play_audio
         source = inspect.getsource(play_audio)
         self.assertIn("IS_MACOS", source)
         self.assertIn("IS_LINUX", source)
@@ -2570,20 +2570,20 @@ class TestPlatformSafeCommands(unittest.TestCase):
     def test_get_clipboard_text_checks_platform(self):
         """get_clipboard_text checks platform before choosing command."""
         import inspect
-        from voice_generate import get_clipboard_text
+        from qwen3_tts.interface.generate import get_clipboard_text
         source = inspect.getsource(get_clipboard_text)
         self.assertIn("IS_MACOS", source)
         self.assertIn("IS_LINUX", source)
 
     def test_open_file_exists(self):
         """voice_generate has open_file helper function."""
-        from voice_generate import open_file
+        from qwen3_tts.interface.generate import open_file
         self.assertTrue(callable(open_file))
 
     def test_open_file_handles_missing_xdg(self):
         """open_file wraps xdg-open in try/except."""
         import inspect
-        from voice_generate import open_file
+        from qwen3_tts.interface.generate import open_file
         source = inspect.getsource(open_file)
         self.assertIn("FileNotFoundError", source)
         self.assertIn("xdg-open", source)
@@ -2729,19 +2729,19 @@ class TestClientModelMethods(unittest.TestCase):
     """Test that TTSClient has unload_model, update_startup_config, get_models methods."""
 
     def test_unload_model_exists(self):
-        from voice_client import TTSClient
+        from qwen3_tts.server.client import TTSClient
         client = TTSClient()
         self.assertTrue(hasattr(client, "unload_model"))
         self.assertTrue(callable(getattr(client, "unload_model")))
 
     def test_update_startup_config_exists(self):
-        from voice_client import TTSClient
+        from qwen3_tts.server.client import TTSClient
         client = TTSClient()
         self.assertTrue(hasattr(client, "update_startup_config"))
         self.assertTrue(callable(getattr(client, "update_startup_config")))
 
     def test_get_models_exists(self):
-        from voice_client import TTSClient
+        from qwen3_tts.server.client import TTSClient
         client = TTSClient()
         self.assertTrue(hasattr(client, "get_models"))
         self.assertTrue(callable(getattr(client, "get_models")))
@@ -2755,16 +2755,16 @@ class TestEngineModelCleanup(unittest.TestCase):
     """Test unload_model_cleanup, is_asr_loaded, get_asr_model_info."""
 
     def test_unload_model_cleanup_exists(self):
-        from voice_engine import unload_model_cleanup
+        from qwen3_tts.core.engine import unload_model_cleanup
         self.assertTrue(callable(unload_model_cleanup))
 
     def test_is_asr_loaded_returns_bool(self):
-        from voice_engine import is_asr_loaded
+        from qwen3_tts.core.engine import is_asr_loaded
         result = is_asr_loaded()
         self.assertIsInstance(result, bool)
 
     def test_get_asr_model_info_returns_dict(self):
-        from voice_engine import get_asr_model_info
+        from qwen3_tts.core.engine import get_asr_model_info
         info = get_asr_model_info()
         self.assertIsInstance(info, dict)
         self.assertIn("loaded", info)
@@ -2836,25 +2836,25 @@ class TestSmartAudioLoader(unittest.TestCase):
     """Test smart audio loader functions."""
 
     def test_load_audio_exists(self):
-        from voice_engine import load_audio
+        from qwen3_tts.core.engine import load_audio
         self.assertTrue(callable(load_audio))
 
     def test_load_audio_for_cloning_exists(self):
-        from voice_engine import load_audio_for_cloning
+        from qwen3_tts.core.engine import load_audio_for_cloning
         self.assertTrue(callable(load_audio_for_cloning))
 
     def test_get_audio_loader_returns_valid(self):
-        from voice_engine import get_audio_loader
+        from qwen3_tts.core.engine import get_audio_loader
         result = get_audio_loader()
         self.assertIn(result, ("torchaudio", "librosa"))
 
     def test_set_audio_loader_validates(self):
-        from voice_engine import set_audio_loader
+        from qwen3_tts.core.engine import set_audio_loader
         with self.assertRaises(ValueError):
             set_audio_loader("invalid_loader")
 
     def test_set_audio_loader_updates(self):
-        from voice_engine import set_audio_loader, get_audio_loader
+        from qwen3_tts.core.engine import set_audio_loader, get_audio_loader
         original = get_audio_loader()
         try:
             set_audio_loader("librosa")
@@ -2907,7 +2907,7 @@ class TestRubberBandAudioProcessing(unittest.TestCase):
 
     def test_adjust_speed_noop(self):
         """Speed factor 1.0 should return audio unchanged."""
-        from voice_engine import adjust_speed
+        from qwen3_tts.core.engine import adjust_speed
         import numpy as np
         audio = np.random.randn(16000).astype(np.float32)
         result = adjust_speed(audio, 24000, 1.0)
@@ -2915,7 +2915,7 @@ class TestRubberBandAudioProcessing(unittest.TestCase):
 
     def test_adjust_pitch_noop(self):
         """Pitch shift 0 semitones should return audio unchanged."""
-        from voice_engine import adjust_pitch
+        from qwen3_tts.core.engine import adjust_pitch
         import numpy as np
         audio = np.random.randn(16000).astype(np.float32)
         result = adjust_pitch(audio, 24000, 0)
@@ -2923,7 +2923,7 @@ class TestRubberBandAudioProcessing(unittest.TestCase):
 
     def test_adjust_speed_with_librosa_fallback(self):
         """Speed adjustment should work even when pyrubberband is missing."""
-        from voice_engine import adjust_speed
+        from qwen3_tts.core.engine import adjust_speed
         import numpy as np
         audio = np.random.randn(16000).astype(np.float32)
         # Mock pyrubberband import failure to force librosa fallback
@@ -2937,7 +2937,7 @@ class TestRubberBandAudioProcessing(unittest.TestCase):
 
     def test_adjust_pitch_with_librosa_fallback(self):
         """Pitch adjustment should work even when pyrubberband is missing."""
-        from voice_engine import adjust_pitch
+        from qwen3_tts.core.engine import adjust_pitch
         import numpy as np
         audio = np.random.randn(16000).astype(np.float32)
         with patch.dict('sys.modules', {'pyrubberband': None}):
@@ -3037,21 +3037,21 @@ class TestXVectorOnlyMode(unittest.TestCase):
     def test_run_inference_accepts_x_vector_only_mode(self):
         """run_inference should accept x_vector_only_mode parameter."""
         import inspect
-        from voice_engine import run_inference
+        from qwen3_tts.core.engine import run_inference
         sig = inspect.signature(run_inference)
         self.assertIn("x_vector_only_mode", sig.parameters)
 
     def test_run_inference_streaming_accepts_x_vector_only_mode(self):
         """run_inference_streaming should accept x_vector_only_mode parameter."""
         import inspect
-        from voice_engine import run_inference_streaming
+        from qwen3_tts.core.engine import run_inference_streaming
         sig = inspect.signature(run_inference_streaming)
         self.assertIn("x_vector_only_mode", sig.parameters)
 
     def test_inference_single_accepts_x_vector_only_mode(self):
         """_run_inference_single should accept x_vector_only_mode parameter."""
         import inspect
-        from voice_engine import _run_inference_single
+        from qwen3_tts.core.engine import _run_inference_single
         sig = inspect.signature(_run_inference_single)
         self.assertIn("x_vector_only_mode", sig.parameters)
 
@@ -3059,7 +3059,7 @@ class TestXVectorOnlyMode(unittest.TestCase):
     def test_generate_via_server_accepts_x_vector_only_mode(self):
         """generate_via_server should accept x_vector_only_mode parameter."""
         import inspect
-        from voice_generate import generate_via_server
+        from qwen3_tts.interface.generate import generate_via_server
         sig = inspect.signature(generate_via_server)
         self.assertIn("x_vector_only_mode", sig.parameters)
 
@@ -3067,7 +3067,7 @@ class TestXVectorOnlyMode(unittest.TestCase):
     def test_generate_streaming_accepts_x_vector_only_mode(self):
         """generate_streaming in voice_generate should accept x_vector_only_mode."""
         import inspect
-        from voice_generate import generate_streaming
+        from qwen3_tts.interface.generate import generate_streaming
         sig = inspect.signature(generate_streaming)
         self.assertIn("x_vector_only_mode", sig.parameters)
 
@@ -3079,14 +3079,14 @@ class TestXVectorOnlyClient(unittest.TestCase):
     def test_client_generate_accepts_x_vector_only_mode(self):
         """TTSClient.generate should accept x_vector_only_mode parameter."""
         import inspect
-        from voice_client import TTSClient
+        from qwen3_tts.server.client import TTSClient
         sig = inspect.signature(TTSClient.generate)
         self.assertIn("x_vector_only_mode", sig.parameters)
 
     def test_client_streaming_accepts_x_vector_only_mode(self):
         """TTSClient.generate_streaming should accept x_vector_only_mode parameter."""
         import inspect
-        from voice_client import TTSClient
+        from qwen3_tts.server.client import TTSClient
         sig = inspect.signature(TTSClient.generate_streaming)
         self.assertIn("x_vector_only_mode", sig.parameters)
 

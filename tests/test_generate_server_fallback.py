@@ -1,11 +1,8 @@
 #!/usr/bin/env python3
-"""Tests for ensure_server_running() Popen fallback PYTHONPATH fix.
+"""Tests for ensure_server_running() fallback server startup.
 
-Tests that when ~/bin/tts is absent, the Popen fallback passes
-PYTHONPATH in env so the qwen3_tts package is importable in the daemon.
-
-Without env=, the spawned process inherits no PYTHONPATH and crashes with
-ModuleNotFoundError: No module named 'qwen3_tts'.
+Tests that when `tts` CLI is not on PATH, the fallback uses
+`python -m qwen3_tts.server.app` to start the server.
 
 Run: python -m pytest tests/test_generate_server_fallback.py -v
 """
@@ -19,19 +16,15 @@ try:
     HAS_PYTEST = True
 except ImportError:
     HAS_PYTEST = False
-    # Dummy decorator for when pytest is not available
     class _DummyMarkerFunc:
-        """Represents a marker function like skipif that takes condition and returns decorator."""
         def __init__(self, name=None):
             self._name = name
         def __call__(self, condition, **kwargs):
-            # skipif, etc. take condition as first arg, return a decorator
             return lambda f: f
     class _DummyMarker:
         def __call__(self, func):
             return func
         def __getattr__(self, name):
-            # Return special function for skipif, otherwise return a callable marker
             if name == 'skipif':
                 return _DummyMarkerFunc(name)
             return _DummyMarkerFunc(name)
@@ -60,58 +53,62 @@ _CONFIG = {"server": {"host": "127.0.0.1", "port": 5123}}
 
 @pytest.mark.unit
 @_skip
-class TestEnsureServerRunningFallbackPythonpath(unittest.TestCase):
-    """Popen fallback must pass PYTHONPATH so qwen3_tts is importable in daemon."""
+class TestEnsureServerRunningFallback(unittest.TestCase):
+    """Fallback must use python -m qwen3_tts.server.app when tts CLI not found."""
 
-    def _run_with_fallback(self, extra_env=None):
-        """Invoke ensure_server_running with ~/bin/tts absent.
+    def _run_with_fallback(self):
+        """Invoke ensure_server_running with tts not on PATH.
 
         Mocks out all I/O and returns the captured Popen mock call args.
         """
         mock_popen = MagicMock()
         # First call: server not running. Second call: server up after start.
-        env_patch = extra_env or {}
         with patch("qwen3_tts.interface.generate.is_server_running",
                    side_effect=[False, True]), \
-             patch("qwen3_tts.interface.generate.os.path.exists",
-                   return_value=False), \
+             patch("qwen3_tts.interface.generate.shutil.which",
+                   return_value=None), \
              patch("builtins.open", mock_open()), \
              patch("qwen3_tts.interface.generate.subprocess.Popen", mock_popen), \
-             patch("qwen3_tts.interface.generate.time.sleep", return_value=None), \
-             patch.dict(os.environ, env_patch):
+             patch("qwen3_tts.interface.generate.time.sleep", return_value=None):
             ensure_server_running(_CONFIG)
 
         self.assertTrue(mock_popen.called,
-                        "Popen must be called when ~/bin/tts is absent")
+                        "Popen must be called when tts is not on PATH")
         return mock_popen.call_args
 
-    def test_popen_receives_env_keyword(self):
-        """Popen must be called with env= so the daemon gets a custom environment."""
+    def test_popen_uses_module_invocation(self):
+        """Popen must use -m qwen3_tts.server.app."""
         call = self._run_with_fallback()
-        self.assertIn("env", call.kwargs,
-                      "Popen must be called with env= keyword argument")
+        cmd = call.args[0] if call.args else call.kwargs.get("args", [])
+        self.assertIn("-m", cmd, "Popen must use -m flag for module invocation")
+        self.assertIn("qwen3_tts.server.app", cmd,
+                      "Popen must reference qwen3_tts.server.app module")
 
-    def test_popen_env_contains_pythonpath(self):
-        """env passed to Popen must include a PYTHONPATH key."""
+    def test_popen_uses_sys_executable(self):
+        """Popen must use sys.executable as the Python interpreter."""
         call = self._run_with_fallback()
-        env = call.kwargs["env"]
-        self.assertIn("PYTHONPATH", env,
-                      "PYTHONPATH must be present in the env passed to Popen")
+        cmd = call.args[0] if call.args else call.kwargs.get("args", [])
+        self.assertEqual(cmd[0], sys.executable,
+                         "Popen must use sys.executable")
 
-    def test_popen_pythonpath_includes_user_files_dir(self):
-        """PYTHONPATH must contain ~/Qwen3-TTS_UserFiles so qwen3_tts is importable."""
+    def test_popen_starts_new_session(self):
+        """Popen must set start_new_session=True for daemon behavior."""
         call = self._run_with_fallback()
-        env = call.kwargs["env"]
-        user_files = os.path.expanduser("~/Qwen3-TTS_UserFiles")
-        self.assertIn(user_files, env["PYTHONPATH"],
-                      f"PYTHONPATH must include {user_files}")
+        self.assertTrue(call.kwargs.get("start_new_session", False),
+                        "Popen must use start_new_session=True")
 
-    def test_popen_pythonpath_preserves_existing_pythonpath(self):
-        """Pre-existing PYTHONPATH entries must not be discarded."""
-        call = self._run_with_fallback(extra_env={"PYTHONPATH": "/some/other/path"})
-        env = call.kwargs["env"]
-        self.assertIn("/some/other/path", env["PYTHONPATH"],
-                      "Pre-existing PYTHONPATH entries must be preserved in Popen env")
+    def test_uses_shutil_which_for_tts(self):
+        """Should use shutil.which('tts') to find the CLI."""
+        mock_popen = MagicMock()
+        mock_which = MagicMock(return_value=None)
+        with patch("qwen3_tts.interface.generate.is_server_running",
+                   side_effect=[False, True]), \
+             patch("qwen3_tts.interface.generate.shutil.which", mock_which), \
+             patch("builtins.open", mock_open()), \
+             patch("qwen3_tts.interface.generate.subprocess.Popen", mock_popen), \
+             patch("qwen3_tts.interface.generate.time.sleep", return_value=None):
+            ensure_server_running(_CONFIG)
+        mock_which.assert_called_once_with("tts")
 
 
 if __name__ == "__main__":

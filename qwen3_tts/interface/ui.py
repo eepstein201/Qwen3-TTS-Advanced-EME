@@ -1037,34 +1037,6 @@ def _build_generate_buttons_and_output():
     return {"btn": btn, "cancel_btn": cancel_btn, "output": output, "status": status}
 
 
-def _make_handler(mode):
-    """Create a unified streaming/non-streaming handler for a given mode.
-
-    Returns a generator function that dispatches to the appropriate
-    streaming or non-streaming implementation based on the streaming flag.
-    """
-    streaming_fn = {
-        "clone": generate_clone_streaming,
-        "design": generate_design_streaming,
-        "custom": generate_custom_streaming,
-    }[mode]
-    non_streaming_fn = {
-        "clone": generate_clone,
-        "design": generate_design,
-        "custom": generate_custom,
-    }[mode]
-
-    def handler(*args):
-        # Last arg is always the streaming checkbox; for clone, second-to-last is no_transcript
-        streaming = args[-1] if mode != "clone" else args[-2]
-        if streaming:
-            yield from streaming_fn(*args[:-1])  # strip streaming flag (and no_transcript handled internally)
-        else:
-            yield non_streaming_fn(*args[:-1])
-
-    return handler
-
-
 def _wire_generation_tab(mode, btn, cancel_btn, output, status, model_indicator,
                          text, text_info, inputs_list, status_html, history_df,
                          handler, api_name=None):

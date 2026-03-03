@@ -95,7 +95,8 @@ class TestCLIDaemonization(unittest.TestCase):
             text=True,
             timeout=10
         )
-        # The help should include the flag
+        # The help should include both flags
+        self.assertIn('--foreground', result.stdout)
         self.assertIn('--public', result.stdout)
 
 
