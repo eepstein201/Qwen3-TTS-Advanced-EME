@@ -123,6 +123,26 @@ _CURRENCY_MAP = {
     "¥": ("yen", "yen"),
 }
 
+# Pre-compiled regex patterns for _normalize_text()
+_EMAIL_RE = re.compile(r'\b[A-Za-z0-9._%+\-]+@[A-Za-z0-9.\-]+\.[A-Za-z]{2,}\b')
+_URL_RE = re.compile(r'https?://\S+')
+_URL_PROTO_RE = re.compile(r'^https?://')
+_URL_WWW_RE = re.compile(r'^www\.')
+_PHONE_RE = re.compile(r'(?:\(\d{3}\)\s*|\d{3}[-.])\d{3}[-.]?\d{4}')
+_PHONE_NONDIGIT_RE = re.compile(r'\D')
+_ORDINAL_RE = re.compile(r'\b(\d+)(?:st|nd|rd|th)\b')
+_ISO_DATE_RE = re.compile(r'\b(\d{4})-(\d{2})-(\d{2})\b')
+_US_DATE_RE = re.compile(r'\b(\d{1,2})/(\d{1,2})/(\d{4})\b')
+_CARDINAL_RE = re.compile(r'(?<![.\w])\b\d+\b(?![.\w])')
+
+# Pre-compile abbreviation table
+_ABBREV_TABLE_COMPILED = [(re.compile(pat), repl) for pat, repl in _ABBREV_TABLE]
+
+# Currency pattern (depends on _CURRENCY_MAP, so built here)
+_CURRENCY_RE = re.compile(
+    rf'([{"".join(re.escape(s) for s in _CURRENCY_MAP.keys())}])(\d+(?:\.\d+)?)'
+)
+
 
 def _normalize_text(text, language="English"):
     """Normalize text for TTS: expand numbers, dates, abbreviations, and URLs.
@@ -154,9 +174,7 @@ def _normalize_text(text, language="English"):
             local, _, domain = addr.partition("@")
             domain_parts = domain.split(".")
             return local + " at " + " dot ".join(domain_parts)
-        text = re.sub(
-            r'\b[A-Za-z0-9._%+\-]+@[A-Za-z0-9.\-]+\.[A-Za-z]{2,}\b',
-            _expand_email, text)
+        text = _EMAIL_RE.sub(_expand_email, text)
     except Exception:
         pass
 
@@ -164,27 +182,25 @@ def _normalize_text(text, language="English"):
     try:
         def _expand_url(m):
             url = m.group()
-            url = re.sub(r'^https?://', '', url)
-            url = re.sub(r'^www\.', '', url)
+            url = _URL_PROTO_RE.sub('', url)
+            url = _URL_WWW_RE.sub('', url)
             url = url.replace(".", " dot ").rstrip()
             return url
-        text = re.sub(r'https?://\S+', _expand_url, text)
+        text = _URL_RE.sub(_expand_url, text)
     except Exception:
         pass
 
     # 3. Phone numbers: (800) 555-1234 or 555-1234 → "8 0 0 5 5 5 1 2 3 4"
     try:
         def _expand_phone(m):
-            digits = re.sub(r'\D', '', m.group())
+            digits = _PHONE_NONDIGIT_RE.sub('', m.group())
             return " ".join(digits)
-        text = re.sub(r'(?:\(\d{3}\)\s*|\d{3}[-.])\d{3}[-.]?\d{4}', _expand_phone, text)
+        text = _PHONE_RE.sub(_expand_phone, text)
     except Exception:
         pass
 
     # 4. Currencies: $5.00 → "five dollars"
     try:
-        symbols_pat = "[" + re.escape("".join(_CURRENCY_MAP.keys())) + "]"
-
         def _expand_currency(m):
             symbol = m.group(1)
             amount_str = m.group(2)
@@ -200,7 +216,7 @@ def _normalize_text(text, language="English"):
                 return f"{words} {label}"
             except Exception:
                 return m.group()
-        text = re.sub(rf'({symbols_pat})(\d+(?:\.\d+)?)', _expand_currency, text)
+        text = _CURRENCY_RE.sub(_expand_currency, text)
     except Exception:
         pass
 
@@ -212,7 +228,7 @@ def _normalize_text(text, language="English"):
                 return _n2w(n, lang=lang, to="ordinal") if _n2w else m.group()
             except Exception:
                 return m.group()
-        text = re.sub(r'\b(\d+)(?:st|nd|rd|th)\b', _expand_ordinal, text)
+        text = _ORDINAL_RE.sub(_expand_ordinal, text)
     except Exception:
         pass
 
@@ -232,7 +248,7 @@ def _normalize_text(text, language="English"):
                 return f"{month_name} {day_word}, {year_word}"
             except Exception:
                 return m.group()
-        text = re.sub(r'\b(\d{4})-(\d{2})-(\d{2})\b', _expand_iso_date, text)
+        text = _ISO_DATE_RE.sub(_expand_iso_date, text)
     except Exception:
         pass
 
@@ -252,14 +268,14 @@ def _normalize_text(text, language="English"):
                 return f"{month_name} {day_word}, {year_word}"
             except Exception:
                 return m.group()
-        text = re.sub(r'\b(\d{1,2})/(\d{1,2})/(\d{4})\b', _expand_us_date, text)
+        text = _US_DATE_RE.sub(_expand_us_date, text)
     except Exception:
         pass
 
     # 8. Abbreviations
     try:
-        for pattern, replacement in _ABBREV_TABLE:
-            text = re.sub(pattern, replacement, text)
+        for pattern, replacement in _ABBREV_TABLE_COMPILED:
+            text = pattern.sub(replacement, text)
     except Exception:
         pass
 
@@ -271,7 +287,7 @@ def _normalize_text(text, language="English"):
                     return _n2w(int(m.group()), lang=lang)
                 except Exception:
                     return m.group()
-            text = re.sub(r'(?<![.\w])\b\d+\b(?![.\w])', _expand_cardinal, text)
+            text = _CARDINAL_RE.sub(_expand_cardinal, text)
         except Exception:
             pass
 
@@ -1295,11 +1311,11 @@ def run_inference(model, text, mode, gen_params, language="English",
 def _run_inference_single(model, text, mode, gen_params, language="English",
                           voice_prompt=None, voice_description=None,
                           speaker=None, instruct=None,
-                          _metal_retry=False, x_vector_only_mode=False):
+                          _metal_retry_depth=0, x_vector_only_mode=False):
     """Run TTS inference for a single text chunk.
 
     For MLX backend, includes Metal crash recovery: on certain Metal kernel
-    errors, retries once with smaller sub-chunks.
+    errors, retries with smaller sub-chunks up to depth 2.
     """
     backend = get_backend()
     if backend == "mlx":
@@ -1316,10 +1332,10 @@ def _run_inference_single(model, text, mode, gen_params, language="English",
                 keyword in error_str
                 for keyword in ("command buffer", "gpu", "metal", "kernel")
             )
-            if is_metal_crash and not _metal_retry and len(text) > 100:
+            if is_metal_crash and _metal_retry_depth < 2 and len(text) > 100:
                 logger.warning(
-                    "Metal kernel issue detected, retrying with smaller sub-chunks: %s",
-                    str(e)[:100],
+                    "Metal kernel issue detected (depth %d), retrying with smaller sub-chunks: %s",
+                    _metal_retry_depth, str(e)[:100],
                 )
                 # Split the chunk in half and process each sub-chunk
                 mid = len(text) // 2
@@ -1332,12 +1348,14 @@ def _run_inference_single(model, text, mode, gen_params, language="English",
                 wav1, sr = _run_inference_single(
                     model, chunk1, mode, gen_params, language,
                     voice_prompt, voice_description, speaker, instruct,
-                    _metal_retry=True, x_vector_only_mode=x_vector_only_mode,
+                    _metal_retry_depth=_metal_retry_depth + 1,
+                    x_vector_only_mode=x_vector_only_mode,
                 )
                 wav2, _ = _run_inference_single(
                     model, chunk2, mode, gen_params, language,
                     voice_prompt, voice_description, speaker, instruct,
-                    _metal_retry=True, x_vector_only_mode=x_vector_only_mode,
+                    _metal_retry_depth=_metal_retry_depth + 1,
+                    x_vector_only_mode=x_vector_only_mode,
                 )
                 # Concatenate with short silence
                 silence = np.zeros(int(sr * 0.1), dtype=np.float32)

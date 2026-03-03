@@ -76,6 +76,7 @@ class VLLMAdapter:
         self._client: Optional[httpx.AsyncClient] = None
         self._ready_event = asyncio.Event()
         self._cancellation_callback: Optional[Callable[[], bool]] = None
+        self._auto_port = port is None
 
         logger.debug(
             "VLLMAdapter initialized: model=%s, gpu_memory=%.2f, port=%s",
@@ -219,10 +220,29 @@ class VLLMAdapter:
     async def start(self) -> None:
         """Start vLLM server and wait until ready.
 
-        This is a convenience method that combines _start() and _wait_until_ready().
+        Retries up to 3 times on failure. On each failure, stops the zombie
+        process before retrying. If using auto-port, picks a new port on retry.
         """
-        self._start()
-        await self._wait_until_ready()
+        max_attempts = 3
+        for attempt in range(max_attempts):
+            if attempt > 0 and self._auto_port:
+                self.port = None  # Force _start to find a new port
+
+            self._start()
+
+            try:
+                await self._wait_until_ready()
+                return  # Success
+            except Exception as e:
+                logger.warning(
+                    "vLLM start failed (attempt %d/%d): %s",
+                    attempt + 1, max_attempts, e,
+                )
+                self.stop()  # Kill zombie process
+
+                if attempt < max_attempts - 1:
+                    continue
+                raise  # Exhausted retries
 
     def stop(self) -> None:
         """Stop the vLLM subprocess and close HTTP client.

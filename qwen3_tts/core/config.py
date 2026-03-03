@@ -47,27 +47,38 @@ _config_cache = {"data": None, "mtime": 0}
 
 
 def validate_config(config):
-    """Validate config structure and values. Logs warnings for issues."""
+    """Validate config structure and values, correcting invalid values in-memory.
+
+    Invalid values are replaced with safe defaults. The config dict is mutated
+    in-memory only — no disk writes. Missing keys are left missing (no bloat).
+    """
     issues = []
     backend = config.get("advanced", {}).get("backend")
     if backend and backend not in VALID_BACKENDS:
-        issues.append(f"Invalid backend: {backend}")
+        corrected = "mlx" if (IS_MACOS and platform.machine() == "arm64") else "torch"
+        config.setdefault("advanced", {})["backend"] = corrected
+        issues.append(f"corrected backend from {backend!r} to {corrected!r}")
     size = config.get("advanced", {}).get("model_size")
     if size and size not in ("1.7B", "0.6B"):
-        issues.append(f"Invalid model_size: {size}")
+        config.setdefault("advanced", {})["model_size"] = "1.7B"
+        issues.append(f"corrected model_size from {size!r} to '1.7B'")
     temp = config.get("generation", {}).get("temperature")
     if temp is not None and not (0.0 <= temp <= 2.0):
-        issues.append(f"temperature {temp} out of range 0.0-2.0")
+        config.setdefault("generation", {})["temperature"] = 0.7
+        issues.append(f"corrected temperature from {temp} to 0.7")
     mtl = config.get("security", {}).get("max_text_length")
     if mtl is not None and (not isinstance(mtl, int) or mtl <= 0):
-        issues.append("max_text_length must be positive integer")
+        config.setdefault("security", {})["max_text_length"] = 10000
+        issues.append(f"corrected max_text_length from {mtl} to 10000")
     # vLLM-specific validation
     vllm_gpu = config.get("advanced", {}).get("vllm_gpu_memory_utilization")
     if vllm_gpu is not None and not (0.0 < vllm_gpu <= 1.0):
-        issues.append(f"vllm_gpu_memory_utilization {vllm_gpu} out of range 0.0-1.0")
+        config.setdefault("advanced", {})["vllm_gpu_memory_utilization"] = 0.7
+        issues.append(f"corrected vllm_gpu_memory_utilization from {vllm_gpu} to 0.7")
     vllm_port = config.get("advanced", {}).get("vllm_port")
-    if vllm_port is not None and not (1024 <= vllm_port <= 65535):
-        issues.append(f"vllm_port {vllm_port} out of range 1024-65535")
+    if vllm_port is not None and not (isinstance(vllm_port, int) and 1024 <= vllm_port <= 65535):
+        config.setdefault("advanced", {})["vllm_port"] = None
+        issues.append(f"corrected vllm_port from {vllm_port} to None")
     for issue in issues:
         logger.warning("Config validation: %s", issue)
     return issues
