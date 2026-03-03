@@ -455,13 +455,12 @@ def _poll_progress(server_url, progress_fn, stop_event):
 # Generation History
 # =============================================================================
 
-# Session-level history (shared across tabs)
-generation_history = []
+# Per-session history (via gr.State); MAX_HISTORY_SIZE is module-level constant
 MAX_HISTORY_SIZE = 10
 
 
-def add_to_history(mode, text, output_path, duration_chunks):
-    """Add a generation to history."""
+def add_to_history(history_list, mode, text, output_path, duration_chunks):
+    """Add a generation to history. Returns a new list capped at MAX_HISTORY_SIZE (does not mutate input)."""
     import datetime
     entry = {
         "time": datetime.datetime.now().strftime("%H:%M:%S"),
@@ -470,20 +469,22 @@ def add_to_history(mode, text, output_path, duration_chunks):
         "chunks": duration_chunks,
         "path": output_path,
     }
-    generation_history.insert(0, entry)
-    if len(generation_history) > MAX_HISTORY_SIZE:
-        generation_history.pop()
+    new_history = history_list.copy()
+    new_history.insert(0, entry)
+    if len(new_history) > MAX_HISTORY_SIZE:
+        new_history.pop()
+    return new_history
 
 
-def get_history_data():
+def get_history_data(history_list):
     """Return history as a list of lists for Dataframe display."""
-    return [[h["time"], h["mode"], h["text"], f"{h['chunks']} chunks"] for h in generation_history]
+    return [[h["time"], h["mode"], h["text"], f"{h['chunks']} chunks"] for h in history_list]
 
 
-def get_history_audio(evt: gr.SelectData):
+def get_history_audio(evt: gr.SelectData, history_list):
     """Return the audio file path for the selected history row."""
-    if evt.index[0] < len(generation_history):
-        return generation_history[evt.index[0]]["path"]
+    if evt.index[0] < len(history_list):
+        return history_list[evt.index[0]]["path"]
     return None
 
 
@@ -569,17 +570,19 @@ def _get_mode_kwargs(mode, prompt=None, description=None, speaker_choice=None, i
 
 def _generate_streaming_impl(mode, text, preset, temperature, top_k, top_p, rep_penalty, seed,
                               prompt=None, description=None, speaker_choice=None, instruct=None,
-                              x_vector_only_mode=False, progress=gr.Progress()):
+                              x_vector_only_mode=False, history_list=None, progress=gr.Progress()):
     """Unified streaming generation for all modes."""
+    if history_list is None:
+        history_list = []
     # Validate inputs
     error = _validate_inputs(mode, text, description)
     if error:
-        yield None, error, gr.update(), gr.update()
+        yield None, error, gr.update(), history_list, gr.update()
         return
 
     client = TTSClient()
     if not client.is_server_running():
-        yield None, "Error: TTS server is not running.", gr.update(), gr.update()
+        yield None, "Error: TTS server is not running.", gr.update(), history_list, gr.update()
         return
 
     try:
@@ -608,39 +611,41 @@ def _generate_streaming_impl(mode, text, preset, temperature, top_k, top_p, rep_
             all_chunks.append(wav_chunk)
             sample_rate = sr
             chunk_count += 1
-            yield (sr, wav_chunk), f"Streaming... {chunk_count} chunks", gr.update(), gr.update()
+            yield (sr, wav_chunk), f"Streaming... {chunk_count} chunks", gr.update(), history_list, gr.update()
 
         # Check if cancelled before yielding final state
         if _check_generation_cancelled():
-            yield None, f"Cancelled after {chunk_count} chunks", format_status_display(), gr.update()
+            yield None, f"Cancelled after {chunk_count} chunks", format_status_display(), history_list, gr.update()
             return
 
         output_path = _save_streaming_audio(all_chunks, sample_rate)
         if output_path:
-            add_to_history(mode, text, output_path, chunk_count)
+            history_list = add_to_history(history_list, mode, text, output_path, chunk_count)
             # Don't re-yield audio — streaming already played all chunks.
             # Just update status with save location.
-            yield gr.update(), f"Complete: {chunk_count} chunks — saved to {os.path.basename(output_path)}", format_status_display(), get_history_data()
+            yield gr.update(), f"Complete: {chunk_count} chunks — saved to {os.path.basename(output_path)}", format_status_display(), history_list, get_history_data(history_list)
         else:
-            yield None, "Error: No audio was generated", format_status_display(), gr.update()
+            yield None, "Error: No audio was generated", format_status_display(), history_list, gr.update()
 
     except Exception as e:
-        yield None, f"Error: {str(e)}", format_status_display(), gr.update()
+        yield None, f"Error: {str(e)}", format_status_display(), history_list, gr.update()
 
 
 def _generate_non_streaming_impl(mode, text, preset, temperature, top_k, top_p, rep_penalty, seed,
                                   trim_silence, normalize, speed, pitch, progress=gr.Progress(),
                                   prompt=None, description=None, speaker_choice=None, instruct=None,
-                                  x_vector_only_mode=False):
+                                  x_vector_only_mode=False, history_list=None):
     """Unified non-streaming generation for all modes."""
+    if history_list is None:
+        history_list = []
     # Validate inputs
     error = _validate_inputs(mode, text, description)
     if error:
-        return None, error, gr.update(), gr.update()
+        return None, error, gr.update(), history_list, gr.update()
 
     client = TTSClient()
     if not client.is_server_running():
-        return None, "Error: TTS server is not running. Start it with 'tts server start'.", gr.update(), gr.update()
+        return None, "Error: TTS server is not running. Start it with 'tts server start'.", gr.update(), history_list, gr.update()
 
     try:
         _ensure_model_loaded(client, mode, progress)
@@ -682,13 +687,13 @@ def _generate_non_streaming_impl(mode, text, preset, temperature, top_k, top_p, 
             poll_thread.join(timeout=2)
 
         progress(1.0, desc="Complete")
-        add_to_history(mode, text, result, 1)
-        return result, f"Generated: {os.path.basename(result)}", format_status_display(), get_history_data()
+        history_list = add_to_history(history_list, mode, text, result, 1)
+        return result, f"Generated: {os.path.basename(result)}", format_status_display(), history_list, get_history_data(history_list)
     except Exception as e:
         error_msg = str(e)
         if "restart" in error_msg.lower() or "not running" in error_msg.lower():
             gr.Warning("Server issue — try restarting with 'tts server start'")
-        return None, f"Error: {error_msg}", format_status_display(), gr.update()
+        return None, f"Error: {error_msg}", format_status_display(), history_list, gr.update()
 
 
 # =============================================================================
@@ -696,54 +701,54 @@ def _generate_non_streaming_impl(mode, text, preset, temperature, top_k, top_p, 
 # =============================================================================
 
 def generate_clone_streaming(text, prompt, preset, temperature, top_k, top_p, rep_penalty, seed,
-                             trim_silence, normalize, speed, pitch, no_transcript=False):
+                             trim_silence, normalize, speed, pitch, no_transcript=False, history_list=None):
     """Generate audio with streaming for clone mode."""
     yield from _generate_streaming_impl(
         "clone", text, preset, temperature, top_k, top_p, rep_penalty, seed,
-        prompt=prompt, x_vector_only_mode=no_transcript)
+        prompt=prompt, x_vector_only_mode=no_transcript, history_list=history_list)
 
 
 def generate_design_streaming(text, description, preset, temperature, top_k, top_p, rep_penalty, seed,
-                              trim_silence, normalize, speed, pitch):
+                              trim_silence, normalize, speed, pitch, history_list=None):
     """Generate audio with streaming for design mode."""
     yield from _generate_streaming_impl(
         "design", text, preset, temperature, top_k, top_p, rep_penalty, seed,
-        description=description)
+        description=description, history_list=history_list)
 
 
 def generate_custom_streaming(text, speaker_choice, instruct, preset, temperature, top_k, top_p, rep_penalty, seed,
-                              trim_silence, normalize, speed, pitch):
+                              trim_silence, normalize, speed, pitch, history_list=None):
     """Generate audio with streaming for custom mode."""
     yield from _generate_streaming_impl(
         "custom", text, preset, temperature, top_k, top_p, rep_penalty, seed,
-        speaker_choice=speaker_choice, instruct=instruct)
+        speaker_choice=speaker_choice, instruct=instruct, history_list=history_list)
 
 
 def generate_clone(text, prompt, preset, temperature, top_k, top_p, rep_penalty, seed,
-                   trim_silence, normalize, speed, pitch, no_transcript=False, progress=gr.Progress()):
+                   trim_silence, normalize, speed, pitch, no_transcript=False, history_list=None, progress=gr.Progress()):
     """Generate audio using clone mode."""
     return _generate_non_streaming_impl(
         "clone", text, preset, temperature, top_k, top_p, rep_penalty, seed,
         trim_silence, normalize, speed, pitch, progress,
-        prompt=prompt, x_vector_only_mode=no_transcript)
+        prompt=prompt, x_vector_only_mode=no_transcript, history_list=history_list)
 
 
 def generate_design(text, description, preset, temperature, top_k, top_p, rep_penalty, seed,
-                    trim_silence, normalize, speed, pitch, progress=gr.Progress()):
+                    trim_silence, normalize, speed, pitch, history_list=None, progress=gr.Progress()):
     """Generate audio using design mode."""
     return _generate_non_streaming_impl(
         "design", text, preset, temperature, top_k, top_p, rep_penalty, seed,
         trim_silence, normalize, speed, pitch, progress,
-        description=description)
+        description=description, history_list=history_list)
 
 
 def generate_custom(text, speaker_choice, instruct, preset, temperature, top_k, top_p, rep_penalty, seed,
-                    trim_silence, normalize, speed, pitch, progress=gr.Progress()):
+                    trim_silence, normalize, speed, pitch, history_list=None, progress=gr.Progress()):
     """Generate audio using custom mode with premium speakers."""
     return _generate_non_streaming_impl(
         "custom", text, preset, temperature, top_k, top_p, rep_penalty, seed,
         trim_silence, normalize, speed, pitch, progress,
-        speaker_choice=speaker_choice, instruct=instruct)
+        speaker_choice=speaker_choice, instruct=instruct, history_list=history_list)
 
 
 # =============================================================================
@@ -1039,9 +1044,9 @@ def _build_generate_buttons_and_output():
 
 def _wire_generation_tab(mode, btn, cancel_btn, output, status, model_indicator,
                          text, text_info, inputs_list, status_html, history_df,
-                         handler, api_name=None):
+                         handler, api_name=None, history_state=None):
     """Wire up the common event handlers for a generation tab."""
-    click_kwargs = {"fn": handler, "inputs": inputs_list, "outputs": [output, status, status_html, history_df]}
+    click_kwargs = {"fn": handler, "inputs": inputs_list, "outputs": [output, status, status_html, history_state, history_df]}
     if api_name:
         click_kwargs["api_name"] = api_name
 
@@ -1050,6 +1055,8 @@ def _wire_generation_tab(mode, btn, cancel_btn, output, status, model_indicator,
         outputs=model_indicator
     )
 
+    # Cancel only updates output/status/status_html; history_state and history_df
+    # are intentionally not updated on cancel (no history entry for cancelled generations).
     cancel_btn.click(
         fn=cancel_streaming_generation,
         outputs=[output, status, status_html]
@@ -1108,6 +1115,9 @@ def build_ui():
                 outputs=[settings_status, status_html]
             )
 
+        # Per-session history state
+        history_state = gr.State([])
+
         # History Panel (defined before tabs so history_df can be referenced in click handlers)
         with gr.Accordion("Recent Generations", open=False):
             history_df = gr.Dataframe(
@@ -1119,6 +1129,7 @@ def build_ui():
             history_audio = gr.Audio(label="Selected Generation", visible=False)
             history_df.select(
                 fn=get_history_audio,
+                inputs=[history_state],
                 outputs=history_audio
             ).then(
                 fn=lambda: gr.update(visible=True),
@@ -1127,6 +1138,7 @@ def build_ui():
             refresh_history_btn = gr.Button("Refresh History", size="sm")
             refresh_history_btn.click(
                 fn=get_history_data,
+                inputs=[history_state],
                 outputs=history_df
             )
 
@@ -1164,15 +1176,15 @@ def build_ui():
                 clone_btns = _build_generate_buttons_and_output()
 
                 def clone_handler(text, prompt, preset, temp, top_k, top_p, rep, seed,
-                                  trim, norm, speed, pitch, streaming, no_transcript):
+                                  trim, norm, speed, pitch, streaming, no_transcript, history_list):
                     if streaming:
                         yield from generate_clone_streaming(
                             text, prompt, preset, temp, top_k, top_p, rep, seed,
-                            trim, norm, speed, pitch, no_transcript=no_transcript)
+                            trim, norm, speed, pitch, no_transcript=no_transcript, history_list=history_list)
                     else:
                         yield generate_clone(
                             text, prompt, preset, temp, top_k, top_p, rep, seed,
-                            trim, norm, speed, pitch, no_transcript=no_transcript)
+                            trim, norm, speed, pitch, no_transcript=no_transcript, history_list=history_list)
 
                 _wire_generation_tab(
                     "clone", clone_btns["btn"], clone_btns["cancel_btn"],
@@ -1183,9 +1195,11 @@ def build_ui():
                                  clone_ctrls["rep"], clone_ctrls["seed"],
                                  clone_ctrls["trim"], clone_ctrls["norm"],
                                  clone_ctrls["speed"], clone_ctrls["pitch"],
-                                 clone_ctrls["streaming"], clone_no_transcript],
+                                 clone_ctrls["streaming"], clone_no_transcript,
+                                 history_state],
                     status_html=status_html, history_df=history_df,
                     handler=clone_handler, api_name="generate_clone",
+                    history_state=history_state,
                 )
 
             # ---- Design Mode Tab ----
@@ -1242,13 +1256,15 @@ def build_ui():
                     design_save_status = gr.Textbox(label="", show_label=False, interactive=False, max_lines=1, container=False)
 
                 def design_handler(text, desc, preset, temp, top_k, top_p, rep, seed,
-                                   trim, norm, speed, pitch, streaming):
+                                   trim, norm, speed, pitch, streaming, history_list):
                     if streaming:
                         yield from generate_design_streaming(
-                            text, desc, preset, temp, top_k, top_p, rep, seed, trim, norm, speed, pitch)
+                            text, desc, preset, temp, top_k, top_p, rep, seed, trim, norm, speed, pitch,
+                            history_list=history_list)
                     else:
                         yield generate_design(
-                            text, desc, preset, temp, top_k, top_p, rep, seed, trim, norm, speed, pitch)
+                            text, desc, preset, temp, top_k, top_p, rep, seed, trim, norm, speed, pitch,
+                            history_list=history_list)
 
                 _wire_generation_tab(
                     "design", design_btns["btn"], design_btns["cancel_btn"],
@@ -1259,8 +1275,10 @@ def build_ui():
                                  design_ctrls["rep"], design_ctrls["seed"],
                                  design_ctrls["trim"], design_ctrls["norm"],
                                  design_ctrls["speed"], design_ctrls["pitch"],
-                                 design_ctrls["streaming"]],
+                                 design_ctrls["streaming"],
+                                 history_state],
                     status_html=status_html, history_df=history_df, handler=design_handler,
+                    history_state=history_state,
                 )
 
                 design_prosody.change(fn=apply_prosody_preset, inputs=[design_prosody, design_desc], outputs=design_desc)
@@ -1276,12 +1294,12 @@ def build_ui():
                 design_enhance_btn.click(fn=enhance_description_with_ai, inputs=[design_desc], outputs=design_desc)
 
                 # Wire up Save as Voice Prompt
-                def save_design_as_prompt(voice_name):
+                def save_design_as_prompt(voice_name, history_list):
                     """Save the most recent Design mode output as a voice prompt."""
                     if not voice_name or not voice_name.strip():
                         return "Please enter a voice name.", gr.update()
                     voice_name = voice_name.strip().replace(" ", "_").replace("/", "_").replace("\\", "_").replace("..", "")
-                    for entry in generation_history:
+                    for entry in history_list:
                         if entry.get("mode") == "Design" and entry.get("path"):
                             audio_path = entry["path"]
                             if os.path.exists(audio_path):
@@ -1301,7 +1319,7 @@ def build_ui():
                     return "No recent Design mode output found. Generate audio first.", gr.update()
 
                 design_save_btn.click(
-                    fn=save_design_as_prompt, inputs=[design_save_name],
+                    fn=save_design_as_prompt, inputs=[design_save_name, history_state],
                     outputs=[design_save_status, clone_prompt],
                 )
 
@@ -1331,15 +1349,15 @@ def build_ui():
                 custom_btns = _build_generate_buttons_and_output()
 
                 def custom_handler(text, speaker, instruct, preset, temp, top_k, top_p, rep, seed,
-                                   trim, norm, speed, pitch, streaming):
+                                   trim, norm, speed, pitch, streaming, history_list):
                     if streaming:
                         yield from generate_custom_streaming(
                             text, speaker, instruct, preset, temp, top_k, top_p, rep, seed,
-                            trim, norm, speed, pitch)
+                            trim, norm, speed, pitch, history_list=history_list)
                     else:
                         yield generate_custom(
                             text, speaker, instruct, preset, temp, top_k, top_p, rep, seed,
-                            trim, norm, speed, pitch)
+                            trim, norm, speed, pitch, history_list=history_list)
 
                 _wire_generation_tab(
                     "custom", custom_btns["btn"], custom_btns["cancel_btn"],
@@ -1350,8 +1368,10 @@ def build_ui():
                                  custom_ctrls["rep"], custom_ctrls["seed"],
                                  custom_ctrls["trim"], custom_ctrls["norm"],
                                  custom_ctrls["speed"], custom_ctrls["pitch"],
-                                 custom_ctrls["streaming"]],
+                                 custom_ctrls["streaming"],
+                                 history_state],
                     status_html=status_html, history_df=history_df, handler=custom_handler,
+                    history_state=history_state,
                 )
 
                 custom_prosody.change(fn=apply_prosody_preset, inputs=[custom_prosody, custom_instruct], outputs=custom_instruct)

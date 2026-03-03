@@ -1521,20 +1521,18 @@ class TestUIHistoryFunctions(unittest.TestCase):
     def test_history_functions_exist(self):
         """voice_ui has history-related functions."""
         import voice_ui
-        self.assertTrue(hasattr(voice_ui, "generation_history"))
         self.assertTrue(hasattr(voice_ui, "add_to_history"))
         self.assertTrue(hasattr(voice_ui, "get_history_data"))
         self.assertTrue(hasattr(voice_ui, "MAX_HISTORY_SIZE"))
 
     def test_add_to_history(self):
-        """add_to_history adds entries to history."""
+        """add_to_history adds entries to history and returns new list."""
         import voice_ui
-        # Clear history
-        voice_ui.generation_history.clear()
+        history = []
 
-        voice_ui.add_to_history("clone", "Test text", "/path/to/audio.wav", 5)
-        self.assertEqual(len(voice_ui.generation_history), 1)
-        entry = voice_ui.generation_history[0]
+        history = voice_ui.add_to_history(history, "clone", "Test text", "/path/to/audio.wav", 5)
+        self.assertEqual(len(history), 1)
+        entry = history[0]
         self.assertEqual(entry["mode"], "Clone")
         self.assertEqual(entry["chunks"], 5)
         self.assertEqual(entry["path"], "/path/to/audio.wav")
@@ -1542,21 +1540,29 @@ class TestUIHistoryFunctions(unittest.TestCase):
     def test_history_max_size(self):
         """History doesn't exceed MAX_HISTORY_SIZE."""
         import voice_ui
-        voice_ui.generation_history.clear()
+        history = []
 
         # Add more than max entries
         for i in range(voice_ui.MAX_HISTORY_SIZE + 5):
-            voice_ui.add_to_history("clone", f"Text {i}", f"/path/{i}.wav", 1)
+            history = voice_ui.add_to_history(history, "clone", f"Text {i}", f"/path/{i}.wav", 1)
 
-        self.assertEqual(len(voice_ui.generation_history), voice_ui.MAX_HISTORY_SIZE)
+        self.assertEqual(len(history), voice_ui.MAX_HISTORY_SIZE)
+
+    def test_add_to_history_does_not_mutate_input(self):
+        """add_to_history returns a new list, does not mutate the input."""
+        import voice_ui
+        original = []
+        result = voice_ui.add_to_history(original, "clone", "Test", "/path.wav", 1)
+        self.assertEqual(len(original), 0)
+        self.assertEqual(len(result), 1)
 
     def test_get_history_data_format(self):
         """get_history_data returns list of lists."""
         import voice_ui
-        voice_ui.generation_history.clear()
-        voice_ui.add_to_history("clone", "Test text", "/path/test.wav", 3)
+        history = []
+        history = voice_ui.add_to_history(history, "clone", "Test text", "/path/test.wav", 3)
 
-        data = voice_ui.get_history_data()
+        data = voice_ui.get_history_data(history)
         self.assertIsInstance(data, list)
         self.assertEqual(len(data), 1)
         self.assertIsInstance(data[0], list)
@@ -1566,12 +1572,12 @@ class TestUIHistoryFunctions(unittest.TestCase):
     def test_history_text_truncation(self):
         """Long text is truncated in history entries."""
         import voice_ui
-        voice_ui.generation_history.clear()
+        history = []
 
         long_text = "A" * 100  # 100 character text
-        voice_ui.add_to_history("clone", long_text, "/path/test.wav", 1)
+        history = voice_ui.add_to_history(history, "clone", long_text, "/path/test.wav", 1)
 
-        entry = voice_ui.generation_history[0]
+        entry = history[0]
         # Text should be truncated to 40 chars + "..."
         self.assertLessEqual(len(entry["text"]), 43)
         self.assertTrue(entry["text"].endswith("..."))
@@ -1834,8 +1840,8 @@ class TestStreamingEndpointStructure(unittest.TestCase):
 class TestGenerationFunctionsReturnHistory(unittest.TestCase):
     """Test that generation functions return history data for UI update."""
 
-    def test_generate_clone_returns_four_values(self):
-        """generate_clone delegates to helper that returns 4 values."""
+    def test_generate_clone_returns_five_values(self):
+        """generate_clone delegates to helper that returns 5 values (includes history_list)."""
         import inspect
         import voice_ui
         # Non-streaming functions delegate to _generate_non_streaming_impl
@@ -1843,24 +1849,24 @@ class TestGenerationFunctionsReturnHistory(unittest.TestCase):
         self.assertIn("_generate_non_streaming_impl", source)
         # Helper should have get_history_data
         helper_source = inspect.getsource(voice_ui._generate_non_streaming_impl)
-        self.assertIn("get_history_data()", helper_source)
+        self.assertIn("get_history_data(history_list)", helper_source)
 
-    def test_generate_design_returns_four_values(self):
-        """generate_design delegates to helper that returns 4 values."""
+    def test_generate_design_returns_five_values(self):
+        """generate_design delegates to helper that returns 5 values (includes history_list)."""
         import inspect
         import voice_ui
         source = inspect.getsource(voice_ui.generate_design)
         self.assertIn("_generate_non_streaming_impl", source)
 
-    def test_generate_custom_returns_four_values(self):
-        """generate_custom delegates to helper that returns 4 values."""
+    def test_generate_custom_returns_five_values(self):
+        """generate_custom delegates to helper that returns 5 values (includes history_list)."""
         import inspect
         import voice_ui
         source = inspect.getsource(voice_ui.generate_custom)
         self.assertIn("_generate_non_streaming_impl", source)
 
-    def test_streaming_functions_yield_four_values(self):
-        """Streaming generation functions delegate to helper that yields 4-tuples."""
+    def test_streaming_functions_yield_five_values(self):
+        """Streaming generation functions delegate to helper that yields 5-tuples (includes history_list)."""
         import inspect
         import voice_ui
         # Check that streaming wrappers delegate to _generate_streaming_impl
@@ -1872,7 +1878,7 @@ class TestGenerationFunctionsReturnHistory(unittest.TestCase):
         self.assertIn("_generate_streaming_impl", source)
         # Helper should have get_history_data
         helper_source = inspect.getsource(voice_ui._generate_streaming_impl)
-        self.assertIn("get_history_data()", helper_source)
+        self.assertIn("get_history_data(history_list)", helper_source)
 
     def test_non_streaming_adds_to_history(self):
         """Non-streaming helper calls add_to_history."""

@@ -683,7 +683,8 @@ def config(ctx):
     """Configure TTS settings."""
     if ctx.invoked_subcommand is None:
         import subprocess  # nosec B404
-        wizard = os.path.expanduser('~/Qwen3-TTS_UserFiles/install.sh')
+        from qwen3_tts.core.config import USER_FILES_DIR
+        wizard = os.path.join(USER_FILES_DIR, "install.sh")
         subprocess.run([wizard, '--reconfigure'])  # nosec B603
 
 

@@ -252,6 +252,8 @@ def prune_models_cmd(days: int = 30, dry_run: bool = False) -> None:
 
     print()
     print(f"  Models to prune (not accessed in {days}+ days):")
+    print("  WARNING: Modern filesystems (macOS APFS, Linux relatime) often do not track")
+    print("  accurate file access times. Models listed below may have been used recently.")
     print()
 
     total_size = 0
