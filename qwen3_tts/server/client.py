@@ -559,10 +559,11 @@ class TTSClient:
                 error_msg = f"Server returned HTTP {resp.status_code} (non-JSON response)"
             raise Exception(f"Server error: {error_msg}")
 
+        import io, base64
+        import soundfile as sf
         result = resp.json()["results"][0]
-        import soundfile as sf  # lazy — not needed at module import time
-        wav, sr = sf.read(result["file"])
-        os.remove(result["file"])
+        audio_bytes = base64.b64decode(result["audio_base64"])
+        wav, sr = sf.read(io.BytesIO(audio_bytes))
         return wav, sr
 
     def generate_streaming(
@@ -818,10 +819,11 @@ class TTSClient:
                     error_msg = f"Server returned HTTP {resp.status_code} (non-JSON response)"
                 raise Exception(f"Server error: {error_msg}")
 
+            import io, base64
+            import soundfile as sf
             result = resp.json()["results"][0]
-            import soundfile as sf  # lazy — not needed at module import time
-            wav, sr = sf.read(result["file"])
-            os.remove(result["file"])
+            audio_bytes = base64.b64decode(result["audio_base64"])
+            wav, sr = sf.read(io.BytesIO(audio_bytes))
 
             # Apply audio processing if needed
             needs_processing = trim_silence or normalize or (speed and speed != 1.0) or (pitch and pitch != 0)

@@ -61,10 +61,14 @@ def _setup_fastapi_app_state(app, server_config=None):
     import threading
     import asyncio
 
+    from unittest.mock import AsyncMock
     app.state.auth_token = "test_token"  # nosec B105
     app.state.models = {"clone": None, "design": None, "custom": None}
     app.state.model_load_times = {}
-    app.state.generation_lock = threading.Lock()
+    mock_lock = AsyncMock()
+    mock_lock.__aenter__.return_value = None
+    mock_lock.__aexit__.return_value = None
+    app.state.generation_lock = mock_lock
     app.state.generation_state = {
         "active": False,
         "start_time": 0.0,

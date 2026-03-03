@@ -52,6 +52,7 @@ BATCHES = {
             "tests.test_fastapi_server",
             "tests.test_fastapi_endpoints",
             "tests.test_client",
+            "tests.test_async_concurrency",
         ],
         "timeout": 180,  # Higher timeout for async operations
     },

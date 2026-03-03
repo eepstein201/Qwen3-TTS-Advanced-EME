@@ -19,7 +19,7 @@ import os
 import socket
 import sys
 import tempfile
-from unittest.mock import MagicMock
+from unittest.mock import AsyncMock, MagicMock
 
 try:
     import pytest
@@ -122,7 +122,10 @@ def initialize_app_state_for_xdist():
         app.state.test_port = 5123  # Default port for bare TestClient tests
         app.state.models = {"clone": None, "design": None, "custom": None}
         app.state.model_load_times = {}
-        app.state.generation_lock = threading.Lock()
+        mock_lock = AsyncMock()
+        mock_lock.__aenter__.return_value = None
+        mock_lock.__aexit__.return_value = None
+        app.state.generation_lock = mock_lock
         app.state.generation_state = {
             "active": False,
             "start_time": 0.0,
@@ -319,7 +322,10 @@ def fastapi_client(tmp_config, unused_port):
         app.state.test_port = unused_port  # Store dynamic port for any URL construction
         app.state.models = {"clone": None, "design": None, "custom": None}
         app.state.model_load_times = {}
-        app.state.generation_lock = threading.Lock()
+        mock_lock = AsyncMock()
+        mock_lock.__aenter__.return_value = None
+        mock_lock.__aexit__.return_value = None
+        app.state.generation_lock = mock_lock
         app.state.generation_state = {
             "active": False,
             "start_time": 0.0,

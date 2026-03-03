@@ -364,8 +364,11 @@ def preview_voice_prompt(prompt_name, config):
         if resp.status_code == 200:
             result = resp.json()["results"][0]
             print("Playing preview...")
-            play_audio(result["file"])
-            os.remove(result["file"])
+            import tempfile
+            tmp = tempfile.NamedTemporaryFile(suffix=".wav", delete=False)
+            _save_base64_result(result, tmp.name)
+            play_audio(tmp.name)
+            os.remove(tmp.name)
             return True
         else:
             try:
@@ -787,6 +790,22 @@ def _build_generation_payload(mode, config, gen_params, prompt_file=None,
     return payload
 
 
+def _decode_base64_result(result):
+    """Decode base64 audio from server response to numpy array + sample rate."""
+    import base64, io, soundfile as sf
+    audio_bytes = base64.b64decode(result["audio_base64"])
+    wav, sr = sf.read(io.BytesIO(audio_bytes))
+    return wav, sr
+
+
+def _save_base64_result(result, output_path):
+    """Save base64 audio from server response directly to a WAV file."""
+    import base64
+    audio_bytes = base64.b64decode(result["audio_base64"])
+    with open(output_path, "wb") as f:
+        f.write(audio_bytes)
+
+
 def generate_via_server(texts, mode, config, gen_params,
                         prompt_file=None, voice_description=None,
                         speaker=None, instruct=None, auto_load_model=True,
@@ -1157,8 +1176,7 @@ def run_repl(config, use_server):
                     [text], state["mode"], config, gen_params,
                     prompt_file=state["prompt"]
                 )
-                wav, sr = sf.read(results[0]["file"])
-                os.remove(results[0]["file"])
+                wav, sr = _decode_base64_result(results[0])
             else:
                 wav, sr = generate_local(
                     text, state["mode"], gen_params,
@@ -1238,8 +1256,7 @@ def run_watch_mode(watch_dir, config, args, gen_params, use_server):
                         prompt_file=prompt_file if mode == "clone" else None,
                         voice_description=voice_description if mode == "design" else None,
                     )
-                    wav, sr = sf.read(results[0]["file"])
-                    os.remove(results[0]["file"])
+                    wav, sr = _decode_base64_result(results[0])
                 else:
                     wav, sr = generate_local(
                         text, mode, gen_params,
@@ -1365,8 +1382,7 @@ def process_dialogue(dialogue_path, config, args, gen_params, use_server):
                     speaker=resolved_speaker if mode == "custom" else None,
                     instruct=instruct if mode == "custom" else None,
                 )
-                wav, sr = sf.read(results[0]["file"])
-                os.remove(results[0]["file"])
+                wav, sr = _decode_base64_result(results[0])
             else:
                 wav, sr = generate_local(
                     text, mode, gen_params, language,
@@ -1460,8 +1476,7 @@ def process_srt_file(srt_path, config, args, gen_params, use_server):
                 prompt_file=prompt_file if mode == "clone" else None,
                 voice_description=voice_description if mode == "design" else None,
             )
-            wav, sr = sf.read(results[0]["file"])
-            os.remove(results[0]["file"])
+            wav, sr = _decode_base64_result(results[0])
         else:
             wav, sr = generate_local(
                 text, mode, gen_params,
@@ -1611,7 +1626,7 @@ def interactive_mode(use_server, config, gen_params):
             results = generate_via_server([text], mode, config, gen_params, prompt_file=voice_param)
         else:
             results = generate_via_server([text], mode, config, gen_params, voice_description=voice_param)
-        shutil.move(results[0]["file"], output_path)
+        _save_base64_result(results[0], output_path)
     else:
         wav, sr = generate_local(
             text, mode, gen_params, language,
@@ -1655,12 +1670,11 @@ def process_batch(texts, args, config, gen_params, use_server):
         for i, result in enumerate(results):
             output_path = os.path.join(output_dir, f"output_{i+1}.wav")
             if needs_processing:
-                wav, sr = sf.read(result["file"])
+                wav, sr = _decode_base64_result(result)
                 wav = process_audio_args(wav, sr, args)
                 sf.write(output_path, wav, sr)
-                os.remove(result["file"])
             else:
-                shutil.move(result["file"], output_path)
+                _save_base64_result(result, output_path)
             output_paths.append(output_path)
             print(f"Saved: {output_path}")
     else:
@@ -2204,12 +2218,11 @@ def main():
 
         needs_processing = args.trim_silence or args.normalize or args.speed or args.pitch
         if needs_processing:
-            wav, sr = sf.read(results[0]["file"])
+            wav, sr = _decode_base64_result(results[0])
             wav = process_audio_args(wav, sr, args)
             sf.write(output_path, wav, sr)
-            os.remove(results[0]["file"])
         else:
-            shutil.move(results[0]["file"], output_path)
+            _save_base64_result(results[0], output_path)
     else:
         if mode == "custom":
             wav, sr = generate_local(

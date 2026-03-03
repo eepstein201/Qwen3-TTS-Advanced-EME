@@ -16,7 +16,6 @@ import logging.handlers
 import os
 import re
 import secrets
-import shutil
 import signal
 import struct
 import sys
@@ -75,46 +74,6 @@ def _get_gen_cache_max() -> int:
     """Get generation cache max size from config (cached for performance)."""
     return get_generation_cache_max()
 
-
-# ---------------------------------------------------------------------------
-# Temp file cleanup tracking
-# ---------------------------------------------------------------------------
-
-_pending_cleanup = set()
-_cleanup_lock = threading.Lock()
-
-
-def _mark_for_cleanup(filepath: str) -> None:
-    """Mark a temp file for deferred cleanup after client download."""
-    with _cleanup_lock:
-        _pending_cleanup.add(filepath)
-
-
-def _cleanup_pending_files() -> None:
-    """Clean up temp files that have been marked for cleanup."""
-    with _cleanup_lock:
-        files_to_cleanup = list(_pending_cleanup)
-        _pending_cleanup.clear()
-    # Delete files outside the lock to avoid blocking
-    for filepath in files_to_cleanup:
-        try:
-            if os.path.exists(filepath):
-                os.unlink(filepath)
-        except OSError:
-            pass
-
-
-def _cleanup_worker() -> None:
-    """Background worker that cleans up temp files after a delay."""
-    import time
-    time.sleep(60)  # Wait 60 seconds for client to download
-    _cleanup_pending_files()
-
-
-def _schedule_cleanup() -> None:
-    """Schedule background cleanup of marked temp files."""
-    thread = threading.Thread(target=_cleanup_worker, daemon=True)
-    thread.start()
 
 
 # ---------------------------------------------------------------------------
@@ -177,24 +136,13 @@ async def verify_auth(request: Request) -> None:
     if request.url.path in ("/health", "/generation-status"):
         return
     token = request.headers.get("Authorization", "").replace("Bearer ", "")
-    if token != request.app.state.auth_token:
+    if not secrets.compare_digest(token, request.app.state.auth_token):
         raise HTTPException(status_code=401, detail="Unauthorized")
 
 
 # ---------------------------------------------------------------------------
 # Helper functions
 # ---------------------------------------------------------------------------
-
-def _create_temp_audio_copy(source_path: str) -> str:
-    """Create a secure temp copy of an audio file. Returns temp path."""
-    temp_file = tempfile.NamedTemporaryFile(suffix=".wav", delete=False)
-    os.chmod(temp_file.name, 0o600)
-    try:
-        shutil.copy2(source_path, temp_file.name)
-        return temp_file.name
-    except OSError:
-        os.unlink(temp_file.name)
-        raise
 
 
 def _validate_prompt_name(name: str) -> Optional[tuple]:
@@ -313,7 +261,7 @@ async def lifespan(app: FastAPI):
     app.state.auth_token = secrets.token_hex(32)
     app.state.models = {"clone": None, "design": None, "custom": None}
     app.state.model_load_times = {}
-    app.state.generation_lock = threading.Lock()
+    app.state.generation_lock = asyncio.Lock()
     app.state.generation_state = {
         "active": False,
         "start_time": 0.0,
@@ -738,8 +686,9 @@ async def unload_model(request: Request, req: UnloadModelRequest, _auth: None = 
     with state.gen_cache_lock:
         for entry in state.gen_cache.values():
             try:
-                if os.path.exists(entry["file"]):
-                    os.remove(entry["file"])
+                main_file = entry.get("main_file") or entry.get("file")
+                if main_file and os.path.exists(main_file):
+                    os.remove(main_file)
             except OSError:
                 pass
         state.gen_cache.clear()
@@ -795,7 +744,7 @@ async def update_model_config(request: Request, req: UpdateModelConfigRequest, _
     save_config(config)
 
     # Unload all models so new settings take effect
-    with state.generation_lock:
+    async with state.generation_lock:
         for name in ("clone", "design", "custom"):
             state.models[name] = None
 
@@ -803,8 +752,9 @@ async def update_model_config(request: Request, req: UpdateModelConfigRequest, _
     with state.gen_cache_lock:
         for entry in state.gen_cache.values():
             try:
-                if os.path.exists(entry["file"]):
-                    os.remove(entry["file"])
+                main_file = entry.get("main_file") or entry.get("file")
+                if main_file and os.path.exists(main_file):
+                    os.remove(main_file)
             except OSError:
                 pass
         state.gen_cache.clear()
@@ -1091,7 +1041,7 @@ async def cancel_generation(request: Request, _auth: None = Depends(verify_auth)
     state = request.app.state
     reset_activity_timer(state)
 
-    with state.generation_lock:
+    async with state.generation_lock:
         if not state.generation_state["active"]:
             return {"status": "no_active_generation"}
         state.generation_state["cancelled"] = True
@@ -1198,6 +1148,8 @@ async def generate(request: Request, req: GenerateRequest, _auth: None = Depends
     state.request_queue.add(request_id)
 
     try:
+        import io, base64
+        import soundfile as sf
         from qwen3_tts.core.engine import load_voice_prompt, run_inference
 
         # Pre-lock cache check
@@ -1213,26 +1165,23 @@ async def generate(request: Request, req: GenerateRequest, _auth: None = Depends
             pre_lock_cache_keys[i] = cache_key
             with state.gen_cache_lock:
                 entry = state.gen_cache.get(cache_key)
-            # Check both old structure (file) and new structure (main_file)
             if entry:
                 cache_file = entry.get("main_file") or entry.get("file")
                 if cache_file and os.path.exists(cache_file):
-                    # Create temp copy for serving (will be cleaned up after response)
-                    temp_path = _create_temp_audio_copy(cache_file)
-                    _mark_for_cleanup(temp_path)
-                    pre_lock_results[i] = {"index": i, "file": temp_path, "sample_rate": entry["sample_rate"], "cleanup": True}
+                    with open(cache_file, "rb") as f:
+                        b64_audio = base64.b64encode(f.read()).decode("utf-8")
+                    pre_lock_results[i] = {"index": i, "audio_base64": b64_audio, "sample_rate": entry["sample_rate"]}
                     logger.info("Generation cache hit (pre-lock) for text %d/%d", i + 1, len(texts))
 
         # If ALL texts hit cache, skip the lock entirely
         if len(pre_lock_results) == len(texts):
             results = [pre_lock_results[i] for i in range(len(texts))]
             state.request_queue.discard(request_id)
-            _schedule_cleanup()
             return {"results": results}
 
         # Acquire locks for thread-safe generation
         async with state.inference_lock:
-            with state.generation_lock:
+            async with state.generation_lock:
                 results = []
 
                 for i, text in enumerate(texts):
@@ -1245,14 +1194,12 @@ async def generate(request: Request, req: GenerateRequest, _auth: None = Depends
                     cache_key = pre_lock_cache_keys[i]
                     with state.gen_cache_lock:
                         entry = state.gen_cache.get(cache_key)
-                    # Check both old structure (file) and new structure (main_file)
                     if entry:
                         cache_file = entry.get("main_file") or entry.get("file")
                         if cache_file and os.path.exists(cache_file):
-                            # Create temp copy for serving (will be cleaned up after response)
-                            temp_path = _create_temp_audio_copy(cache_file)
-                            _mark_for_cleanup(temp_path)
-                            results.append({"index": i, "file": temp_path, "sample_rate": entry["sample_rate"], "cleanup": True})
+                            with open(cache_file, "rb") as f:
+                                b64_audio = base64.b64encode(f.read()).decode("utf-8")
+                            results.append({"index": i, "audio_base64": b64_audio, "sample_rate": entry["sample_rate"]})
                             logger.info("Generation cache hit (post-lock) for text %d/%d", i + 1, len(texts))
                             continue
 
@@ -1284,8 +1231,9 @@ async def generate(request: Request, req: GenerateRequest, _auth: None = Depends
                             "chunk_total": chunk_total,
                         })
 
-                    # Run inference
-                    wav, sr = run_inference(
+                    # Run inference (offloaded to thread pool to avoid blocking event loop)
+                    wav, sr = await asyncio.to_thread(
+                        run_inference,
                         model=model,
                         text=text,
                         mode=mode,
@@ -1300,46 +1248,34 @@ async def generate(request: Request, req: GenerateRequest, _auth: None = Depends
                         x_vector_only_mode=x_vector_only_mode,
                     )
 
-                    # Save to temp file
-                    temp_file = tempfile.NamedTemporaryFile(suffix=".wav", delete=False)
-                    os.chmod(temp_file.name, 0o600)
-                    try:
-                        import soundfile as sf
-                        sf.write(temp_file.name, wav, sr)
-                    except Exception:
-                        os.unlink(temp_file.name)
-                        raise
+                    # Encode audio to base64 WAV in memory
+                    buf = io.BytesIO()
+                    sf.write(buf, wav, sr, format="WAV")
+                    b64_audio = base64.b64encode(buf.getvalue()).decode("utf-8")
 
-                    # Store in generation cache (use the temp file directly, mark for cleanup)
+                    # Store persistent cache file for future hits
+                    cache_file = tempfile.NamedTemporaryFile(suffix=".wav", delete=False)
+                    os.chmod(cache_file.name, 0o600)
+                    sf.write(cache_file.name, wav, sr)
+
                     with state.gen_cache_lock:
-                        # Evict oldest if full
                         if len(state.gen_cache) >= _get_gen_cache_max():
                             oldest_key = min(state.gen_cache, key=lambda k: state.gen_cache[k]["timestamp"])
                             old_entry = state.gen_cache.pop(oldest_key)
-                            try:
-                                # Clean up old cache file and its temp copy (if any)
-                                old_main = old_entry.get("main_file")
-                                old_temp = old_entry.get("temp_file")
-                                if old_temp and os.path.exists(old_temp):
-                                    os.unlink(old_temp)
-                                if old_main and old_main != old_temp and os.path.exists(old_main):
+                            old_main = old_entry.get("main_file")
+                            if old_main and os.path.exists(old_main):
+                                try:
                                     os.remove(old_main)
-                            except OSError:
-                                pass
-                        # Store both the cache file (persistent) and temp file (for current response)
-                        # Create persistent copy for cache
-                        cache_path = _create_temp_audio_copy(temp_file.name)
+                                except OSError:
+                                    pass
                         state.gen_cache[cache_key] = {
-                            "main_file": cache_path,
-                            "temp_file": temp_file.name,  # Tracked for cleanup after response
+                            "main_file": cache_file.name,
                             "sample_rate": sr,
                             "timestamp": time.time(),
                         }
 
-                    # Return temp file path for immediate response (will be cleaned up after serving)
-                    results.append({"index": i, "file": temp_file.name, "sample_rate": sr, "cleanup": True})
+                    results.append({"index": i, "audio_base64": b64_audio, "sample_rate": sr})
 
-                _schedule_cleanup()
                 return {"results": results}
 
     except HTTPException:

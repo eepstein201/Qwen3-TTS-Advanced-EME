@@ -9,7 +9,6 @@ No GPU, models, or running server required.
 
 import inspect
 import os
-import stat
 import sys
 import tempfile
 import unittest
@@ -165,23 +164,6 @@ class TestAppHelperFunctions(unittest.TestCase):
         key = _gen_cache_key("test", "design", {})
         self.assertEqual(len(key), 16)
         int(key, 16)  # Should not raise
-
-    def test_create_temp_audio_copy(self):
-        """_create_temp_audio_copy creates a copy with restricted perms."""
-        from qwen3_tts.server.app import _create_temp_audio_copy
-        with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as src:
-            src.write(b"fake audio data")
-            src_path = src.name
-        try:
-            tmp_path = _create_temp_audio_copy(src_path)
-            self.assertTrue(os.path.exists(tmp_path))
-            mode = os.stat(tmp_path).st_mode
-            self.assertEqual(stat.S_IMODE(mode), 0o600)
-            with open(tmp_path, 'rb') as f:
-                self.assertEqual(f.read(), b"fake audio data")
-            os.unlink(tmp_path)
-        finally:
-            os.unlink(src_path)
 
 
 # =========================================================================
