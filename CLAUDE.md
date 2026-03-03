@@ -274,6 +274,42 @@ python -m unittest discover -v tests/
 
 ## Recent Significant Changes
 
+### 2026-03-02 — Model loading progress & error handling improvements
+
+**Goal:** Fix "Unknown error" when generating audio with unloaded models and add clear loading progress indication in Gradio UI.
+
+**Changes:**
+- **Server (`app.py`):**
+  - Added `model_load_errors` state tracking to lifespan and test fixtures
+  - `/health` endpoint now includes `model_load_errors` dict (only models with errors)
+  - Startup model load failures captured with `exc_info=True` and stored in state
+  - `/load-model` endpoint returns structured error responses: `{"error": "type", "message": "..."}`
+  - `/generate-stream` returns actual error message from `model_load_errors` with `model_type`
+  - Fixed `cleanup_resources()` to use `getattr()` for missing attributes (shutdown_timer, models)
+
+- **Client (`client.py`):**
+  - `load_model()` prefers `message` field over `detail` in error responses
+  - `generate_streaming()` parses structured errors and includes `model_type` in message
+
+- **UI (`ui.py`):**
+  - Enhanced `_ensure_model_loaded()` with progress stages (0.1→1.0) and error checking
+  - Checks `model_load_errors` from health endpoint, raises `gr.Error` with actual message
+  - Updated `get_model_status_html()` to show:
+    - 🟢 Green: Model loaded
+    - 🔴 Red: Error message (truncated to 60 chars)
+    - 🟡 Yellow: Not loaded (will load on demand)
+    - ⚪ Gray: Server offline/unknown
+  - Added `demo.load()` to refresh all model status on UI load
+  - Added tab selection handlers (`clone_tab.select()`, etc.) to update status when switching tabs
+  - Added model status updates after Manage Models load/unload buttons
+  - Added `progress=gr.Progress()` default parameter to generation functions
+
+**Files modified:**
+- `qwen3_tts/server/app.py` — model_load_errors tracking, structured errors, cleanup fixes
+- `qwen3_tts/server/client.py` — structured error parsing
+- `qwen3_tts/interface/ui.py` — progress stages, visual status, event-driven updates
+- `tests/conftest.py` — model_load_errors in test fixtures
+
 ### 2026-03-01 — Codebase cleanup: Flask to FastAPI migration completed
 
 **Changes:**
