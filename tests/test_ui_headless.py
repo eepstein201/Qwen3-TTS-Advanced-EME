@@ -89,7 +89,7 @@ def main():
         else:
             # Fallback: query server prompts endpoint
             sys.path.insert(0, PROJECT_DIR)
-            from voice_config import get_default_clone_prompt, load_config
+            from qwen3_tts.core.config import get_default_clone_prompt, load_config
             config = load_config()
             default_prompt = get_default_clone_prompt(config)
         print(f"Using voice prompt: {default_prompt}")
