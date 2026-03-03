@@ -1,7 +1,6 @@
 #!/usr/bin/env python3
 """FastAPI TTS server with async support and real streaming.
 
-Replaces Flask with FastAPI for:
 - Real async/await
 - Proper streaming via asyncio.Queue
 - app.state for worker-safe state

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Tests for audio processing utilities and text chunking in voice_engine.py.
+"""Tests for audio processing utilities and text chunking in qwen3_tts.core.engine.
 
 Covers normalize_audio, trim_silence, process_audio, and _split_text.
 No GPU, models, or running server required — uses numpy for test audio.

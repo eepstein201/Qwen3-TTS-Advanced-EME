@@ -31,7 +31,7 @@ mlx = [
     "huggingface_hub",
 ]
 
-# FastAPI server (replaces Flask)
+# FastAPI server
 server = [
     "fastapi>=0.110.0",
     "uvicorn[standard]>=0.29.0",

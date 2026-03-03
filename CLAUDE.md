@@ -57,8 +57,6 @@ Features: pyrubberband audio processing (with librosa fallback), prosody presets
 | `tts cache prune` | Remove models unused for N days |
 | `tts cache clear` | Remove all cached models |
 
-Old commands (`changeVoice`, `startTTSServer`, `stopTTSServer`, `createVoice`, `ttsUI`, `configureTTS` and their kebab-case aliases) still work as deprecation shims.
-
 The unified CLI is built on Click and installed via pyproject.toml entry points.
 
 ## Architecture

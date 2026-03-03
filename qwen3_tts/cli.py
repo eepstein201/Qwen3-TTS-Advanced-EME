@@ -18,76 +18,6 @@ from pathlib import Path
 import click
 
 # ---------------------------------------------------------------------------
-# Legacy flag → subcommand rewriting
-# ---------------------------------------------------------------------------
-
-LEGACY_REDIRECTS = {
-    '--list-prompts': ['voice', 'list'],
-    '--voices':       ['voice', 'list'],
-    '--list-presets':  ['list', 'presets'],
-    '--list-speakers': ['list', 'speakers'],
-    '--list-prosody':  ['list', 'prosody'],
-    '--list-models':   ['list', 'models'],
-    '--list-backends': ['list', 'backends'],
-    '--list-aliases':  ['list', 'aliases'],
-    '--stats':         ['stats'],
-    '--edit-config':   ['config', 'edit'],
-    '--ui':            ['ui'],
-    '--gui':           ['ui'],
-}
-
-LEGACY_VALUE_REDIRECTS = {
-    '--delete-prompt':  'voice delete',
-    '--rename-prompt':  'voice rename',
-    '--preview-prompt': 'voice preview',
-}
-
-
-def _rewrite_legacy_flags(args):
-    """Intercept old --flag-style arguments and rewrite to subcommands."""
-    if not args:
-        return args
-
-    new_args = list(args)
-
-    # Check for value-taking legacy flags first
-    for flag, subcmd in LEGACY_VALUE_REDIRECTS.items():
-        if flag in new_args:
-            idx = new_args.index(flag)
-            new_args.pop(idx)
-            parts = subcmd.split()
-            for i, part in enumerate(parts):
-                new_args.insert(i, part)
-            click.echo(f"Note: '{flag}' is now 'tts {subcmd}'. See 'tts --help'.", err=True)
-            return new_args
-
-    # Check for simple redirects
-    for flag, subcmd in LEGACY_REDIRECTS.items():
-        if flag in new_args:
-            idx = new_args.index(flag)
-            new_args.pop(idx)
-            for i, part in enumerate(subcmd):
-                new_args.insert(i, part)
-            click.echo(f"Note: '{flag}' is now 'tts {' '.join(subcmd)}'. See 'tts --help'.", err=True)
-            return new_args
-
-    # --history N (optional value)
-    if '--history' in new_args:
-        idx = new_args.index('--history')
-        new_args.pop(idx)
-        value = None
-        if idx < len(new_args) and not new_args[idx].startswith('-'):
-            value = new_args.pop(idx)
-        new_args.insert(0, 'history')
-        if value:
-            new_args.insert(1, value)
-        click.echo("Note: '--history' is now 'tts history'. See 'tts --help'.", err=True)
-        return new_args
-
-    return new_args
-
-
-# ---------------------------------------------------------------------------
 # Custom Group class — routes bare `tts "Hello"` to generate
 # ---------------------------------------------------------------------------
 
@@ -95,7 +25,6 @@ class TTSGroup(click.Group):
     """Routes bare `tts "Hello"` to the generate subcommand."""
 
     def parse_args(self, ctx, args):
-        args = _rewrite_legacy_flags(args)
         # Strip --_server-mode before routing (it's a generate-level flag)
         # and stash it so we can re-insert after routing
         server_mode = False

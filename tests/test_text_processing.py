@@ -113,13 +113,13 @@ class TestDryRunAndInteractive(unittest.TestCase):
     """Verify dry-run flag and interactive mode exist in source."""
 
     def test_dry_run_flag_in_source(self):
-        """voice_generate.py source contains '--dry-run' argument."""
+        """qwen3_tts.interface.generate source contains '--dry-run' argument."""
         import qwen3_tts.interface.generate
         source = inspect.getsource(qwen3_tts.interface.generate)
         self.assertIn("--dry-run", source)
 
     def test_dry_run_marker_in_source(self):
-        """voice_generate.py source contains 'DRY RUN' marker text."""
+        """qwen3_tts.interface.generate source contains 'DRY RUN' marker text."""
         import qwen3_tts.interface.generate
         source = inspect.getsource(qwen3_tts.interface.generate)
         self.assertIn("DRY RUN", source)

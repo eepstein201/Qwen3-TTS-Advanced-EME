@@ -838,25 +838,25 @@ class TestMLXInferenceCloneValidation(unittest.TestCase):
 # =============================================================================
 
 class TestLazyImports(unittest.TestCase):
-    """Verify that voice_engine does not import torch or mlx at module scope."""
+    """Verify that qwen3_tts.core.engine does not import torch or mlx at module scope."""
 
     def test_engine_no_torch_at_module_scope(self):
-        """voice_engine module should not force-import torch."""
-        # Remove voice_engine from cache to test fresh import behavior
+        """qwen3_tts.core.engine module should not force-import torch."""
+        # Remove engine from cache to test fresh import behavior
         saved_modules = {}
         for mod in list(sys.modules.keys()):
-            if mod == "voice_engine" or mod.startswith("voice_engine."):
+            if mod == "qwen3_tts.core.engine" or mod.startswith("qwen3_tts.core.engine."):
                 saved_modules[mod] = sys.modules.pop(mod)
 
         # Also note if torch was already loaded
         torch_was_loaded = "torch" in sys.modules
 
         try:
-            import voice_engine  # noqa: F401
+            from qwen3_tts.core import engine as voice_engine  # noqa: F401
             if not torch_was_loaded:
-                # torch should not have been imported by voice_engine
+                # torch should not have been imported by engine
                 self.assertNotIn("torch", sys.modules,
-                    "voice_engine imported torch at module scope")
+                    "qwen3_tts.core.engine imported torch at module scope")
         finally:
             # Restore
             for mod, val in saved_modules.items():
@@ -1027,7 +1027,7 @@ class TestASR(unittest.TestCase):
 
     def test_asr_models_are_lazy_loaded(self):
         """ASR model caches are None until transcribe_audio is called."""
-        import voice_engine
+        from qwen3_tts.core import engine as voice_engine
         self.assertIsNone(voice_engine._asr_model_mlx)
         self.assertIsNone(voice_engine._asr_model_torch)
 
@@ -1249,7 +1249,7 @@ class TestMLXMemoryStats(unittest.TestCase):
     def test_ui_checks_mlx_memory_first(self):
         """voice_ui checks for MLX memory before MPS memory."""
         import inspect
-        import voice_ui
+        from qwen3_tts.interface import ui as voice_ui
         source = inspect.getsource(voice_ui.get_server_status)
         # Should check mlx_memory first
         self.assertIn("mlx_memory_active_mb", source)
@@ -1520,14 +1520,14 @@ class TestUIHistoryFunctions(unittest.TestCase):
 
     def test_history_functions_exist(self):
         """voice_ui has history-related functions."""
-        import voice_ui
+        from qwen3_tts.interface import ui as voice_ui
         self.assertTrue(hasattr(voice_ui, "add_to_history"))
         self.assertTrue(hasattr(voice_ui, "get_history_data"))
         self.assertTrue(hasattr(voice_ui, "MAX_HISTORY_SIZE"))
 
     def test_add_to_history(self):
         """add_to_history adds entries to history and returns new list."""
-        import voice_ui
+        from qwen3_tts.interface import ui as voice_ui
         history = []
 
         history = voice_ui.add_to_history(history, "clone", "Test text", "/path/to/audio.wav", 5)
@@ -1539,7 +1539,7 @@ class TestUIHistoryFunctions(unittest.TestCase):
 
     def test_history_max_size(self):
         """History doesn't exceed MAX_HISTORY_SIZE."""
-        import voice_ui
+        from qwen3_tts.interface import ui as voice_ui
         history = []
 
         # Add more than max entries
@@ -1550,7 +1550,7 @@ class TestUIHistoryFunctions(unittest.TestCase):
 
     def test_add_to_history_does_not_mutate_input(self):
         """add_to_history returns a new list, does not mutate the input."""
-        import voice_ui
+        from qwen3_tts.interface import ui as voice_ui
         original = []
         result = voice_ui.add_to_history(original, "clone", "Test", "/path.wav", 1)
         self.assertEqual(len(original), 0)
@@ -1558,7 +1558,7 @@ class TestUIHistoryFunctions(unittest.TestCase):
 
     def test_get_history_data_format(self):
         """get_history_data returns list of lists."""
-        import voice_ui
+        from qwen3_tts.interface import ui as voice_ui
         history = []
         history = voice_ui.add_to_history(history, "clone", "Test text", "/path/test.wav", 3)
 
@@ -1571,7 +1571,7 @@ class TestUIHistoryFunctions(unittest.TestCase):
 
     def test_history_text_truncation(self):
         """Long text is truncated in history entries."""
-        import voice_ui
+        from qwen3_tts.interface import ui as voice_ui
         history = []
 
         long_text = "A" * 100  # 100 character text
@@ -1593,7 +1593,7 @@ class TestUICancelFunction(unittest.TestCase):
 
     def test_cancel_streaming_generation_exists(self):
         """voice_ui has cancel_streaming_generation function."""
-        import voice_ui
+        from qwen3_tts.interface import ui as voice_ui
         self.assertTrue(hasattr(voice_ui, "cancel_streaming_generation"))
         self.assertTrue(callable(voice_ui.cancel_streaming_generation))
 
@@ -1628,7 +1628,7 @@ class TestUICancelFunction(unittest.TestCase):
 
     def test_check_generation_cancelled_exists(self):
         """voice_ui has _check_generation_cancelled helper."""
-        import voice_ui
+        from qwen3_tts.interface import ui as voice_ui
         self.assertTrue(hasattr(voice_ui, "_check_generation_cancelled"))
         self.assertTrue(callable(voice_ui._check_generation_cancelled))
 
@@ -1643,7 +1643,7 @@ class TestUITextInfo(unittest.TestCase):
 
     def test_update_text_info_exists(self):
         """voice_ui has update_text_info function."""
-        import voice_ui
+        from qwen3_tts.interface import ui as voice_ui
         self.assertTrue(hasattr(voice_ui, "update_text_info"))
 
     def test_update_text_info_empty(self):
@@ -1677,7 +1677,7 @@ class TestUIModelSettings(unittest.TestCase):
 
     def test_model_settings_functions_exist(self):
         """voice_ui has model settings functions."""
-        import voice_ui
+        from qwen3_tts.interface import ui as voice_ui
         self.assertTrue(hasattr(voice_ui, "get_current_model_settings"))
         self.assertTrue(hasattr(voice_ui, "apply_model_settings"))
         self.assertTrue(callable(voice_ui.get_current_model_settings))
@@ -1721,7 +1721,7 @@ class TestUIModelSettingsImports(unittest.TestCase):
 
     def test_model_settings_imports(self):
         """voice_ui imports required constants for model settings."""
-        import voice_ui
+        from qwen3_tts.interface import ui as voice_ui
         # Should have imported these from qwen3_tts.core.config
         self.assertTrue(hasattr(voice_ui, "VALID_MODEL_SIZES"))
         self.assertTrue(hasattr(voice_ui, "VALID_MLX_QUANTIZATIONS"))
@@ -1843,7 +1843,7 @@ class TestGenerationFunctionsReturnHistory(unittest.TestCase):
     def test_generate_clone_returns_five_values(self):
         """generate_clone delegates to helper that returns 5 values (includes history_list)."""
         import inspect
-        import voice_ui
+        from qwen3_tts.interface import ui as voice_ui
         # Non-streaming functions delegate to _generate_non_streaming_impl
         source = inspect.getsource(voice_ui.generate_clone)
         self.assertIn("_generate_non_streaming_impl", source)
@@ -1854,21 +1854,21 @@ class TestGenerationFunctionsReturnHistory(unittest.TestCase):
     def test_generate_design_returns_five_values(self):
         """generate_design delegates to helper that returns 5 values (includes history_list)."""
         import inspect
-        import voice_ui
+        from qwen3_tts.interface import ui as voice_ui
         source = inspect.getsource(voice_ui.generate_design)
         self.assertIn("_generate_non_streaming_impl", source)
 
     def test_generate_custom_returns_five_values(self):
         """generate_custom delegates to helper that returns 5 values (includes history_list)."""
         import inspect
-        import voice_ui
+        from qwen3_tts.interface import ui as voice_ui
         source = inspect.getsource(voice_ui.generate_custom)
         self.assertIn("_generate_non_streaming_impl", source)
 
     def test_streaming_functions_yield_five_values(self):
         """Streaming generation functions delegate to helper that yields 5-tuples (includes history_list)."""
         import inspect
-        import voice_ui
+        from qwen3_tts.interface import ui as voice_ui
         # Check that streaming wrappers delegate to _generate_streaming_impl
         source = inspect.getsource(voice_ui.generate_clone_streaming)
         self.assertIn("_generate_streaming_impl", source)
@@ -1883,14 +1883,14 @@ class TestGenerationFunctionsReturnHistory(unittest.TestCase):
     def test_non_streaming_adds_to_history(self):
         """Non-streaming helper calls add_to_history."""
         import inspect
-        import voice_ui
+        from qwen3_tts.interface import ui as voice_ui
         source = inspect.getsource(voice_ui._generate_non_streaming_impl)
         self.assertIn("add_to_history", source)
 
     def test_streaming_adds_to_history(self):
         """Streaming helper calls add_to_history on completion."""
         import inspect
-        import voice_ui
+        from qwen3_tts.interface import ui as voice_ui
         source = inspect.getsource(voice_ui._generate_streaming_impl)
         self.assertIn("add_to_history", source)
 
@@ -2865,27 +2865,27 @@ class TestManageModelsUI(unittest.TestCase):
     """Test Manage Models UI helper functions."""
 
     def test_get_model_table_data_exists(self):
-        import voice_ui
+        from qwen3_tts.interface import ui as voice_ui
         self.assertTrue(callable(getattr(voice_ui, "get_model_table_data", None)))
 
     def test_toggle_model_exists(self):
-        import voice_ui
+        from qwen3_tts.interface import ui as voice_ui
         self.assertTrue(callable(getattr(voice_ui, "toggle_model", None)))
 
     def test_get_model_status_html_exists(self):
-        import voice_ui
+        from qwen3_tts.interface import ui as voice_ui
         self.assertTrue(callable(getattr(voice_ui, "get_model_status_html", None)))
 
     def test_update_startup_defaults_exists(self):
-        import voice_ui
+        from qwen3_tts.interface import ui as voice_ui
         self.assertTrue(callable(getattr(voice_ui, "update_startup_defaults", None)))
 
     def test_get_audio_loader_setting_exists(self):
-        import voice_ui
+        from qwen3_tts.interface import ui as voice_ui
         self.assertTrue(callable(getattr(voice_ui, "get_audio_loader_setting", None)))
 
     def test_set_audio_loader_setting_exists(self):
-        import voice_ui
+        from qwen3_tts.interface import ui as voice_ui
         self.assertTrue(callable(getattr(voice_ui, "set_audio_loader_setting", None)))
 
 
@@ -2981,8 +2981,8 @@ class TestProsodyPresets(unittest.TestCase):
 
     @_skip_generate
     def test_prosody_cli_flag_exists(self):
-        """voice_generate.py should accept --prosody flag."""
-        import voice_generate
+        """qwen3_tts.interface.generate should accept --prosody flag."""
+        from qwen3_tts.interface import generate as voice_generate
         import argparse
         # Build parser and check --prosody is registered
         parser = voice_generate.build_parser() if hasattr(voice_generate, 'build_parser') else None
@@ -2998,7 +2998,7 @@ class TestProsodyUI(unittest.TestCase):
 
     def test_get_prosody_choices_function(self):
         """get_prosody_choices should return list with (none) first."""
-        import voice_ui
+        from qwen3_tts.interface import ui as voice_ui
         choices = voice_ui.get_prosody_choices()
         self.assertIsInstance(choices, list)
         self.assertEqual(choices[0], "(none)")
@@ -3006,13 +3006,13 @@ class TestProsodyUI(unittest.TestCase):
 
     def test_apply_prosody_preset_none(self):
         """Selecting (none) should return empty string."""
-        import voice_ui
+        from qwen3_tts.interface import ui as voice_ui
         result = voice_ui.apply_prosody_preset("(none)")
         self.assertEqual(result, "")
 
     def test_apply_prosody_preset_valid(self):
         """Selecting a valid preset should return its instruction text."""
-        import voice_ui
+        from qwen3_tts.interface import ui as voice_ui
         from qwen3_tts.core.config import DEFAULT_PROSODY_PRESETS
         result = voice_ui.apply_prosody_preset("excited")
         self.assertEqual(result, DEFAULT_PROSODY_PRESETS["excited"])
@@ -3083,10 +3083,10 @@ class TestXVectorOnlyClient(unittest.TestCase):
 
 
 class TestCreateVoiceNoTranscript(unittest.TestCase):
-    """Test --no-transcript flag for create_custom_voice."""
+    """Test --no-transcript flag for qwen3_tts.tools.create_voice."""
 
     def test_no_transcript_flag_in_parser(self):
-        """create_custom_voice.py should accept --no-transcript flag."""
+        """qwen3_tts.tools.create_voice should accept --no-transcript flag."""
         source_path = os.path.join(
             os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
             "qwen3_tts", "tools", "create_voice.py"
@@ -3101,56 +3101,13 @@ class TestCreateVoiceNoTranscript(unittest.TestCase):
 # =============================================================================
 
 class TestClickCLI(unittest.TestCase):
-    """Test the Click CLI routing and legacy flag rewriting."""
+    """Test the Click CLI routing."""
 
     def test_cli_imports(self):
         """qwen3_tts.cli imports without error."""
         from qwen3_tts.cli import cli, TTSGroup
         self.assertIsNotNone(cli)
         self.assertIsInstance(cli, TTSGroup)
-
-    def test_rewrite_legacy_list_prompts(self):
-        """--list-prompts rewrites to ['voice', 'list']."""
-        from qwen3_tts.cli import _rewrite_legacy_flags
-        result = _rewrite_legacy_flags(['--list-prompts'])
-        self.assertEqual(result, ['voice', 'list'])
-
-    def test_rewrite_legacy_list_speakers(self):
-        """--list-speakers rewrites to ['list', 'speakers']."""
-        from qwen3_tts.cli import _rewrite_legacy_flags
-        result = _rewrite_legacy_flags(['--list-speakers'])
-        self.assertEqual(result, ['list', 'speakers'])
-
-    def test_rewrite_legacy_stats(self):
-        """--stats rewrites to ['stats']."""
-        from qwen3_tts.cli import _rewrite_legacy_flags
-        result = _rewrite_legacy_flags(['--stats'])
-        self.assertEqual(result, ['stats'])
-
-    def test_rewrite_legacy_ui(self):
-        """--ui rewrites to ['ui']."""
-        from qwen3_tts.cli import _rewrite_legacy_flags
-        result = _rewrite_legacy_flags(['--ui'])
-        self.assertEqual(result, ['ui'])
-
-    def test_rewrite_legacy_delete_prompt(self):
-        """--delete-prompt NAME rewrites to ['voice', 'delete', NAME]."""
-        from qwen3_tts.cli import _rewrite_legacy_flags
-        result = _rewrite_legacy_flags(['--delete-prompt', 'my_voice'])
-        self.assertEqual(result[:2], ['voice', 'delete'])
-        self.assertIn('my_voice', result)
-
-    def test_rewrite_no_flags(self):
-        """Regular args pass through unchanged."""
-        from qwen3_tts.cli import _rewrite_legacy_flags
-        result = _rewrite_legacy_flags(['Hello world', '-o', 'test.wav'])
-        self.assertEqual(result, ['Hello world', '-o', 'test.wav'])
-
-    def test_rewrite_empty_args(self):
-        """Empty args pass through."""
-        from qwen3_tts.cli import _rewrite_legacy_flags
-        result = _rewrite_legacy_flags([])
-        self.assertEqual(result, [])
 
     def test_ttsgroup_prepends_generate(self):
         """TTSGroup prepends 'generate' for bare text args."""

@@ -78,13 +78,7 @@ _skip_gradio = unittest.skipUnless(HAS_GRADIO, "requires gradio")
 
 @pytest.mark.unit
 class TestLaunchGradioUI(unittest.TestCase):
-    """Verify launch_gradio_ui no longer shells out to voice_ui.py."""
-
-    def test_no_voice_ui_reference(self):
-        """launch_gradio_ui source must not reference voice_ui.py."""
-        from qwen3_tts.interface.generate import launch_gradio_ui
-        source = inspect.getsource(launch_gradio_ui)
-        self.assertNotIn("voice_ui.py", source)
+    """Verify launch_gradio_ui does not shell out to a subprocess."""
 
     def test_no_subprocess_run(self):
         """launch_gradio_ui must not call subprocess.run."""
@@ -109,18 +103,6 @@ class TestLaunchGradioUI(unittest.TestCase):
 @pytest.mark.unit
 class TestEnsureServerRunning(unittest.TestCase):
     """Verify ensure_server_running uses new CLI paths."""
-
-    def test_no_startTTSServer_reference(self):
-        """ensure_server_running must not reference startTTSServer."""
-        from qwen3_tts.interface.generate import ensure_server_running
-        source = inspect.getsource(ensure_server_running)
-        self.assertNotIn("startTTSServer", source)
-
-    def test_no_voice_server_py_reference(self):
-        """ensure_server_running must not reference voice_server.py."""
-        from qwen3_tts.interface.generate import ensure_server_running
-        source = inspect.getsource(ensure_server_running)
-        self.assertNotIn("voice_server.py", source)
 
     def test_has_tts_lookup(self):
         """ensure_server_running should use shutil.which to find tts."""
