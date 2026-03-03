@@ -18,7 +18,7 @@ Clone any voice from an audio sample, design voices from text descriptions, or c
 8. [Interfaces (CLI, UI, Python)](#interfaces)
 9. [Configuration](#configuration)
 10. [Troubleshooting & FAQ](#troubleshooting--faq)
-11. [Developer & v3.0 Architecture](#developer--v30-architecture)
+11. [Developer & Architecture](#developer--architecture)
 
 ---
 
@@ -36,7 +36,7 @@ Qwen3-TTS isn't just a research script; it is engineered to be a production-read
     * *Why it matters:* Gives you infinite creative control for video game NPCs, audiobooks, or brand personas without hiring a voice actor.
 * **Premium Pre-Trained Speakers:** Includes 9 highly optimized, built-in voices for immediate plug-and-play generation.
 
-### ⚙️ Production Architecture (v3.0)
+### ⚙️ Production Architecture
 * **True Zero-Latency Streaming:** Built on FastAPI with asynchronous queues. Streams raw audio bytes back to the client the millisecond they are inferred.
 * **Bulletproof GPU Serialization:** Strict `asyncio` locking queues concurrent requests, ensuring your GPU never crashes under high web traffic.
 
@@ -295,7 +295,6 @@ Settings are stored in `config.json`.
 ### Health Check
 ```bash
 tts doctor          # Run diagnostics
-tts doctor --fix    # Auto-fix common issues
 ```
 Checks installation, dependencies, model cache, and server status.
 
@@ -352,19 +351,14 @@ Authentication uses Bearer tokens from `~/.voice_server_token`.
 
 ---
 
-## Developer & v3.0 Architecture
+## Developer & Architecture
 
-Run the test suite using `pytest` (23+ tests covering endpoints, metadata, and core infra):
+Run the test suite using the batch runner (460+ tests across 16 test files, organized in 5 batches):
 ```bash
-pytest tests/ -v
+python tests/run_batches.py        # Run all batches
+python tests/run_batches.py --batch 1  # Run a specific batch
+make test-batch                    # Or use the Makefile
 ```
-
-### v3.0 Release Notes
-* **Flask to FastAPI:** Replaced synchronous Flask with ASGI FastAPI.
-* **True Streaming:** Replaced fake chunk collection with `asyncio.Queue` and thread-safe event loops for zero-latency audio streaming.
-* **Thread Safety:** Eliminated global variables. State and models are now isolated in `app.state` to support Uvicorn multi-worker deployments.
-* **GPU Serialization:** Introduced strict `asyncio.Lock()` to prevent concurrent API requests from crashing the GPU.
-* **Package Modernization:** Migrated from `setuptools` to `hatchling`. Eliminated 11 legacy bash shims in favor of standard Python entry points (`[project.scripts]`).
 
 ## License
 The source code in this repository is licensed under Apache 2.0. The Qwen3-TTS model weights are subject to their own license provided by Qwen Research/Alibaba Cloud.
