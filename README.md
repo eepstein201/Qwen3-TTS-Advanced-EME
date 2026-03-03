@@ -327,8 +327,8 @@ The FastAPI server (port 5123) provides the following endpoints:
 | `GET /health` | No | Health check (always available) |
 | `GET /ready` | No | Kubernetes readiness probe (503 while loading) |
 | `GET /generation-status` | No | Poll generation progress |
-| `POST /generate` | Yes | Generate audio with caching |
-| `POST /generate-stream` | Yes | Stream audio in real-time |
+| `POST /generate` | Yes | Generate audio (JSON response, see below) |
+| `POST /generate-stream` | Yes | Stream audio chunks (float32 PCM) |
 | `POST /load-model` | Yes | Load a model on-demand |
 | `POST /unload-model` | Yes | Unload model to free memory |
 | `GET /models` | Yes | List model status and memory |
@@ -339,6 +339,24 @@ The FastAPI server (port 5123) provides the following endpoints:
 | `POST /shutdown` | Yes | Graceful server shutdown |
 
 Authentication uses Bearer tokens from `~/.voice_server_token`.
+
+### `POST /generate` Response
+
+Returns JSON (not a binary audio stream):
+
+```json
+{
+  "results": [
+    {
+      "index": 0,
+      "audio_base64": "...",
+      "sample_rate": 24000
+    }
+  ]
+}
+```
+
+Each result contains base64-encoded WAV audio. Decode with standard base64 libraries. Long texts are chunked automatically, producing multiple results.
 
 ---
 

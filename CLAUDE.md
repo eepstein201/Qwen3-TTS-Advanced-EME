@@ -120,7 +120,7 @@ config.json → qwen3_tts.core.config → qwen3_tts.core.engine (dispatch)
 │       ├── healthcheck.py      # Installation health checks
 │       └── uninstall.py        # Uninstall/cleanup utilities
 ├── config.json                 # All settings
-├── install.sh                  # Installation with hardware detection (macOS only)
+├── install.sh                  # Cross-platform installer (macOS + Linux)
 ├── colab_notebook.ipynb        # Google Colab notebook
 ├── voice_prompts/              # .pt (torch) + .wav/.txt (MLX) files
 ├── tests/                      # 16 test files, 460+ tests
@@ -303,8 +303,20 @@ python -m unittest discover -v tests/
 | Device | Neural Engine / MPS | CPU | CUDA GPU |
 | Conda env | `qwen3-tts-mlx` | `qwen3-tts` | pip install |
 | Audio play | `afplay` | `afplay` | `ffplay` |
+| Install | `install.sh` (conda) | `install.sh` (conda) | `install.sh` (conda or venv) |
 
 Platform constants in `qwen3_tts/core/config.py`: `IN_COLAB`, `IS_MACOS`, `IS_LINUX`, `get_device()`
+
+### install.sh Linux Support
+
+`install.sh` (~1675 lines) supports macOS and Linux with a platform dispatcher pattern. Key Linux functions:
+
+- **`detect_platform()`** — `/etc/os-release` → distro family (debian/rhel/arch/suse)
+- **`detect_linux_gpu()`** — Cascading NVIDIA detection: `lspci -d '10de:'` → `nvcc` → `nvidia-smi` → version files → pkg manager → ldconfig
+- **`install_linux_system_deps()`** — Aggregates missing deps (ffmpeg, libsndfile, rubberband), routes to apt/dnf/pacman/zypper
+- **`get_torch_index_url()`** — Maps CUDA version to PyTorch index URL (cu118/cu121/cu124/cu126/cpu)
+- **`create_linux_venv()`** — Fallback when conda unavailable: finds Python 3.10+, creates venv, installs with CUDA index URL
+- **`get_linux_dtype()`/`get_linux_torch_quant()`** — Auto-selects dtype and quantization from GPU compute capability
 
 ## Caching (4 layers)
 

@@ -1,11 +1,11 @@
 #!/bin/bash
 # Qwen3-TTS Installation Script
-# MLX-First architecture with smart hardware detection
+# Cross-platform: macOS (MLX/torch) and Linux (torch/vLLM)
 
 set -e
 
 # =============================================================================
-# Configuration
+# Section 1: Configuration Constants
 # =============================================================================
 
 MLX_ENV_NAME="qwen3-tts-mlx"
@@ -15,6 +15,13 @@ USER_FILES_DIR="$HOME/Qwen3-TTS_UserFiles"
 VOICE_PROMPTS_DIR="$USER_FILES_DIR/voice_prompts"
 MIN_DISK_SPACE_GB=15
 
+# Platform detection (set by detect_platform)
+PLATFORM=""       # macos / linux
+ARCH=""           # arm64 / x86_64 / aarch64
+DISTRO_ID=""      # ubuntu, fedora, arch, etc.
+DISTRO_VERSION="" # 22.04, 39, etc.
+DISTRO_FAMILY=""  # debian / rhel / arch / suse / unknown
+
 # Detected optimal settings (set by detect_optimal_settings)
 RECOMMENDED_BACKEND=""
 RECOMMENDED_SIZE=""
@@ -22,13 +29,23 @@ RECOMMENDED_QUANT=""
 IS_INTEL=false
 RAM_GB=0
 
+# Linux GPU detection (set by detect_linux_gpu)
+HAS_NVIDIA=false
+NVIDIA_GPU_NAME=""
+CUDA_VERSION=""
+VRAM_GB=0
+COMPUTE_CAP=""
+
+# Linux install strategy (set by check_prerequisites)
+LINUX_USE_CONDA=false
+
 # User-selected settings
 SELECTED_BACKEND=""
 SELECTED_SIZE=""
 SELECTED_QUANT=""
 
 # =============================================================================
-# Color Output Functions
+# Section 2: Color/Output Helpers
 # =============================================================================
 
 RED='\033[0;31m'
@@ -46,40 +63,483 @@ error() { echo -e "${RED}[ERROR]${NC} $1"; }
 step() { echo -e "\n${CYAN}==> $1${NC}"; }
 
 # =============================================================================
-# Hardware Detection
+# Section 3: Platform Detection Dispatcher
+# =============================================================================
+
+detect_platform() {
+    local os_name
+    os_name=$(uname -s)
+    ARCH=$(uname -m)
+
+    case "$os_name" in
+        Darwin)
+            PLATFORM="macos"
+            ;;
+        Linux)
+            PLATFORM="linux"
+            # Detect distro from /etc/os-release
+            if [[ -f /etc/os-release ]]; then
+                # shellcheck source=/dev/null
+                source /etc/os-release
+                DISTRO_ID="${ID:-unknown}"
+                DISTRO_VERSION="${VERSION_ID:-}"
+                # Map to distro family
+                case "$DISTRO_ID" in
+                    ubuntu|debian|pop|linuxmint|elementary|zorin|kali)
+                        DISTRO_FAMILY="debian" ;;
+                    fedora|rhel|centos|rocky|alma|ol|amzn)
+                        DISTRO_FAMILY="rhel" ;;
+                    arch|manjaro|endeavouros|garuda)
+                        DISTRO_FAMILY="arch" ;;
+                    opensuse*|sles)
+                        DISTRO_FAMILY="suse" ;;
+                    *)
+                        DISTRO_FAMILY="unknown" ;;
+                esac
+            else
+                DISTRO_ID="unknown"
+                DISTRO_FAMILY="unknown"
+            fi
+            ;;
+        *)
+            error "Unsupported operating system: $os_name"
+            error "This script supports macOS and Linux only."
+            exit 1
+            ;;
+    esac
+}
+
+# =============================================================================
+# Section 4: Cross-Platform Utility Functions
+# =============================================================================
+
+detect_ram() {
+    if [[ "$PLATFORM" == "macos" ]]; then
+        RAM_GB=$(sysctl -n hw.memsize 2>/dev/null | awk '{print int($1/1024/1024/1024)}')
+    elif [[ "$PLATFORM" == "linux" ]]; then
+        RAM_GB=$(awk '/MemTotal/ {print int($2/1024/1024)}' /proc/meminfo 2>/dev/null)
+    fi
+    if [[ -z "$RAM_GB" ]] || [[ "$RAM_GB" -eq 0 ]]; then
+        RAM_GB=16
+        warn "Could not detect RAM — assuming 16GB"
+    fi
+}
+
+detect_disk_space() {
+    local available
+    if [[ "$PLATFORM" == "macos" ]]; then
+        available=$(df -g "$HOME" | awk 'NR==2 {print $4}')
+    elif [[ "$PLATFORM" == "linux" ]]; then
+        available=$(df -BG "$HOME" | awk 'NR==2 {print $4}' | sed 's/G//')
+    fi
+    echo "${available:-0}"
+}
+
+source_conda() {
+    # Check common conda install paths
+    local conda_paths=(
+        "$HOME/miniforge3/etc/profile.d/conda.sh"
+        "$HOME/miniconda3/etc/profile.d/conda.sh"
+        "$HOME/mambaforge/etc/profile.d/conda.sh"
+        "$HOME/anaconda3/etc/profile.d/conda.sh"
+        "/opt/conda/etc/profile.d/conda.sh"
+        "/usr/local/miniconda/etc/profile.d/conda.sh"
+    )
+
+    for conda_sh in "${conda_paths[@]}"; do
+        if [[ -f "$conda_sh" ]]; then
+            # shellcheck source=/dev/null
+            source "$conda_sh"
+            return 0
+        fi
+    done
+
+    # Fallback: use conda info --base if conda is on PATH
+    if command -v conda &>/dev/null; then
+        local conda_base
+        conda_base=$(conda info --base 2>/dev/null)
+        if [[ -n "$conda_base" ]] && [[ -f "$conda_base/etc/profile.d/conda.sh" ]]; then
+            # shellcheck source=/dev/null
+            source "$conda_base/etc/profile.d/conda.sh"
+            return 0
+        fi
+    fi
+
+    # Last resort: search HOME
+    local found
+    found=$(find "$HOME" -maxdepth 4 -name "conda.sh" -path "*/etc/profile.d/*" 2>/dev/null | head -1)
+    if [[ -n "$found" ]]; then
+        # shellcheck source=/dev/null
+        source "$found"
+        return 0
+    fi
+
+    error "Could not find conda.sh. Please ensure conda is properly installed."
+    return 1
+}
+
+# =============================================================================
+# Section 5: Linux GPU Detection
+# =============================================================================
+
+detect_linux_gpu() {
+    [[ "$PLATFORM" != "linux" ]] && return
+
+    step "Detecting GPU..."
+
+    # 1. Check for NVIDIA GPU via PCI vendor ID
+    if command -v lspci &>/dev/null; then
+        if lspci -d '10de:' 2>/dev/null | grep -qi 'vga\|3d\|display'; then
+            HAS_NVIDIA=true
+            NVIDIA_GPU_NAME=$(lspci -d '10de:' 2>/dev/null | grep -i 'vga\|3d\|display' | head -1 | sed 's/.*: //')
+        fi
+    fi
+
+    # Fallback: check /dev/nvidia0
+    if [[ "$HAS_NVIDIA" == false ]] && [[ -e /dev/nvidia0 ]]; then
+        HAS_NVIDIA=true
+        NVIDIA_GPU_NAME="NVIDIA GPU (detected via /dev/nvidia0)"
+    fi
+
+    if [[ "$HAS_NVIDIA" == false ]]; then
+        info "No NVIDIA GPU detected — will install CPU-only PyTorch"
+        return
+    fi
+
+    success "NVIDIA GPU detected: $NVIDIA_GPU_NAME"
+
+    # 2. Detect CUDA version (5-method cascade)
+    if command -v nvcc &>/dev/null; then
+        CUDA_VERSION=$(nvcc --version 2>/dev/null | grep -o 'release [0-9]\+\.[0-9]\+' | sed 's/release //' | head -1)
+    fi
+
+    if [[ -z "$CUDA_VERSION" ]] && command -v nvidia-smi &>/dev/null; then
+        CUDA_VERSION=$(nvidia-smi 2>/dev/null | grep -o 'CUDA Version: [0-9]\+\.[0-9]\+' | sed 's/CUDA Version: //' | head -1)
+    fi
+
+    if [[ -z "$CUDA_VERSION" ]] && [[ -f /usr/local/cuda/version.json ]]; then
+        CUDA_VERSION=$(python3 -c "import json; print('.'.join(json.load(open('/usr/local/cuda/version.json'))['cuda']['version'].split('.')[:2]))" 2>/dev/null)
+    fi
+
+    if [[ -z "$CUDA_VERSION" ]]; then
+        # Try package manager
+        if command -v dpkg &>/dev/null; then
+            CUDA_VERSION=$(dpkg -l 2>/dev/null | grep 'cuda-toolkit' | awk '{print $3}' | grep -o '^[0-9]\+\.[0-9]\+' | head -1)
+        elif command -v rpm &>/dev/null; then
+            CUDA_VERSION=$(rpm -qa 2>/dev/null | grep 'cuda-toolkit' | grep -o '[0-9]\+\.[0-9]\+' | head -1)
+        fi
+    fi
+
+    if [[ -z "$CUDA_VERSION" ]] && command -v ldconfig &>/dev/null; then
+        CUDA_VERSION=$(ldconfig -p 2>/dev/null | grep libcudart | grep -o '[0-9]\+\.[0-9]\+' | sort -V | tail -1)
+    fi
+
+    if [[ -n "$CUDA_VERSION" ]]; then
+        success "CUDA version: $CUDA_VERSION"
+    else
+        warn "NVIDIA GPU detected but no CUDA toolkit found."
+        warn "Install CUDA from: https://developer.nvidia.com/cuda-downloads"
+        warn "Continuing with CPU-only PyTorch."
+    fi
+
+    # 3. Detect VRAM
+    if command -v nvidia-smi &>/dev/null; then
+        VRAM_GB=$(nvidia-smi --query-gpu=memory.total --format=csv,noheader,nounits 2>/dev/null | head -1 | awk '{print int($1/1024)}')
+        if [[ -n "$VRAM_GB" ]] && [[ "$VRAM_GB" -gt 0 ]]; then
+            info "VRAM: ${VRAM_GB}GB"
+        fi
+
+        # 4. Detect compute capability
+        COMPUTE_CAP=$(nvidia-smi --query-gpu=compute_cap --format=csv,noheader 2>/dev/null | head -1 | tr -d '[:space:]')
+        if [[ -n "$COMPUTE_CAP" ]]; then
+            info "Compute capability: $COMPUTE_CAP"
+        fi
+    fi
+}
+
+# =============================================================================
+# Section 6: Linux System Dependencies
+# =============================================================================
+
+install_linux_system_deps() {
+    [[ "$PLATFORM" != "linux" ]] && return
+
+    step "Checking system dependencies..."
+
+    local missing=()
+
+    # Check ffmpeg
+    if ! command -v ffmpeg &>/dev/null; then
+        missing+=("ffmpeg")
+    else
+        info "ffmpeg: installed"
+    fi
+
+    # Check libsndfile
+    if ! ldconfig -p 2>/dev/null | grep -q libsndfile; then
+        missing+=("libsndfile")
+    else
+        info "libsndfile: installed"
+    fi
+
+    # Check rubberband
+    if ! ldconfig -p 2>/dev/null | grep -q librubberband; then
+        missing+=("rubberband")
+    else
+        info "rubberband: installed"
+    fi
+
+    if [[ ${#missing[@]} -eq 0 ]]; then
+        success "All system dependencies installed"
+        return
+    fi
+
+    warn "Missing system dependencies: ${missing[*]}"
+
+    # Map to distro-specific package names
+    local pkgs=()
+    for dep in "${missing[@]}"; do
+        case "$DISTRO_FAMILY" in
+            debian)
+                case "$dep" in
+                    ffmpeg) pkgs+=("ffmpeg") ;;
+                    libsndfile) pkgs+=("libsndfile1-dev") ;;
+                    rubberband) pkgs+=("librubberband-dev") ;;
+                esac ;;
+            rhel)
+                case "$dep" in
+                    ffmpeg) pkgs+=("ffmpeg") ;;
+                    libsndfile) pkgs+=("libsndfile-devel") ;;
+                    rubberband) pkgs+=("rubberband-devel") ;;
+                esac ;;
+            arch)
+                case "$dep" in
+                    ffmpeg) pkgs+=("ffmpeg") ;;
+                    libsndfile) pkgs+=("libsndfile") ;;
+                    rubberband) pkgs+=("rubberband") ;;
+                esac ;;
+            suse)
+                case "$dep" in
+                    ffmpeg) pkgs+=("ffmpeg") ;;
+                    libsndfile) pkgs+=("libsndfile-devel") ;;
+                    rubberband) pkgs+=("rubberband-devel") ;;
+                esac ;;
+            *)
+                warn "Unknown distro ($DISTRO_ID). Please install manually: ${missing[*]}"
+                warn "  ffmpeg: https://ffmpeg.org/download.html"
+                warn "  libsndfile: https://github.com/libsndfile/libsndfile"
+                warn "  rubberband: https://breakfastquay.com/rubberband/"
+                return
+                ;;
+        esac
+    done
+
+    echo ""
+    case "$DISTRO_FAMILY" in
+        debian) echo "Install command: sudo apt-get install -y ${pkgs[*]}" ;;
+        rhel)   echo "Install command: sudo dnf install -y ${pkgs[*]}" ;;
+        arch)   echo "Install command: sudo pacman -S --noconfirm ${pkgs[*]}" ;;
+        suse)   echo "Install command: sudo zypper install -y ${pkgs[*]}" ;;
+    esac
+
+    echo ""
+    read -p "Install missing dependencies now? (requires sudo) [Y/n]: " INSTALL_DEPS
+    INSTALL_DEPS=${INSTALL_DEPS:-Y}
+
+    if [[ "$INSTALL_DEPS" =~ ^[Yy]$ ]]; then
+        case "$DISTRO_FAMILY" in
+            debian) sudo apt-get update && sudo apt-get install -y "${pkgs[@]}" ;;
+            rhel)   sudo dnf install -y "${pkgs[@]}" ;;
+            arch)   sudo pacman -S --noconfirm "${pkgs[@]}" ;;
+            suse)   sudo zypper install -y "${pkgs[@]}" ;;
+        esac
+
+        if [[ $? -eq 0 ]]; then
+            success "System dependencies installed"
+        else
+            warn "Some packages may have failed to install. Continuing anyway."
+        fi
+    else
+        warn "Skipping system dependency install. Some features may not work."
+        if [[ " ${missing[*]} " == *" rubberband "* ]]; then
+            warn "  Without rubberband, speed/pitch processing falls back to librosa"
+        fi
+    fi
+}
+
+# =============================================================================
+# Section 7: PyTorch CUDA Index URL
+# =============================================================================
+
+get_torch_index_url() {
+    # No GPU or no CUDA → CPU
+    if [[ "$HAS_NVIDIA" == false ]] || [[ -z "$CUDA_VERSION" ]]; then
+        echo "https://download.pytorch.org/whl/cpu"
+        return
+    fi
+
+    # Parse major.minor
+    local major minor
+    major=$(echo "$CUDA_VERSION" | cut -d. -f1)
+    minor=$(echo "$CUDA_VERSION" | cut -d. -f2)
+    local cuda_num=$((major * 10 + minor))
+
+    if [[ $cuda_num -ge 126 ]]; then
+        echo "https://download.pytorch.org/whl/cu126"
+    elif [[ $cuda_num -ge 124 ]]; then
+        echo "https://download.pytorch.org/whl/cu124"
+    elif [[ $cuda_num -ge 121 ]]; then
+        echo "https://download.pytorch.org/whl/cu121"
+    elif [[ $cuda_num -ge 118 ]]; then
+        echo "https://download.pytorch.org/whl/cu118"
+    else
+        warn "CUDA $CUDA_VERSION is too old (< 11.8). Installing CPU-only PyTorch."
+        echo "https://download.pytorch.org/whl/cpu"
+    fi
+}
+
+_pip_install_linux() {
+    local index_url
+    index_url=$(get_torch_index_url)
+
+    info "PyTorch index URL: $index_url"
+    pip install torch torchvision torchaudio --index-url "$index_url"
+
+    local extras="torch,server,audio,rich,ui"
+    if [[ "$HAS_NVIDIA" == true ]] && [[ -n "$CUDA_VERSION" ]]; then
+        extras="torch,cuda,server,audio,rich,ui"
+    fi
+    pip install -e "$USER_FILES_DIR/[$extras]"
+}
+
+# =============================================================================
+# Section 8: Linux venv Fallback
+# =============================================================================
+
+create_linux_venv() {
+    step "Setting up Python virtual environment..."
+
+    # Find Python 3.10+
+    local python_cmd=""
+    for candidate in python3.12 python3.11 python3.10 python3; do
+        if command -v "$candidate" &>/dev/null; then
+            local ver
+            ver=$("$candidate" -c "import sys; print(f'{sys.version_info.major}.{sys.version_info.minor}')" 2>/dev/null)
+            local ver_major ver_minor
+            ver_major=$(echo "$ver" | cut -d. -f1)
+            ver_minor=$(echo "$ver" | cut -d. -f2)
+            if [[ "$ver_major" -ge 3 ]] && [[ "$ver_minor" -ge 10 ]]; then
+                python_cmd="$candidate"
+                info "Found $candidate (Python $ver)"
+                break
+            fi
+        fi
+    done
+
+    if [[ -z "$python_cmd" ]]; then
+        error "Python 3.10+ is required but not found."
+        error "Install Python 3.10+ for your system:"
+        case "$DISTRO_FAMILY" in
+            debian) error "  sudo apt-get install python3.11 python3.11-venv" ;;
+            rhel)   error "  sudo dnf install python3.11" ;;
+            arch)   error "  sudo pacman -S python" ;;
+            suse)   error "  sudo zypper install python311" ;;
+            *)      error "  See https://www.python.org/downloads/" ;;
+        esac
+        exit 1
+    fi
+
+    local venv_dir="$USER_FILES_DIR/.venv"
+
+    if [[ -d "$venv_dir" ]]; then
+        warn "Virtual environment already exists at $venv_dir"
+        read -p "Recreate environment? This will delete the existing one. [y/N]: " RECREATE
+        if [[ "$RECREATE" =~ ^[Yy]$ ]]; then
+            info "Removing existing virtual environment..."
+            rm -rf "$venv_dir"
+        else
+            info "Keeping existing environment. Updating packages..."
+            # shellcheck source=/dev/null
+            source "$venv_dir/bin/activate"
+            _pip_install_linux
+            deactivate 2>/dev/null || true
+            success "Packages updated!"
+            return
+        fi
+    fi
+
+    info "Creating virtual environment with $python_cmd..."
+    "$python_cmd" -m venv "$venv_dir"
+
+    # shellcheck source=/dev/null
+    source "$venv_dir/bin/activate"
+    pip install --upgrade pip
+
+    _pip_install_linux
+
+    deactivate 2>/dev/null || true
+
+    success "Virtual environment created at $venv_dir"
+}
+
+# =============================================================================
+# Section 9: Hardware Detection
 # =============================================================================
 
 detect_optimal_settings() {
     step "Detecting hardware..."
 
-    ARCH=$(uname -m)
+    detect_ram
 
-    # Check for Apple Silicon vs Intel
-    if [[ "$ARCH" == "arm64" ]]; then
-        RECOMMENDED_BACKEND="mlx"
+    if [[ "$PLATFORM" == "macos" ]]; then
+        # macOS: check Apple Silicon vs Intel
+        if [[ "$ARCH" == "arm64" ]]; then
+            RECOMMENDED_BACKEND="mlx"
+            IS_INTEL=false
+            success "Apple Silicon detected (arm64) — MLX backend available"
+        else
+            RECOMMENDED_BACKEND="torch"
+            IS_INTEL=true
+            warn "Intel Mac detected ($ARCH) — MLX not available, using PyTorch backend"
+        fi
+
+        # Size recommendation based on RAM
+        if [[ "$RAM_GB" -lt 16 ]]; then
+            RECOMMENDED_SIZE="0.6B"
+            RECOMMENDED_QUANT="4bit"
+            info "RAM: ${RAM_GB}GB — recommending smaller models (0.6B, 4bit)"
+        else
+            RECOMMENDED_SIZE="1.7B"
+            RECOMMENDED_QUANT="8bit"
+            info "RAM: ${RAM_GB}GB — recommending standard models (1.7B, 8bit)"
+        fi
+
+    elif [[ "$PLATFORM" == "linux" ]]; then
         IS_INTEL=false
-        success "Apple Silicon detected (arm64) - MLX backend available"
-    else
         RECOMMENDED_BACKEND="torch"
-        IS_INTEL=true
-        warn "Intel Mac detected ($ARCH) - MLX not available, using PyTorch backend"
-    fi
+        RECOMMENDED_QUANT="none"
 
-    # Check RAM (macOS)
-    RAM_GB=$(sysctl -n hw.memsize 2>/dev/null | awk '{print int($1/1024/1024/1024)}')
-    if [[ -z "$RAM_GB" ]] || [[ "$RAM_GB" -eq 0 ]]; then
-        RAM_GB=16  # Default assumption
-    fi
+        detect_linux_gpu
 
-    # Recommend settings based on RAM
-    if [[ "$RAM_GB" -lt 16 ]]; then
-        RECOMMENDED_SIZE="0.6B"
-        RECOMMENDED_QUANT="4bit"
-        info "RAM: ${RAM_GB}GB - Recommending smaller models (0.6B, 4bit)"
-    else
-        RECOMMENDED_SIZE="1.7B"
-        RECOMMENDED_QUANT="8bit"
-        info "RAM: ${RAM_GB}GB - Recommending standard models (1.7B, 8bit)"
+        # Size recommendation: use VRAM if available, else RAM
+        local ref_mem=$RAM_GB
+        if [[ "$HAS_NVIDIA" == true ]] && [[ "$VRAM_GB" -gt 0 ]]; then
+            ref_mem=$VRAM_GB
+        fi
+
+        if [[ "$ref_mem" -lt 8 ]]; then
+            RECOMMENDED_SIZE="0.6B"
+            info "Memory: ${ref_mem}GB — recommending smaller model (0.6B)"
+        else
+            RECOMMENDED_SIZE="1.7B"
+            info "Memory: ${ref_mem}GB — recommending standard model (1.7B)"
+        fi
+
+        if [[ "$HAS_NVIDIA" == true ]]; then
+            success "Linux with NVIDIA GPU — PyTorch CUDA backend"
+        else
+            info "Linux (CPU only) — PyTorch CPU backend"
+        fi
     fi
 
     # Set defaults
@@ -89,7 +549,7 @@ detect_optimal_settings() {
 }
 
 # =============================================================================
-# Interactive Configuration Wizard
+# Section 10: Interactive Configuration Wizard
 # =============================================================================
 
 run_config_wizard() {
@@ -98,19 +558,41 @@ run_config_wizard() {
     echo ""
     echo -e "${BOLD}Hardware Detection${NC}"
     echo "=================="
-    echo "  Chip: $(uname -m)"
-    echo "  RAM:  ${RAM_GB}GB"
+    if [[ "$PLATFORM" == "macos" ]]; then
+        echo "  Platform: macOS"
+        echo "  Chip: $(uname -m)"
+        echo "  RAM:  ${RAM_GB}GB"
+    elif [[ "$PLATFORM" == "linux" ]]; then
+        echo "  Platform: Linux ($DISTRO_ID${DISTRO_VERSION:+ $DISTRO_VERSION})"
+        echo "  Arch: $ARCH"
+        echo "  RAM:  ${RAM_GB}GB"
+        if [[ "$HAS_NVIDIA" == true ]]; then
+            echo "  GPU:  $NVIDIA_GPU_NAME"
+            [[ -n "$CUDA_VERSION" ]] && echo "  CUDA: $CUDA_VERSION"
+            [[ "$VRAM_GB" -gt 0 ]] && echo "  VRAM: ${VRAM_GB}GB"
+        else
+            echo "  GPU:  None detected (CPU only)"
+        fi
+    fi
     echo ""
 
     echo -e "${BOLD}Recommended Configuration${NC}"
     echo "========================="
-    if [[ "$IS_INTEL" == true ]]; then
-        echo "  Backend: torch (Intel Mac - MLX not available)"
-    else
-        echo "  Backend: $RECOMMENDED_BACKEND (native Apple Silicon)"
+    if [[ "$PLATFORM" == "macos" ]]; then
+        if [[ "$IS_INTEL" == true ]]; then
+            echo "  Backend: torch (Intel Mac — MLX not available)"
+        else
+            echo "  Backend: $RECOMMENDED_BACKEND (native Apple Silicon)"
+        fi
+    elif [[ "$PLATFORM" == "linux" ]]; then
+        if [[ "$HAS_NVIDIA" == true ]] && [[ -n "$CUDA_VERSION" ]]; then
+            echo "  Backend: torch (CUDA)"
+        else
+            echo "  Backend: torch (CPU)"
+        fi
     fi
     echo "  Model size: $RECOMMENDED_SIZE"
-    if [[ "$IS_INTEL" == false ]]; then
+    if [[ "$SELECTED_BACKEND" == "mlx" ]]; then
         echo "  Quantization: $RECOMMENDED_QUANT (MLX only)"
     fi
     echo ""
@@ -138,30 +620,49 @@ run_config_wizard() {
 customize_settings() {
     echo ""
 
-    # Backend selection (only for Apple Silicon)
-    if [[ "$IS_INTEL" == false ]]; then
-        echo -e "${BOLD}Backend${NC}"
-        echo "  1. mlx - Apple Silicon native, lower thermals (recommended)"
-        echo "  2. torch - PyTorch/MPS, if you prefer or need torch compatibility"
-        read -p "Select [1]: " BACKEND_CHOICE
-        BACKEND_CHOICE=${BACKEND_CHOICE:-1}
+    if [[ "$PLATFORM" == "macos" ]]; then
+        # Backend selection (only for Apple Silicon)
+        if [[ "$IS_INTEL" == false ]]; then
+            echo -e "${BOLD}Backend${NC}"
+            echo "  1. mlx — Apple Silicon native, lower thermals (recommended)"
+            echo "  2. torch — PyTorch/MPS, if you prefer or need torch compatibility"
+            read -p "Select [1]: " BACKEND_CHOICE
+            BACKEND_CHOICE=${BACKEND_CHOICE:-1}
 
-        if [[ "$BACKEND_CHOICE" == "2" ]]; then
-            SELECTED_BACKEND="torch"
+            if [[ "$BACKEND_CHOICE" == "2" ]]; then
+                SELECTED_BACKEND="torch"
+            else
+                SELECTED_BACKEND="mlx"
+            fi
         else
-            SELECTED_BACKEND="mlx"
+            echo -e "${YELLOW}Backend: torch (Intel Mac — no other options)${NC}"
+            SELECTED_BACKEND="torch"
         fi
-    else
-        echo -e "${YELLOW}Backend: torch (Intel Mac - no other options)${NC}"
-        SELECTED_BACKEND="torch"
+    elif [[ "$PLATFORM" == "linux" ]]; then
+        if [[ "$HAS_NVIDIA" == true ]] && [[ -n "$CUDA_VERSION" ]]; then
+            echo -e "${BOLD}Backend${NC}"
+            echo "  1. torch — PyTorch with CUDA (recommended)"
+            echo "  2. vllm  — vLLM optimized serving (advanced, requires more VRAM)"
+            read -p "Select [1]: " BACKEND_CHOICE
+            BACKEND_CHOICE=${BACKEND_CHOICE:-1}
+
+            if [[ "$BACKEND_CHOICE" == "2" ]]; then
+                SELECTED_BACKEND="vllm"
+            else
+                SELECTED_BACKEND="torch"
+            fi
+        else
+            echo -e "${YELLOW}Backend: torch (CPU only — no NVIDIA GPU detected)${NC}"
+            SELECTED_BACKEND="torch"
+        fi
     fi
 
     echo ""
 
     # Model size selection
     echo -e "${BOLD}Model Size${NC}"
-    echo "  1. 1.7B - Higher quality, ~3.5GB per model"
-    echo "  2. 0.6B - Faster (~40%), lower memory, good for <16GB RAM"
+    echo "  1. 1.7B — Higher quality, ~3.5GB per model"
+    echo "  2. 0.6B — Faster (~40%), lower memory, good for <16GB RAM"
     read -p "Select [1]: " SIZE_CHOICE
     SIZE_CHOICE=${SIZE_CHOICE:-1}
 
@@ -175,9 +676,9 @@ customize_settings() {
     if [[ "$SELECTED_BACKEND" == "mlx" ]]; then
         echo ""
         echo -e "${BOLD}MLX Quantization${NC}"
-        echo "  1. 8bit - Good balance of quality and size (recommended)"
-        echo "  2. 4bit - Smallest, fastest, slightly lower quality"
-        echo "  3. bf16 - Full precision, highest quality, largest size"
+        echo "  1. 8bit — Good balance of quality and size (recommended)"
+        echo "  2. 4bit — Smallest, fastest, slightly lower quality"
+        echo "  3. bf16 — Full precision, highest quality, largest size"
         read -p "Select [1]: " QUANT_CHOICE
         QUANT_CHOICE=${QUANT_CHOICE:-1}
 
@@ -190,54 +691,77 @@ customize_settings() {
 }
 
 # =============================================================================
-# Prerequisite Checks
+# Section 11: Prerequisite Checks
 # =============================================================================
 
 check_prerequisites() {
     step "Checking prerequisites..."
 
-    # Check macOS
-    if [[ "$(uname)" != "Darwin" ]]; then
-        error "This script is designed for macOS only."
-        exit 1
-    fi
-    info "macOS detected"
+    if [[ "$PLATFORM" == "macos" ]]; then
+        info "macOS detected"
 
-    # Note: We now support both Apple Silicon AND Intel
-    # Intel gets torch-only, Apple Silicon gets MLX as default
-
-    # Check for conda
-    if ! command -v conda &> /dev/null; then
-        error "Conda is not installed or not in PATH."
-        echo ""
-        echo "Please install Miniforge first:"
-        echo "  brew install --cask miniforge"
-        echo "  conda init zsh  # or bash"
-        echo ""
-        echo "Then run this script again."
-        exit 1
-    fi
-    success "Conda is installed"
-
-    # Install rubberband for high-quality audio speed/pitch processing
-    if command -v brew &> /dev/null; then
-        if ! brew list rubberband &> /dev/null 2>&1; then
-            info "Installing rubberband (for high-quality speed/pitch adjustment)..."
-            brew install rubberband
-            success "rubberband installed"
-        else
-            info "rubberband already installed"
+        # Check for conda
+        if ! command -v conda &>/dev/null; then
+            error "Conda is not installed or not in PATH."
+            echo ""
+            echo "Please install Miniforge first:"
+            echo "  brew install --cask miniforge"
+            echo "  conda init zsh  # or bash"
+            echo ""
+            echo "Then run this script again."
+            exit 1
         fi
-    else
-        warn "Homebrew not found — install rubberband manually for best audio quality:"
-        warn "  brew install rubberband"
-        warn "  (falling back to librosa if not installed)"
+        success "Conda is installed"
+
+        # Install rubberband via Homebrew
+        if command -v brew &>/dev/null; then
+            if ! brew list rubberband &>/dev/null 2>&1; then
+                info "Installing rubberband (for high-quality speed/pitch adjustment)..."
+                brew install rubberband
+                success "rubberband installed"
+            else
+                info "rubberband already installed"
+            fi
+        else
+            warn "Homebrew not found — install rubberband manually for best audio quality:"
+            warn "  brew install rubberband"
+            warn "  (falling back to librosa if not installed)"
+        fi
+
+    elif [[ "$PLATFORM" == "linux" ]]; then
+        info "Linux detected ($DISTRO_ID${DISTRO_VERSION:+ $DISTRO_VERSION}, $DISTRO_FAMILY family)"
+
+        # Install system dependencies (ffmpeg, libsndfile, rubberband)
+        install_linux_system_deps
+
+        # Check for conda or python
+        if command -v conda &>/dev/null; then
+            LINUX_USE_CONDA=true
+            success "Conda is installed — will use conda environment"
+        else
+            LINUX_USE_CONDA=false
+            info "Conda not found — will use Python venv"
+
+            # Verify python3 exists
+            if ! command -v python3 &>/dev/null; then
+                error "Python 3 is not installed."
+                case "$DISTRO_FAMILY" in
+                    debian) error "  Install with: sudo apt-get install python3 python3-venv" ;;
+                    rhel)   error "  Install with: sudo dnf install python3" ;;
+                    arch)   error "  Install with: sudo pacman -S python" ;;
+                    suse)   error "  Install with: sudo zypper install python3" ;;
+                    *)      error "  See https://www.python.org/downloads/" ;;
+                esac
+                exit 1
+            fi
+        fi
     fi
 
-    # Check disk space
-    AVAILABLE_GB=$(df -g "$HOME" | awk 'NR==2 {print $4}')
-    if [[ "$AVAILABLE_GB" -lt "$MIN_DISK_SPACE_GB" ]]; then
-        warn "Low disk space: ${AVAILABLE_GB}GB available (recommended: ${MIN_DISK_SPACE_GB}GB+)"
+    # Check disk space (cross-platform)
+    local available_gb
+    available_gb=$(detect_disk_space)
+    if [[ "$available_gb" -lt "$MIN_DISK_SPACE_GB" ]]; then
+        warn "Low disk space: ${available_gb}GB available (recommended: ${MIN_DISK_SPACE_GB}GB+)"
         warn "Models require ~10GB of disk space."
         read -p "Continue anyway? [y/N]: " CONTINUE
         if [[ ! "$CONTINUE" =~ ^[Yy]$ ]]; then
@@ -245,37 +769,22 @@ check_prerequisites() {
             exit 1
         fi
     else
-        info "Disk space: ${AVAILABLE_GB}GB available"
+        info "Disk space: ${available_gb}GB available"
     fi
 
     success "All prerequisites met!"
 }
 
 # =============================================================================
-# Source Conda
-# =============================================================================
-
-source_conda() {
-    if [[ -f "$HOME/miniforge3/etc/profile.d/conda.sh" ]]; then
-        source "$HOME/miniforge3/etc/profile.d/conda.sh"
-    elif [[ -f "$HOME/miniconda3/etc/profile.d/conda.sh" ]]; then
-        source "$HOME/miniconda3/etc/profile.d/conda.sh"
-    else
-        CONDA_SH=$(find "$HOME" -name "conda.sh" -path "*/etc/profile.d/*" 2>/dev/null | head -1)
-        if [[ -n "$CONDA_SH" ]]; then
-            source "$CONDA_SH"
-        else
-            error "Could not find conda.sh. Please ensure conda is properly installed."
-            exit 1
-        fi
-    fi
-}
-
-# =============================================================================
-# Create MLX Conda Environment (Primary for Apple Silicon)
+# Section 12: Create MLX Conda Environment (macOS Apple Silicon only)
 # =============================================================================
 
 create_mlx_env() {
+    # MLX is macOS Apple Silicon only
+    if [[ "$PLATFORM" != "macos" ]]; then
+        return
+    fi
+
     if [[ "$IS_INTEL" == true ]]; then
         info "Skipping MLX environment (Intel Mac)"
         return
@@ -322,19 +831,30 @@ create_mlx_env() {
 }
 
 # =============================================================================
-# Create Torch Conda Environment (Fallback / Intel Primary)
+# Section 13: Create Torch Environment (macOS + Linux conda)
 # =============================================================================
 
 create_torch_env() {
+    if [[ "$PLATFORM" == "macos" ]]; then
+        _create_torch_env_macos
+    elif [[ "$PLATFORM" == "linux" ]]; then
+        if [[ "$LINUX_USE_CONDA" == true ]]; then
+            _create_torch_env_linux_conda
+        else
+            create_linux_venv
+        fi
+    fi
+}
+
+_create_torch_env_macos() {
     # For Intel: always required
     # For Apple Silicon: optional (if user wants torch fallback or selected torch)
-
     if [[ "$IS_INTEL" == true ]]; then
         step "Setting up PyTorch environment: $TORCH_ENV_NAME (required for Intel Mac)..."
     elif [[ "$SELECTED_BACKEND" == "torch" ]]; then
         step "Setting up PyTorch environment: $TORCH_ENV_NAME..."
     else
-        # Apple Silicon with MLX - offer torch as optional fallback
+        # Apple Silicon with MLX — offer torch as optional fallback
         echo ""
         read -p "Install PyTorch fallback environment? (for sharing with Intel Mac users) [y/N]: " INSTALL_TORCH
         INSTALL_TORCH=${INSTALL_TORCH:-N}
@@ -382,8 +902,43 @@ create_torch_env() {
     success "PyTorch environment created and packages installed!"
 }
 
+_create_torch_env_linux_conda() {
+    step "Setting up PyTorch environment: $TORCH_ENV_NAME..."
+
+    source_conda
+
+    # Check if environment exists
+    if conda env list | grep -q "^${TORCH_ENV_NAME} "; then
+        warn "Environment '$TORCH_ENV_NAME' already exists."
+        read -p "Recreate environment? This will delete the existing one. [y/N]: " RECREATE
+        if [[ "$RECREATE" =~ ^[Yy]$ ]]; then
+            info "Removing existing environment..."
+            conda env remove -n "$TORCH_ENV_NAME" -y
+        else
+            info "Keeping existing environment. Updating packages..."
+            conda activate "$TORCH_ENV_NAME"
+            _pip_install_linux
+            conda deactivate 2>/dev/null || true
+            success "Packages updated!"
+            return
+        fi
+    fi
+
+    info "Creating new conda environment with Python $PYTHON_VERSION..."
+    conda create -n "$TORCH_ENV_NAME" python="$PYTHON_VERSION" -y
+
+    info "Activating environment..."
+    conda activate "$TORCH_ENV_NAME"
+
+    _pip_install_linux
+
+    conda deactivate 2>/dev/null || true
+
+    success "PyTorch environment created and packages installed!"
+}
+
 # =============================================================================
-# Create Directories
+# Section 14: Create Directories
 # =============================================================================
 
 create_directories() {
@@ -398,8 +953,46 @@ create_directories() {
 }
 
 # =============================================================================
-# Create Config File
+# Section 15: Create Config File
 # =============================================================================
+
+# Helper: determine dtype for Linux based on compute capability
+get_linux_dtype() {
+    if [[ "$HAS_NVIDIA" == false ]] || [[ -z "$COMPUTE_CAP" ]]; then
+        echo "float32"
+        return
+    fi
+    local major
+    if [[ "$COMPUTE_CAP" == *"."* ]]; then
+        major=$(echo "$COMPUTE_CAP" | cut -d. -f1)
+    else
+        major=${COMPUTE_CAP:0:1}  # First digit for formats like "89"
+    fi
+    if [[ "$major" -ge 8 ]]; then
+        echo "bfloat16"  # Ampere+ (A100, L4, RTX 30xx+)
+    else
+        echo "float16"   # Turing (T4, RTX 20xx)
+    fi
+}
+
+# Helper: determine torch quantization for Linux based on compute capability
+get_linux_torch_quant() {
+    if [[ "$HAS_NVIDIA" == false ]] || [[ -z "$COMPUTE_CAP" ]]; then
+        echo "none"
+        return
+    fi
+    local major
+    if [[ "$COMPUTE_CAP" == *"."* ]]; then
+        major=$(echo "$COMPUTE_CAP" | cut -d. -f1)
+    else
+        major=${COMPUTE_CAP:0:1}
+    fi
+    if [[ "$major" -ge 8 ]]; then
+        echo "none"  # Ampere+ has enough VRAM
+    else
+        echo "8bit"  # Turing benefits from quantization
+    fi
+}
 
 create_config() {
     step "Creating configuration file..."
@@ -486,6 +1079,14 @@ PYTHON_EOF
         return
     fi
 
+    # Determine platform-specific defaults
+    local config_dtype="bfloat16"
+    local config_torch_quant="none"
+    if [[ "$PLATFORM" == "linux" ]]; then
+        config_dtype=$(get_linux_dtype)
+        config_torch_quant=$(get_linux_torch_quant)
+    fi
+
     # Create new config file
     cat > "$CONFIG_FILE" << EOF
 {
@@ -518,10 +1119,10 @@ PYTHON_EOF
     "max_batch_size": 20
   },
   "advanced": {
-    "dtype": "bfloat16",
+    "dtype": "$config_dtype",
     "backend": "$SELECTED_BACKEND",
     "mlx_quantization": "$SELECTED_QUANT",
-    "torch_quantization": "none",
+    "torch_quantization": "$config_torch_quant",
     "model_size": "$SELECTED_SIZE",
     "audio_loader": "torchaudio",
     "vllm_gpu_memory_utilization": 0.7,
@@ -588,34 +1189,63 @@ EOF
     if [[ "$SELECTED_BACKEND" == "mlx" ]]; then
         info "  Quantization: $SELECTED_QUANT"
     fi
+    if [[ "$PLATFORM" == "linux" ]]; then
+        info "  dtype: $config_dtype"
+        [[ "$config_torch_quant" != "none" ]] && info "  Torch quantization: $config_torch_quant"
+    fi
 }
 
 # =============================================================================
-# Update PATH
+# Section 16: Update PATH
 # =============================================================================
 
 update_path() {
     step "CLI access setup..."
 
-    # Determine which environment was installed
-    if [[ "$IS_INTEL" == true ]]; then
-        ACTIVE_ENV="$TORCH_ENV_NAME"
-    else
-        ACTIVE_ENV="$MLX_ENV_NAME"
-    fi
+    if [[ "$PLATFORM" == "macos" ]]; then
+        # Determine which environment was installed
+        if [[ "$IS_INTEL" == true ]]; then
+            ACTIVE_ENV="$TORCH_ENV_NAME"
+        else
+            ACTIVE_ENV="$MLX_ENV_NAME"
+        fi
 
-    echo ""
-    echo "The 'tts' command is installed via pip entry points."
-    echo "To use it, simply activate your conda environment:"
-    echo ""
-    echo -e "  ${CYAN}conda activate $ACTIVE_ENV${NC}"
-    echo -e "  ${CYAN}tts --help${NC}"
-    echo ""
-    success "CLI ready! Use 'conda activate $ACTIVE_ENV' to access the 'tts' command."
+        echo ""
+        echo "The 'tts' command is installed via pip entry points."
+        echo "To use it, simply activate your conda environment:"
+        echo ""
+        echo -e "  ${CYAN}conda activate $ACTIVE_ENV${NC}"
+        echo -e "  ${CYAN}tts --help${NC}"
+        echo ""
+        success "CLI ready! Use 'conda activate $ACTIVE_ENV' to access the 'tts' command."
+
+    elif [[ "$PLATFORM" == "linux" ]]; then
+        echo ""
+        echo "The 'tts' command is installed via pip entry points."
+        echo ""
+        if [[ "$LINUX_USE_CONDA" == true ]]; then
+            echo "To use it, activate your conda environment:"
+            echo ""
+            echo -e "  ${CYAN}conda activate $TORCH_ENV_NAME${NC}"
+            echo -e "  ${CYAN}tts --help${NC}"
+            echo ""
+            success "CLI ready! Use 'conda activate $TORCH_ENV_NAME' to access the 'tts' command."
+        else
+            echo "To use it, activate your virtual environment:"
+            echo ""
+            echo -e "  ${CYAN}source $USER_FILES_DIR/.venv/bin/activate${NC}"
+            echo -e "  ${CYAN}tts --help${NC}"
+            echo ""
+            echo "Tip: Add an alias to your shell profile:"
+            echo -e "  ${CYAN}echo 'alias tts-env=\"source $USER_FILES_DIR/.venv/bin/activate\"' >> ~/.bashrc${NC}"
+            echo ""
+            success "CLI ready! Use 'source .venv/bin/activate' to access the 'tts' command."
+        fi
+    fi
 }
 
 # =============================================================================
-# Download Models
+# Section 17: Download Models
 # =============================================================================
 
 download_models() {
@@ -633,7 +1263,7 @@ download_models() {
         return
     fi
 
-    source_conda
+    source_conda 2>/dev/null || true
 
     if [[ "$SELECTED_BACKEND" == "mlx" ]]; then
         download_mlx_models
@@ -672,9 +1302,10 @@ except Exception as e:
     sys.exit(1)
 PYEOF
 
+    local download_status=$?
     conda deactivate 2>/dev/null || true
 
-    if [[ $? -eq 0 ]]; then
+    if [[ $download_status -eq 0 ]]; then
         success "MLX models downloaded!"
     else
         warn "Model download failed. They will be downloaded on first use."
@@ -683,9 +1314,16 @@ PYEOF
 
 download_torch_models() {
     info "Downloading PyTorch models ($SELECTED_SIZE)..."
-    conda activate "$TORCH_ENV_NAME"
 
-    python << PYEOF
+    # Activate the right environment
+    if [[ "$PLATFORM" == "linux" ]] && [[ "$LINUX_USE_CONDA" == false ]]; then
+        # shellcheck source=/dev/null
+        source "$USER_FILES_DIR/.venv/bin/activate"
+    else
+        conda activate "$TORCH_ENV_NAME"
+    fi
+
+    python3 << PYEOF
 import sys
 try:
     from huggingface_hub import snapshot_download
@@ -710,9 +1348,15 @@ except Exception as e:
     sys.exit(1)
 PYEOF
 
-    conda deactivate 2>/dev/null || true
+    local download_status=$?
 
-    if [[ $? -eq 0 ]]; then
+    if [[ "$PLATFORM" == "linux" ]] && [[ "$LINUX_USE_CONDA" == false ]]; then
+        deactivate 2>/dev/null || true
+    else
+        conda deactivate 2>/dev/null || true
+    fi
+
+    if [[ $download_status -eq 0 ]]; then
         success "PyTorch models downloaded!"
     else
         warn "Model download failed. They will be downloaded on first use."
@@ -720,7 +1364,7 @@ PYEOF
 }
 
 # =============================================================================
-# Print Summary
+# Section 18: Print Summary
 # =============================================================================
 
 print_summary() {
@@ -728,6 +1372,17 @@ print_summary() {
     echo "============================================================================="
     echo -e "${GREEN}Installation Complete!${NC}"
     echo "============================================================================="
+    echo ""
+    echo -e "${BOLD}Platform:${NC}"
+    if [[ "$PLATFORM" == "macos" ]]; then
+        echo "  macOS $(uname -m)"
+    elif [[ "$PLATFORM" == "linux" ]]; then
+        echo "  Linux ($DISTRO_ID${DISTRO_VERSION:+ $DISTRO_VERSION}, $ARCH)"
+        if [[ "$HAS_NVIDIA" == true ]]; then
+            echo "  GPU: $NVIDIA_GPU_NAME"
+            [[ -n "$CUDA_VERSION" ]] && echo "  CUDA: $CUDA_VERSION"
+        fi
+    fi
     echo ""
     echo -e "${BOLD}Configuration:${NC}"
     echo "  Backend: $SELECTED_BACKEND"
@@ -737,6 +1392,14 @@ print_summary() {
     fi
     echo ""
     echo -e "${BOLD}Quick Start:${NC}"
+
+    # Show activation command
+    if [[ "$PLATFORM" == "linux" ]] && [[ "$LINUX_USE_CONDA" == false ]]; then
+        echo "  0. Activate your environment:"
+        echo -e "     ${CYAN}source $USER_FILES_DIR/.venv/bin/activate${NC}"
+        echo ""
+    fi
+
     echo "  1. Start the TTS server (loads models):"
     echo -e "     ${CYAN}tts server start${NC}"
     echo ""
@@ -764,14 +1427,14 @@ print_summary() {
     echo -e "  ${CYAN}$USER_FILES_DIR/config.json${NC}"
     echo ""
 
-    if [[ ":$PATH:" != *":$HOME/bin:"* ]]; then
+    if [[ "$PLATFORM" == "macos" ]] && [[ ":$PATH:" != *":$HOME/bin:"* ]]; then
         echo -e "${YELLOW}NOTE: Open a new terminal or run 'source ~/.zshrc' to use commands.${NC}"
         echo ""
     fi
 }
 
 # =============================================================================
-# Reconfigure Only Mode
+# Section 19: Reconfigure Only Mode
 # =============================================================================
 
 reconfigure_only() {
@@ -783,6 +1446,7 @@ reconfigure_only() {
 
     RECONFIGURE_ONLY=true
 
+    detect_platform
     detect_optimal_settings
     run_config_wizard
     create_config
@@ -791,12 +1455,12 @@ reconfigure_only() {
     success "Configuration updated!"
     echo ""
     echo "Restart the TTS server to apply changes:"
-    echo "  ${CYAN}tts server stop && tts server start${NC}"
+    echo -e "  ${CYAN}tts server stop && tts server start${NC}"
     echo ""
 }
 
 # =============================================================================
-# Show Current Config
+# Section 20: Show Current Config
 # =============================================================================
 
 show_config() {
@@ -806,17 +1470,31 @@ show_config() {
     echo "============================================================================="
     echo ""
 
+    detect_platform
     detect_optimal_settings
 
     echo -e "${BOLD}Hardware:${NC}"
-    echo "  Chip: $(uname -m)"
+    if [[ "$PLATFORM" == "macos" ]]; then
+        echo "  Platform: macOS"
+        echo "  Chip: $(uname -m)"
+    elif [[ "$PLATFORM" == "linux" ]]; then
+        echo "  Platform: Linux ($DISTRO_ID${DISTRO_VERSION:+ $DISTRO_VERSION})"
+        echo "  Arch: $ARCH"
+        if [[ "$HAS_NVIDIA" == true ]]; then
+            echo "  GPU: $NVIDIA_GPU_NAME"
+            [[ -n "$CUDA_VERSION" ]] && echo "  CUDA: $CUDA_VERSION"
+            [[ "$VRAM_GB" -gt 0 ]] && echo "  VRAM: ${VRAM_GB}GB"
+        fi
+    fi
     echo "  RAM:  ${RAM_GB}GB"
     echo ""
 
     echo -e "${BOLD}Recommended:${NC}"
     echo "  Backend: $RECOMMENDED_BACKEND"
     echo "  Model size: $RECOMMENDED_SIZE"
-    echo "  Quantization: $RECOMMENDED_QUANT"
+    if [[ "$SELECTED_BACKEND" == "mlx" ]]; then
+        echo "  Quantization: $RECOMMENDED_QUANT"
+    fi
     echo ""
 
     CONFIG_FILE="$USER_FILES_DIR/config.json"
@@ -835,54 +1513,95 @@ show_config() {
 }
 
 # =============================================================================
-# Dry Run Mode
+# Section 21: Dry Run Mode
 # =============================================================================
 
 dry_run() {
+    detect_platform
     detect_optimal_settings
 
     echo ""
     echo "============================================================================="
-    echo "DRY RUN - Preview of installation steps"
+    echo "DRY RUN — Preview of installation steps"
     echo "============================================================================="
     echo ""
-    echo "Hardware detected: $(uname -m), ${RAM_GB}GB RAM"
+    echo -e "${BOLD}Platform:${NC}"
+    if [[ "$PLATFORM" == "macos" ]]; then
+        echo "  macOS $(uname -m), ${RAM_GB}GB RAM"
+    elif [[ "$PLATFORM" == "linux" ]]; then
+        echo "  Linux ($DISTRO_ID${DISTRO_VERSION:+ $DISTRO_VERSION}, $ARCH), ${RAM_GB}GB RAM"
+        if [[ "$HAS_NVIDIA" == true ]]; then
+            echo "  GPU: $NVIDIA_GPU_NAME"
+            [[ -n "$CUDA_VERSION" ]] && echo "  CUDA: $CUDA_VERSION"
+            [[ "$VRAM_GB" -gt 0 ]] && echo "  VRAM: ${VRAM_GB}GB"
+        else
+            echo "  GPU: None (CPU only)"
+        fi
+    fi
     echo ""
-    echo "Recommended settings:"
+    echo -e "${BOLD}Recommended settings:${NC}"
     echo "  Backend: $RECOMMENDED_BACKEND"
     echo "  Model size: $RECOMMENDED_SIZE"
-    echo "  Quantization: $RECOMMENDED_QUANT"
+    if [[ "$SELECTED_BACKEND" == "mlx" ]]; then
+        echo "  Quantization: $RECOMMENDED_QUANT"
+    fi
+    if [[ "$PLATFORM" == "linux" ]]; then
+        echo "  dtype: $(get_linux_dtype)"
+        local tq
+        tq=$(get_linux_torch_quant)
+        [[ "$tq" != "none" ]] && echo "  Torch quantization: $tq"
+    fi
     echo ""
-    echo "Installation steps:"
-    echo "  1. Check prerequisites (conda installed, disk space)"
-    echo "  2. Run configuration wizard"
-    if [[ "$IS_INTEL" == true ]]; then
-        echo "  3. Create PyTorch environment '$TORCH_ENV_NAME' (required for Intel)"
-    else
-        echo "  3. Create MLX environment '$MLX_ENV_NAME' (Apple Silicon default)"
-        echo "     Optional: Create PyTorch fallback environment"
+    echo -e "${BOLD}Installation steps:${NC}"
+
+    if [[ "$PLATFORM" == "macos" ]]; then
+        echo "  1. Check prerequisites (conda installed, disk space)"
+        echo "  2. Run configuration wizard"
+        if [[ "$IS_INTEL" == true ]]; then
+            echo "  3. Create PyTorch environment '$TORCH_ENV_NAME' (required for Intel)"
+        else
+            echo "  3. Create MLX environment '$MLX_ENV_NAME' (Apple Silicon default)"
+            echo "     Optional: Create PyTorch fallback environment"
+        fi
+        echo "  4. Create directories ($USER_FILES_DIR, voice_prompts/)"
+        echo "  5. Create config.json with selected settings"
+        if [[ "$IS_INTEL" == true ]]; then
+            echo "  6. CLI installed via pip entry point (use: conda activate $TORCH_ENV_NAME && tts)"
+        else
+            echo "  6. CLI installed via pip entry point (use: conda activate $MLX_ENV_NAME && tts)"
+        fi
+        echo "  7. Optional: Pre-download models"
+
+    elif [[ "$PLATFORM" == "linux" ]]; then
+        echo "  1. Check prerequisites (system deps, Python/conda, disk space)"
+        echo "  2. Install system dependencies (ffmpeg, libsndfile, rubberband)"
+        echo "  3. Run configuration wizard"
+        if command -v conda &>/dev/null; then
+            echo "  4. Create conda environment '$TORCH_ENV_NAME'"
+        else
+            echo "  4. Create Python venv at $USER_FILES_DIR/.venv"
+        fi
+        local idx_url
+        idx_url=$(get_torch_index_url)
+        echo "  5. Install PyTorch (index: $idx_url)"
+        echo "  6. Create directories ($USER_FILES_DIR, voice_prompts/)"
+        echo "  7. Create config.json with platform-aware defaults"
+        echo "  8. Optional: Pre-download models"
     fi
-    echo "  4. Create directories ($USER_FILES_DIR, voice_prompts/)"
-    echo "  5. Create config.json with selected settings"
-    if [[ "$IS_INTEL" == true ]]; then
-        echo "  6. CLI installed via pip entry point (use: conda activate $TORCH_ENV_NAME && tts)"
-    else
-        echo "  6. CLI installed via pip entry point (use: conda activate $MLX_ENV_NAME && tts)"
-    fi
-    echo "  7. Optional: Pre-download models"
+
     echo ""
     echo "Run without --dry-run to perform installation."
     echo ""
 }
 
 # =============================================================================
-# Main
+# Section 22: Main
 # =============================================================================
 
 main() {
     echo ""
     echo "============================================================================="
-    echo "Qwen3-TTS Installation Script (MLX-First)"
+    echo "Qwen3-TTS Installation Script"
     echo "============================================================================="
     echo ""
 
@@ -909,27 +1628,35 @@ main() {
             echo "  --show         Show current vs recommended settings"
             echo "  --help         Show this help message"
             echo ""
+            echo "Supported platforms: macOS (Apple Silicon, Intel), Linux (NVIDIA GPU, CPU)"
+            echo ""
             exit 0
             ;;
     esac
 
+    detect_platform
     check_prerequisites
     detect_optimal_settings
     run_config_wizard
     create_directories
 
-    # Create environments based on selection
-    if [[ "$IS_INTEL" == true ]]; then
-        # Intel: torch only
-        create_torch_env
-    else
-        # Apple Silicon: MLX first, then optionally torch
-        if [[ "$SELECTED_BACKEND" == "mlx" ]]; then
-            create_mlx_env
-            create_torch_env  # Optional fallback
+    # Create environments based on platform and selection
+    if [[ "$PLATFORM" == "macos" ]]; then
+        if [[ "$IS_INTEL" == true ]]; then
+            # Intel: torch only
+            create_torch_env
         else
-            create_torch_env  # User selected torch
+            # Apple Silicon: MLX first, then optionally torch
+            if [[ "$SELECTED_BACKEND" == "mlx" ]]; then
+                create_mlx_env
+                create_torch_env  # Optional fallback
+            else
+                create_torch_env  # User selected torch
+            fi
         fi
+    elif [[ "$PLATFORM" == "linux" ]]; then
+        # Linux: always torch (handles conda vs venv internally)
+        create_torch_env
     fi
 
     create_config
