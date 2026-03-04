@@ -10,6 +10,14 @@ import re
 logger = logging.getLogger("tts.engine")
 
 # ---------------------------------------------------------------------------
+# Cached imports — loaded once on first use
+# ---------------------------------------------------------------------------
+
+_n2w_cached = None
+_n2w_loaded = False
+_SEGMENTER_CACHE = {}
+
+# ---------------------------------------------------------------------------
 # Pre-compiled regex patterns for text chunking
 # ---------------------------------------------------------------------------
 
@@ -109,10 +117,15 @@ def _normalize_text(text, language="English"):
 
     lang = _map_language(language)
 
-    try:
-        from num2words import num2words as _n2w
-    except ImportError:
-        _n2w = None
+    global _n2w_cached, _n2w_loaded
+    if not _n2w_loaded:
+        try:
+            from num2words import num2words
+            _n2w_cached = num2words
+        except ImportError:
+            _n2w_cached = None
+        _n2w_loaded = True
+    _n2w = _n2w_cached
 
     # 1. Emails: user@example.com → "user at example dot com"
     try:
@@ -122,8 +135,8 @@ def _normalize_text(text, language="English"):
             domain_parts = domain.split(".")
             return local + " at " + " dot ".join(domain_parts)
         text = _EMAIL_RE.sub(_expand_email, text)
-    except Exception:
-        pass
+    except Exception as e:
+        logger.warning("Text normalization (email) failed: %s", e)
 
     # 2. URLs: https://example.com → "example dot com"
     try:
@@ -134,8 +147,8 @@ def _normalize_text(text, language="English"):
             url = url.replace(".", " dot ").rstrip()
             return url
         text = _URL_RE.sub(_expand_url, text)
-    except Exception:
-        pass
+    except Exception as e:
+        logger.warning("Text normalization (url) failed: %s", e)
 
     # 3. Phone numbers: (800) 555-1234 or 555-1234 → "8 0 0 5 5 5 1 2 3 4"
     try:
@@ -143,10 +156,16 @@ def _normalize_text(text, language="English"):
             digits = _PHONE_NONDIGIT_RE.sub('', m.group())
             return " ".join(digits)
         text = _PHONE_RE.sub(_expand_phone, text)
-    except Exception:
-        pass
+    except Exception as e:
+        logger.warning("Text normalization (phone) failed: %s", e)
 
-    # 4. Currencies: $5.00 → "five dollars"
+    # 4. Currencies: $5.99 → "five dollars and ninety-nine cents"
+    _SUBUNIT_MAP = {
+        "$": ("cent", "cents"),
+        "€": ("cent", "cents"),
+        "£": ("penny", "pence"),
+        "¥": (None, None),
+    }
     try:
         def _expand_currency(m):
             symbol = m.group(1)
@@ -155,17 +174,30 @@ def _normalize_text(text, language="English"):
             try:
                 amount = float(amount_str)
                 whole = int(amount)
+                frac = round((amount - whole) * 100)
+
                 if _n2w:
-                    words = _n2w(whole, lang=lang)
+                    whole_words = _n2w(whole, lang=lang)
                 else:
-                    words = str(whole)
+                    whole_words = str(whole)
                 label = singular if whole == 1 else plural
-                return f"{words} {label}"
-            except Exception:
+
+                if frac > 0:
+                    sub_singular, sub_plural = _SUBUNIT_MAP.get(symbol, ("cent", "cents"))
+                    if sub_singular:
+                        if _n2w:
+                            frac_words = _n2w(frac, lang=lang)
+                        else:
+                            frac_words = str(frac)
+                        sub_label = sub_singular if frac == 1 else sub_plural
+                        return f"{whole_words} {label} and {frac_words} {sub_label}"
+                return f"{whole_words} {label}"
+            except Exception as e:
+                logger.warning("Currency expansion failed for '%s': %s", m.group(), e)
                 return m.group()
         text = _CURRENCY_RE.sub(_expand_currency, text)
-    except Exception:
-        pass
+    except Exception as e:
+        logger.warning("Text normalization (currency) failed: %s", e)
 
     # 5. Ordinals: 3rd, 21st, etc.
     try:
@@ -176,8 +208,8 @@ def _normalize_text(text, language="English"):
             except Exception:
                 return m.group()
         text = _ORDINAL_RE.sub(_expand_ordinal, text)
-    except Exception:
-        pass
+    except Exception as e:
+        logger.warning("Text normalization (ordinal) failed: %s", e)
 
     # 6. ISO dates: YYYY-MM-DD
     try:
@@ -196,8 +228,8 @@ def _normalize_text(text, language="English"):
             except Exception:
                 return m.group()
         text = _ISO_DATE_RE.sub(_expand_iso_date, text)
-    except Exception:
-        pass
+    except Exception as e:
+        logger.warning("Text normalization (iso_date) failed: %s", e)
 
     # 7. US dates: MM/DD/YYYY
     try:
@@ -216,15 +248,15 @@ def _normalize_text(text, language="English"):
             except Exception:
                 return m.group()
         text = _US_DATE_RE.sub(_expand_us_date, text)
-    except Exception:
-        pass
+    except Exception as e:
+        logger.warning("Text normalization (us_date) failed: %s", e)
 
     # 8. Abbreviations
     try:
         for pattern, replacement in _ABBREV_TABLE_COMPILED:
             text = pattern.sub(replacement, text)
-    except Exception:
-        pass
+    except Exception as e:
+        logger.warning("Text normalization (abbreviation) failed: %s", e)
 
     # 9. Cardinal numbers (standalone integers)
     if _n2w:
@@ -235,8 +267,8 @@ def _normalize_text(text, language="English"):
                 except Exception:
                     return m.group()
             text = _CARDINAL_RE.sub(_expand_cardinal, text)
-        except Exception:
-            pass
+        except Exception as e:
+            logger.warning("Text normalization (cardinal) failed: %s", e)
 
     return text
 
@@ -280,7 +312,10 @@ def _split_text(text, max_chars=500, language="English", tokenizer=None, max_tok
     # Sentence splitting: pySBD when available, regex fallback
     try:
         import pysbd
-        segmenter = pysbd.Segmenter(language=_map_language(language), clean=False)
+        lang_code = _map_language(language)
+        if lang_code not in _SEGMENTER_CACHE:
+            _SEGMENTER_CACHE[lang_code] = pysbd.Segmenter(language=lang_code, clean=False)
+        segmenter = _SEGMENTER_CACHE[lang_code]
         sentences = segmenter.segment(text)
     except ImportError:
         sentences = _SENTENCE_SPLIT_RE.split(text)

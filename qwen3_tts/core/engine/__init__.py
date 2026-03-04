@@ -45,6 +45,9 @@ from qwen3_tts.core.engine.text_processing import (
     _US_DATE_RE,
     _CARDINAL_RE,
     _CURRENCY_RE,
+    _n2w_cached,
+    _n2w_loaded,
+    _SEGMENTER_CACHE,
 )
 
 # --- audio_processing (base utility) ---
