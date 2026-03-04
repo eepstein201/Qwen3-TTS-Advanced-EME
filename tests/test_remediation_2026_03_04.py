@@ -232,7 +232,7 @@ class TestErrorResponse(unittest.TestCase):
 class TestVoicePromptCacheInfo(unittest.TestCase):
     """Test voice_prompt_cache_info() returns correct structure."""
 
-    @patch("qwen3_tts.core.engine.get_backend", return_value="torch")
+    @patch("qwen3_tts.core.engine.voice_prompt.get_backend", return_value="torch")
     def test_cache_info_structure(self, _mock_backend):
         """Cache info has currsize, hits, misses, maxsize fields."""
         from qwen3_tts.core.engine import voice_prompt_cache_info
@@ -242,7 +242,7 @@ class TestVoicePromptCacheInfo(unittest.TestCase):
         self.assertTrue(hasattr(info, "misses"))
         self.assertTrue(hasattr(info, "maxsize"))
 
-    @patch("qwen3_tts.core.engine.get_backend", return_value="torch")
+    @patch("qwen3_tts.core.engine.voice_prompt.get_backend", return_value="torch")
     def test_cache_info_types(self, _mock_backend):
         """Cache info values are integers."""
         from qwen3_tts.core.engine import voice_prompt_cache_info
@@ -269,7 +269,7 @@ class TestVoicePromptCacheThreadSafety(unittest.TestCase):
             except Exception as e:
                 errors.append(e)
 
-        with patch("qwen3_tts.core.engine.get_backend", return_value="torch"):
+        with patch("qwen3_tts.core.engine.voice_prompt.get_backend", return_value="torch"):
             threads = [
                 threading.Thread(target=worker, args=(clear_voice_prompt_cache,)),
                 threading.Thread(target=worker, args=(voice_prompt_cache_info,)),

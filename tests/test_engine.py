@@ -100,7 +100,7 @@ class TestEngineFunctions(unittest.TestCase):
         """When clone_model is passed, migration must not call load_model()."""
         from qwen3_tts.core.engine import migrate_orphan_mlx_prompts
         mock_model = MagicMock()
-        with patch("qwen3_tts.core.engine.load_model") as mock_load:
+        with patch("qwen3_tts.core.engine.model_loader.load_model") as mock_load:
             # No orphan .wav files to migrate in test env, but validates the contract:
             # when clone_model is provided, load_model should never be called
             migrate_orphan_mlx_prompts(clone_model=mock_model)
@@ -144,7 +144,7 @@ class TestEngineFunctions(unittest.TestCase):
         """migrate_orphan_mlx_prompts handles empty/missing directory."""
         from qwen3_tts.core.engine import migrate_orphan_mlx_prompts
         with tempfile.TemporaryDirectory() as tmpdir:
-            with patch("qwen3_tts.core.engine.VOICE_PROMPTS_DIR", tmpdir):
+            with patch("qwen3_tts.core.engine.voice_prompt.VOICE_PROMPTS_DIR", tmpdir):
                 result = migrate_orphan_mlx_prompts()
                 self.assertEqual(result, 0)
 
