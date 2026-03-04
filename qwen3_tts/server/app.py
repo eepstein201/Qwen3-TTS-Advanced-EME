@@ -538,7 +538,8 @@ app.add_middleware(
 # Public endpoints (no auth)
 # ---------------------------------------------------------------------------
 
-@app.get("/health", response_model=HealthResponse)
+@app.get("/health", response_model=HealthResponse,
+         responses={503: {"model": HealthResponse, "description": "Models still loading"}})
 async def health(request: Request):
     """Health check endpoint."""
     state = request.app.state
