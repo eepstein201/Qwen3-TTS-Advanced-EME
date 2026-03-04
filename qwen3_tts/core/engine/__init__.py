@@ -85,6 +85,7 @@ from qwen3_tts.core.engine.model_loader import (
     _load_model_mlx,
     _install_mps_patch,
     _apply_cuda_optimizations,
+    _warmup_model,
     _RETRY_DELAYS,
 )
 
@@ -100,6 +101,7 @@ from qwen3_tts.core.engine.inference import (
     _run_inference_single,
     _get_max_chunk_chars,
     _get_max_chunk_tokens,
+    _crossfade_chunks,
 )
 
 # --- asr ---

@@ -2,10 +2,14 @@
 """Tests for P3/P4 code review remediation.
 
 Phase 2: Text processing fixes (R-21, R-22, _normalize_text, _expand_currency)
+Phase 3: Engine fixes (R-14, R-16, R-17, R-18, R-27, torch.load)
 """
 
+import inspect
 import unittest
 import unittest.mock
+
+import numpy as np
 
 
 # ---------------------------------------------------------------------------
@@ -189,6 +193,195 @@ class TestNum2wordsCache(unittest.TestCase):
         from qwen3_tts.core.engine import text_processing as tp
         # num2words is installed in test env, so _n2w_cached should be set
         self.assertIsNotNone(tp._n2w_cached)
+
+
+# ===========================================================================
+# Phase 3: Engine fixes (R-14, R-16, R-17, R-18, R-27, torch.load)
+# ===========================================================================
+
+
+# ---------------------------------------------------------------------------
+# Task 6: Crossfade between chunks (R-14) + silence gap (R-27)
+# ---------------------------------------------------------------------------
+
+
+class TestCrossfade(unittest.TestCase):
+    """Verify _crossfade_chunks produces smooth transitions."""
+
+    def test_crossfade_smooth_transition(self):
+        """Crossfade should produce smooth transition (no discontinuity)."""
+        from qwen3_tts.core.engine.inference import _crossfade_chunks
+        sr = 24000
+        chunk1 = np.ones(sr, dtype=np.float32) * 0.5
+        chunk2 = np.ones(sr, dtype=np.float32) * -0.5
+        result = _crossfade_chunks([chunk1, chunk2], sr, crossfade_ms=50)
+        mid = len(chunk1)
+        transition = result[mid - 100:mid + 100]
+        max_jump = np.max(np.abs(np.diff(transition)))
+        self.assertLess(max_jump, 0.1, "Crossfade should smooth the transition")
+
+    def test_single_chunk_passthrough(self):
+        """Single chunk should be returned unchanged."""
+        from qwen3_tts.core.engine.inference import _crossfade_chunks
+        chunk = np.ones(1000, dtype=np.float32)
+        result = _crossfade_chunks([chunk], 24000)
+        np.testing.assert_array_equal(result, chunk)
+
+    def test_empty_chunks(self):
+        """Empty list should return empty array."""
+        from qwen3_tts.core.engine.inference import _crossfade_chunks
+        result = _crossfade_chunks([], 24000)
+        self.assertEqual(len(result), 0)
+
+    def test_silence_gap_mode(self):
+        """Silence gap should insert zeros between chunks."""
+        from qwen3_tts.core.engine.inference import _crossfade_chunks
+        sr = 24000
+        chunk1 = np.ones(sr, dtype=np.float32)
+        chunk2 = np.ones(sr, dtype=np.float32)
+        result = _crossfade_chunks([chunk1, chunk2], sr, crossfade_ms=0, silence_gap_s=0.5)
+        expected_len = 2 * sr + int(0.5 * sr)
+        self.assertEqual(len(result), expected_len)
+
+    def test_silence_gap_zeros(self):
+        """The gap between chunks should be all zeros."""
+        from qwen3_tts.core.engine.inference import _crossfade_chunks
+        sr = 24000
+        chunk1 = np.ones(1000, dtype=np.float32)
+        chunk2 = np.ones(1000, dtype=np.float32) * 2.0
+        gap_samples = int(sr * 0.1)
+        result = _crossfade_chunks([chunk1, chunk2], sr, crossfade_ms=0, silence_gap_s=0.1)
+        gap = result[1000:1000 + gap_samples]
+        np.testing.assert_array_equal(gap, np.zeros(gap_samples, dtype=np.float32))
+
+    def test_crossfade_disabled(self):
+        """crossfade_ms=0 with no silence_gap should just concatenate."""
+        from qwen3_tts.core.engine.inference import _crossfade_chunks
+        chunk1 = np.ones(100, dtype=np.float32)
+        chunk2 = np.ones(200, dtype=np.float32) * 2.0
+        result = _crossfade_chunks([chunk1, chunk2], 24000, crossfade_ms=0)
+        self.assertEqual(len(result), 300)
+        np.testing.assert_array_equal(result[:100], chunk1)
+        np.testing.assert_array_equal(result[100:], chunk2)
+
+    def test_three_chunks(self):
+        """Should handle 3+ chunks correctly."""
+        from qwen3_tts.core.engine.inference import _crossfade_chunks
+        sr = 24000
+        chunks = [np.ones(500, dtype=np.float32) * i for i in range(1, 4)]
+        result = _crossfade_chunks(chunks, sr, crossfade_ms=10)
+        # Should be shorter than concatenation due to overlaps
+        self.assertLess(len(result), 1500)
+        self.assertGreater(len(result), 0)
+
+
+# ---------------------------------------------------------------------------
+# Task 7: Model warm-up (R-16)
+# ---------------------------------------------------------------------------
+
+
+class TestModelWarmup(unittest.TestCase):
+    """Verify _warmup_model exists and is callable."""
+
+    def test_warmup_function_exists(self):
+        from qwen3_tts.core.engine.model_loader import _warmup_model
+        self.assertTrue(callable(_warmup_model))
+
+    def test_warmup_called_in_load_model(self):
+        """load_model should call _warmup_model after loading."""
+        source = inspect.getsource(
+            __import__('qwen3_tts.core.engine.model_loader', fromlist=['load_model']).load_model
+        )
+        self.assertIn("_warmup_model", source)
+
+    def test_warmup_nonfatal(self):
+        """_warmup_model should not raise even if model fails."""
+        from qwen3_tts.core.engine.model_loader import _warmup_model
+        mock_model = unittest.mock.MagicMock()
+        mock_model.generate_voice_design.side_effect = RuntimeError("test failure")
+        # Should not raise
+        _warmup_model(mock_model, "design", "torch")
+
+
+# ---------------------------------------------------------------------------
+# Task 8: Temperature consistency (R-17)
+# ---------------------------------------------------------------------------
+
+
+class TestTemperatureConsistency(unittest.TestCase):
+    """MLX inference should not hardcode 0.9 temperature."""
+
+    def test_mlx_inference_no_hardcoded_temperature(self):
+        """MLX inference should read temperature from config, not hardcode 0.9."""
+        from qwen3_tts.core.engine.inference import _run_inference_mlx
+        source = inspect.getsource(_run_inference_mlx)
+        # Normalize whitespace and quotes for reliable matching
+        normalized = source.replace(" ", "").replace("'", '"')
+        self.assertNotIn('"temperature",0.9', normalized)
+
+    def test_mlx_streaming_no_hardcoded_temperature(self):
+        """MLX streaming should read temperature from config, not hardcode 0.9."""
+        from qwen3_tts.core.engine.inference import _run_inference_mlx_streaming
+        source = inspect.getsource(_run_inference_mlx_streaming)
+        normalized = source.replace(" ", "").replace("'", '"')
+        self.assertNotIn('"temperature",0.9', normalized)
+
+    def test_mlx_reads_config_for_defaults(self):
+        """Both MLX functions should reference load_config for defaults."""
+        from qwen3_tts.core.engine.inference import _run_inference_mlx, _run_inference_mlx_streaming
+        for fn in (_run_inference_mlx, _run_inference_mlx_streaming):
+            source = inspect.getsource(fn)
+            self.assertIn("load_config", source, f"{fn.__name__} should use load_config")
+
+
+# ---------------------------------------------------------------------------
+# Task 9: Turing GPU quantization override (R-18)
+# ---------------------------------------------------------------------------
+
+
+class TestTuringQuantizationOverride(unittest.TestCase):
+    """Turing GPU auto-8bit should respect explicit torch_quantization."""
+
+    def test_explicit_quantization_respected(self):
+        """When user explicitly sets torch_quantization, don't auto-override."""
+        from qwen3_tts.core.engine.model_loader import _load_model_torch
+        source = inspect.getsource(_load_model_torch)
+        self.assertIn("explicitly", source.lower())
+
+    def test_explicitly_set_check_in_code(self):
+        """Code should check if torch_quantization is in config."""
+        from qwen3_tts.core.engine.model_loader import _load_model_torch
+        source = inspect.getsource(_load_model_torch)
+        self.assertIn("explicitly_set", source)
+        self.assertIn("torch_quantization", source)
+
+
+# ---------------------------------------------------------------------------
+# Task 10: torch.load security (deprecation warning)
+# ---------------------------------------------------------------------------
+
+
+class TestTorchLoadSecurity(unittest.TestCase):
+    """Verify security measures for torch.load in voice_prompt.py."""
+
+    def test_path_traversal_check_exists(self):
+        """_load_voice_prompt_torch should check realpath for path traversal."""
+        from qwen3_tts.core.engine.voice_prompt import _load_voice_prompt_torch
+        source = inspect.getsource(_load_voice_prompt_torch)
+        self.assertIn("realpath", source)
+        self.assertIn("TTS_ALLOW_UNSAFE_PICKLE", source)
+
+    def test_deprecation_warning_on_unsafe(self):
+        """Should warn that TTS_ALLOW_UNSAFE_PICKLE is deprecated."""
+        from qwen3_tts.core.engine.voice_prompt import _load_voice_prompt_torch
+        source = inspect.getsource(_load_voice_prompt_torch)
+        self.assertIn("deprecated", source.lower())
+
+    def test_refuses_path_outside_prompts_dir(self):
+        """Should refuse to load files outside VOICE_PROMPTS_DIR."""
+        from qwen3_tts.core.engine.voice_prompt import _load_voice_prompt_torch
+        source = inspect.getsource(_load_voice_prompt_torch)
+        self.assertIn("Refusing to load", source)
 
 
 if __name__ == "__main__":

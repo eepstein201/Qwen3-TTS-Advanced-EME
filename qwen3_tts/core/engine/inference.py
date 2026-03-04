@@ -201,12 +201,15 @@ def _run_inference_mlx(model, text, mode, gen_params, language="English",
     """
     t0 = time.time()
 
+    # Read defaults from config so MLX matches torch behavior (R-17)
+    config = load_config()
+    config_gen = config.get("generation", {})
     params = {
-        "temperature": gen_params.get("temperature", 0.9),
-        "top_k": gen_params.get("top_k", 50),
-        "top_p": gen_params.get("top_p", 1.0),
-        "repetition_penalty": gen_params.get("repetition_penalty", 1.05),
-        "max_new_tokens": gen_params.get("max_new_tokens", 2048),
+        "temperature": gen_params.get("temperature", config_gen.get("temperature", 0.7)),
+        "top_k": gen_params.get("top_k", config_gen.get("top_k", 50)),
+        "top_p": gen_params.get("top_p", config_gen.get("top_p", 0.95)),
+        "repetition_penalty": gen_params.get("repetition_penalty", config_gen.get("repetition_penalty", 1.05)),
+        "max_new_tokens": gen_params.get("max_new_tokens", config_gen.get("max_new_tokens", 2048)),
     }
 
     if mode == "clone":
@@ -309,12 +312,15 @@ def _run_inference_mlx_streaming(model, text, mode, gen_params, language="Englis
     """
     import mlx.core as mx
 
+    # Read defaults from config so MLX matches torch behavior (R-17)
+    config = load_config()
+    config_gen = config.get("generation", {})
     params = {
-        "temperature": gen_params.get("temperature", 0.9),
-        "top_k": gen_params.get("top_k", 50),
-        "top_p": gen_params.get("top_p", 1.0),
-        "repetition_penalty": gen_params.get("repetition_penalty", 1.05),
-        "max_new_tokens": gen_params.get("max_new_tokens", 2048),
+        "temperature": gen_params.get("temperature", config_gen.get("temperature", 0.7)),
+        "top_k": gen_params.get("top_k", config_gen.get("top_k", 50)),
+        "top_p": gen_params.get("top_p", config_gen.get("top_p", 0.95)),
+        "repetition_penalty": gen_params.get("repetition_penalty", config_gen.get("repetition_penalty", 1.05)),
+        "max_new_tokens": gen_params.get("max_new_tokens", config_gen.get("max_new_tokens", 2048)),
     }
 
     if mode == "clone":
@@ -369,6 +375,57 @@ def _run_inference_mlx_streaming(model, text, mode, gen_params, language="Englis
         yield wav, sr
 
     logger.info("Streaming complete: %d chunks, mode=%s [mlx]", chunk_count, mode)
+
+
+# ---------------------------------------------------------------------------
+# Chunk combination (crossfade / silence gap)
+# ---------------------------------------------------------------------------
+
+def _crossfade_chunks(chunks, sample_rate, crossfade_ms=50, silence_gap_s=None):
+    """Combine audio chunks with crossfade or silence gap.
+
+    Uses a raised-cosine (Hann) window for smooth transitions between chunks,
+    eliminating audible clicks at boundaries.
+
+    Args:
+        chunks: List of numpy float32 audio arrays.
+        sample_rate: Audio sample rate.
+        crossfade_ms: Crossfade duration in ms (0 to disable). Default 50ms.
+        silence_gap_s: If set, insert silence instead of crossfade.
+
+    Returns:
+        Combined float32 numpy array.
+    """
+    if len(chunks) == 0:
+        return np.array([], dtype=np.float32)
+    if len(chunks) == 1:
+        return chunks[0]
+
+    if silence_gap_s is not None and silence_gap_s > 0:
+        silence = np.zeros(int(sample_rate * silence_gap_s), dtype=np.float32)
+        parts = []
+        for i, chunk in enumerate(chunks):
+            parts.append(chunk)
+            if i < len(chunks) - 1:
+                parts.append(silence)
+        return np.concatenate(parts)
+
+    if crossfade_ms <= 0:
+        return np.concatenate(chunks)
+
+    fade_samples = int(sample_rate * crossfade_ms / 1000)
+    combined = chunks[0].copy()
+    for chunk in chunks[1:]:
+        overlap = min(fade_samples, len(combined), len(chunk))
+        if overlap <= 0:
+            combined = np.concatenate([combined, chunk])
+            continue
+        t = np.linspace(0, np.pi / 2, overlap, dtype=np.float32)
+        fade_out = np.cos(t) ** 2
+        fade_in = np.sin(t) ** 2
+        combined[-overlap:] = combined[-overlap:] * fade_out + chunk[:overlap] * fade_in
+        combined = np.concatenate([combined, chunk[overlap:]])
+    return combined
 
 
 # ---------------------------------------------------------------------------
@@ -457,13 +514,12 @@ def run_inference(model, text, mode, gen_params, language="English",
             x_vector_only_mode=x_vector_only_mode,
         )
 
-    # Multi-chunk: generate each, concatenate with silence gaps
+    # Multi-chunk: generate each, combine with crossfade or silence gap
     logger.info("Splitting text (%d chars) into %d chunks (max %d chars each)",
                 len(text), len(chunks), max_chunk_chars)
 
     all_audio = []
     sample_rate = None
-    silence_gap_ms = 100  # 100ms silence between chunks
 
     for i, chunk in enumerate(chunks):
         if progress_callback:
@@ -483,15 +539,14 @@ def run_inference(model, text, mode, gen_params, language="English",
 
         all_audio.append(wav)
 
-    # Concatenate with silence gaps
-    silence_samples = int(sample_rate * silence_gap_ms / 1000)
-    combined = []
-    for i, wav in enumerate(all_audio):
-        combined.append(wav)
-        if i < len(all_audio) - 1:
-            combined.append(np.zeros(silence_samples, dtype=np.float32))
+    # Combine chunks: use silence_gap_seconds from config, or crossfade (default 50ms)
+    config = load_config()
+    silence_gap = config.get("generation", {}).get("silence_gap_seconds", 0.0)
+    if silence_gap > 0:
+        result = _crossfade_chunks(all_audio, sample_rate, crossfade_ms=0, silence_gap_s=silence_gap)
+    else:
+        result = _crossfade_chunks(all_audio, sample_rate, crossfade_ms=50)
 
-    result = np.concatenate(combined)
     logger.info("Combined %d chunks into %.1fs audio", len(chunks), len(result) / sample_rate)
     return result, sample_rate
 

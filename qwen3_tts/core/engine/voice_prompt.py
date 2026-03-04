@@ -112,7 +112,9 @@ def _load_voice_prompt_torch(prompt_file):
                 f"If this is a trusted file, set TTS_ALLOW_UNSAFE_PICKLE=1"
             )
         logger.warning(
-            "Loading %s with weights_only=False — only load trusted .pt files",
+            "TTS_ALLOW_UNSAFE_PICKLE is deprecated and will be removed. "
+            "Re-create voice prompts with 'tts voice create' for safe .pt files. "
+            "Loading %s with weights_only=False.",
             prompt_file,
         )
         result = torch.load(prompt_path, weights_only=False, map_location=device)  # nosec B614

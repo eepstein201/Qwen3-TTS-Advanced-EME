@@ -195,12 +195,23 @@ def _load_model_torch(model_type):
             # No quantization (torch_quant == "none")
             else:
                 load_kwargs["dtype"] = torch_dtype
-                # Auto-enable 8-bit on older CUDA GPUs (Turing/T4) for memory efficiency
+                # Auto-enable 8-bit on older CUDA GPUs (Turing/T4) for memory efficiency,
+                # but only if user hasn't explicitly set torch_quantization (R-18)
                 if device == "cuda":
                     cap = torch.cuda.get_device_capability()
-                    if cap[0] < 8:
+                    user_config = load_config()
+                    explicitly_set = "torch_quantization" in user_config.get("advanced", {})
+                    if cap[0] < 8 and not explicitly_set:
                         load_kwargs["load_in_8bit"] = True
-                        logger.info("Auto-enabled 8-bit quantization for GPU compute capability %s", cap)
+                        logger.info(
+                            "Auto-enabled 8-bit quantization for compute capability %s "
+                            "(override: set advanced.torch_quantization in config)", cap,
+                        )
+                    elif cap[0] < 8 and explicitly_set:
+                        logger.info(
+                            "Turing GPU (compute %s) but torch_quantization explicitly "
+                            "set to '%s' — respecting user config", cap, torch_quant,
+                        )
 
             # Check if model is already cached (for better user feedback)
             from huggingface_hub import snapshot_download
@@ -301,11 +312,50 @@ def _load_model_mlx(model_type):
 
 
 # ---------------------------------------------------------------------------
+# Model warm-up
+# ---------------------------------------------------------------------------
+
+def _warmup_model(model, model_type, backend):
+    """Run a short warm-up inference to compile kernels. Non-fatal.
+
+    Uses generate_voice_design which doesn't require a voice prompt,
+    making it work for all model types. The warm-up output is discarded.
+    """
+    try:
+        t0 = time.time()
+        logger.info("Running warm-up inference for %s model...", model_type)
+        if backend == "mlx":
+            list(model.generate_voice_design(
+                text="Hello.",
+                instruct="Speak normally.",
+                language="English",
+                temperature=0.5,
+                max_new_tokens=50,
+            ))
+        else:
+            import torch
+            with torch.inference_mode():
+                model.generate_voice_design(
+                    text="Hello.",
+                    instruct="Speak normally.",
+                    language="English",
+                    temperature=0.5,
+                    max_new_tokens=50,
+                )
+        logger.info("Warm-up complete for %s in %.1fs", model_type, time.time() - t0)
+    except Exception as e:
+        logger.warning("Warm-up failed for %s (non-fatal): %s", model_type, e)
+
+
+# ---------------------------------------------------------------------------
 # Public dispatch API
 # ---------------------------------------------------------------------------
 
 def load_model(model_type):
     """Load a TTS model by type, dispatching to the configured backend.
+
+    After loading, runs a short warm-up inference to pre-compile kernels
+    and reduce cold-start latency on the first real generation.
 
     Args:
         model_type: One of "clone", "design", "custom".
@@ -315,5 +365,8 @@ def load_model(model_type):
     """
     backend = get_backend()
     if backend == "mlx":
-        return _load_model_mlx(model_type)
-    return _load_model_torch(model_type)
+        model = _load_model_mlx(model_type)
+    else:
+        model = _load_model_torch(model_type)
+    _warmup_model(model, model_type, backend)
+    return model
