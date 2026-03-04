@@ -395,4 +395,3 @@ Multi-agent review (8 agents, 56 deduplicated findings). **P1+P2 implemented** (
 - **`_normalize_text`** wraps every step in bare `try/except: pass` — silently swallows real bugs
 - **`weights_only=False` fallback** for `torch.load` with env var bypass — security risk
 - **`_expand_currency`** only handles whole-dollar amounts — `$5.99` drops cents
-- **`/generate` validation** duplicates helper instead of calling `_validate_generation_request()`
