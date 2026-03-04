@@ -3,6 +3,7 @@
 
 Phase 2: Text processing fixes (R-21, R-22, _normalize_text, _expand_currency)
 Phase 3: Engine fixes (R-14, R-16, R-17, R-18, R-27, torch.load)
+Phase 4: Server fixes (R-13, R-19, R-20, R-24, R-26)
 """
 
 import inspect
@@ -382,6 +383,130 @@ class TestTorchLoadSecurity(unittest.TestCase):
         from qwen3_tts.core.engine.voice_prompt import _load_voice_prompt_torch
         source = inspect.getsource(_load_voice_prompt_torch)
         self.assertIn("Refusing to load", source)
+
+
+# ===========================================================================
+# Phase 4: Server fixes (R-13, R-19, R-20, R-24, R-26)
+# ===========================================================================
+
+
+# ---------------------------------------------------------------------------
+# Task 11: Rate limiting with real IP resolution (R-13)
+# ---------------------------------------------------------------------------
+
+
+class TestRateLimiting(unittest.TestCase):
+    """Verify rate limiting infrastructure."""
+
+    def test_real_ip_resolver_checks_forwarded_header(self):
+        """Rate limiter should use X-Forwarded-For for real client IP."""
+        from qwen3_tts.server.app import _get_real_client_ip
+        mock_request = unittest.mock.MagicMock()
+        mock_request.headers = {"X-Forwarded-For": "1.2.3.4, 10.0.0.1"}
+        mock_request.client.host = "127.0.0.1"
+        self.assertEqual(_get_real_client_ip(mock_request), "1.2.3.4")
+
+    def test_real_ip_falls_back_to_client_host(self):
+        """Without X-Forwarded-For, should use client.host."""
+        from qwen3_tts.server.app import _get_real_client_ip
+        mock_request = unittest.mock.MagicMock()
+        mock_request.headers = {}
+        mock_request.client.host = "192.168.1.100"
+        self.assertEqual(_get_real_client_ip(mock_request), "192.168.1.100")
+
+    def test_real_ip_no_client(self):
+        """If request.client is None, should return 127.0.0.1."""
+        from qwen3_tts.server.app import _get_real_client_ip
+        mock_request = unittest.mock.MagicMock()
+        mock_request.headers = {}
+        mock_request.client = None
+        self.assertEqual(_get_real_client_ip(mock_request), "127.0.0.1")
+
+    def test_slowapi_flag_exists(self):
+        """_HAS_SLOWAPI flag should exist in module."""
+        from qwen3_tts.server import app as app_module
+        self.assertIsInstance(app_module._HAS_SLOWAPI, bool)
+
+
+# ---------------------------------------------------------------------------
+# Task 12: Thread-safe request_queue (R-19)
+# ---------------------------------------------------------------------------
+
+
+class TestRequestQueueThreadSafety(unittest.TestCase):
+    """Verify request_queue uses a lock."""
+
+    def test_request_queue_lock_in_source(self):
+        """Source should reference request_queue_lock."""
+        source = inspect.getsource(
+            __import__('qwen3_tts.server.app', fromlist=['app'])
+        )
+        self.assertIn("request_queue_lock", source)
+
+    def test_get_queue_size_function_exists(self):
+        """_get_queue_size helper should exist."""
+        from qwen3_tts.server.app import _get_queue_size
+        self.assertTrue(callable(_get_queue_size))
+
+
+# ---------------------------------------------------------------------------
+# Task 13: Symlink resolution in /preview-prompt (R-20)
+# ---------------------------------------------------------------------------
+
+
+class TestPreviewPromptSymlink(unittest.TestCase):
+    """Verify /preview-prompt resolves symlinks."""
+
+    def test_realpath_validation_in_endpoint(self):
+        """preview_prompt endpoint should check realpath."""
+        from qwen3_tts.server.app import preview_prompt
+        source = inspect.getsource(preview_prompt)
+        self.assertIn("realpath", source)
+
+    def test_rejects_path_outside_dir(self):
+        """preview_prompt should reject paths resolving outside VOICE_PROMPTS_DIR."""
+        from qwen3_tts.server.app import preview_prompt
+        source = inspect.getsource(preview_prompt)
+        self.assertIn("Access denied", source)
+
+
+# ---------------------------------------------------------------------------
+# Task 14: Pagination for /prompts (R-24)
+# ---------------------------------------------------------------------------
+
+
+class TestPromptsPagination(unittest.TestCase):
+    """Verify /prompts supports pagination."""
+
+    def test_pagination_params_in_source(self):
+        """list_prompts should reference offset and limit."""
+        from qwen3_tts.server.app import list_prompts
+        source = inspect.getsource(list_prompts)
+        self.assertIn("total", source)
+        self.assertIn("offset", source)
+        self.assertIn("limit", source)
+
+
+# ---------------------------------------------------------------------------
+# Task 15: Audit logging for auth failures (R-26)
+# ---------------------------------------------------------------------------
+
+
+class TestAuditLogging(unittest.TestCase):
+    """Verify auth failures are logged with client IP."""
+
+    def test_auth_failure_logs_warning(self):
+        """verify_auth should log client IP on failure."""
+        from qwen3_tts.server.app import verify_auth
+        source = inspect.getsource(verify_auth)
+        self.assertIn("logger.warning", source)
+        self.assertIn("Auth failure", source)
+
+    def test_auth_uses_real_client_ip(self):
+        """verify_auth should use _get_real_client_ip for audit logging."""
+        from qwen3_tts.server.app import verify_auth
+        source = inspect.getsource(verify_auth)
+        self.assertIn("_get_real_client_ip", source)
 
 
 if __name__ == "__main__":

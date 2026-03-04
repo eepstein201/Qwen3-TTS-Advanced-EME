@@ -53,6 +53,7 @@ def _setup_app_state(app):
         "cancelled": False,
     }
     app.state.request_queue = set()
+    app.state.request_queue_lock = threading.Lock()
     app.state.last_activity = 0
     app.state.models_loaded = threading.Event()
     app.state.gen_cache = {}

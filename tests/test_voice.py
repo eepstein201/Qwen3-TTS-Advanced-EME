@@ -82,6 +82,7 @@ def _setup_fastapi_app_state(app, server_config=None):
         "cancelled": False,
     }
     app.state.request_queue = set()
+    app.state.request_queue_lock = threading.Lock()
     app.state.last_activity = 0
     app.state.models_loaded = threading.Event()
     app.state.gen_cache = {}
