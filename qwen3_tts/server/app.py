@@ -1207,26 +1207,11 @@ async def generate(request: Request, req: GenerateRequest, _auth: None = Depends
                 detail=f"Text at index {i} exceeds {max_text_length} character limit ({len(t)} chars)",
             )
 
+    _validate_generation_request(req, security)
+
     mode = req.mode
-    if mode not in ("clone", "design", "custom"):
-        raise HTTPException(
-            status_code=400,
-            detail=f"Invalid mode: {mode}. Must be clone, design, or custom",
-        )
-
     prompt_file = req.prompt_file
-    if prompt_file and (".." in prompt_file or "/" in prompt_file):
-        raise HTTPException(status_code=400, detail="Invalid prompt_file: path traversal not allowed")
-
-    # Check speaker for custom mode
     speaker = req.speaker
-    if mode == "custom" and speaker:
-        speaker_key = speaker.lower() if isinstance(speaker, str) else ""
-        if speaker_key not in CUSTOM_VOICE_SPEAKERS and speaker not in _VALID_SPEAKER_NAMES:
-            raise HTTPException(
-                status_code=400,
-                detail=f"Unknown speaker: {speaker}. Valid: {', '.join(CUSTOM_VOICE_SPEAKERS.keys())}",
-            )
 
     # Check if required model is loaded
     model = state.models.get(mode)
