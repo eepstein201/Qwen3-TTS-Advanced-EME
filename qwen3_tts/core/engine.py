@@ -435,6 +435,7 @@ def _install_mps_patch():
 # ---------------------------------------------------------------------------
 
 _torch_prompt_cache = OrderedDict()
+_torch_prompt_cache_lock = threading.Lock()
 
 
 def _load_voice_prompt_torch(prompt_file):
@@ -449,9 +450,10 @@ def _load_voice_prompt_torch(prompt_file):
     import torch
 
     # Check cache first (move to end on hit for LRU eviction)
-    if prompt_file in _torch_prompt_cache:
-        _torch_prompt_cache.move_to_end(prompt_file)
-        return _torch_prompt_cache[prompt_file]
+    with _torch_prompt_cache_lock:
+        if prompt_file in _torch_prompt_cache:
+            _torch_prompt_cache.move_to_end(prompt_file)
+            return _torch_prompt_cache[prompt_file]
 
     prompt_path = os.path.join(VOICE_PROMPTS_DIR, prompt_file)
     if not os.path.exists(prompt_path):
@@ -473,10 +475,11 @@ def _load_voice_prompt_torch(prompt_file):
             torch.save(voice_prompt, prompt_path)
             logger.info("Auto-created and saved %s", prompt_path)
             # Cache the result
-            max_size = get_voice_prompt_cache_max()
-            if len(_torch_prompt_cache) >= max_size:
-                _torch_prompt_cache.popitem(last=False)
-            _torch_prompt_cache[prompt_file] = voice_prompt
+            with _torch_prompt_cache_lock:
+                max_size = get_voice_prompt_cache_max()
+                if len(_torch_prompt_cache) >= max_size:
+                    _torch_prompt_cache.popitem(last=False)
+                _torch_prompt_cache[prompt_file] = voice_prompt
             return voice_prompt
         return None
     from qwen3_tts.core.config import get_device
@@ -491,10 +494,11 @@ def _load_voice_prompt_torch(prompt_file):
     try:
         result = torch.load(prompt_path, weights_only=True, map_location=device)
         # Cache the result
-        max_size = get_voice_prompt_cache_max()
-        if len(_torch_prompt_cache) >= max_size:
-            _torch_prompt_cache.popitem(last=False)
-        _torch_prompt_cache[prompt_file] = result
+        with _torch_prompt_cache_lock:
+            max_size = get_voice_prompt_cache_max()
+            if len(_torch_prompt_cache) >= max_size:
+                _torch_prompt_cache.popitem(last=False)
+            _torch_prompt_cache[prompt_file] = result
         return result
     except Exception:
         allow_unsafe = os.environ.get("TTS_ALLOW_UNSAFE_PICKLE") == "1"
@@ -515,10 +519,11 @@ def _load_voice_prompt_torch(prompt_file):
         )
         result = torch.load(prompt_path, weights_only=False, map_location=device)  # nosec B614
         # Cache the result
-        max_size = get_voice_prompt_cache_max()
-        if len(_torch_prompt_cache) >= max_size:
-            _torch_prompt_cache.popitem(last=False)
-        _torch_prompt_cache[prompt_file] = result
+        with _torch_prompt_cache_lock:
+            max_size = get_voice_prompt_cache_max()
+            if len(_torch_prompt_cache) >= max_size:
+                _torch_prompt_cache.popitem(last=False)
+            _torch_prompt_cache[prompt_file] = result
         return result
 
 
@@ -536,7 +541,8 @@ def load_voice_prompt(prompt_file):
 
 def clear_voice_prompt_cache():
     """Clear both torch and MLX voice prompt caches."""
-    _torch_prompt_cache.clear()
+    with _torch_prompt_cache_lock:
+        _torch_prompt_cache.clear()
     _mlx_prompt_cache.clear()
 
 
@@ -555,12 +561,13 @@ def voice_prompt_cache_info():
             misses=0,
             maxsize=get_voice_prompt_cache_max(),
         )
-    return SimpleNamespace(
-        currsize=len(_torch_prompt_cache),
-        hits=0,  # manual cache doesn't track hits
-        misses=0,
-        maxsize=get_voice_prompt_cache_max(),
-    )
+    with _torch_prompt_cache_lock:
+        return SimpleNamespace(
+            currsize=len(_torch_prompt_cache),
+            hits=0,  # manual cache doesn't track hits
+            misses=0,
+            maxsize=get_voice_prompt_cache_max(),
+        )
 
 
 def migrate_orphan_mlx_prompts(clone_model=None):
