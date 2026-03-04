@@ -436,6 +436,8 @@ def _install_mps_patch():
 
 _torch_prompt_cache = OrderedDict()
 _torch_prompt_cache_lock = threading.Lock()
+_torch_prompt_cache_hits = 0
+_torch_prompt_cache_misses = 0
 
 
 def _load_voice_prompt_torch(prompt_file):
@@ -447,12 +449,14 @@ def _load_voice_prompt_torch(prompt_file):
     Results are cached (up to cache.voice_prompt_max entries, default 10) for
     repeated lookups. Cache is config-aware and respects the voice_prompt_max setting.
     """
+    global _torch_prompt_cache_hits, _torch_prompt_cache_misses
     import torch
 
     # Check cache first (move to end on hit for LRU eviction)
     with _torch_prompt_cache_lock:
         if prompt_file in _torch_prompt_cache:
             _torch_prompt_cache.move_to_end(prompt_file)
+            _torch_prompt_cache_hits += 1
             return _torch_prompt_cache[prompt_file]
 
     prompt_path = os.path.join(VOICE_PROMPTS_DIR, prompt_file)
@@ -480,6 +484,7 @@ def _load_voice_prompt_torch(prompt_file):
                 if len(_torch_prompt_cache) >= max_size:
                     _torch_prompt_cache.popitem(last=False)
                 _torch_prompt_cache[prompt_file] = voice_prompt
+                _torch_prompt_cache_misses += 1
             return voice_prompt
         return None
     from qwen3_tts.core.config import get_device
@@ -499,6 +504,7 @@ def _load_voice_prompt_torch(prompt_file):
             if len(_torch_prompt_cache) >= max_size:
                 _torch_prompt_cache.popitem(last=False)
             _torch_prompt_cache[prompt_file] = result
+            _torch_prompt_cache_misses += 1
         return result
     except Exception:
         allow_unsafe = os.environ.get("TTS_ALLOW_UNSAFE_PICKLE") == "1"
@@ -524,6 +530,7 @@ def _load_voice_prompt_torch(prompt_file):
             if len(_torch_prompt_cache) >= max_size:
                 _torch_prompt_cache.popitem(last=False)
             _torch_prompt_cache[prompt_file] = result
+            _torch_prompt_cache_misses += 1
         return result
 
 
@@ -564,8 +571,8 @@ def voice_prompt_cache_info():
     with _torch_prompt_cache_lock:
         return SimpleNamespace(
             currsize=len(_torch_prompt_cache),
-            hits=0,  # manual cache doesn't track hits
-            misses=0,
+            hits=_torch_prompt_cache_hits,
+            misses=_torch_prompt_cache_misses,
             maxsize=get_voice_prompt_cache_max(),
         )
 
