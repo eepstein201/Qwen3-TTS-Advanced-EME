@@ -332,8 +332,7 @@ def auto_shutdown(app_state):
     logger.info("Auto-shutdown: No activity for %d minutes.",
                 app_state.server_config.get("auto_shutdown_minutes", 0))
     cleanup_resources(app_state)
-    # Signal uvicorn to stop gracefully
-    os.kill(os.getpid(), signal.SIGTERM)
+    sys.exit(0)
 
 
 # ---------------------------------------------------------------------------
@@ -514,8 +513,7 @@ def cleanup_pid(app_state):
     if shutdown_event is not None:
         shutdown_event.set()
     cleanup_resources(app_state)
-    # Signal uvicorn to stop gracefully
-    os.kill(os.getpid(), signal.SIGTERM)
+    sys.exit(0)
 
 
 # Create FastAPI app
@@ -1614,10 +1612,9 @@ async def shutdown(request: Request, _auth: None = Depends(verify_auth)):
     except OSError:
         pass
 
-    # Signal uvicorn to stop gracefully
+    # Shut down gracefully
     cleanup_resources(state)
-    os.kill(os.getpid(), signal.SIGTERM)
-    return {"status": "shutting down"}
+    sys.exit(0)
 
 
 # ---------------------------------------------------------------------------
@@ -1653,6 +1650,9 @@ def run_server(host="127.0.0.1", port=5123, public=False):
     # Handle shutdown signals
     def _signal_handler(signum, frame):
         """Handle shutdown signals gracefully."""
+        # Reset handlers to default to prevent re-entry
+        signal.signal(signal.SIGTERM, signal.SIG_DFL)
+        signal.signal(signal.SIGINT, signal.SIG_DFL)
         # Set shutdown event
         shutdown_event = getattr(app.state, "shutdown_event", None)
         if shutdown_event is not None:
