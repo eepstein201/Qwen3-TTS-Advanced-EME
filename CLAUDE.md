@@ -364,3 +364,35 @@ CLI and UI parse the `recovery` field to show actionable guidance.
 **Future options (not yet implemented):**
 - **NLTK punkt tokenizer** — Moderate-weight alternative to pySBD; requires punkt data download at first use. Good for multi-language academic text.
 - **NVIDIA NeMo text processing** — Production-grade normalization covering dates, times, measures, addresses, financial data. ~500MB+ in new dependencies; suitable for high-volume or broadcast-quality TTS.
+
+## Code Review Status (2026-03-03)
+
+Multi-agent review (8 agents, 56 deduplicated findings). **P1+P2 implemented** (R-1 through R-12). P3/P4 roadmap at `docs/plans/development-roadmap.md`.
+
+### What was fixed (P1+P2)
+- Graceful shutdown replaces `os._exit(0)` (R-1)
+- Thread-safe config lock (R-2)
+- Narrowed generation_lock scope (R-3)
+- Config-aware voice prompt cache replacing hardcoded LRU (R-4)
+- Gen cache temp file cleanup + NamedTemporaryFile leak fix (R-5)
+- CORS middleware for Gradio UI (R-6)
+- `/generate-stream` validation parity with `/generate` (R-7)
+- Standardized error response helper (R-8)
+- Pydantic response models for OpenAPI (R-9)
+- MPS float32 dtype restoration after inference (R-10)
+- Audio validation (NaN, clipping, silence) (R-11)
+- Content negotiation for binary WAV (R-12)
+
+### Known issues not yet addressed (P3/P4)
+- **No rate limiting** on any endpoint (R-13) — `slowapi` recommended
+- **No crossfade** between multi-chunk audio (R-14) — audible clicks at boundaries
+- **engine.py is ~1800 lines** (R-15) — should split into model_loader, inference, audio_processing, voice_prompt, text_processing
+- **No model warm-up** after loading (R-16) — cold-start latency on first generation
+- **Temperature inconsistency** — torch defaults to config value, MLX hardcodes 0.9 (R-17)
+- **Turing GPU quantization override** — auto-8bit overrides explicit `torch_quantization: "none"` (R-18)
+- **`request_queue` is plain `set()`** — not thread-safe (R-19)
+- **`/preview-prompt` no symlink resolution** (R-20)
+- **`_normalize_text`** wraps every step in bare `try/except: pass` — silently swallows real bugs
+- **`weights_only=False` fallback** for `torch.load` with env var bypass — security risk
+- **`_expand_currency`** only handles whole-dollar amounts — `$5.99` drops cents
+- **`/generate` validation** duplicates helper instead of calling `_validate_generation_request()`
