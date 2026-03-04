@@ -1162,7 +1162,8 @@ async def cancel_generation(request: Request, _auth: None = Depends(verify_auth)
     }
 
 
-@app.post("/generate", response_model=GenerateResponse)
+@app.post("/generate", response_model=GenerateResponse,
+          responses={200: {"content": {"audio/wav": {"schema": {"type": "string", "format": "binary"}}}}})
 async def generate(request: Request, req: GenerateRequest, _auth: None = Depends(verify_auth)):
     """Generate audio from text."""
     state = request.app.state
