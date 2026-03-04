@@ -748,24 +748,15 @@ async def load_model_endpoint(request: Request, req: LoadModelRequest, _auth: No
     except ImportError as e:
         logger.error("Backend not available for model loading %s: %s", model_type, e, exc_info=True)
         state.model_load_errors[model_type] = str(e)
-        raise HTTPException(
-            status_code=500,
-            detail={"error": "import_error", "message": str(e)},
-        )
+        _error_response(500, "import_error", str(e), "config")
     except (RuntimeError, OSError, ValueError) as e:
         logger.error("Failed to load model %s: %s", model_type, e, exc_info=True)
         state.model_load_errors[model_type] = str(e)
-        raise HTTPException(
-            status_code=500,
-            detail={"error": "load_failed", "message": str(e)},
-        )
+        _error_response(500, "load_failed", str(e), "restart")
     except Exception as e:
         logger.error("Unexpected error loading model %s: %s", model_type, e, exc_info=True)
         state.model_load_errors[model_type] = str(e)
-        raise HTTPException(
-            status_code=500,
-            detail={"error": "unknown_error", "message": str(e)},
-        )
+        _error_response(500, "unknown_error", str(e), "bug")
 
     return {"status": "loaded", "model": model_type}
 
@@ -1399,14 +1390,8 @@ async def generate(request: Request, req: GenerateRequest, _auth: None = Depends
         raise
     except Exception as e:
         logger.error("Generation failed: %s", e, exc_info=True)
-        raise HTTPException(
-            status_code=500,
-            detail={
-                "error": "Audio generation failed",
-                "detail": "An internal error occurred. Check server logs for details.",
-                "recovery": "retry",
-            },
-        )
+        _error_response(500, "Audio generation failed",
+                        "An internal error occurred. Check server logs for details.", "retry")
     finally:
         # Clear generation state
         state.generation_state.update({
