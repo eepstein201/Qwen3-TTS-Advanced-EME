@@ -39,6 +39,9 @@ Qwen3-TTS isn't just a research script; it is engineered to be a production-read
 ### ⚙️ Production Architecture
 * **True Zero-Latency Streaming:** Built on FastAPI with asynchronous queues. Streams raw audio bytes back to the client the millisecond they are inferred.
 * **Bulletproof GPU Serialization:** Strict `asyncio` locking queues concurrent requests, ensuring your GPU never crashes under high web traffic.
+* **Rate Limiting:** Optional per-endpoint rate limiting via `slowapi` with reverse-proxy-aware IP resolution (supports Colab tunnels, Gradio share links).
+* **Smooth Multi-Chunk Audio:** Raised-cosine crossfade between audio chunks eliminates audible clicks at boundaries. Configurable silence gaps also supported.
+* **LUFS Normalization:** Optional EBU R128 loudness normalization via `pyloudnorm` for broadcast-ready audio output.
 
 ### 💻 Hardware Flexibility
 * **Apple Silicon Native (MLX):** Deeply optimized for macOS. Utilizes unified memory to run fast, quiet, and cool on M1/M2/M3 chips without draining your battery.
@@ -285,6 +288,9 @@ Settings are stored in `config.json`.
 | `generation.max_chunk_chars` | `500` | Auto-splits long texts to prevent timeouts |
 | `generation.max_chunk_tokens` | `200` | Max tokens per chunk (torch backend) |
 | `generation.temperature` | `0.7` | Higher = more varied output |
+| `generation.silence_gap_seconds` | `0.0` | Silence between chunks (0 uses crossfade) |
+| `security.rate_limits.generate` | `10/minute` | Rate limit for generation endpoints |
+| `security.rate_limits.model_ops` | `5/minute` | Rate limit for model management endpoints |
 
 *You can use environment variables to override settings per session (e.g., `TTS_BACKEND=vllm tts "text"`).*
 
@@ -328,14 +334,19 @@ The FastAPI server (port 5123) provides the following endpoints:
 | `GET /ready` | No | Kubernetes readiness probe (503 while loading) |
 | `GET /generation-status` | No | Poll generation progress |
 | `POST /generate` | Yes | Generate audio (JSON response, see below) |
-| `POST /generate-stream` | Yes | Stream audio chunks (float32 PCM) |
+| `POST /generate-stream` | Yes | Stream audio chunks (float32 PCM, see below) |
 | `POST /load-model` | Yes | Load a model on-demand |
 | `POST /unload-model` | Yes | Unload model to free memory |
+| `POST /update-model-config` | Yes | Change model size, quantization, audio loader |
+| `POST /update-startup-config` | Yes | Set which models load at startup |
 | `GET /models` | Yes | List model status and memory |
-| `GET /prompts` | Yes | List voice prompts |
+| `GET /prompts` | Yes | List voice prompts (supports `offset`/`limit` pagination) |
 | `POST /delete-prompt` | Yes | Delete a voice prompt |
 | `POST /rename-prompt` | Yes | Rename a voice prompt |
+| `GET /preview-prompt` | Yes | Return .wav audio bytes for a prompt |
+| `GET /prompt-details` | Yes | Prompt metadata (formats, size, duration) |
 | `GET /stats` | Yes | Memory and cache statistics |
+| `POST /cancel-generation` | Yes | Cancel active generation |
 | `POST /shutdown` | Yes | Graceful server shutdown |
 
 Authentication uses Bearer tokens from `~/.voice_server_token`.
@@ -358,6 +369,18 @@ Returns JSON (not a binary audio stream):
 
 Each result contains base64-encoded WAV audio. Decode with standard base64 libraries. Long texts are chunked automatically, producing multiple results.
 
+### `POST /generate-stream` Wire Format
+
+Streams raw float32 little-endian samples as binary chunks at 24000 Hz:
+
+```python
+# Python consumer
+import struct, httpx
+with httpx.stream("POST", url, json=payload, headers=headers) as r:
+    for chunk in r.iter_bytes():
+        samples = struct.unpack(f'<{len(chunk)//4}f', chunk)
+```
+
 ---
 
 ## Troubleshooting & FAQ
@@ -371,7 +394,24 @@ Each result contains base64-encoded WAV audio. Decode with standard base64 libra
 
 ## Developer & Architecture
 
-Run the test suite using the batch runner (460+ tests across 16 test files, organized in 5 batches):
+### Engine Architecture
+
+The core engine (`qwen3_tts/core/engine/`) is organized as 6 submodules following a strict dependency DAG:
+
+| Module | Purpose |
+|--------|---------|
+| `text_processing.py` | Text normalization, sentence splitting, currency expansion |
+| `audio_processing.py` | Audio I/O, effects, silence trimming, LUFS normalization |
+| `voice_prompt.py` | Voice prompt loading and LRU caching |
+| `model_loader.py` | Torch/MLX model loading with warm-up |
+| `inference.py` | Stateless generation dispatch with crossfade |
+| `asr.py` | Whisper-based speech recognition |
+
+All public functions are re-exported through `engine/__init__.py` for backward compatibility.
+
+### Testing
+
+Run the test suite using the batch runner (560+ tests across 17 test files, organized in 5 batches):
 ```bash
 python tests/run_batches.py        # Run all batches
 python tests/run_batches.py --batch 1  # Run a specific batch

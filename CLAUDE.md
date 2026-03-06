@@ -88,7 +88,7 @@ config.json → qwen3_tts.core.config → qwen3_tts.core.engine (dispatch)
 - **Lazy imports everywhere** — neither `torch` nor `mlx` imported at module scope in any file
 - **Two conda envs** — `qwen3-tts` (torch) and `qwen3-tts-mlx` (mlx) due to `transformers` version conflict
 - **Three separate models** — Clone, Design, Custom are distinct HuggingFace models (~3.5GB torch, ~2.5GB MLX 8-bit each)
-- **Audio loader cache** — `_AUDIO_LOADER` global in `qwen3_tts/core/engine.py`, read once at import, updated only via `set_audio_loader()` — no disk I/O in hot path
+- **Audio loader cache** — `_AUDIO_LOADER` global in `qwen3_tts/core/engine/audio_processing.py`, read once at import, updated only via `set_audio_loader()` — no disk I/O in hot path
 - **Thread-safe ASR** — `_asr_lock` + `_ensure_asr_torch_loaded()` prevents race conditions between preload thread and user requests
 - **CUDA auto-optimization** — `_apply_cuda_optimizations()` detects GPU compute capability and selects optimal attention (FA2 vs SDPA), dtype, quantization, and torch.compile settings
 - **MLX prompt migration** — `migrate_orphan_mlx_prompts()` runs at server startup (torch backend) to convert orphan .wav+.txt to .pt
@@ -130,7 +130,7 @@ config.json → qwen3_tts.core.config → qwen3_tts.core.engine (dispatch)
 ├── install.sh                  # Cross-platform installer (macOS + Linux)
 ├── colab_notebook.ipynb        # Google Colab notebook
 ├── voice_prompts/              # .pt (torch) + .wav/.txt (MLX) files
-├── tests/                      # 16 test files, 460+ tests
+├── tests/                      # 17 test files, 560+ tests
 │   ├── run_batches.py          # Batch test runner
 │   ├── conftest.py             # Shared fixtures (pytest)
 │   └── test_*.py               # Test modules
@@ -271,13 +271,13 @@ python -m unittest discover -v tests/
 **Batches:**
 | Batch | Tests | Risk | Timeout |
 |-------|-------|------|---------|
-| 1: Core Utilities | audio_utils, text_processing, package_metadata, deprecated_refs, config | Low | 60s |
+| 1: Core Utilities | audio_utils, text_processing, package_metadata, deprecated_refs, config, p3_p4_remediation | Low | 60s |
 | 2: Voice & CLI | voice, cli_daemonization, caching, server_helpers | Medium | 120s |
 | 3: Server Infrastructure | fastapi_server, fastapi_endpoints, client | High | 180s |
 | 4: Engine & UI | engine, generate_server_fallback, ui_headless | Highest | 240s |
 | 5: Optional | flash_attn_install | Low | 30s |
 
-460+ tests across 16 test files. No GPU, models, or running server required. Tests auto-skip when optional deps (`soundfile`, `gradio`, `fastapi`, `click`, `pytest`) are missing — run in a conda env for full coverage.
+560+ tests across 17 test files. No GPU, models, or running server required. Tests auto-skip when optional deps (`soundfile`, `gradio`, `fastapi`, `click`, `pytest`) are missing — run in a conda env for full coverage.
 
 ## Models
 
@@ -297,9 +297,11 @@ python -m unittest discover -v tests/
 
 ## Security
 
-- Bearer token auth on all endpoints except `/health` and `/generation-status`
+- Bearer token auth on all endpoints except `/health`, `/ready`, and `/generation-status`
 - Token: `~/.voice_server_token` (0o600 perms), auto-cleaned on shutdown
-- Input validation: text length, batch size, path traversal prevention, mode/speaker validation
+- Input validation: text length, batch size, path traversal prevention, symlink resolution, mode/speaker validation
+- Rate limiting via `slowapi` (optional) with X-Forwarded-For IP resolution for reverse proxies
+- Audit logging for auth failures with client IP
 - Server binds `127.0.0.1` by default; `--public` for `0.0.0.0`; Colab auto-binds `0.0.0.0`
 
 ## Platform Support
@@ -329,10 +331,10 @@ Platform constants in `qwen3_tts/core/config.py`: `IN_COLAB`, `IS_MACOS`, `IS_LI
 
 | Cache | Location | Strategy | Invalidation |
 |-------|----------|----------|-------------|
-| Voice prompt | `qwen3_tts/core/engine.py` | LRU(10) torch .pt / dict for MLX .wav | `clear_voice_prompt_cache()` |
+| Voice prompt | `qwen3_tts/core/engine/voice_prompt.py` | LRU(10) torch .pt / dict for MLX .wav | `clear_voice_prompt_cache()` |
 | ETA | `qwen3_tts/server/app.py` | 30s TTL, avoids .jsonl reads per poll | Auto-expires |
 | Generation result | `qwen3_tts/server/app.py` | 5 entries, SHA256 key (text+mode+params) | Model config change, manual |
-| Audio loader | `qwen3_tts/core/engine.py` | `_AUDIO_LOADER` global, no disk I/O | `set_audio_loader()` only |
+| Audio loader | `qwen3_tts/core/engine/audio_processing.py` | `_AUDIO_LOADER` global, no disk I/O | `set_audio_loader()` only |
 
 ## Logging
 
@@ -353,7 +355,7 @@ CLI and UI parse the `recovery` field to show actionable guidance.
 
 ## Hardware Optimization (CUDA)
 
-`_apply_cuda_optimizations()` in `qwen3_tts/core/engine.py` auto-detects GPU and applies optimal settings:
+`_apply_cuda_optimizations()` in `qwen3_tts/core/engine/model_loader.py` auto-detects GPU and applies optimal settings:
 
 | GPU | Compute Cap | Attention | dtype | Quantization | torch.compile |
 |-----|------------|-----------|-------|-------------|---------------|
