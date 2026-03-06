@@ -31,6 +31,7 @@ BATCHES = {
             "tests.test_package_metadata",
             "tests.test_deprecated_refs",
             "tests.test_config",
+            "tests.test_p3_p4_remediation",
         ],
         "timeout": 60,  # Quick tests
     },
