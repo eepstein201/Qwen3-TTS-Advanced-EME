@@ -687,7 +687,36 @@ def _generate_streaming_impl(mode, text, preset, temperature, top_k, top_p, rep_
             yield None, "Error: No audio was generated", format_status_display(), history_list, gr.update()
 
     except Exception as e:
-        yield None, f"Error: {str(e)}", format_status_display(), history_list, gr.update()
+        # Streaming failed - attempt fallback to non-streaming
+        import logging
+        logging.warning(f"Streaming failed for {mode} mode, attempting fallback: {e}")
+        yield None, "Streaming stalled - trying file mode...", format_status_display(), history_list, gr.update()
+
+        try:
+            # Fallback to non-streaming generation
+            seed_val = int(seed) if seed and str(seed).strip() else None
+            preset_val = preset if preset and preset != "(none)" else None
+            mode_kwargs = _get_mode_kwargs(mode, prompt, description, speaker_choice, instruct)
+
+            output_path = client.generate(
+                text=text,
+                mode=mode,
+                preset=preset_val,
+                temperature=temperature,
+                top_k=int(top_k),
+                top_p=top_p,
+                seed=seed_val,
+                repetition_penalty=rep_penalty,
+                x_vector_only_mode=x_vector_only_mode,
+                **mode_kwargs,
+            )
+            if output_path:
+                history_list = add_to_history(history_list, mode, text, output_path, 0)
+                yield None, f"Complete (file mode): {os.path.basename(output_path)}", format_status_display(), history_list, get_history_data(history_list)
+            else:
+                yield None, "Error: Fallback generated no audio", format_status_display(), history_list, gr.update()
+        except Exception as fallback_error:
+            yield None, f"Error: Streaming and fallback both failed: {fallback_error}", format_status_display(), history_list, gr.update()
 
 
 def _generate_non_streaming_impl(mode, text, preset, temperature, top_k, top_p, rep_penalty, seed,
