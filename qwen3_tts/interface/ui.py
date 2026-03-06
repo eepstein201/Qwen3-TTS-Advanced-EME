@@ -1104,8 +1104,31 @@ def _build_generate_buttons_and_output():
 def _wire_generation_tab(mode, btn, cancel_btn, output, status, model_indicator,
                          text, text_info, inputs_list, status_html, history_df,
                          handler, api_name=None, history_state=None):
-    """Wire up the common event handlers for a generation tab."""
-    click_kwargs = {"fn": handler, "inputs": inputs_list, "outputs": [output, status, status_html, history_state, history_df]}
+    """Wire up the common event handlers for a generation tab.
+
+    Args:
+        mode: The generation mode ('clone', 'design', 'custom').
+        btn: The generate button component.
+        cancel_btn: The cancel button component.
+        output: The audio output component.
+        status: The status textbox component.
+        model_indicator: The model status HTML component.
+        text: The input textbox component.
+        text_info: The text info textbox component.
+        inputs_list: List of input components for the handler.
+        status_html: The status HTML component.
+        history_df: The history dataframe component.
+        handler: The generation handler function.
+        api_name: Optional API name for the endpoint.
+        history_state: Optional history state component.
+    """
+    # Include JavaScript reset to clear audio buffer between generations
+    click_kwargs = {
+        "fn": handler,
+        "inputs": inputs_list,
+        "outputs": [output, status, status_html, history_state, history_df],
+        "js": _create_audio_reset_js(),  # Reset audio state before each generation
+    }
     if api_name:
         click_kwargs["api_name"] = api_name
 
