@@ -77,6 +77,12 @@ _CURRENCY_MAP = {
     "£": ("pound", "pounds"),
     "¥": ("yen", "yen"),
 }
+_SUBUNIT_MAP = {
+    "$": ("cent", "cents"),
+    "€": ("cent", "cents"),
+    "£": ("penny", "pence"),
+    "¥": (None, None),
+}
 
 # Pre-compiled regex patterns for _normalize_text()
 _EMAIL_RE = re.compile(r'\b[A-Za-z0-9._%+\-]+@[A-Za-z0-9.\-]+\.[A-Za-z]{2,}\b')
@@ -160,12 +166,6 @@ def _normalize_text(text, language="English"):
         logger.warning("Text normalization (phone) failed: %s", e)
 
     # 4. Currencies: $5.99 → "five dollars and ninety-nine cents"
-    _SUBUNIT_MAP = {
-        "$": ("cent", "cents"),
-        "€": ("cent", "cents"),
-        "£": ("penny", "pence"),
-        "¥": (None, None),
-    }
     try:
         def _expand_currency(m):
             symbol = m.group(1)

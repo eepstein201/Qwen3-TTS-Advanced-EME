@@ -428,6 +428,20 @@ class TestRateLimiting(unittest.TestCase):
         from qwen3_tts.server import app as app_module
         self.assertIsInstance(app_module._HAS_SLOWAPI, bool)
 
+    def test_rate_limit_decorator_exists(self):
+        """_rate_limit helper should be callable."""
+        from qwen3_tts.server.app import _rate_limit
+        self.assertTrue(callable(_rate_limit))
+
+    def test_rate_limit_decorators_on_endpoints(self):
+        """Key endpoints should have rate limit decorators in source."""
+        source = inspect.getsource(
+            __import__('qwen3_tts.server.app', fromlist=['app'])
+        )
+        # Check that _rate_limit is applied near the endpoint definitions
+        self.assertIn("@_rate_limit(_generate_limit)", source)
+        self.assertIn("@_rate_limit(_model_limit)", source)
+
 
 # ---------------------------------------------------------------------------
 # Task 12: Thread-safe request_queue (R-19)

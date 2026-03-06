@@ -576,6 +576,17 @@ if _HAS_SLOWAPI:
     app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 else:
     limiter = None
+    _generate_limit = "10/minute"
+    _model_limit = "5/minute"
+
+
+def _rate_limit(limit_string):
+    """Return a slowapi rate limit decorator, or a no-op if slowapi is not installed."""
+    if limiter is not None:
+        return limiter.limit(limit_string)
+    def _noop(func):
+        return func
+    return _noop
 
 
 # ---------------------------------------------------------------------------
@@ -757,6 +768,7 @@ async def list_models(request: Request, _auth: None = Depends(verify_auth)):
 
 
 @app.post("/load-model")
+@_rate_limit(_model_limit)
 async def load_model_endpoint(request: Request, req: LoadModelRequest, _auth: None = Depends(verify_auth)):
     """Load a model on demand."""
     state = request.app.state
@@ -854,6 +866,7 @@ async def unload_model(request: Request, req: UnloadModelRequest, _auth: None = 
 
 
 @app.post("/update-model-config")
+@_rate_limit(_model_limit)
 async def update_model_config(request: Request, req: UpdateModelConfigRequest, _auth: None = Depends(verify_auth)):
     """Update model size and/or quantization settings."""
     state = request.app.state
@@ -999,16 +1012,19 @@ async def list_prompts(request: Request, _auth: None = Depends(verify_auth)):
 
     # Pagination (R-24) — default limit=0 means return all (backward compat)
     try:
-        offset = int(request.query_params.get("offset", 0))
+        offset = max(0, int(request.query_params.get("offset", 0)))
     except (ValueError, TypeError):
         offset = 0
     try:
-        limit = int(request.query_params.get("limit", 0))
+        limit = max(0, int(request.query_params.get("limit", 0)))
     except (ValueError, TypeError):
         limit = 0
 
-    if limit > 0:
-        prompts = prompts[offset:offset + limit]
+    if offset > 0 or limit > 0:
+        if limit > 0:
+            prompts = prompts[offset:offset + limit]
+        else:
+            prompts = prompts[offset:]
 
     return {"prompts": prompts, "total": total, "offset": offset, "limit": limit}
 
@@ -1234,6 +1250,7 @@ async def cancel_generation(request: Request, _auth: None = Depends(verify_auth)
 
 @app.post("/generate", response_model=GenerateResponse,
           responses={200: {"content": {"audio/wav": {"schema": {"type": "string", "format": "binary"}}}}})
+@_rate_limit(_generate_limit)
 async def generate(request: Request, req: GenerateRequest, _auth: None = Depends(verify_auth)):
     """Generate audio from text."""
     state = request.app.state
@@ -1483,6 +1500,7 @@ async def generate(request: Request, req: GenerateRequest, _auth: None = Depends
 
 
 @app.post("/generate-stream")
+@_rate_limit(_generate_limit)
 async def generate_stream(request: Request, req: GenerateRequest, _auth: None = Depends(verify_auth)):
     """Stream audio generation — returns chunked audio as it's produced.
 
