@@ -167,8 +167,28 @@ def adjust_pitch(audio, sample_rate, semitones):
         return librosa.effects.pitch_shift(audio, sr=sample_rate, n_steps=semitones)
 
 
+def normalize_lufs(audio, sample_rate, target_lufs=-16.0):
+    """Normalize audio to target LUFS (EBU R128). Requires pyloudnorm.
+
+    Args:
+        audio: numpy float32 audio array.
+        sample_rate: Audio sample rate.
+        target_lufs: Target loudness in LUFS (default -16.0).
+
+    Returns:
+        Loudness-normalized audio array.
+
+    Raises:
+        ImportError: If pyloudnorm is not installed.
+    """
+    import pyloudnorm as pyln
+    meter = pyln.Meter(sample_rate)
+    loudness = meter.integrated_loudness(audio)
+    return pyln.normalize.loudness(audio, loudness, target_lufs)
+
+
 def process_audio(audio, sample_rate, trim=False, normalize=False,
-                  speed=None, pitch=None):
+                  speed=None, pitch=None, lufs_target=None):
     """Apply all audio processing in canonical order.
 
     Args:
@@ -178,6 +198,7 @@ def process_audio(audio, sample_rate, trim=False, normalize=False,
         normalize: Normalize to -3dB peak.
         speed: Speed factor (None or 1.0 = unchanged).
         pitch: Pitch shift in semitones (None or 0 = unchanged).
+        lufs_target: Optional LUFS target (e.g. -16.0). Requires pyloudnorm.
     """
     if trim:
         audio = trim_silence(audio, sample_rate)
@@ -190,5 +211,13 @@ def process_audio(audio, sample_rate, trim=False, normalize=False,
 
     if normalize:
         audio = normalize_audio(audio, target_db=-3.0)
+
+    if lufs_target is not None:
+        try:
+            audio = normalize_lufs(audio, sample_rate, target_lufs=lufs_target)
+        except ImportError:
+            logger.warning("pyloudnorm not installed — skipping LUFS normalization")
+        except Exception as e:
+            logger.warning("LUFS normalization failed: %s", e)
 
     return audio

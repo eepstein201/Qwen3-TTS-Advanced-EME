@@ -1484,7 +1484,33 @@ async def generate(request: Request, req: GenerateRequest, _auth: None = Depends
 
 @app.post("/generate-stream")
 async def generate_stream(request: Request, req: GenerateRequest, _auth: None = Depends(verify_auth)):
-    """Stream audio generation — returns chunked audio as it's produced."""
+    """Stream audio generation — returns chunked audio as it's produced.
+
+    Wire format: raw float32 little-endian samples streamed as binary chunks.
+    Sample rate is constant across chunks (typically 24000 Hz).
+
+    Python consumer::
+
+        import struct, httpx
+        with httpx.stream("POST", url, json=payload, headers=headers) as r:
+            for chunk in r.iter_bytes():
+                samples = struct.unpack(f'<{len(chunk)//4}f', chunk)
+
+    JavaScript consumer::
+
+        const response = await fetch(url, {
+            method: 'POST',
+            body: JSON.stringify(payload),
+            headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer <token>' }
+        });
+        const reader = response.body.getReader();
+        while (true) {
+            const { done, value } = await reader.read();
+            if (done) break;
+            const float32 = new Float32Array(value.buffer);
+            // Play float32 samples at 24000 Hz
+        }
+    """
     state = request.app.state
     reset_activity_timer(state)
 

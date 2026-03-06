@@ -58,6 +58,7 @@ from qwen3_tts.core.engine.audio_processing import (
     load_audio_for_cloning,
     trim_silence,
     normalize_audio,
+    normalize_lufs,
     adjust_speed,
     adjust_pitch,
     process_audio,

@@ -4,6 +4,7 @@
 Phase 2: Text processing fixes (R-21, R-22, _normalize_text, _expand_currency)
 Phase 3: Engine fixes (R-14, R-16, R-17, R-18, R-27, torch.load)
 Phase 4: Server fixes (R-13, R-19, R-20, R-24, R-26)
+Phase 5: Documentation and optional features (R-23, R-25)
 """
 
 import inspect
@@ -507,6 +508,72 @@ class TestAuditLogging(unittest.TestCase):
         from qwen3_tts.server.app import verify_auth
         source = inspect.getsource(verify_auth)
         self.assertIn("_get_real_client_ip", source)
+
+
+# ===========================================================================
+# Phase 5: Documentation and optional features (R-23, R-25)
+# ===========================================================================
+
+
+# ---------------------------------------------------------------------------
+# Task 16: Streaming wire format documentation (R-25)
+# ---------------------------------------------------------------------------
+
+
+class TestStreamingDocs(unittest.TestCase):
+    """Verify generate_stream has wire format documentation."""
+
+    def test_wire_format_documented(self):
+        """generate_stream docstring should describe the wire format."""
+        from qwen3_tts.server.app import generate_stream
+        doc = generate_stream.__doc__ or ""
+        self.assertIn("float32", doc)
+        self.assertIn("little-endian", doc)
+
+    def test_python_consumer_example(self):
+        """Docstring should include Python consumer example."""
+        from qwen3_tts.server.app import generate_stream
+        doc = generate_stream.__doc__ or ""
+        self.assertIn("httpx", doc)
+
+    def test_javascript_consumer_example(self):
+        """Docstring should include JavaScript consumer example."""
+        from qwen3_tts.server.app import generate_stream
+        doc = generate_stream.__doc__ or ""
+        self.assertIn("Float32Array", doc)
+
+
+# ---------------------------------------------------------------------------
+# Task 17: LUFS normalization (R-23)
+# ---------------------------------------------------------------------------
+
+
+class TestLUFSNormalization(unittest.TestCase):
+    """Verify LUFS normalization function exists and integrates with process_audio."""
+
+    def test_normalize_lufs_function_exists(self):
+        """normalize_lufs should be importable from audio_processing."""
+        from qwen3_tts.core.engine.audio_processing import normalize_lufs
+        self.assertTrue(callable(normalize_lufs))
+
+    def test_normalize_lufs_in_facade(self):
+        """normalize_lufs should be exported from engine facade."""
+        from qwen3_tts.core.engine import normalize_lufs
+        self.assertTrue(callable(normalize_lufs))
+
+    def test_process_audio_accepts_lufs_target(self):
+        """process_audio should accept lufs_target parameter."""
+        sig = inspect.signature(
+            __import__('qwen3_tts.core.engine.audio_processing', fromlist=['process_audio']).process_audio
+        )
+        self.assertIn("lufs_target", sig.parameters)
+
+    def test_process_audio_lufs_none_is_noop(self):
+        """lufs_target=None should not change audio."""
+        from qwen3_tts.core.engine.audio_processing import process_audio
+        audio = np.ones(1000, dtype=np.float32) * 0.5
+        result = process_audio(audio, 24000, lufs_target=None)
+        np.testing.assert_array_equal(result, audio)
 
 
 if __name__ == "__main__":
