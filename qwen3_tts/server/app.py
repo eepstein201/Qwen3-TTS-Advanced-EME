@@ -34,6 +34,14 @@ from fastapi.responses import StreamingResponse, FileResponse
 from pydantic import BaseModel, Field
 import uvicorn
 
+# Optional rate limiting (R-13)
+try:
+    from slowapi import Limiter, _rate_limit_exceeded_handler
+    from slowapi.errors import RateLimitExceeded
+    _HAS_SLOWAPI = True
+except ImportError:
+    _HAS_SLOWAPI = False
+
 logger = logging.getLogger("tts")
 
 from qwen3_tts.core.config import (
@@ -162,6 +170,22 @@ class HealthResponse(BaseModel):
 
 
 # ---------------------------------------------------------------------------
+# Real client IP resolution (R-13)
+# ---------------------------------------------------------------------------
+
+def _get_real_client_ip(request: Request) -> str:
+    """Extract real client IP, checking proxy headers first.
+
+    Critical for Colab/Gradio share links where all traffic
+    comes through a reverse proxy or tunnel.
+    """
+    forwarded = request.headers.get("X-Forwarded-For")
+    if forwarded:
+        return forwarded.split(",")[0].strip()
+    return request.client.host if request.client else "127.0.0.1"
+
+
+# ---------------------------------------------------------------------------
 # Auth dependency
 # ---------------------------------------------------------------------------
 
@@ -171,6 +195,8 @@ async def verify_auth(request: Request) -> None:
         return
     token = request.headers.get("Authorization", "").replace("Bearer ", "")
     if not secrets.compare_digest(token, request.app.state.auth_token):
+        client_ip = _get_real_client_ip(request)
+        logger.warning("Auth failure from %s on %s %s", client_ip, request.method, request.url.path)
         raise HTTPException(status_code=401, detail="Unauthorized")
 
 
@@ -306,6 +332,12 @@ def _estimate_eta(app_state, text_length: int, elapsed_sec: float) -> Optional[f
     return round(remaining, 1)
 
 
+def _get_queue_size(app_state) -> int:
+    """Return request queue size (thread-safe)."""
+    with app_state.request_queue_lock:
+        return len(app_state.request_queue)
+
+
 def reset_activity_timer(app_state):
     """Reset the auto-shutdown timer on activity."""
     app_state.last_activity = time.time()
@@ -360,6 +392,7 @@ async def lifespan(app: FastAPI):
         "cancelled": False,
     }
     app.state.request_queue = set()
+    app.state.request_queue_lock = threading.Lock()
     app.state.last_activity = time.time()
     app.state.models_loaded = threading.Event()
     app.state.gen_cache = {}
@@ -533,6 +566,28 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+# Rate limiting (R-13) — optional, requires slowapi
+if _HAS_SLOWAPI:
+    _rate_config = load_config().get("security", {}).get("rate_limits", {})
+    _generate_limit = _rate_config.get("generate", "10/minute")
+    _model_limit = _rate_config.get("model_ops", "5/minute")
+    limiter = Limiter(key_func=_get_real_client_ip)
+    app.state.limiter = limiter
+    app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
+else:
+    limiter = None
+    _generate_limit = "10/minute"
+    _model_limit = "5/minute"
+
+
+def _rate_limit(limit_string):
+    """Return a slowapi rate limit decorator, or a no-op if slowapi is not installed."""
+    if limiter is not None:
+        return limiter.limit(limit_string)
+    def _noop(func):
+        return func
+    return _noop
+
 
 # ---------------------------------------------------------------------------
 # Public endpoints (no auth)
@@ -630,7 +685,7 @@ async def stats(request: Request, _auth: None = Depends(verify_auth)):
         "voice_prompts_cache_hits": cache_info.hits,
         "idle_seconds": idle_seconds,
         "auto_shutdown_minutes": auto_shutdown_minutes if auto_shutdown_minutes > 0 else "disabled",
-        "generation_queue_size": len(state.request_queue),
+        "generation_queue_size": _get_queue_size(state),
     }
     if backend == "mlx":
         stats_data["mlx_quantization"] = get_mlx_quantization()
@@ -713,6 +768,7 @@ async def list_models(request: Request, _auth: None = Depends(verify_auth)):
 
 
 @app.post("/load-model")
+@_rate_limit(_model_limit)
 async def load_model_endpoint(request: Request, req: LoadModelRequest, _auth: None = Depends(verify_auth)):
     """Load a model on demand."""
     state = request.app.state
@@ -810,6 +866,7 @@ async def unload_model(request: Request, req: UnloadModelRequest, _auth: None = 
 
 
 @app.post("/update-model-config")
+@_rate_limit(_model_limit)
 async def update_model_config(request: Request, req: UpdateModelConfigRequest, _auth: None = Depends(verify_auth)):
     """Update model size and/or quantization settings."""
     state = request.app.state
@@ -923,7 +980,12 @@ async def update_startup_config(request: Request, req: UpdateStartupConfigReques
 
 @app.get("/prompts")
 async def list_prompts(request: Request, _auth: None = Depends(verify_auth)):
-    """List voice prompts."""
+    """List voice prompts with optional pagination (R-24).
+
+    Query params:
+        offset: Start index (default 0).
+        limit: Max results (default 0 = return all, for backward compat).
+    """
     state = request.app.state
     reset_activity_timer(state)
 
@@ -931,7 +993,7 @@ async def list_prompts(request: Request, _auth: None = Depends(verify_auth)):
     try:
         all_files = set(os.listdir(VOICE_PROMPTS_DIR))
     except OSError:
-        return {"prompts": []}
+        return {"prompts": [], "total": 0}
 
     if backend == "mlx":
         # MLX uses .wav+.txt pairs
@@ -946,7 +1008,25 @@ async def list_prompts(request: Request, _auth: None = Depends(verify_auth)):
         all_names = sorted(pt_names | wav_names)
         prompts = [f"{n}.pt" for n in all_names]
 
-    return {"prompts": prompts}
+    total = len(prompts)
+
+    # Pagination (R-24) — default limit=0 means return all (backward compat)
+    try:
+        offset = max(0, int(request.query_params.get("offset", 0)))
+    except (ValueError, TypeError):
+        offset = 0
+    try:
+        limit = max(0, int(request.query_params.get("limit", 0)))
+    except (ValueError, TypeError):
+        limit = 0
+
+    if offset > 0 or limit > 0:
+        if limit > 0:
+            prompts = prompts[offset:offset + limit]
+        else:
+            prompts = prompts[offset:]
+
+    return {"prompts": prompts, "total": total, "offset": offset, "limit": limit}
 
 
 @app.post("/delete-prompt")
@@ -1078,6 +1158,12 @@ async def preview_prompt(request: Request, _auth: None = Depends(verify_auth)):
     base = _strip_extension(name)
     wav_path = os.path.join(VOICE_PROMPTS_DIR, f"{base}.wav")
 
+    # Symlink resolution — prevent path traversal via symlinks (R-20)
+    real_path = os.path.realpath(wav_path)
+    real_prompts_dir = os.path.realpath(VOICE_PROMPTS_DIR)
+    if not real_path.startswith(real_prompts_dir + os.sep):
+        raise HTTPException(status_code=403, detail="Access denied: path outside voice prompts directory")
+
     if not os.path.exists(wav_path):
         raise HTTPException(status_code=404, detail=f"No .wav file found for prompt '{base}'")
 
@@ -1164,6 +1250,7 @@ async def cancel_generation(request: Request, _auth: None = Depends(verify_auth)
 
 @app.post("/generate", response_model=GenerateResponse,
           responses={200: {"content": {"audio/wav": {"schema": {"type": "string", "format": "binary"}}}}})
+@_rate_limit(_generate_limit)
 async def generate(request: Request, req: GenerateRequest, _auth: None = Depends(verify_auth)):
     """Generate audio from text."""
     state = request.app.state
@@ -1239,9 +1326,10 @@ async def generate(request: Request, req: GenerateRequest, _auth: None = Depends
     x_vector_only_mode = req.x_vector_only_mode
     max_chunk_chars = req.max_chunk_chars
 
-    # Track this request in queue
+    # Track this request in queue (thread-safe, R-19)
     request_id = id(request)
-    state.request_queue.add(request_id)
+    with state.request_queue_lock:
+        state.request_queue.add(request_id)
 
     try:
         import io, base64
@@ -1272,7 +1360,8 @@ async def generate(request: Request, req: GenerateRequest, _auth: None = Depends
         # If ALL texts hit cache, skip the lock entirely
         if len(pre_lock_results) == len(texts):
             results = [pre_lock_results[i] for i in range(len(texts))]
-            state.request_queue.discard(request_id)
+            with state.request_queue_lock:
+                state.request_queue.discard(request_id)
             return {"results": results}
 
         # Acquire inference_lock for GPU serialization (generation_lock used only for state updates)
@@ -1406,13 +1495,40 @@ async def generate(request: Request, req: GenerateRequest, _auth: None = Depends
             "chunk_index": 0,
             "chunk_total": 0,
         })
-        if request_id in state.request_queue:
+        with state.request_queue_lock:
             state.request_queue.discard(request_id)
 
 
 @app.post("/generate-stream")
+@_rate_limit(_generate_limit)
 async def generate_stream(request: Request, req: GenerateRequest, _auth: None = Depends(verify_auth)):
-    """Stream audio generation — returns chunked audio as it's produced."""
+    """Stream audio generation — returns chunked audio as it's produced.
+
+    Wire format: raw float32 little-endian samples streamed as binary chunks.
+    Sample rate is constant across chunks (typically 24000 Hz).
+
+    Python consumer::
+
+        import struct, httpx
+        with httpx.stream("POST", url, json=payload, headers=headers) as r:
+            for chunk in r.iter_bytes():
+                samples = struct.unpack(f'<{len(chunk)//4}f', chunk)
+
+    JavaScript consumer::
+
+        const response = await fetch(url, {
+            method: 'POST',
+            body: JSON.stringify(payload),
+            headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer <token>' }
+        });
+        const reader = response.body.getReader();
+        while (true) {
+            const { done, value } = await reader.read();
+            if (done) break;
+            const float32 = new Float32Array(value.buffer);
+            // Play float32 samples at 24000 Hz
+        }
+    """
     state = request.app.state
     reset_activity_timer(state)
 

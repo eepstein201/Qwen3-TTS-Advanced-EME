@@ -177,8 +177,8 @@ class TestMetalRetryDepthLimit(unittest.TestCase):
     def _make_metal_error(self):
         return RuntimeError("Metal command buffer execution failed")
 
-    @patch("qwen3_tts.core.engine.get_backend", return_value="mlx")
-    @patch("qwen3_tts.core.engine._run_inference_mlx")
+    @patch("qwen3_tts.core.engine.inference.get_backend", return_value="mlx")
+    @patch("qwen3_tts.core.engine.inference._run_inference_mlx")
     def test_depth_0_retries_on_metal_crash(self, mock_mlx, mock_backend):
         """At depth 0 with text > 100 chars, Metal crash triggers split retry."""
         from qwen3_tts.core.engine import _run_inference_single
@@ -202,8 +202,8 @@ class TestMetalRetryDepthLimit(unittest.TestCase):
         # Should have called _run_inference_mlx 3 times (1 fail + 2 sub-chunks)
         self.assertEqual(mock_mlx.call_count, 3)
 
-    @patch("qwen3_tts.core.engine.get_backend", return_value="mlx")
-    @patch("qwen3_tts.core.engine._run_inference_mlx")
+    @patch("qwen3_tts.core.engine.inference.get_backend", return_value="mlx")
+    @patch("qwen3_tts.core.engine.inference._run_inference_mlx")
     def test_depth_2_raises_immediately(self, mock_mlx, mock_backend):
         """At depth 2, Metal crash re-raises without recursion."""
         from qwen3_tts.core.engine import _run_inference_single
@@ -218,8 +218,8 @@ class TestMetalRetryDepthLimit(unittest.TestCase):
         # Should have called mlx exactly once (no recursion)
         self.assertEqual(mock_mlx.call_count, 1)
 
-    @patch("qwen3_tts.core.engine.get_backend", return_value="mlx")
-    @patch("qwen3_tts.core.engine._run_inference_mlx")
+    @patch("qwen3_tts.core.engine.inference.get_backend", return_value="mlx")
+    @patch("qwen3_tts.core.engine.inference._run_inference_mlx")
     def test_short_text_raises_immediately(self, mock_mlx, mock_backend):
         """Short text (<=100 chars) should not trigger retry regardless of depth."""
         from qwen3_tts.core.engine import _run_inference_single

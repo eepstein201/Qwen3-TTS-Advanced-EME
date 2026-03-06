@@ -139,6 +139,7 @@ def initialize_app_state_for_xdist():
             "cancelled": False,
         }
         app.state.request_queue = set()
+        app.state.request_queue_lock = threading.Lock()
         app.state.last_activity = 0
         app.state.models_loaded = threading.Event()
         app.state.gen_cache = {}
@@ -339,6 +340,7 @@ def fastapi_client(tmp_config, unused_port):
             "cancelled": False,
         }
         app.state.request_queue = set()
+        app.state.request_queue_lock = threading.Lock()
         app.state.last_activity = 0
         app.state.models_loaded = threading.Event()
         app.state.gen_cache = {}

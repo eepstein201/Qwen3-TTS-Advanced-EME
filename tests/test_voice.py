@@ -82,6 +82,7 @@ def _setup_fastapi_app_state(app, server_config=None):
         "cancelled": False,
     }
     app.state.request_queue = set()
+    app.state.request_queue_lock = threading.Lock()
     app.state.last_activity = 0
     app.state.models_loaded = threading.Event()
     app.state.gen_cache = {}
@@ -669,7 +670,7 @@ class TestMLXVoicePrompt(unittest.TestCase):
         with open(txt_path, "w") as f:
             f.write("Hello, this is a test transcript.")
 
-        with patch("qwen3_tts.core.engine.VOICE_PROMPTS_DIR", self.tmpdir):
+        with patch("qwen3_tts.core.engine.voice_prompt.VOICE_PROMPTS_DIR", self.tmpdir):
             result = load_voice_prompt_mlx("test_voice.pt")
 
         self.assertIsInstance(result, dict)
@@ -686,14 +687,14 @@ class TestMLXVoicePrompt(unittest.TestCase):
         with open(txt_path, "w") as f:
             f.write("transcript")
 
-        with patch("qwen3_tts.core.engine.VOICE_PROMPTS_DIR", self.tmpdir):
+        with patch("qwen3_tts.core.engine.voice_prompt.VOICE_PROMPTS_DIR", self.tmpdir):
             result = load_voice_prompt_mlx("voice.pt")
         self.assertEqual(result["ref_audio"], wav_path)
 
     def test_load_voice_prompt_mlx_missing_files(self):
         """Raises FileNotFoundError when wav/txt missing."""
         from qwen3_tts.core.engine import load_voice_prompt_mlx
-        with patch("qwen3_tts.core.engine.VOICE_PROMPTS_DIR", self.tmpdir):
+        with patch("qwen3_tts.core.engine.voice_prompt.VOICE_PROMPTS_DIR", self.tmpdir):
             with self.assertRaises(FileNotFoundError):
                 load_voice_prompt_mlx("nonexistent")
 
@@ -704,7 +705,7 @@ class TestMLXVoicePrompt(unittest.TestCase):
         with open(pt_path, "wb") as f:
             f.write(b"fake tensor data")
 
-        with patch("qwen3_tts.core.engine.VOICE_PROMPTS_DIR", self.tmpdir):
+        with patch("qwen3_tts.core.engine.voice_prompt.VOICE_PROMPTS_DIR", self.tmpdir):
             with self.assertRaises(FileNotFoundError) as ctx:
                 load_voice_prompt_mlx("legacy")
             self.assertIn("only has a .pt file", str(ctx.exception))
@@ -713,8 +714,8 @@ class TestMLXVoicePrompt(unittest.TestCase):
     def test_load_voice_prompt_dispatch_torch(self):
         """load_voice_prompt dispatches to torch backend."""
         from qwen3_tts.core.engine import load_voice_prompt
-        with patch("qwen3_tts.core.engine.get_backend", return_value="torch"):
-            with patch("qwen3_tts.core.engine._load_voice_prompt_torch", return_value="mock_tensor") as mock:
+        with patch("qwen3_tts.core.engine.voice_prompt.get_backend", return_value="torch"):
+            with patch("qwen3_tts.core.engine.voice_prompt._load_voice_prompt_torch", return_value="mock_tensor") as mock:
                 result = load_voice_prompt("test.pt")
         mock.assert_called_once_with("test.pt")
         self.assertEqual(result, "mock_tensor")
@@ -723,8 +724,8 @@ class TestMLXVoicePrompt(unittest.TestCase):
         """load_voice_prompt dispatches to MLX backend."""
         from qwen3_tts.core.engine import load_voice_prompt
         mock_result = {"ref_audio": "/fake/path.wav", "ref_text": "text"}
-        with patch("qwen3_tts.core.engine.get_backend", return_value="mlx"):
-            with patch("qwen3_tts.core.engine.load_voice_prompt_mlx", return_value=mock_result) as mock:
+        with patch("qwen3_tts.core.engine.voice_prompt.get_backend", return_value="mlx"):
+            with patch("qwen3_tts.core.engine.voice_prompt.load_voice_prompt_mlx", return_value=mock_result) as mock:
                 result = load_voice_prompt("test.pt")
         mock.assert_called_once_with("test.pt")
         self.assertEqual(result, mock_result)
@@ -739,32 +740,32 @@ class TestBackendDispatch(unittest.TestCase):
 
     def test_load_model_dispatch_torch(self):
         from qwen3_tts.core.engine import load_model
-        with patch("qwen3_tts.core.engine.get_backend", return_value="torch"):
-            with patch("qwen3_tts.core.engine._load_model_torch", return_value="torch_model") as mock:
+        with patch("qwen3_tts.core.engine.model_loader.get_backend", return_value="torch"):
+            with patch("qwen3_tts.core.engine.model_loader._load_model_torch", return_value="torch_model") as mock:
                 result = load_model("clone")
         mock.assert_called_once_with("clone")
         self.assertEqual(result, "torch_model")
 
     def test_load_model_dispatch_mlx(self):
         from qwen3_tts.core.engine import load_model
-        with patch("qwen3_tts.core.engine.get_backend", return_value="mlx"):
-            with patch("qwen3_tts.core.engine._load_model_mlx", return_value="mlx_model") as mock:
+        with patch("qwen3_tts.core.engine.model_loader.get_backend", return_value="mlx"):
+            with patch("qwen3_tts.core.engine.model_loader._load_model_mlx", return_value="mlx_model") as mock:
                 result = load_model("design")
         mock.assert_called_once_with("design")
         self.assertEqual(result, "mlx_model")
 
     def test_run_inference_dispatch_torch(self):
         from qwen3_tts.core.engine import run_inference
-        with patch("qwen3_tts.core.engine.get_backend", return_value="torch"):
-            with patch("qwen3_tts.core.engine._run_inference_torch", return_value=("wav", 24000)) as mock:
+        with patch("qwen3_tts.core.engine.inference.get_backend", return_value="torch"):
+            with patch("qwen3_tts.core.engine.inference._run_inference_torch", return_value=("wav", 24000)) as mock:
                 result = run_inference("model", "text", "clone", {})
         mock.assert_called_once()
         self.assertEqual(result, ("wav", 24000))
 
     def test_run_inference_dispatch_mlx(self):
         from qwen3_tts.core.engine import run_inference
-        with patch("qwen3_tts.core.engine.get_backend", return_value="mlx"):
-            with patch("qwen3_tts.core.engine._run_inference_mlx", return_value=("wav", 24000)) as mock:
+        with patch("qwen3_tts.core.engine.inference.get_backend", return_value="mlx"):
+            with patch("qwen3_tts.core.engine.inference._run_inference_mlx", return_value=("wav", 24000)) as mock:
                 result = run_inference("model", "text", "design", {})
         mock.assert_called_once()
         self.assertEqual(result, ("wav", 24000))
@@ -1034,7 +1035,7 @@ class TestASR(unittest.TestCase):
     def test_is_asr_available_mlx_with_stt(self):
         """is_asr_available returns True when MLX + mlx_audio.stt available."""
         from qwen3_tts.core.engine import is_asr_available
-        with patch("qwen3_tts.core.engine.get_backend", return_value="mlx"):
+        with patch("qwen3_tts.core.engine.asr.get_backend", return_value="mlx"):
             with patch.dict(sys.modules, {"mlx_audio.stt": MagicMock()}):
                 result = is_asr_available()
         self.assertIsInstance(result, bool)
@@ -1049,8 +1050,8 @@ class TestASR(unittest.TestCase):
         mock_model = MagicMock()
         mock_model.generate.return_value = mock_result
 
-        with patch("qwen3_tts.core.engine.get_backend", return_value="mlx"):
-            with patch("qwen3_tts.core.engine._asr_model_mlx", mock_model):
+        with patch("qwen3_tts.core.engine.asr.get_backend", return_value="mlx"):
+            with patch("qwen3_tts.core.engine.asr._asr_model_mlx", mock_model):
                 result = transcribe_audio("/fake/path.wav")
 
         self.assertIsInstance(result, str)
@@ -1065,7 +1066,7 @@ class TestASR(unittest.TestCase):
             has_transformers = True
         except (ImportError, Exception):
             has_transformers = False
-        with patch("qwen3_tts.core.engine.get_backend", return_value="torch"):
+        with patch("qwen3_tts.core.engine.asr.get_backend", return_value="torch"):
             result = is_asr_available()
         self.assertEqual(result, has_transformers)
 
@@ -1075,8 +1076,8 @@ class TestASR(unittest.TestCase):
 
         mock_pipe = MagicMock(return_value={"text": "Torch transcript"})
 
-        with patch("qwen3_tts.core.engine.get_backend", return_value="torch"):
-            with patch("qwen3_tts.core.engine._asr_model_torch", mock_pipe):
+        with patch("qwen3_tts.core.engine.asr.get_backend", return_value="torch"):
+            with patch("qwen3_tts.core.engine.asr._asr_model_torch", mock_pipe):
                 result = transcribe_audio("/fake/path.wav")
 
         self.assertEqual(result, "Torch transcript")
@@ -1088,8 +1089,8 @@ class TestASR(unittest.TestCase):
 
         mock_pipe = MagicMock(return_value={"text": "Bonjour"})
 
-        with patch("qwen3_tts.core.engine.get_backend", return_value="torch"):
-            with patch("qwen3_tts.core.engine._asr_model_torch", mock_pipe):
+        with patch("qwen3_tts.core.engine.asr.get_backend", return_value="torch"):
+            with patch("qwen3_tts.core.engine.asr._asr_model_torch", mock_pipe):
                 transcribe_audio("/fake/path.wav", language="fr")
 
         call_kwargs = mock_pipe.call_args[1]
@@ -1124,7 +1125,7 @@ class TestStability(unittest.TestCase):
     def test_max_chunk_chars_default(self):
         """_get_max_chunk_chars returns default 500."""
         from qwen3_tts.core.engine import _get_max_chunk_chars
-        with patch("qwen3_tts.core.engine.load_config", return_value={}):
+        with patch("qwen3_tts.core.engine.inference.load_config", return_value={}):
             result = _get_max_chunk_chars()
         self.assertEqual(result, 500)
 
@@ -1132,7 +1133,7 @@ class TestStability(unittest.TestCase):
         """_get_max_chunk_chars reads from config."""
         from qwen3_tts.core.engine import _get_max_chunk_chars
         config = {"generation": {"max_chunk_chars": 300}}
-        with patch("qwen3_tts.core.engine.load_config", return_value=config):
+        with patch("qwen3_tts.core.engine.inference.load_config", return_value=config):
             result = _get_max_chunk_chars()
         self.assertEqual(result, 300)
 
@@ -2006,7 +2007,7 @@ class TestMLXVoicePromptCache(unittest.TestCase):
     def test_mlx_cache_returns_consistent_results(self):
         """Cached result is identical to first load."""
         from qwen3_tts.core.engine import load_voice_prompt_mlx
-        with patch("qwen3_tts.core.engine.VOICE_PROMPTS_DIR", self.tmpdir):
+        with patch("qwen3_tts.core.engine.voice_prompt.VOICE_PROMPTS_DIR", self.tmpdir):
             first = load_voice_prompt_mlx("voice_a")
             second = load_voice_prompt_mlx("voice_a")
         self.assertIs(first, second)  # Same object from cache
@@ -2014,14 +2015,14 @@ class TestMLXVoicePromptCache(unittest.TestCase):
     def test_mlx_cache_stores_entries(self):
         """Loading a prompt adds it to the cache."""
         from qwen3_tts.core.engine import load_voice_prompt_mlx, _mlx_prompt_cache
-        with patch("qwen3_tts.core.engine.VOICE_PROMPTS_DIR", self.tmpdir):
+        with patch("qwen3_tts.core.engine.voice_prompt.VOICE_PROMPTS_DIR", self.tmpdir):
             load_voice_prompt_mlx("voice_a")
         self.assertIn("voice_a", _mlx_prompt_cache)
 
     def test_clear_voice_prompt_cache_clears_mlx(self):
         """clear_voice_prompt_cache clears MLX cache."""
         from qwen3_tts.core.engine import load_voice_prompt_mlx, clear_voice_prompt_cache, _mlx_prompt_cache
-        with patch("qwen3_tts.core.engine.VOICE_PROMPTS_DIR", self.tmpdir):
+        with patch("qwen3_tts.core.engine.voice_prompt.VOICE_PROMPTS_DIR", self.tmpdir):
             load_voice_prompt_mlx("voice_a")
         self.assertEqual(len(_mlx_prompt_cache), 1)
         clear_voice_prompt_cache()
@@ -2030,8 +2031,8 @@ class TestMLXVoicePromptCache(unittest.TestCase):
     def test_mlx_cache_info_returns_currsize(self):
         """voice_prompt_cache_info returns MLX cache size."""
         from qwen3_tts.core.engine import load_voice_prompt_mlx, voice_prompt_cache_info
-        with patch("qwen3_tts.core.engine.get_backend", return_value="mlx"):
-            with patch("qwen3_tts.core.engine.VOICE_PROMPTS_DIR", self.tmpdir):
+        with patch("qwen3_tts.core.engine.voice_prompt.get_backend", return_value="mlx"):
+            with patch("qwen3_tts.core.engine.voice_prompt.VOICE_PROMPTS_DIR", self.tmpdir):
                 load_voice_prompt_mlx("voice_a")
             info = voice_prompt_cache_info()
         self.assertEqual(info.currsize, 1)

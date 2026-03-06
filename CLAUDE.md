@@ -72,7 +72,7 @@ config.json → qwen3_tts.core.config → qwen3_tts.core.engine (dispatch)
 | Module | Purpose | Heavy imports? |
 |--------|---------|----------------|
 | `qwen3_tts/core/config.py` | Constants, config I/O, error classes, `MODEL_INFO`, auth, platform detection, CUDA capability detection, voice description attributes | No |
-| `qwen3_tts/core/engine.py` | `load_model()`, `run_inference()`, voice prompt cache, audio processing, text chunking, ASR, smart audio loader, CUDA optimization, MLX prompt migration | No (all lazy) |
+| `qwen3_tts/core/engine/` | Package with 6 submodules: `text_processing`, `audio_processing`, `voice_prompt`, `model_loader`, `inference`, `asr`. `__init__.py` facade re-exports all public names. | No (all lazy) |
 | `qwen3_tts/server/app.py` | FastAPI server: auth, validation helpers (`_validate_generation_request`, `_create_temp_audio_copy`, `_prepare_mode_params`), progress, model management, generation/ETA/prompt caches | No (lazy via engine) |
 | `qwen3_tts/server/client.py` | HTTP client: `TTSClient` with generate, model management, prompt management | No |
 | `qwen3_tts/interface/generate.py` | CLI generation, progress display, post-gen menu, batch/SSML/SRT/dialogue, voice management | No (lazy) |
@@ -104,7 +104,14 @@ config.json → qwen3_tts.core.config → qwen3_tts.core.engine (dispatch)
 │   ├── core/
 │   │   ├── __init__.py
 │   │   ├── config.py           # Config, constants, errors (no heavy imports)
-│   │   └── engine.py           # Model loading, inference, audio processing
+│   │   └── engine/             # Engine package (strict DAG, facade pattern)
+│   │       ├── __init__.py     # Facade — re-exports all public names
+│   │       ├── text_processing.py  # Normalization, chunking
+│   │       ├── audio_processing.py # Audio I/O, effects, LUFS
+│   │       ├── voice_prompt.py     # Prompt loading, caching
+│   │       ├── model_loader.py     # Torch/MLX model loading
+│   │       ├── inference.py        # Stateless generation dispatch
+│   │       └── asr.py              # Speech recognition
 │   ├── server/
 │   │   ├── __init__.py
 │   │   ├── app.py              # FastAPI server (port 5123)
@@ -383,15 +390,22 @@ Multi-agent review (8 agents, 56 deduplicated findings). **P1+P2 implemented** (
 - Audio validation (NaN, clipping, silence) (R-11)
 - Content negotiation for binary WAV (R-12)
 
-### Known issues not yet addressed (P3/P4)
-- **No rate limiting** on any endpoint (R-13) — `slowapi` recommended
-- **No crossfade** between multi-chunk audio (R-14) — audible clicks at boundaries
-- **engine.py is ~1800 lines** (R-15) — should split into model_loader, inference, audio_processing, voice_prompt, text_processing
-- **No model warm-up** after loading (R-16) — cold-start latency on first generation
-- **Temperature inconsistency** — torch defaults to config value, MLX hardcodes 0.9 (R-17)
-- **Turing GPU quantization override** — auto-8bit overrides explicit `torch_quantization: "none"` (R-18)
-- **`request_queue` is plain `set()`** — not thread-safe (R-19)
-- **`/preview-prompt` no symlink resolution** (R-20)
-- **`_normalize_text`** wraps every step in bare `try/except: pass` — silently swallows real bugs
-- **`weights_only=False` fallback** for `torch.load` with env var bypass — security risk
-- **`_expand_currency`** only handles whole-dollar amounts — `$5.99` drops cents
+### P3/P4 fixes implemented (2026-03-06)
+- Rate limiting with X-Forwarded-For IP resolution (R-13)
+- Crossfade between multi-chunk audio with raised-cosine window (R-14)
+- engine.py split into 6 submodules with facade (R-15)
+- Model warm-up after loading (R-16)
+- MLX temperature reads from config, not hardcoded (R-17)
+- Turing GPU respects explicit torch_quantization (R-18)
+- Thread-safe request_queue with lock (R-19)
+- Symlink resolution in /preview-prompt (R-20)
+- pysbd.Segmenter cached per language (R-21)
+- num2words cached at module level (R-22)
+- LUFS normalization via pyloudnorm (R-23)
+- Pagination for /prompts endpoint (R-24)
+- Streaming wire format documented (R-25)
+- Audit logging for auth failures (R-26)
+- Configurable silence gap between chunks (R-27)
+- `_normalize_text` logs warnings instead of bare except:pass
+- `torch.load` deprecation warning for TTS_ALLOW_UNSAFE_PICKLE
+- `_expand_currency` handles decimals ($5.99 → five dollars and ninety-nine cents)
