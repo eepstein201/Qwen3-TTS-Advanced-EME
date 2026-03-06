@@ -532,17 +532,13 @@ def _create_audio_reset_js():
 
     The JavaScript finds all audio elements in the tab, stops playback,
     clears the src attribute (unloading buffered data), and removes
-    any Gradio-internal state. Returns true even if reset fails to
-    avoid blocking generation.
+    any Gradio-internal state. Returns undefined to not interfere with inputs.
     """
     return """
-    (el) => {
+    () => {
         try {
-            // Navigate from clicked button to containing tab
-            const tab = el?.closest?.('.tab-item') || document;
-
-            // Find all audio elements in this tab
-            const audioEls = tab.querySelectorAll('audio');
+            // Find all audio elements in the document
+            const audioEls = document.querySelectorAll('audio');
 
             audioEls.forEach(audio => {
                 // Stop any ongoing playback
@@ -554,31 +550,15 @@ def _create_audio_reset_js():
                 audio.currentTime = 0;
 
                 // Remove source to unload buffered data
-                const currentSrc = audio.currentSrc;
-                if (currentSrc) {
+                if (audio.currentSrc) {
                     audio.removeAttribute('src');
-                    audio.load(); // Trigger media element reload
-                }
-
-                // Clear any blob URLs created by Gradio
-                const sources = audio.querySelectorAll('source');
-                sources.forEach(s => s.remove());
-            });
-
-            // Clear Gradio's internal audio wrapper cache
-            const wrappers = tab.querySelectorAll('[data-testid*="audio"]');
-            wrappers.forEach(w => {
-                // Remove completed-chunks tracking if present
-                if (w._gradioAudioState) {
-                    delete w._gradioAudioState;
+                    audio.load();
                 }
             });
-
-            return true; // Success - allow generation to proceed
         } catch (e) {
             console.warn('[Audio Reset] Non-fatal error:', e.message);
-            return true; // Don't block generation on JS errors
         }
+        // Return undefined to not interfere with input values
     }
     """
 
@@ -696,7 +676,22 @@ def _generate_streaming_impl(mode, text, preset, temperature, top_k, top_p, rep_
             # Fallback to non-streaming generation
             seed_val = int(seed) if seed and str(seed).strip() else None
             preset_val = preset if preset and preset != "(none)" else None
-            mode_kwargs = _get_mode_kwargs(mode, prompt, description, speaker_choice, instruct)
+
+            # Build kwargs for non-streaming generate (different signature than streaming)
+            fallback_kwargs = {
+                "trim_silence": False,
+                "normalize": False,
+                "speed": 1.0,
+                "pitch": 1.0,
+            }
+            if mode == "clone":
+                fallback_kwargs["prompt"] = prompt
+                fallback_kwargs["no_transcript"] = x_vector_only_mode
+            elif mode == "design":
+                fallback_kwargs["description"] = description
+            elif mode == "custom":
+                fallback_kwargs["speaker_choice"] = speaker_choice
+                fallback_kwargs["instruct"] = instruct
 
             output_path = client.generate(
                 text=text,
@@ -707,8 +702,7 @@ def _generate_streaming_impl(mode, text, preset, temperature, top_k, top_p, rep_
                 top_p=top_p,
                 seed=seed_val,
                 repetition_penalty=rep_penalty,
-                x_vector_only_mode=x_vector_only_mode,
-                **mode_kwargs,
+                **fallback_kwargs,
             )
             if output_path:
                 history_list = add_to_history(history_list, mode, text, output_path, 0)
@@ -1151,12 +1145,12 @@ def _wire_generation_tab(mode, btn, cancel_btn, output, status, model_indicator,
         api_name: Optional API name for the endpoint.
         history_state: Optional history state component.
     """
-    # Include JavaScript reset to clear audio buffer between generations
+    # TEMPORARILY DISABLED: JavaScript reset to debug immediate failure
     click_kwargs = {
         "fn": handler,
         "inputs": inputs_list,
         "outputs": [output, status, status_html, history_state, history_df],
-        "js": _create_audio_reset_js(),  # Reset audio state before each generation
+        # "js": _create_audio_reset_js(),  # Disabled for debugging
     }
     if api_name:
         click_kwargs["api_name"] = api_name
