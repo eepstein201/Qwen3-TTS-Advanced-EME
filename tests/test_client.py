@@ -179,5 +179,138 @@ class TestTTSClientInit(unittest.TestCase):
             os.unlink(tmp)
 
 
+@pytest.mark.unit
+class TestClientHelpers(unittest.TestCase):
+    """Test internal helper functions for code reuse."""
+
+    def _make_config(self, data=None):
+        """Create a temp config file and return its path."""
+        if data is None:
+            data = {
+                "server": {"host": "127.0.0.1", "port": 5123},
+                "presets": {"consistent": {"temperature": 0.5}},
+                "aliases": {"default": {"prompt": "voice.pt", "preset": "consistent"}},
+                "generation": {"temperature": 0.7, "top_k": 50, "top_p": 0.95},
+            }
+        f = tempfile.NamedTemporaryFile(mode='w', suffix='.json', delete=False)
+        json.dump(data, f)
+        f.close()
+        return f.name
+
+    def test_resolve_voice_alias_helper_exists(self):
+        """_resolve_voice_alias helper should exist."""
+        from qwen3_tts.server import client
+        self.assertTrue(
+            hasattr(client, '_resolve_voice_alias'),
+            "_resolve_voice_alias helper should exist"
+        )
+
+    def test_resolve_voice_alias_returns_updated_params(self):
+        """_resolve_voice_alias should return updated parameters."""
+        from qwen3_tts.server.client import TTSClient, _resolve_voice_alias
+        tmp = self._make_config({
+            "server": {"host": "127.0.0.1", "port": 5123},
+            "aliases": {"my_voice": {"prompt": "custom.pt", "mode": "clone"}},
+        })
+        try:
+            client = TTSClient(config_path=tmp)
+            alias = client.resolve_alias("my_voice")
+            result = _resolve_voice_alias(
+                alias=alias,
+                prompt=None,
+                mode=None,
+                description=None,
+                speaker=None,
+                instruct=None,
+                preset=None,
+            )
+            self.assertEqual(result["prompt"], "custom.pt")
+            self.assertEqual(result["mode"], "clone")
+            client.close()
+        finally:
+            os.unlink(tmp)
+
+    def test_resolve_voice_alias_preserves_user_overrides(self):
+        """_resolve_voice_alias should not override user-provided values."""
+        from qwen3_tts.server.client import TTSClient, _resolve_voice_alias
+        tmp = self._make_config({
+            "server": {"host": "127.0.0.1", "port": 5123},
+            "aliases": {"my_voice": {"prompt": "alias.pt", "mode": "clone"}},
+        })
+        try:
+            client = TTSClient(config_path=tmp)
+            alias = client.resolve_alias("my_voice")
+            # User provides their own prompt - should NOT be overridden
+            result = _resolve_voice_alias(
+                alias=alias,
+                prompt="user.pt",
+                mode=None,
+                description=None,
+                speaker=None,
+                instruct=None,
+                preset=None,
+            )
+            self.assertEqual(result["prompt"], "user.pt")  # User value preserved
+            client.close()
+        finally:
+            os.unlink(tmp)
+
+    def test_build_gen_params_helper_exists(self):
+        """_build_gen_params helper should exist."""
+        from qwen3_tts.server import client
+        self.assertTrue(
+            hasattr(client, '_build_gen_params'),
+            "_build_gen_params helper should exist"
+        )
+
+    def test_build_gen_params_uses_config_defaults(self):
+        """_build_gen_params should use config defaults."""
+        from qwen3_tts.server.client import TTSClient, _build_gen_params
+        tmp = self._make_config({
+            "server": {"host": "127.0.0.1", "port": 5123},
+            "generation": {"temperature": 0.8, "top_k": 40},
+        })
+        try:
+            client = TTSClient(config_path=tmp)
+            result = _build_gen_params(
+                config=client.config,
+                temperature=None,
+                top_k=None,
+                top_p=None,
+                repetition_penalty=None,
+                max_new_tokens=None,
+                seed=None,
+            )
+            self.assertEqual(result["temperature"], 0.8)
+            self.assertEqual(result["top_k"], 40)
+            client.close()
+        finally:
+            os.unlink(tmp)
+
+    def test_build_gen_params_overrides_with_user_values(self):
+        """_build_gen_params should use user-provided values over config."""
+        from qwen3_tts.server.client import TTSClient, _build_gen_params
+        tmp = self._make_config({
+            "server": {"host": "127.0.0.1", "port": 5123},
+            "generation": {"temperature": 0.8, "top_k": 40},
+        })
+        try:
+            client = TTSClient(config_path=tmp)
+            result = _build_gen_params(
+                config=client.config,
+                temperature=0.5,  # User override
+                top_k=None,
+                top_p=None,
+                repetition_penalty=None,
+                max_new_tokens=None,
+                seed=None,
+            )
+            self.assertEqual(result["temperature"], 0.5)  # User value
+            self.assertEqual(result["top_k"], 40)  # Config default
+            client.close()
+        finally:
+            os.unlink(tmp)
+
+
 if __name__ == "__main__":
     unittest.main()
