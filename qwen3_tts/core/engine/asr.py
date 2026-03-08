@@ -67,15 +67,16 @@ def load_asr_model():
     global _asr_model_mlx
     backend = get_backend()
     if backend == "mlx":
-        if _asr_model_mlx is not None:
-            return True
-        try:
-            from mlx_audio.stt import load_model as load_stt_model
-            _asr_model_mlx = load_stt_model("mlx-community/whisper-large-v3-turbo")
-            logger.info("Loaded MLX ASR model")
-            return True
-        except ImportError as e:
-            raise ImportError(f"ASR requires mlx-audio with STT support: {e}")
+        with _asr_lock:
+            if _asr_model_mlx is not None:
+                return True
+            try:
+                from mlx_audio.stt import load_model as load_stt_model
+                _asr_model_mlx = load_stt_model("mlx-community/whisper-large-v3-turbo")
+                logger.info("Loaded MLX ASR model")
+                return True
+            except ImportError as e:
+                raise ImportError(f"ASR requires mlx-audio with STT support: {e}")
     else:
         _ensure_asr_torch_loaded()
         return True
@@ -87,17 +88,20 @@ def _transcribe_mlx(audio_path, language="en"):
     import time
 
     if _asr_model_mlx is None:
-        logger.info("Loading MLX ASR model for transcription (first use)...")
-        t0 = time.time()
-        try:
-            from mlx_audio.stt import load_model as load_stt_model
-            _asr_model_mlx = load_stt_model("mlx-community/whisper-large-v3-turbo")
-            logger.info("MLX ASR model loaded in %.1fs", time.time() - t0)
-        except ImportError as e:
-            raise ImportError(
-                f"ASR transcription requires mlx-audio with STT support: {e}\n"
-                "Update mlx-audio: pip install --upgrade mlx-audio"
-            )
+        with _asr_lock:
+            # Double-check after acquiring lock
+            if _asr_model_mlx is None:
+                logger.info("Loading MLX ASR model for transcription (first use)...")
+                t0 = time.time()
+                try:
+                    from mlx_audio.stt import load_model as load_stt_model
+                    _asr_model_mlx = load_stt_model("mlx-community/whisper-large-v3-turbo")
+                    logger.info("MLX ASR model loaded in %.1fs", time.time() - t0)
+                except ImportError as e:
+                    raise ImportError(
+                        f"ASR transcription requires mlx-audio with STT support: {e}\n"
+                        "Update mlx-audio: pip install --upgrade mlx-audio"
+                    )
 
     logger.info("Transcribing (MLX): %s", audio_path)
     t0 = time.time()

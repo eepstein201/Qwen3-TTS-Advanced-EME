@@ -122,5 +122,118 @@ class TestMLXPromptCacheThreadSafety(unittest.TestCase):
         )
 
 
+class TestASRThreadSafety(unittest.TestCase):
+    """Test that ASR model loading is thread-safe."""
+
+    def test_asr_lock_exists(self):
+        """Verify that a lock exists for ASR model synchronization."""
+        from qwen3_tts.core.engine import asr
+
+        # Check for lock attribute
+        self.assertTrue(
+            hasattr(asr, '_asr_lock'),
+            "_asr_lock should exist for thread safety"
+        )
+        self.assertIsInstance(
+            asr._asr_lock,
+            type(threading.Lock()),
+            "_asr_lock should be a threading.Lock"
+        )
+
+    def test_asr_mlx_thread_safety(self):
+        """Concurrent load_asr_model() calls should only load model once for MLX backend."""
+        from qwen3_tts.core.engine import asr
+
+        # Track how many times the MLX model loader is called
+        load_count = {"count": 0}
+        errors = []
+
+        # Mock the backend to return "mlx"
+        with patch('qwen3_tts.core.engine.asr.get_backend', return_value='mlx'):
+            # Mock mlx_audio.stt.load_model
+            mock_model = MagicMock()
+            mock_load_fn = MagicMock(return_value=mock_model)
+
+            def track_load(*args, **kwargs):
+                load_count["count"] += 1
+                # Simulate slow load to increase race condition chance
+                import time
+                time.sleep(0.01)
+                return mock_model
+
+            mock_load_fn.side_effect = track_load
+
+            with patch.dict('sys.modules', {'mlx_audio.stt': MagicMock(load_model=mock_load_fn)}):
+                # Reset ASR model state
+                asr._asr_model_mlx = None
+
+                # Spawn concurrent load_asr_model() calls
+                def load_in_thread():
+                    try:
+                        asr.load_asr_model()
+                    except Exception as e:
+                        errors.append(str(e))
+
+                threads = [threading.Thread(target=load_in_thread) for _ in range(10)]
+                for t in threads:
+                    t.start()
+                for t in threads:
+                    t.join()
+
+        # With proper locking, model should only be loaded once
+        self.assertEqual(
+            load_count["count"], 1,
+            f"MLX ASR model should be loaded exactly once, but was loaded {load_count['count']} times"
+        )
+        self.assertEqual(len(errors), 0, f"Concurrent loading caused errors: {errors}")
+
+    def test_asr_mlx_transcribe_thread_safety(self):
+        """Concurrent _transcribe_mlx calls should only load model once."""
+        from qwen3_tts.core.engine import asr
+
+        # Track how many times the MLX model loader is called
+        load_count = {"count": 0}
+        errors = []
+
+        # Mock mlx_audio.stt.load_model
+        mock_model = MagicMock()
+        mock_model.generate = MagicMock(return_value=MagicMock(text="test transcript"))
+        mock_load_fn = MagicMock(return_value=mock_model)
+
+        def track_load(*args, **kwargs):
+            load_count["count"] += 1
+            # Simulate slow load to increase race condition chance
+            import time
+            time.sleep(0.01)
+            return mock_model
+
+        mock_load_fn.side_effect = track_load
+
+        with patch.dict('sys.modules', {'mlx_audio.stt': MagicMock(load_model=mock_load_fn)}):
+            # Reset ASR model state
+            asr._asr_model_mlx = None
+
+            # Spawn concurrent _transcribe_mlx calls (which load model on first use)
+            def transcribe_in_thread():
+                try:
+                    asr._transcribe_mlx("/fake/audio.wav")
+                except Exception as e:
+                    # We expect some errors from the fake path, but not from loading
+                    if "Loading" in str(e) or "load" in str(e).lower():
+                        errors.append(str(e))
+
+            threads = [threading.Thread(target=transcribe_in_thread) for _ in range(10)]
+            for t in threads:
+                t.start()
+            for t in threads:
+                t.join()
+
+        # With proper locking, model should only be loaded once
+        self.assertEqual(
+            load_count["count"], 1,
+            f"MLX ASR model should be loaded exactly once during transcription, but was loaded {load_count['count']} times"
+        )
+
+
 if __name__ == "__main__":
     unittest.main()
