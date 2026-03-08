@@ -40,6 +40,9 @@ PID_FILE = pathlib.Path(os.path.join(USER_FILES_DIR, ".voice_server.pid"))
 LOG_FILE = pathlib.Path(os.path.join(USER_FILES_DIR, ".voice_server.log"))
 TOKEN_FILE = pathlib.Path(os.path.expanduser("~/.voice_server_token"))
 
+# HuggingFace cache location (single source of truth)
+HF_CACHE = pathlib.Path.home() / ".cache" / "huggingface" / "hub"
+
 # ---------------------------------------------------------------------------
 # Config helpers
 # ---------------------------------------------------------------------------

@@ -18,11 +18,9 @@ from qwen3_tts.core.config import (
     TOKEN_FILE,
     LOG_FILE,
     PID_FILE,
+    HF_CACHE,
 )
 from qwen3_tts.tools.model_cache import _MLX_MODEL_PREFIXES, _TORCH_MODEL_PREFIXES
-
-# HuggingFace cache location
-HF_CACHE = pathlib.Path.home() / ".cache" / "huggingface" / "hub"
 
 
 def _print_header(text: str) -> None:

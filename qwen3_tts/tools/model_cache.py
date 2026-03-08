@@ -11,10 +11,7 @@ import shutil
 import sys
 from datetime import datetime, timedelta
 
-from qwen3_tts.core.config import USER_FILES_DIR
-
-# HuggingFace cache location
-HF_CACHE = pathlib.Path.home() / ".cache" / "huggingface" / "hub"
+from qwen3_tts.core.config import USER_FILES_DIR, HF_CACHE
 
 
 # Model name patterns to identify TTS models
