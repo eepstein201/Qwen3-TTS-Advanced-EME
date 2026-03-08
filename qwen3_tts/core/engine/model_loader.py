@@ -5,6 +5,7 @@ Imports from: config only. Does NOT import from inference or voice_prompt.
 """
 
 import logging
+import threading
 import time
 
 from qwen3_tts.core.config import (
@@ -27,6 +28,7 @@ _RETRY_DELAYS = (5, 15, 45)  # seconds between retry attempts
 # ---------------------------------------------------------------------------
 
 _mps_patch_installed = False
+_mps_patch_lock = threading.Lock()
 
 
 def _install_mps_patch():
@@ -40,30 +42,35 @@ def _install_mps_patch():
     if _mps_patch_installed:
         return
 
-    from qwen3_tts.core.config import IS_MACOS
-    if not IS_MACOS:
-        _mps_patch_installed = True  # Mark as done, no patch needed
-        return
+    with _mps_patch_lock:
+        # Double-check inside lock
+        if _mps_patch_installed:
+            return
 
-    import torch
+        from qwen3_tts.core.config import IS_MACOS
+        if not IS_MACOS:
+            _mps_patch_installed = True  # Mark as done, no patch needed
+            return
 
-    _original_multinomial = torch.multinomial
+        import torch
 
-    def _safe_multinomial(input, num_samples, replacement=False, *, generator=None):
-        if input.device.type == "mps" and input.is_floating_point() and input.dtype != torch.float32:
-            input = input.float()
-        if input.device.type == "mps":
-            input = torch.nan_to_num(input, nan=0.0, posinf=1.0, neginf=0.0)
-            input = input.clamp(min=0.0)
-            row_sums = input.sum(dim=-1, keepdim=True)
-            zero_rows = (row_sums == 0)
-            if zero_rows.any():
-                input = input.masked_fill(zero_rows.expand_as(input), 1.0 / input.shape[-1])
-        return _original_multinomial(input, num_samples, replacement=replacement, generator=generator)
+        _original_multinomial = torch.multinomial
 
-    torch.multinomial = _safe_multinomial
-    _mps_patch_installed = True
-    logger.debug("Installed MPS-safe multinomial patch")
+        def _safe_multinomial(input, num_samples, replacement=False, *, generator=None):
+            if input.device.type == "mps" and input.is_floating_point() and input.dtype != torch.float32:
+                input = input.float()
+            if input.device.type == "mps":
+                input = torch.nan_to_num(input, nan=0.0, posinf=1.0, neginf=0.0)
+                input = input.clamp(min=0.0)
+                row_sums = input.sum(dim=-1, keepdim=True)
+                zero_rows = (row_sums == 0)
+                if zero_rows.any():
+                    input = input.masked_fill(zero_rows.expand_as(input), 1.0 / input.shape[-1])
+            return _original_multinomial(input, num_samples, replacement=replacement, generator=generator)
+
+        torch.multinomial = _safe_multinomial
+        _mps_patch_installed = True
+        logger.debug("Installed MPS-safe multinomial patch")
 
 
 # ---------------------------------------------------------------------------
