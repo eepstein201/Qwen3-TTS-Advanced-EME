@@ -114,8 +114,8 @@ def _run_inference_torch(model, text, mode, gen_params, language="English",
                 "MPS memory after generation: %.1f MB",
                 peak / (1024 * 1024),
             )
-        except Exception:  # nosec B110
-            pass
+        except RuntimeError as e:
+            logger.debug("MPS memory cleanup failed: %s", e)
     elif torch.cuda.is_available():
         try:
             torch.cuda.empty_cache()
@@ -124,8 +124,8 @@ def _run_inference_torch(model, text, mode, gen_params, language="English",
                 "CUDA memory after generation: %.1f MB",
                 peak / (1024 * 1024),
             )
-        except Exception:  # nosec B110
-            pass
+        except RuntimeError as e:
+            logger.debug("CUDA memory cleanup failed: %s", e)
 
     elapsed = time.time() - t0
     logger.info(
