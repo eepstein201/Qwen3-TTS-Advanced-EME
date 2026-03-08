@@ -525,22 +525,28 @@ def cancel_streaming_generation():
 
 
 def _create_audio_reset_js():
-    """JavaScript to reset Audio component state before streaming.
+    """JavaScript to reset Audio component state before each generation.
 
     Returns:
         str: JavaScript function code for Gradio's js parameter.
 
-    The JavaScript finds all audio elements in the tab, stops playback,
-    clears the src attribute (unloading buffered data), and removes
-    any Gradio-internal state. Returns undefined to not interfere with inputs.
+    The JavaScript finds all audio elements, stops playback, clears the src
+    attribute (unloading buffered data), and removes any Gradio-internal state.
+
+    IMPORTANT: This function MUST receive input values as arguments and
+    return them unchanged. Gradio passes the component values as positional
+    arguments to the js function, and uses the return value as the actual
+    inputs to the Python handler. Returning undefined would block generation.
     """
     return """
-    () => {
+    (...inputs) => {
         try {
             // Find all audio elements in the document
             const audioEls = document.querySelectorAll('audio');
 
-            audioEls.forEach(audio => {
+            audioEls.forEach((audio, idx) => {
+                console.log('[Audio Reset] Resetting audio element', idx, ': paused=', audio.paused, ', currentTime=', audio.currentTime, ', currentSrc=', audio.currentSrc);
+
                 // Stop any ongoing playback
                 if (!audio.paused) {
                     audio.pause();
@@ -554,11 +560,24 @@ def _create_audio_reset_js():
                     audio.removeAttribute('src');
                     audio.load();
                 }
+
+                // Clear Gradio's internal audio state
+                // Gradio stores state on the parent container
+                const container = audio.closest('[data-testid]') || audio.parentElement;
+                if (container) {
+                    // Clear any Gradio-internal tracking
+                    delete container._gradio_audio_streaming;
+                    delete container._gradio_audio_chunks;
+                    delete container._gradioAudioState;
+                }
             });
+
+            console.log('[Audio Reset] Reset complete:', audioEls.length, 'audio elements reset');
         } catch (e) {
-            console.warn('[Audio Reset] Non-fatal error:', e.message);
+            console.error('[Audio Reset] Error:', e.message, e.stack);
         }
-        // Return undefined to not interfere with input values
+        // CRITICAL: Return inputs unchanged for Gradio to pass to Python handler
+        return inputs;
     }
     """
 
@@ -660,11 +679,11 @@ def _generate_streaming_impl(mode, text, preset, temperature, top_k, top_p, rep_
         output_path = _save_streaming_audio(all_chunks, sample_rate)
         if output_path:
             history_list = add_to_history(history_list, mode, text, output_path, chunk_count)
-            # Don't yield anything for audio - let the streaming end naturally.
-            # This avoids an extra "silence" chunk being played.
-            yield None, f"Complete: {chunk_count} chunks — saved to {os.path.basename(output_path)}", format_status_display(), history_list, get_history_data(history_list)
+            # Explicitly clear audio with gr.update() to signal streaming session end
+            # This helps Gradio recognize the session is complete and prepare for next generation
+            yield gr.update(value=None), f"Complete: {chunk_count} chunks — saved to {os.path.basename(output_path)}", format_status_display(), history_list, get_history_data(history_list)
         else:
-            yield None, "Error: No audio was generated", format_status_display(), history_list, gr.update()
+            yield gr.update(value=None), "Error: No audio was generated", format_status_display(), history_list, gr.update()
 
     except Exception as e:
         # Streaming failed - attempt fallback to non-streaming
@@ -1145,12 +1164,12 @@ def _wire_generation_tab(mode, btn, cancel_btn, output, status, model_indicator,
         api_name: Optional API name for the endpoint.
         history_state: Optional history state component.
     """
-    # TEMPORARILY DISABLED: JavaScript reset to debug immediate failure
+    # Include JavaScript reset to clear audio state between generations
     click_kwargs = {
         "fn": handler,
         "inputs": inputs_list,
         "outputs": [output, status, status_html, history_state, history_df],
-        # "js": _create_audio_reset_js(),  # Disabled for debugging
+        "js": _create_audio_reset_js(),  # Reset audio state before each generation
     }
     if api_name:
         click_kwargs["api_name"] = api_name

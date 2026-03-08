@@ -27,17 +27,17 @@ class TestAudioResetJS(unittest.TestCase):
         js = _create_audio_reset_js()
         self.assertIn("removeAttribute('src')", js)
 
-    def test_returns_true_on_success(self):
-        """Should return true to allow generation to proceed."""
+    def test_returns_inputs_unchanged(self):
+        """Should return inputs unchanged to allow generation to proceed."""
         js = _create_audio_reset_js()
-        self.assertIn("return true", js)
+        self.assertIn("return inputs", js)
 
     def test_has_error_handling(self):
         """Should wrap in try/catch for non-blocking failure."""
         js = _create_audio_reset_js()
         self.assertIn("try", js)
         self.assertIn("catch", js)
-        self.assertIn("console.warn", js)
+        self.assertIn("console.error", js)
 
     def test_no_syntax_errors(self):
         """JavaScript should be valid syntax (basic checks)."""
@@ -46,6 +46,14 @@ class TestAudioResetJS(unittest.TestCase):
         self.assertIn("=>", js)  # Arrow function
         self.assertIn("{", js)   # Opening brace
         self.assertIn("}", js)   # Closing brace
+
+    def test_js_selector_syntax_valid(self):
+        """The CSS selector in closest() should be properly formatted."""
+        import re
+        js = _create_audio_reset_js()
+        # Should find properly closed selector with closing paren
+        # Pattern: audio.closest('[data-testid]') not audio.closest('[data-testid']
+        self.assertRegex(js, r"closest\('\[data-testid\]'\)")
 
 
 class TestWireGenerationTabIntegration(unittest.TestCase):
@@ -70,7 +78,7 @@ class TestWireGenerationTabIntegration(unittest.TestCase):
         """The click handler should include JavaScript reset."""
         from qwen3_tts.interface.ui import _wire_generation_tab
 
-        mock_reset_js.return_value = "(el) => { return true; }"
+        mock_reset_js.return_value = "(...inputs) => { return inputs; }"
         mock_handler = Mock(return_value=(None, "status", "html", [], []))
 
         _wire_generation_tab(
@@ -93,14 +101,14 @@ class TestWireGenerationTabIntegration(unittest.TestCase):
         self.mock_btn.click.assert_called_once()
         call_kwargs = self.mock_btn.click.call_args[1]
         self.assertIn('js', call_kwargs)
-        self.assertEqual(call_kwargs['js'], "(el) => { return true; }")
+        self.assertEqual(call_kwargs['js'], "(...inputs) => { return inputs; }")
 
     @patch('qwen3_tts.interface.ui._create_audio_reset_js')
     def test_wire_generation_tab_without_api_name(self, mock_reset_js):
         """Should work without api_name (design/custom tabs)."""
         from qwen3_tts.interface.ui import _wire_generation_tab
 
-        mock_reset_js.return_value = "(el) => { return true; }"
+        mock_reset_js.return_value = "(...inputs) => { return inputs; }"
         mock_handler = Mock(return_value=(None, "status", "html", [], []))
 
         _wire_generation_tab(
