@@ -173,13 +173,13 @@ class TestTextChunkingEdgeCases(unittest.TestCase):
 
     def test_split_short_text(self):
         """Text under max_chars should return a single chunk."""
-        from qwen3_tts.core.engine import _split_text
+        from qwen3_tts.core.engine.text_processing import _split_text
         result = _split_text("Hello world.", max_chars=500)
         self.assertEqual(result, ["Hello world."])
 
     def test_split_on_sentences(self):
         """Two sentences should split at the sentence boundary."""
-        from qwen3_tts.core.engine import _split_text
+        from qwen3_tts.core.engine.text_processing import _split_text
         text = "First sentence. Second sentence."
         result = _split_text(text, max_chars=20)
         self.assertEqual(len(result), 2)
@@ -188,7 +188,7 @@ class TestTextChunkingEdgeCases(unittest.TestCase):
 
     def test_split_long_sentence_clause(self):
         """A sentence exceeding max_chars should fall back to clause splitting."""
-        from qwen3_tts.core.engine import _split_text
+        from qwen3_tts.core.engine.text_processing import _split_text
         # Build a long sentence with clause boundaries
         text = "This is clause one, and this is clause two, and this is clause three"
         result = _split_text(text, max_chars=30)
@@ -200,14 +200,14 @@ class TestTextChunkingEdgeCases(unittest.TestCase):
 
     def test_split_empty_string(self):
         """Empty string should return a list with one empty string."""
-        from qwen3_tts.core.engine import _split_text
+        from qwen3_tts.core.engine.text_processing import _split_text
         result = _split_text("", max_chars=500)
         # After strip, empty string has len 0 <= 500, so returns [""]
         self.assertEqual(result, [""])
 
     def test_split_unicode_emoji(self):
         """Text with emoji characters should not crash."""
-        from qwen3_tts.core.engine import _split_text
+        from qwen3_tts.core.engine.text_processing import _split_text
         text = "Hello world! \U0001f600 This is great! \U0001f389"
         result = _split_text(text, max_chars=500)
         self.assertIsInstance(result, list)
@@ -215,14 +215,14 @@ class TestTextChunkingEdgeCases(unittest.TestCase):
 
     def test_split_exactly_max_chars(self):
         """Text exactly at max_chars should return a single chunk."""
-        from qwen3_tts.core.engine import _split_text
+        from qwen3_tts.core.engine.text_processing import _split_text
         text = "x" * 100
         result = _split_text(text, max_chars=100)
         self.assertEqual(result, [text])
 
     def test_split_very_long_word(self):
         """A single word exceeding max_chars should not cause infinite loop."""
-        from qwen3_tts.core.engine import _split_text
+        from qwen3_tts.core.engine.text_processing import _split_text
         word = "a" * 600
         text = f"Hello. {word}. World."
         result = _split_text(text, max_chars=100)
@@ -234,7 +234,7 @@ class TestTextChunkingEdgeCases(unittest.TestCase):
 
     def test_split_no_empty_chunks(self):
         """No chunk in the result should be an empty string."""
-        from qwen3_tts.core.engine import _split_text
+        from qwen3_tts.core.engine.text_processing import _split_text
         text = "First sentence. Second sentence. Third sentence. Fourth one."
         result = _split_text(text, max_chars=25)
         for chunk in result:
@@ -242,7 +242,7 @@ class TestTextChunkingEdgeCases(unittest.TestCase):
 
     def test_split_consecutive_punctuation(self):
         """Consecutive punctuation like '!!!' should be handled gracefully."""
-        from qwen3_tts.core.engine import _split_text
+        from qwen3_tts.core.engine.text_processing import _split_text
         text = "Hello!!! World!!! Testing!!!"
         result = _split_text(text, max_chars=15)
         self.assertIsInstance(result, list)
@@ -273,23 +273,23 @@ class TestMapLanguage(unittest.TestCase):
     """Tests for _map_language() language code mapping helper."""
 
     def test_english_maps_to_en(self):
-        from qwen3_tts.core.engine import _map_language
+        from qwen3_tts.core.engine.text_processing import _map_language
         self.assertEqual(_map_language("English"), "en")
 
     def test_spanish_maps_to_es(self):
-        from qwen3_tts.core.engine import _map_language
+        from qwen3_tts.core.engine.text_processing import _map_language
         self.assertEqual(_map_language("Spanish"), "es")
 
     def test_french_maps_to_fr(self):
-        from qwen3_tts.core.engine import _map_language
+        from qwen3_tts.core.engine.text_processing import _map_language
         self.assertEqual(_map_language("French"), "fr")
 
     def test_unknown_language_falls_back_to_en(self):
-        from qwen3_tts.core.engine import _map_language
+        from qwen3_tts.core.engine.text_processing import _map_language
         self.assertEqual(_map_language("Klingon"), "en")
 
     def test_case_insensitive(self):
-        from qwen3_tts.core.engine import _map_language
+        from qwen3_tts.core.engine.text_processing import _map_language
         self.assertEqual(_map_language("english"), "en")
         self.assertEqual(_map_language("ENGLISH"), "en")
 
@@ -301,47 +301,47 @@ class TestNormalizeText(unittest.TestCase):
 
     def test_normalize_cardinal_number(self):
         """42 → forty-two."""
-        from qwen3_tts.core.engine import _normalize_text
+        from qwen3_tts.core.engine.text_processing import _normalize_text
         result = _normalize_text("I have 42 apples.", "English")
         self.assertIn("forty-two", result)
         self.assertNotIn("42", result)
 
     def test_normalize_dr_abbreviation(self):
         """Dr. → Doctor."""
-        from qwen3_tts.core.engine import _normalize_text
+        from qwen3_tts.core.engine.text_processing import _normalize_text
         result = _normalize_text("Dr. Smith visited.", "English")
         self.assertIn("Doctor", result)
 
     def test_normalize_mr_abbreviation(self):
         """Mr. → Mister."""
-        from qwen3_tts.core.engine import _normalize_text
+        from qwen3_tts.core.engine.text_processing import _normalize_text
         result = _normalize_text("Mr. Jones called.", "English")
         self.assertIn("Mister", result)
 
     def test_normalize_currency_dollars(self):
         """$42 → forty-two dollars."""
-        from qwen3_tts.core.engine import _normalize_text
+        from qwen3_tts.core.engine.text_processing import _normalize_text
         result = _normalize_text("It costs $42.", "English")
         self.assertIn("dollars", result.lower())
         self.assertNotIn("$", result)
 
     def test_normalize_currency_euros(self):
         """€10 → ten euros."""
-        from qwen3_tts.core.engine import _normalize_text
+        from qwen3_tts.core.engine.text_processing import _normalize_text
         result = _normalize_text("Pay €10 now.", "English")
         self.assertIn("euros", result.lower())
         self.assertNotIn("€", result)
 
     def test_normalize_ordinal(self):
         """3rd → third."""
-        from qwen3_tts.core.engine import _normalize_text
+        from qwen3_tts.core.engine.text_processing import _normalize_text
         result = _normalize_text("He came in 3rd place.", "English")
         self.assertIn("third", result)
         self.assertNotIn("3rd", result)
 
     def test_normalize_iso_date(self):
         """2026-02-20 → February twentieth, ..."""
-        from qwen3_tts.core.engine import _normalize_text
+        from qwen3_tts.core.engine.text_processing import _normalize_text
         result = _normalize_text("Today is 2026-02-20.", "English")
         self.assertIn("February", result)
         self.assertIn("twentieth", result)
@@ -349,51 +349,51 @@ class TestNormalizeText(unittest.TestCase):
 
     def test_normalize_etc_abbreviation(self):
         """etc. → et cetera."""
-        from qwen3_tts.core.engine import _normalize_text
+        from qwen3_tts.core.engine.text_processing import _normalize_text
         result = _normalize_text("cats, dogs, etc.", "English")
         self.assertIn("et cetera", result)
 
     def test_normalize_eg_abbreviation(self):
         """e.g. → for example."""
-        from qwen3_tts.core.engine import _normalize_text
+        from qwen3_tts.core.engine.text_processing import _normalize_text
         result = _normalize_text("e.g. apples and oranges", "English")
         self.assertIn("for example", result)
 
     def test_normalize_vs_abbreviation(self):
         """vs. → versus."""
-        from qwen3_tts.core.engine import _normalize_text
+        from qwen3_tts.core.engine.text_processing import _normalize_text
         result = _normalize_text("cats vs. dogs", "English")
         self.assertIn("versus", result)
 
     def test_normalize_preserves_plain_text(self):
         """Text with no special tokens should be returned unchanged."""
-        from qwen3_tts.core.engine import _normalize_text
+        from qwen3_tts.core.engine.text_processing import _normalize_text
         result = _normalize_text("Hello world.", "English")
         self.assertEqual(result, "Hello world.")
 
     def test_normalize_returns_string(self):
         """Always returns a string even on complex input."""
-        from qwen3_tts.core.engine import _normalize_text
+        from qwen3_tts.core.engine.text_processing import _normalize_text
         result = _normalize_text("Test 123 Dr. Smith $5 etc.", "English")
         self.assertIsInstance(result, str)
 
     def test_normalize_email(self):
         """user@example.com → user at example dot com."""
-        from qwen3_tts.core.engine import _normalize_text
+        from qwen3_tts.core.engine.text_processing import _normalize_text
         result = _normalize_text("Email user@example.com today.", "English")
         self.assertIn("at", result)
         self.assertNotIn("@", result)
 
     def test_normalize_url(self):
         """https://example.com → example dot com."""
-        from qwen3_tts.core.engine import _normalize_text
+        from qwen3_tts.core.engine.text_processing import _normalize_text
         result = _normalize_text("Visit https://example.com for info.", "English")
         self.assertNotIn("https://", result)
         self.assertIn("example", result)
 
     def test_normalize_phone_7digit(self):
         """555-1234 — bare phone digits are expanded, not left as numerals."""
-        from qwen3_tts.core.engine import _normalize_text
+        from qwen3_tts.core.engine.text_processing import _normalize_text
         result = _normalize_text("Call 555-1234 today.", "English")
         self.assertNotIn("555-1234", result)
         # cardinal expansion converts the component numbers to words
@@ -401,7 +401,7 @@ class TestNormalizeText(unittest.TestCase):
 
     def test_normalize_phone_10digit(self):
         """(800) 555-1234 → digit-by-digit then each digit becomes a word."""
-        from qwen3_tts.core.engine import _normalize_text
+        from qwen3_tts.core.engine.text_processing import _normalize_text
         result = _normalize_text("Call (800) 555-1234 now.", "English")
         self.assertNotIn("(800)", result)
         self.assertNotIn("555-1234", result)
@@ -416,7 +416,7 @@ class TestPysbdSentenceSplitting(unittest.TestCase):
 
     def test_dr_smith_not_split(self):
         """'Dr. Smith' should not be treated as a sentence boundary."""
-        from qwen3_tts.core.engine import _split_text
+        from qwen3_tts.core.engine.text_processing import _split_text
         text = "Dr. Smith visited the clinic. He was very kind."
         # With max_chars=200 both sentences should still be one chunk
         # because the total is under 200 chars
@@ -425,20 +425,20 @@ class TestPysbdSentenceSplitting(unittest.TestCase):
 
     def test_real_sentence_boundary_still_splits(self):
         """Genuine sentence endings still trigger splitting when over limit."""
-        from qwen3_tts.core.engine import _split_text
+        from qwen3_tts.core.engine.text_processing import _split_text
         text = "First sentence here. Second sentence here."
         result = _split_text(text, max_chars=25, language="English")
         self.assertGreater(len(result), 1)
 
     def test_language_param_accepted(self):
         """_split_text accepts a language keyword argument without error."""
-        from qwen3_tts.core.engine import _split_text
+        from qwen3_tts.core.engine.text_processing import _split_text
         result = _split_text("Hello world.", max_chars=500, language="English")
         self.assertEqual(result, ["Hello world."])
 
     def test_pysbd_falls_back_gracefully_on_unknown_language(self):
         """Unknown language falls back to English segmenter without crashing."""
-        from qwen3_tts.core.engine import _split_text
+        from qwen3_tts.core.engine.text_processing import _split_text
         result = _split_text("Hello world.", max_chars=500, language="Klingon")
         self.assertIsInstance(result, list)
         self.assertTrue(len(result) >= 1)
@@ -449,12 +449,12 @@ class TestGetMaxChunkTokens(unittest.TestCase):
     """Tests for _get_max_chunk_tokens() config reader."""
 
     def test_returns_int(self):
-        from qwen3_tts.core.engine import _get_max_chunk_tokens
+        from qwen3_tts.core.engine.inference import _get_max_chunk_tokens
         result = _get_max_chunk_tokens()
         self.assertIsInstance(result, int)
 
     def test_returns_positive(self):
-        from qwen3_tts.core.engine import _get_max_chunk_tokens
+        from qwen3_tts.core.engine.inference import _get_max_chunk_tokens
         result = _get_max_chunk_tokens()
         self.assertGreater(result, 0)
 
@@ -475,7 +475,7 @@ class TestTokenAwareChunking(unittest.TestCase):
 
     def test_token_aware_splits_when_over_max_tokens(self):
         """With tokenizer, chunks respect max_tokens not max_chars."""
-        from qwen3_tts.core.engine import _split_text
+        from qwen3_tts.core.engine.text_processing import _split_text
         tokenizer = self._make_mock_tokenizer(tokens_per_word=1)
         # 30 words → 30 tokens; max_tokens=10 → should produce multiple chunks
         text = " ".join(["word"] * 30)
@@ -484,7 +484,7 @@ class TestTokenAwareChunking(unittest.TestCase):
 
     def test_token_aware_no_split_under_limit(self):
         """Short text under max_tokens stays as one chunk."""
-        from qwen3_tts.core.engine import _split_text
+        from qwen3_tts.core.engine.text_processing import _split_text
         tokenizer = self._make_mock_tokenizer(tokens_per_word=1)
         text = "Hello world."  # 2 tokens with mock
         result = _split_text(text, max_chars=10000, tokenizer=tokenizer, max_tokens=50)
@@ -492,7 +492,7 @@ class TestTokenAwareChunking(unittest.TestCase):
 
     def test_no_tokenizer_falls_back_to_chars(self):
         """Without tokenizer, char-based logic still applies."""
-        from qwen3_tts.core.engine import _split_text
+        from qwen3_tts.core.engine.text_processing import _split_text
         text = "First sentence. Second sentence."
         result = _split_text(text, max_chars=20, tokenizer=None, max_tokens=None)
         self.assertGreater(len(result), 1)
