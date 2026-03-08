@@ -41,6 +41,13 @@ from qwen3_tts.core.config import (
     load_config,
     get_prosody_presets,
 )
+from qwen3_tts.interface.voice_helpers import (
+    get_prosody_choices,
+    apply_prosody_preset,
+    compose_voice_description,
+    strip_extension,
+    validate_prompt_name,
+)
 
 # Derive speaker choices from canonical source
 SPEAKER_CHOICES = [

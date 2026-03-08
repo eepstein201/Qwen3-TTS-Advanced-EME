@@ -772,3 +772,41 @@ class AuthenticationError(TTSError):
             technical_detail=detail or "Cannot authenticate. Run 'tts server start' to generate auth token.",
             recovery="restart",
         )
+
+
+class VoicePromptError(TTSError):
+    """Voice prompt operation failed."""
+
+    def __init__(self, operation: str, detail=None):
+        """Initialize VoicePromptError.
+
+        Args:
+            operation: Operation that failed (e.g., "delete", "rename", "preview")
+            detail: Error details
+        """
+        self.operation = operation
+        super().__init__(
+            f"Voice prompt {operation} failed.",
+            technical_detail=detail,
+            recovery="retry" if operation in ("list", "preview") else "config",
+        )
+
+
+class ModelError(TTSError):
+    """Model operation failed."""
+
+    def __init__(self, model_type: str, operation: str, detail=None):
+        """Initialize ModelError.
+
+        Args:
+            model_type: Model type (clone, design, custom)
+            operation: Operation that failed (e.g., "load", "unload")
+            detail: Error details
+        """
+        self.model_type = model_type
+        self.operation = operation
+        super().__init__(
+            f"Model {operation} failed for {model_type}.",
+            technical_detail=detail,
+            recovery="restart",
+        )

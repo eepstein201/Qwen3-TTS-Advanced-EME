@@ -103,6 +103,10 @@ from qwen3_tts.core.engine.inference import (
     _get_max_chunk_chars,
     _get_max_chunk_tokens,
     _crossfade_chunks,
+    _INFERENCE_STRATEGIES,
+    _MODE_STRATEGIES_TORCH,
+    register_backend,
+    _get_backend_strategy,
 )
 
 # --- asr ---

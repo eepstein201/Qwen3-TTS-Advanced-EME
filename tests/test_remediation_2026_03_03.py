@@ -178,59 +178,65 @@ class TestMetalRetryDepthLimit(unittest.TestCase):
         return RuntimeError("Metal command buffer execution failed")
 
     @patch("qwen3_tts.core.engine.inference.get_backend", return_value="mlx")
-    @patch("qwen3_tts.core.engine.inference._run_inference_mlx")
-    def test_depth_0_retries_on_metal_crash(self, mock_mlx, mock_backend):
+    def test_depth_0_retries_on_metal_crash(self, mock_backend):
         """At depth 0 with text > 100 chars, Metal crash triggers split retry."""
-        from qwen3_tts.core.engine import _run_inference_single
+        from qwen3_tts.core.engine import _run_inference_single, _INFERENCE_STRATEGIES
         import numpy as _np
 
         long_text = "A " * 110  # > 100 chars, has spaces for splitting
         sr = 24000
         wav = _np.zeros(1000, dtype="float32")
 
-        # First call raises Metal error, sub-chunk calls succeed
-        mock_mlx.side_effect = [
-            self._make_metal_error(),  # original call
-            (wav, sr),  # chunk1
-            (wav, sr),  # chunk2
-        ]
+        # Create a mock strategy that raises Metal error first, then succeeds
+        call_count = [0]
+        original_mlx = _INFERENCE_STRATEGIES.get("mlx")
 
-        result_wav, result_sr = _run_inference_single(
-            MagicMock(), long_text, "clone", {}, _metal_retry_depth=0
-        )
-        self.assertEqual(result_sr, sr)
-        # Should have called _run_inference_mlx 3 times (1 fail + 2 sub-chunks)
-        self.assertEqual(mock_mlx.call_count, 3)
+        def mock_strategy(*args, **kwargs):
+            call_count[0] += 1
+            if call_count[0] == 1:
+                raise self._make_metal_error()
+            return (wav, sr)
+
+        with patch.dict(_INFERENCE_STRATEGIES, {"mlx": mock_strategy}):
+            result_wav, result_sr = _run_inference_single(
+                MagicMock(), long_text, "clone", {}, voice_prompt={"ref_audio": MagicMock(), "ref_text": "test"}, _metal_retry_depth=0
+            )
+            self.assertEqual(result_sr, sr)
+            # Should have called strategy 3 times (1 fail + 2 sub-chunks)
+            self.assertEqual(call_count[0], 3)
 
     @patch("qwen3_tts.core.engine.inference.get_backend", return_value="mlx")
-    @patch("qwen3_tts.core.engine.inference._run_inference_mlx")
-    def test_depth_2_raises_immediately(self, mock_mlx, mock_backend):
+    def test_depth_2_raises_immediately(self, mock_backend):
         """At depth 2, Metal crash re-raises without recursion."""
-        from qwen3_tts.core.engine import _run_inference_single
+        from qwen3_tts.core.engine import _run_inference_single, _INFERENCE_STRATEGIES
 
-        mock_mlx.side_effect = self._make_metal_error()
+        def mock_strategy(*args, **kwargs):
+            raise self._make_metal_error()
 
-        with self.assertRaises(RuntimeError) as ctx:
-            _run_inference_single(
-                MagicMock(), "A " * 110, "clone", {}, _metal_retry_depth=2
-            )
-        self.assertIn("Metal command buffer", str(ctx.exception))
-        # Should have called mlx exactly once (no recursion)
-        self.assertEqual(mock_mlx.call_count, 1)
+        with patch.dict(_INFERENCE_STRATEGIES, {"mlx": mock_strategy}):
+            with self.assertRaises(RuntimeError) as ctx:
+                _run_inference_single(
+                    MagicMock(), "A " * 110, "clone", {}, voice_prompt={"ref_audio": MagicMock(), "ref_text": "test"}, _metal_retry_depth=2
+                )
+            self.assertIn("Metal command buffer", str(ctx.exception))
 
     @patch("qwen3_tts.core.engine.inference.get_backend", return_value="mlx")
-    @patch("qwen3_tts.core.engine.inference._run_inference_mlx")
-    def test_short_text_raises_immediately(self, mock_mlx, mock_backend):
+    def test_short_text_raises_immediately(self, mock_backend):
         """Short text (<=100 chars) should not trigger retry regardless of depth."""
-        from qwen3_tts.core.engine import _run_inference_single
+        from qwen3_tts.core.engine import _run_inference_single, _INFERENCE_STRATEGIES
 
-        mock_mlx.side_effect = self._make_metal_error()
+        call_count = [0]
 
-        with self.assertRaises(RuntimeError):
-            _run_inference_single(
-                MagicMock(), "Short text", "clone", {}, _metal_retry_depth=0
-            )
-        self.assertEqual(mock_mlx.call_count, 1)
+        def mock_strategy(*args, **kwargs):
+            call_count[0] += 1
+            raise self._make_metal_error()
+
+        with patch.dict(_INFERENCE_STRATEGIES, {"mlx": mock_strategy}):
+            with self.assertRaises(RuntimeError):
+                _run_inference_single(
+                    MagicMock(), "Short text", "clone", {}, voice_prompt={"ref_audio": MagicMock(), "ref_text": "test"}, _metal_retry_depth=0
+                )
+            self.assertEqual(call_count[0], 1)
 
 
 # ---------------------------------------------------------------------------

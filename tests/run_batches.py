@@ -32,8 +32,10 @@ BATCHES = {
             "tests.test_deprecated_refs",
             "tests.test_config",
             "tests.test_p3_p4_remediation",
+            "tests.test_healthcheck",
+            "tests.test_model_cache",
         ],
-        "timeout": 60,  # Quick tests
+        "timeout": 90,  # Quick tests
     },
     2: {
         "name": "Voice & CLI",
@@ -56,6 +58,7 @@ BATCHES = {
             "tests.test_async_concurrency",
             "tests.test_remediation_2026_03_03",
             "tests.test_remediation_2026_03_04",
+            "tests.test_integration",
         ],
         "timeout": 180,  # Higher timeout for async operations
     },
@@ -75,8 +78,14 @@ BATCHES = {
         "description": "Tests requiring optional dependencies (pytest, etc.)",
         "modules": [
             "tests.test_flash_attn_install",
+            "tests.test_solid_analyzer",
+            "tests.test_protocols",
+            "tests.test_voice_helpers",
+            "tests.test_validation",
+            "tests.test_error_handling",
+            "tests.test_ocp_strategy",
         ],
-        "timeout": 30,
+        "timeout": 60,
     },
 }
 

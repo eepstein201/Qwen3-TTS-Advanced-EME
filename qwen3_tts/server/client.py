@@ -46,18 +46,25 @@ from qwen3_tts.core.config import (
     get_server_url,
     is_server_running,
     auth_headers,
+    GenerationError,
+    ModelError,
+    VoicePromptError,
+    ServerConnectionError,
 )
 
 
 class TTSClient:
     """HTTP-only client for Qwen3-TTS generation."""
 
-    def __init__(self, config_path=None):
+    def __init__(self, config_path=None, config_provider=None):
         """Initialize the TTS client.
 
         Args:
             config_path: Path to config.json. Defaults to ~/Qwen3-TTS_UserFiles/config.json
+            config_provider: Optional ConfigProvider instance for dependency injection.
+                           If provided, config_path is ignored.
         """
+        self._config_provider = config_provider
         self.config_path = config_path or CONFIG_PATH
         self.voice_prompts_dir = VOICE_PROMPTS_DIR
         self._config = None
@@ -76,6 +83,12 @@ class TTSClient:
     @property
     def config(self):
         """Load and cache configuration."""
+        if self._config_provider is not None:
+            # Use config provider if available
+            return {
+                "generation": self._config_provider.get_generation_params(),
+                "server": {"url": self._config_provider.get_server_url()},
+            }
         if self._config is None:
             with open(self.config_path, "r") as f:
                 self._config = json.load(f)
@@ -89,6 +102,8 @@ class TTSClient:
     @property
     def server_url(self):
         """Get the server URL from config."""
+        if self._config_provider is not None:
+            return self._config_provider.get_server_url()
         return get_server_url(self.config)
 
     def is_server_running(self):
@@ -133,7 +148,7 @@ class TTSClient:
                 error_msg = error_data.get("message") or error_data.get("detail", "Unknown error")
             except (ValueError, requests.exceptions.JSONDecodeError):
                 error_msg = f"Server returned HTTP {resp.status_code}"
-            raise Exception(f"Failed to load {mode} model: {error_msg}")
+            raise ModelError(mode, "load", error_msg)
         return resp.json()
 
     def update_model_config(self, model_size=None, mlx_quantization=None):
@@ -172,7 +187,7 @@ class TTSClient:
                 error_msg = resp.json().get("error", "Unknown error")
             except (ValueError, requests.exceptions.JSONDecodeError):
                 error_msg = f"Server returned HTTP {resp.status_code}"
-            raise Exception(f"Failed to update model config: {error_msg}")
+            raise ModelError("config", "update", error_msg)
         return resp.json()
 
     def unload_model(self, mode):
@@ -197,7 +212,7 @@ class TTSClient:
                 error_msg = resp.json().get("error", "Unknown error")
             except (ValueError, requests.exceptions.JSONDecodeError):
                 error_msg = f"Server returned HTTP {resp.status_code}"
-            raise Exception(f"Failed to unload {mode} model: {error_msg}")
+            raise ModelError(mode, "unload", error_msg)
         return resp.json()
 
     def update_startup_config(self, clone=None, design=None, custom=None):
@@ -233,7 +248,7 @@ class TTSClient:
                 error_msg = resp.json().get("error", "Unknown error")
             except (ValueError, requests.exceptions.JSONDecodeError):
                 error_msg = f"Server returned HTTP {resp.status_code}"
-            raise Exception(f"Failed to update startup config: {error_msg}")
+            raise ModelError("startup", "update", error_msg)
         return resp.json()
 
     def get_models(self):
@@ -308,7 +323,7 @@ class TTSClient:
         )
         if resp.status_code != 200:
             error_msg = resp.json().get("error", "Unknown error")
-            raise Exception(f"Delete failed: {error_msg}")
+            raise VoicePromptError("delete", error_msg)
         return resp.json()
 
     def rename_prompt(self, old_name, new_name):
@@ -331,7 +346,7 @@ class TTSClient:
         )
         if resp.status_code != 200:
             error_msg = resp.json().get("error", "Unknown error")
-            raise Exception(f"Rename failed: {error_msg}")
+            raise VoicePromptError("rename", error_msg)
         return resp.json()
 
     def preview_prompt(self, name):
@@ -356,7 +371,7 @@ class TTSClient:
                 error_msg = resp.json().get("error", "Unknown error")
             except (ValueError, requests.exceptions.JSONDecodeError):
                 error_msg = f"HTTP {resp.status_code}"
-            raise Exception(f"Preview failed: {error_msg}")
+            raise VoicePromptError("preview", error_msg)
         return resp.content
 
     def get_prompt_details(self, name=None):
@@ -379,7 +394,7 @@ class TTSClient:
         )
         if resp.status_code != 200:
             error_msg = resp.json().get("error", "Unknown error")
-            raise Exception(f"Details failed: {error_msg}")
+            raise VoicePromptError("details", error_msg)
         return resp.json()
 
     def list_presets(self):
@@ -557,7 +572,7 @@ class TTSClient:
                 error_msg = resp.json().get("error", "Unknown error")
             except (ValueError, requests.exceptions.JSONDecodeError):
                 error_msg = f"Server returned HTTP {resp.status_code} (non-JSON response)"
-            raise Exception(f"Server error: {error_msg}")
+            raise GenerationError(error_msg)
 
         import io, base64
         import soundfile as sf
@@ -690,7 +705,7 @@ class TTSClient:
                         error_msg = f"{error_data['model_type']} model: {error_msg}"
                 except (ValueError, requests.exceptions.JSONDecodeError):
                     error_msg = f"Server returned HTTP {resp.status_code}"
-                raise Exception(f"Server streaming error: {error_msg}")
+                raise GenerationError(error_msg)
 
             buffer = b""
             header_size = 8  # 4 bytes sample_rate + 4 bytes audio_length
@@ -817,7 +832,7 @@ class TTSClient:
                     error_msg = resp.json().get("error", "Unknown error")
                 except (ValueError, requests.exceptions.JSONDecodeError):
                     error_msg = f"Server returned HTTP {resp.status_code} (non-JSON response)"
-                raise Exception(f"Server error: {error_msg}")
+                raise GenerationError(error_msg)
 
             import io, base64
             import soundfile as sf

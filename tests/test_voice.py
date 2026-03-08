@@ -512,15 +512,23 @@ class TestAutoIncrementFilename(unittest.TestCase):
 
     def test_conflict_increments(self):
         from qwen3_tts.interface.generate import auto_increment_filename
-        # Create a temp file
+        # Create a temp file that definitely exists
         with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as f:
             path = f.name
+            f.write(b"test")  # Write some content to ensure file exists
         try:
+            # Verify file exists before calling
+            self.assertTrue(os.path.exists(path), "Temp file should exist")
             result = auto_increment_filename(path)
             self.assertNotEqual(result, path)
-            self.assertIn("_2", result)
+            # Check that result has _2 before the extension
+            base, ext = os.path.splitext(result)
+            self.assertTrue(base.endswith("_2"), f"Expected '_2' suffix in {base}")
         finally:
             os.unlink(path)
+            # Also clean up the incremented file if it was created
+            if os.path.exists(result):
+                os.unlink(result)
 
     def test_already_numbered(self):
         from qwen3_tts.interface.generate import auto_increment_filename
@@ -757,17 +765,23 @@ class TestBackendDispatch(unittest.TestCase):
     def test_run_inference_dispatch_torch(self):
         from qwen3_tts.core.engine import run_inference
         with patch("qwen3_tts.core.engine.inference.get_backend", return_value="torch"):
-            with patch("qwen3_tts.core.engine.inference._run_inference_torch", return_value=("wav", 24000)) as mock:
+            # Patch the registry entry for torch backend
+            with patch.dict(
+                "qwen3_tts.core.engine.inference._INFERENCE_STRATEGIES",
+                {"torch": lambda *args, **kwargs: ("wav", 24000)}
+            ):
                 result = run_inference("model", "text", "clone", {})
-        mock.assert_called_once()
         self.assertEqual(result, ("wav", 24000))
 
     def test_run_inference_dispatch_mlx(self):
         from qwen3_tts.core.engine import run_inference
         with patch("qwen3_tts.core.engine.inference.get_backend", return_value="mlx"):
-            with patch("qwen3_tts.core.engine.inference._run_inference_mlx", return_value=("wav", 24000)) as mock:
+            # Patch the registry entry for mlx backend
+            with patch.dict(
+                "qwen3_tts.core.engine.inference._INFERENCE_STRATEGIES",
+                {"mlx": lambda *args, **kwargs: ("wav", 24000)}
+            ):
                 result = run_inference("model", "text", "design", {})
-        mock.assert_called_once()
         self.assertEqual(result, ("wav", 24000))
 
 
