@@ -324,7 +324,7 @@ def _estimate_eta(app_state, text_length: int, elapsed_sec: float) -> Optional[f
         app_state.eta_cache["last_updated"] = now
 
     median_rate = app_state.eta_cache["median_rate"]
-    if median_rate is None:
+    if median_rate is None or median_rate <= 0:
         return None
 
     estimated_total = text_length / median_rate
