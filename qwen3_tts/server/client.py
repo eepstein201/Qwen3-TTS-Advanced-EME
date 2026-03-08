@@ -50,8 +50,29 @@ from qwen3_tts.core.config import (
 
 
 # ---------------------------------------------------------------------------
+# Constants
+# ---------------------------------------------------------------------------
+
+MAX_BUFFER_SIZE = 100 * 1024 * 1024  # 100MB - maximum buffer size for streaming
+
+
+# ---------------------------------------------------------------------------
 # Helper functions for code reuse
 # ---------------------------------------------------------------------------
+
+def _normalize_speaker_name(speaker):
+    """Normalize speaker name to lowercase for consistent lookup.
+
+    Args:
+        speaker: Speaker name (e.g., "Ryan", "RYAN", "ryan") or None
+
+    Returns:
+        Lowercase speaker name or None if input is None
+    """
+    if speaker is None:
+        return None
+    return speaker.lower()
+
 
 def _resolve_voice_alias(alias, prompt, mode, description, speaker, instruct, preset):
     """Resolve voice alias and merge with user-provided parameters.
@@ -574,7 +595,8 @@ class TTSClient:
         if mode == "clone":
             prompt = prompt or get_default_clone_prompt(self.config)
         elif mode == "custom":
-            speaker = speaker or self.config.get("default_speaker", "Ryan")
+            speaker = speaker or self.config.get("default_speaker", "ryan")
+            speaker = _normalize_speaker_name(speaker)
             instruct = instruct or ""
         else:
             description = description or self.config.get("default_voice_description", "")
@@ -710,7 +732,8 @@ class TTSClient:
         if mode == "clone":
             prompt = prompt or get_default_clone_prompt(self.config)
         elif mode == "custom":
-            speaker = speaker or self.config.get("default_speaker", "Ryan")
+            speaker = speaker or self.config.get("default_speaker", "ryan")
+            speaker = _normalize_speaker_name(speaker)
             instruct = instruct or ""
         else:
             description = description or self.config.get("default_voice_description", "")
@@ -758,10 +781,24 @@ class TTSClient:
             for chunk in resp.iter_content(chunk_size=65536):
                 buffer += chunk
 
+                # Protection against unbounded buffer growth from malformed data
+                if len(buffer) > MAX_BUFFER_SIZE:
+                    raise RuntimeError(
+                        f"Streaming buffer exceeded maximum size ({MAX_BUFFER_SIZE} bytes). "
+                        "Possible malformed response from server."
+                    )
+
                 # Parse complete chunks from buffer
                 while len(buffer) >= header_size:
                     sr, audio_len = struct.unpack("<II", buffer[:header_size])
                     total_chunk_size = header_size + audio_len
+
+                    # Protection against malformed headers claiming huge chunks
+                    if total_chunk_size > MAX_BUFFER_SIZE:
+                        raise RuntimeError(
+                            f"Streaming chunk size ({total_chunk_size} bytes) exceeds maximum buffer size "
+                            f"({MAX_BUFFER_SIZE} bytes). Possible malformed response from server."
+                        )
 
                     if len(buffer) < total_chunk_size:
                         break  # Wait for more data
@@ -852,7 +889,7 @@ class TTSClient:
             mode = speaker_config.get("mode", "clone")
             prompt = speaker_config.get("prompt", get_default_clone_prompt(self.config))
             description = speaker_config.get("description", self.config.get("default_voice_description", ""))
-            custom_speaker = speaker_config.get("speaker", "ryan")
+            custom_speaker = _normalize_speaker_name(speaker_config.get("speaker", "ryan"))
             instruct = speaker_config.get("instruct", line.get("instruct", ""))
 
             # Generate this line
