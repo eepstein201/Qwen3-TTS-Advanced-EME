@@ -808,7 +808,7 @@ class TestMLXInferenceCloneValidation(unittest.TestCase):
 
     def test_clone_requires_voice_prompt(self):
         """_run_inference_mlx raises ValueError without voice_prompt in clone mode."""
-        from qwen3_tts.core.engine import _run_inference_mlx
+        from qwen3_tts.core.engine.inference import _run_inference_mlx
         with self.assertRaises(ValueError) as ctx:
             _run_inference_mlx(
                 model=MagicMock(),
@@ -821,7 +821,7 @@ class TestMLXInferenceCloneValidation(unittest.TestCase):
 
     def test_clone_rejects_non_dict_prompt(self):
         """_run_inference_mlx raises TypeError for non-dict voice_prompt."""
-        from qwen3_tts.core.engine import _run_inference_mlx
+        from qwen3_tts.core.engine.inference import _run_inference_mlx
         with self.assertRaises(TypeError) as ctx:
             _run_inference_mlx(
                 model=MagicMock(),
@@ -944,7 +944,7 @@ class TestStreaming(unittest.TestCase):
 
     def test_mlx_streaming_function_exists(self):
         """_run_inference_mlx_streaming function is importable."""
-        from qwen3_tts.core.engine import _run_inference_mlx_streaming
+        from qwen3_tts.core.engine.inference import _run_inference_mlx_streaming
         self.assertTrue(callable(_run_inference_mlx_streaming))
 
     def test_streaming_torch_falls_back_to_chunked(self):
@@ -957,7 +957,7 @@ class TestStreaming(unittest.TestCase):
 
     def test_streaming_mlx_function_signature(self):
         """_run_inference_mlx_streaming has correct parameters."""
-        from qwen3_tts.core.engine import _run_inference_mlx_streaming
+        from qwen3_tts.core.engine.inference import _run_inference_mlx_streaming
         import inspect
         sig = inspect.signature(_run_inference_mlx_streaming)
         params = list(sig.parameters.keys())
@@ -1028,9 +1028,9 @@ class TestASR(unittest.TestCase):
 
     def test_asr_models_are_lazy_loaded(self):
         """ASR model caches are None until transcribe_audio is called."""
-        from qwen3_tts.core import engine as voice_engine
-        self.assertIsNone(voice_engine._asr_model_mlx)
-        self.assertIsNone(voice_engine._asr_model_torch)
+        from qwen3_tts.core.engine import asr
+        self.assertIsNone(asr._asr_model_mlx)
+        self.assertIsNone(asr._asr_model_torch)
 
     def test_is_asr_available_mlx_with_stt(self):
         """is_asr_available returns True when MLX + mlx_audio.stt available."""
@@ -1106,32 +1106,32 @@ class TestStability(unittest.TestCase):
 
     def test_retry_delays_constant_exists(self):
         """_RETRY_DELAYS constant is defined."""
-        from qwen3_tts.core.engine import _RETRY_DELAYS
+        from qwen3_tts.core.engine.model_loader import _RETRY_DELAYS
         self.assertEqual(len(_RETRY_DELAYS), 3)
         self.assertEqual(_RETRY_DELAYS, (5, 15, 45))
 
     def test_retry_delays_is_exponential(self):
         """_RETRY_DELAYS uses exponential backoff pattern."""
-        from qwen3_tts.core.engine import _RETRY_DELAYS
+        from qwen3_tts.core.engine.model_loader import _RETRY_DELAYS
         # Each delay should be roughly 3x the previous (5 -> 15 -> 45)
         self.assertEqual(_RETRY_DELAYS[1], _RETRY_DELAYS[0] * 3)
         self.assertEqual(_RETRY_DELAYS[2], _RETRY_DELAYS[1] * 3)
 
     def test_max_chunk_chars_helper_exists(self):
         """_get_max_chunk_chars helper function exists."""
-        from qwen3_tts.core.engine import _get_max_chunk_chars
+        from qwen3_tts.core.engine.inference import _get_max_chunk_chars
         self.assertTrue(callable(_get_max_chunk_chars))
 
     def test_max_chunk_chars_default(self):
         """_get_max_chunk_chars returns default 500."""
-        from qwen3_tts.core.engine import _get_max_chunk_chars
+        from qwen3_tts.core.engine.inference import _get_max_chunk_chars
         with patch("qwen3_tts.core.engine.inference.load_config", return_value={}):
             result = _get_max_chunk_chars()
         self.assertEqual(result, 500)
 
     def test_max_chunk_chars_from_config(self):
         """_get_max_chunk_chars reads from config."""
-        from qwen3_tts.core.engine import _get_max_chunk_chars
+        from qwen3_tts.core.engine.inference import _get_max_chunk_chars
         config = {"generation": {"max_chunk_chars": 300}}
         with patch("qwen3_tts.core.engine.inference.load_config", return_value=config):
             result = _get_max_chunk_chars()
@@ -1143,7 +1143,7 @@ class TestFloat32Guard(unittest.TestCase):
 
     def test_float32_guard_exists_in_torch_inference(self):
         """_run_inference_torch has float32 guard logic."""
-        from qwen3_tts.core.engine import _run_inference_torch
+        from qwen3_tts.core.engine.inference import _run_inference_torch
         import inspect
         source = inspect.getsource(_run_inference_torch)
         # Should have float32 override logic for clone mode
@@ -1156,7 +1156,7 @@ class TestMLXMetalRecovery(unittest.TestCase):
 
     def test_run_inference_handles_exceptions(self):
         """run_inference wraps inference in try/except."""
-        from qwen3_tts.core.engine import _run_inference_single
+        from qwen3_tts.core.engine.inference import _run_inference_single
         import inspect
         source = inspect.getsource(_run_inference_single)
         # Should have exception handling
@@ -1172,13 +1172,13 @@ class TestTextChunking(unittest.TestCase):
 
     def test_split_text_short(self):
         """Short text is not split."""
-        from qwen3_tts.core.engine import _split_text
+        from qwen3_tts.core.engine.text_processing import _split_text
         chunks = _split_text("Hello world.", max_chars=500)
         self.assertEqual(chunks, ["Hello world."])
 
     def test_split_text_sentences(self):
         """Text is split on sentence boundaries."""
-        from qwen3_tts.core.engine import _split_text
+        from qwen3_tts.core.engine.text_processing import _split_text
         text = "First sentence. Second sentence. Third sentence."
         chunks = _split_text(text, max_chars=30)
         self.assertGreater(len(chunks), 1)
@@ -1188,7 +1188,7 @@ class TestTextChunking(unittest.TestCase):
 
     def test_split_text_preserves_content(self):
         """All content is preserved after splitting."""
-        from qwen3_tts.core.engine import _split_text
+        from qwen3_tts.core.engine.text_processing import _split_text
         text = "The quick brown fox jumps over the lazy dog. A second sentence follows."
         chunks = _split_text(text, max_chars=50)
         combined = " ".join(chunks)
@@ -1198,28 +1198,28 @@ class TestTextChunking(unittest.TestCase):
 
     def test_split_text_question_mark(self):
         """Text splits on question marks."""
-        from qwen3_tts.core.engine import _split_text
+        from qwen3_tts.core.engine.text_processing import _split_text
         text = "Is this a question? Yes it is."
         chunks = _split_text(text, max_chars=25)
         self.assertGreater(len(chunks), 1)
 
     def test_split_text_exclamation(self):
         """Text splits on exclamation marks."""
-        from qwen3_tts.core.engine import _split_text
+        from qwen3_tts.core.engine.text_processing import _split_text
         text = "Hello! How are you today?"
         chunks = _split_text(text, max_chars=15)
         self.assertGreater(len(chunks), 1)
 
     def test_split_text_newlines(self):
         """Text splits on newlines."""
-        from qwen3_tts.core.engine import _split_text
+        from qwen3_tts.core.engine.text_processing import _split_text
         text = "First paragraph.\n\nSecond paragraph."
         chunks = _split_text(text, max_chars=20)
         self.assertGreater(len(chunks), 1)
 
     def test_split_text_comma_fallback(self):
         """Very long sentence falls back to clause boundaries."""
-        from qwen3_tts.core.engine import _split_text
+        from qwen3_tts.core.engine.text_processing import _split_text
         # A single long sentence with commas but no periods
         text = "This is a very long sentence, with several clauses, that should be split at commas when needed"
         chunks = _split_text(text, max_chars=40)
@@ -1987,7 +1987,7 @@ class TestMLXVoicePromptCache(unittest.TestCase):
 
     def setUp(self):
         # Clear cache before each test (earlier test classes may have populated it)
-        from qwen3_tts.core.engine import _mlx_prompt_cache
+        from qwen3_tts.core.engine.voice_prompt import _mlx_prompt_cache
         _mlx_prompt_cache.clear()
         self.tmpdir = tempfile.mkdtemp()
         # Create fake wav and txt
@@ -2001,7 +2001,7 @@ class TestMLXVoicePromptCache(unittest.TestCase):
         import shutil
         shutil.rmtree(self.tmpdir, ignore_errors=True)
         # Clear cache between tests
-        from qwen3_tts.core.engine import _mlx_prompt_cache
+        from qwen3_tts.core.engine.voice_prompt import _mlx_prompt_cache
         _mlx_prompt_cache.clear()
 
     def test_mlx_cache_returns_consistent_results(self):
@@ -2014,14 +2014,16 @@ class TestMLXVoicePromptCache(unittest.TestCase):
 
     def test_mlx_cache_stores_entries(self):
         """Loading a prompt adds it to the cache."""
-        from qwen3_tts.core.engine import load_voice_prompt_mlx, _mlx_prompt_cache
+        from qwen3_tts.core.engine import load_voice_prompt_mlx
+        from qwen3_tts.core.engine.voice_prompt import _mlx_prompt_cache
         with patch("qwen3_tts.core.engine.voice_prompt.VOICE_PROMPTS_DIR", self.tmpdir):
             load_voice_prompt_mlx("voice_a")
         self.assertIn("voice_a", _mlx_prompt_cache)
 
     def test_clear_voice_prompt_cache_clears_mlx(self):
         """clear_voice_prompt_cache clears MLX cache."""
-        from qwen3_tts.core.engine import load_voice_prompt_mlx, clear_voice_prompt_cache, _mlx_prompt_cache
+        from qwen3_tts.core.engine import load_voice_prompt_mlx, clear_voice_prompt_cache
+        from qwen3_tts.core.engine.voice_prompt import _mlx_prompt_cache
         with patch("qwen3_tts.core.engine.voice_prompt.VOICE_PROMPTS_DIR", self.tmpdir):
             load_voice_prompt_mlx("voice_a")
         self.assertEqual(len(_mlx_prompt_cache), 1)
@@ -2531,7 +2533,7 @@ class TestDeviceAwareEngine(unittest.TestCase):
     def test_load_model_torch_uses_get_device(self):
         """_load_model_torch uses get_device() for device_map."""
         import inspect
-        from qwen3_tts.core.engine import _load_model_torch
+        from qwen3_tts.core.engine.model_loader import _load_model_torch
         source = inspect.getsource(_load_model_torch)
         self.assertIn("get_device", source)
         self.assertNotIn('device_map="mps"', source)
@@ -2539,14 +2541,14 @@ class TestDeviceAwareEngine(unittest.TestCase):
     def test_install_mps_patch_checks_platform(self):
         """_install_mps_patch checks IS_MACOS before patching."""
         import inspect
-        from qwen3_tts.core.engine import _install_mps_patch
+        from qwen3_tts.core.engine.model_loader import _install_mps_patch
         source = inspect.getsource(_install_mps_patch)
         self.assertIn("IS_MACOS", source)
 
     def test_cuda_memory_cleanup_exists(self):
         """_run_inference_torch has CUDA memory cleanup code."""
         import inspect
-        from qwen3_tts.core.engine import _run_inference_torch
+        from qwen3_tts.core.engine.inference import _run_inference_torch
         source = inspect.getsource(_run_inference_torch)
         self.assertIn("torch.cuda.is_available", source)
         self.assertIn("torch.cuda.empty_cache", source)
@@ -3043,7 +3045,7 @@ class TestXVectorOnlyMode(unittest.TestCase):
     def test_inference_single_accepts_x_vector_only_mode(self):
         """_run_inference_single should accept x_vector_only_mode parameter."""
         import inspect
-        from qwen3_tts.core.engine import _run_inference_single
+        from qwen3_tts.core.engine.inference import _run_inference_single
         sig = inspect.signature(_run_inference_single)
         self.assertIn("x_vector_only_mode", sig.parameters)
 
@@ -3211,6 +3213,119 @@ class TestClickCLI(unittest.TestCase):
         self.assertIn('--mode', result.output)
         self.assertIn('--prompt', result.output)
         self.assertIn('--output', result.output)
+
+    def test_preview_voice_cleanup_on_failure(self):
+        """preview_voice must clean up temp file on exception."""
+        import os
+        import tempfile
+        from unittest.mock import patch, MagicMock
+
+        # Track the temp file path
+        temp_file_path = None
+
+        def mock_named_temp_file(*args, **kwargs):
+            nonlocal temp_file_path
+            mock_file = MagicMock()
+            # Create an actual temp file to track
+            fd, path = tempfile.mkstemp(suffix=".wav")
+            os.close(fd)
+            temp_file_path = path
+            mock_file.name = path
+            mock_file.write = MagicMock()
+            mock_file.close = MagicMock()
+            return mock_file
+
+        with patch('qwen3_tts.interface.ui.TTSClient') as mock_client_class, \
+             patch('qwen3_tts.interface.ui.tempfile.NamedTemporaryFile', side_effect=mock_named_temp_file):
+            mock_client = MagicMock()
+            mock_client.preview_prompt.side_effect = RuntimeError("Server error")
+            mock_client_class.return_value = mock_client
+
+            from qwen3_tts.interface.ui import preview_voice
+            result = preview_voice("test_prompt")
+
+            # Should return None on failure
+            self.assertIsNone(result)
+            # Temp file should be cleaned up (not exist)
+            if temp_file_path:
+                self.assertFalse(os.path.exists(temp_file_path),
+                                 f"Temp file {temp_file_path} should be cleaned up on exception")
+
+    def test_preview_voice_cleanup_on_write_failure(self):
+        """preview_voice must clean up temp file when write fails."""
+        import os
+        import tempfile
+        from unittest.mock import patch, MagicMock
+
+        # Track the temp file path
+        temp_file_path = None
+
+        def mock_named_temp_file(*args, **kwargs):
+            nonlocal temp_file_path
+            mock_file = MagicMock()
+            # Create an actual temp file to track
+            fd, path = tempfile.mkstemp(suffix=".wav")
+            os.close(fd)
+            temp_file_path = path
+            mock_file.name = path
+            # Make write fail after file is created
+            mock_file.write.side_effect = OSError("Disk full")
+            mock_file.close = MagicMock()
+            return mock_file
+
+        with patch('qwen3_tts.interface.ui.TTSClient') as mock_client_class, \
+             patch('qwen3_tts.interface.ui.tempfile.NamedTemporaryFile', side_effect=mock_named_temp_file):
+            mock_client = MagicMock()
+            mock_client.preview_prompt.return_value = b"fake audio bytes"
+            mock_client_class.return_value = mock_client
+
+            from qwen3_tts.interface.ui import preview_voice
+            result = preview_voice("test_prompt")
+
+            # Should return None on write failure
+            self.assertIsNone(result)
+            # Temp file should be cleaned up even though it was created
+            if temp_file_path:
+                self.assertFalse(os.path.exists(temp_file_path),
+                                 f"Temp file {temp_file_path} should be cleaned up on write failure")
+
+    def test_save_streaming_audio_empty_chunks(self):
+        """_save_streaming_audio must handle empty chunks without crash."""
+        import numpy as np
+        from qwen3_tts.interface.ui import _save_streaming_audio
+
+        # Test with mixed chunks (some empty, some not)
+        chunks = [
+            np.array([0.1, 0.2, 0.3]),
+            np.array([]),  # Empty chunk
+            np.array([0.4, 0.5]),
+            np.array([]),  # Another empty chunk
+            np.array([0.6]),
+        ]
+
+        result = _save_streaming_audio(chunks, 24000)
+        # Should return a valid path, not None or crash
+        self.assertIsNotNone(result)
+        self.assertTrue(result.endswith(".wav"))
+        # Clean up the file
+        import os
+        if result and os.path.exists(result):
+            os.unlink(result)
+
+    def test_save_streaming_audio_all_empty_chunks(self):
+        """_save_streaming_audio must handle all-empty chunks gracefully."""
+        import numpy as np
+        from qwen3_tts.interface.ui import _save_streaming_audio
+
+        # Test with all empty chunks
+        chunks = [
+            np.array([]),
+            np.array([]),
+        ]
+
+        result = _save_streaming_audio(chunks, 24000)
+        # Should return None since there's no audio to save
+        self.assertIsNone(result)
 
 
 if __name__ == "__main__":
