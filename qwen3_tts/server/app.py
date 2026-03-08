@@ -1002,11 +1002,9 @@ async def list_prompts(request: Request, _auth: None = Depends(verify_auth)):
         names = sorted(wav_files & txt_files)
         prompts = [f"{n}.wav" for n in names]
     else:
-        # Torch uses .pt files, but also include voices with .wav+.txt
+        # Torch uses .pt files only (not .wav files)
         pt_names = {f[:-3] for f in all_files if f.endswith('.pt')}
-        wav_names = {f[:-4] for f in all_files if f.endswith('.wav')}
-        all_names = sorted(pt_names | wav_names)
-        prompts = [f"{n}.pt" for n in all_names]
+        prompts = sorted(f"{n}.pt" for n in pt_names)
 
     total = len(prompts)
 
@@ -1548,6 +1546,8 @@ async def generate_stream(request: Request, req: GenerateRequest, _auth: None = 
 
     # Shared validation (path traversal, speaker, mode)
     _validate_generation_request(req, security)
+
+    mode = req.mode
 
     # Check if required model is loaded
     model = state.models.get(mode)
