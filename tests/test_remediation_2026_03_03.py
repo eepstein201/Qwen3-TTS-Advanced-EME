@@ -124,7 +124,7 @@ class TestPreCompiledRegexes(unittest.TestCase):
     """Verify compiled regex constants exist and _normalize_text() still works."""
 
     def test_compiled_constants_exist(self):
-        from qwen3_tts.core import engine
+        from qwen3_tts.core.engine import text_processing
         expected = [
             "_EMAIL_RE", "_URL_RE", "_URL_PROTO_RE", "_URL_WWW_RE",
             "_PHONE_RE", "_PHONE_NONDIGIT_RE", "_ORDINAL_RE",
@@ -132,7 +132,7 @@ class TestPreCompiledRegexes(unittest.TestCase):
             "_ABBREV_TABLE_COMPILED", "_CURRENCY_RE",
         ]
         for name in expected:
-            obj = getattr(engine, name, None)
+            obj = getattr(text_processing, name, None)
             self.assertIsNotNone(obj, f"Missing compiled constant: {name}")
             if name == "_ABBREV_TABLE_COMPILED":
                 self.assertIsInstance(obj, list)
@@ -142,26 +142,26 @@ class TestPreCompiledRegexes(unittest.TestCase):
                 self.assertIsInstance(obj, re.Pattern, f"{name} is not re.Pattern")
 
     def test_normalize_text_email(self):
-        from qwen3_tts.core.engine import _normalize_text
+        from qwen3_tts.core.engine.text_processing import _normalize_text
         result = _normalize_text("Email test@example.com")
         self.assertIn("at", result)
         self.assertIn("dot", result)
 
     def test_normalize_text_url(self):
-        from qwen3_tts.core.engine import _normalize_text
+        from qwen3_tts.core.engine.text_processing import _normalize_text
         result = _normalize_text("Visit https://example.com")
         self.assertNotIn("https://", result)
         self.assertIn("dot", result)
 
     def test_normalize_text_phone(self):
-        from qwen3_tts.core.engine import _normalize_text
+        from qwen3_tts.core.engine.text_processing import _normalize_text
         result = _normalize_text("Call (800) 555-1234")
         # Phone digits get expanded, then num2words may convert them to words
         self.assertNotIn("(800)", result)
         self.assertNotIn("555-1234", result)
 
     def test_normalize_text_abbreviation(self):
-        from qwen3_tts.core.engine import _normalize_text
+        from qwen3_tts.core.engine.text_processing import _normalize_text
         result = _normalize_text("Dr. Smith")
         self.assertIn("Doctor", result)
 
@@ -180,7 +180,11 @@ class TestMetalRetryDepthLimit(unittest.TestCase):
     @patch("qwen3_tts.core.engine.inference.get_backend", return_value="mlx")
     def test_depth_0_retries_on_metal_crash(self, mock_backend):
         """At depth 0 with text > 100 chars, Metal crash triggers split retry."""
+<<<<<<< HEAD
         from qwen3_tts.core.engine import _run_inference_single, _INFERENCE_STRATEGIES
+=======
+        from qwen3_tts.core.engine.inference import _run_inference_single
+>>>>>>> origin/main
         import numpy as _np
 
         long_text = "A " * 110  # > 100 chars, has spaces for splitting
@@ -208,7 +212,11 @@ class TestMetalRetryDepthLimit(unittest.TestCase):
     @patch("qwen3_tts.core.engine.inference.get_backend", return_value="mlx")
     def test_depth_2_raises_immediately(self, mock_backend):
         """At depth 2, Metal crash re-raises without recursion."""
+<<<<<<< HEAD
         from qwen3_tts.core.engine import _run_inference_single, _INFERENCE_STRATEGIES
+=======
+        from qwen3_tts.core.engine.inference import _run_inference_single
+>>>>>>> origin/main
 
         def mock_strategy(*args, **kwargs):
             raise self._make_metal_error()
@@ -223,7 +231,11 @@ class TestMetalRetryDepthLimit(unittest.TestCase):
     @patch("qwen3_tts.core.engine.inference.get_backend", return_value="mlx")
     def test_short_text_raises_immediately(self, mock_backend):
         """Short text (<=100 chars) should not trigger retry regardless of depth."""
+<<<<<<< HEAD
         from qwen3_tts.core.engine import _run_inference_single, _INFERENCE_STRATEGIES
+=======
+        from qwen3_tts.core.engine.inference import _run_inference_single
+>>>>>>> origin/main
 
         call_count = [0]
 

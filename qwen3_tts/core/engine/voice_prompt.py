@@ -144,7 +144,8 @@ def clear_voice_prompt_cache():
     """Clear both torch and MLX voice prompt caches."""
     with _torch_prompt_cache_lock:
         _torch_prompt_cache.clear()
-    _mlx_prompt_cache.clear()
+    with _mlx_prompt_cache_lock:
+        _mlx_prompt_cache.clear()
 
 
 def voice_prompt_cache_info():
@@ -156,12 +157,13 @@ def voice_prompt_cache_info():
     from types import SimpleNamespace
     backend = get_backend()
     if backend == "mlx":
-        return SimpleNamespace(
-            currsize=len(_mlx_prompt_cache),
-            hits=0,  # dict cache doesn't track hits
-            misses=0,
-            maxsize=get_voice_prompt_cache_max(),
-        )
+        with _mlx_prompt_cache_lock:
+            return SimpleNamespace(
+                currsize=len(_mlx_prompt_cache),
+                hits=0,  # dict cache doesn't track hits
+                misses=0,
+                maxsize=get_voice_prompt_cache_max(),
+            )
     with _torch_prompt_cache_lock:
         return SimpleNamespace(
             currsize=len(_torch_prompt_cache),
@@ -221,6 +223,7 @@ def migrate_orphan_mlx_prompts(clone_model=None):
 # ---------------------------------------------------------------------------
 
 _mlx_prompt_cache = OrderedDict()
+_mlx_prompt_cache_lock = threading.Lock()
 
 
 def load_voice_prompt_mlx(prompt_name):
@@ -235,9 +238,10 @@ def load_voice_prompt_mlx(prompt_name):
                      E.g. "my_voice" or "my_voice.pt" — the .pt is stripped.
     """
     # Check cache first (move to end on hit for LRU eviction)
-    if prompt_name in _mlx_prompt_cache:
-        _mlx_prompt_cache.move_to_end(prompt_name)
-        return _mlx_prompt_cache[prompt_name]
+    with _mlx_prompt_cache_lock:
+        if prompt_name in _mlx_prompt_cache:
+            _mlx_prompt_cache.move_to_end(prompt_name)
+            return _mlx_prompt_cache[prompt_name]
 
     # Strip known extensions to get the base name
     base = prompt_name
@@ -268,10 +272,11 @@ def load_voice_prompt_mlx(prompt_name):
 
     result = {"ref_audio": wav_path, "ref_text": ref_text}
 
-    # Evict least-recently-used entry if at capacity (uses config value)
-    max_cache_size = get_voice_prompt_cache_max()
-    if len(_mlx_prompt_cache) >= max_cache_size:
-        _mlx_prompt_cache.popitem(last=False)
+    # Cache the result with thread-safe lock
+    with _mlx_prompt_cache_lock:
+        max_cache_size = get_voice_prompt_cache_max()
+        if len(_mlx_prompt_cache) >= max_cache_size:
+            _mlx_prompt_cache.popitem(last=False)
+        _mlx_prompt_cache[prompt_name] = result
 
-    _mlx_prompt_cache[prompt_name] = result
     return result

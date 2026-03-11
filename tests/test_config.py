@@ -258,5 +258,34 @@ class TestConfigFunctions(unittest.TestCase):
             self.assertTrue(load_8bit)
 
 
+@pytest.mark.unit
+class TestHFConsolidatedConstant(unittest.TestCase):
+    """Test that HF_CACHE is defined once in config.py and imported by all users."""
+
+    def test_hf_cache_single_source(self):
+        """HF_CACHE is imported from config in all tool modules."""
+        import pathlib
+        from qwen3_tts.core.config import HF_CACHE as config_hf_cache
+
+        # Expected value
+        expected = pathlib.Path.home() / ".cache" / "huggingface" / "hub"
+
+        # Config should have the correct value
+        self.assertEqual(config_hf_cache, expected)
+
+        # All tool modules should import from config
+        from qwen3_tts.tools.model_cache import HF_CACHE as model_cache_hf_cache
+        from qwen3_tts.tools.uninstall import HF_CACHE as uninstall_hf_cache
+        from qwen3_tts.tools.healthcheck import HF_CACHE as healthcheck_hf_cache
+
+        # All should be the same object (single source of truth)
+        self.assertIs(model_cache_hf_cache, config_hf_cache,
+                      "model_cache.HF_CACHE should be imported from config")
+        self.assertIs(uninstall_hf_cache, config_hf_cache,
+                      "uninstall.HF_CACHE should be imported from config")
+        self.assertIs(healthcheck_hf_cache, config_hf_cache,
+                      "healthcheck.HF_CACHE should be imported from config")
+
+
 if __name__ == "__main__":
     unittest.main()

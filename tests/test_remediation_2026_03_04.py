@@ -78,7 +78,7 @@ class TestValidateAudio(unittest.TestCase):
     """Test _validate_audio() from engine.py."""
 
     def _get_validate_audio(self):
-        from qwen3_tts.core.engine import _validate_audio
+        from qwen3_tts.core.engine.inference import _validate_audio
         return _validate_audio
 
     def test_normal_audio_unchanged(self):

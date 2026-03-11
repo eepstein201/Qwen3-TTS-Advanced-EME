@@ -597,7 +597,16 @@ def _save_streaming_audio(all_chunks, sample_rate):
     if not all_chunks:
         return None
 
-    combined = np.concatenate(all_chunks)
+    # Filter out empty chunks to avoid issues with np.concatenate
+    non_empty_chunks = [c for c in all_chunks if c is not None and len(c) > 0]
+    if not non_empty_chunks:
+        return None
+
+    combined = np.concatenate(non_empty_chunks)
+    # Double-check the result has samples
+    if len(combined) == 0:
+        return None
+
     # Use UUID to avoid filename collisions when multiple generations happen quickly
     unique_id = uuid.uuid4().hex[:8]
     output_path = os.path.expanduser(f"~/Downloads/voice_ui_{unique_id}.wav")
@@ -907,13 +916,22 @@ def preview_voice(name):
     if not name:
         return None
     client = TTSClient()
+    tmp = None
+    tmp_path = None
     try:
         audio_bytes = client.preview_prompt(name)
         tmp = tempfile.NamedTemporaryFile(suffix=".wav", delete=False)
+        tmp_path = tmp.name
         tmp.write(audio_bytes)
         tmp.close()
-        return tmp.name
+        return tmp_path
     except Exception as e:
+        # Clean up temp file if it was created but not returned
+        if tmp_path and os.path.exists(tmp_path):
+            try:
+                os.unlink(tmp_path)
+            except OSError:
+                pass
         logger.warning("Failed to preview prompt '%s': %s", name, e)
         return None
 

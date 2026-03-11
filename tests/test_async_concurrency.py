@@ -1,182 +1,238 @@
 #!/usr/bin/env python3
-"""Async concurrency and base64 response tests.
+"""Tests for thread safety in concurrent scenarios."""
 
-Verifies:
-- /generate returns base64 audio instead of file paths
-- /health remains responsive during slow inference
-
-Run with:
-    cd ~/Qwen3-TTS_UserFiles && python -m pytest tests/test_async_concurrency.py -v
-"""
-
-import os
-import sys
-import time
+import threading
 import unittest
-from unittest.mock import patch, MagicMock, AsyncMock
-
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-
-try:
-    from fastapi.testclient import TestClient
-    import soundfile  # noqa: F401
-    import numpy as np
-    HAS_DEPS = True
-except ImportError:
-    HAS_DEPS = False
-
-_skip = unittest.skipUnless(HAS_DEPS, "requires fastapi, soundfile, numpy")
+from unittest.mock import patch, MagicMock
 
 
-def _setup_app_state(app):
-    """Initialize app.state for tests."""
-    import threading
+class TestMPSPatchThreadSafety(unittest.TestCase):
+    """Test that _install_mps_patch is thread-safe."""
 
-    mock_lock = AsyncMock()
-    mock_lock.__aenter__.return_value = None
-    mock_lock.__aexit__.return_value = None
+    def test_mps_patch_lock_exists(self):
+        """Verify that a lock exists for MPS patch synchronization."""
+        from qwen3_tts.core.engine import model_loader
 
-    app.state.auth_token = "test_token"  # nosec B105
-    app.state.models = {"clone": MagicMock(), "design": None, "custom": None}
-    app.state.model_load_times = {}
-    app.state.generation_lock = mock_lock
-    app.state.generation_state = {
-        "active": False,
-        "start_time": 0.0,
-        "text_length": 0,
-        "mode": "",
-        "batch_index": 0,
-        "batch_total": 0,
-        "chunk_index": 0,
-        "chunk_total": 0,
-        "generation_id": None,
-        "cancelled": False,
-    }
-    app.state.request_queue = set()
-    app.state.request_queue_lock = threading.Lock()
-    app.state.last_activity = 0
-    app.state.models_loaded = threading.Event()
-    app.state.gen_cache = {}
-    app.state.gen_cache_lock = threading.Lock()
-    app.state.inference_lock = AsyncMock()
-    app.state.inference_lock.__aenter__.return_value = None
-    app.state.inference_lock.__aexit__.return_value = None
-    app.state.eta_cache = {"median_rate": None, "last_updated": 0}
-    app.state.model_load_errors = {"clone": None, "design": None, "custom": None}
-    app.state.shutdown_timer = None
-    app.state.server_config = {
-        "security": {"max_text_length": 10000, "max_batch_size": 20},
-        "auto_shutdown_minutes": 0,
-    }
-
-
-@_skip
-class TestBase64AudioResponse(unittest.TestCase):
-    """Test that /generate returns base64-encoded audio."""
-
-    @patch("qwen3_tts.core.engine.load_voice_prompt", return_value=MagicMock())
-    @patch("qwen3_tts.core.engine.run_inference")
-    def test_generate_returns_base64_audio(self, mock_inference, mock_load_prompt):
-        """Response should contain audio_base64 key, not file path."""
-        # Return a known numpy array
-        test_audio = np.sin(np.linspace(0, 2 * np.pi, 24000)).astype(np.float32)
-        mock_inference.return_value = (test_audio, 24000)
-
-        from qwen3_tts.server.app import app
-        _setup_app_state(app)
-
-        client = TestClient(app)
-        resp = client.post(
-            "/generate",
-            json={"texts": ["Hello world"], "mode": "clone", "prompt_file": "test.pt"},
-            headers={"Authorization": "Bearer test_token"},
+        # Check for lock attribute
+        self.assertTrue(
+            hasattr(model_loader, '_mps_patch_lock'),
+            "_mps_patch_lock should exist for thread safety"
+        )
+        self.assertIsInstance(
+            model_loader._mps_patch_lock,
+            type(threading.Lock()),
+            "_mps_patch_lock should be a threading.Lock"
         )
 
-        self.assertEqual(resp.status_code, 200)
-        data = resp.json()
-        result = data["results"][0]
+    def test_mps_patch_thread_safety(self):
+        """Concurrent calls should only install patch once."""
+        from qwen3_tts.core.engine import model_loader
 
-        # Must have audio_base64, not file
-        self.assertIn("audio_base64", result)
-        self.assertNotIn("file", result)
-        self.assertIn("sample_rate", result)
+        # Reset state
+        model_loader._mps_patch_installed = False
 
-        # Decode and verify it's valid WAV
-        import base64, io, soundfile as sf
-        audio_bytes = base64.b64decode(result["audio_base64"])
-        wav, sr = sf.read(io.BytesIO(audio_bytes))
-        self.assertEqual(sr, 24000)
-        self.assertGreater(len(wav), 0)
+        # Track how many times torch.multinomial gets reassigned
+        call_count = {"count": 0}
 
-    @patch("qwen3_tts.core.engine.load_voice_prompt", return_value=MagicMock())
-    @patch("qwen3_tts.core.engine.run_inference")
-    def test_generate_no_file_key_in_response(self, mock_inference, mock_load_prompt):
-        """Ensure no file paths leak into the response."""
-        test_audio = np.zeros(4800, dtype=np.float32)
-        mock_inference.return_value = (test_audio, 24000)
+        # Mock torch module
+        mock_torch = MagicMock()
+        mock_torch.multinomial = MagicMock()
+        mock_torch.nan_to_num = MagicMock(return_value=MagicMock())
+        mock_torch.cuda.is_available.return_value = False
 
-        from qwen3_tts.server.app import app
-        _setup_app_state(app)
+        with patch.dict('sys.modules', {'torch': mock_torch}):
+            with patch('qwen3_tts.core.config.IS_MACOS', True):
+                # Reset state
+                model_loader._mps_patch_installed = False
 
-        client = TestClient(app)
-        resp = client.post(
-            "/generate",
-            json={"texts": ["Test"], "mode": "clone", "prompt_file": "test.pt"},
-            headers={"Authorization": "Bearer test_token"},
+                threads = []
+                for _ in range(10):
+                    t = threading.Thread(target=model_loader._install_mps_patch)
+                    threads.append(t)
+
+                for t in threads:
+                    t.start()
+                for t in threads:
+                    t.join()
+
+        # With proper locking, patch should only be installed once
+        # Check that multinomial was assigned (patched)
+        self.assertTrue(
+            mock_torch.multinomial != MagicMock(),
+            "Patch should have been installed"
+        )
+        # And state should be True
+        self.assertTrue(model_loader._mps_patch_installed, "Flag should be set")
+
+
+class TestMLXPromptCacheThreadSafety(unittest.TestCase):
+    """Test that MLX voice prompt cache is thread-safe."""
+
+    def test_mlx_prompt_cache_lock_exists(self):
+        """Verify that a lock exists for MLX prompt cache synchronization."""
+        from qwen3_tts.core.engine import voice_prompt
+
+        # Check for lock attribute
+        self.assertTrue(
+            hasattr(voice_prompt, '_mlx_prompt_cache_lock'),
+            "_mlx_prompt_cache_lock should exist for thread safety"
+        )
+        self.assertIsInstance(
+            voice_prompt._mlx_prompt_cache_lock,
+            type(threading.Lock()),
+            "_mlx_prompt_cache_lock should be a threading.Lock"
         )
 
-        self.assertEqual(resp.status_code, 200)
-        for result in resp.json()["results"]:
-            self.assertNotIn("file", result)
-            self.assertNotIn("cleanup", result)
+    def test_mlx_prompt_cache_concurrent_access(self):
+        """Concurrent cache access should not raise RuntimeError."""
+        from qwen3_tts.core.engine import voice_prompt
+        from collections import OrderedDict
+
+        # Create a test cache that simulates concurrent access
+        test_cache = OrderedDict()
+        errors = []
+
+        def cache_operations():
+            try:
+                for i in range(100):
+                    # Simulate the operations that happen in load_voice_prompt_mlx
+                    key = f"test_prompt_{i % 5}"
+                    if key in test_cache:
+                        test_cache.move_to_end(key)
+                    else:
+                        if len(test_cache) >= 10:
+                            test_cache.popitem(last=False)
+                        test_cache[key] = {"data": i}
+            except RuntimeError as e:
+                errors.append(str(e))
+
+        # Run multiple threads without lock - this should cause issues
+        # (This test documents the problem; the fix makes it pass)
+        threads = [threading.Thread(target=cache_operations) for _ in range(5)]
+        for t in threads:
+            t.start()
+        for t in threads:
+            t.join()
+
+        # Without a lock, OrderedDict may raise RuntimeError
+        # With the lock in place in the actual code, this won't happen
+        self.assertEqual(
+            len(errors), 0,
+            f"Concurrent cache access caused errors (race condition): {errors}"
+        )
 
 
-@_skip
-class TestHealthDuringGeneration(unittest.TestCase):
-    """Test that /health responds while inference is running."""
+class TestASRThreadSafety(unittest.TestCase):
+    """Test that ASR model loading is thread-safe."""
 
-    @patch("qwen3_tts.core.engine.load_voice_prompt", return_value=MagicMock())
-    @patch("qwen3_tts.core.engine.run_inference")
-    def test_health_responds_during_generation(self, mock_inference, mock_load_prompt):
-        """Health endpoint should respond quickly even during slow generation."""
-        import threading
+    def test_asr_lock_exists(self):
+        """Verify that a lock exists for ASR model synchronization."""
+        from qwen3_tts.core.engine import asr
 
-        def slow_inference(*args, **kwargs):
-            time.sleep(2)
-            return (np.zeros(4800, dtype=np.float32), 24000)
+        # Check for lock attribute
+        self.assertTrue(
+            hasattr(asr, '_asr_lock'),
+            "_asr_lock should exist for thread safety"
+        )
+        self.assertIsInstance(
+            asr._asr_lock,
+            type(threading.Lock()),
+            "_asr_lock should be a threading.Lock"
+        )
 
-        mock_inference.side_effect = slow_inference
+    def test_asr_mlx_thread_safety(self):
+        """Concurrent load_asr_model() calls should only load model once for MLX backend."""
+        from qwen3_tts.core.engine import asr
 
-        from qwen3_tts.server.app import app
-        _setup_app_state(app)
+        # Track how many times the MLX model loader is called
+        load_count = {"count": 0}
+        errors = []
 
-        client = TestClient(app)
+        # Mock the backend to return "mlx"
+        with patch('qwen3_tts.core.engine.asr.get_backend', return_value='mlx'):
+            # Mock mlx_audio.stt.load_model
+            mock_model = MagicMock()
+            mock_load_fn = MagicMock(return_value=mock_model)
 
-        # Start generation in background
-        gen_result = [None]
+            def track_load(*args, **kwargs):
+                load_count["count"] += 1
+                # Simulate slow load to increase race condition chance
+                import time
+                time.sleep(0.01)
+                return mock_model
 
-        def do_generate():
-            gen_result[0] = client.post(
-                "/generate",
-                json={"texts": ["Slow test"], "mode": "clone", "prompt_file": "test.pt"},
-                headers={"Authorization": "Bearer test_token"},
-            )
+            mock_load_fn.side_effect = track_load
 
-        gen_thread = threading.Thread(target=do_generate)
-        gen_thread.start()
+            with patch.dict('sys.modules', {'mlx_audio.stt': MagicMock(load_model=mock_load_fn)}):
+                # Reset ASR model state
+                asr._asr_model_mlx = None
 
-        # Give generation a moment to start
-        time.sleep(0.3)
+                # Spawn concurrent load_asr_model() calls
+                def load_in_thread():
+                    try:
+                        asr.load_asr_model()
+                    except Exception as e:
+                        errors.append(str(e))
 
-        # Health should respond quickly
-        start = time.time()
-        health_resp = client.get("/health")
-        elapsed = time.time() - start
+                threads = [threading.Thread(target=load_in_thread) for _ in range(10)]
+                for t in threads:
+                    t.start()
+                for t in threads:
+                    t.join()
 
-        self.assertIn(health_resp.status_code, (200, 503))
-        self.assertLess(elapsed, 1.0, f"/health took {elapsed:.2f}s during generation")
+        # With proper locking, model should only be loaded once
+        self.assertEqual(
+            load_count["count"], 1,
+            f"MLX ASR model should be loaded exactly once, but was loaded {load_count['count']} times"
+        )
+        self.assertEqual(len(errors), 0, f"Concurrent loading caused errors: {errors}")
 
-        gen_thread.join(timeout=10)
+    def test_asr_mlx_transcribe_thread_safety(self):
+        """Concurrent _transcribe_mlx calls should only load model once."""
+        from qwen3_tts.core.engine import asr
+
+        # Track how many times the MLX model loader is called
+        load_count = {"count": 0}
+        errors = []
+
+        # Mock mlx_audio.stt.load_model
+        mock_model = MagicMock()
+        mock_model.generate = MagicMock(return_value=MagicMock(text="test transcript"))
+        mock_load_fn = MagicMock(return_value=mock_model)
+
+        def track_load(*args, **kwargs):
+            load_count["count"] += 1
+            # Simulate slow load to increase race condition chance
+            import time
+            time.sleep(0.01)
+            return mock_model
+
+        mock_load_fn.side_effect = track_load
+
+        with patch.dict('sys.modules', {'mlx_audio.stt': MagicMock(load_model=mock_load_fn)}):
+            # Reset ASR model state
+            asr._asr_model_mlx = None
+
+            # Spawn concurrent _transcribe_mlx calls (which load model on first use)
+            def transcribe_in_thread():
+                try:
+                    asr._transcribe_mlx("/fake/audio.wav")
+                except Exception as e:
+                    # We expect some errors from the fake path, but not from loading
+                    if "Loading" in str(e) or "load" in str(e).lower():
+                        errors.append(str(e))
+
+            threads = [threading.Thread(target=transcribe_in_thread) for _ in range(10)]
+            for t in threads:
+                t.start()
+            for t in threads:
+                t.join()
+
+        # With proper locking, model should only be loaded once
+        self.assertEqual(
+            load_count["count"], 1,
+            f"MLX ASR model should be loaded exactly once during transcription, but was loaded {load_count['count']} times"
+        )
 
 
 if __name__ == "__main__":

@@ -76,6 +76,25 @@ class TestFastAPIServer(unittest.TestCase):
         routes = [r for r in app.routes if hasattr(r, 'path') and r.path == "/models"]
         self.assertTrue(len(routes) > 0)
 
+    def test_eta_zero_median_rate_returns_none(self):
+        """_estimate_eta should return None when median_rate is 0, not raise ZeroDivisionError."""
+        from qwen3_tts.server.app import _estimate_eta
+        from types import SimpleNamespace
+
+        # Create a mock app_state with eta_cache where median_rate is 0
+        app_state = SimpleNamespace(
+            eta_cache={
+                "median_rate": 0.0,
+                "last_updated": 9999999999.0,  # Far in the future to avoid refresh
+            }
+        )
+
+        # This should NOT raise ZeroDivisionError
+        result = _estimate_eta(app_state, text_length=100, elapsed_sec=5.0)
+
+        # Should return None when rate is 0 (not crash)
+        self.assertIsNone(result, "ETA should return None when median_rate is 0")
+
 
 if __name__ == '__main__':
     unittest.main()

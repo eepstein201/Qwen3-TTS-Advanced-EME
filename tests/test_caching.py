@@ -63,7 +63,7 @@ class TestVoicePromptCacheEdgeCases(unittest.TestCase):
 
     def test_mlx_cache_eviction_at_max(self):
         """MLX prompt cache does not exceed configured max entries."""
-        from qwen3_tts.core.engine import _mlx_prompt_cache
+        from qwen3_tts.core.engine.voice_prompt import _mlx_prompt_cache
         from qwen3_tts.core.config import get_voice_prompt_cache_max
         _mlx_prompt_cache.clear()
         max_cache = get_voice_prompt_cache_max()
@@ -85,7 +85,7 @@ class TestVoicePromptCacheEdgeCases(unittest.TestCase):
 
     def test_mlx_cache_eviction_removes_oldest(self):
         """After eviction, the first-inserted key is gone."""
-        from qwen3_tts.core.engine import _mlx_prompt_cache
+        from qwen3_tts.core.engine.voice_prompt import _mlx_prompt_cache
         from qwen3_tts.core.config import get_voice_prompt_cache_max
         _mlx_prompt_cache.clear()
         max_cache = get_voice_prompt_cache_max()

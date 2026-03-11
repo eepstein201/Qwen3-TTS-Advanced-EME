@@ -53,6 +53,113 @@ from qwen3_tts.core.config import (
 )
 
 
+# ---------------------------------------------------------------------------
+# Constants
+# ---------------------------------------------------------------------------
+
+MAX_BUFFER_SIZE = 100 * 1024 * 1024  # 100MB - maximum buffer size for streaming
+
+
+# ---------------------------------------------------------------------------
+# Helper functions for code reuse
+# ---------------------------------------------------------------------------
+
+def _normalize_speaker_name(speaker):
+    """Normalize speaker name to lowercase for consistent lookup.
+
+    Args:
+        speaker: Speaker name (e.g., "Ryan", "RYAN", "ryan") or None
+
+    Returns:
+        Lowercase speaker name or None if input is None
+    """
+    if speaker is None:
+        return None
+    return speaker.lower()
+
+
+def _resolve_voice_alias(alias, prompt, mode, description, speaker, instruct, preset):
+    """Resolve voice alias and merge with user-provided parameters.
+
+    User-provided parameters take precedence over alias values.
+
+    Args:
+        alias: Dict from resolve_alias() or None
+        prompt: User-provided prompt or None
+        mode: User-provided mode or None
+        description: User-provided description or None
+        speaker: User-provided speaker or None
+        instruct: User-provided instruct or None
+        preset: User-provided preset or None
+
+    Returns:
+        Dict with resolved values for prompt, mode, description, speaker, instruct, preset
+    """
+    result = {
+        "prompt": prompt,
+        "mode": mode,
+        "description": description,
+        "speaker": speaker,
+        "instruct": instruct,
+        "preset": preset,
+    }
+
+    if alias:
+        # Only use alias value if user didn't provide one
+        if "prompt" in alias and result["prompt"] is None:
+            result["prompt"] = alias["prompt"]
+        if "preset" in alias and result["preset"] is None:
+            result["preset"] = alias["preset"]
+        if "mode" in alias:
+            result["mode"] = alias["mode"]  # mode always comes from alias if present
+        if "description" in alias and result["description"] is None:
+            result["description"] = alias["description"]
+        if "speaker" in alias and result["speaker"] is None:
+            result["speaker"] = alias["speaker"]
+        if "instruct" in alias and result["instruct"] is None:
+            result["instruct"] = alias["instruct"]
+
+    return result
+
+
+def _build_gen_params(config, temperature, top_k, top_p, repetition_penalty, max_new_tokens, seed):
+    """Build generation parameters dict from config and user overrides.
+
+    User-provided values take precedence over config defaults.
+
+    Args:
+        config: Config dict with 'generation' key
+        temperature: User-provided temperature or None
+        top_k: User-provided top_k or None
+        top_p: User-provided top_p or None
+        repetition_penalty: User-provided repetition_penalty or None
+        max_new_tokens: User-provided max_new_tokens or None
+        seed: User-provided seed or None
+
+    Returns:
+        Dict with generation parameters
+    """
+    gen_config = config.get("generation", {})
+    gen_params = {
+        "temperature": temperature if temperature is not None else gen_config.get("temperature", 0.7),
+        "top_k": top_k if top_k is not None else gen_config.get("top_k", 50),
+        "top_p": top_p if top_p is not None else gen_config.get("top_p", 0.95),
+        "repetition_penalty": repetition_penalty if repetition_penalty is not None else gen_config.get("repetition_penalty", 1.05),
+        "max_new_tokens": max_new_tokens if max_new_tokens is not None else gen_config.get("max_new_tokens", 2048),
+    }
+
+    if seed is not None:
+        gen_params["seed"] = seed
+    elif gen_config.get("seed"):
+        gen_params["seed"] = gen_config["seed"]
+
+    return gen_params
+
+
+# ---------------------------------------------------------------------------
+# TTSClient class
+# ---------------------------------------------------------------------------
+
 class TTSClient:
     """HTTP-only client for Qwen3-TTS generation."""
 
@@ -460,22 +567,19 @@ class TTSClient:
         Returns:
             Path to the generated audio file
         """
-        # Resolve voice alias
+        # Resolve voice alias using helper
         if voice:
             alias = self.resolve_alias(voice)
             if alias:
-                if "prompt" in alias and prompt is None:
-                    prompt = alias["prompt"]
-                if "preset" in alias and preset is None:
-                    preset = alias["preset"]
-                if "mode" in alias:
-                    mode = alias["mode"]
-                if "description" in alias and description is None:
-                    description = alias["description"]
-                if "speaker" in alias and speaker is None:
-                    speaker = alias["speaker"]
-                if "instruct" in alias and instruct is None:
-                    instruct = alias["instruct"]
+                resolved = _resolve_voice_alias(
+                    alias, prompt, mode, description, speaker, instruct, preset
+                )
+                prompt = resolved["prompt"]
+                mode = resolved["mode"]
+                description = resolved["description"]
+                speaker = resolved["speaker"]
+                instruct = resolved["instruct"]
+                preset = resolved["preset"]
             else:
                 raise ValueError(f"Unknown voice alias: {voice}")
 
@@ -491,20 +595,10 @@ class TTSClient:
                     f"Available: {', '.join(sorted(prosody_presets.keys()))}"
                 )
 
-        # Get generation parameters
-        gen_config = self.config.get("generation", {})
-        gen_params = {
-            "temperature": temperature if temperature is not None else gen_config.get("temperature", 0.7),
-            "top_k": top_k if top_k is not None else gen_config.get("top_k", 50),
-            "top_p": top_p if top_p is not None else gen_config.get("top_p", 0.95),
-            "repetition_penalty": repetition_penalty if repetition_penalty is not None else gen_config.get("repetition_penalty", 1.05),
-            "max_new_tokens": max_new_tokens if max_new_tokens is not None else gen_config.get("max_new_tokens", 2048),
-        }
-
-        if seed is not None:
-            gen_params["seed"] = seed
-        elif gen_config.get("seed"):
-            gen_params["seed"] = gen_config["seed"]
+        # Build generation parameters using helper
+        gen_params = _build_gen_params(
+            self.config, temperature, top_k, top_p, repetition_penalty, max_new_tokens, seed
+        )
 
         # Apply preset
         if preset:
@@ -516,7 +610,8 @@ class TTSClient:
         if mode == "clone":
             prompt = prompt or get_default_clone_prompt(self.config)
         elif mode == "custom":
-            speaker = speaker or self.config.get("default_speaker", "Ryan")
+            speaker = speaker or self.config.get("default_speaker", "ryan")
+            speaker = _normalize_speaker_name(speaker)
             instruct = instruct or ""
         else:
             description = description or self.config.get("default_voice_description", "")
@@ -621,39 +716,26 @@ class TTSClient:
         import struct
         import numpy as np
 
-        # Resolve voice alias
+        # Resolve voice alias using helper
         if voice:
             alias = self.resolve_alias(voice)
             if alias:
-                if "prompt" in alias and prompt is None:
-                    prompt = alias["prompt"]
-                if "preset" in alias and preset is None:
-                    preset = alias["preset"]
-                if "mode" in alias:
-                    mode = alias["mode"]
-                if "description" in alias and description is None:
-                    description = alias["description"]
-                if "speaker" in alias and speaker is None:
-                    speaker = alias["speaker"]
-                if "instruct" in alias and instruct is None:
-                    instruct = alias["instruct"]
+                resolved = _resolve_voice_alias(
+                    alias, prompt, mode, description, speaker, instruct, preset
+                )
+                prompt = resolved["prompt"]
+                mode = resolved["mode"]
+                description = resolved["description"]
+                speaker = resolved["speaker"]
+                instruct = resolved["instruct"]
+                preset = resolved["preset"]
             else:
                 raise ValueError(f"Unknown voice alias: {voice}")
 
-        # Get generation parameters
-        gen_config = self.config.get("generation", {})
-        gen_params = {
-            "temperature": temperature if temperature is not None else gen_config.get("temperature", 0.7),
-            "top_k": top_k if top_k is not None else gen_config.get("top_k", 50),
-            "top_p": top_p if top_p is not None else gen_config.get("top_p", 0.95),
-            "repetition_penalty": repetition_penalty if repetition_penalty is not None else gen_config.get("repetition_penalty", 1.05),
-            "max_new_tokens": max_new_tokens if max_new_tokens is not None else gen_config.get("max_new_tokens", 2048),
-        }
-
-        if seed is not None:
-            gen_params["seed"] = seed
-        elif gen_config.get("seed"):
-            gen_params["seed"] = gen_config["seed"]
+        # Build generation parameters using helper
+        gen_params = _build_gen_params(
+            self.config, temperature, top_k, top_p, repetition_penalty, max_new_tokens, seed
+        )
 
         # Apply preset
         if preset:
@@ -665,7 +747,8 @@ class TTSClient:
         if mode == "clone":
             prompt = prompt or get_default_clone_prompt(self.config)
         elif mode == "custom":
-            speaker = speaker or self.config.get("default_speaker", "Ryan")
+            speaker = speaker or self.config.get("default_speaker", "ryan")
+            speaker = _normalize_speaker_name(speaker)
             instruct = instruct or ""
         else:
             description = description or self.config.get("default_voice_description", "")
@@ -713,10 +796,24 @@ class TTSClient:
             for chunk in resp.iter_content(chunk_size=65536):
                 buffer += chunk
 
+                # Protection against unbounded buffer growth from malformed data
+                if len(buffer) > MAX_BUFFER_SIZE:
+                    raise RuntimeError(
+                        f"Streaming buffer exceeded maximum size ({MAX_BUFFER_SIZE} bytes). "
+                        "Possible malformed response from server."
+                    )
+
                 # Parse complete chunks from buffer
                 while len(buffer) >= header_size:
                     sr, audio_len = struct.unpack("<II", buffer[:header_size])
                     total_chunk_size = header_size + audio_len
+
+                    # Protection against malformed headers claiming huge chunks
+                    if total_chunk_size > MAX_BUFFER_SIZE:
+                        raise RuntimeError(
+                            f"Streaming chunk size ({total_chunk_size} bytes) exceeds maximum buffer size "
+                            f"({MAX_BUFFER_SIZE} bytes). Possible malformed response from server."
+                        )
 
                     if len(buffer) < total_chunk_size:
                         break  # Wait for more data
@@ -807,7 +904,7 @@ class TTSClient:
             mode = speaker_config.get("mode", "clone")
             prompt = speaker_config.get("prompt", get_default_clone_prompt(self.config))
             description = speaker_config.get("description", self.config.get("default_voice_description", ""))
-            custom_speaker = speaker_config.get("speaker", "ryan")
+            custom_speaker = _normalize_speaker_name(speaker_config.get("speaker", "ryan"))
             instruct = speaker_config.get("instruct", line.get("instruct", ""))
 
             # Generate this line

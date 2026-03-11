@@ -336,6 +336,36 @@ Platform constants in `qwen3_tts/core/config.py`: `IN_COLAB`, `IS_MACOS`, `IS_LI
 | Generation result | `qwen3_tts/server/app.py` | 5 entries, SHA256 key (text+mode+params) | Model config change, manual |
 | Audio loader | `qwen3_tts/core/engine/audio_processing.py` | `_AUDIO_LOADER` global, no disk I/O | `set_audio_loader()` only |
 
+## Thread Safety Guarantees
+
+All shared mutable state is protected by locks for concurrent access:
+
+| Lock | Location | Protects |
+|------|----------|----------|
+| `_mps_patch_lock` | `model_loader.py` | `_mps_patch_installed` flag during patch installation |
+| `_torch_prompt_cache_lock` | `voice_prompt.py` | `_torch_prompt_cache` OrderedDict + hit/miss counters |
+| `_mlx_prompt_cache_lock` | `voice_prompt.py` | `_mlx_prompt_cache` OrderedDict |
+| `_asr_lock` | `asr.py` | `_asr_model_torch`, `_asr_model_mlx` model references |
+| `request_queue_lock` | `app.py` | `request_queue` set for concurrent request tracking |
+| `gen_cache_lock` | `app.py` | `gen_cache` dict for generation result caching |
+
+**Pattern:** All locks use double-checked locking for efficiency:
+```python
+if cached_value is not None:
+    return cached_value
+with lock:
+    if cached_value is not None:  # Double-check after acquiring lock
+        return cached_value
+    # ... load and cache ...
+```
+
+## Constants
+
+| Constant | Location | Value | Purpose |
+|----------|----------|-------|---------|
+| `HF_CACHE` | `config.py` | `~/.cache/huggingface/hub` | HuggingFace model cache path |
+| `MAX_BUFFER_SIZE` | `client.py` | 100MB (100 * 1024 * 1024) | Streaming response buffer limit |
+
 ## Logging
 
 - `tts` — server (RotatingFileHandler: 5MB, 1 backup + stderr)
@@ -411,3 +441,18 @@ Multi-agent review (8 agents, 56 deduplicated findings). **P1+P2 implemented** (
 - `_normalize_text` logs warnings instead of bare except:pass
 - `torch.load` deprecation warning for TTS_ALLOW_UNSAFE_PICKLE
 - `_expand_currency` handles decimals ($5.99 → five dollars and ninety-nine cents)
+
+### TDD Code Audit fixes (2026-03-07)
+Comprehensive audit with TDD methodology (14 commits, all tests pass):
+- Thread-safe MPS patch installation with `_mps_patch_lock` (model_loader.py)
+- Thread-safe MLX voice prompt cache with `_mlx_prompt_cache_lock` (voice_prompt.py)
+- Thread-safe ASR model loading for MLX backend with `_asr_lock` (asr.py)
+- Extracted `_resolve_voice_alias()` and `_build_gen_params()` helpers (client.py)
+- Division by zero protection in ETA estimation (app.py)
+- Specific RuntimeError catching instead of bare except (inference.py)
+- Streaming buffer overflow protection with `MAX_BUFFER_SIZE = 100MB` (client.py)
+- Temp file cleanup on exception in preview_voice_callback (ui.py)
+- Empty chunk filtering in save_streaming_audio (ui.py)
+- Speaker name normalization to lowercase (client.py)
+- Consolidated `HF_CACHE` constant to config.py (was duplicated in 3 files)
+- Removed internal symbol exports from engine facade (tests import from submodules)
