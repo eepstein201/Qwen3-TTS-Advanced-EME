@@ -87,8 +87,9 @@ class TestCheckVoicePrompts(unittest.TestCase):
         """Returns warn when voice prompts directory doesn't exist."""
         from qwen3_tts.tools.healthcheck import check_voice_prompts
 
-        with mock.patch('qwen3_tts.tools.healthcheck.VOICE_PROMPTS_DIR') as mock_dir:
-            mock_dir.exists.return_value = False
+        mock_path = mock.MagicMock()
+        mock_path.exists.return_value = False
+        with mock.patch('qwen3_tts.tools.healthcheck.pathlib.Path', return_value=mock_path):
             status, details = check_voice_prompts()
             self.assertEqual(status, "warn")
             self.assertIn("not found", details.lower())
@@ -97,9 +98,10 @@ class TestCheckVoicePrompts(unittest.TestCase):
         """Returns info when directory exists but is empty."""
         from qwen3_tts.tools.healthcheck import check_voice_prompts
 
-        with mock.patch('qwen3_tts.tools.healthcheck.VOICE_PROMPTS_DIR') as mock_dir:
-            mock_dir.exists.return_value = True
-            mock_dir.glob.return_value = []
+        mock_path = mock.MagicMock()
+        mock_path.exists.return_value = True
+        mock_path.glob.return_value = []
+        with mock.patch('qwen3_tts.tools.healthcheck.pathlib.Path', return_value=mock_path):
             status, details = check_voice_prompts()
             self.assertEqual(status, "info")
             self.assertIn("No voice prompts", details)

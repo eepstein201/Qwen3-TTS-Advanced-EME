@@ -277,6 +277,8 @@ async def lifespan(app: FastAPI):
     }
     app.state.request_queue = set()
     app.state.request_queue_lock = threading.Lock()
+    app.state.pending_requests = []  # [{id, text_preview, mode, queued_at}]
+    app.state.pending_lock = asyncio.Lock()
     app.state.last_activity = time.time()
     app.state.models_loaded = threading.Event()
     app.state.gen_cache = {}
@@ -440,11 +442,10 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
-# CORS: allow Gradio UI and local development
-_cors_origins = ["http://localhost:7860", "http://127.0.0.1:7860"]
+# CORS: allow Gradio UI on any local port (7860, 7861, etc.)
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=_cors_origins,
+    allow_origin_regex=r"^https?://(localhost|127\.0\.0\.1)(:\d+)?$",
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -540,6 +541,24 @@ async def generation_status(request: Request):
         gen_state["elapsed_sec"] = round(time.time() - gen_state["start_time"], 1)
         gen_state["eta_sec"] = _estimate_eta(state, gen_state["text_length"], gen_state["elapsed_sec"])
     return gen_state
+
+
+@app.get("/queue-status")
+async def queue_status(request: Request):
+    """Get generation queue status (no auth required)."""
+    state = request.app.state
+    async with state.pending_lock:
+        pending = list(state.pending_requests)
+    gen_state = state.generation_state
+    return {
+        "queue_length": len(pending),
+        "active": gen_state.get("active", False),
+        "active_mode": gen_state.get("mode", "") if gen_state.get("active") else None,
+        "positions": [
+            {"id": p["id"], "mode": p["mode"], "text_preview": p["text_preview"]}
+            for p in pending
+        ],
+    }
 
 
 # ---------------------------------------------------------------------------
@@ -1477,10 +1496,28 @@ async def generate_stream(request: Request, req: GenerateRequest, _auth: None = 
     stop_event = threading.Event()
     inference_lock = state.inference_lock
 
+    # Register in pending queue
+    queue_entry = {
+        "id": str(uuid.uuid4())[:8],
+        "text_preview": text[:40],
+        "mode": mode,
+        "queued_at": time.time(),
+    }
+
     async def audio_stream_generator():
         """Async generator that yields audio chunks."""
+        # Track in pending queue while waiting for inference lock
+        async with state.pending_lock:
+            state.pending_requests.append(queue_entry)
+        queue_position = len(state.pending_requests)
+
         # Acquire inference_lock to serialize GPU access
         async with inference_lock:
+            # Remove from pending queue once we have the lock
+            async with state.pending_lock:
+                if queue_entry in state.pending_requests:
+                    state.pending_requests.remove(queue_entry)
+
             gen_id = str(uuid.uuid4())[:8]
             state.generation_state.update({
                 "active": True,
@@ -1559,7 +1596,12 @@ async def generate_stream(request: Request, req: GenerateRequest, _auth: None = 
     return StreamingResponse(
         audio_stream_generator(),
         media_type="application/octet-stream",
-        headers={"X-Content-Type": "audio/raw-float32"}
+        headers={
+            "X-Content-Type": "audio/raw-float32",
+            # Approximate: read without lock since response is already committed.
+            # Exact position available via /queue-status endpoint.
+            "X-Queue-Position": str(len(state.pending_requests)),
+        },
     )
 
 

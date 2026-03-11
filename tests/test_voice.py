@@ -1613,7 +1613,7 @@ class TestUICancelFunction(unittest.TestCase):
         self.assertTrue(callable(voice_ui.cancel_streaming_generation))
 
     def test_cancel_streaming_generation_returns_tuple(self):
-        """cancel_streaming_generation returns a tuple."""
+        """cancel_streaming_generation returns a 2-tuple (status, status_html)."""
         from qwen3_tts.interface.ui import cancel_streaming_generation
         from unittest.mock import patch, MagicMock
 
@@ -1624,11 +1624,11 @@ class TestUICancelFunction(unittest.TestCase):
             result = cancel_streaming_generation()
 
         self.assertIsInstance(result, tuple)
-        # Should return (audio, status, status_html)
-        self.assertEqual(len(result), 3)
+        # Returns (status_text, status_html) — no audio element with WaveSurfer
+        self.assertEqual(len(result), 2)
 
-    def test_cancel_streaming_generation_clears_audio(self):
-        """cancel_streaming_generation returns None for audio to clear player."""
+    def test_cancel_streaming_generation_status_text(self):
+        """cancel_streaming_generation returns status text as first element."""
         from qwen3_tts.interface.ui import cancel_streaming_generation
         from unittest.mock import patch, MagicMock
 
@@ -1638,14 +1638,9 @@ class TestUICancelFunction(unittest.TestCase):
         with patch("qwen3_tts.interface.ui.TTSClient", return_value=mock_client):
             result = cancel_streaming_generation()
 
-        # First element (audio) should be None to clear the player
-        self.assertIsNone(result[0])
+        # First element is status text
+        self.assertIn("cancelled", result[0].lower())
 
-    def test_check_generation_cancelled_exists(self):
-        """voice_ui has _check_generation_cancelled helper."""
-        from qwen3_tts.interface import ui as voice_ui
-        self.assertTrue(hasattr(voice_ui, "_check_generation_cancelled"))
-        self.assertTrue(callable(voice_ui._check_generation_cancelled))
 
 
 # =============================================================================
@@ -1851,64 +1846,6 @@ class TestStreamingEndpointStructure(unittest.TestCase):
 # Generation functions return history update tests
 # =============================================================================
 
-@_skip_ui
-class TestGenerationFunctionsReturnHistory(unittest.TestCase):
-    """Test that generation functions return history data for UI update."""
-
-    def test_generate_clone_returns_five_values(self):
-        """generate_clone delegates to helper that returns 5 values (includes history_list)."""
-        import inspect
-        from qwen3_tts.interface import ui as voice_ui
-        # Non-streaming functions delegate to _generate_non_streaming_impl
-        source = inspect.getsource(voice_ui.generate_clone)
-        self.assertIn("_generate_non_streaming_impl", source)
-        # Helper should have get_history_data
-        helper_source = inspect.getsource(voice_ui._generate_non_streaming_impl)
-        self.assertIn("get_history_data(history_list)", helper_source)
-
-    def test_generate_design_returns_five_values(self):
-        """generate_design delegates to helper that returns 5 values (includes history_list)."""
-        import inspect
-        from qwen3_tts.interface import ui as voice_ui
-        source = inspect.getsource(voice_ui.generate_design)
-        self.assertIn("_generate_non_streaming_impl", source)
-
-    def test_generate_custom_returns_five_values(self):
-        """generate_custom delegates to helper that returns 5 values (includes history_list)."""
-        import inspect
-        from qwen3_tts.interface import ui as voice_ui
-        source = inspect.getsource(voice_ui.generate_custom)
-        self.assertIn("_generate_non_streaming_impl", source)
-
-    def test_streaming_functions_yield_five_values(self):
-        """Streaming generation functions delegate to helper that yields 5-tuples (includes history_list)."""
-        import inspect
-        from qwen3_tts.interface import ui as voice_ui
-        # Check that streaming wrappers delegate to _generate_streaming_impl
-        source = inspect.getsource(voice_ui.generate_clone_streaming)
-        self.assertIn("_generate_streaming_impl", source)
-        source = inspect.getsource(voice_ui.generate_design_streaming)
-        self.assertIn("_generate_streaming_impl", source)
-        source = inspect.getsource(voice_ui.generate_custom_streaming)
-        self.assertIn("_generate_streaming_impl", source)
-        # Helper should have get_history_data
-        helper_source = inspect.getsource(voice_ui._generate_streaming_impl)
-        self.assertIn("get_history_data(history_list)", helper_source)
-
-    def test_non_streaming_adds_to_history(self):
-        """Non-streaming helper calls add_to_history."""
-        import inspect
-        from qwen3_tts.interface import ui as voice_ui
-        source = inspect.getsource(voice_ui._generate_non_streaming_impl)
-        self.assertIn("add_to_history", source)
-
-    def test_streaming_adds_to_history(self):
-        """Streaming helper calls add_to_history on completion."""
-        import inspect
-        from qwen3_tts.interface import ui as voice_ui
-        source = inspect.getsource(voice_ui._generate_streaming_impl)
-        self.assertIn("add_to_history", source)
-
 
 # =============================================================================
 # Generation stream generation_id check tests
@@ -1943,49 +1880,6 @@ class TestGenerateStreamIdCheck(unittest.TestCase):
         from qwen3_tts.server.app import app
         self.assertIn("cancelled", app.state.generation_state)
 
-
-# =============================================================================
-# _check_generation_cancelled helper tests
-# =============================================================================
-
-@_skip_ui
-class TestCheckGenerationCancelled(unittest.TestCase):
-    """Test _check_generation_cancelled helper function."""
-
-    def test_returns_false_on_error(self):
-        """_check_generation_cancelled returns False on connection error."""
-        from qwen3_tts.interface.ui import _check_generation_cancelled
-        from unittest.mock import patch
-
-        with patch("requests.get", side_effect=Exception("Connection error")):
-            result = _check_generation_cancelled()
-        self.assertFalse(result)
-
-    def test_returns_false_when_not_cancelled(self):
-        """_check_generation_cancelled returns False when not cancelled."""
-        from qwen3_tts.interface.ui import _check_generation_cancelled
-        from unittest.mock import patch, MagicMock
-
-        mock_resp = MagicMock()
-        mock_resp.status_code = 200
-        mock_resp.json.return_value = {"cancelled": False}
-
-        with patch("requests.get", return_value=mock_resp):
-            result = _check_generation_cancelled()
-        self.assertFalse(result)
-
-    def test_returns_true_when_cancelled(self):
-        """_check_generation_cancelled returns True when cancelled."""
-        from qwen3_tts.interface.ui import _check_generation_cancelled
-        from unittest.mock import patch, MagicMock
-
-        mock_resp = MagicMock()
-        mock_resp.status_code = 200
-        mock_resp.json.return_value = {"cancelled": True}
-
-        with patch("requests.get", return_value=mock_resp):
-            result = _check_generation_cancelled()
-        self.assertTrue(result)
 
 
 # =============================================================================
@@ -3303,43 +3197,6 @@ class TestClickCLI(unittest.TestCase):
                 self.assertFalse(os.path.exists(temp_file_path),
                                  f"Temp file {temp_file_path} should be cleaned up on write failure")
 
-    def test_save_streaming_audio_empty_chunks(self):
-        """_save_streaming_audio must handle empty chunks without crash."""
-        import numpy as np
-        from qwen3_tts.interface.ui import _save_streaming_audio
-
-        # Test with mixed chunks (some empty, some not)
-        chunks = [
-            np.array([0.1, 0.2, 0.3]),
-            np.array([]),  # Empty chunk
-            np.array([0.4, 0.5]),
-            np.array([]),  # Another empty chunk
-            np.array([0.6]),
-        ]
-
-        result = _save_streaming_audio(chunks, 24000)
-        # Should return a valid path, not None or crash
-        self.assertIsNotNone(result)
-        self.assertTrue(result.endswith(".wav"))
-        # Clean up the file
-        import os
-        if result and os.path.exists(result):
-            os.unlink(result)
-
-    def test_save_streaming_audio_all_empty_chunks(self):
-        """_save_streaming_audio must handle all-empty chunks gracefully."""
-        import numpy as np
-        from qwen3_tts.interface.ui import _save_streaming_audio
-
-        # Test with all empty chunks
-        chunks = [
-            np.array([]),
-            np.array([]),
-        ]
-
-        result = _save_streaming_audio(chunks, 24000)
-        # Should return None since there's no audio to save
-        self.assertIsNone(result)
 
 
 if __name__ == "__main__":

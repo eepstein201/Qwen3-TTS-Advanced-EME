@@ -11,7 +11,6 @@ Opens a web browser at http://localhost:7860
 import logging
 import os
 import sys
-import threading
 import time
 import uuid
 import gradio as gr
@@ -30,6 +29,7 @@ from qwen3_tts.core.config import (
     VOICE_DESCRIPTION_ATTRIBUTES,
     VALID_MODEL_SIZES,
     VALID_MLX_QUANTIZATIONS,
+    TOKEN_FILE,
     get_default_clone_prompt,
     set_default_clone_prompt,
     get_server_url,
@@ -47,6 +47,13 @@ from qwen3_tts.interface.voice_helpers import (
     compose_voice_description,
     strip_extension,
     validate_prompt_name,
+)
+from qwen3_tts.interface.wavesurfer_js import (
+    get_wavesurfer_loader_js,
+    get_streaming_player_js,
+    get_player_html,
+    get_streaming_trigger_js,
+    get_cancel_js,
 )
 
 # Derive speaker choices from canonical source
@@ -394,69 +401,6 @@ def get_presets():
         return ["(none)"]
 
 
-def _ensure_model_loaded(client, mode, progress):
-    """Check if the required model is loaded; if not, load it on demand.
-
-    Args:
-        client: TTSClient instance
-        mode: Model type (clone/design/custom)
-        progress: gr.Progress() callback for status updates
-
-    Raises:
-        gr.Error: If model loading fails
-    """
-    try:
-        health = client.get_health()
-        key = f"{mode}_model_loaded"
-        if health.get(key):
-            progress(1.0, desc=f"✓ {mode.capitalize()} model ready")
-            return  # already loaded
-    except Exception:
-        progress(0.1, desc="Connecting to server...")
-        # Can't reach server; generate will report the error
-        return
-
-    # Check for previous load error (NO try-except - let gr.Error bubble up)
-    errors = health.get("model_load_errors", {})
-    if mode in errors and errors[mode]:
-        progress(0.0, desc=f"✗ {mode.capitalize()} model failed to load")
-        raise gr.Error(f"{mode.capitalize()} model error: {errors[mode]}")
-
-    progress(0.2, desc=f"Loading {mode} model...")
-    try:
-        client.load_model(mode)
-        progress(1.0, desc=f"✓ {mode.capitalize()} model loaded")
-    except Exception as e:
-        progress(0.0, desc=f"✗ Failed to load {mode} model")
-        raise gr.Error(f"Failed to load {mode} model: {e}")
-
-
-def _poll_progress(server_url, progress_fn, stop_event):
-    """Poll /generation-status and update Gradio progress bar."""
-    import requests as _requests
-    while not stop_event.is_set():
-        try:
-            resp = _requests.get(f"{server_url}/generation-status", timeout=2)
-            if resp.status_code == 200:
-                state = resp.json()
-                if state.get("active"):
-                    elapsed = state.get("elapsed_sec", 0)
-                    eta = state.get("eta_sec")
-                    if eta is not None and (elapsed + eta) > 0:
-                        pct = min(0.95, elapsed / (elapsed + eta))
-                    else:
-                        pct = min(0.95, elapsed / max(elapsed + 10, 30))
-                    chunk_total = state.get("chunk_total", 0)
-                    if chunk_total > 1:
-                        chunk_idx = state.get("chunk_index", 0) + 1
-                        desc = f"Generating chunk {chunk_idx}/{chunk_total}... {elapsed:.0f}s"
-                    else:
-                        desc = f"Generating... {elapsed:.0f}s"
-                    progress_fn(pct, desc=desc)
-        except Exception:  # nosec B110
-            pass
-        stop_event.wait(1.0)
-
 
 # =============================================================================
 # Generation History
@@ -488,32 +432,10 @@ def get_history_data(history_list):
     return [[h["time"], h["mode"], h["text"], f"{h['chunks']} chunks"] for h in history_list]
 
 
-def get_history_audio(evt: gr.SelectData, history_list):
-    """Return the audio file path for the selected history row."""
-    if evt.index[0] < len(history_list):
-        return history_list[evt.index[0]]["path"]
-    return None
-
 
 # =============================================================================
 # Generation Functions
 # =============================================================================
-
-def _check_generation_cancelled():
-    """Check if the current generation was cancelled on the server."""
-    try:
-        import requests
-        from qwen3_tts.core.config import load_config
-        config = load_config()
-        server_url = get_server_url(config)
-        resp = requests.get(f"{server_url}/generation-status", timeout=2)
-        if resp.status_code == 200:
-            state = resp.json()
-            return state.get("cancelled", False)
-    except Exception:  # nosec B110
-        pass
-    return False
-
 
 def cancel_streaming_generation():
     """Cancel the current streaming generation and clear audio output."""
@@ -522,101 +444,109 @@ def cancel_streaming_generation():
         result = client.cancel_generation()
         status = result.get("status", "unknown")
         if status == "cancellation_requested":
-            # Return None for audio to clear the player
-            return None, "Generation cancelled", format_status_display()
+            return "Generation cancelled", format_status_display()
         elif status == "no_active_generation":
-            return None, "No active generation to cancel", format_status_display()
-        return None, f"Cancel status: {status}", format_status_display()
+            return "No active generation to cancel", format_status_display()
+        return f"Cancel status: {status}", format_status_display()
     except Exception as e:
-        return None, f"Cancel failed: {str(e)}", format_status_display()
+        return f"Cancel failed: {str(e)}", format_status_display()
 
 
-def _create_audio_reset_js():
-    """JavaScript to reset Audio component state before each generation.
+def _prepare_streaming_config(mode, text, preset, temperature, top_k, top_p,
+                               rep_penalty, seed, prompt=None, description=None,
+                               speaker_choice=None, instruct=None,
+                               x_vector_only_mode=False):
+    """Validate inputs and return a JSON config for JS-side streaming.
 
     Returns:
-        str: JavaScript function code for Gradio's js parameter.
-
-    The JavaScript finds all audio elements, stops playback, clears the src
-    attribute (unloading buffered data), and removes any Gradio-internal state.
-
-    IMPORTANT: This function MUST receive input values as arguments and
-    return them unchanged. Gradio passes the component values as positional
-    arguments to the js function, and uses the return value as the actual
-    inputs to the Python handler. Returning undefined would block generation.
+        tuple: (config_dict_or_None, status_text)
     """
-    return """
-    (...inputs) => {
-        try {
-            // Find all audio elements in the document
-            const audioEls = document.querySelectorAll('audio');
+    error = _validate_inputs(mode, text, description)
+    if error:
+        return None, error
 
-            audioEls.forEach((audio, idx) => {
-                console.log('[Audio Reset] Resetting audio element', idx, ': paused=', audio.paused, ', currentTime=', audio.currentTime, ', currentSrc=', audio.currentSrc);
+    client = TTSClient()
+    if not client.is_server_running():
+        return None, "Error: TTS server is not running."
 
-                // Stop any ongoing playback
-                if (!audio.paused) {
-                    audio.pause();
-                }
+    config = load_config()
+    server_url = get_server_url(config)
 
-                // Reset playback position
-                audio.currentTime = 0;
+    # Read auth token
+    try:
+        with open(os.path.expanduser(str(TOKEN_FILE)), "r") as f:
+            auth_token = f.read().strip()
+    except (FileNotFoundError, OSError):
+        return None, "Error: Auth token not found. Is the server running?"
 
-                // Remove source to unload buffered data
-                if (audio.currentSrc) {
-                    audio.removeAttribute('src');
-                    audio.load();
-                }
+    seed_val = int(seed) if seed and str(seed).strip() else None
+    preset_val = preset if preset and preset != "(none)" else None
 
-                // Clear Gradio's internal audio state
-                // Gradio stores state on the parent container
-                const container = audio.closest('[data-testid]') || audio.parentElement;
-                if (container) {
-                    // Clear any Gradio-internal tracking
-                    delete container._gradio_audio_streaming;
-                    delete container._gradio_audio_chunks;
-                    delete container._gradioAudioState;
-                }
-            });
-
-            console.log('[Audio Reset] Reset complete:', audioEls.length, 'audio elements reset');
-        } catch (e) {
-            console.error('[Audio Reset] Error:', e.message, e.stack);
-        }
-        // CRITICAL: Return inputs unchanged for Gradio to pass to Python handler
-        return inputs;
+    payload = {
+        "text": text,
+        "mode": mode,
+        "temperature": float(temperature),
+        "top_k": int(top_k),
+        "top_p": float(top_p),
+        "repetition_penalty": float(rep_penalty),
     }
+    if seed_val is not None:
+        payload["seed"] = seed_val
+    if preset_val:
+        payload["preset"] = preset_val
+    if mode == "clone" and prompt:
+        payload["prompt"] = prompt
+        if x_vector_only_mode:
+            payload["x_vector_only_mode"] = True
+    elif mode == "design" and description:
+        payload["description"] = description
+    elif mode == "custom":
+        speaker = speaker_choice.split(" ")[0] if speaker_choice else "ryan"
+        payload["speaker"] = speaker
+        if instruct and instruct.strip():
+            payload["instruct"] = instruct
+
+    # NOTE: Auth token is sent to browser JS for direct fetch() to the TTS server.
+    # This is acceptable for localhost-only usage (server binds 127.0.0.1 by default).
+    # If --public mode is used, consider generating a short-lived secondary token instead.
+    return {"server_url": server_url, "auth_token": auth_token, "payload": payload}, "Connecting..."
+
+
+def _save_completed_audio(base64_wav, mode, text, history_list):
+    """Decode base64 WAV from JS and save to disk. Update history.
+
+    Args:
+        base64_wav: Base64-encoded WAV data from JavaScript, or 'ERROR:...' on failure, or '' if cancelled.
+        mode: The generation mode.
+        text: The input text.
+        history_list: Current history state.
+
+    Returns:
+        tuple: (status_text, status_html, history_list, history_df_data)
     """
+    if history_list is None:
+        history_list = []
 
+    if not base64_wav or base64_wav == '':
+        return "Cancelled", format_status_display(), history_list, gr.update()
 
-def _save_streaming_audio(all_chunks, sample_rate):
-    """Save accumulated streaming chunks to a temp file and return path."""
-    import numpy as np
-    import soundfile as sf
+    if base64_wav.startswith('ERROR:'):
+        error_msg = base64_wav[6:]
+        return f"Error: {error_msg}", format_status_display(), history_list, gr.update()
 
-    if not all_chunks:
-        return None
+    try:
+        import base64
+        wav_bytes = base64.b64decode(base64_wav)
+        unique_id = uuid.uuid4().hex[:8]
+        output_path = os.path.expanduser(f"~/Downloads/voice_ui_{unique_id}.wav")
+        with open(output_path, 'wb') as f:
+            f.write(wav_bytes)
+        history_list = add_to_history(history_list, mode, text, output_path, "streamed")
+        return (f"Generated: {os.path.basename(output_path)}",
+                format_status_display(), history_list, get_history_data(history_list))
+    except Exception as e:
+        return f"Error saving audio: {e}", format_status_display(), history_list, gr.update()
 
-    # Filter out empty chunks to avoid issues with np.concatenate
-    non_empty_chunks = [c for c in all_chunks if c is not None and len(c) > 0]
-    if not non_empty_chunks:
-        return None
-
-    combined = np.concatenate(non_empty_chunks)
-    # Double-check the result has samples
-    if len(combined) == 0:
-        return None
-
-    # Use UUID to avoid filename collisions when multiple generations happen quickly
-    unique_id = uuid.uuid4().hex[:8]
-    output_path = os.path.expanduser(f"~/Downloads/voice_ui_{unique_id}.wav")
-    sf.write(output_path, combined, sample_rate)
-    return output_path
-
-
-# =============================================================================
-# Unified generation helpers (reduces code duplication)
-# =============================================================================
 
 def _validate_inputs(mode, text, description=None):
     """Validate inputs for generation. Returns error message or None."""
@@ -626,246 +556,6 @@ def _validate_inputs(mode, text, description=None):
         return "Error: Please enter a voice description."
     return None
 
-
-def _get_mode_kwargs(mode, prompt=None, description=None, speaker_choice=None, instruct=None):
-    """Build mode-specific kwargs for client.generate() or client.generate_streaming()."""
-    if mode == "clone":
-        return {"prompt": prompt}
-    elif mode == "design":
-        return {"description": description}
-    elif mode == "custom":
-        speaker = speaker_choice.split(" ")[0] if speaker_choice else "ryan"
-        kwargs = {"speaker": speaker}
-        if instruct and instruct.strip():
-            kwargs["instruct"] = instruct
-        return kwargs
-    return {}
-
-
-def _generate_streaming_impl(mode, text, preset, temperature, top_k, top_p, rep_penalty, seed,
-                              prompt=None, description=None, speaker_choice=None, instruct=None,
-                              x_vector_only_mode=False, history_list=None, progress=gr.Progress()):
-    """Unified streaming generation for all modes."""
-    if history_list is None:
-        history_list = []
-    # Validate inputs
-    error = _validate_inputs(mode, text, description)
-    if error:
-        yield None, error, gr.update(), history_list, gr.update()
-        return
-
-    client = TTSClient()
-    if not client.is_server_running():
-        yield None, "Error: TTS server is not running.", gr.update(), history_list, gr.update()
-        return
-
-    try:
-        _ensure_model_loaded(client, mode, progress)
-
-        seed_val = int(seed) if seed and str(seed).strip() else None
-        preset_val = preset if preset and preset != "(none)" else None
-        mode_kwargs = _get_mode_kwargs(mode, prompt, description, speaker_choice, instruct)
-
-        all_chunks = []
-        sample_rate = None
-        chunk_count = 0
-
-        for wav_chunk, sr in client.generate_streaming(
-            text=text,
-            mode=mode,
-            preset=preset_val,
-            temperature=temperature,
-            top_k=int(top_k),
-            top_p=top_p,
-            seed=seed_val,
-            repetition_penalty=rep_penalty,
-            x_vector_only_mode=x_vector_only_mode,
-            **mode_kwargs,
-        ):
-            all_chunks.append(wav_chunk)
-            sample_rate = sr
-            chunk_count += 1
-            yield (sr, wav_chunk), f"Streaming... {chunk_count} chunks", gr.update(), history_list, gr.update()
-
-        # Check if cancelled before yielding final state
-        if _check_generation_cancelled():
-            yield None, f"Cancelled after {chunk_count} chunks", format_status_display(), history_list, gr.update()
-            return
-
-        output_path = _save_streaming_audio(all_chunks, sample_rate)
-        if output_path:
-            history_list = add_to_history(history_list, mode, text, output_path, chunk_count)
-            # Explicitly clear audio with gr.update() to signal streaming session end
-            # This helps Gradio recognize the session is complete and prepare for next generation
-            yield gr.update(value=None), f"Complete: {chunk_count} chunks — saved to {os.path.basename(output_path)}", format_status_display(), history_list, get_history_data(history_list)
-        else:
-            yield gr.update(value=None), "Error: No audio was generated", format_status_display(), history_list, gr.update()
-
-    except Exception as e:
-        # Streaming failed - attempt fallback to non-streaming
-        import logging
-        logging.warning(f"Streaming failed for {mode} mode, attempting fallback: {e}")
-        yield None, "Streaming stalled - trying file mode...", format_status_display(), history_list, gr.update()
-
-        try:
-            # Fallback to non-streaming generation
-            seed_val = int(seed) if seed and str(seed).strip() else None
-            preset_val = preset if preset and preset != "(none)" else None
-
-            # Build kwargs for non-streaming generate (different signature than streaming)
-            fallback_kwargs = {
-                "trim_silence": False,
-                "normalize": False,
-                "speed": 1.0,
-                "pitch": 1.0,
-            }
-            if mode == "clone":
-                fallback_kwargs["prompt"] = prompt
-                fallback_kwargs["no_transcript"] = x_vector_only_mode
-            elif mode == "design":
-                fallback_kwargs["description"] = description
-            elif mode == "custom":
-                fallback_kwargs["speaker_choice"] = speaker_choice
-                fallback_kwargs["instruct"] = instruct
-
-            output_path = client.generate(
-                text=text,
-                mode=mode,
-                preset=preset_val,
-                temperature=temperature,
-                top_k=int(top_k),
-                top_p=top_p,
-                seed=seed_val,
-                repetition_penalty=rep_penalty,
-                **fallback_kwargs,
-            )
-            if output_path:
-                history_list = add_to_history(history_list, mode, text, output_path, 0)
-                yield None, f"Complete (file mode): {os.path.basename(output_path)}", format_status_display(), history_list, get_history_data(history_list)
-            else:
-                yield None, "Error: Fallback generated no audio", format_status_display(), history_list, gr.update()
-        except Exception as fallback_error:
-            yield None, f"Error: Streaming and fallback both failed: {fallback_error}", format_status_display(), history_list, gr.update()
-
-
-def _generate_non_streaming_impl(mode, text, preset, temperature, top_k, top_p, rep_penalty, seed,
-                                  trim_silence, normalize, speed, pitch, progress=gr.Progress(),
-                                  prompt=None, description=None, speaker_choice=None, instruct=None,
-                                  x_vector_only_mode=False, history_list=None):
-    """Unified non-streaming generation for all modes."""
-    if history_list is None:
-        history_list = []
-    # Validate inputs
-    error = _validate_inputs(mode, text, description)
-    if error:
-        return None, error, gr.update(), history_list, gr.update()
-
-    client = TTSClient()
-    if not client.is_server_running():
-        return None, "Error: TTS server is not running. Start it with 'tts server start'.", gr.update(), history_list, gr.update()
-
-    try:
-        _ensure_model_loaded(client, mode, progress)
-
-        seed_val = int(seed) if seed and str(seed).strip() else None
-        preset_val = preset if preset and preset != "(none)" else None
-        output_path = os.path.expanduser(f"~/Downloads/voice_ui_{uuid.uuid4().hex[:8]}.wav")
-        mode_kwargs = _get_mode_kwargs(mode, prompt, description, speaker_choice, instruct)
-
-        progress(0, desc="Starting generation...")
-        stop_event = threading.Event()
-        poll_thread = threading.Thread(
-            target=_poll_progress,
-            args=(client.server_url, progress, stop_event),
-            daemon=True,
-        )
-        poll_thread.start()
-
-        try:
-            result = client.generate(
-                text=text,
-                output=output_path,
-                mode=mode,
-                preset=preset_val,
-                temperature=temperature,
-                top_k=int(top_k),
-                top_p=top_p,
-                repetition_penalty=rep_penalty,
-                seed=seed_val,
-                trim_silence=trim_silence,
-                normalize=normalize,
-                speed=speed if speed != 1.0 else None,
-                pitch=pitch if pitch != 0 else None,
-                x_vector_only_mode=x_vector_only_mode,
-                **mode_kwargs,
-            )
-        finally:
-            stop_event.set()
-            poll_thread.join(timeout=2)
-
-        progress(1.0, desc="Complete")
-        history_list = add_to_history(history_list, mode, text, result, 1)
-        return result, f"Generated: {os.path.basename(result)}", format_status_display(), history_list, get_history_data(history_list)
-    except Exception as e:
-        error_msg = str(e)
-        if "restart" in error_msg.lower() or "not running" in error_msg.lower():
-            gr.Warning("Server issue — try restarting with 'tts server start'")
-        return None, f"Error: {error_msg}", format_status_display(), history_list, gr.update()
-
-
-# =============================================================================
-# Mode-specific wrappers (thin wrappers for Gradio click handlers)
-# =============================================================================
-
-def generate_clone_streaming(text, prompt, preset, temperature, top_k, top_p, rep_penalty, seed,
-                             trim_silence, normalize, speed, pitch, no_transcript=False, history_list=None):
-    """Generate audio with streaming for clone mode."""
-    yield from _generate_streaming_impl(
-        "clone", text, preset, temperature, top_k, top_p, rep_penalty, seed,
-        prompt=prompt, x_vector_only_mode=no_transcript, history_list=history_list)
-
-
-def generate_design_streaming(text, description, preset, temperature, top_k, top_p, rep_penalty, seed,
-                              trim_silence, normalize, speed, pitch, history_list=None):
-    """Generate audio with streaming for design mode."""
-    yield from _generate_streaming_impl(
-        "design", text, preset, temperature, top_k, top_p, rep_penalty, seed,
-        description=description, history_list=history_list)
-
-
-def generate_custom_streaming(text, speaker_choice, instruct, preset, temperature, top_k, top_p, rep_penalty, seed,
-                              trim_silence, normalize, speed, pitch, history_list=None):
-    """Generate audio with streaming for custom mode."""
-    yield from _generate_streaming_impl(
-        "custom", text, preset, temperature, top_k, top_p, rep_penalty, seed,
-        speaker_choice=speaker_choice, instruct=instruct, history_list=history_list)
-
-
-def generate_clone(text, prompt, preset, temperature, top_k, top_p, rep_penalty, seed,
-                   trim_silence, normalize, speed, pitch, no_transcript=False, history_list=None, progress=gr.Progress()):
-    """Generate audio using clone mode."""
-    return _generate_non_streaming_impl(
-        "clone", text, preset, temperature, top_k, top_p, rep_penalty, seed,
-        trim_silence, normalize, speed, pitch, progress,
-        prompt=prompt, x_vector_only_mode=no_transcript, history_list=history_list)
-
-
-def generate_design(text, description, preset, temperature, top_k, top_p, rep_penalty, seed,
-                    trim_silence, normalize, speed, pitch, history_list=None, progress=gr.Progress()):
-    """Generate audio using design mode."""
-    return _generate_non_streaming_impl(
-        "design", text, preset, temperature, top_k, top_p, rep_penalty, seed,
-        trim_silence, normalize, speed, pitch, progress,
-        description=description, history_list=history_list)
-
-
-def generate_custom(text, speaker_choice, instruct, preset, temperature, top_k, top_p, rep_penalty, seed,
-                    trim_silence, normalize, speed, pitch, history_list=None, progress=gr.Progress()):
-    """Generate audio using custom mode with premium speakers."""
-    return _generate_non_streaming_impl(
-        "custom", text, preset, temperature, top_k, top_p, rep_penalty, seed,
-        trim_silence, normalize, speed, pitch, progress,
-        speaker_choice=speaker_choice, instruct=instruct, history_list=history_list)
 
 
 # =============================================================================
@@ -1121,18 +811,13 @@ def set_audio_loader_setting(loader):
         return f"Error: {e}"
 
 
-def _build_common_controls(audio_processing_label="Audio Processing"):
+def _build_common_controls():
     """Build the common right-column controls shared by all generation tabs.
 
-    Returns dict with keys: streaming, temp, top_k, top_p, rep, seed,
-    trim, norm, speed, pitch.
+    Returns dict with keys: temp, top_k, top_p, rep, seed.
+    Audio processing (trim, normalize, speed, pitch) is not supported
+    in streaming mode and has been removed from the WaveSurfer UI.
     """
-    streaming = gr.Checkbox(
-        label="Enable Streaming",
-        value=True,
-        info="Hear audio as it generates (MLX: native, torch: chunked)"
-    )
-
     with gr.Accordion("Advanced Settings", open=False):
         temp = gr.Slider(0.1, 1.5, value=0.7, step=0.05, label="Temperature")
         top_k = gr.Slider(1, 100, value=50, step=1, label="Top-K")
@@ -1140,75 +825,106 @@ def _build_common_controls(audio_processing_label="Audio Processing"):
         rep = gr.Slider(1.0, 2.0, value=1.05, step=0.01, label="Repetition Penalty")
         seed = gr.Textbox(label="Seed (empty for random)", value="")
 
-    with gr.Accordion(audio_processing_label, open=False):
-        if "Style" in audio_processing_label:
-            gr.Markdown("Use speed/pitch to modify the cloned voice's delivery style.", elem_classes=["info-text"])
-        trim = gr.Checkbox(label="Trim Silence", value=False)
-        norm = gr.Checkbox(label="Normalize", value=False)
-        speed = gr.Slider(0.5, 2.0, value=1.0, step=0.05, label="Speed")
-        pitch = gr.Slider(-12, 12, value=0, step=1, label="Pitch (semitones)")
-
     return {
-        "streaming": streaming, "temp": temp, "top_k": top_k, "top_p": top_p,
-        "rep": rep, "seed": seed, "trim": trim, "norm": norm,
-        "speed": speed, "pitch": pitch,
+        "temp": temp, "top_k": top_k, "top_p": top_p,
+        "rep": rep, "seed": seed,
     }
 
 
-def _build_generate_buttons_and_output():
-    """Build the Generate/Stop buttons and output components.
+def _build_generate_buttons_and_output(tab_id):
+    """Build the Generate/Stop buttons and WaveSurfer output components.
 
-    Returns dict with keys: btn, cancel_btn, output, status.
+    Args:
+        tab_id: Unique identifier for this tab (e.g., 'clone', 'design', 'custom').
+
+    Returns dict with keys: btn, cancel_btn, player_html, stream_config, result_data,
+                            mode_hidden, text_hidden, status.
     """
     with gr.Row():
         btn = gr.Button("Generate", variant="primary")
         cancel_btn = gr.Button("Stop", variant="stop")
-    output = gr.Audio(label="Output", streaming=True, autoplay=True)
+    player_html = gr.HTML(
+        value=get_player_html(tab_id),
+        label="Audio Player",
+    )
     status = gr.Textbox(label="Status", interactive=False)
-    return {"btn": btn, "cancel_btn": cancel_btn, "output": output, "status": status}
+    # Hidden components for JS<->Python data flow
+    stream_config = gr.JSON(visible=False)
+    result_data = gr.Textbox(visible=False, elem_id=f"{tab_id}-result-data")
+    mode_hidden = gr.Textbox(value=tab_id, visible=False)
+    text_hidden = gr.Textbox(visible=False)
+    return {
+        "btn": btn, "cancel_btn": cancel_btn,
+        "player_html": player_html, "stream_config": stream_config,
+        "result_data": result_data, "mode_hidden": mode_hidden,
+        "text_hidden": text_hidden, "status": status,
+    }
 
 
-def _wire_generation_tab(mode, btn, cancel_btn, output, status, model_indicator,
+def _wire_generation_tab(mode, btn, cancel_btn, status, stream_config, result_data,
+                         mode_hidden, text_hidden, model_indicator,
                          text, text_info, inputs_list, status_html, history_df,
-                         handler, api_name=None, history_state=None):
-    """Wire up the common event handlers for a generation tab.
+                         config_handler, api_name=None, history_state=None):
+    """Wire up the 3-step generation flow: Python validates → JS streams → Python saves.
 
     Args:
         mode: The generation mode ('clone', 'design', 'custom').
         btn: The generate button component.
         cancel_btn: The cancel button component.
-        output: The audio output component.
         status: The status textbox component.
+        stream_config: Hidden gr.JSON for Python→JS config.
+        result_data: Hidden gr.Textbox for JS→Python base64 result.
+        mode_hidden: Hidden gr.Textbox with mode name.
+        text_hidden: Hidden gr.Textbox that captures text for save step.
         model_indicator: The model status HTML component.
         text: The input textbox component.
         text_info: The text info textbox component.
-        inputs_list: List of input components for the handler.
+        inputs_list: List of input components for the config_handler.
         status_html: The status HTML component.
         history_df: The history dataframe component.
-        handler: The generation handler function.
+        config_handler: Function returning (config_dict, status_text).
         api_name: Optional API name for the endpoint.
         history_state: Optional history state component.
     """
-    # Include JavaScript reset to clear audio state between generations
+    # Step 1: Python validates inputs, returns streaming config JSON
     click_kwargs = {
-        "fn": handler,
+        "fn": config_handler,
         "inputs": inputs_list,
-        "outputs": [output, status, status_html, history_state, history_df],
-        "js": _create_audio_reset_js(),  # Reset audio state before each generation
+        "outputs": [stream_config, status],
     }
     if api_name:
         click_kwargs["api_name"] = api_name
 
     btn.click(**click_kwargs).then(
+        # Also capture the text input for the save step
+        fn=lambda t: t,
+        inputs=[text],
+        outputs=[text_hidden],
+    ).then(
+        # Step 2: JS reads config and starts streaming via fetch()
+        fn=None,
+        js=get_streaming_trigger_js(mode),
+        inputs=[stream_config],
+        outputs=[result_data],
+    ).then(
+        # Step 3: Python saves the completed audio and updates history
+        fn=_save_completed_audio,
+        inputs=[result_data, mode_hidden, text_hidden, history_state],
+        outputs=[status, status_html, history_state, history_df],
+    ).then(
         fn=lambda: get_model_status_html(mode),
-        outputs=model_indicator
+        outputs=model_indicator,
     )
 
-    # Cancel only updates output/status/status_html; history_state and history_df
-    # are intentionally not updated on cancel (no history entry for cancelled generations).
+    # Cancel button — Python cancels server-side, then JS aborts fetch + stops player
     cancel_btn.click(
         fn=cancel_streaming_generation,
-        outputs=[output, status, status_html]
+        outputs=[status, status_html],
+    ).then(
+        fn=None,
+        js=get_cancel_js(mode),
+        inputs=[stream_config],
+        outputs=[status],
     )
 
     text.change(fn=update_text_info, inputs=text, outputs=text_info)
@@ -1219,6 +935,10 @@ def build_ui():
 
     with gr.Blocks(title="Qwen3-TTS Web Interface") as demo:
         gr.Markdown("# Qwen3-TTS Web Interface")
+
+        # Inject WaveSurfer.js and StreamingPlayer class
+        gr.HTML(value=get_wavesurfer_loader_js() +
+                "<script type='module'>" + get_streaming_player_js() + "</script>")
 
         # Status bar
         status_html = gr.HTML(value=format_status_display())
@@ -1264,31 +984,16 @@ def build_ui():
                 outputs=[settings_status, status_html]
             )
 
-        # Per-session history state
+        # Per-session history state (shared across tabs)
         history_state = gr.State([])
 
-        # History Panel (defined before tabs so history_df can be referenced in click handlers)
+        # History (defined before tabs for wiring, renders here)
         with gr.Accordion("Recent Generations", open=False):
             history_df = gr.Dataframe(
                 headers=["Time", "Mode", "Text Preview", "Chunks"],
                 value=[],
                 interactive=False,
                 wrap=True,
-            )
-            history_audio = gr.Audio(label="Selected Generation", visible=False)
-            history_df.select(
-                fn=get_history_audio,
-                inputs=[history_state],
-                outputs=history_audio
-            ).then(
-                fn=lambda: gr.update(visible=True),
-                outputs=history_audio
-            )
-            refresh_history_btn = gr.Button("Refresh History", size="sm")
-            refresh_history_btn.click(
-                fn=get_history_data,
-                inputs=[history_state],
-                outputs=history_df
             )
 
         # Tabs for different modes
@@ -1316,38 +1021,32 @@ def build_ui():
                         clone_preset = gr.Dropdown(label="Preset", choices=get_presets(), value="(none)")
 
                     with gr.Column(scale=1):
-                        clone_ctrls = _build_common_controls(audio_processing_label="Audio Processing (Style Adjustment)")
+                        clone_ctrls = _build_common_controls()
                         clone_no_transcript = gr.Checkbox(
                             label="Speaker embedding only", value=False,
                             info="Clone using x-vector only (no transcript needed, lower fidelity)"
                         )
 
-                clone_btns = _build_generate_buttons_and_output()
+                clone_btns = _build_generate_buttons_and_output("clone")
 
-                def clone_handler(text, prompt, preset, temp, top_k, top_p, rep, seed,
-                                  trim, norm, speed, pitch, streaming, no_transcript, history_list):
-                    if streaming:
-                        yield from generate_clone_streaming(
-                            text, prompt, preset, temp, top_k, top_p, rep, seed,
-                            trim, norm, speed, pitch, no_transcript=no_transcript, history_list=history_list)
-                    else:
-                        yield generate_clone(
-                            text, prompt, preset, temp, top_k, top_p, rep, seed,
-                            trim, norm, speed, pitch, no_transcript=no_transcript, history_list=history_list)
+                def clone_config_handler(text, prompt, preset, temp, top_k, top_p, rep, seed,
+                                         no_transcript):
+                    return _prepare_streaming_config(
+                        "clone", text, preset, temp, top_k, top_p, rep, seed,
+                        prompt=prompt, x_vector_only_mode=no_transcript)
 
                 _wire_generation_tab(
                     "clone", clone_btns["btn"], clone_btns["cancel_btn"],
-                    clone_btns["output"], clone_btns["status"], clone_model_indicator,
+                    clone_btns["status"], clone_btns["stream_config"],
+                    clone_btns["result_data"], clone_btns["mode_hidden"],
+                    clone_btns["text_hidden"], clone_model_indicator,
                     clone_text, clone_text_info,
                     inputs_list=[clone_text, clone_prompt, clone_preset,
                                  clone_ctrls["temp"], clone_ctrls["top_k"], clone_ctrls["top_p"],
                                  clone_ctrls["rep"], clone_ctrls["seed"],
-                                 clone_ctrls["trim"], clone_ctrls["norm"],
-                                 clone_ctrls["speed"], clone_ctrls["pitch"],
-                                 clone_ctrls["streaming"], clone_no_transcript,
-                                 history_state],
+                                 clone_no_transcript],
                     status_html=status_html, history_df=history_df,
-                    handler=clone_handler, api_name="generate_clone",
+                    config_handler=clone_config_handler, api_name="generate_clone",
                     history_state=history_state,
                 )
 
@@ -1395,7 +1094,7 @@ def build_ui():
                     with gr.Column(scale=1):
                         design_ctrls = _build_common_controls()
 
-                design_btns = _build_generate_buttons_and_output()
+                design_btns = _build_generate_buttons_and_output("design")
 
                 # Save as Voice Prompt (Design-then-Clone pipeline)
                 with gr.Accordion("Save as Voice Prompt", open=False):
@@ -1404,29 +1103,22 @@ def build_ui():
                     design_save_btn = gr.Button("Save as Voice Prompt", size="sm", variant="secondary")
                     design_save_status = gr.Textbox(label="", show_label=False, interactive=False, max_lines=1, container=False)
 
-                def design_handler(text, desc, preset, temp, top_k, top_p, rep, seed,
-                                   trim, norm, speed, pitch, streaming, history_list):
-                    if streaming:
-                        yield from generate_design_streaming(
-                            text, desc, preset, temp, top_k, top_p, rep, seed, trim, norm, speed, pitch,
-                            history_list=history_list)
-                    else:
-                        yield generate_design(
-                            text, desc, preset, temp, top_k, top_p, rep, seed, trim, norm, speed, pitch,
-                            history_list=history_list)
+                def design_config_handler(text, desc, preset, temp, top_k, top_p, rep, seed):
+                    return _prepare_streaming_config(
+                        "design", text, preset, temp, top_k, top_p, rep, seed,
+                        description=desc)
 
                 _wire_generation_tab(
                     "design", design_btns["btn"], design_btns["cancel_btn"],
-                    design_btns["output"], design_btns["status"], design_model_indicator,
+                    design_btns["status"], design_btns["stream_config"],
+                    design_btns["result_data"], design_btns["mode_hidden"],
+                    design_btns["text_hidden"], design_model_indicator,
                     design_text, design_text_info,
                     inputs_list=[design_text, design_desc, design_preset,
                                  design_ctrls["temp"], design_ctrls["top_k"], design_ctrls["top_p"],
-                                 design_ctrls["rep"], design_ctrls["seed"],
-                                 design_ctrls["trim"], design_ctrls["norm"],
-                                 design_ctrls["speed"], design_ctrls["pitch"],
-                                 design_ctrls["streaming"],
-                                 history_state],
-                    status_html=status_html, history_df=history_df, handler=design_handler,
+                                 design_ctrls["rep"], design_ctrls["seed"]],
+                    status_html=status_html, history_df=history_df,
+                    config_handler=design_config_handler,
                     history_state=history_state,
                 )
 
@@ -1495,31 +1187,24 @@ def build_ui():
                     with gr.Column(scale=1):
                         custom_ctrls = _build_common_controls()
 
-                custom_btns = _build_generate_buttons_and_output()
+                custom_btns = _build_generate_buttons_and_output("custom")
 
-                def custom_handler(text, speaker, instruct, preset, temp, top_k, top_p, rep, seed,
-                                   trim, norm, speed, pitch, streaming, history_list):
-                    if streaming:
-                        yield from generate_custom_streaming(
-                            text, speaker, instruct, preset, temp, top_k, top_p, rep, seed,
-                            trim, norm, speed, pitch, history_list=history_list)
-                    else:
-                        yield generate_custom(
-                            text, speaker, instruct, preset, temp, top_k, top_p, rep, seed,
-                            trim, norm, speed, pitch, history_list=history_list)
+                def custom_config_handler(text, speaker, instruct, preset, temp, top_k, top_p, rep, seed):
+                    return _prepare_streaming_config(
+                        "custom", text, preset, temp, top_k, top_p, rep, seed,
+                        speaker_choice=speaker, instruct=instruct)
 
                 _wire_generation_tab(
                     "custom", custom_btns["btn"], custom_btns["cancel_btn"],
-                    custom_btns["output"], custom_btns["status"], custom_model_indicator,
+                    custom_btns["status"], custom_btns["stream_config"],
+                    custom_btns["result_data"], custom_btns["mode_hidden"],
+                    custom_btns["text_hidden"], custom_model_indicator,
                     custom_text, custom_text_info,
                     inputs_list=[custom_text, custom_speaker, custom_instruct, custom_preset,
                                  custom_ctrls["temp"], custom_ctrls["top_k"], custom_ctrls["top_p"],
-                                 custom_ctrls["rep"], custom_ctrls["seed"],
-                                 custom_ctrls["trim"], custom_ctrls["norm"],
-                                 custom_ctrls["speed"], custom_ctrls["pitch"],
-                                 custom_ctrls["streaming"],
-                                 history_state],
-                    status_html=status_html, history_df=history_df, handler=custom_handler,
+                                 custom_ctrls["rep"], custom_ctrls["seed"]],
+                    status_html=status_html, history_df=history_df,
+                    config_handler=custom_config_handler,
                     history_state=history_state,
                 )
 

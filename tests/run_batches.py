@@ -45,6 +45,7 @@ BATCHES = {
             "tests.test_cli_daemonization",
             "tests.test_caching",
             "tests.test_server_helpers",
+            "tests.test_ui_audio_reset",
         ],
         "timeout": 180,
     },
@@ -69,6 +70,7 @@ BATCHES = {
             "tests.test_engine",
             "tests.test_generate_server_fallback",
             "tests.test_ui_headless",
+            "tests.test_wavesurfer_js",
         ],
         "timeout": 240,  # Longest timeout
     },

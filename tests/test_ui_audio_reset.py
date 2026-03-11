@@ -1,135 +1,122 @@
-"""Tests for Gradio Audio component JavaScript reset functionality."""
+"""Tests for WaveSurfer-based UI generation wiring.
+
+Replaces the old audio reset JS tests now that WaveSurfer handles playback.
+"""
 
 import unittest
-from unittest.mock import Mock, patch
+from unittest.mock import Mock, patch, MagicMock
 import gradio as gr
-from qwen3_tts.interface.ui import _create_audio_reset_js
-
-
-class TestAudioResetJS(unittest.TestCase):
-    """Test the JavaScript reset function generator."""
-
-    def test_returns_non_empty_string(self):
-        """JavaScript function should return non-empty string."""
-        js = _create_audio_reset_js()
-        self.assertIsInstance(js, str)
-        self.assertGreater(len(js), 100)
-
-    def test_contains_audio_element_reset(self):
-        """Should query and reset audio elements."""
-        js = _create_audio_reset_js()
-        self.assertIn("querySelectorAll('audio')", js)
-        self.assertIn("pause()", js)
-        self.assertIn("currentTime", js)
-
-    def test_contains_src_clearing(self):
-        """Should remove src attribute to unload buffer."""
-        js = _create_audio_reset_js()
-        self.assertIn("removeAttribute('src')", js)
-
-    def test_returns_inputs_unchanged(self):
-        """Should return inputs unchanged to allow generation to proceed."""
-        js = _create_audio_reset_js()
-        self.assertIn("return inputs", js)
-
-    def test_has_error_handling(self):
-        """Should wrap in try/catch for non-blocking failure."""
-        js = _create_audio_reset_js()
-        self.assertIn("try", js)
-        self.assertIn("catch", js)
-        self.assertIn("console.error", js)
-
-    def test_no_syntax_errors(self):
-        """JavaScript should be valid syntax (basic checks)."""
-        js = _create_audio_reset_js()
-        # Basic JS syntax validation
-        self.assertIn("=>", js)  # Arrow function
-        self.assertIn("{", js)   # Opening brace
-        self.assertIn("}", js)   # Closing brace
-
-    def test_js_selector_syntax_valid(self):
-        """The CSS selector in closest() should be properly formatted."""
-        import re
-        js = _create_audio_reset_js()
-        # Should find properly closed selector with closing paren
-        # Pattern: audio.closest('[data-testid]') not audio.closest('[data-testid']
-        self.assertRegex(js, r"closest\('\[data-testid\]'\)")
 
 
 class TestWireGenerationTabIntegration(unittest.TestCase):
-    """Test integration of JavaScript reset into button handlers."""
+    """Test the 3-step generation wiring (Python -> JS -> Python)."""
 
     def setUp(self):
-        # Create mock Gradio components
         self.mock_btn = Mock(spec=gr.Button)
-        self.mock_btn.click = Mock(return_value=Mock(then=Mock()))
+        # Chain .click().then().then().then().then()
+        mock_chain = Mock()
+        mock_chain.then = Mock(return_value=mock_chain)
+        self.mock_btn.click = Mock(return_value=mock_chain)
 
         self.mock_cancel_btn = Mock(spec=gr.Button)
-        self.mock_output = Mock(spec=gr.Audio)
+        self.mock_cancel_btn.click = Mock(return_value=Mock())
         self.mock_status = Mock(spec=gr.Textbox)
+        self.mock_stream_config = Mock(spec=gr.JSON)
+        self.mock_result_data = Mock(spec=gr.Textbox)
+        self.mock_mode_hidden = Mock(spec=gr.Textbox)
+        self.mock_text_hidden = Mock(spec=gr.Textbox)
         self.mock_indicator = Mock(spec=gr.HTML)
         self.mock_text = Mock(spec=gr.Textbox)
+        self.mock_text.change = Mock()
         self.mock_info = Mock(spec=gr.Textbox)
         self.mock_html = Mock(spec=gr.HTML)
         self.mock_df = Mock(spec=gr.Dataframe)
+        self.mock_history_state = Mock()
 
-    @patch('qwen3_tts.interface.ui._create_audio_reset_js')
-    def test_wire_generation_tab_includes_js_reset(self, mock_reset_js):
-        """The click handler should include JavaScript reset."""
+    def test_wire_generation_tab_calls_click(self):
+        """The click handler should be wired."""
         from qwen3_tts.interface.ui import _wire_generation_tab
 
-        mock_reset_js.return_value = "(...inputs) => { return inputs; }"
-        mock_handler = Mock(return_value=(None, "status", "html", [], []))
+        mock_handler = Mock(return_value=(None, "status"))
 
         _wire_generation_tab(
             mode="clone",
             btn=self.mock_btn,
             cancel_btn=self.mock_cancel_btn,
-            output=self.mock_output,
             status=self.mock_status,
+            stream_config=self.mock_stream_config,
+            result_data=self.mock_result_data,
+            mode_hidden=self.mock_mode_hidden,
+            text_hidden=self.mock_text_hidden,
             model_indicator=self.mock_indicator,
             text=self.mock_text,
             text_info=self.mock_info,
             inputs_list=[self.mock_text],
             status_html=self.mock_html,
             history_df=self.mock_df,
-            handler=mock_handler,
-            api_name="generate_clone_streaming"
+            config_handler=mock_handler,
+            history_state=self.mock_history_state,
         )
 
-        # Verify click was called with js parameter
         self.mock_btn.click.assert_called_once()
-        call_kwargs = self.mock_btn.click.call_args[1]
-        self.assertIn('js', call_kwargs)
-        self.assertEqual(call_kwargs['js'], "(...inputs) => { return inputs; }")
 
-    @patch('qwen3_tts.interface.ui._create_audio_reset_js')
-    def test_wire_generation_tab_without_api_name(self, mock_reset_js):
-        """Should work without api_name (design/custom tabs)."""
+    def test_wire_generation_tab_chains_then_calls(self):
+        """Should chain .then() calls for JS streaming and saving."""
         from qwen3_tts.interface.ui import _wire_generation_tab
 
-        mock_reset_js.return_value = "(...inputs) => { return inputs; }"
-        mock_handler = Mock(return_value=(None, "status", "html", [], []))
+        mock_handler = Mock(return_value=(None, "status"))
 
         _wire_generation_tab(
-            mode="design",
+            mode="clone",
             btn=self.mock_btn,
             cancel_btn=self.mock_cancel_btn,
-            output=self.mock_output,
             status=self.mock_status,
+            stream_config=self.mock_stream_config,
+            result_data=self.mock_result_data,
+            mode_hidden=self.mock_mode_hidden,
+            text_hidden=self.mock_text_hidden,
             model_indicator=self.mock_indicator,
             text=self.mock_text,
             text_info=self.mock_info,
             inputs_list=[self.mock_text],
             status_html=self.mock_html,
             history_df=self.mock_df,
-            handler=mock_handler
-            # No api_name
+            config_handler=mock_handler,
+            history_state=self.mock_history_state,
         )
 
-        # Should still include js
-        call_kwargs = self.mock_btn.click.call_args[1]
-        self.assertIn('js', call_kwargs)
+        # The chain should have multiple .then() calls
+        chain = self.mock_btn.click.return_value
+        self.assertTrue(chain.then.called)
+        # At least 3 .then() calls: text capture, JS streaming, save, model update
+        self.assertGreaterEqual(chain.then.call_count, 3)
+
+    def test_cancel_btn_wired(self):
+        """Cancel button should be wired to cancel_streaming_generation."""
+        from qwen3_tts.interface.ui import _wire_generation_tab
+
+        mock_handler = Mock()
+
+        _wire_generation_tab(
+            mode="clone",
+            btn=self.mock_btn,
+            cancel_btn=self.mock_cancel_btn,
+            status=self.mock_status,
+            stream_config=self.mock_stream_config,
+            result_data=self.mock_result_data,
+            mode_hidden=self.mock_mode_hidden,
+            text_hidden=self.mock_text_hidden,
+            model_indicator=self.mock_indicator,
+            text=self.mock_text,
+            text_info=self.mock_info,
+            inputs_list=[self.mock_text],
+            status_html=self.mock_html,
+            history_df=self.mock_df,
+            config_handler=mock_handler,
+            history_state=self.mock_history_state,
+        )
+
+        self.mock_cancel_btn.click.assert_called_once()
 
 
 if __name__ == "__main__":
