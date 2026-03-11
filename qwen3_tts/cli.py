@@ -320,7 +320,7 @@ def status():
         click.echo(f"Backend: {health.get('backend', 'unknown')}")
 
         resp = requests.get(f"{url}/models", headers=auth_headers(), timeout=5)
-        models = resp.json()
+        models = resp.json().get("models", {})
         click.echo("\nModels:")
         for name, info in models.items():
             status_str = "loaded" if info.get("loaded") else "not loaded"
