@@ -111,6 +111,34 @@ def _apply_cuda_optimizations(config):
 
 
 # ---------------------------------------------------------------------------
+# Shared retry helper
+# ---------------------------------------------------------------------------
+
+def _retry_model_load(loader_fn, model_type: str, model_name: str):
+    """Invoke loader_fn(), retrying on transient IO/network errors with exponential backoff."""
+    last_error = None
+    for attempt in range(len(_RETRY_DELAYS) + 1):
+        try:
+            return loader_fn()
+        except (OSError, ConnectionError, TimeoutError) as e:
+            last_error = e
+            if attempt < len(_RETRY_DELAYS):
+                delay = _RETRY_DELAYS[attempt]
+                logger.warning(
+                    "Model load attempt %d/%d failed: %s. Retrying in %ds...",
+                    attempt + 1, len(_RETRY_DELAYS) + 1, e, delay,
+                )
+                time.sleep(delay)
+            else:
+                logger.error(
+                    "Model download failed after %d attempts. "
+                    "Check your internet connection.",
+                    len(_RETRY_DELAYS) + 1,
+                )
+                raise last_error
+
+
+# ---------------------------------------------------------------------------
 # Torch backend — model loading
 # ---------------------------------------------------------------------------
 
@@ -134,7 +162,6 @@ def _load_model_torch(model_type):
         "float16": torch.float16,
         "bfloat16": torch.bfloat16,
     }
-    torch_dtype = dtype_map[dtype_name]
 
     attn_impl, optimal_dtype, should_compile = _apply_cuda_optimizations(load_config())
 
@@ -145,128 +172,111 @@ def _load_model_torch(model_type):
                 model_type, repo_id, dtype_name, torch_quant, model_size)
     t0 = time.time()
 
-    last_error = None
-    for attempt in range(len(_RETRY_DELAYS) + 1):
-        try:
-            from qwen3_tts.core.config import get_device
-            device = get_device()
-            # Override dtype with CUDA-optimal dtype when on CUDA
-            if device == "cuda":
-                torch_dtype = optimal_dtype
-            # CUDA uses "auto" for multi-GPU support; MPS/CPU use device name directly
-            device_map = "auto" if device == "cuda" else device
+    def _do_load():
+        from qwen3_tts.core.config import get_device
+        device = get_device()
+        # Override dtype with CUDA-optimal dtype when on CUDA
+        torch_dtype = optimal_dtype if device == "cuda" else dtype_map[dtype_name]
+        # CUDA uses "auto" for multi-GPU support; MPS/CPU use device name directly
+        device_map = "auto" if device == "cuda" else device
 
-            # Build load_kwargs based on quantization setting
-            load_kwargs = dict(
-                attn_implementation=attn_impl,
-                device_map=device_map,
+        # Build load_kwargs based on quantization setting
+        load_kwargs = dict(
+            attn_implementation=attn_impl,
+            device_map=device_map,
+        )
+
+        # Handle 4-bit quantization (requires bitsandbytes on CUDA/Linux)
+        if torch_quant == "4bit":
+            if not (torch.cuda.is_available() and sys.platform.startswith("linux")):
+                raise RuntimeError(
+                    "4-bit quantization requires CUDA on Linux. "
+                    "Set torch_quantization to 'none' or '8bit', or use a different backend."
+                )
+            try:
+                from transformers import BitsAndBytesConfig
+                import bitsandbytes  # noqa: F401 - Verify import
+            except ImportError as e:
+                raise RuntimeError(
+                    "4-bit quantization requires bitsandbytes. "
+                    f"Install with: pip install bitsandbytes. Error: {e}"
+                )
+            load_kwargs["quantization_config"] = BitsAndBytesConfig(
+                load_in_4bit=True,
+                bnb_4bit_compute_dtype=torch_dtype,
+                bnb_4bit_use_double_quant=True,
             )
-
-            # Handle 4-bit quantization (requires bitsandbytes on CUDA/Linux)
-            if torch_quant == "4bit":
-                if not (torch.cuda.is_available() and sys.platform.startswith("linux")):
-                    raise RuntimeError(
-                        "4-bit quantization requires CUDA on Linux. "
-                        "Set torch_quantization to 'none' or '8bit', or use a different backend."
-                    )
-                try:
-                    from transformers import BitsAndBytesConfig
-                    import bitsandbytes  # noqa: F401 - Verify import
-                except ImportError as e:
-                    raise RuntimeError(
-                        "4-bit quantization requires bitsandbytes. "
-                        f"Install with: pip install bitsandbytes. Error: {e}"
-                    )
-                load_kwargs["quantization_config"] = BitsAndBytesConfig(
-                    load_in_4bit=True,
-                    bnb_4bit_compute_dtype=torch_dtype,
-                    bnb_4bit_use_double_quant=True,
+            logger.info("Using 4-bit quantization (bitsandbytes NF4)")
+        # Handle 8-bit quantization
+        elif torch_quant == "8bit":
+            if not torch.cuda.is_available():
+                raise RuntimeError(
+                    "8-bit quantization requires CUDA. "
+                    "Set torch_quantization to 'none' or use a different backend."
                 )
-                logger.info("Using 4-bit quantization (bitsandbytes NF4)")
-            # Handle 8-bit quantization
-            elif torch_quant == "8bit":
-                if not torch.cuda.is_available():
-                    raise RuntimeError(
-                        "8-bit quantization requires CUDA. "
-                        "Set torch_quantization to 'none' or use a different backend."
-                    )
-                try:
-                    import bitsandbytes  # noqa: F401 - Verify import
-                except ImportError as e:
-                    raise RuntimeError(
-                        "8-bit quantization requires bitsandbytes. "
-                        f"Install with: pip install bitsandbytes. Error: {e}"
-                    )
-                load_kwargs["load_in_8bit"] = True
-                logger.info("Using 8-bit quantization (bitsandbytes)")
-            # No quantization (torch_quant == "none")
-            else:
-                load_kwargs["dtype"] = torch_dtype
-                # Auto-enable 8-bit on older CUDA GPUs (Turing/T4) for memory efficiency,
-                # but only if user hasn't explicitly set torch_quantization (R-18)
-                if device == "cuda":
-                    cap = torch.cuda.get_device_capability()
-                    user_config = load_config()
-                    explicitly_set = "torch_quantization" in user_config.get("advanced", {})
-                    if cap[0] < 8 and not explicitly_set:
-                        load_kwargs["load_in_8bit"] = True
-                        logger.info(
-                            "Auto-enabled 8-bit quantization for compute capability %s "
-                            "(override: set advanced.torch_quantization in config)", cap,
-                        )
-                    elif cap[0] < 8 and explicitly_set:
-                        logger.info(
-                            "Turing GPU (compute %s) but torch_quantization explicitly "
-                            "set to '%s' — respecting user config", cap, torch_quant,
-                        )
-
-            # Check if model is already cached (for better user feedback)
-            from huggingface_hub import snapshot_download
             try:
-                # Try to get snapshot info without downloading
-                snapshot_download(repo_id, local_files_only=True, allow_patterns=["*.json", "*.txt", "*.bin", "*.safetensors"])
-                model_cached = True
-            except Exception:
-                model_cached = False
+                import bitsandbytes  # noqa: F401 - Verify import
+            except ImportError as e:
+                raise RuntimeError(
+                    "8-bit quantization requires bitsandbytes. "
+                    f"Install with: pip install bitsandbytes. Error: {e}"
+                )
+            load_kwargs["load_in_8bit"] = True
+            logger.info("Using 8-bit quantization (bitsandbytes)")
+        # No quantization (torch_quant == "none")
+        else:
+            load_kwargs["dtype"] = torch_dtype
+            # Auto-enable 8-bit on older CUDA GPUs (Turing/T4) for memory efficiency,
+            # but only if user hasn't explicitly set torch_quantization (R-18)
+            if device == "cuda":
+                cap = torch.cuda.get_device_capability()
+                user_config = load_config()
+                explicitly_set = "torch_quantization" in user_config.get("advanced", {})
+                if cap[0] < 8 and not explicitly_set:
+                    load_kwargs["load_in_8bit"] = True
+                    logger.info(
+                        "Auto-enabled 8-bit quantization for compute capability %s "
+                        "(override: set advanced.torch_quantization in config)", cap,
+                    )
+                elif cap[0] < 8 and explicitly_set:
+                    logger.info(
+                        "Turing GPU (compute %s) but torch_quantization explicitly "
+                        "set to '%s' — respecting user config", cap, torch_quant,
+                    )
 
-            if not model_cached:
-                logger.info("Downloading %s model (this may take several minutes on first run)...", model_type)
-                logger.info("Model size: ~%s — ensure stable internet connection",
-                            "3.5GB" if model_size == "1.7B" else "2GB")
+        # Check if model is already cached (for better user feedback)
+        from huggingface_hub import snapshot_download
+        try:
+            # Try to get snapshot info without downloading
+            snapshot_download(repo_id, local_files_only=True, allow_patterns=["*.json", "*.txt", "*.bin", "*.safetensors"])
+            model_cached = True
+        except Exception:
+            model_cached = False
 
-            model = Qwen3TTSModel.from_pretrained(repo_id, **load_kwargs)
-            # Apply torch.compile to inner nn.Module for supported CUDA hardware
-            if should_compile and device == "cuda":
-                try:
-                    logger.info("Applying torch.compile (reduce-overhead) to %s model", model_type)
-                    model.model = torch.compile(model.model, mode="reduce-overhead")
-                except Exception as e:
-                    logger.warning("torch.compile failed (%s) — running without compilation", e)
-            # Fix tokenizer regex if supported
+        if not model_cached:
+            logger.info("Downloading %s model (this may take several minutes on first run)...", model_type)
+            logger.info("Model size: ~%s — ensure stable internet connection",
+                        "3.5GB" if model_size == "1.7B" else "2GB")
+
+        model = Qwen3TTSModel.from_pretrained(repo_id, **load_kwargs)
+        # Apply torch.compile to inner nn.Module for supported CUDA hardware
+        if should_compile and device == "cuda":
             try:
-                from transformers import AutoTokenizer
-                model.tokenizer = AutoTokenizer.from_pretrained(repo_id, fix_mistral_regex=True)  # nosec B615
-            except TypeError:
-                pass  # Older transformers doesn't support fix_mistral_regex
-            elapsed = time.time() - t0
-            logger.info("Loaded %s model in %.1fs", model_type, elapsed)
-            return model
-        except (OSError, ConnectionError, TimeoutError) as e:
-            last_error = e
-            if attempt < len(_RETRY_DELAYS):
-                delay = _RETRY_DELAYS[attempt]
-                logger.warning(
-                    "Model load attempt %d/%d failed: %s. Retrying in %ds...",
-                    attempt + 1, len(_RETRY_DELAYS) + 1, e, delay,
-                )
-                time.sleep(delay)
-            else:
-                logger.error(
-                    "Model download failed after %d attempts. "
-                    "Check your internet connection.",
-                    len(_RETRY_DELAYS) + 1,
-                )
-                raise last_error
+                logger.info("Applying torch.compile (reduce-overhead) to %s model", model_type)
+                model.model = torch.compile(model.model, mode="reduce-overhead")
+            except Exception as e:
+                logger.warning("torch.compile failed (%s) — running without compilation", e)
+        # Fix tokenizer regex if supported
+        try:
+            from transformers import AutoTokenizer
+            model.tokenizer = AutoTokenizer.from_pretrained(repo_id, fix_mistral_regex=True)  # nosec B615
+        except TypeError:
+            pass  # Older transformers doesn't support fix_mistral_regex
+        elapsed = time.time() - t0
+        logger.info("Loaded %s model in %.1fs", model_type, elapsed)
+        return model
+
+    return _retry_model_load(_do_load, model_type, repo_id)
 
 
 # ---------------------------------------------------------------------------
@@ -293,29 +303,13 @@ def _load_model_mlx(model_type):
     logger.info("Loading %s (%s) size=%s [mlx backend]...", model_type, repo_id, model_size)
     t0 = time.time()
 
-    last_error = None
-    for attempt in range(len(_RETRY_DELAYS) + 1):
-        try:
-            model = mlx_load_model(repo_id)
-            elapsed = time.time() - t0
-            logger.info("Loaded %s model in %.1fs [mlx]", model_type, elapsed)
-            return model
-        except (OSError, ConnectionError, TimeoutError) as e:
-            last_error = e
-            if attempt < len(_RETRY_DELAYS):
-                delay = _RETRY_DELAYS[attempt]
-                logger.warning(
-                    "Model load attempt %d/%d failed: %s. Retrying in %ds...",
-                    attempt + 1, len(_RETRY_DELAYS) + 1, e, delay,
-                )
-                time.sleep(delay)
-            else:
-                logger.error(
-                    "Model download failed after %d attempts. "
-                    "Check your internet connection.",
-                    len(_RETRY_DELAYS) + 1,
-                )
-                raise last_error
+    def _do_load():
+        model = mlx_load_model(repo_id)
+        elapsed = time.time() - t0
+        logger.info("Loaded %s model in %.1fs [mlx]", model_type, elapsed)
+        return model
+
+    return _retry_model_load(_do_load, model_type, repo_id)
 
 
 # ---------------------------------------------------------------------------
