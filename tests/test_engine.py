@@ -233,8 +233,8 @@ class TestEngineFunctions(unittest.TestCase):
         """Engine facade should only export public symbols (no _ prefix)."""
         import qwen3_tts.core.engine as engine
 
-        # Get all symbols that don't start with dunder
-        public_symbols = [name for name in dir(engine) if not name.startswith('__')]
+        # Get public API from __all__ (not dir(), which includes all imports)
+        public_symbols = getattr(engine, '__all__', [])
 
         # Find any symbols that start with single underscore (internal)
         internal_exports = [name for name in public_symbols if name.startswith('_')]

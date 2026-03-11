@@ -138,7 +138,7 @@ class TestConcurrentOperations(unittest.TestCase):
     @_skip_integration
     def test_voice_prompt_cache_lock(self):
         """Verify voice prompt cache is thread-safe."""
-        from qwen3_tts.core.engine import _torch_prompt_cache_lock
+        from qwen3_tts.core.engine.voice_prompt import _torch_prompt_cache_lock
 
         # Just verify the lock exists and is a proper lock
         self.assertIsInstance(_torch_prompt_cache_lock, type(threading.Lock()))
