@@ -1,7 +1,7 @@
 # Qwen3-TTS Makefile
 # Provides convenient shortcuts for common development tasks
 
-.PHONY: help install test test-batch test-core test-voice test-server test-engine clean lint format
+.PHONY: help install test test-batch test-core test-voice test-server test-engine clean lint format solid-score coverage
 
 # Default target
 help:
@@ -22,6 +22,8 @@ help:
 	@echo "  clean            Remove cache and runtime files"
 	@echo "  lint             Run linters (if installed)"
 	@echo "  format           Format code with black (if installed)"
+	@echo "  solid-score      Analyze SOLID principle compliance"
+	@echo "  coverage         Run tests with coverage report"
 
 # Installation
 install:
@@ -87,3 +89,15 @@ format:
 	else \
 		echo "black not found. Install: pip install black"; \
 	fi
+
+# SOLID Score Analysis
+solid-score:
+	python -m qwen3_tts.tools.solid_analyzer qwen3_tts/
+
+solid-score-fail:
+	python -m qwen3_tts.tools.solid_analyzer qwen3_tts/ --fail-below 35
+
+# Coverage
+coverage:
+	coverage run -m pytest tests/
+	coverage report --include="qwen3_tts/*"

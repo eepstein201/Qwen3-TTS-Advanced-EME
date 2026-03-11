@@ -22,6 +22,56 @@ logger = logging.getLogger("tts.engine")
 
 
 # ---------------------------------------------------------------------------
+# Strategy registries for OCP-compliant dispatch
+# ---------------------------------------------------------------------------
+
+# Backend strategies: maps backend name -> inference function
+_INFERENCE_STRATEGIES = {}
+
+# Mode strategies for torch backend: maps mode name -> model method name
+_MODE_STRATEGIES_TORCH = {
+    "clone": "generate_voice_clone",
+    "design": "generate_voice_design",
+    "custom": "generate_custom_voice",
+}
+
+
+def register_backend(name: str, strategy_fn):
+    """Register a new inference backend strategy.
+
+    This enables extending the system with new backends without modifying
+    existing dispatch code (Open/Closed Principle).
+
+    Args:
+        name: Backend name (e.g., "mlx", "torch", "vllm")
+        strategy_fn: Function with signature (model, text, mode, gen_params, **kwargs)
+                     returning (wavs, sample_rate)
+    """
+    _INFERENCE_STRATEGIES[name] = strategy_fn
+    logger.debug("Registered inference backend: %s", name)
+
+
+def _get_backend_strategy(backend: str):
+    """Get the strategy function for a backend.
+
+    Args:
+        backend: Backend name
+
+    Returns:
+        Strategy function
+
+    Raises:
+        ValueError: If backend not registered
+    """
+    if backend not in _INFERENCE_STRATEGIES:
+        raise ValueError(
+            f"Unknown backend: {backend}. "
+            f"Available: {list(_INFERENCE_STRATEGIES.keys())}"
+        )
+    return _INFERENCE_STRATEGIES[backend]
+
+
+# ---------------------------------------------------------------------------
 # Torch backend — inference
 # ---------------------------------------------------------------------------
 
@@ -559,11 +609,18 @@ def _run_inference_single(model, text, mode, gen_params, language="English",
 
     For MLX backend, includes Metal crash recovery: on certain Metal kernel
     errors, retries with smaller sub-chunks up to depth 2.
+
+    Dispatches to the appropriate backend strategy via the registry.
     """
     backend = get_backend()
+
+    # Get strategy from registry (OCP: extensible without modification)
+    strategy = _get_backend_strategy(backend)
+
+    # MLX backend has special Metal crash recovery logic
     if backend == "mlx":
         try:
-            return _run_inference_mlx(
+            return strategy(
                 model, text, mode, gen_params, language,
                 voice_prompt, voice_description, speaker, instruct,
                 x_vector_only_mode=x_vector_only_mode,
@@ -604,7 +661,9 @@ def _run_inference_single(model, text, mode, gen_params, language="English",
                 silence = np.zeros(int(sr * 0.1), dtype=np.float32)
                 return np.concatenate([wav1, silence, wav2]), sr
             raise
-    return _run_inference_torch(
+
+    # Default: use strategy from registry
+    return strategy(
         model, text, mode, gen_params, language,
         voice_prompt, voice_description, speaker, instruct,
         x_vector_only_mode=x_vector_only_mode,
@@ -706,3 +765,15 @@ def create_voice_prompt(model, ref_audio, ref_sr, transcript):
         ref_text=transcript,
     )
     return voice_prompt
+
+
+# ---------------------------------------------------------------------------
+# Register default backends (strategy pattern)
+# ---------------------------------------------------------------------------
+
+# Register torch backend
+register_backend("torch", _run_inference_torch)
+
+# Register MLX backend (will be available if MLX is installed)
+# Note: The function exists regardless, but will fail at runtime if MLX not installed
+register_backend("mlx", _run_inference_mlx)

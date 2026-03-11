@@ -85,88 +85,30 @@ def _get_gen_cache_max() -> int:
 
 
 
-# ---------------------------------------------------------------------------
-# Pydantic models for request validation
-# ---------------------------------------------------------------------------
-
-class GenerateRequest(BaseModel):
-    text: Optional[str] = None
-    texts: Optional[List[str]] = None
-    mode: str = "clone"
-    prompt_file: Optional[str] = None
-    voice_description: str = ""
-    language: str = "English"
-    speaker: Optional[str] = None
-    instruct: str = ""
-    temperature: float = 0.7
-    top_k: int = 50
-    top_p: float = 0.95
-    repetition_penalty: float = 1.05
-    max_new_tokens: int = 2048
-    seed: Optional[int] = None
-    max_chunk_chars: Optional[int] = None
-    x_vector_only_mode: bool = False
-
-
-class LoadModelRequest(BaseModel):
-    model_type: str
-
-
-class UnloadModelRequest(BaseModel):
-    model_type: str
-
-
-class UpdateModelConfigRequest(BaseModel):
-    model_size: Optional[str] = None
-    mlx_quantization: Optional[str] = None
-
-
-class UpdateStartupConfigRequest(BaseModel):
-    clone: Optional[bool] = None
-    design: Optional[bool] = None
-    custom: Optional[bool] = None
-
-
-class DeletePromptRequest(BaseModel):
-    name: str
-
-
-class RenamePromptRequest(BaseModel):
-    old_name: str
-    new_name: str
-
-
-# ---------------------------------------------------------------------------
-# Pydantic models for response validation
-# ---------------------------------------------------------------------------
-
-class ErrorResponse(BaseModel):
-    error: str
-    detail: str = ""
-    recovery: str = "retry"
-
-
-class GenerateResult(BaseModel):
-    index: int
-    audio_base64: Optional[str] = None
-    sample_rate: int
-
-
-class GenerateResponse(BaseModel):
-    results: List[GenerateResult]
-
-
-class HealthResponse(BaseModel):
-    status: str
-    backend: Optional[str] = None
-    model_size: Optional[str] = None
-    clone_model_loaded: Optional[bool] = None
-    design_model_loaded: Optional[bool] = None
-    custom_model_loaded: Optional[bool] = None
-    model_load_times: Optional[dict] = None
-    model_load_errors: Optional[dict] = None
-    mlx_quantization: Optional[str] = None
-    dtype: Optional[str] = None
+# Import validation module (models and helpers)
+from qwen3_tts.server.validation import (
+    # Request models
+    GenerateRequest,
+    LoadModelRequest,
+    UnloadModelRequest,
+    UpdateModelConfigRequest,
+    UpdateStartupConfigRequest,
+    DeletePromptRequest,
+    RenamePromptRequest,
+    # Response models
+    ErrorResponse,
+    GenerateResult,
+    GenerateResponse,
+    HealthResponse,
+    # Validation helpers
+    _validate_generation_request,
+    _validate_prompt_name,
+    _strip_extension,
+    _gen_cache_key,
+    _error_response,
+    # Speaker validation
+    _VALID_SPEAKER_NAMES,
+)
 
 
 # ---------------------------------------------------------------------------
@@ -235,64 +177,6 @@ def _validate_generation_request(req: GenerateRequest, security_config: dict) ->
             status_code=400,
             detail=f"Invalid mode: {req.mode}. Must be clone, design, or custom",
         )
-
-
-def _error_response(status_code: int, error: str, detail: str = "", recovery: str = "retry") -> None:
-    """Raise HTTPException with standardized error format.
-
-    Args:
-        status_code: HTTP status code
-        error: Short error identifier
-        detail: Detailed error message
-        recovery: Suggested recovery action
-
-    Raises:
-        HTTPException with structured detail dict
-    """
-    raise HTTPException(
-        status_code=status_code,
-        detail={"error": error, "detail": detail, "recovery": recovery},
-    )
-
-
-def _validate_prompt_name(name: str) -> Optional[tuple]:
-    """Validate prompt name — returns error tuple or None."""
-    if not name or not name.strip():
-        return {"error": "Missing prompt name", "recovery": "config"}, 400
-    name = name.strip()
-    if len(name) > 255:
-        return {"error": "Prompt name too long", "recovery": "config"}, 400
-    if not re.match(r'^[a-zA-Z0-9_\-\.]+$', name):
-        return {"error": "Invalid prompt name: only alphanumeric, dash, underscore, dot allowed", "recovery": "config"}, 400
-    if ".." in name:
-        return {"error": "Invalid prompt name", "recovery": "config"}, 400
-    return None
-
-
-def _strip_extension(name: str) -> str:
-    """Strip .pt, .wav, or .txt extension from name."""
-    base = name
-    for ext in (".pt", ".wav", ".txt"):
-        if base.endswith(ext):
-            base = base[:-len(ext)]
-            break
-    return base
-
-
-def _gen_cache_key(text: str, mode: str, gen_params: dict, prompt_file: str = None,
-                   voice_description: str = None, speaker: str = None, instruct: str = None) -> str:
-    """Generate a hash key for generation cache lookup."""
-    key_parts = [text, mode, str(sorted(gen_params.items()))]
-    if prompt_file:
-        key_parts.append(prompt_file)
-    if voice_description:
-        key_parts.append(voice_description)
-    if speaker:
-        key_parts.append(speaker)
-    if instruct:
-        key_parts.append(instruct)
-    raw = "|".join(key_parts)
-    return hashlib.sha256(raw.encode()).hexdigest()[:16]
 
 
 def _estimate_eta(app_state, text_length: int, elapsed_sec: float) -> Optional[float]:

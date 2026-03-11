@@ -70,6 +70,18 @@ from qwen3_tts.core.engine.inference import (
     run_inference,
     run_inference_streaming,
     create_voice_prompt,
+    _validate_audio,
+    _run_inference_torch,
+    _run_inference_mlx,
+    _run_inference_mlx_streaming,
+    _run_inference_single,
+    _get_max_chunk_chars,
+    _get_max_chunk_tokens,
+    _crossfade_chunks,
+    _INFERENCE_STRATEGIES,
+    _MODE_STRATEGIES_TORCH,
+    register_backend,
+    _get_backend_strategy,
 )
 
 # --- asr ---
