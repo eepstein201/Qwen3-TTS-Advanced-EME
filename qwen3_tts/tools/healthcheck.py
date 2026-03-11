@@ -131,7 +131,8 @@ def check_backend_availability() -> tuple:
 
 def check_config() -> tuple:
     """Check configuration file status."""
-    if CONFIG_PATH.exists():
+    config_path = pathlib.Path(CONFIG_PATH)
+    if config_path.exists():
         try:
             from qwen3_tts.core.config import load_config, validate_config
             config = load_config()
@@ -187,12 +188,13 @@ def check_model_cache() -> tuple:
 
 def check_voice_prompts() -> tuple:
     """Check voice prompts directory."""
-    if not VOICE_PROMPTS_DIR.exists():
+    prompts_dir = pathlib.Path(VOICE_PROMPTS_DIR)
+    if not prompts_dir.exists():
         return "warn", "Voice prompts directory not found"
 
     # Count prompts
-    pt_files = list(VOICE_PROMPTS_DIR.glob("*.pt"))
-    wav_files = list(VOICE_PROMPTS_DIR.glob("*.wav"))
+    pt_files = list(prompts_dir.glob("*.pt"))
+    wav_files = list(prompts_dir.glob("*.wav"))
 
     if not pt_files and not wav_files:
         return "info", "No voice prompts found"
