@@ -131,5 +131,44 @@ class TestDryRunAndInteractive(unittest.TestCase):
         self.assertTrue(callable(qwen3_tts.interface.generate.interactive_mode))
 
 
+# =========================================================================
+# _safe_transform helper
+# =========================================================================
+
+class TestSafeTransform(unittest.TestCase):
+    """Tests for the _safe_transform helper in text_processing."""
+
+    def test_applies_transform_on_success(self):
+        from qwen3_tts.core.engine.text_processing import _safe_transform
+        result = _safe_transform("hello world", "test", lambda t: t.upper())
+        self.assertEqual(result, "HELLO WORLD")
+
+    def test_returns_original_on_exception(self):
+        from qwen3_tts.core.engine.text_processing import _safe_transform
+
+        def bad_fn(t):
+            raise ValueError("boom")
+
+        result = _safe_transform("hello", "bad_step", bad_fn)
+        self.assertEqual(result, "hello")
+
+    def test_logs_warning_on_exception(self):
+        from qwen3_tts.core.engine.text_processing import _safe_transform
+        with self.assertLogs(level="WARNING") as cm:
+            _safe_transform("hello", "explode", lambda t: 1 / 0)
+        self.assertTrue(any("explode" in msg for msg in cm.output))
+
+    def test_step_name_in_warning_message(self):
+        from qwen3_tts.core.engine.text_processing import _safe_transform
+        with self.assertLogs(level="WARNING") as cm:
+            _safe_transform("text", "my_step", lambda t: (_ for _ in ()).throw(RuntimeError("err")))
+        self.assertTrue(any("my_step" in msg for msg in cm.output))
+
+    def test_returns_string_unchanged_when_no_error(self):
+        from qwen3_tts.core.engine.text_processing import _safe_transform
+        result = _safe_transform("unchanged", "noop", lambda t: t)
+        self.assertEqual(result, "unchanged")
+
+
 if __name__ == "__main__":
     unittest.main()
