@@ -12,6 +12,7 @@ import sys
 from datetime import datetime, timedelta
 
 from qwen3_tts.core.config import USER_FILES_DIR, HF_CACHE
+from qwen3_tts.tools._shared import _format_size
 
 
 # Model name patterns to identify TTS models
@@ -41,15 +42,6 @@ _MODEL_ALIASES = {
     "Qwen3-TTS-12Hz-0.6B-VoiceDesign": {"torch": "design", "mlx": "design"},
     "Qwen3-TTS-12Hz-0.6B-CustomVoice": {"torch": "custom", "mlx": "custom"},
 }
-
-
-def _format_size(bytes_size: int) -> str:
-    """Format bytes into human readable size."""
-    for unit in ("B", "KB", "MB", "GB"):
-        if bytes_size < 1024.0:
-            return f"{bytes_size:.1f} {unit}"
-        bytes_size /= 1024.0
-    return f"{bytes_size:.1f} TB"
 
 
 def _get_model_dir_size(model_dir: pathlib.Path) -> int:

@@ -5,6 +5,35 @@ import pathlib
 from datetime import datetime, timedelta
 
 
+class TestSharedFormatSize(unittest.TestCase):
+    """Tests that _format_size lives in qwen3_tts.tools._shared."""
+
+    def test_import_from_shared(self):
+        """_format_size is importable from the shared module."""
+        from qwen3_tts.tools._shared import _format_size
+        self.assertTrue(callable(_format_size))
+
+    def test_shared_bytes(self):
+        from qwen3_tts.tools._shared import _format_size
+        self.assertEqual(_format_size(500), "500.0 B")
+
+    def test_shared_kilobytes(self):
+        from qwen3_tts.tools._shared import _format_size
+        self.assertEqual(_format_size(1024), "1.0 KB")
+
+    def test_shared_megabytes(self):
+        from qwen3_tts.tools._shared import _format_size
+        self.assertEqual(_format_size(1024 * 1024), "1.0 MB")
+
+    def test_shared_gigabytes(self):
+        from qwen3_tts.tools._shared import _format_size
+        self.assertEqual(_format_size(1024 * 1024 * 1024), "1.0 GB")
+
+    def test_shared_terabytes(self):
+        from qwen3_tts.tools._shared import _format_size
+        self.assertEqual(_format_size(1024 * 1024 * 1024 * 1024), "1.0 TB")
+
+
 class TestFormatSize(unittest.TestCase):
     """Tests for _format_size function."""
 

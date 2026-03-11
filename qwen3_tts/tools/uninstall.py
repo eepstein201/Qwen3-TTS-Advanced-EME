@@ -21,6 +21,7 @@ from qwen3_tts.core.config import (
     HF_CACHE,
 )
 from qwen3_tts.tools.model_cache import _MLX_MODEL_PREFIXES, _TORCH_MODEL_PREFIXES
+from qwen3_tts.tools._shared import _format_size
 
 
 def _print_header(text: str) -> None:
@@ -73,15 +74,6 @@ def _list_cached_models() -> list[str]:
             ):
                 models.append(model_dir.name)
     return sorted(models)
-
-
-def _format_size(bytes_size: int) -> str:
-    """Format bytes into human readable size."""
-    for unit in ("B", "KB", "MB", "GB"):
-        if bytes_size < 1024.0:
-            return f"{bytes_size:.1f} {unit}"
-        bytes_size /= 1024.0
-    return f"{bytes_size:.1f} TB"
 
 
 def uninstall_models(dry_run: bool = False) -> None:
