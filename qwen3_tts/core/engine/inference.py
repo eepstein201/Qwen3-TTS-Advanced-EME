@@ -227,6 +227,18 @@ def _validate_audio(wav, sample_rate, mode="unknown"):
 # MLX backend — inference
 # ---------------------------------------------------------------------------
 
+def _get_mlx_gen_params(gen_params: dict, config: dict) -> dict:
+    """Merge caller gen_params with config defaults for MLX backend."""
+    config_gen = config.get("generation", {})
+    return {
+        "temperature": gen_params.get("temperature", config_gen.get("temperature", 0.7)),
+        "top_k": gen_params.get("top_k", config_gen.get("top_k", 50)),
+        "top_p": gen_params.get("top_p", config_gen.get("top_p", 0.95)),
+        "repetition_penalty": gen_params.get("repetition_penalty", config_gen.get("repetition_penalty", 1.05)),
+        "max_new_tokens": gen_params.get("max_new_tokens", config_gen.get("max_new_tokens", 2048)),
+    }
+
+
 def _run_inference_mlx(model, text, mode, gen_params, language="English",
                        voice_prompt=None, voice_description=None,
                        speaker=None, instruct=None,
@@ -253,14 +265,7 @@ def _run_inference_mlx(model, text, mode, gen_params, language="English",
 
     # Read defaults from config so MLX matches torch behavior (R-17)
     config = load_config()
-    config_gen = config.get("generation", {})
-    params = {
-        "temperature": gen_params.get("temperature", config_gen.get("temperature", 0.7)),
-        "top_k": gen_params.get("top_k", config_gen.get("top_k", 50)),
-        "top_p": gen_params.get("top_p", config_gen.get("top_p", 0.95)),
-        "repetition_penalty": gen_params.get("repetition_penalty", config_gen.get("repetition_penalty", 1.05)),
-        "max_new_tokens": gen_params.get("max_new_tokens", config_gen.get("max_new_tokens", 2048)),
-    }
+    params = _get_mlx_gen_params(gen_params, config)
 
     if mode == "clone":
         # MLX clone mode uses ref_audio (wav path) + ref_text directly.
@@ -364,14 +369,7 @@ def _run_inference_mlx_streaming(model, text, mode, gen_params, language="Englis
 
     # Read defaults from config so MLX matches torch behavior (R-17)
     config = load_config()
-    config_gen = config.get("generation", {})
-    params = {
-        "temperature": gen_params.get("temperature", config_gen.get("temperature", 0.7)),
-        "top_k": gen_params.get("top_k", config_gen.get("top_k", 50)),
-        "top_p": gen_params.get("top_p", config_gen.get("top_p", 0.95)),
-        "repetition_penalty": gen_params.get("repetition_penalty", config_gen.get("repetition_penalty", 1.05)),
-        "max_new_tokens": gen_params.get("max_new_tokens", config_gen.get("max_new_tokens", 2048)),
-    }
+    params = _get_mlx_gen_params(gen_params, config)
 
     if mode == "clone":
         if voice_prompt is None:
