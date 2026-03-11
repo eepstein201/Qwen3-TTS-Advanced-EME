@@ -504,6 +504,27 @@ class TTSClient:
             raise VoicePromptError("details", error_msg)
         return resp.json()
 
+    @staticmethod
+    def _add_mode_params(
+        payload: dict,
+        mode: str,
+        prompt=None,
+        description=None,
+        speaker=None,
+        instruct=None,
+        x_vector_only_mode: bool = False,
+    ) -> None:
+        """Mutate payload in-place with mode-specific generation parameters."""
+        if mode == "clone":
+            payload["prompt_file"] = prompt
+            if x_vector_only_mode:
+                payload["x_vector_only_mode"] = True
+        elif mode == "custom":
+            payload["speaker"] = speaker
+            payload["instruct"] = instruct or ""
+        else:
+            payload["voice_description"] = description
+
     def list_presets(self):
         """List available presets."""
         return self.config.get("presets", {})
@@ -651,15 +672,8 @@ class TTSClient:
             **gen_params,
         }
 
-        if mode == "clone":
-            payload["prompt_file"] = prompt
-            if x_vector_only_mode:
-                payload["x_vector_only_mode"] = True
-        elif mode == "custom":
-            payload["speaker"] = speaker
-            payload["instruct"] = instruct or ""
-        else:
-            payload["voice_description"] = description
+        self._add_mode_params(payload, mode, prompt=prompt, description=description,
+                              speaker=speaker, instruct=instruct, x_vector_only_mode=x_vector_only_mode)
 
         resp = self._session.post(f"{self.server_url}/generate", json=payload, timeout=600, headers=auth_headers())
         if resp.status_code != 200:
@@ -761,15 +775,8 @@ class TTSClient:
             **gen_params,
         }
 
-        if mode == "clone":
-            payload["prompt_file"] = prompt
-            if x_vector_only_mode:
-                payload["x_vector_only_mode"] = True
-        elif mode == "custom":
-            payload["speaker"] = speaker
-            payload["instruct"] = instruct or ""
-        else:
-            payload["voice_description"] = description
+        self._add_mode_params(payload, mode, prompt=prompt, description=description,
+                              speaker=speaker, instruct=instruct, x_vector_only_mode=x_vector_only_mode)
 
         # Stream from server
         with self._session.post(

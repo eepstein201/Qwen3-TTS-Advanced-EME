@@ -19,6 +19,13 @@ from qwen3_tts.core.engine.audio_processing import load_audio_for_cloning
 
 logger = logging.getLogger("tts.engine")
 
+
+def _evict_if_full(cache: OrderedDict, max_size: int) -> None:
+    """Remove oldest entry from LRU cache if at or over capacity."""
+    if len(cache) >= max_size:
+        cache.popitem(last=False)
+
+
 # ---------------------------------------------------------------------------
 # Voice prompt cache (torch backend)
 # ---------------------------------------------------------------------------
@@ -72,9 +79,7 @@ def _load_voice_prompt_torch(prompt_file):
             logger.info("Auto-created and saved %s", prompt_path)
             # Cache the result
             with _torch_prompt_cache_lock:
-                max_size = get_voice_prompt_cache_max()
-                if len(_torch_prompt_cache) >= max_size:
-                    _torch_prompt_cache.popitem(last=False)
+                _evict_if_full(_torch_prompt_cache, get_voice_prompt_cache_max())
                 _torch_prompt_cache[prompt_file] = voice_prompt
                 _torch_prompt_cache_misses += 1
             return voice_prompt
@@ -92,9 +97,7 @@ def _load_voice_prompt_torch(prompt_file):
         result = torch.load(prompt_path, weights_only=True, map_location=device)
         # Cache the result
         with _torch_prompt_cache_lock:
-            max_size = get_voice_prompt_cache_max()
-            if len(_torch_prompt_cache) >= max_size:
-                _torch_prompt_cache.popitem(last=False)
+            _evict_if_full(_torch_prompt_cache, get_voice_prompt_cache_max())
             _torch_prompt_cache[prompt_file] = result
             _torch_prompt_cache_misses += 1
         return result
@@ -120,9 +123,7 @@ def _load_voice_prompt_torch(prompt_file):
         result = torch.load(prompt_path, weights_only=False, map_location=device)  # nosec B614
         # Cache the result
         with _torch_prompt_cache_lock:
-            max_size = get_voice_prompt_cache_max()
-            if len(_torch_prompt_cache) >= max_size:
-                _torch_prompt_cache.popitem(last=False)
+            _evict_if_full(_torch_prompt_cache, get_voice_prompt_cache_max())
             _torch_prompt_cache[prompt_file] = result
             _torch_prompt_cache_misses += 1
         return result
@@ -274,9 +275,7 @@ def load_voice_prompt_mlx(prompt_name):
 
     # Cache the result with thread-safe lock
     with _mlx_prompt_cache_lock:
-        max_cache_size = get_voice_prompt_cache_max()
-        if len(_mlx_prompt_cache) >= max_cache_size:
-            _mlx_prompt_cache.popitem(last=False)
+        _evict_if_full(_mlx_prompt_cache, get_voice_prompt_cache_max())
         _mlx_prompt_cache[prompt_name] = result
 
     return result

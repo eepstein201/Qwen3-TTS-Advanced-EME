@@ -447,5 +447,42 @@ class TestSpeakerNameNormalization(unittest.TestCase):
             os.unlink(tmp)
 
 
+@pytest.mark.unit
+class TestAddModeParams(unittest.TestCase):
+    """Test TTSClient._add_mode_params static method."""
+
+    def test_clone_mode_adds_prompt_file(self):
+        from qwen3_tts.server.client import TTSClient
+        payload = {}
+        TTSClient._add_mode_params(payload, "clone", prompt="my_voice.pt")
+        self.assertEqual(payload["prompt_file"], "my_voice.pt")
+        self.assertNotIn("x_vector_only_mode", payload)
+
+    def test_clone_mode_with_x_vector_only(self):
+        from qwen3_tts.server.client import TTSClient
+        payload = {}
+        TTSClient._add_mode_params(payload, "clone", prompt="my_voice.pt", x_vector_only_mode=True)
+        self.assertTrue(payload["x_vector_only_mode"])
+
+    def test_custom_mode_adds_speaker_and_instruct(self):
+        from qwen3_tts.server.client import TTSClient
+        payload = {}
+        TTSClient._add_mode_params(payload, "custom", speaker="ryan", instruct="be calm")
+        self.assertEqual(payload["speaker"], "ryan")
+        self.assertEqual(payload["instruct"], "be calm")
+
+    def test_custom_mode_instruct_defaults_to_empty_string(self):
+        from qwen3_tts.server.client import TTSClient
+        payload = {}
+        TTSClient._add_mode_params(payload, "custom", speaker="ryan")
+        self.assertEqual(payload["instruct"], "")
+
+    def test_design_mode_adds_voice_description(self):
+        from qwen3_tts.server.client import TTSClient
+        payload = {}
+        TTSClient._add_mode_params(payload, "design", description="warm and friendly")
+        self.assertEqual(payload["voice_description"], "warm and friendly")
+
+
 if __name__ == "__main__":
     unittest.main()
