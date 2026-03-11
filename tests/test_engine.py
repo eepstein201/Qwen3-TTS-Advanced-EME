@@ -370,5 +370,86 @@ class TestEngineFunctions(unittest.TestCase):
                         )
 
 
+@pytest.mark.unit
+class TestGetMlxGenParams(unittest.TestCase):
+    """Tests for _get_mlx_gen_params helper in inference.py."""
+
+    def test_uses_config_defaults_when_no_overrides(self):
+        from qwen3_tts.core.engine.inference import _get_mlx_gen_params
+        config = {"generation": {"temperature": 0.5, "top_k": 25, "top_p": 0.9, "repetition_penalty": 1.1, "max_new_tokens": 1024}}
+        result = _get_mlx_gen_params({}, config)
+        self.assertEqual(result["temperature"], 0.5)
+        self.assertEqual(result["top_k"], 25)
+
+    def test_caller_overrides_take_precedence(self):
+        from qwen3_tts.core.engine.inference import _get_mlx_gen_params
+        config = {"generation": {"temperature": 0.5}}
+        result = _get_mlx_gen_params({"temperature": 0.9}, config)
+        self.assertEqual(result["temperature"], 0.9)
+
+    def test_hardcoded_fallback_when_no_config(self):
+        from qwen3_tts.core.engine.inference import _get_mlx_gen_params
+        result = _get_mlx_gen_params({}, {})
+        self.assertEqual(result["temperature"], 0.7)
+        self.assertEqual(result["top_k"], 50)
+        self.assertEqual(result["top_p"], 0.95)
+        self.assertEqual(result["repetition_penalty"], 1.05)
+        self.assertEqual(result["max_new_tokens"], 2048)
+
+
+@pytest.mark.unit
+class TestEvictIfFull(unittest.TestCase):
+    """Tests for the _evict_if_full LRU cache eviction helper."""
+
+    def test_evicts_oldest_when_full(self):
+        from qwen3_tts.core.engine.voice_prompt import _evict_if_full
+        from collections import OrderedDict
+        cache = OrderedDict([("a", 1), ("b", 2), ("c", 3)])
+        _evict_if_full(cache, max_size=3)
+        self.assertNotIn("a", cache)
+        self.assertEqual(len(cache), 2)
+
+    def test_no_eviction_when_under_limit(self):
+        from qwen3_tts.core.engine.voice_prompt import _evict_if_full
+        from collections import OrderedDict
+        cache = OrderedDict([("a", 1), ("b", 2)])
+        _evict_if_full(cache, max_size=3)
+        self.assertEqual(len(cache), 2)
+
+    def test_no_eviction_when_empty(self):
+        from qwen3_tts.core.engine.voice_prompt import _evict_if_full
+        from collections import OrderedDict
+        cache = OrderedDict()
+        _evict_if_full(cache, max_size=3)
+        self.assertEqual(len(cache), 0)
+
+
+@pytest.mark.unit
+class TestRetryModelLoad(unittest.TestCase):
+    """Tests for the _retry_model_load helper in model_loader.py."""
+
+    def test_returns_on_first_success(self):
+        from qwen3_tts.core.engine.model_loader import _retry_model_load
+        loader = MagicMock(return_value="model_object")
+        result = _retry_model_load(loader, "clone", "test-model")
+        self.assertEqual(result, "model_object")
+        self.assertEqual(loader.call_count, 1)
+
+    def test_retries_on_os_error(self):
+        from qwen3_tts.core.engine.model_loader import _retry_model_load
+        loader = MagicMock(side_effect=[OSError("network error"), "model_object"])
+        with patch("qwen3_tts.core.engine.model_loader.time.sleep"):
+            result = _retry_model_load(loader, "clone", "test-model")
+        self.assertEqual(result, "model_object")
+        self.assertEqual(loader.call_count, 2)
+
+    def test_raises_after_max_retries(self):
+        from qwen3_tts.core.engine.model_loader import _retry_model_load
+        loader = MagicMock(side_effect=OSError("persistent error"))
+        with patch("qwen3_tts.core.engine.model_loader.time.sleep"):
+            with self.assertRaises(OSError):
+                _retry_model_load(loader, "clone", "test-model")
+
+
 if __name__ == "__main__":
     unittest.main()
