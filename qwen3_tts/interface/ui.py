@@ -430,14 +430,17 @@ def _prepare_streaming_config(mode, text, preset, temperature, top_k, top_p,
     }
     if seed_val is not None:
         payload["seed"] = seed_val
+    # Resolve preset parameters client-side (server doesn't handle presets)
     if preset_val:
-        payload["preset"] = preset_val
+        presets = config.get("presets", {})
+        if preset_val in presets:
+            payload.update(presets[preset_val])
     if mode == "clone" and prompt:
-        payload["prompt"] = prompt
+        payload["prompt_file"] = prompt
         if x_vector_only_mode:
             payload["x_vector_only_mode"] = True
     elif mode == "design" and description:
-        payload["description"] = description
+        payload["voice_description"] = description
     elif mode == "custom":
         speaker = speaker_choice.split(" ")[0] if speaker_choice else "ryan"
         payload["speaker"] = speaker
@@ -535,8 +538,8 @@ def _generate_colab_fallback(base64_wav, mode, text, history_list, stream_config
             text=payload.get("text", ""),
             output=output_path,
             mode=payload.get("mode", "clone"),
-            prompt=payload.get("prompt"),
-            description=payload.get("description"),
+            prompt=payload.get("prompt_file"),
+            description=payload.get("voice_description"),
             speaker=payload.get("speaker"),
             instruct=payload.get("instruct"),
             temperature=payload.get("temperature", 0.7),
