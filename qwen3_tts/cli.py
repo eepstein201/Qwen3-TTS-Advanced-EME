@@ -211,7 +211,7 @@ def _start_server_daemon(public=False):
     Returns:
         subprocess.Popen: The server process object
     """
-    from qwen3_tts.core.config import PID_FILE, load_config
+    from qwen3_tts.core.config import write_pid_file
 
     if public:
         os.environ['TTS_SERVER_PUBLIC'] = '1'
@@ -222,8 +222,7 @@ def _start_server_daemon(public=False):
         stderr=subprocess.DEVNULL,
         start_new_session=True,
     )
-    # Write PID file
-    PID_FILE.write_text(str(proc.pid))
+    write_pid_file(proc.pid)
     return proc
 
 
@@ -242,17 +241,22 @@ def start(public, foreground):
     By default, the server runs in the background as a daemon.
     Use --foreground to run in the foreground (useful for Colab).
     """
-    from qwen3_tts.core.config import load_config, is_server_running, get_server_url
+    from qwen3_tts.core.config import (
+        load_config, get_server_url, detect_server_state, cleanup_pid_file,
+    )
 
     config = load_config()
+    state = detect_server_state(config)
 
-    # Check if already running
-    if is_server_running(config):
+    if state["running"]:
         click.echo(f"TTS Server is already running at {get_server_url(config)}")
         sys.exit(1)
 
+    if state["stale_pid"]:
+        cleanup_pid_file()
+        click.echo(f"Cleaned stale PID file (PID {state['pid']} no longer running).")
+
     if foreground:
-        # Run in foreground (for Colab/notebooks)
         click.echo("Starting TTS server in foreground...")
         import uvicorn
         from qwen3_tts.server.app import app
@@ -262,7 +266,6 @@ def start(public, foreground):
         port = config.get("server", {}).get("port", 5123)
         uvicorn.run(app, host=host, port=port, log_level="info")
     else:
-        # Run as daemon (background subprocess)
         proc = _start_server_daemon(public=public)
         click.echo(f"TTS Server started with PID {proc.pid}")
         from qwen3_tts.core.config import LOG_FILE
@@ -272,31 +275,65 @@ def start(public, foreground):
 @server.command()
 def stop():
     """Stop the TTS server."""
-    from qwen3_tts.core.config import load_config, PID_FILE, get_server_url, auth_headers
-    import requests
+    import signal
+    from qwen3_tts.core.config import (
+        load_config, get_server_url, auth_headers,
+        detect_server_state, cleanup_pid_file, is_server_running, is_pid_alive,
+    )
 
     config = load_config()
+    state = detect_server_state(config)
 
-    # Check if PID file exists
-    if not PID_FILE.exists():
-        click.echo("TTS Server is not running (no PID file found).")
+    if not state["running"] and not state["stale_pid"]:
+        click.echo("TTS Server is not running.")
         sys.exit(1)
 
-    # Send shutdown request
-    url = get_server_url(config)
-    try:
-        resp = requests.post(f"{url}/shutdown", headers=auth_headers(), timeout=5)
-        if resp.status_code == 200:
-            click.echo("TTS Server shutdown signal sent.")
-        else:
-            click.echo(f"Warning: unexpected response {resp.status_code}")
-    except requests.exceptions.ConnectionError:
-        click.echo("Server not responding (may have already stopped)")
-    except Exception as e:
-        click.echo(f"Error contacting server: {e}")
+    if state["stale_pid"]:
+        cleanup_pid_file()
+        click.echo("TTS Server is not running (cleaned stale PID file).")
+        sys.exit(0)
 
-    # Clean up PID file
-    PID_FILE.unlink(missing_ok=True)
+    # Server is running — attempt graceful shutdown via /shutdown
+    if state["health_ok"]:
+        url = get_server_url(config)
+        try:
+            import requests
+            resp = requests.post(f"{url}/shutdown", headers=auth_headers(), timeout=5)
+            if resp.status_code == 200:
+                click.echo("TTS Server shutdown signal sent.")
+        except Exception:
+            click.echo("Server did not respond to shutdown request.")
+
+        # Poll for up to 5 seconds to confirm shutdown
+        for _ in range(10):
+            time.sleep(0.5)
+            if not is_server_running(config):
+                cleanup_pid_file()
+                click.echo("TTS Server stopped.")
+                sys.exit(0)
+
+    # Fallback: SIGTERM if PID is known and still alive
+    pid = state["pid"]
+    if pid and is_pid_alive(pid):
+        click.echo(f"Server still alive (PID {pid}), sending SIGTERM...")
+        try:
+            os.kill(pid, signal.SIGTERM)
+        except OSError:
+            pass
+        # Wait up to 3 seconds for termination
+        for _ in range(6):
+            time.sleep(0.5)
+            if not is_pid_alive(pid):
+                break
+        # Last resort: SIGKILL
+        if is_pid_alive(pid):
+            click.echo(f"SIGTERM failed, sending SIGKILL to PID {pid}...")
+            try:
+                os.kill(pid, signal.SIGKILL)
+            except OSError:
+                pass
+
+    cleanup_pid_file()
     click.echo("TTS Server stopped.")
 
 

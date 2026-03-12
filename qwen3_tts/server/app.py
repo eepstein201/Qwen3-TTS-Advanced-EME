@@ -66,6 +66,7 @@ from qwen3_tts.core.config import (
     get_mlx_model_name,
     get_generation_cache_max,
     get_eta_cache_ttl,
+    cleanup_pid_file,
 )
 
 # Pre-computed valid speaker names (keys + display names)
@@ -411,11 +412,7 @@ def cleanup_resources(app_state):
         gen_cache.clear()
 
     # Clean up PID file
-    try:
-        if os.path.exists(PID_FILE):
-            os.remove(PID_FILE)
-    except OSError:
-        pass
+    cleanup_pid_file()
 
 
 def cleanup_pid(app_state):
@@ -423,8 +420,7 @@ def cleanup_pid(app_state):
     shutdown_timer = getattr(app_state, "shutdown_timer", None)
     if shutdown_timer is not None:
         shutdown_timer.cancel()
-    if os.path.exists(PID_FILE):
-        os.remove(PID_FILE)
+    cleanup_pid_file()
     if os.path.exists(TOKEN_FILE):
         os.remove(TOKEN_FILE)
     # Set shutdown event for graceful termination
@@ -1611,28 +1607,31 @@ async def generate_stream(request: Request, req: GenerateRequest, _auth: None = 
 
 @app.post("/shutdown")
 async def shutdown(request: Request, _auth: None = Depends(verify_auth)):
-    """Graceful shutdown."""
+    """Graceful shutdown via BackgroundTask + SIGTERM for reliable termination."""
+    from starlette.background import BackgroundTask
+
     state = request.app.state
 
     # Cancel shutdown timer
     if state.shutdown_timer is not None:
         state.shutdown_timer.cancel()
 
-    # Clean up PID and token files
-    try:
-        if os.path.exists(PID_FILE):
-            os.remove(PID_FILE)
-    except OSError:
-        pass
-    try:
-        if os.path.exists(TOKEN_FILE):
-            os.remove(TOKEN_FILE)
-    except OSError:
-        pass
+    def _shutdown_background():
+        """Run cleanup then SIGTERM self — matches _signal_handler pattern."""
+        cleanup_pid_file()
+        try:
+            if os.path.exists(TOKEN_FILE):
+                os.remove(TOKEN_FILE)
+        except OSError:
+            pass
+        cleanup_resources(state)
+        os.kill(os.getpid(), signal.SIGTERM)
 
-    # Shut down gracefully
-    cleanup_resources(state)
-    sys.exit(0)
+    return Response(
+        content=json.dumps({"status": "shutting_down"}),
+        media_type="application/json",
+        background=BackgroundTask(_shutdown_background),
+    )
 
 
 # ---------------------------------------------------------------------------

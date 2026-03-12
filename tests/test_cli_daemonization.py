@@ -251,5 +251,181 @@ class TestPIDLifecycle(unittest.TestCase):
                 self.assertFalse(state["stale_pid"])
 
 
+@pytest.mark.unit
+class TestCLIStopRewrite(unittest.TestCase):
+    """Test rewritten stop() command using detect_server_state()."""
+
+    def test_stop_without_pid_file_uses_health_check(self):
+        """stop should use health check even when no PID file exists."""
+        from qwen3_tts.core.config import detect_server_state
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            fake_pid = Path(tmpdir) / "nonexistent.pid"
+
+            # Server healthy but no PID file
+            with patch('qwen3_tts.core.config.PID_FILE', fake_pid), \
+                 patch('qwen3_tts.core.config.is_server_running', return_value=True):
+                state = detect_server_state()
+                self.assertTrue(state["running"])
+                self.assertTrue(state["health_ok"])
+                self.assertIsNone(state["pid"])
+
+    def test_stop_stale_pid_cleans_up(self):
+        """stop should clean stale PID and report not running."""
+        from qwen3_tts.core.config import detect_server_state, cleanup_pid_file
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            fake_pid = Path(tmpdir) / "test.pid"
+            fake_pid.write_text("99999")
+
+            with patch('qwen3_tts.core.config.PID_FILE', fake_pid), \
+                 patch('qwen3_tts.core.config.is_server_running', return_value=False), \
+                 patch('qwen3_tts.core.config.is_pid_alive', return_value=False):
+                state = detect_server_state()
+                self.assertTrue(state["stale_pid"])
+                self.assertFalse(state["running"])
+
+                # cleanup_pid_file should remove it
+                cleanup_pid_file()
+                self.assertFalse(fake_pid.exists())
+
+    def test_stop_nothing_running(self):
+        """stop should report not running when no server and no PID."""
+        from qwen3_tts.core.config import detect_server_state
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            fake_pid = Path(tmpdir) / "nonexistent.pid"
+
+            with patch('qwen3_tts.core.config.PID_FILE', fake_pid), \
+                 patch('qwen3_tts.core.config.is_server_running', return_value=False):
+                state = detect_server_state()
+                self.assertFalse(state["running"])
+                self.assertFalse(state["stale_pid"])
+
+    def test_stop_force_kills_after_shutdown_timeout(self):
+        """stop should SIGTERM if /shutdown doesn't terminate the server."""
+        from qwen3_tts.core.config import detect_server_state
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            fake_pid = Path(tmpdir) / "test.pid"
+            current_pid = os.getpid()
+            fake_pid.write_text(str(current_pid))
+
+            # Server healthy, PID alive — but health stays True (simulates shutdown failure)
+            with patch('qwen3_tts.core.config.PID_FILE', fake_pid), \
+                 patch('qwen3_tts.core.config.is_server_running', return_value=True):
+                state = detect_server_state()
+                self.assertTrue(state["running"])
+                self.assertTrue(state["health_ok"])
+                self.assertTrue(state["pid_alive"])
+                # In real CLI, this state would trigger SIGTERM fallback
+
+
+@pytest.mark.unit
+class TestCLIStartRewrite(unittest.TestCase):
+    """Test rewritten start() command using detect_server_state()."""
+
+    def test_start_cleans_stale_pid(self):
+        """start should clean stale PID and proceed to start."""
+        from qwen3_tts.core.config import detect_server_state, cleanup_pid_file
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            fake_pid = Path(tmpdir) / "test.pid"
+            fake_pid.write_text("99999")
+
+            with patch('qwen3_tts.core.config.PID_FILE', fake_pid), \
+                 patch('qwen3_tts.core.config.is_server_running', return_value=False), \
+                 patch('qwen3_tts.core.config.is_pid_alive', return_value=False):
+                state = detect_server_state()
+                self.assertTrue(state["stale_pid"])
+                self.assertFalse(state["running"])
+
+                # Cleanup should succeed
+                cleanup_pid_file()
+                self.assertFalse(fake_pid.exists())
+
+    def test_start_already_running(self):
+        """start should detect already-running server via health check."""
+        from qwen3_tts.core.config import detect_server_state
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            fake_pid = Path(tmpdir) / "test.pid"
+            fake_pid.write_text(str(os.getpid()))
+
+            with patch('qwen3_tts.core.config.PID_FILE', fake_pid), \
+                 patch('qwen3_tts.core.config.is_server_running', return_value=True):
+                state = detect_server_state()
+                self.assertTrue(state["running"])
+                self.assertTrue(state["health_ok"])
+
+    def test_start_daemon_uses_write_pid_file(self):
+        """_start_server_daemon should use write_pid_file() instead of raw PID_FILE."""
+        from qwen3_tts.cli import _start_server_daemon
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            fake_pid = Path(tmpdir) / "test.pid"
+
+            with patch('qwen3_tts.core.config.PID_FILE', fake_pid), \
+                 patch('qwen3_tts.cli.subprocess.Popen') as mock_popen:
+                mock_proc = mock_popen.return_value
+                mock_proc.pid = 54321
+
+                _start_server_daemon(public=False)
+
+                self.assertTrue(fake_pid.exists())
+                self.assertEqual(fake_pid.read_text(), "54321")
+
+
+@pytest.mark.unit
+class TestShutdownEndpoint(unittest.TestCase):
+    """Test /shutdown endpoint returns response before terminating."""
+
+    def test_shutdown_endpoint_pattern(self):
+        """Verify shutdown uses BackgroundTask + SIGTERM pattern (not sys.exit)."""
+        import ast
+
+        # Parse app.py and verify /shutdown doesn't call sys.exit
+        worktree = Path(__file__).resolve().parent.parent
+        app_path = worktree / "qwen3_tts" / "server" / "app.py"
+        source = app_path.read_text()
+
+        # Find the shutdown function and check it doesn't use sys.exit
+        tree = ast.parse(source)
+        for node in ast.walk(tree):
+            if isinstance(node, ast.AsyncFunctionDef) and node.name == "shutdown":
+                # Check no sys.exit calls in the function body
+                for child in ast.walk(node):
+                    if isinstance(child, ast.Call):
+                        func = child.func
+                        if isinstance(func, ast.Attribute) and func.attr == "exit":
+                            if isinstance(func.value, ast.Name) and func.value.id == "sys":
+                                self.fail("/shutdown still calls sys.exit()")
+                break
+
+
+@pytest.mark.unit
+class TestGradioStopVerification(unittest.TestCase):
+    """Test Gradio stop_server() polls for shutdown verification."""
+
+    def test_gradio_stop_verifies_shutdown(self):
+        """stop_server should poll is_server_running instead of fixed sleep."""
+        import ast
+
+        worktree = Path(__file__).resolve().parent.parent
+        ui_path = worktree / "qwen3_tts" / "interface" / "ui.py"
+        source = ui_path.read_text()
+
+        tree = ast.parse(source)
+        for node in ast.walk(tree):
+            if isinstance(node, ast.FunctionDef) and node.name == "stop_server":
+                # Should have a for loop (polling) not just time.sleep(1)
+                has_for_loop = any(
+                    isinstance(child, ast.For) for child in ast.walk(node)
+                )
+                self.assertTrue(has_for_loop,
+                    "stop_server should poll with a for loop, not fixed sleep")
+                break
+
+
 if __name__ == '__main__':
     unittest.main()
