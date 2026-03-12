@@ -100,5 +100,124 @@ class TestCLIDaemonization(unittest.TestCase):
         self.assertIn('--public', result.stdout)
 
 
+@pytest.mark.unit
+class TestPIDLifecycle(unittest.TestCase):
+    """Test PID lifecycle functions in config.py."""
+
+    def test_read_pid_file_missing(self):
+        """read_pid_file returns None when file doesn't exist."""
+        from qwen3_tts.core.config import read_pid_file
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            fake_pid = Path(tmpdir) / "nonexistent.pid"
+            with patch('qwen3_tts.core.config.PID_FILE', fake_pid):
+                self.assertIsNone(read_pid_file())
+
+    def test_read_pid_file_valid(self):
+        """read_pid_file returns int when file has valid PID."""
+        from qwen3_tts.core.config import read_pid_file
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            fake_pid = Path(tmpdir) / "test.pid"
+            fake_pid.write_text("42\n")
+            with patch('qwen3_tts.core.config.PID_FILE', fake_pid):
+                self.assertEqual(read_pid_file(), 42)
+
+    def test_read_pid_file_corrupt(self):
+        """read_pid_file returns None when file has garbage."""
+        from qwen3_tts.core.config import read_pid_file
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            fake_pid = Path(tmpdir) / "test.pid"
+            fake_pid.write_text("not_a_number\n")
+            with patch('qwen3_tts.core.config.PID_FILE', fake_pid):
+                self.assertIsNone(read_pid_file())
+
+    def test_is_pid_alive_current_process(self):
+        """is_pid_alive returns True for the current process."""
+        from qwen3_tts.core.config import is_pid_alive
+
+        self.assertTrue(is_pid_alive(os.getpid()))
+
+    def test_is_pid_alive_dead_pid(self):
+        """is_pid_alive returns False for a non-existent PID."""
+        from qwen3_tts.core.config import is_pid_alive
+
+        # Use a very high PID unlikely to exist
+        self.assertFalse(is_pid_alive(99999))
+
+    def test_detect_state_healthy_with_pid(self):
+        """detect_server_state with healthy server and valid PID."""
+        from qwen3_tts.core.config import detect_server_state
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            fake_pid = Path(tmpdir) / "test.pid"
+            current_pid = os.getpid()
+            fake_pid.write_text(str(current_pid))
+
+            with patch('qwen3_tts.core.config.PID_FILE', fake_pid), \
+                 patch('qwen3_tts.core.config.is_server_running', return_value=True):
+                state = detect_server_state()
+
+                self.assertTrue(state["running"])
+                self.assertTrue(state["health_ok"])
+                self.assertEqual(state["pid"], current_pid)
+                self.assertTrue(state["pid_alive"])
+                self.assertFalse(state["stale_pid"])
+
+    def test_detect_state_healthy_no_pid(self):
+        """detect_server_state with healthy server but no PID file (lost PID)."""
+        from qwen3_tts.core.config import detect_server_state
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            fake_pid = Path(tmpdir) / "nonexistent.pid"
+
+            with patch('qwen3_tts.core.config.PID_FILE', fake_pid), \
+                 patch('qwen3_tts.core.config.is_server_running', return_value=True):
+                state = detect_server_state()
+
+                self.assertTrue(state["running"])
+                self.assertTrue(state["health_ok"])
+                self.assertIsNone(state["pid"])
+                self.assertFalse(state["pid_alive"])
+                self.assertFalse(state["stale_pid"])
+
+    def test_detect_state_stale_pid(self):
+        """detect_server_state with dead server and stale PID file."""
+        from qwen3_tts.core.config import detect_server_state
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            fake_pid = Path(tmpdir) / "test.pid"
+            fake_pid.write_text("99999")  # Non-existent PID
+
+            with patch('qwen3_tts.core.config.PID_FILE', fake_pid), \
+                 patch('qwen3_tts.core.config.is_server_running', return_value=False), \
+                 patch('qwen3_tts.core.config.is_pid_alive', return_value=False):
+                state = detect_server_state()
+
+                self.assertFalse(state["running"])
+                self.assertFalse(state["health_ok"])
+                self.assertEqual(state["pid"], 99999)
+                self.assertFalse(state["pid_alive"])
+                self.assertTrue(state["stale_pid"])
+
+    def test_detect_state_nothing(self):
+        """detect_server_state with no server and no PID file."""
+        from qwen3_tts.core.config import detect_server_state
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            fake_pid = Path(tmpdir) / "nonexistent.pid"
+
+            with patch('qwen3_tts.core.config.PID_FILE', fake_pid), \
+                 patch('qwen3_tts.core.config.is_server_running', return_value=False):
+                state = detect_server_state()
+
+                self.assertFalse(state["running"])
+                self.assertFalse(state["health_ok"])
+                self.assertIsNone(state["pid"])
+                self.assertFalse(state["pid_alive"])
+                self.assertFalse(state["stale_pid"])
+
+
 if __name__ == '__main__':
     unittest.main()

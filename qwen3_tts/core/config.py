@@ -251,6 +251,69 @@ def is_server_running(config_or_url=None):
 
 
 # ---------------------------------------------------------------------------
+# PID lifecycle helpers
+# ---------------------------------------------------------------------------
+
+
+def read_pid_file():
+    """Read PID from .voice_server.pid. Returns None if missing/invalid."""
+    if not PID_FILE.exists():
+        return None
+    try:
+        return int(PID_FILE.read_text().strip())
+    except (ValueError, OSError):
+        return None
+
+
+def write_pid_file(pid):
+    """Write PID to .voice_server.pid."""
+    PID_FILE.write_text(str(pid))
+
+
+def cleanup_pid_file():
+    """Remove .voice_server.pid if it exists. Idempotent."""
+    try:
+        PID_FILE.unlink(missing_ok=True)
+    except OSError:
+        pass
+
+
+def is_pid_alive(pid):
+    """Check if process exists via os.kill(pid, 0). Cross-platform."""
+    try:
+        os.kill(pid, 0)
+        return True
+    except (ProcessLookupError, OSError):
+        return False
+
+
+def detect_server_state(config=None):
+    """Unified server state combining health check + PID file + process liveness.
+
+    Returns dict with keys:
+        running (bool): True if server is definitely running
+        health_ok (bool): True if /health responds
+        pid (int|None): PID if known from file
+        pid_alive (bool): True if PID process exists
+        stale_pid (bool): True if PID file exists but process dead + health fails
+    """
+    health_ok = is_server_running(config)
+    pid = read_pid_file()
+    pid_alive = is_pid_alive(pid) if pid is not None else False
+
+    running = health_ok  # Health check is authoritative
+    stale_pid = pid is not None and not pid_alive and not health_ok
+
+    return {
+        "running": running,
+        "health_ok": health_ok,
+        "pid": pid,
+        "pid_alive": pid_alive,
+        "stale_pid": stale_pid,
+    }
+
+
+# ---------------------------------------------------------------------------
 # Torch dtype configuration
 # ---------------------------------------------------------------------------
 
