@@ -111,11 +111,14 @@ class TestCheckServerStatus(unittest.TestCase):
     """Tests for check_server_status function."""
 
     def test_returns_info_when_no_pid_file(self):
-        """Returns info when PID file doesn't exist."""
+        """Returns info when nothing is running."""
         from qwen3_tts.tools.healthcheck import check_server_status
 
-        with mock.patch('qwen3_tts.tools.healthcheck.PID_FILE') as mock_pid:
-            mock_pid.exists.return_value = False
+        mock_state = {
+            "running": False, "health_ok": False,
+            "pid": None, "pid_alive": False, "stale_pid": False,
+        }
+        with mock.patch('qwen3_tts.tools.healthcheck.detect_server_state', return_value=mock_state):
             status, details = check_server_status()
             self.assertEqual(status, "info")
             self.assertIn("not running", details.lower())
@@ -124,14 +127,27 @@ class TestCheckServerStatus(unittest.TestCase):
         """Returns warn when PID file exists but process not running."""
         from qwen3_tts.tools.healthcheck import check_server_status
 
-        with mock.patch('qwen3_tts.tools.healthcheck.PID_FILE') as mock_pid:
-            mock_pid.exists.return_value = True
-            mock_pid.read_text.return_value = "99999\n"
+        mock_state = {
+            "running": False, "health_ok": False,
+            "pid": 99999, "pid_alive": False, "stale_pid": True,
+        }
+        with mock.patch('qwen3_tts.tools.healthcheck.detect_server_state', return_value=mock_state):
+            status, details = check_server_status()
+            self.assertEqual(status, "warn")
+            self.assertIn("stale", details.lower())
 
-            with mock.patch('os.kill', side_effect=ProcessLookupError()):
-                status, details = check_server_status()
-                self.assertEqual(status, "warn")
-                self.assertIn("stale", details.lower())
+    def test_returns_pass_when_running(self):
+        """Returns pass when server is running."""
+        from qwen3_tts.tools.healthcheck import check_server_status
+
+        mock_state = {
+            "running": True, "health_ok": True,
+            "pid": 12345, "pid_alive": True, "stale_pid": False,
+        }
+        with mock.patch('qwen3_tts.tools.healthcheck.detect_server_state', return_value=mock_state):
+            status, details = check_server_status()
+            self.assertEqual(status, "pass")
+            self.assertIn("running", details.lower())
 
 
 class TestCheckAudioDependencies(unittest.TestCase):

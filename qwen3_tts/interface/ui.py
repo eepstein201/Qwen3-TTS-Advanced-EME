@@ -584,7 +584,7 @@ def _validate_inputs(mode, text, description=None):
 # =============================================================================
 
 def stop_server():
-    """Stop the TTS server via /shutdown endpoint."""
+    """Stop the TTS server via /shutdown endpoint with verification."""
     import requests as _requests
     client = TTSClient()
     if not client.is_server_running():
@@ -593,10 +593,14 @@ def stop_server():
     try:
         _requests.post(f"{client.server_url}/shutdown", timeout=5, headers=auth_headers())
     except Exception:  # nosec B110
-        pass  # Server shuts down immediately, may not respond
+        pass  # Server may drop connection during shutdown
 
-    # Wait briefly and re-check
-    time.sleep(1)
+    # Poll for up to 5 seconds to verify shutdown
+    for _ in range(10):
+        time.sleep(0.5)
+        if not client.is_server_running():
+            return format_status_display()
+
     return format_status_display()
 
 

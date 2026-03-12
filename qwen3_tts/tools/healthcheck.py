@@ -22,6 +22,7 @@ from qwen3_tts.core.config import (
     PID_FILE,
     LOG_FILE,
     HF_CACHE,
+    detect_server_state,
 )
 from qwen3_tts.tools.model_cache import _MLX_MODEL_PREFIXES, _TORCH_MODEL_PREFIXES
 
@@ -203,19 +204,21 @@ def check_voice_prompts() -> tuple:
 
 
 def check_server_status() -> tuple:
-    """Check if TTS server is running."""
-    if not PID_FILE.exists():
-        return "info", "Server not running (no PID file)"
+    """Check if TTS server is running using unified detection."""
+    state = detect_server_state()
 
-    try:
-        pid = int(PID_FILE.read_text().strip())
-        # Check if process is running
-        os.kill(pid, 0)  # Doesn't actually send signal, just checks existence
-        return "pass", f"Server running (PID: {pid})"
-    except (ValueError, ProcessLookupError):
-        return "warn", "Server not running (stale PID file)"
-    except OSError as e:
-        return "warn", f"Could not check server status: {e}"
+    if state["running"]:
+        parts = []
+        if state["health_ok"]:
+            parts.append("health OK")
+        if state["pid"]:
+            parts.append(f"PID {state['pid']}")
+        return "pass", f"Server running ({', '.join(parts)})"
+
+    if state["stale_pid"]:
+        return "warn", f"Server not running (stale PID file, PID {state['pid']})"
+
+    return "info", "Server not running"
 
 
 def check_audio_dependencies() -> tuple:

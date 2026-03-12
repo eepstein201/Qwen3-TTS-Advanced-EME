@@ -71,7 +71,7 @@ config.json → qwen3_tts.core.config → qwen3_tts.core.engine (dispatch)
 
 | Module | Purpose | Heavy imports? |
 |--------|---------|----------------|
-| `qwen3_tts/core/config.py` | Constants, config I/O, error classes, `MODEL_INFO`, auth, platform detection, CUDA capability detection, voice description attributes | No |
+| `qwen3_tts/core/config.py` | Constants, config I/O, error classes, `MODEL_INFO`, auth, platform detection, CUDA capability detection, voice description attributes, PID lifecycle (`read_pid_file`, `write_pid_file`, `cleanup_pid_file`, `is_pid_alive`, `detect_server_state`) | No |
 | `qwen3_tts/core/engine/` | Package with 6 submodules: `text_processing`, `audio_processing`, `voice_prompt`, `model_loader`, `inference`, `asr`. `__init__.py` facade re-exports all public names. | No (all lazy) |
 | `qwen3_tts/server/app.py` | FastAPI server: auth, validation helpers (`_validate_generation_request`, `_create_temp_audio_copy`, `_prepare_mode_params`), progress, model management, generation/ETA/prompt caches | No (lazy via engine) |
 | `qwen3_tts/server/client.py` | HTTP client: `TTSClient` with generate, model management, prompt management | No |
@@ -456,3 +456,14 @@ Comprehensive audit with TDD methodology (14 commits, all tests pass):
 - Speaker name normalization to lowercase (client.py)
 - Consolidated `HF_CACHE` constant to config.py (was duplicated in 3 files)
 - Removed internal symbol exports from engine facade (tests import from submodules)
+
+### Server detection fix (2026-03-12)
+Unified server start/stop detection to fix PID-file-vs-health-check inconsistency:
+- PID lifecycle helpers in config.py: `read_pid_file()`, `write_pid_file()`, `cleanup_pid_file()`, `is_pid_alive()`, `detect_server_state()`
+- `detect_server_state()` returns rich state dict (running, health_ok, pid, pid_alive, stale_pid)
+- CLI `stop()`: health check → `/shutdown` → SIGTERM → SIGKILL fallback chain
+- CLI `start()`: auto-cleans stale PID files before starting
+- `/shutdown` endpoint: `BackgroundTask` + `SIGTERM` replaces `sys.exit(0)` for reliable termination
+- Gradio `stop_server()`: polls health for up to 5s instead of fixed 1s sleep
+- `healthcheck.py`: uses `detect_server_state()` instead of inline PID/kill logic
+- DRY: 6 inline PID file operations consolidated to shared functions in config.py
