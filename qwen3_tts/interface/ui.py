@@ -464,7 +464,8 @@ def _save_completed_audio(base64_wav, mode, text, history_list):
     """Decode base64 WAV from JS and save to disk. Update history.
 
     Args:
-        base64_wav: Base64-encoded WAV data from JavaScript, or 'ERROR:...' on failure, or '' if cancelled.
+        base64_wav: Base64-encoded WAV data from JavaScript, or 'ERROR:...' on failure,
+                    'TIMEOUT' if JS timed out, or '' if cancelled.
         mode: The generation mode.
         text: The input text.
         history_list: Current history state.
@@ -477,6 +478,9 @@ def _save_completed_audio(base64_wav, mode, text, history_list):
 
     if not base64_wav or base64_wav == '':
         return "Cancelled", format_status_display(), history_list, gr.update()
+
+    if base64_wav == 'TIMEOUT':
+        return "Error: Timed out waiting for audio", format_status_display(), history_list, gr.update()
 
     if base64_wav.startswith('ERROR:'):
         error_msg = base64_wav[6:]

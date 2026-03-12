@@ -140,7 +140,7 @@ def get_streaming_player_js():
                 // 5-minute hard timeout for the entire request
                 timeoutId = setTimeout(() => {
                     this._timedOut = true;
-                    this.abortController.abort();
+                    if (this.abortController) this.abortController.abort();
                 }, 300000);
 
                 const response = await fetch(serverUrl + '/generate-stream', {
@@ -171,7 +171,7 @@ def get_streaming_player_js():
                     if (idleTimeoutId) clearTimeout(idleTimeoutId);
                     idleTimeoutId = setTimeout(() => {
                         this._timedOut = true;
-                        this.abortController.abort();
+                        if (this.abortController) this.abortController.abort();
                     }, 60000);
                 };
                 resetIdleTimeout();
@@ -465,7 +465,7 @@ def get_streaming_player_js():
             const playBtn = document.getElementById(this.containerId + '-play-btn');
             const downloadBtn = document.getElementById(this.containerId + '-download-btn');
             if (playBtn) {
-                playBtn.disabled = (state === 'idle' || state === 'streaming');
+                playBtn.disabled = (state === 'idle' || state === 'streaming' || state === 'error');
                 playBtn.textContent = (state === 'streaming') ? 'Streaming...' : 'Play / Pause';
             }
             if (downloadBtn) {
