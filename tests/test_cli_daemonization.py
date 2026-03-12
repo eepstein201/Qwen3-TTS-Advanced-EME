@@ -133,6 +133,38 @@ class TestPIDLifecycle(unittest.TestCase):
             with patch('qwen3_tts.core.config.PID_FILE', fake_pid):
                 self.assertIsNone(read_pid_file())
 
+    def test_write_pid_file_creates_file(self):
+        """write_pid_file creates PID file with correct content."""
+        from qwen3_tts.core.config import write_pid_file
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            fake_pid = Path(tmpdir) / "test.pid"
+            with patch('qwen3_tts.core.config.PID_FILE', fake_pid):
+                write_pid_file(12345)
+                self.assertTrue(fake_pid.exists())
+                self.assertEqual(fake_pid.read_text(), "12345")
+
+    def test_cleanup_pid_file_removes_file(self):
+        """cleanup_pid_file removes existing PID file."""
+        from qwen3_tts.core.config import cleanup_pid_file
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            fake_pid = Path(tmpdir) / "test.pid"
+            fake_pid.write_text("42")
+            with patch('qwen3_tts.core.config.PID_FILE', fake_pid):
+                cleanup_pid_file()
+                self.assertFalse(fake_pid.exists())
+
+    def test_cleanup_pid_file_noop_when_missing(self):
+        """cleanup_pid_file is idempotent when file doesn't exist."""
+        from qwen3_tts.core.config import cleanup_pid_file
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            fake_pid = Path(tmpdir) / "nonexistent.pid"
+            with patch('qwen3_tts.core.config.PID_FILE', fake_pid):
+                cleanup_pid_file()  # Should not raise
+                self.assertFalse(fake_pid.exists())
+
     def test_is_pid_alive_current_process(self):
         """is_pid_alive returns True for the current process."""
         from qwen3_tts.core.config import is_pid_alive
