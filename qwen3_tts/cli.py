@@ -279,9 +279,11 @@ def stop():
     from qwen3_tts.core.config import (
         load_config, get_server_url, auth_headers,
         detect_server_state, cleanup_pid_file, is_server_running, is_pid_alive,
+        find_pid_by_port,
     )
 
     config = load_config()
+    port = config.get("server", {}).get("port", 5123)
     state = detect_server_state(config)
 
     if not state["running"] and not state["stale_pid"]:
@@ -294,26 +296,40 @@ def stop():
         sys.exit(0)
 
     # Server is running — attempt graceful shutdown via /shutdown
+    shutdown_accepted = False
     if state["health_ok"]:
         url = get_server_url(config)
         try:
             import requests
             resp = requests.post(f"{url}/shutdown", headers=auth_headers(), timeout=5)
             if resp.status_code == 200:
+                shutdown_accepted = True
                 click.echo("TTS Server shutdown signal sent.")
+            elif resp.status_code == 401:
+                click.echo("Shutdown rejected: 401 Unauthorized (token mismatch).")
+            else:
+                click.echo(f"Shutdown returned HTTP {resp.status_code}.")
         except Exception:
             click.echo("Server did not respond to shutdown request.")
 
-        # Poll for up to 5 seconds to confirm shutdown
-        for _ in range(10):
-            time.sleep(0.5)
-            if not is_server_running(config):
-                cleanup_pid_file()
-                click.echo("TTS Server stopped.")
-                sys.exit(0)
+        # Only poll if shutdown was accepted
+        if shutdown_accepted:
+            for _ in range(10):
+                time.sleep(0.5)
+                if not is_server_running(config):
+                    cleanup_pid_file()
+                    click.echo("TTS Server stopped.")
+                    sys.exit(0)
 
     # Fallback: SIGTERM if PID is known and still alive
     pid = state["pid"]
+
+    # Bug 2: discover PID by port if PID file was missing
+    if pid is None:
+        pid = find_pid_by_port(port)
+        if pid is not None:
+            click.echo(f"Discovered server PID {pid} on port {port}.")
+
     if pid and is_pid_alive(pid):
         click.echo(f"Server still alive (PID {pid}), sending SIGTERM...")
         try:
@@ -334,6 +350,13 @@ def stop():
                 pass
 
     cleanup_pid_file()
+
+    # Bug 1: verify server is actually stopped before claiming success
+    if is_server_running(config):
+        click.echo(f"Error: TTS Server is still running on port {port}.")
+        click.echo(f"Manual kill: kill -9 $(lsof -ti :{port})")
+        sys.exit(1)
+
     click.echo("TTS Server stopped.")
 
 

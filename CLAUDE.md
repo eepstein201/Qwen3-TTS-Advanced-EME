@@ -71,7 +71,7 @@ config.json → qwen3_tts.core.config → qwen3_tts.core.engine (dispatch)
 
 | Module | Purpose | Heavy imports? |
 |--------|---------|----------------|
-| `qwen3_tts/core/config.py` | Constants, config I/O, error classes, `MODEL_INFO`, auth, platform detection, CUDA capability detection, voice description attributes, PID lifecycle (`read_pid_file`, `write_pid_file`, `cleanup_pid_file`, `is_pid_alive`, `detect_server_state`) | No |
+| `qwen3_tts/core/config.py` | Constants, config I/O, error classes, `MODEL_INFO`, auth, platform detection, CUDA capability detection, voice description attributes, PID lifecycle (`read_pid_file`, `write_pid_file`, `cleanup_pid_file`, `is_pid_alive`, `find_pid_by_port`, `detect_server_state`) | No |
 | `qwen3_tts/core/engine/` | Package with 6 submodules: `text_processing`, `audio_processing`, `voice_prompt`, `model_loader`, `inference`, `asr`. `__init__.py` facade re-exports all public names. | No (all lazy) |
 | `qwen3_tts/server/app.py` | FastAPI server: auth, validation helpers (`_validate_generation_request`, `_create_temp_audio_copy`, `_prepare_mode_params`), progress, model management, generation/ETA/prompt caches | No (lazy via engine) |
 | `qwen3_tts/server/client.py` | HTTP client: `TTSClient` with generate, model management, prompt management | No |
@@ -467,3 +467,9 @@ Unified server start/stop detection to fix PID-file-vs-health-check inconsistenc
 - Gradio `stop_server()`: polls health for up to 5s instead of fixed 1s sleep
 - `healthcheck.py`: uses `detect_server_state()` instead of inline PID/kill logic
 - DRY: 6 inline PID file operations consolidated to shared functions in config.py
+
+### Orphan server stop fix (2026-03-12)
+Three bugs in `tts server stop` when encountering orphan servers (no PID file, stale auth token):
+- `find_pid_by_port(port)` in config.py: discovers PID via `lsof -ti :PORT` when PID file is missing
+- `stop()` auth failure detection: explicitly handles 401 responses, only polls if shutdown was accepted (200)
+- `stop()` verified termination: final `is_server_running()` check before claiming success; exits 1 with manual kill command if server still alive

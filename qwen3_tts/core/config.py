@@ -14,6 +14,7 @@ import logging
 import os
 import pathlib
 import platform
+import subprocess
 import sys
 import threading
 
@@ -276,6 +277,27 @@ def cleanup_pid_file():
         PID_FILE.unlink(missing_ok=True)
     except OSError:
         pass
+
+
+def find_pid_by_port(port):
+    """Discover PID of process listening on a TCP port via lsof.
+    Works on macOS and Linux. Returns int PID or None.
+    """
+    try:
+        result = subprocess.run(
+            ["lsof", "-ti", f":{port}"],
+            capture_output=True, text=True, timeout=5,
+        )
+        if result.returncode == 0 and result.stdout.strip():
+            first_line = result.stdout.strip().splitlines()[0]
+            return int(first_line)
+    except FileNotFoundError:
+        return None
+    except subprocess.TimeoutExpired:
+        return None
+    except ValueError:
+        return None
+    return None
 
 
 def is_pid_alive(pid):

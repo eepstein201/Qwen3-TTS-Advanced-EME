@@ -10,7 +10,7 @@ import tempfile
 import time
 import unittest
 from pathlib import Path
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 
 try:
     import pytest
@@ -252,6 +252,59 @@ class TestPIDLifecycle(unittest.TestCase):
 
 
 @pytest.mark.unit
+class TestFindPidByPort(unittest.TestCase):
+    """Test find_pid_by_port() in config.py."""
+
+    def test_find_pid_by_port_success(self):
+        """find_pid_by_port returns int PID when lsof finds a listener."""
+        from qwen3_tts.core.config import find_pid_by_port
+
+        mock_result = Mock()
+        mock_result.returncode = 0
+        mock_result.stdout = "12345\n"
+
+        with patch('qwen3_tts.core.config.subprocess.run', return_value=mock_result):
+            self.assertEqual(find_pid_by_port(5123), 12345)
+
+    def test_find_pid_by_port_no_listener(self):
+        """find_pid_by_port returns None when nothing is listening."""
+        from qwen3_tts.core.config import find_pid_by_port
+
+        mock_result = Mock()
+        mock_result.returncode = 1
+        mock_result.stdout = ""
+
+        with patch('qwen3_tts.core.config.subprocess.run', return_value=mock_result):
+            self.assertIsNone(find_pid_by_port(5123))
+
+    def test_find_pid_by_port_lsof_missing(self):
+        """find_pid_by_port returns None when lsof is not installed."""
+        from qwen3_tts.core.config import find_pid_by_port
+
+        with patch('qwen3_tts.core.config.subprocess.run', side_effect=FileNotFoundError):
+            self.assertIsNone(find_pid_by_port(5123))
+
+    def test_find_pid_by_port_multiple_pids(self):
+        """find_pid_by_port takes the first PID when multiple are returned."""
+        from qwen3_tts.core.config import find_pid_by_port
+
+        mock_result = Mock()
+        mock_result.returncode = 0
+        mock_result.stdout = "11111\n22222\n"
+
+        with patch('qwen3_tts.core.config.subprocess.run', return_value=mock_result):
+            self.assertEqual(find_pid_by_port(5123), 11111)
+
+    def test_find_pid_by_port_timeout(self):
+        """find_pid_by_port returns None on timeout."""
+        from qwen3_tts.core.config import find_pid_by_port
+        import subprocess as sp
+
+        with patch('qwen3_tts.core.config.subprocess.run', side_effect=sp.TimeoutExpired("lsof", 5)):
+            self.assertIsNone(find_pid_by_port(5123))
+
+
+@pytest.mark.unit
 class TestCLIStopRewrite(unittest.TestCase):
     """Test rewritten stop() command using detect_server_state()."""
 
@@ -319,6 +372,60 @@ class TestCLIStopRewrite(unittest.TestCase):
                 self.assertTrue(state["health_ok"])
                 self.assertTrue(state["pid_alive"])
                 # In real CLI, this state would trigger SIGTERM fallback
+
+    def test_stop_reports_auth_failure(self):
+        """stop should report 401 when shutdown is rejected due to auth."""
+        from click.testing import CliRunner
+        from qwen3_tts.cli import server
+
+        mock_resp = Mock()
+        mock_resp.status_code = 401
+
+        with patch('qwen3_tts.core.config.is_server_running', side_effect=[True, False]), \
+             patch('qwen3_tts.core.config.read_pid_file', return_value=None), \
+             patch('qwen3_tts.core.config.is_pid_alive', return_value=False), \
+             patch('qwen3_tts.core.config.find_pid_by_port', return_value=None), \
+             patch('requests.post', return_value=mock_resp):
+            runner = CliRunner()
+            result = runner.invoke(server, ['stop'])
+            self.assertIn("401", result.output)
+
+    def test_stop_discovers_pid_by_port(self):
+        """stop should discover PID via port when PID file is missing."""
+        from click.testing import CliRunner
+        from qwen3_tts.cli import server
+
+        mock_resp = Mock()
+        mock_resp.status_code = 401
+
+        # is_server_running: True (detect), True (health_ok), then False (final check)
+        with patch('qwen3_tts.core.config.is_server_running', side_effect=[True, False]), \
+             patch('qwen3_tts.core.config.read_pid_file', return_value=None), \
+             patch('qwen3_tts.core.config.find_pid_by_port', return_value=99999), \
+             patch('qwen3_tts.core.config.is_pid_alive', return_value=False), \
+             patch('requests.post', return_value=mock_resp):
+            runner = CliRunner()
+            result = runner.invoke(server, ['stop'])
+            self.assertIn("Discovered server PID", result.output)
+
+    def test_stop_fails_when_server_still_running(self):
+        """stop should exit 1 when server is still running after all attempts."""
+        from click.testing import CliRunner
+        from qwen3_tts.cli import server
+
+        mock_resp = Mock()
+        mock_resp.status_code = 401
+
+        # is_server_running always returns True (server won't die)
+        with patch('qwen3_tts.core.config.is_server_running', return_value=True), \
+             patch('qwen3_tts.core.config.read_pid_file', return_value=None), \
+             patch('qwen3_tts.core.config.find_pid_by_port', return_value=None), \
+             patch('qwen3_tts.core.config.is_pid_alive', return_value=False), \
+             patch('requests.post', return_value=mock_resp):
+            runner = CliRunner()
+            result = runner.invoke(server, ['stop'])
+            self.assertNotEqual(result.exit_code, 0)
+            self.assertIn("still running", result.output)
 
 
 @pytest.mark.unit
