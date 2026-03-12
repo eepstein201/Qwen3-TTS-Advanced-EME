@@ -475,6 +475,32 @@ def get_player_html(tab_id):
     """
 
 
+def get_load_into_player_js(tab_id):
+    """JS that reads a gr.Audio element's src and loads it into a WaveSurfer player.
+
+    Used for history replay and Colab fallback: Python sets a hidden gr.Audio
+    to a file path, Gradio converts it to an HTTP URL, then this JS extracts
+    the URL and feeds it to the tab's StreamingPlayer.loadFile().
+
+    Args:
+        tab_id: The tab identifier matching the player instance.
+    """
+    return f"""
+    (audioData) => {{
+        if (!audioData) return null;
+        try {{
+            const url = (typeof audioData === 'object' && audioData.url) ? audioData.url
+                      : (typeof audioData === 'string') ? audioData : null;
+            if (url) {{
+                const player = window.getOrCreatePlayer('{tab_id}');
+                player.loadFile(url);
+            }}
+        }} catch(e) {{ console.warn('[LoadPlayer] Error:', e); }}
+        return audioData;
+    }}
+    """
+
+
 def get_streaming_trigger_js(tab_id):
     """Return JS function that reads the config JSON and starts streaming.
 

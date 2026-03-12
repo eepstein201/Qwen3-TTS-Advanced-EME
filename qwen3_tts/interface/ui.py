@@ -54,6 +54,7 @@ from qwen3_tts.interface.wavesurfer_js import (
     get_player_html,
     get_streaming_trigger_js,
     get_cancel_js,
+    get_load_into_player_js,
 )
 
 # Derive speaker choices from canonical source
@@ -61,69 +62,6 @@ SPEAKER_CHOICES = [
     f"{key} ({info['lang']}) - {info['desc']}"
     for key, info in CUSTOM_VOICE_SPEAKERS.items()
 ]
-
-
-def get_prosody_choices():
-    """Return list of prosody preset choices for dropdown, with (none) first."""
-    presets = get_prosody_presets()
-    return ["(none)"] + [f"{name} - {text}" for name, text in sorted(presets.items())]
-
-
-def apply_prosody_preset(choice, existing_text=None):
-    """When a prosody preset is selected, append to existing text or fill in.
-
-    If the target field already has content, appends with ". " separator.
-    If empty, fills with the prosody text directly.
-    """
-    if not choice or choice == "(none)":
-        return existing_text or ""
-    name = choice.split(" - ")[0].strip()
-    presets = get_prosody_presets()
-    prosody_text = presets.get(name, "")
-    if not prosody_text:
-        return existing_text or ""
-    if existing_text and existing_text.strip():
-        return f"{existing_text.strip()}. {prosody_text}"
-    return prosody_text
-
-
-# =============================================================================
-# Voice Description Builder
-# =============================================================================
-
-def compose_voice_description(gender, age, tone, texture, pace, accent):
-    """Compose a voice description from dropdown selections."""
-    parts = []
-    if age and age != "(none)":
-        # Extract the age range text
-        age_text = age.lower().split(" (")[0] if " (" in age else age.lower()
-        if gender and gender != "(none)":
-            parts.append(f"A {age_text} {gender.lower()}")
-        else:
-            parts.append(f"A {age_text} speaker")
-    elif gender and gender != "(none)":
-        parts.append(f"A {gender.lower()} speaker")
-
-    qualifiers = []
-    if tone and tone != "(none)":
-        qualifiers.append(tone.lower())
-    if texture and texture != "(none)":
-        qualifiers.append(texture.lower())
-    if qualifiers:
-        parts.append(f"with a {', '.join(qualifiers)} voice")
-
-    if pace and pace != "(none)":
-        parts.append(f"who speaks at a {pace.lower()} pace")
-
-    if accent and accent != "(none)" and accent != "None/Default":
-        parts.append(f"with a {accent} accent")
-
-    if not parts:
-        return ""
-    desc = " ".join(parts)
-    if not desc.endswith("."):
-        desc += "."
-    return desc
 
 
 def enhance_description_with_ai(description):
@@ -560,29 +498,32 @@ def _generate_colab_fallback(base64_wav, mode, text, history_list, stream_config
 
     If JS streaming succeeded (base64_wav is non-empty), delegates to _save_completed_audio.
     In Colab mode (stream_config has colab_fallback=True and base64_wav is empty),
-    generates audio server-side via TTSClient and returns it via gr.Audio.
+    generates audio server-side via TTSClient and returns the file path via
+    a hidden gr.Audio for WaveSurfer to load.
 
     Returns:
-        tuple: (audio_update, status_text, status_html, history_list, history_df_data)
+        tuple: (audio_path_or_none, status_text, status_html, history_list, history_df_data)
     """
     if history_list is None:
         history_list = []
 
-    # JS streaming succeeded — save as usual, no gr.Audio needed
+    # JS streaming succeeded — save as usual
     if base64_wav and not base64_wav.startswith('ERROR:'):
         status, html, hist, df = _save_completed_audio(base64_wav, mode, text, history_list)
-        return gr.update(), status, html, hist, df
+        # Return the saved file path so the JS .then() step can load it into WaveSurfer
+        saved_path = hist[-1].get("path") if hist else None
+        return saved_path, status, html, hist, df
 
     # JS streaming returned an error
     if base64_wav and base64_wav.startswith('ERROR:'):
         error_msg = base64_wav[6:]
-        return gr.update(), f"Error: {error_msg}", format_status_display(), history_list, gr.update()
+        return None, f"Error: {error_msg}", format_status_display(), history_list, gr.update()
 
     # Check if this is a Colab fallback request
     is_colab = (isinstance(stream_config, dict) and stream_config.get("colab_fallback"))
     if not is_colab:
         # Not Colab, empty result means cancelled
-        return gr.update(), "Cancelled", format_status_display(), history_list, gr.update()
+        return None, "Cancelled", format_status_display(), history_list, gr.update()
 
     # Colab fallback: generate via Python TTSClient
     try:
@@ -590,7 +531,6 @@ def _generate_colab_fallback(base64_wav, mode, text, history_list, stream_config
         unique_id = uuid.uuid4().hex[:8]
         output_path = os.path.expanduser(f"~/Downloads/voice_ui_{unique_id}.wav")
         client = TTSClient()
-        # generate() returns the output file path directly, raises on error
         client.generate(
             text=payload.get("text", ""),
             output=output_path,
@@ -610,23 +550,23 @@ def _generate_colab_fallback(base64_wav, mode, text, history_list, stream_config
 
         history_list = add_to_history(history_list, mode, text, output_path, "colab")
         return (
-            gr.update(value=output_path, visible=True),
+            output_path,
             f"Generated: {os.path.basename(output_path)}",
             format_status_display(),
             history_list,
             get_history_data(history_list),
         )
     except Exception as e:
-        return gr.update(), f"Error: {e}", format_status_display(), history_list, gr.update()
+        return None, f"Error: {e}", format_status_display(), history_list, gr.update()
 
 
 def on_history_select(evt: gr.SelectData, history_list):
-    """Handle click on a history row — return the audio file for gr.Audio playback."""
+    """Handle click on a history row — return file path for WaveSurfer playback."""
     if history_list and 0 <= evt.index[0] < len(history_list):
         path = history_list[evt.index[0]].get("path", "")
         if path and os.path.exists(path):
-            return gr.update(value=path, visible=True)
-    return gr.update(visible=False)
+            return path
+    return None
 
 
 def _validate_inputs(mode, text, description=None):
@@ -918,18 +858,18 @@ def _build_generate_buttons_and_output(tab_id):
     Args:
         tab_id: Unique identifier for this tab (e.g., 'clone', 'design', 'custom').
 
-    Returns dict with keys: btn, cancel_btn, player_html, stream_config, result_data,
-                            mode_hidden, text_hidden, status.
+    Returns dict with keys: btn, cancel_btn, audio_url_converter, stream_config,
+                            result_data, mode_hidden, text_hidden, status.
     """
     with gr.Row():
         btn = gr.Button("Generate", variant="primary")
         cancel_btn = gr.Button("Stop", variant="stop")
-    player_html = gr.HTML(
+    gr.HTML(
         value=get_player_html(tab_id),
         label="Audio Player",
     )
-    # gr.Audio for Colab fallback (JS streaming can't reach server through tunnel)
-    audio_output = gr.Audio(label="Audio Output", interactive=False, visible=False)
+    # Hidden gr.Audio for file URL conversion (Gradio serves local files as HTTP URLs)
+    audio_url_converter = gr.Audio(visible=False)
     status = gr.Textbox(label="Status", interactive=False)
     # Hidden components for JS<->Python data flow
     stream_config = gr.JSON(visible=False)
@@ -938,7 +878,7 @@ def _build_generate_buttons_and_output(tab_id):
     text_hidden = gr.Textbox(visible=False)
     return {
         "btn": btn, "cancel_btn": cancel_btn,
-        "player_html": player_html, "audio_output": audio_output,
+        "audio_url_converter": audio_url_converter,
         "stream_config": stream_config,
         "result_data": result_data, "mode_hidden": mode_hidden,
         "text_hidden": text_hidden, "status": status,
@@ -949,7 +889,7 @@ def _wire_generation_tab(mode, btn, cancel_btn, status, stream_config, result_da
                          mode_hidden, text_hidden, model_indicator,
                          text, text_info, inputs_list, status_html, history_df,
                          config_handler, api_name=None, history_state=None,
-                         audio_output=None):
+                         audio_url_converter=None):
     """Wire up the generation flow: Python validates → JS streams → Python saves/fallback.
 
     Args:
@@ -970,7 +910,7 @@ def _wire_generation_tab(mode, btn, cancel_btn, status, stream_config, result_da
         config_handler: Function returning (config_dict, status_text).
         api_name: Optional API name for the endpoint.
         history_state: Optional history state component.
-        audio_output: Optional gr.Audio for Colab fallback and history playback.
+        audio_url_converter: Hidden gr.Audio for Colab fallback file URL conversion.
     """
     # Step 1: Python validates inputs, returns streaming config JSON
     click_kwargs = {
@@ -997,7 +937,13 @@ def _wire_generation_tab(mode, btn, cancel_btn, status, stream_config, result_da
         # Step 3: Handle result — JS streaming success OR Colab Python fallback
         fn=_generate_colab_fallback,
         inputs=[result_data, mode_hidden, text_hidden, history_state, stream_config],
-        outputs=[audio_output, status, status_html, history_state, history_df],
+        outputs=[audio_url_converter, status, status_html, history_state, history_df],
+    ).then(
+        # Step 4: Load saved file into tab's WaveSurfer player via hidden gr.Audio URL
+        fn=None,
+        js=get_load_into_player_js(mode),
+        inputs=[audio_url_converter],
+        outputs=[audio_url_converter],
     ).then(
         fn=lambda: get_model_status_html(mode),
         outputs=model_indicator,
@@ -1082,12 +1028,19 @@ def build_ui():
                 interactive=False,
                 wrap=True,
             )
-            history_audio = gr.Audio(label="Playback", interactive=False, visible=False)
+            gr.HTML(value=get_player_html("history"))
+            # Hidden gr.Audio for file URL conversion (Gradio serves local files as HTTP URLs)
+            history_audio_url = gr.Audio(visible=False)
 
         history_df.select(
             fn=on_history_select,
             inputs=[history_state],
-            outputs=[history_audio],
+            outputs=[history_audio_url],
+        ).then(
+            fn=None,
+            js=get_load_into_player_js("history"),
+            inputs=[history_audio_url],
+            outputs=[history_audio_url],
         )
 
         # Tabs for different modes
@@ -1142,7 +1095,7 @@ def build_ui():
                     status_html=status_html, history_df=history_df,
                     config_handler=clone_config_handler, api_name="generate_clone",
                     history_state=history_state,
-                    audio_output=clone_btns["audio_output"],
+                    audio_url_converter=clone_btns["audio_url_converter"],
                 )
 
             # ---- Design Mode Tab ----
@@ -1215,7 +1168,7 @@ def build_ui():
                     status_html=status_html, history_df=history_df,
                     config_handler=design_config_handler,
                     history_state=history_state,
-                    audio_output=design_btns["audio_output"],
+                    audio_url_converter=design_btns["audio_url_converter"],
                 )
 
                 design_prosody.change(fn=apply_prosody_preset, inputs=[design_prosody, design_desc], outputs=design_desc)
@@ -1302,7 +1255,7 @@ def build_ui():
                     status_html=status_html, history_df=history_df,
                     config_handler=custom_config_handler,
                     history_state=history_state,
-                    audio_output=custom_btns["audio_output"],
+                    audio_url_converter=custom_btns["audio_url_converter"],
                 )
 
                 custom_prosody.change(fn=apply_prosody_preset, inputs=[custom_prosody, custom_instruct], outputs=custom_instruct)

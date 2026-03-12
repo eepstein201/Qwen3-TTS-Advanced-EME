@@ -110,6 +110,41 @@ class TestPlayerHTML(unittest.TestCase):
         self.assertNotIn("design-waveform", clone_html)
 
 
+class TestLoadIntoPlayerJS(unittest.TestCase):
+    """Test the JS function for loading audio into a WaveSurfer player."""
+
+    def test_contains_load_file(self):
+        from qwen3_tts.interface.wavesurfer_js import get_load_into_player_js
+        js = get_load_into_player_js("clone")
+        self.assertIn("loadFile", js)
+
+    def test_contains_get_or_create_player(self):
+        from qwen3_tts.interface.wavesurfer_js import get_load_into_player_js
+        js = get_load_into_player_js("clone")
+        self.assertIn("getOrCreatePlayer", js)
+
+    def test_uses_correct_tab_id(self):
+        from qwen3_tts.interface.wavesurfer_js import get_load_into_player_js
+        js = get_load_into_player_js("history")
+        self.assertIn("'history'", js)
+        self.assertNotIn("'clone'", js)
+
+    def test_handles_object_url(self):
+        from qwen3_tts.interface.wavesurfer_js import get_load_into_player_js
+        js = get_load_into_player_js("clone")
+        self.assertIn("audioData.url", js)
+
+    def test_handles_string_url(self):
+        from qwen3_tts.interface.wavesurfer_js import get_load_into_player_js
+        js = get_load_into_player_js("clone")
+        self.assertIn("typeof audioData === 'string'", js)
+
+    def test_handles_null_input(self):
+        from qwen3_tts.interface.wavesurfer_js import get_load_into_player_js
+        js = get_load_into_player_js("clone")
+        self.assertIn("if (!audioData)", js)
+
+
 class TestStreamingTriggerJS(unittest.TestCase):
     """Test the JS trigger function for starting streaming."""
 
