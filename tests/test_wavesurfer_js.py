@@ -150,16 +150,6 @@ class TestCancelJS(unittest.TestCase):
         self.assertIn("player.stop()", js)
 
 
-class TestHistoryClickJS(unittest.TestCase):
-    """Test history click JS."""
-
-    def test_loads_file_into_player(self):
-        from qwen3_tts.interface.wavesurfer_js import get_history_click_js
-        js = get_history_click_js("clone")
-        self.assertIn("loadFile", js)
-        self.assertIn("getOrCreatePlayer", js)
-
-
 class TestPrepareStreamingConfig(unittest.TestCase):
     """Test the Python config preparation function."""
 

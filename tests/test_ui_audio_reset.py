@@ -32,6 +32,7 @@ class TestWireGenerationTabIntegration(unittest.TestCase):
         self.mock_html = Mock(spec=gr.HTML)
         self.mock_df = Mock(spec=gr.Dataframe)
         self.mock_history_state = Mock()
+        self.mock_audio_output = Mock(spec=gr.Audio)
 
     def test_wire_generation_tab_calls_click(self):
         """The click handler should be wired."""
@@ -56,6 +57,7 @@ class TestWireGenerationTabIntegration(unittest.TestCase):
             history_df=self.mock_df,
             config_handler=mock_handler,
             history_state=self.mock_history_state,
+            audio_output=self.mock_audio_output,
         )
 
         self.mock_btn.click.assert_called_once()
@@ -83,6 +85,7 @@ class TestWireGenerationTabIntegration(unittest.TestCase):
             history_df=self.mock_df,
             config_handler=mock_handler,
             history_state=self.mock_history_state,
+            audio_output=self.mock_audio_output,
         )
 
         # The chain should have multiple .then() calls
@@ -114,6 +117,7 @@ class TestWireGenerationTabIntegration(unittest.TestCase):
             history_df=self.mock_df,
             config_handler=mock_handler,
             history_state=self.mock_history_state,
+            audio_output=self.mock_audio_output,
         )
 
         self.mock_cancel_btn.click.assert_called_once()

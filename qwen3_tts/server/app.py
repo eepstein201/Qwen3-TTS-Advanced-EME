@@ -443,9 +443,13 @@ app = FastAPI(
 )
 
 # CORS: allow Gradio UI on any local port (7860, 7861, etc.)
+# In Colab, also allow *.gradio.live origins (Gradio share tunnel)
+_cors_regex = r"^https?://(localhost|127\.0\.0\.1)(:\d+)?$"
+if IN_COLAB:
+    _cors_regex = r"(^https?://(localhost|127\.0\.0\.1)(:\d+)?$)|(^https://[a-z0-9-]+\.gradio\.live$)"
 app.add_middleware(
     CORSMiddleware,
-    allow_origin_regex=r"^https?://(localhost|127\.0\.0\.1)(:\d+)?$",
+    allow_origin_regex=_cors_regex,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],

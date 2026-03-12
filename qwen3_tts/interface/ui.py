@@ -506,6 +506,13 @@ def _prepare_streaming_config(mode, text, preset, temperature, top_k, top_p,
         if instruct and instruct.strip():
             payload["instruct"] = instruct
 
+    # In Colab, the browser can't reach 127.0.0.1 (it's on the user's machine,
+    # not the VM). Return a sentinel so JS skips fetch() and the Python fallback
+    # generates audio server-side through Gradio's tunnel.
+    from qwen3_tts.core.config import IN_COLAB
+    if IN_COLAB:
+        return {"colab_fallback": True, "payload": payload}, "Generating (Colab mode)..."
+
     # NOTE: Auth token is sent to browser JS for direct fetch() to the TTS server.
     # This is acceptable for localhost-only usage (server binds 127.0.0.1 by default).
     # If --public mode is used, consider generating a short-lived secondary token instead.
@@ -546,6 +553,80 @@ def _save_completed_audio(base64_wav, mode, text, history_list):
                 format_status_display(), history_list, get_history_data(history_list))
     except Exception as e:
         return f"Error saving audio: {e}", format_status_display(), history_list, gr.update()
+
+
+def _generate_colab_fallback(base64_wav, mode, text, history_list, stream_config):
+    """Handle generation in Colab where JS streaming can't reach the server.
+
+    If JS streaming succeeded (base64_wav is non-empty), delegates to _save_completed_audio.
+    In Colab mode (stream_config has colab_fallback=True and base64_wav is empty),
+    generates audio server-side via TTSClient and returns it via gr.Audio.
+
+    Returns:
+        tuple: (audio_update, status_text, status_html, history_list, history_df_data)
+    """
+    if history_list is None:
+        history_list = []
+
+    # JS streaming succeeded — save as usual, no gr.Audio needed
+    if base64_wav and not base64_wav.startswith('ERROR:'):
+        status, html, hist, df = _save_completed_audio(base64_wav, mode, text, history_list)
+        return gr.update(), status, html, hist, df
+
+    # JS streaming returned an error
+    if base64_wav and base64_wav.startswith('ERROR:'):
+        error_msg = base64_wav[6:]
+        return gr.update(), f"Error: {error_msg}", format_status_display(), history_list, gr.update()
+
+    # Check if this is a Colab fallback request
+    is_colab = (isinstance(stream_config, dict) and stream_config.get("colab_fallback"))
+    if not is_colab:
+        # Not Colab, empty result means cancelled
+        return gr.update(), "Cancelled", format_status_display(), history_list, gr.update()
+
+    # Colab fallback: generate via Python TTSClient
+    try:
+        payload = stream_config.get("payload", {})
+        unique_id = uuid.uuid4().hex[:8]
+        output_path = os.path.expanduser(f"~/Downloads/voice_ui_{unique_id}.wav")
+        client = TTSClient()
+        # generate() returns the output file path directly, raises on error
+        client.generate(
+            text=payload.get("text", ""),
+            output=output_path,
+            mode=payload.get("mode", "clone"),
+            prompt=payload.get("prompt"),
+            description=payload.get("description"),
+            speaker=payload.get("speaker"),
+            instruct=payload.get("instruct"),
+            temperature=payload.get("temperature", 0.7),
+            top_k=payload.get("top_k", 50),
+            top_p=payload.get("top_p", 0.95),
+            repetition_penalty=payload.get("repetition_penalty", 1.05),
+            seed=payload.get("seed"),
+            preset=payload.get("preset"),
+            x_vector_only_mode=payload.get("x_vector_only_mode", False),
+        )
+
+        history_list = add_to_history(history_list, mode, text, output_path, "colab")
+        return (
+            gr.update(value=output_path, visible=True),
+            f"Generated: {os.path.basename(output_path)}",
+            format_status_display(),
+            history_list,
+            get_history_data(history_list),
+        )
+    except Exception as e:
+        return gr.update(), f"Error: {e}", format_status_display(), history_list, gr.update()
+
+
+def on_history_select(evt: gr.SelectData, history_list):
+    """Handle click on a history row — return the audio file for gr.Audio playback."""
+    if history_list and 0 <= evt.index[0] < len(history_list):
+        path = history_list[evt.index[0]].get("path", "")
+        if path and os.path.exists(path):
+            return gr.update(value=path, visible=True)
+    return gr.update(visible=False)
 
 
 def _validate_inputs(mode, text, description=None):
@@ -847,6 +928,8 @@ def _build_generate_buttons_and_output(tab_id):
         value=get_player_html(tab_id),
         label="Audio Player",
     )
+    # gr.Audio for Colab fallback (JS streaming can't reach server through tunnel)
+    audio_output = gr.Audio(label="Audio Output", interactive=False, visible=False)
     status = gr.Textbox(label="Status", interactive=False)
     # Hidden components for JS<->Python data flow
     stream_config = gr.JSON(visible=False)
@@ -855,7 +938,8 @@ def _build_generate_buttons_and_output(tab_id):
     text_hidden = gr.Textbox(visible=False)
     return {
         "btn": btn, "cancel_btn": cancel_btn,
-        "player_html": player_html, "stream_config": stream_config,
+        "player_html": player_html, "audio_output": audio_output,
+        "stream_config": stream_config,
         "result_data": result_data, "mode_hidden": mode_hidden,
         "text_hidden": text_hidden, "status": status,
     }
@@ -864,8 +948,9 @@ def _build_generate_buttons_and_output(tab_id):
 def _wire_generation_tab(mode, btn, cancel_btn, status, stream_config, result_data,
                          mode_hidden, text_hidden, model_indicator,
                          text, text_info, inputs_list, status_html, history_df,
-                         config_handler, api_name=None, history_state=None):
-    """Wire up the 3-step generation flow: Python validates → JS streams → Python saves.
+                         config_handler, api_name=None, history_state=None,
+                         audio_output=None):
+    """Wire up the generation flow: Python validates → JS streams → Python saves/fallback.
 
     Args:
         mode: The generation mode ('clone', 'design', 'custom').
@@ -885,6 +970,7 @@ def _wire_generation_tab(mode, btn, cancel_btn, status, stream_config, result_da
         config_handler: Function returning (config_dict, status_text).
         api_name: Optional API name for the endpoint.
         history_state: Optional history state component.
+        audio_output: Optional gr.Audio for Colab fallback and history playback.
     """
     # Step 1: Python validates inputs, returns streaming config JSON
     click_kwargs = {
@@ -902,15 +988,16 @@ def _wire_generation_tab(mode, btn, cancel_btn, status, stream_config, result_da
         outputs=[text_hidden],
     ).then(
         # Step 2: JS reads config and starts streaming via fetch()
+        # In Colab, config has no server_url so JS returns '' immediately
         fn=None,
         js=get_streaming_trigger_js(mode),
         inputs=[stream_config],
         outputs=[result_data],
     ).then(
-        # Step 3: Python saves the completed audio and updates history
-        fn=_save_completed_audio,
-        inputs=[result_data, mode_hidden, text_hidden, history_state],
-        outputs=[status, status_html, history_state, history_df],
+        # Step 3: Handle result — JS streaming success OR Colab Python fallback
+        fn=_generate_colab_fallback,
+        inputs=[result_data, mode_hidden, text_hidden, history_state, stream_config],
+        outputs=[audio_output, status, status_html, history_state, history_df],
     ).then(
         fn=lambda: get_model_status_html(mode),
         outputs=model_indicator,
@@ -995,6 +1082,13 @@ def build_ui():
                 interactive=False,
                 wrap=True,
             )
+            history_audio = gr.Audio(label="Playback", interactive=False, visible=False)
+
+        history_df.select(
+            fn=on_history_select,
+            inputs=[history_state],
+            outputs=[history_audio],
+        )
 
         # Tabs for different modes
         with gr.Tabs():
@@ -1048,6 +1142,7 @@ def build_ui():
                     status_html=status_html, history_df=history_df,
                     config_handler=clone_config_handler, api_name="generate_clone",
                     history_state=history_state,
+                    audio_output=clone_btns["audio_output"],
                 )
 
             # ---- Design Mode Tab ----
@@ -1120,6 +1215,7 @@ def build_ui():
                     status_html=status_html, history_df=history_df,
                     config_handler=design_config_handler,
                     history_state=history_state,
+                    audio_output=design_btns["audio_output"],
                 )
 
                 design_prosody.change(fn=apply_prosody_preset, inputs=[design_prosody, design_desc], outputs=design_desc)
@@ -1206,6 +1302,7 @@ def build_ui():
                     status_html=status_html, history_df=history_df,
                     config_handler=custom_config_handler,
                     history_state=history_state,
+                    audio_output=custom_btns["audio_output"],
                 )
 
                 custom_prosody.change(fn=apply_prosody_preset, inputs=[custom_prosody, custom_instruct], outputs=custom_instruct)

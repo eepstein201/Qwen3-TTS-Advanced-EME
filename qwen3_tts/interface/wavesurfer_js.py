@@ -540,22 +540,3 @@ def get_cancel_js(tab_id):
         return 'Cancelled';
     }}
     """
-
-
-def get_history_click_js(tab_id):
-    """Return JS that loads a history audio file into the WaveSurfer player.
-
-    Args:
-        tab_id: The tab identifier matching the player instance.
-    """
-    return f"""
-    (filePath) => {{
-        if (filePath) {{
-            const player = window.getOrCreatePlayer('{tab_id}');
-            player.loadFile(filePath);
-        }}
-        return filePath;
-    }}
-    """
-
-
