@@ -131,8 +131,11 @@ def get_streaming_player_js():
                 this.audioContext = new (window.AudioContext || window.webkitAudioContext)({
                     sampleRate: 24000
                 });
-                // Resume AudioContext — may be suspended after async round-trips through Python
-                try { await this.audioContext.resume(); } catch(e) {}
+                // Fire-and-forget resume — do NOT await; AudioContext.resume() returns a
+                // Promise that may never resolve if user-activation has expired after
+                // Gradio's Python round-trip. Awaiting it would hang startStreaming()
+                // before fetch() is ever called, causing "Connecting..." forever.
+                this.audioContext.resume().catch(() => {});
                 this.nextPlayTime = this.audioContext.currentTime + 0.1;
 
                 this.abortController = new AbortController();
@@ -244,6 +247,12 @@ def get_streaming_player_js():
 
         _playChunk(float32Data, sampleRate) {
             if (!this.audioContext || !this.isPlaying) return;
+
+            // Generation took seconds — user-activation may have refreshed.
+            // Attempt resume here so audio plays as soon as context allows.
+            if (this.audioContext.state === 'suspended') {
+                this.audioContext.resume().catch(() => {});
+            }
 
             try {
                 const audioBuffer = this.audioContext.createBuffer(1, float32Data.length, sampleRate);

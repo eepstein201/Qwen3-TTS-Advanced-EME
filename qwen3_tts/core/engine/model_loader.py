@@ -319,9 +319,13 @@ def _load_model_mlx(model_type):
 def _warmup_model(model, model_type, backend):
     """Run a short warm-up inference to compile kernels. Non-fatal.
 
-    Uses generate_voice_design which doesn't require a voice prompt,
-    making it work for all model types. The warm-up output is discarded.
+    Only warms up design models — generate_voice_design() is only supported
+    by VoiceDesign model weights. Clone and Custom models use Base weights
+    that do not support this method and require a voice prompt to generate.
     """
+    if model_type != "design":
+        return  # Base/Clone and Custom weights don't support generate_voice_design
+
     try:
         t0 = time.time()
         logger.info("Running warm-up inference for %s model...", model_type)
