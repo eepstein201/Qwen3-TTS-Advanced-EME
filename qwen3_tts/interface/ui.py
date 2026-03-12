@@ -510,17 +510,21 @@ def _generate_colab_fallback(base64_wav, mode, text, history_list, stream_config
     if history_list is None:
         history_list = []
 
+    # JS streaming returned an error
+    if base64_wav and base64_wav.startswith('ERROR:'):
+        error_msg = base64_wav[6:]
+        return None, f"Error: {error_msg}", format_status_display(), history_list, gr.update()
+
+    # JS timed out waiting for audio
+    if base64_wav == 'TIMEOUT':
+        return None, "Error: Timed out waiting for audio — try again", format_status_display(), history_list, gr.update()
+
     # JS streaming succeeded — save as usual
     if base64_wav and not base64_wav.startswith('ERROR:'):
         status, html, hist, df = _save_completed_audio(base64_wav, mode, text, history_list)
         # Return the saved file path so the JS .then() step can load it into WaveSurfer
         saved_path = hist[-1].get("path") if hist else None
         return saved_path, status, html, hist, df
-
-    # JS streaming returned an error
-    if base64_wav and base64_wav.startswith('ERROR:'):
-        error_msg = base64_wav[6:]
-        return None, f"Error: {error_msg}", format_status_display(), history_list, gr.update()
 
     # Check if this is a Colab fallback request
     is_colab = (isinstance(stream_config, dict) and stream_config.get("colab_fallback"))

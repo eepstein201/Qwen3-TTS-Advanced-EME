@@ -331,7 +331,6 @@ def _warmup_model(model, model_type, backend):
                 instruct="Speak normally.",
                 language="English",
                 temperature=0.5,
-                max_new_tokens=50,
             ))
         else:
             import torch

@@ -115,17 +115,34 @@ def get_streaming_player_js():
 
         async startStreaming(serverUrl, authToken, payload) {
             this.reset();
+            this._timedOut = false;
             this.isPlaying = true;
             this._updateControls('streaming');
             this._updateStatus('Connecting...');
+
+            let timeoutId = null;
+            let idleTimeoutId = null;
+            const clearAllTimeouts = () => {
+                if (timeoutId) { clearTimeout(timeoutId); timeoutId = null; }
+                if (idleTimeoutId) { clearTimeout(idleTimeoutId); idleTimeoutId = null; }
+            };
 
             try {
                 this.audioContext = new (window.AudioContext || window.webkitAudioContext)({
                     sampleRate: 24000
                 });
+                // Resume AudioContext — may be suspended after async round-trips through Python
+                try { await this.audioContext.resume(); } catch(e) {}
                 this.nextPlayTime = this.audioContext.currentTime + 0.1;
 
                 this.abortController = new AbortController();
+
+                // 5-minute hard timeout for the entire request
+                timeoutId = setTimeout(() => {
+                    this._timedOut = true;
+                    this.abortController.abort();
+                }, 300000);
+
                 const response = await fetch(serverUrl + '/generate-stream', {
                     method: 'POST',
                     headers: {
@@ -137,17 +154,32 @@ def get_streaming_player_js():
                 });
 
                 if (!response.ok) {
+                    clearAllTimeouts();
                     const errText = await response.text();
                     throw new Error('Server error ' + response.status + ': ' + errText);
                 }
+
+                // Server accepted the request — show generating status
+                this._updateStatus('Generating...');
 
                 const reader = response.body.getReader();
                 let buffer = new Uint8Array(0);
                 let chunkCount = 0;
 
+                // 60-second idle timeout — resets on each received chunk
+                const resetIdleTimeout = () => {
+                    if (idleTimeoutId) clearTimeout(idleTimeoutId);
+                    idleTimeoutId = setTimeout(() => {
+                        this._timedOut = true;
+                        this.abortController.abort();
+                    }, 60000);
+                };
+                resetIdleTimeout();
+
                 while (true) {
                     const { done, value } = await reader.read();
                     if (done) break;
+                    resetIdleTimeout();
 
                     // Append to buffer
                     const newBuffer = new Uint8Array(buffer.length + value.length);
@@ -184,6 +216,7 @@ def get_streaming_player_js():
                     this._scheduleWaveformUpdate();
                 }
 
+                clearAllTimeouts();
                 this._finalizeWaveform();
                 this._updateStatus('Complete: ' + chunkCount + ' chunks (' +
                     (this.totalSamples / this.sampleRate).toFixed(1) + 's)');
@@ -191,9 +224,15 @@ def get_streaming_player_js():
                 return this._createWavBlob();
 
             } catch (e) {
+                clearAllTimeouts();
                 if (e.name === 'AbortError') {
-                    this._updateStatus('Cancelled');
-                    this._updateControls('stopped');
+                    if (this._timedOut) {
+                        this._updateStatus('Error: Timed out waiting for audio');
+                        this._updateControls('error');
+                    } else {
+                        this._updateStatus('Cancelled');
+                        this._updateControls('stopped');
+                    }
                     return null;
                 }
                 console.error('[StreamingPlayer] Streaming error:', e);
@@ -391,6 +430,7 @@ def get_streaming_player_js():
 
         reset() {
             this.stop();
+            this._timedOut = false;
             this.allChunks = [];
             this.totalSamples = 0;
             this.nextPlayTime = 0;
@@ -522,19 +562,23 @@ def get_streaming_trigger_js(tab_id):
                 config.server_url, config.auth_token, config.payload
             );
             if (blob) {{
-                // Convert WAV blob to base64 for Python to save
+                // Convert WAV blob to base64 for Python to save (batched for performance)
                 const arrayBuffer = await blob.arrayBuffer();
                 const bytes = new Uint8Array(arrayBuffer);
+                const chunkSize = 8192;
                 let binary = '';
-                for (let i = 0; i < bytes.length; i++) {{
-                    binary += String.fromCharCode(bytes[i]);
+                for (let i = 0; i < bytes.length; i += chunkSize) {{
+                    binary += String.fromCharCode.apply(null, bytes.subarray(i, i + chunkSize));
                 }}
                 return btoa(binary);
+            }}
+            // Distinguish timeout from user cancel for Python error handling
+            if (player._timedOut) {{
+                return 'TIMEOUT';
             }}
             return '';
         }} catch (e) {{
             console.error('[StreamingTrigger] Error:', e);
-            // Signal fallback needed
             return 'ERROR:' + e.message;
         }}
     }}
