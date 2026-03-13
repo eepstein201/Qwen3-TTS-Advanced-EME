@@ -165,79 +165,68 @@ def update_text_info(text):
 
 
 def get_server_status():
-    """Get server status including model loading state and MLX memory stats."""
-    config = load_config()
-    if not is_server_running(config):
-        return {
-            "running": False,
-            "models": {},
-            "memory": None,
-            "backend": get_backend(),
-        }
+    """Get current server status, memory usage, loaded models, and backend info.
+
+    Returns:
+        tuple: (status_str, memory_str, models_str, backend_str)
+    """
+    from qwen3_tts.server.client import TTSClient
+    client = TTSClient()
+
+    if not client.is_server_running():
+        return "Disconnected", "N/A", "N/A", "N/A"
 
     try:
-        import requests
-        url = get_server_url(config)
-        resp = requests.get(f"{url}/models", timeout=5, headers=auth_headers())
-        if resp.status_code == 200:
-            data = resp.json()
-            # Include MLX-specific memory fields if available
-            status = {
-                "running": True,
-                "models": data.get("models", {}),
-                "memory": data.get("memory_mb"),
-                "backend": data.get("backend", get_backend()),
-            }
-            # Add MLX memory stats if present
-            for key in ('mlx_memory_active_mb', 'mps_memory_allocated_mb', 'cuda_memory_allocated_mb'):
-                if key in data:
-                    status[key] = data[key]
-            return status
-    except Exception as e:
-        logger.warning(f"Could not fetch server status: {e}")
+        stats = client.get_stats()
+        # Use explicit None check so 0.0 is a valid value, not skipped as falsy
+        memory_val = None
+        for _key in ('mlx_memory_active_mb', 'mps_memory_allocated_mb', 'cuda_memory_allocated_mb'):
+            _v = stats.get(_key)
+            if _v is not None:
+                memory_val = _v
+                break
+        memory = f"{memory_val:.1f}MB" if isinstance(memory_val, (int, float)) else "N/A"
 
-    return {
-        "running": True,
-        "models": {},
-        "memory": None,
-        "backend": get_backend(),
-    }
+        loaded_models = []
+        if stats.get("clone_model_loaded"):
+            loaded_models.append("Clone")
+        if stats.get("design_model_loaded"):
+            loaded_models.append("Design")
+        if stats.get("custom_model_loaded"):
+            loaded_models.append("Custom")
+        models_str = ", ".join(loaded_models) if loaded_models else "None"
+
+        backend = stats.get("backend", "torch")
+        model_size = stats.get("model_size", "1.7B")
+        if backend == "mlx":
+            quant = stats.get("mlx_quantization", "8bit")
+            backend_str = f"MLX ({quant}, {model_size})"
+        else:
+            dtype = stats.get("dtype", "float32")
+            backend_str = f"PyTorch ({dtype}, {model_size})"
+
+        return "Connected", memory, models_str, backend_str
+    except Exception as e:
+        return f"Error: {str(e)}", "N/A", "N/A", "N/A"
 
 
 def format_status_display():
     """Format server status as HTML for display."""
-    status = get_server_status()
+    status, memory, models, backend = get_server_status()
 
-    if not status["running"]:
-        return """
-        <div style="padding: 10px; background: #ffebee; border-radius: 8px;">
-            <b>Server:</b> <span style="color: red;">Not running</span><br>
-            <small>Start with: <code>tts server start</code></small>
-        </div>
-        """
-
-    models = status.get("models", {})
-    memory = status.get("memory")
-    backend = status.get("backend", "unknown")
-
-    model_indicators = []
-    for model_type in ["clone", "design", "custom"]:
-        model_info = models.get(model_type, {})
-        loaded = model_info.get("loaded", False)
-        color = "green" if loaded else "gray"
-        status_text = "loaded" if loaded else "not loaded"
-        model_indicators.append(
-            f"<span style='color: {color};'>{model_type}: {status_text}</span>"
-        )
-
-    memory_str = f"{memory:.0f}MB" if memory else "unknown"
+    if status == "Connected":
+        status_html = '<span style="color: green; font-weight: bold;">Connected</span>'
+    elif status == "Disconnected":
+        status_html = '<span style="color: red; font-weight: bold;">Disconnected</span>'
+    else:
+        status_html = f'<span style="color: orange;">{status}</span>'
 
     return f"""
-    <div style="padding: 10px; background: #e8f5e9; border-radius: 8px;">
-        <b>Server:</b> <span style="color: green;">Running</span> |
-        <b>Backend:</b> {backend} |
-        <b>Memory:</b> {memory_str}<br>
-        <b>Models:</b> {" | ".join(model_indicators)}
+    <div style="padding: 10px; background: var(--block-background-fill, #f5f5f5); border-radius: 5px; margin-bottom: 15px; border: 1px solid var(--block-border-color, #e0e0e0);">
+        <strong>Status:</strong> {status_html} |
+        <strong>Backend:</strong> {backend} |
+        <strong>Memory:</strong> {memory} |
+        <strong>Models:</strong> {models}
     </div>
     """
 

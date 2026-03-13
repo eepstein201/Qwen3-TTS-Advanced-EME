@@ -254,7 +254,7 @@ class TestSaveCompletedAudio(unittest.TestCase):
         b64 = base64.b64encode(wav_data).decode()
 
         with tempfile.TemporaryDirectory() as tmpdir:
-            with patch('qwen3_tts.interface.ui.os.path.expanduser',
+            with patch('qwen3_tts.interface.ui.generation.os.path.expanduser',
                        side_effect=lambda p: p.replace("~/Downloads", tmpdir)):
                 status, _, history, _ = _save_completed_audio(b64, "clone", "hello", [])
                 self.assertIn("Generated:", status)

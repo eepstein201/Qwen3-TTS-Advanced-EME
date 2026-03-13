@@ -60,24 +60,30 @@ def cancel_streaming_generation():
 
 def _prepare_streaming_config(mode, text, preset, temperature, top_k, top_p,
                               repetition_penalty, seed, prompt_file=None,
-                              voice_description=None, speaker=None, instruct=None,
+                              description=None, speaker=None, instruct=None,
                               prosody_preset=None, no_transcript=False):
     """Prepare streaming configuration for the given mode.
 
-    Returns (config_dict, status_text) tuple.
+    Returns (config_dict_or_None, status_text) tuple.
+    Returns None as config on validation/server errors.
     """
     config = load_config()
 
     if not text or not text.strip():
-        return {}, "Please enter text to generate"
+        return None, "Error: Please enter text to generate"
+
+    if mode == "design" and not description:
+        return None, "Error: Please enter a voice description for design mode"
+
+    # Check server is running before further validation
+    if not is_server_running(config):
+        return None, "Error: TTS server is not running."
 
     # Validate mode-specific requirements
     if mode == "clone" and not prompt_file:
-        return {}, "Please select a voice prompt for clone mode"
-    if mode == "design" and not voice_description:
-        return {}, "Please enter a voice description for design mode"
+        return None, "Error: Please select a voice prompt for clone mode"
     if mode == "custom" and not speaker:
-        return {}, "Please select a speaker for custom mode"
+        return None, "Error: Please select a speaker for custom mode"
 
     # Apply prosody preset to instruct if specified
     if prosody_preset and mode in ("custom", "design"):
@@ -117,7 +123,7 @@ def _prepare_streaming_config(mode, text, preset, temperature, top_k, top_p,
         if no_transcript:
             payload["x_vector_only_mode"] = True
     elif mode == "design":
-        payload["voice_description"] = voice_description
+        payload["voice_description"] = description
     elif mode == "custom":
         payload["speaker"] = speaker
         payload["instruct"] = instruct or ""
@@ -130,20 +136,26 @@ def _prepare_streaming_config(mode, text, preset, temperature, top_k, top_p,
     return payload, "Generating..."
 
 
-def _save_completed_audio(base64_wav, mode, text, history_list, stream_config):
+def _save_completed_audio(base64_wav, mode, text, history_list, stream_config=None):
     """Save completed base64 audio to file and update history.
 
-    Returns (file_path, status, status_html, history_state, history_df).
+    Returns (status_text, status_html, history_list, history_df_data).
     """
-    import pandas as pd
+    import gradio as gr
     from qwen3_tts.interface.ui.shared import get_history_data
 
-    if not base64_wav or base64_wav.startswith("Error:"):
-        error_msg = base64_wav if base64_wav else "No audio received"
-        return None, error_msg, format_status_display(), history_list, get_history_data(history_list)
+    if history_list is None:
+        history_list = []
 
-    if base64_wav == "cancelled":
-        return None, "Generation cancelled", format_status_display(), history_list, get_history_data(history_list)
+    if not base64_wav or base64_wav == '':
+        return "Cancelled", format_status_display(), history_list, gr.update()
+
+    if base64_wav == 'TIMEOUT':
+        return "Error: Timed out waiting for audio", format_status_display(), history_list, gr.update()
+
+    if base64_wav.startswith('ERROR:'):
+        error_msg = base64_wav[6:]
+        return f"Error: {error_msg}", format_status_display(), history_list, gr.update()
 
     try:
         # Decode and save audio
@@ -151,11 +163,8 @@ def _save_completed_audio(base64_wav, mode, text, history_list, stream_config):
 
         # Generate output path
         config = load_config()
-        output_dir = os.path.expanduser(config.get("output_directory", "~/Downloads"))
-        os.makedirs(output_dir, exist_ok=True)
-
         import uuid
-        output_path = os.path.join(output_dir, f"tts_{uuid.uuid4().hex[:8]}.wav")
+        output_path = os.path.expanduser(f"~/Downloads/voice_ui_{uuid.uuid4().hex[:8]}.wav")
 
         with open(output_path, "wb") as f:
             f.write(audio_bytes)
@@ -163,11 +172,12 @@ def _save_completed_audio(base64_wav, mode, text, history_list, stream_config):
         # Add to history
         history_list = add_to_history(history_list, mode, text, output_path, 0)
 
-        return output_path, f"Generated: {os.path.basename(output_path)}", format_status_display(), history_list, get_history_data(history_list)
+        return (f"Generated: {os.path.basename(output_path)}",
+                format_status_display(), history_list, get_history_data(history_list))
 
     except Exception as e:
         logger.error(f"Failed to save audio: {e}")
-        return None, f"Save failed: {e}", format_status_display(), history_list, get_history_data(history_list)
+        return f"Error saving audio: {e}", format_status_display(), history_list, gr.update()
 
 
 def _generate_colab_fallback(base64_wav, mode, text, history_list, stream_config):
@@ -198,8 +208,9 @@ def _generate_colab_fallback(base64_wav, mode, text, history_list, stream_config
 
     # JS streaming succeeded — save as usual
     if base64_wav and not base64_wav.startswith('ERROR:'):
-        saved_path, status, html, hist, df = _save_completed_audio(base64_wav, mode, text, history_list, stream_config)
+        status, html, hist, df = _save_completed_audio(base64_wav, mode, text, history_list)
         # Return the saved file path so the JS .then() step can load it into WaveSurfer
+        saved_path = hist[-1].get("path") if hist else None
         return saved_path, status, html, hist, df
 
     # Check if this is a Colab fallback request

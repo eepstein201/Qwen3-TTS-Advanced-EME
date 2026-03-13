@@ -519,7 +519,8 @@ class TestGradioStopVerification(unittest.TestCase):
         import ast
 
         worktree = Path(__file__).resolve().parent.parent
-        ui_path = worktree / "qwen3_tts" / "interface" / "ui.py"
+        # ui.py was split into a package; stop_server lives in ui/_facade.py
+        ui_path = worktree / "qwen3_tts" / "interface" / "ui" / "_facade.py"
         source = ui_path.read_text()
 
         tree = ast.parse(source)
