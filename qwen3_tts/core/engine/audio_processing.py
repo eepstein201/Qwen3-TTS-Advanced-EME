@@ -14,6 +14,17 @@ from qwen3_tts.core.config import load_config
 
 logger = logging.getLogger("tts.engine")
 
+
+# ---------------------------------------------------------------------------
+# Audio processing constants
+# ---------------------------------------------------------------------------
+
+SILENCE_THRESHOLD_DB = -40
+NORMALIZATION_TARGET_DB = -3.0
+LUFS_TARGET = -16.0
+VOICE_EMBEDDING_MAX_DURATION = 15  # seconds
+DEFAULT_SAMPLE_RATE = 24000
+
 # Audio loader preference — lazy init on first access, thread-safe updates
 _AUDIO_LOADER = None
 _AUDIO_LOADER_LOCK = threading.Lock()
@@ -66,7 +77,7 @@ def load_audio(file_path, target_sr=16000):
     return audio, target_sr
 
 
-def load_audio_for_cloning(file_path, max_duration=15, target_sr=16000):
+def load_audio_for_cloning(file_path, max_duration=VOICE_EMBEDDING_MAX_DURATION, target_sr=DEFAULT_SAMPLE_RATE):
     """Load audio truncated to max_duration seconds. For voice embedding only."""
     if get_audio_loader() == "torchaudio":
         try:
@@ -98,7 +109,7 @@ def load_audio_for_cloning(file_path, max_duration=15, target_sr=16000):
 # Audio processing (backend-agnostic — uses only numpy)
 # ---------------------------------------------------------------------------
 
-def trim_silence(audio, sample_rate, threshold_db=-40, min_silence_ms=100):
+def trim_silence(audio, sample_rate, threshold_db=SILENCE_THRESHOLD_DB, min_silence_ms=100):
     """Trim leading and trailing silence from audio."""
     threshold = 10 ** (threshold_db / 20)
     min_samples = int(sample_rate * min_silence_ms / 1000)
@@ -118,7 +129,7 @@ def trim_silence(audio, sample_rate, threshold_db=-40, min_silence_ms=100):
     return audio[start_idx:end_idx]
 
 
-def normalize_audio(audio, target_db=-3.0):
+def normalize_audio(audio, target_db=NORMALIZATION_TARGET_DB):
     """Normalize audio to target peak dB level."""
     peak = np.max(np.abs(audio))
     if peak == 0:
@@ -167,7 +178,7 @@ def adjust_pitch(audio, sample_rate, semitones):
         return librosa.effects.pitch_shift(audio, sr=sample_rate, n_steps=semitones)
 
 
-def normalize_lufs(audio, sample_rate, target_lufs=-16.0):
+def normalize_lufs(audio, sample_rate, target_lufs=LUFS_TARGET):
     """Normalize audio to target LUFS (EBU R128). Requires pyloudnorm.
 
     Args:
@@ -210,7 +221,7 @@ def process_audio(audio, sample_rate, trim=False, normalize=False,
         audio = adjust_pitch(audio, sample_rate, pitch)
 
     if normalize:
-        audio = normalize_audio(audio, target_db=-3.0)
+        audio = normalize_audio(audio, target_db=NORMALIZATION_TARGET_DB)
 
     if lufs_target is not None:
         try:
