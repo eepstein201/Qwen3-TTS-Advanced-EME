@@ -2,6 +2,15 @@
 
 import unittest
 
+# Check for gradio availability
+try:
+    import gradio as gr  # noqa: F401
+    HAS_GRADIO = True
+except ImportError:
+    HAS_GRADIO = False
+
+skip_if_no_gradio = unittest.skipUnless(HAS_GRADIO, "requires gradio")
+
 
 class TestWaveSurferLoaderJS(unittest.TestCase):
     """Test the WaveSurfer CDN loader script."""
@@ -185,6 +194,7 @@ class TestCancelJS(unittest.TestCase):
         self.assertIn("player.stop()", js)
 
 
+@skip_if_no_gradio
 class TestPrepareStreamingConfig(unittest.TestCase):
     """Test the Python config preparation function."""
 
@@ -205,7 +215,7 @@ class TestPrepareStreamingConfig(unittest.TestCase):
         from unittest.mock import patch, MagicMock
         from qwen3_tts.interface.ui import _prepare_streaming_config
 
-        with patch('qwen3_tts.interface.ui.TTSClient') as mock_cls:
+        with patch('qwen3_tts.server.client.TTSClient') as mock_cls:
             mock_client = MagicMock()
             mock_client.is_server_running.return_value = False
             mock_cls.return_value = mock_client
@@ -215,6 +225,7 @@ class TestPrepareStreamingConfig(unittest.TestCase):
             self.assertIn("not running", status)
 
 
+@skip_if_no_gradio
 class TestSaveCompletedAudio(unittest.TestCase):
     """Test the audio save function."""
 

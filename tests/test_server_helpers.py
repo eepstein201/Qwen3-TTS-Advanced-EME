@@ -246,7 +246,7 @@ class TestBuildUIAndLaunch(unittest.TestCase):
 class TestGetServerStatus(unittest.TestCase):
     """get_server_status() should correctly parse stats response."""
 
-    @patch('qwen3_tts.interface.ui.TTSClient')
+    @patch('qwen3_tts.server.client.TTSClient')
     def test_small_memory_not_shown_as_zero(self, mock_client_class):
         """A non-zero memory value (e.g. 0.3 MB) must not display as '0MB'."""
         mock_client = MagicMock()
@@ -265,7 +265,7 @@ class TestGetServerStatus(unittest.TestCase):
         self.assertNotEqual(memory, "0MB",
             "Memory value 0.3 MB must not round to '0MB'")
 
-    @patch('qwen3_tts.interface.ui.TTSClient')
+    @patch('qwen3_tts.server.client.TTSClient')
     def test_zero_memory_via_or_chain_not_skipped(self, mock_client_class):
         """If mlx_memory_active_mb is 0.0 (falsy), fall through to next key correctly."""
         mock_client = MagicMock()
@@ -286,7 +286,7 @@ class TestGetServerStatus(unittest.TestCase):
             "0.0 MB must be used directly, not skipped as falsy")
         self.assertEqual(models, "Clone")
 
-    @patch('qwen3_tts.interface.ui.TTSClient')
+    @patch('qwen3_tts.server.client.TTSClient')
     def test_loaded_models_shown_correctly(self, mock_client_class):
         """Loaded models should be listed in status, not 'None'."""
         mock_client = MagicMock()

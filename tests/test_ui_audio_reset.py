@@ -5,13 +5,24 @@ Replaces the old audio reset JS tests now that WaveSurfer handles playback.
 
 import unittest
 from unittest.mock import Mock, patch, MagicMock
-import gradio as gr
+
+# Check for gradio availability
+try:
+    import gradio as gr
+    HAS_GRADIO = True
+except ImportError:
+    HAS_GRADIO = False
+    gr = None  # type: ignore
+
+skip_if_no_gradio = unittest.skipUnless(HAS_GRADIO, "requires gradio")
 
 
 class TestWireGenerationTabIntegration(unittest.TestCase):
     """Test the 3-step generation wiring (Python -> JS -> Python)."""
 
     def setUp(self):
+        if not HAS_GRADIO:
+            return
         self.mock_btn = Mock(spec=gr.Button)
         # Chain .click().then().then().then().then()
         mock_chain = Mock()
@@ -34,6 +45,7 @@ class TestWireGenerationTabIntegration(unittest.TestCase):
         self.mock_history_state = Mock()
         self.mock_audio_url_converter = Mock(spec=gr.Audio)
 
+    @skip_if_no_gradio
     def test_wire_generation_tab_calls_click(self):
         """The click handler should be wired."""
         from qwen3_tts.interface.ui import _wire_generation_tab
@@ -62,6 +74,7 @@ class TestWireGenerationTabIntegration(unittest.TestCase):
 
         self.mock_btn.click.assert_called_once()
 
+    @skip_if_no_gradio
     def test_wire_generation_tab_chains_then_calls(self):
         """Should chain .then() calls for JS streaming and saving."""
         from qwen3_tts.interface.ui import _wire_generation_tab
@@ -94,6 +107,7 @@ class TestWireGenerationTabIntegration(unittest.TestCase):
         # At least 4 .then() calls: text capture, JS streaming, save/fallback, load into player, model update
         self.assertGreaterEqual(chain.then.call_count, 4)
 
+    @skip_if_no_gradio
     def test_cancel_btn_wired(self):
         """Cancel button should be wired to cancel_streaming_generation."""
         from qwen3_tts.interface.ui import _wire_generation_tab
@@ -126,6 +140,7 @@ class TestWireGenerationTabIntegration(unittest.TestCase):
 class TestOnHistorySelect(unittest.TestCase):
     """Test history row selection handler."""
 
+    @skip_if_no_gradio
     def test_valid_index_returns_path(self):
         import tempfile
         import os
@@ -141,6 +156,7 @@ class TestOnHistorySelect(unittest.TestCase):
         finally:
             os.unlink(tmp_path)
 
+    @skip_if_no_gradio
     def test_invalid_index_returns_none(self):
         from qwen3_tts.interface.ui import on_history_select
         evt = Mock()
@@ -148,6 +164,7 @@ class TestOnHistorySelect(unittest.TestCase):
         result = on_history_select(evt, [{"path": "/tmp/test.wav"}])
         self.assertIsNone(result)
 
+    @skip_if_no_gradio
     def test_missing_file_returns_none(self):
         from qwen3_tts.interface.ui import on_history_select
         evt = Mock()
@@ -155,6 +172,7 @@ class TestOnHistorySelect(unittest.TestCase):
         result = on_history_select(evt, [{"path": "/nonexistent/file.wav"}])
         self.assertIsNone(result)
 
+    @skip_if_no_gradio
     def test_empty_history_returns_none(self):
         from qwen3_tts.interface.ui import on_history_select
         evt = Mock()
@@ -166,6 +184,7 @@ class TestOnHistorySelect(unittest.TestCase):
 class TestGenerateColabFallback(unittest.TestCase):
     """Test the Colab fallback generation handler."""
 
+    @skip_if_no_gradio
     def test_js_success_returns_saved_path(self):
         import base64
         import struct
@@ -178,7 +197,7 @@ class TestGenerateColabFallback(unittest.TestCase):
         b64 = base64.b64encode(wav_data).decode()
 
         with tempfile.TemporaryDirectory() as tmpdir:
-            with patch('qwen3_tts.interface.ui.os.path.expanduser',
+            with patch('qwen3_tts.interface.ui.generation.os.path.expanduser',
                        side_effect=lambda p: p.replace("~/Downloads", tmpdir)):
                 audio_path, status, _, hist, _ = _generate_colab_fallback(
                     b64, "clone", "hello", [], None)
@@ -186,6 +205,7 @@ class TestGenerateColabFallback(unittest.TestCase):
                 self.assertIsNotNone(audio_path)
                 self.assertEqual(len(hist), 1)
 
+    @skip_if_no_gradio
     def test_error_returns_none(self):
         from qwen3_tts.interface.ui import _generate_colab_fallback
         audio_path, status, _, _, _ = _generate_colab_fallback(
@@ -193,6 +213,7 @@ class TestGenerateColabFallback(unittest.TestCase):
         self.assertIsNone(audio_path)
         self.assertIn("connection refused", status)
 
+    @skip_if_no_gradio
     def test_cancel_returns_none(self):
         from qwen3_tts.interface.ui import _generate_colab_fallback
         audio_path, status, _, _, _ = _generate_colab_fallback(
@@ -200,13 +221,14 @@ class TestGenerateColabFallback(unittest.TestCase):
         self.assertIsNone(audio_path)
         self.assertEqual(status, "Cancelled")
 
+    @skip_if_no_gradio
     def test_colab_fallback_generates_via_client(self):
         from qwen3_tts.interface.ui import _generate_colab_fallback
         import tempfile
 
         with tempfile.TemporaryDirectory() as tmpdir:
-            with patch('qwen3_tts.interface.ui.TTSClient') as mock_cls, \
-                 patch('qwen3_tts.interface.ui.os.path.expanduser',
+            with patch('qwen3_tts.server.client.TTSClient') as mock_cls, \
+                 patch('qwen3_tts.interface.ui.generation.os.path.expanduser',
                        side_effect=lambda p: p.replace("~/Downloads", tmpdir)):
                 mock_client = MagicMock()
                 mock_cls.return_value = mock_client

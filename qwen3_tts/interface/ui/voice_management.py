@@ -1,0 +1,383 @@
+#!/usr/bin/env python3
+"""Voice prompt management for the Gradio UI.
+
+This module contains:
+- Voice prompt creation
+- Voice prompt listing/renaming/deletion
+- Voice prompt preview
+"""
+
+import logging
+import os
+import tempfile
+
+import gradio as gr
+
+from qwen3_tts.core.config import (
+    VOICE_PROMPTS_DIR,
+    get_default_clone_prompt,
+    set_default_clone_prompt,
+    get_server_url,
+    is_server_running,
+    auth_headers,
+    load_config,
+)
+from qwen3_tts.interface.voice_helpers import (
+    strip_extension,
+    validate_prompt_name,
+)
+from qwen3_tts.interface.ui.shared import (
+    get_voice_prompts,
+    format_status_display,
+)
+
+logger = logging.getLogger("tts.ui")
+
+
+def create_voice_prompt(audio_path, transcript, voice_name, no_transcript=False, auto_transcribed=False):
+    """Create a voice prompt from audio file and transcript.
+
+    Args:
+        audio_path: Path to the audio file
+        transcript: Transcript text (or None if no_transcript=True)
+        voice_name: Name for the voice prompt
+        no_transcript: If True, use x_vector_only mode without transcript
+        auto_transcribed: If True, transcript was auto-generated
+
+    Returns:
+        Tuple of (status_message, prompt_list, default_prompt)
+    """
+    if not audio_path:
+        raise gr.Error("Please upload an audio file")
+
+    if not voice_name or not voice_name.strip():
+        raise gr.Error("Please enter a voice name")
+
+    voice_name = voice_name.strip()
+
+    # Validate name
+    is_valid, error_msg = validate_prompt_name(voice_name)
+    if not is_valid:
+        raise gr.Error(error_msg)
+
+    config = load_config()
+    backend = config.get("advanced", {}).get("backend", "mlx")
+
+    # Build output path
+    base_name = strip_extension(voice_name)
+    if backend == "mlx":
+        # MLX needs .wav + .txt pair
+        wav_path = os.path.join(VOICE_PROMPTS_DIR, f"{base_name}.wav")
+        txt_path = os.path.join(VOICE_PROMPTS_DIR, f"{base_name}.txt")
+    else:
+        # Torch uses .pt files
+        pt_path = os.path.join(VOICE_PROMPTS_DIR, f"{base_name}.pt")
+
+    # Check if prompt already exists
+    if backend == "mlx":
+        if os.path.exists(wav_path) or os.path.exists(txt_path):
+            raise gr.Error(f"Voice prompt '{base_name}' already exists")
+    else:
+        if os.path.exists(pt_path):
+            raise gr.Error(f"Voice prompt '{base_name}' already exists")
+
+    try:
+        if backend == "mlx":
+            # For MLX, copy the audio and transcript
+            import shutil
+            shutil.copy(audio_path, wav_path)
+
+            if no_transcript:
+                # Create empty transcript marker for x_vector_only mode
+                with open(txt_path, "w") as f:
+                    f.write("")
+            else:
+                if not transcript or not transcript.strip():
+                    # Clean up wav file
+                    os.remove(wav_path)
+                    raise gr.Error("Please provide a transcript or enable 'no transcript' mode")
+                with open(txt_path, "w") as f:
+                    f.write(transcript.strip())
+
+            status = f"Created MLX voice prompt: {base_name}"
+        else:
+            # For torch, use server to create .pt file
+            if not is_server_running(config):
+                raise gr.Error("Server must be running to create torch voice prompts")
+
+            import requests
+            url = get_server_url(config)
+
+            # Upload audio and transcript to server
+            with open(audio_path, "rb") as f:
+                audio_bytes = f.read()
+
+            import base64
+            payload = {
+                "audio_base64": base64.b64encode(audio_bytes).decode(),
+                "transcript": transcript.strip() if transcript else "",
+                "name": base_name,
+                "no_transcript": no_transcript,
+            }
+
+            resp = requests.post(
+                f"{url}/create-voice-prompt",
+                json=payload,
+                timeout=60,
+                headers=auth_headers(),
+            )
+
+            if resp.status_code != 200:
+                error = resp.json().get("error", "Unknown error")
+                raise gr.Error(f"Failed to create prompt: {error}")
+
+            status = f"Created torch voice prompt: {base_name}"
+
+        # Refresh prompt list
+        prompts = get_voice_prompts()
+        default = get_default_clone_prompt(config)
+
+        return status, prompts, default
+
+    except gr.Error:
+        raise
+    except Exception as e:
+        logger.error(f"Failed to create voice prompt: {e}")
+        raise gr.Error(f"Failed to create prompt: {e}")
+
+
+def auto_transcribe_audio(audio_path):
+    """Auto-transcribe audio using server ASR.
+
+    Args:
+        audio_path: Path to the audio file
+
+    Returns:
+        Transcript text
+    """
+    if not audio_path:
+        raise gr.Error("Please upload an audio file first")
+
+    config = load_config()
+    if not is_server_running(config):
+        raise gr.Error("Server must be running for auto-transcription")
+
+    try:
+        import requests
+        import base64
+
+        url = get_server_url(config)
+
+        with open(audio_path, "rb") as f:
+            audio_bytes = f.read()
+
+        payload = {
+            "audio_base64": base64.b64encode(audio_bytes).decode(),
+        }
+
+        resp = requests.post(
+            f"{url}/transcribe",
+            json=payload,
+            timeout=60,
+            headers=auth_headers(),
+        )
+
+        if resp.status_code != 200:
+            error = resp.json().get("error", "Unknown error")
+            raise gr.Error(f"Transcription failed: {error}")
+
+        return resp.json().get("transcript", "")
+
+    except gr.Error:
+        raise
+    except Exception as e:
+        logger.error(f"Auto-transcription failed: {e}")
+        raise gr.Error(f"Transcription failed: {e}")
+
+
+def get_prompt_table_data():
+    """Get voice prompts as table data for display.
+
+    Returns:
+        List of [name, format, default] rows
+    """
+    prompts = get_voice_prompts()
+    config = load_config()
+    default_prompt = config.get("default_clone_prompt", "")
+
+    rows = []
+    for prompt in prompts:
+        base = strip_extension(prompt)
+        is_default = "✓" if prompt == default_prompt or base == default_prompt else ""
+
+        # Determine format
+        if prompt.endswith(".pt"):
+            fmt = "torch (.pt)"
+        else:
+            fmt = "mlx (.wav+.txt)"
+
+        rows.append([base, fmt, is_default])
+
+    return rows
+
+
+def preview_voice(name):
+    """Preview a voice prompt by generating a sample.
+
+    Args:
+        name: Voice prompt name
+
+    Returns:
+        Path to preview audio file
+    """
+    if not name:
+        raise gr.Error("Please select a voice prompt")
+
+    config = load_config()
+    if not is_server_running(config):
+        raise gr.Error("Server must be running for preview")
+
+    # Ensure .pt extension for server
+    if not name.endswith(".pt"):
+        name = name + ".pt"
+
+    try:
+        import requests
+        url = get_server_url(config)
+
+        resp = requests.get(
+            f"{url}/preview-prompt",
+            params={"name": name},
+            timeout=60,
+            headers=auth_headers(),
+        )
+
+        if resp.status_code != 200:
+            error = resp.json().get("error", "Unknown error")
+            raise gr.Error(f"Preview failed: {error}")
+
+        # Save to temp file
+        with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as f:
+            f.write(resp.content)
+            return f.name
+
+    except gr.Error:
+        raise
+    except Exception as e:
+        logger.error(f"Voice preview failed: {e}")
+        raise gr.Error(f"Preview failed: {e}")
+
+
+def rename_voice(old_name, new_name):
+    """Rename a voice prompt.
+
+    Args:
+        old_name: Current name
+        new_name: New name
+
+    Returns:
+        Tuple of (status_message, prompt_table)
+    """
+    if not old_name:
+        raise gr.Error("Please select a voice prompt to rename")
+    if not new_name or not new_name.strip():
+        raise gr.Error("Please enter a new name")
+
+    new_name = new_name.strip()
+
+    # Validate new name
+    is_valid, error_msg = validate_prompt_name(new_name)
+    if not is_valid:
+        raise gr.Error(error_msg)
+
+    config = load_config()
+
+    # Use server to rename (handles all format complexity)
+    if not is_server_running(config):
+        raise gr.Error("Server must be running for rename")
+
+    try:
+        import requests
+        url = get_server_url(config)
+
+        resp = requests.post(
+            f"{url}/rename-prompt",
+            json={"old_name": old_name, "new_name": new_name},
+            timeout=10,
+            headers=auth_headers(),
+        )
+
+        if resp.status_code != 200:
+            error = resp.json().get("error", "Unknown error")
+            raise gr.Error(f"Rename failed: {error}")
+
+        return f"Renamed '{old_name}' to '{new_name}'", get_prompt_table_data()
+
+    except gr.Error:
+        raise
+    except Exception as e:
+        logger.error(f"Rename failed: {e}")
+        raise gr.Error(f"Rename failed: {e}")
+
+
+def delete_voice(name):
+    """Delete a voice prompt.
+
+    Args:
+        name: Voice prompt name
+
+    Returns:
+        Tuple of (status_message, prompt_table)
+    """
+    if not name:
+        raise gr.Error("Please select a voice prompt to delete")
+
+    config = load_config()
+
+    # Use server to delete (handles all formats)
+    if not is_server_running(config):
+        raise gr.Error("Server must be running for delete")
+
+    try:
+        import requests
+        url = get_server_url(config)
+
+        resp = requests.post(
+            f"{url}/delete-prompt",
+            json={"name": name},
+            timeout=10,
+            headers=auth_headers(),
+        )
+
+        if resp.status_code != 200:
+            error = resp.json().get("error", "Unknown error")
+            raise gr.Error(f"Delete failed: {error}")
+
+        return f"Deleted '{name}'", get_prompt_table_data()
+
+    except gr.Error:
+        raise
+    except Exception as e:
+        logger.error(f"Delete failed: {e}")
+        raise gr.Error(f"Delete failed: {e}")
+
+
+def set_voice_default(name):
+    """Set a voice prompt as the default.
+
+    Args:
+        name: Voice prompt name
+
+    Returns:
+        Tuple of (status_message, prompt_table)
+    """
+    if not name:
+        raise gr.Error("Please select a voice prompt")
+
+    # Ensure .pt extension for default
+    if not name.endswith(".pt"):
+        name = name + ".pt"
+
+    set_default_clone_prompt(name)
+
+    return f"Set '{name}' as default", get_prompt_table_data()

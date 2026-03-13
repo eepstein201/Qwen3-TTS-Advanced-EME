@@ -1632,7 +1632,7 @@ class TestUICancelFunction(unittest.TestCase):
         mock_client = MagicMock()
         mock_client.cancel_generation.return_value = {"status": "no_active_generation"}
 
-        with patch("qwen3_tts.interface.ui.TTSClient", return_value=mock_client):
+        with patch("qwen3_tts.server.client.TTSClient", return_value=mock_client):
             result = cancel_streaming_generation()
 
         self.assertIsInstance(result, tuple)
@@ -1647,7 +1647,7 @@ class TestUICancelFunction(unittest.TestCase):
         mock_client = MagicMock()
         mock_client.cancel_generation.return_value = {"status": "cancellation_requested"}
 
-        with patch("qwen3_tts.interface.ui.TTSClient", return_value=mock_client):
+        with patch("qwen3_tts.server.client.TTSClient", return_value=mock_client):
             result = cancel_streaming_generation()
 
         # First element is status text
@@ -1731,7 +1731,7 @@ class TestUIModelSettings(unittest.TestCase):
     def test_apply_model_settings_requires_server(self):
         """apply_model_settings returns error when server not running."""
         from qwen3_tts.interface.ui import apply_model_settings
-        with unittest.mock.patch("qwen3_tts.interface.ui.TTSClient") as MockClient:
+        with unittest.mock.patch("qwen3_tts.server.client.TTSClient") as MockClient:
             MockClient.return_value.is_server_running.return_value = False
             msg, _ = apply_model_settings("0.6B", "4bit")
         self.assertIn("not running", msg.lower())
@@ -3134,6 +3134,7 @@ class TestClickCLI(unittest.TestCase):
         self.assertIn('--prompt', result.output)
         self.assertIn('--output', result.output)
 
+    @_skip_ui
     def test_preview_voice_cleanup_on_failure(self):
         """preview_voice must clean up temp file on exception."""
         import os
@@ -3155,8 +3156,8 @@ class TestClickCLI(unittest.TestCase):
             mock_file.close = MagicMock()
             return mock_file
 
-        with patch('qwen3_tts.interface.ui.TTSClient') as mock_client_class, \
-             patch('qwen3_tts.interface.ui.tempfile.NamedTemporaryFile', side_effect=mock_named_temp_file):
+        with patch('qwen3_tts.server.client.TTSClient') as mock_client_class, \
+             patch('qwen3_tts.interface.ui.voice_management.tempfile.NamedTemporaryFile', side_effect=mock_named_temp_file):
             mock_client = MagicMock()
             mock_client.preview_prompt.side_effect = RuntimeError("Server error")
             mock_client_class.return_value = mock_client
@@ -3171,6 +3172,7 @@ class TestClickCLI(unittest.TestCase):
                 self.assertFalse(os.path.exists(temp_file_path),
                                  f"Temp file {temp_file_path} should be cleaned up on exception")
 
+    @_skip_ui
     def test_preview_voice_cleanup_on_write_failure(self):
         """preview_voice must clean up temp file when write fails."""
         import os
@@ -3193,8 +3195,8 @@ class TestClickCLI(unittest.TestCase):
             mock_file.close = MagicMock()
             return mock_file
 
-        with patch('qwen3_tts.interface.ui.TTSClient') as mock_client_class, \
-             patch('qwen3_tts.interface.ui.tempfile.NamedTemporaryFile', side_effect=mock_named_temp_file):
+        with patch('qwen3_tts.server.client.TTSClient') as mock_client_class, \
+             patch('qwen3_tts.interface.ui.voice_management.tempfile.NamedTemporaryFile', side_effect=mock_named_temp_file):
             mock_client = MagicMock()
             mock_client.preview_prompt.return_value = b"fake audio bytes"
             mock_client_class.return_value = mock_client
