@@ -1030,6 +1030,18 @@ class TestStreamingServerEndpoint(unittest.TestCase):
 class TestASR(unittest.TestCase):
     """Test ASR transcription functions."""
 
+    def setUp(self):
+        """Reset ASR model state before each test to prevent pollution."""
+        from qwen3_tts.core.engine import asr
+        asr._asr_model_mlx = None
+        asr._asr_model_torch = None
+
+    def tearDown(self):
+        """Clean up ASR model state after each test."""
+        from qwen3_tts.core.engine import asr
+        asr._asr_model_mlx = None
+        asr._asr_model_torch = None
+
     def test_transcribe_audio_exists(self):
         """transcribe_audio function is importable."""
         from qwen3_tts.core.engine import transcribe_audio
