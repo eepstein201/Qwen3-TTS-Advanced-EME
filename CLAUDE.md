@@ -243,6 +243,11 @@ All other endpoints require `Authorization: Bearer <token>` (token from `~/.voic
 source ~/miniforge3/etc/profile.d/conda.sh && conda activate qwen3-tts-mlx
 ```
 
+**Server restart rule:** Always stop the server before starting to pick up code changes:
+```bash
+tts server stop && tts server start
+```
+
 **Required dependency:** `pytest` — install with `pip install pytest`. Some test modules (test_validation.py, test_voice_helpers.py, test_error_handling.py, test_ocp_strategy.py, test_protocols.py) require pytest and will fail to import without it.
 
 **Preferred: pytest full suite** (860+ tests, better isolation):
