@@ -33,6 +33,7 @@ Usage:
         print(f"Memory: {stats['mps_memory_allocated_mb']}MB")
 """
 
+import functools
 import json
 import os
 import shutil
@@ -156,6 +157,18 @@ def _build_gen_params(config, temperature, top_k, top_p, repetition_penalty, max
     return gen_params
 
 
+def _require_server(func):
+    """Decorator that checks server is running before method execution."""
+    @functools.wraps(func)
+    def wrapper(self, *args, **kwargs):
+        if not self.is_server_running():
+            raise ConnectionError(
+                "TTS server is not running. Start it with: tts server start"
+            )
+        return func(self, *args, **kwargs)
+    return wrapper
+
+
 # ---------------------------------------------------------------------------
 # TTSClient class
 # ---------------------------------------------------------------------------
@@ -217,20 +230,19 @@ class TTSClient:
         """Check if the TTS server is running."""
         return is_server_running(self.config)
 
+    @_require_server
     def get_stats(self):
         """Get server statistics."""
-        if not self.is_server_running():
-            raise ConnectionError("TTS server is not running")
         resp = self._session.get(f"{self.server_url}/stats", timeout=5, headers=auth_headers())
         return resp.json()
 
+    @_require_server
     def get_health(self):
         """Get server health info including loaded models and backend."""
-        if not self.is_server_running():
-            raise ConnectionError("TTS server is not running")
         resp = self._session.get(f"{self.server_url}/health", timeout=5)
         return resp.json()
 
+    @_require_server
     def load_model(self, mode):
         """Request the server to load a model on demand.
 
@@ -240,8 +252,6 @@ class TTSClient:
         Returns:
             Response dict with "status" key ("loaded" or "already_loaded").
         """
-        if not self.is_server_running():
-            raise ConnectionError("TTS server is not running")
         resp = self._session.post(
             f"{self.server_url}/load-model",
             json={"model_type": mode},
@@ -258,6 +268,7 @@ class TTSClient:
             raise ModelError(mode, "load", error_msg)
         return resp.json()
 
+    @_require_server
     def update_model_config(self, model_size=None, mlx_quantization=None):
         """Update model size and/or quantization settings.
 
@@ -271,9 +282,6 @@ class TTSClient:
         The server will unload current models and load the new variant
         on the next generation request.
         """
-        if not self.is_server_running():
-            raise ConnectionError("TTS server is not running")
-
         data = {}
         if model_size:
             data["model_size"] = model_size
@@ -297,6 +305,7 @@ class TTSClient:
             raise ModelError("config", "update", error_msg)
         return resp.json()
 
+    @_require_server
     def unload_model(self, mode):
         """Unload a model to free memory.
 
@@ -306,8 +315,6 @@ class TTSClient:
         Returns:
             Response dict with "status" key ("unloaded" or "already_unloaded").
         """
-        if not self.is_server_running():
-            raise ConnectionError("TTS server is not running")
         resp = self._session.post(
             f"{self.server_url}/unload-model",
             json={"model_type": mode},
@@ -322,6 +329,7 @@ class TTSClient:
             raise ModelError(mode, "unload", error_msg)
         return resp.json()
 
+    @_require_server
     def update_startup_config(self, clone=None, design=None, custom=None):
         """Update which models load at server startup.
 
@@ -333,8 +341,6 @@ class TTSClient:
         Returns:
             Response dict with "status" and "changes" keys.
         """
-        if not self.is_server_running():
-            raise ConnectionError("TTS server is not running")
         data = {}
         if clone is not None:
             data["clone"] = clone
@@ -358,14 +364,14 @@ class TTSClient:
             raise ModelError("startup", "update", error_msg)
         return resp.json()
 
+    @_require_server
+    @_require_server
     def get_models(self):
         """Get information about available models and their load status.
 
         Returns:
             Response dict with "models", "backend", "model_size" keys.
         """
-        if not self.is_server_running():
-            raise ConnectionError("TTS server is not running")
         resp = self._session.get(
             f"{self.server_url}/models",
             timeout=5,
@@ -373,14 +379,14 @@ class TTSClient:
         )
         return resp.json()
 
+    @_require_server
+    @_require_server
     def cancel_generation(self):
         """Cancel the current streaming generation.
 
         Returns:
             Response dict with "status" key ("cancellation_requested" or "no_active_generation").
         """
-        if not self.is_server_running():
-            raise ConnectionError("TTS server is not running")
         resp = self._session.post(
             f"{self.server_url}/cancel-generation",
             timeout=5,
@@ -411,6 +417,7 @@ class TTSClient:
         mlx_prompts = {f for f in files if f.endswith('.wav') and f[:-4] in txt_bases}
         return sorted(pt_prompts | mlx_prompts)
 
+    @_require_server
     def delete_prompt(self, name):
         """Delete a voice prompt and all its format files.
 
@@ -420,8 +427,6 @@ class TTSClient:
         Returns:
             Response dict with status and files_removed list
         """
-        if not self.is_server_running():
-            raise ConnectionError("TTS server is not running")
         resp = self._session.post(
             f"{self.server_url}/delete-prompt",
             json={"name": name},
@@ -433,6 +438,7 @@ class TTSClient:
             raise VoicePromptError("delete", error_msg)
         return resp.json()
 
+    @_require_server
     def rename_prompt(self, old_name, new_name):
         """Rename a voice prompt (all format files).
 
@@ -443,8 +449,6 @@ class TTSClient:
         Returns:
             Response dict with status and files_renamed list
         """
-        if not self.is_server_running():
-            raise ConnectionError("TTS server is not running")
         resp = self._session.post(
             f"{self.server_url}/rename-prompt",
             json={"old_name": old_name, "new_name": new_name},
@@ -456,6 +460,7 @@ class TTSClient:
             raise VoicePromptError("rename", error_msg)
         return resp.json()
 
+    @_require_server
     def preview_prompt(self, name):
         """Get the .wav audio data for a voice prompt.
 
@@ -465,8 +470,6 @@ class TTSClient:
         Returns:
             Raw bytes of the .wav file
         """
-        if not self.is_server_running():
-            raise ConnectionError("TTS server is not running")
         resp = self._session.get(
             f"{self.server_url}/preview-prompt",
             params={"name": name},
@@ -481,6 +484,7 @@ class TTSClient:
             raise VoicePromptError("preview", error_msg)
         return resp.content
 
+    @_require_server
     def get_prompt_details(self, name=None):
         """Get metadata for voice prompts.
 
@@ -490,8 +494,6 @@ class TTSClient:
         Returns:
             Dict with prompt metadata (single) or {"prompts": [...]} (all)
         """
-        if not self.is_server_running():
-            raise ConnectionError("TTS server is not running")
         params = {"name": name} if name else {}
         resp = self._session.get(
             f"{self.server_url}/prompt-details",

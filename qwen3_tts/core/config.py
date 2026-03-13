@@ -497,6 +497,31 @@ def get_vllm_port():
 # Cache configuration
 # ---------------------------------------------------------------------------
 
+def _get_config_value(key_path: list, default, validator=None):
+    """Get a nested config value with fallback.
+
+    Args:
+        key_path: List of keys to traverse (e.g., ["cache", "voice_prompt_max"])
+        default: Default value if key not found or invalid
+        validator: Optional function to validate the value
+
+    Returns:
+        The config value or default
+    """
+    try:
+        config = load_config()
+        val = config
+        for key in key_path:
+            val = val.get(key, {})
+        if val == {}:
+            return default
+        if validator and not validator(val):
+            return default
+        return val if val is not None else default
+    except (json.JSONDecodeError, OSError):
+        return default
+
+
 def get_voice_prompt_cache_max():
     """Read the configured voice prompt cache max size from config.json.
 
@@ -504,14 +529,11 @@ def get_voice_prompt_cache_max():
         An integer representing the maximum number of voice prompts to cache.
         Defaults to 10 if not set or invalid.
     """
-    try:
-        config = load_config()
-        max_size = config.get("cache", {}).get("voice_prompt_max", 10)
-    except (json.JSONDecodeError, OSError):
-        max_size = 10
-    if not isinstance(max_size, int) or max_size < 1:
-        max_size = 10
-    return max_size
+    return _get_config_value(
+        ["cache", "voice_prompt_max"],
+        10,
+        lambda x: isinstance(x, int) and x > 0
+    )
 
 
 def get_generation_cache_max():
@@ -521,14 +543,11 @@ def get_generation_cache_max():
         An integer representing the maximum number of generations to cache.
         Defaults to 5 if not set or invalid.
     """
-    try:
-        config = load_config()
-        max_size = config.get("cache", {}).get("generation_max", 5)
-    except (json.JSONDecodeError, OSError):
-        max_size = 5
-    if not isinstance(max_size, int) or max_size < 1:
-        max_size = 5
-    return max_size
+    return _get_config_value(
+        ["cache", "generation_max"],
+        5,
+        lambda x: isinstance(x, int) and x > 0
+    )
 
 
 def get_eta_cache_ttl():
@@ -538,14 +557,11 @@ def get_eta_cache_ttl():
         An integer representing the TTL in seconds for ETA cache entries.
         Defaults to 30 if not set or invalid.
     """
-    try:
-        config = load_config()
-        ttl = config.get("cache", {}).get("eta_ttl_seconds", 30)
-    except (json.JSONDecodeError, OSError):
-        ttl = 30
-    if not isinstance(ttl, int) or ttl < 0:
-        ttl = 30
-    return ttl
+    return _get_config_value(
+        ["cache", "eta_ttl_seconds"],
+        30,
+        lambda x: isinstance(x, int) and x >= 0
+    )
 
 
 # ---------------------------------------------------------------------------

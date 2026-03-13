@@ -506,6 +506,36 @@ def _get_max_chunk_tokens():
         return 200
 
 
+def _prepare_text_chunks(text: str, language: str, model, max_chunk_chars: int) -> list[str]:
+    """Normalize and chunk text for inference.
+
+    Args:
+        text: Text to process.
+        language: Language string.
+        model: Model with optional tokenizer attribute.
+        max_chunk_chars: Max chars per chunk.
+
+    Returns:
+        List of text chunks ready for inference.
+    """
+    text = _normalize_text(text, language)
+    tokenizer = getattr(model, "tokenizer", None)
+    max_tokens = _get_max_chunk_tokens() if tokenizer is not None else None
+
+    if tokenizer is not None and max_tokens is not None:
+        token_count = len(tokenizer.encode(text, add_special_tokens=False))
+        if token_count > max_tokens:
+            return _split_text(
+                text, max_chars=max_chunk_chars,
+                language=language, tokenizer=tokenizer,
+                max_tokens=max_tokens
+            )
+        return [text]
+    elif max_chunk_chars > 0 and len(text) > max_chunk_chars:
+        return _split_text(text, max_chars=max_chunk_chars, language=language)
+    return [text]
+
+
 # ---------------------------------------------------------------------------
 # Public dispatch API
 # ---------------------------------------------------------------------------
@@ -539,26 +569,8 @@ def run_inference(model, text, mode, gen_params, language="English",
     if max_chunk_chars is None:
         max_chunk_chars = _get_max_chunk_chars()
 
-    # Normalize text (expand numbers, dates, abbreviations) before chunking
-    text = _normalize_text(text, language)
-
-    # Resolve tokenizer for token-aware chunking (torch backend only)
-    tokenizer = getattr(model, "tokenizer", None)
-    max_tokens = _get_max_chunk_tokens() if tokenizer is not None else None
-
-    # Split into chunks
-    if tokenizer is not None and max_tokens is not None:
-        token_count = len(tokenizer.encode(text, add_special_tokens=False))
-        if token_count > max_tokens:
-            chunks = _split_text(text, max_chars=max_chunk_chars,
-                                 language=language, tokenizer=tokenizer,
-                                 max_tokens=max_tokens)
-        else:
-            chunks = [text]
-    elif max_chunk_chars > 0 and len(text) > max_chunk_chars:
-        chunks = _split_text(text, max_chars=max_chunk_chars, language=language)
-    else:
-        chunks = [text]
+    # Normalize and split into chunks
+    chunks = _prepare_text_chunks(text, language, model, max_chunk_chars)
 
     if len(chunks) == 1:
         # Single chunk — no overhead
@@ -716,22 +728,8 @@ def run_inference_streaming(model, text, mode, gen_params, language="English",
         if max_chunk_chars is None:
             max_chunk_chars = _get_max_chunk_chars()
 
-        text = _normalize_text(text, language)
-        tokenizer = getattr(model, "tokenizer", None)
-        max_tokens = _get_max_chunk_tokens() if tokenizer is not None else None
-
-        if tokenizer is not None and max_tokens is not None:
-            token_count = len(tokenizer.encode(text, add_special_tokens=False))
-            if token_count > max_tokens:
-                chunks = _split_text(text, max_chars=max_chunk_chars,
-                                     language=language, tokenizer=tokenizer,
-                                     max_tokens=max_tokens)
-            else:
-                chunks = [text]
-        elif max_chunk_chars > 0 and len(text) > max_chunk_chars:
-            chunks = _split_text(text, max_chars=max_chunk_chars, language=language)
-        else:
-            chunks = [text]
+        # Normalize and split into chunks
+        chunks = _prepare_text_chunks(text, language, model, max_chunk_chars)
 
         for i, chunk in enumerate(chunks):
             preview = chunk[:50] + "..." if len(chunk) > 50 else chunk

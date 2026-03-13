@@ -21,29 +21,7 @@ from qwen3_tts.core.config import (
     HF_CACHE,
 )
 from qwen3_tts.tools.model_cache import _MLX_MODEL_PREFIXES, _TORCH_MODEL_PREFIXES
-from qwen3_tts.tools._shared import _format_size
-
-
-def _print_header(text: str) -> None:
-    """Print a section header."""
-    print(f"\n{'=' * 60}")
-    print(f"  {text}")
-    print(f"{'=' * 60}")
-
-
-def _print_success(text: str) -> None:
-    """Print a success message."""
-    print(f"  ✓ {text}")
-
-
-def _print_warning(text: str) -> None:
-    """Print a warning message."""
-    print(f"  ⚠ {text}")
-
-
-def _print_info(text: str) -> None:
-    """Print an info message."""
-    print(f"  ℹ {text}")
+from qwen3_tts.tools._shared import _format_size, print_header, print_success, print_warning, print_info
 
 
 def _get_models_size() -> int:
@@ -85,23 +63,23 @@ def uninstall_models(dry_run: bool = False) -> None:
     models = _list_cached_models()
 
     if not models:
-        _print_info("No TTS models found in cache.")
+        print_info("No TTS models found in cache.")
         return
 
     size_bytes = _get_models_size()
-    _print_header(f"Models to remove ({len(models)} model(s), {_format_size(size_bytes)})")
+    print_header(f"Models to remove ({len(models)} model(s), {_format_size(size_bytes)})")
 
     for model in models:
         print(f"  - {model}")
 
     if dry_run:
-        _print_info("Dry run mode: no files were deleted.")
+        print_info("Dry run mode: no files were deleted.")
         return
 
     # Confirm removal
     response = input(f"\n  Delete {len(models)} model(s)? [y/N]: ").strip().lower()
     if response != "y":
-        _print_info("Cancelled.")
+        print_info("Cancelled.")
         return
 
     deleted = 0
@@ -110,11 +88,11 @@ def uninstall_models(dry_run: bool = False) -> None:
         try:
             shutil.rmtree(model_path)
             deleted += 1
-            _print_success(f"Removed: {model}")
+            print_success(f"Removed: {model}")
         except OSError as e:
-            _print_warning(f"Failed to remove {model}: {e}")
+            print_warning(f"Failed to remove {model}: {e}")
 
-    _print_success(f"Deleted {deleted} model(s), freed {_format_size(size_bytes)}")
+    print_success(f"Deleted {deleted} model(s), freed {_format_size(size_bytes)}")
 
 
 def uninstall_voices(dry_run: bool = False) -> None:
@@ -124,7 +102,7 @@ def uninstall_voices(dry_run: bool = False) -> None:
         dry_run: If True, preview what would be deleted without deleting.
     """
     if not VOICE_PROMPTS_DIR.exists():
-        _print_info("No voice prompts directory found.")
+        print_info("No voice prompts directory found.")
         return
 
     # Count files by type
@@ -135,30 +113,30 @@ def uninstall_voices(dry_run: bool = False) -> None:
     total_files = len(pt_files) + len(wav_files) + len(txt_files)
 
     if total_files == 0:
-        _print_info("No voice prompts found.")
+        print_info("No voice prompts found.")
         return
 
-    _print_header(f"Voice prompts to remove ({total_files} file(s))")
-    _print_info(f"  .pt files: {len(pt_files)}")
-    _print_info(f"  .wav files: {len(wav_files)}")
-    _print_info(f"  .txt files: {len(txt_files)}")
+    print_header(f"Voice prompts to remove ({total_files} file(s))")
+    print_info(f"  .pt files: {len(pt_files)}")
+    print_info(f"  .wav files: {len(wav_files)}")
+    print_info(f"  .txt files: {len(txt_files)}")
 
     if dry_run:
-        _print_info("Dry run mode: no files were deleted.")
+        print_info("Dry run mode: no files were deleted.")
         return
 
     # Confirm removal
     response = input(f"\n  Delete {total_files} file(s)? [y/N]: ").strip().lower()
     if response != "y":
-        _print_info("Cancelled.")
+        print_info("Cancelled.")
         return
 
     try:
         shutil.rmtree(VOICE_PROMPTS_DIR)
         os.makedirs(VOICE_PROMPTS_DIR, exist_ok=True)
-        _print_success(f"Deleted all voice prompts ({total_files} file(s))")
+        print_success(f"Deleted all voice prompts ({total_files} file(s))")
     except OSError as e:
-        _print_warning(f"Failed to remove voice prompts: {e}")
+        print_warning(f"Failed to remove voice prompts: {e}")
 
 
 def uninstall_config(dry_run: bool = False) -> None:
@@ -168,14 +146,14 @@ def uninstall_config(dry_run: bool = False) -> None:
         dry_run: If True, preview what would be done without doing it.
     """
     if not CONFIG_PATH.exists():
-        _print_info("No config.json found (will be created with defaults on next use).")
+        print_info("No config.json found (will be created with defaults on next use).")
         return
 
-    _print_header("Config reset to defaults")
-    _print_info("This will reset config.json to default values.")
+    print_header("Config reset to defaults")
+    print_info("This will reset config.json to default values.")
 
     if dry_run:
-        _print_info("Dry run mode: config was not modified.")
+        print_info("Dry run mode: config was not modified.")
         return
 
     # Import default config generation
@@ -185,9 +163,9 @@ def uninstall_config(dry_run: bool = False) -> None:
     backup_path = CONFIG_PATH.with_suffix(".backup")
     try:
         shutil.copy2(CONFIG_PATH, backup_path)
-        _print_info(f"Backup saved to: {backup_path}")
+        print_info(f"Backup saved to: {backup_path}")
     except OSError as e:
-        _print_warning(f"Could not create backup: {e}")
+        print_warning(f"Could not create backup: {e}")
 
     # Load current config to preserve some settings
     try:
@@ -273,12 +251,12 @@ def uninstall_config(dry_run: bool = False) -> None:
     with open(CONFIG_PATH, "w") as f:
         json.dump(default_config, f, indent=2)
 
-    _print_success("Config reset to defaults (backup saved)")
+    print_success("Config reset to defaults (backup saved)")
 
 
 def print_environment_instructions() -> None:
     """Print instructions for removing conda environments."""
-    _print_header("Conda Environment Removal")
+    print_header("Conda Environment Removal")
 
     # Detect which environments exist
     conda_envs = []
@@ -305,7 +283,7 @@ def print_environment_instructions() -> None:
             if env_path.exists():
                 conda_envs.append(env_name)
 
-    _print_info("To remove the conda environments, run these commands:")
+    print_info("To remove the conda environments, run these commands:")
     print()
     print("  # First, deactivate the current environment:")
     print("  conda deactivate")
@@ -322,7 +300,7 @@ def print_environment_instructions() -> None:
         print(f"  rm -f {HISTORY_FILE} {TOKEN_FILE}")
         print(f"  rm -f {PID_FILE} {LOG_FILE}")
     else:
-        _print_info("No conda environments found.")
+        print_info("No conda environments found.")
 
 
 def uninstall_all(dry_run: bool = False) -> None:
@@ -331,7 +309,7 @@ def uninstall_all(dry_run: bool = False) -> None:
     Args:
         dry_run: If True, preview what would be done without doing it.
     """
-    _print_header("TTS Uninstall - All Components")
+    print_header("TTS Uninstall - All Components")
 
     uninstall_models(dry_run)
     uninstall_voices(dry_run)
