@@ -32,13 +32,7 @@ Usage:
         print(f"Memory: {stats['mps_memory_allocated_mb']}MB")
 """
 
-from qwen3_tts.server.client._base import (
-    _ClientBase,
-    _normalize_speaker_name,
-    _resolve_voice_alias,
-    _build_gen_params,
-    MAX_BUFFER_SIZE,
-)
+from qwen3_tts.server.client._base import _ClientBase
 from qwen3_tts.server.client.generator import GeneratorMixin
 from qwen3_tts.server.client.models import ModelManagerMixin
 from qwen3_tts.server.client.voices import VoiceManagerMixin

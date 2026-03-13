@@ -199,15 +199,16 @@ class TestClientHelpers(unittest.TestCase):
 
     def test_resolve_voice_alias_helper_exists(self):
         """_resolve_voice_alias helper should exist."""
-        from qwen3_tts.server import client
+        from qwen3_tts.server.client import _base
         self.assertTrue(
-            hasattr(client, '_resolve_voice_alias'),
+            hasattr(_base, '_resolve_voice_alias'),
             "_resolve_voice_alias helper should exist"
         )
 
     def test_resolve_voice_alias_returns_updated_params(self):
         """_resolve_voice_alias should return updated parameters."""
-        from qwen3_tts.server.client import TTSClient, _resolve_voice_alias
+        from qwen3_tts.server.client import TTSClient
+        from qwen3_tts.server.client._base import _resolve_voice_alias
         tmp = self._make_config({
             "server": {"host": "127.0.0.1", "port": 5123},
             "aliases": {"my_voice": {"prompt": "custom.pt", "mode": "clone"}},
@@ -232,7 +233,8 @@ class TestClientHelpers(unittest.TestCase):
 
     def test_resolve_voice_alias_preserves_user_overrides(self):
         """_resolve_voice_alias should not override user-provided values."""
-        from qwen3_tts.server.client import TTSClient, _resolve_voice_alias
+        from qwen3_tts.server.client import TTSClient
+        from qwen3_tts.server.client._base import _resolve_voice_alias
         tmp = self._make_config({
             "server": {"host": "127.0.0.1", "port": 5123},
             "aliases": {"my_voice": {"prompt": "alias.pt", "mode": "clone"}},
@@ -257,15 +259,16 @@ class TestClientHelpers(unittest.TestCase):
 
     def test_build_gen_params_helper_exists(self):
         """_build_gen_params helper should exist."""
-        from qwen3_tts.server import client
+        from qwen3_tts.server.client import _base
         self.assertTrue(
-            hasattr(client, '_build_gen_params'),
+            hasattr(_base, '_build_gen_params'),
             "_build_gen_params helper should exist"
         )
 
     def test_build_gen_params_uses_config_defaults(self):
         """_build_gen_params should use config defaults."""
-        from qwen3_tts.server.client import TTSClient, _build_gen_params
+        from qwen3_tts.server.client import TTSClient
+        from qwen3_tts.server.client._base import _build_gen_params
         tmp = self._make_config({
             "server": {"host": "127.0.0.1", "port": 5123},
             "generation": {"temperature": 0.8, "top_k": 40},
@@ -289,7 +292,8 @@ class TestClientHelpers(unittest.TestCase):
 
     def test_build_gen_params_overrides_with_user_values(self):
         """_build_gen_params should use user-provided values over config."""
-        from qwen3_tts.server.client import TTSClient, _build_gen_params
+        from qwen3_tts.server.client import TTSClient
+        from qwen3_tts.server.client._base import _build_gen_params
         tmp = self._make_config({
             "server": {"host": "127.0.0.1", "port": 5123},
             "generation": {"temperature": 0.8, "top_k": 40},
@@ -329,17 +333,18 @@ class TestStreamingBufferOverflowProtection(unittest.TestCase):
         return f.name
 
     def test_max_buffer_size_constant_exists(self):
-        """MAX_BUFFER_SIZE constant should exist in client module."""
-        from qwen3_tts.server import client
+        """MAX_BUFFER_SIZE constant should exist in client._base module."""
+        from qwen3_tts.server.client import _base
         self.assertTrue(
-            hasattr(client, 'MAX_BUFFER_SIZE'),
+            hasattr(_base, 'MAX_BUFFER_SIZE'),
             "MAX_BUFFER_SIZE constant should exist"
         )
-        self.assertEqual(client.MAX_BUFFER_SIZE, 100 * 1024 * 1024)  # 100MB
+        self.assertEqual(_base.MAX_BUFFER_SIZE, 100 * 1024 * 1024)  # 100MB
 
     def test_streaming_buffer_overflow_raises_error(self):
         """generate_streaming should raise RuntimeError when buffer exceeds limit."""
-        from qwen3_tts.server.client import TTSClient, MAX_BUFFER_SIZE
+        from qwen3_tts.server.client import TTSClient
+        from qwen3_tts.server.client._base import MAX_BUFFER_SIZE
         import struct
 
         tmp = self._make_config()
@@ -389,15 +394,15 @@ class TestSpeakerNameNormalization(unittest.TestCase):
 
     def test_normalize_speaker_name_helper_exists(self):
         """_normalize_speaker_name helper should exist."""
-        from qwen3_tts.server import client
+        from qwen3_tts.server.client import _base
         self.assertTrue(
-            hasattr(client, '_normalize_speaker_name'),
+            hasattr(_base, '_normalize_speaker_name'),
             "_normalize_speaker_name helper should exist"
         )
 
     def test_normalize_speaker_name_converts_to_lowercase(self):
         """_normalize_speaker_name should convert to lowercase."""
-        from qwen3_tts.server.client import _normalize_speaker_name
+        from qwen3_tts.server.client._base import _normalize_speaker_name
         self.assertEqual(_normalize_speaker_name("RYAN"), "ryan")
         self.assertEqual(_normalize_speaker_name("Ryan"), "ryan")
         self.assertEqual(_normalize_speaker_name("ryan"), "ryan")
@@ -406,7 +411,7 @@ class TestSpeakerNameNormalization(unittest.TestCase):
 
     def test_normalize_speaker_name_handles_none(self):
         """_normalize_speaker_name should return None for None input."""
-        from qwen3_tts.server.client import _normalize_speaker_name
+        from qwen3_tts.server.client._base import _normalize_speaker_name
         self.assertIsNone(_normalize_speaker_name(None))
 
     def test_generate_normalizes_speaker_name(self):
