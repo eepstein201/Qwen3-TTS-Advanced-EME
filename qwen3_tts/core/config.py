@@ -126,17 +126,17 @@ def save_config(config):
 
 
 # ---------------------------------------------------------------------------
-# ConfigProvider Protocol — enables dependency injection in tests and server
+# ConfigLoader Protocol — enables dependency injection in tests and server
 # ---------------------------------------------------------------------------
 
 @runtime_checkable
-class ConfigProvider(Protocol):
-    """Protocol for config providers — allows DI in tests and server."""
+class ConfigLoader(Protocol):
+    """Protocol for config loaders — allows DI in tests and server."""
 
     def load(self) -> dict: ...
 
 
-class DefaultConfigProvider:
+class DefaultConfigLoader:
     """Default implementation that reads from config.json on disk."""
 
     def load(self) -> dict:

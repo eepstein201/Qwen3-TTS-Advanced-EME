@@ -12,7 +12,8 @@ import numpy as np
 
 from qwen3_tts.core.config import (
     CONFIG_PATH,
-    ConfigProvider,
+    ConfigLoader,
+    DefaultConfigLoader,
     get_backend,
     get_torch_dtype_name,
     load_config,
@@ -21,6 +22,7 @@ from qwen3_tts.core.engine.text_processing import _normalize_text, _split_text
 
 logger = logging.getLogger("tts.engine")
 
+_DEFAULT_CONFIG_LOADER = DefaultConfigLoader()
 
 # ---------------------------------------------------------------------------
 # Strategy registries for OCP-compliant dispatch
@@ -611,7 +613,7 @@ def run_inference(model, text, mode, gen_params, language="English",
         all_audio.append(wav)
 
     # Combine chunks: use silence_gap_seconds from config, or crossfade (default 50ms)
-    config = config_provider.load() if config_provider is not None else load_config()
+    config = (config_provider or _DEFAULT_CONFIG_LOADER).load()
     silence_gap = config.get("generation", {}).get("silence_gap_seconds", 0.0)
     if silence_gap > 0:
         result = _crossfade_chunks(all_audio, sample_rate, crossfade_ms=0, silence_gap_s=silence_gap)
@@ -716,7 +718,7 @@ def run_inference_streaming(model, text, mode, gen_params, language="English",
     Yields:
         (audio_chunk, sample_rate) tuples where audio_chunk is float32 numpy array.
     """
-    config = config_provider.load() if config_provider is not None else load_config()
+    config = (config_provider or _DEFAULT_CONFIG_LOADER).load()
     backend = get_backend()
 
     if backend == "mlx":
