@@ -422,6 +422,38 @@ CLI and UI parse the `recovery` field to show actionable guidance.
 - **NLTK punkt tokenizer** — Moderate-weight alternative to pySBD; requires punkt data download at first use. Good for multi-language academic text.
 - **NVIDIA NeMo text processing** — Production-grade normalization covering dates, times, measures, addresses, financial data. ~500MB+ in new dependencies; suitable for high-volume or broadcast-quality TTS.
 
+## Upstream Dependency Monitoring
+
+Periodically check (monthly) for upstream fixes that could remove local workarounds or require code updates:
+
+### Workarounds (can be removed when upstream fixes land)
+
+| Workaround | Location | Upstream Issue | Check |
+|------------|----------|----------------|-------|
+| Mistral tokenizer regex warning suppression | `model_loader.py:313-318` | [mlx-audio](https://github.com/Blaizzy/mlx-audio) | File issue requesting `fix_mistral_regex` support or upstream warning suppression |
+| `fix_mistral_regex=True` for torch backend | `model_loader.py:272` | [transformers #36615](https://github.com/huggingface/transformers/pull/36615) | Check if warning detection improved for non-Mistral models |
+
+**Rationale:** Qwen3-TTS is NOT a Mistral model, but the tokenizer regex warning fires for many non-Mistral models due to overly aggressive pattern detection. The warning suppression is safe and has no functional impact.
+
+### Breaking Changes to Monitor
+
+| Dependency | Current Version | Concern | What to Check |
+|------------|-----------------|---------|---------------|
+| **gradio** | 6.x | Gradio 6 removed `visible=False` from DOM; `.then()` chains break after JS-only steps | [Gradio changelog](https://github.com/gradio-app/gradio/releases) for fixes to JS chain handling |
+| **mlx-audio** | latest | Qwen3-TTS model support, tokenizer loading | [mlx-audio releases](https://github.com/Blaizzy/mlx-audio/releases) for Qwen3-TTS improvements |
+| **transformers** | 4.x | `fix_mistral_regex` parameter, Qwen3 tokenizer support | [transformers releases](https://github.com/huggingface/transformers/releases) for tokenizer improvements |
+| **pyrubberband** | 0.3.x | Audio time-stretching fallback to librosa | Check if pyrubberband installation issues on Apple Silicon resolved |
+| **pyloudnorm** | 0.1.x | LUFS normalization | Check for API changes affecting `audio_processing.py` |
+
+### Security Updates
+
+| Dependency | Why Monitor | Check Frequency |
+|------------|-------------|-----------------|
+| **torch** | CUDA/memory security patches | Monthly |
+| **numpy** | CVE fixes | Monthly |
+| **pillow** | Image processing security | Monthly |
+| **starlette/fastapi** | Web server security | Monthly |
+
 ## Code Review Status (2026-03-03)
 
 Multi-agent review (8 agents, 56 deduplicated findings). **P1+P2 implemented** (R-1 through R-12). P3/P4 roadmap at `docs/plans/development-roadmap.md`.

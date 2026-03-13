@@ -289,6 +289,8 @@ def _load_model_mlx(model_type):
     Uses mlx-community quantized models via mlx_audio.tts.utils.load_model.
     Retries up to 3 times with exponential backoff on download/load failures.
     """
+    import warnings
+
     try:
         from mlx_audio.tts.utils import load_model as mlx_load_model
     except ImportError:
@@ -304,7 +306,17 @@ def _load_model_mlx(model_type):
     t0 = time.time()
 
     def _do_load():
-        model = mlx_load_model(repo_id)
+        # Suppress spurious Mistral tokenizer regex warning for Qwen3-TTS models.
+        # This warning is triggered by transformers for non-Mistral models that share
+        # similar tokenizer patterns. Qwen3-TTS is NOT a Mistral model and does not
+        # need the fix_mistral_regex flag. See: https://huggingface.co/mistralai/Mistral-Small-3.1-24B-Instruct-2503/discussions/84
+        with warnings.catch_warnings():
+            warnings.filterwarnings(
+                "ignore",
+                message=".*incorrect regex pattern.*fix_mistral_regex.*",
+                category=UserWarning,
+            )
+            model = mlx_load_model(repo_id)
         elapsed = time.time() - t0
         logger.info("Loaded %s model in %.1fs [mlx]", model_type, elapsed)
         return model
