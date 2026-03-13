@@ -36,13 +36,13 @@ BOLD = "\033[1m"
 
 
 def _print_header(text: str) -> None:
-    """Print a section header."""
+    """Print a section header with color."""
     print(f"\n{BOLD}{BLUE}  {text}{RESET}")
     print(f"  {'=' * (len(text) + 2)}")
 
 
 def _print_check(label: str, status: str, details: str = "") -> None:
-    """Print a check result with status indicator."""
+    """Print a check result with colored status indicator."""
     if status == "pass":
         indicator = f"{GREEN}✓{RESET}"
     elif status == "warn":
@@ -56,7 +56,7 @@ def _print_check(label: str, status: str, details: str = "") -> None:
 
 
 def _print_info(label: str, details: str) -> None:
-    """Print an info item."""
+    """Print an info item with color."""
     print(f"  {BLUE}ℹ{RESET} {label}")
     if details:
         print(f"    {details}")
