@@ -349,7 +349,7 @@ def _run_inference_mlx(model, text, mode, gen_params, language="English",
 def _run_inference_mlx_streaming(model, text, mode, gen_params, language="English",
                                   voice_prompt=None, voice_description=None,
                                   speaker=None, instruct=None,
-                                  x_vector_only_mode=False):
+                                  x_vector_only_mode=False, config=None):
     """Run TTS inference using the MLX backend, yielding audio chunks as they generate.
 
     This is a generator that yields (audio_chunk, sample_rate) tuples as they
@@ -366,6 +366,7 @@ def _run_inference_mlx_streaming(model, text, mode, gen_params, language="Englis
         speaker: Speaker name string (custom mode).
         instruct: Style instruction string (custom mode).
         x_vector_only_mode: If True, use empty ref_text for speaker-embedding-only clone.
+        config: Pre-loaded config dict (optional, avoids redundant disk read).
 
     Yields:
         (audio_chunk, sample_rate) tuples where audio_chunk is a float32 numpy array.
@@ -373,7 +374,8 @@ def _run_inference_mlx_streaming(model, text, mode, gen_params, language="Englis
     import mlx.core as mx
 
     # Read defaults from config so MLX matches torch behavior (R-17)
-    config = load_config()
+    if config is None:
+        config = load_config()
     params = _get_mlx_gen_params(gen_params, config)
 
     if mode == "clone":
@@ -714,6 +716,7 @@ def run_inference_streaming(model, text, mode, gen_params, language="English",
     Yields:
         (audio_chunk, sample_rate) tuples where audio_chunk is float32 numpy array.
     """
+    config = config_provider.load() if config_provider is not None else load_config()
     backend = get_backend()
 
     if backend == "mlx":
@@ -722,7 +725,7 @@ def run_inference_streaming(model, text, mode, gen_params, language="English",
         yield from _run_inference_mlx_streaming(
             model, text, mode, gen_params, language,
             voice_prompt, voice_description, speaker, instruct,
-            x_vector_only_mode=x_vector_only_mode,
+            x_vector_only_mode=x_vector_only_mode, config=config,
         )
     else:
         # Torch fallback: chunk the text and yield per-chunk audio

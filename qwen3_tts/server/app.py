@@ -816,7 +816,7 @@ async def update_model_config(request: Request, req: UpdateModelConfigRequest, _
             detail=f"Invalid mlx_quantization: {new_quant}. Valid: {', '.join(valid_quants)}",
         )
 
-    config = load_config()
+    config = _get_app_config()
     if "advanced" not in config:
         config["advanced"] = {}
 
@@ -873,7 +873,7 @@ async def update_startup_config(request: Request, req: UpdateStartupConfigReques
 
     valid_types = ("clone", "design", "custom")
     changes = []
-    config = load_config()
+    config = _get_app_config()
     if "models" not in config:
         config["models"] = {}
 
@@ -973,7 +973,7 @@ async def delete_prompt(request: Request, req: DeletePromptRequest, _auth: None 
 
     # If deleted prompt was the default, clear it
     try:
-        config = load_config()
+        config = _get_app_config()
         current_default = config.get("default_clone_prompt", "")
         default_base = _strip_extension(current_default)
         if default_base == base:
@@ -1041,7 +1041,7 @@ async def rename_prompt(request: Request, req: RenamePromptRequest, _auth: None 
 
     # Update default if the renamed prompt was the default
     try:
-        config = load_config()
+        config = _get_app_config()
         current_default = config.get("default_clone_prompt", "")
         default_base = _strip_extension(current_default)
         if default_base == old_base:
