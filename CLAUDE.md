@@ -238,6 +238,11 @@ All other endpoints require `Authorization: Bearer <token>` (token from `~/.voic
 
 ## Testing
 
+**Primary test environment:** `qwen3-tts-mlx` conda env (M2 Pro, MLX backend). Always test here first.
+```bash
+source ~/miniforge3/etc/profile.d/conda.sh && conda activate qwen3-tts-mlx
+```
+
 **Preferred: Batch runner** (prevents hangs from cascading failures):
 ```bash
 # Run all batches
@@ -276,6 +281,7 @@ python -m unittest discover -v tests/
 | 3: Server Infrastructure | fastapi_server, fastapi_endpoints, client | High | 180s |
 | 4: Engine & UI | engine, generate_server_fallback, ui_headless | Highest | 240s |
 | 5: Optional | flash_attn_install | Low | 30s |
+| 6: E2E Playwright | e2e_playwright (requires playwright + running server) | Highest | 600s |
 
 560+ tests across 17 test files. No GPU, models, or running server required. Tests auto-skip when optional deps (`soundfile`, `gradio`, `fastapi`, `click`, `pytest`) are missing — run in a conda env for full coverage.
 
@@ -473,3 +479,11 @@ Three bugs in `tts server stop` when encountering orphan servers (no PID file, s
 - `find_pid_by_port(port)` in config.py: discovers PID via `lsof -ti :PORT` when PID file is missing
 - `stop()` auth failure detection: explicitly handles 401 responses, only polls if shutdown was accepted (200)
 - `stop()` verified termination: final `is_server_running()` check before claiming success; exits 1 with manual kill command if server still alive
+
+### Gradio 6 Generate button fix (2026-03-12)
+Generation button was broken: JS streaming completed but Gradio Status textbox stayed at "Connecting..." forever.
+**Root cause:** Gradio 6 removes `visible=False` components from the DOM entirely, and `.then()` chains break after JS-only steps (`fn=None, js=...`).
+- Hidden data-flow components now use `elem_classes=["gr-hidden"]` + CSS `.gr-hidden { display: none !important; }` instead of `visible=False`
+- JS-only `.then()` steps now include `fn=lambda x: x` passthrough alongside `js=...` to keep the chain alive
+- CSS passed via `demo.launch(css=...)` (Gradio 6 moved `css` from `Blocks()` to `launch()`)
+- E2E Playwright tests: fixed `unittest.SkipTest` being swallowed by `except Exception: pass`

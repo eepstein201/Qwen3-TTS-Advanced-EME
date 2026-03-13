@@ -10,7 +10,114 @@ Wire format (from /generate-stream):
 """
 
 
+def get_script_reexecutor_fn():
+    """Return JS function body for demo.load(js=...) to re-execute innerHTML scripts.
+
+    This is the same as get_script_reexecutor_js() but without the <script> wrapper,
+    suitable for use with Gradio's demo.load(js=...) parameter which executes
+    JavaScript directly.
+    """
+    return """() => {
+        console.log('[ScriptReexecutor] Re-executing scripts from innerHTML...');
+
+        // Re-execute module scripts (like StreamingPlayer)
+        var moduleScripts = document.querySelectorAll('script[type="module"]');
+        moduleScripts.forEach(function(s) {
+            // Only process inline module scripts with substantial content
+            if (s.textContent && s.textContent.length > 100 && !s.src) {
+                try {
+                    var blob = new Blob([s.textContent], { type: 'application/javascript' });
+                    var url = URL.createObjectURL(blob);
+                    var ns = document.createElement('script');
+                    ns.type = 'module';
+                    ns.src = url;
+                    document.head.appendChild(ns);
+                    console.log('[ScriptReexecutor] Re-injected module script');
+                } catch(e) {
+                    console.error('[ScriptReexecutor] Failed to re-inject module:', e);
+                }
+            }
+        });
+
+        // Re-execute inline scripts that create elements (like WaveSurfer loader)
+        var inlineScripts = document.querySelectorAll('script:not([type]):not([src])');
+        inlineScripts.forEach(function(s) {
+            if (s.textContent && s.textContent.indexOf('createElement') >= 0) {
+                try {
+                    eval(s.textContent);
+                    console.log('[ScriptReexecutor] Re-executed inline script');
+                } catch(e) {
+                    console.error('[ScriptReexecutor] Failed to re-execute inline:', e);
+                }
+            }
+        });
+    }"""
+    """Return JS function body for demo.load(js=...) to re-execute innerHTML scripts.
+
+    This is the same as get_script_reexecutor_js() but without the <script> wrapper,
+    suitable for use with Gradio's demo.load(js=...) parameter which executes
+    JavaScript directly.
+    """
+    return """() => {
+        console.log('[ScriptReexecutor] Re-executing scripts from innerHTML...');
+
+        // Re-execute module scripts (like StreamingPlayer)
+        var moduleScripts = document.querySelectorAll('script[type="module"]');
+        moduleScripts.forEach(function(s) {
+            // Only process inline module scripts with substantial content
+            if (s.textContent && s.textContent.length > 100 && !s.src) {
+                try {
+                    var blob = new Blob([s.textContent], { type: 'application/javascript' });
+                    var url = URL.createObjectURL(blob);
+                    var ns = document.createElement('script');
+                    ns.type = 'module';
+                    ns.src = url;
+                    document.head.appendChild(ns);
+                    console.log('[ScriptReexecutor] Re-injected module script');
+                } catch(e) {
+                    console.error('[ScriptReexecutor] Failed to re-inject module:', e);
+                }
+            }
+        });
+
+        // Re-execute inline scripts that create elements (like WaveSurfer loader)
+        var inlineScripts = document.querySelectorAll('script:not([type]):not([src])');
+        inlineScripts.forEach(function(s) {
+            if (s.textContent && s.textContent.indexOf('createElement') >= 0) {
+                try {
+                    eval(s.textContent);
+                    console.log('[ScriptReexecutor] Re-executed inline script');
+                } catch(e) {
+                    console.error('[ScriptReexecutor] Failed to re-execute inline:', e);
+                }
+            }
+        });
+    }"""
+
+
 def get_wavesurfer_loader_js():
+    """Return a <script> tag that loads WaveSurfer 7.x from CDN.
+
+    Injects the script once into the page and exposes window.WaveSurfer.
+    Includes a fallback check so callers know if loading failed.
+    """
+    return """
+    <script>
+    (function() {
+        if (window.WaveSurfer) return;
+        var s = document.createElement('script');
+        s.src = 'https://unpkg.com/wavesurfer.js@7/dist/wavesurfer.esm.js';
+        s.type = 'module';
+        s.onload = function() { console.log('[WaveSurfer] Loaded from CDN'); };
+        s.onerror = function() {
+            console.warn('[WaveSurfer] CDN load failed, falling back to <audio>');
+            window._wavesurferFailed = true;
+        };
+        document.head.appendChild(s);
+    })();
+    </script>
+    """
+
     """Return a <script> tag that loads WaveSurfer 7.x from CDN.
 
     Injects the script once into the page and exposes window.WaveSurfer.
@@ -494,6 +601,9 @@ def get_streaming_player_js():
     }
 
     window.getOrCreatePlayer = getOrCreatePlayer;
+
+    // Diagnostic: confirm module loaded and function is available
+    console.log('[StreamingPlayer] Module loaded, getOrCreatePlayer =', typeof window.getOrCreatePlayer);
     """
 
 
@@ -508,12 +618,12 @@ def get_player_html(tab_id):
         <div id="{tab_id}-waveform" style="width: 100%; min-height: 80px; background: #1a1a2e;
              border-radius: 8px; margin-bottom: 8px; overflow: hidden;"></div>
         <div style="display: flex; align-items: center; gap: 8px;">
-            <button id="{tab_id}-play-btn" onclick="window.getOrCreatePlayer('{tab_id}').play()"
+            <button id="{tab_id}-play-btn" onclick="if (window.getOrCreatePlayer) window.getOrCreatePlayer('{tab_id}').play()"
                     disabled style="padding: 6px 16px; border-radius: 4px; border: 1px solid #555;
                     background: #2a2a3e; color: #ccc; cursor: pointer;">
                 Play / Pause
             </button>
-            <button id="{tab_id}-download-btn" onclick="window.getOrCreatePlayer('{tab_id}').download()"
+            <button id="{tab_id}-download-btn" onclick="if (window.getOrCreatePlayer) window.getOrCreatePlayer('{tab_id}').download()"
                     disabled style="padding: 6px 16px; border-radius: 4px; border: 1px solid #555;
                     background: #2a2a3e; color: #ccc; cursor: pointer;">
                 Download
@@ -541,6 +651,10 @@ def get_load_into_player_js(tab_id):
             const url = (typeof audioData === 'object' && audioData.url) ? audioData.url
                       : (typeof audioData === 'string') ? audioData : null;
             if (url) {{
+                if (typeof window.getOrCreatePlayer !== 'function') {{
+                    console.error('[LoadPlayer] getOrCreatePlayer not available');
+                    return audioData;
+                }}
                 const player = window.getOrCreatePlayer('{tab_id}');
                 player.loadFile(url);
             }}
@@ -565,6 +679,14 @@ def get_streaming_trigger_js(tab_id):
         if (!config || !config.server_url) {{
             return '';
         }}
+
+        // Guard: check if player module is loaded
+        if (typeof window.getOrCreatePlayer !== 'function') {{
+            console.error('[StreamingTrigger] getOrCreatePlayer type:', typeof window.getOrCreatePlayer);
+            console.error('[StreamingTrigger] window._streamingPlayers:', window._streamingPlayers);
+            return 'ERROR:Audio player not loaded. Refresh the page and try again.';
+        }}
+
         try {{
             const player = window.getOrCreatePlayer('{tab_id}');
             const blob = await player.startStreaming(
@@ -605,6 +727,10 @@ def get_cancel_js(tab_id):
     return f"""
     async (config) => {{
         try {{
+            if (typeof window.getOrCreatePlayer !== 'function') {{
+                console.error('[Cancel] getOrCreatePlayer not available');
+                return 'ERROR:Audio player not loaded';
+            }}
             const player = window.getOrCreatePlayer('{tab_id}');
             player.stop();
             if (config && config.server_url && config.auth_token) {{

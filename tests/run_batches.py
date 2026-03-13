@@ -89,6 +89,15 @@ BATCHES = {
         ],
         "timeout": 60,
     },
+    # E2E browser tests (requires playwright + running TTS server)
+    6: {
+        "name": "E2E Playwright",
+        "description": "Browser-based E2E tests (requires playwright, running server)",
+        "modules": [
+            "tests.test_e2e_playwright",
+        ],
+        "timeout": 600,
+    },
 }
 
 

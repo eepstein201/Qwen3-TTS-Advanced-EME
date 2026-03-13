@@ -1,7 +1,7 @@
 # Qwen3-TTS Makefile
 # Provides convenient shortcuts for common development tasks
 
-.PHONY: help install test test-batch test-core test-voice test-server test-engine clean lint format solid-score coverage
+.PHONY: help install test test-batch test-core test-voice test-server test-engine test-e2e clean lint format solid-score coverage
 
 # Default target
 help:
@@ -19,6 +19,7 @@ help:
 	@echo "  test-voice       Batch 2: Voice & CLI"
 	@echo "  test-server      Batch 3: Server infrastructure"
 	@echo "  test-engine      Batch 4: Engine & UI"
+	@echo "  test-e2e         Batch 6: E2E Playwright browser tests"
 	@echo "  clean            Remove cache and runtime files"
 	@echo "  lint             Run linters (if installed)"
 	@echo "  format           Format code with black (if installed)"
@@ -57,6 +58,10 @@ test-server:
 
 test-engine:
 	python -m unittest tests.test_engine tests.test_generate_server_fallback tests.test_ui_headless -v
+
+# E2E browser tests (requires playwright + running server)
+test-e2e:
+	python tests/run_batches.py --batch 6
 
 # Full test suite (may hang)
 test:

@@ -55,6 +55,7 @@ from qwen3_tts.interface.wavesurfer_js import (
     get_streaming_trigger_js,
     get_cancel_js,
     get_load_into_player_js,
+    get_script_reexecutor_fn,
 )
 
 # Derive speaker choices from canonical source
@@ -884,13 +885,16 @@ def _build_generate_buttons_and_output(tab_id):
         label="Audio Player",
     )
     # Hidden gr.Audio for file URL conversion (Gradio serves local files as HTTP URLs)
-    audio_url_converter = gr.Audio(visible=False)
+    # NOTE: Use elem_classes=["gr-hidden"] instead of visible=False because Gradio 6
+    # removes visible=False components from the DOM entirely, breaking JS↔Python
+    # data flow in .then() chains.
+    audio_url_converter = gr.Audio(elem_classes=["gr-hidden"])
     status = gr.Textbox(label="Status", interactive=False)
     # Hidden components for JS<->Python data flow
-    stream_config = gr.JSON(visible=False)
-    result_data = gr.Textbox(visible=False, elem_id=f"{tab_id}-result-data")
-    mode_hidden = gr.Textbox(value=tab_id, visible=False)
-    text_hidden = gr.Textbox(visible=False)
+    stream_config = gr.JSON(elem_classes=["gr-hidden"])
+    result_data = gr.Textbox(elem_classes=["gr-hidden"], elem_id=f"{tab_id}-result-data")
+    mode_hidden = gr.Textbox(value=tab_id, elem_classes=["gr-hidden"])
+    text_hidden = gr.Textbox(elem_classes=["gr-hidden"])
     return {
         "btn": btn, "cancel_btn": cancel_btn,
         "audio_url_converter": audio_url_converter,
@@ -936,6 +940,8 @@ def _wire_generation_tab(mode, btn, cancel_btn, status, stream_config, result_da
     if api_name:
         click_kwargs["api_name"] = api_name
 
+    # Gradio 6 breaks .then() chains after JS-only steps (fn=None, js=...).
+    # Workaround: provide a passthrough fn alongside js so the chain continues.
     btn.click(**click_kwargs).then(
         # Also capture the text input for the save step
         fn=lambda t: t,
@@ -944,7 +950,8 @@ def _wire_generation_tab(mode, btn, cancel_btn, status, stream_config, result_da
     ).then(
         # Step 2: JS reads config and starts streaming via fetch()
         # In Colab, config has no server_url so JS returns '' immediately
-        fn=None,
+        # NOTE: fn=passthrough required for Gradio 6 .then() chain continuity
+        fn=lambda x: x,
         js=get_streaming_trigger_js(mode),
         inputs=[stream_config],
         outputs=[result_data],
@@ -955,7 +962,8 @@ def _wire_generation_tab(mode, btn, cancel_btn, status, stream_config, result_da
         outputs=[audio_url_converter, status, status_html, history_state, history_df],
     ).then(
         # Step 4: Load saved file into tab's WaveSurfer player via hidden gr.Audio URL
-        fn=None,
+        # NOTE: fn=passthrough required for Gradio 6 .then() chain continuity
+        fn=lambda x: x,
         js=get_load_into_player_js(mode),
         inputs=[audio_url_converter],
         outputs=[audio_url_converter],
@@ -969,7 +977,8 @@ def _wire_generation_tab(mode, btn, cancel_btn, status, stream_config, result_da
         fn=cancel_streaming_generation,
         outputs=[status, status_html],
     ).then(
-        fn=None,
+        # NOTE: fn=passthrough required for Gradio 6 .then() chain continuity
+        fn=lambda x: x,
         js=get_cancel_js(mode),
         inputs=[stream_config],
         outputs=[status],
@@ -985,6 +994,8 @@ def build_ui():
         gr.Markdown("# Qwen3-TTS Web Interface")
 
         # Inject WaveSurfer.js and StreamingPlayer class
+        # Note: gr.HTML() uses innerHTML which doesn't execute <script> tags.
+        # We use demo.load(js=...) to re-execute these scripts after page load.
         gr.HTML(value=get_wavesurfer_loader_js() +
                 "<script type='module'>" + get_streaming_player_js() + "</script>")
 
@@ -1045,14 +1056,14 @@ def build_ui():
             )
             gr.HTML(value=get_player_html("history"))
             # Hidden gr.Audio for file URL conversion (Gradio serves local files as HTTP URLs)
-            history_audio_url = gr.Audio(visible=False)
+            history_audio_url = gr.Audio(elem_classes=["gr-hidden"])
 
         history_df.select(
             fn=on_history_select,
             inputs=[history_state],
             outputs=[history_audio_url],
         ).then(
-            fn=None,
+            fn=lambda x: x,
             js=get_load_into_player_js("history"),
             inputs=[history_audio_url],
             outputs=[history_audio_url],
@@ -1546,6 +1557,7 @@ def build_ui():
                 get_model_status_html("design"),
                 get_model_status_html("custom")
             ),
+            js=get_script_reexecutor_fn(),
             outputs=[clone_model_indicator, design_model_indicator, custom_model_indicator]
         )
 
@@ -1647,6 +1659,9 @@ def main():
         inbrowser=inbrowser,
         theme=gr.themes.Soft(),
         allowed_paths=allowed,
+        # Hide data-flow components that use elem_classes=["gr-hidden"]
+        # (Gradio 6 removes visible=False components from DOM, breaking JS↔Python chains)
+        css=".gr-hidden { display: none !important; }",
     )
 
 
