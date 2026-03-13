@@ -294,20 +294,24 @@ def _run_inference_mlx(model, text, mode, gen_params, language="English",
         ))
 
     elif mode == "custom":
+        # MLX generate_custom_voice doesn't accept max_new_tokens
+        custom_params = {k: v for k, v in params.items() if k != "max_new_tokens"}
         results = list(model.generate_custom_voice(
             text=text,
             speaker=speaker or "Ryan",
             language=language,
             instruct=instruct or "",
-            **params,
+            **custom_params,
         ))
 
     else:  # design
+        # MLX generate_voice_design doesn't accept max_new_tokens
+        design_params = {k: v for k, v in params.items() if k != "max_new_tokens"}
         results = list(model.generate_voice_design(
             text=text,
             instruct=voice_description or "",
             language=language,
-            **params,
+            **design_params,
         ))
 
     if not results:
@@ -393,22 +397,26 @@ def _run_inference_mlx_streaming(model, text, mode, gen_params, language="Englis
         )
 
     elif mode == "custom":
+        # MLX generate_custom_voice doesn't accept max_new_tokens
+        custom_params = {k: v for k, v in params.items() if k != "max_new_tokens"}
         generator = model.generate_custom_voice(
             text=text,
             speaker=speaker or "Ryan",
             language=language,
             instruct=instruct or "",
             stream=True,  # Enable streaming
-            **params,
+            **custom_params,
         )
 
     else:  # design
+        # MLX generate_voice_design doesn't accept max_new_tokens
+        design_params = {k: v for k, v in params.items() if k != "max_new_tokens"}
         generator = model.generate_voice_design(
             text=text,
             instruct=voice_description or "",
             language=language,
             stream=True,  # Enable streaming
-            **params,
+            **design_params,
         )
 
     chunk_count = 0
