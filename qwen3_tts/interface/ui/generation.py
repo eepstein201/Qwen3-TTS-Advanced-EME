@@ -161,7 +161,7 @@ def _save_completed_audio(base64_wav, mode, text, history_list, stream_config):
             f.write(audio_bytes)
 
         # Add to history
-        history_list = add_to_history(history_list, mode, text, output_path, {})
+        history_list = add_to_history(history_list, mode, text, output_path, 0)
 
         return output_path, f"Generated: {os.path.basename(output_path)}", format_status_display(), history_list, get_history_data(history_list)
 
@@ -232,7 +232,7 @@ def _generate_colab_fallback(base64_wav, mode, text, history_list, stream_config
             x_vector_only_mode=payload.get("x_vector_only_mode", False),
         )
 
-        history_list = add_to_history(history_list, mode, text, output_path, {"duration_sec": 0})
+        history_list = add_to_history(history_list, mode, text, output_path, 0)
         return (
             output_path,
             f"Generated: {os.path.basename(output_path)}",

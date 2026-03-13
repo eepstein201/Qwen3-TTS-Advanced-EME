@@ -1644,10 +1644,11 @@ class TestUICancelFunction(unittest.TestCase):
         from qwen3_tts.interface.ui import cancel_streaming_generation
         from unittest.mock import patch, MagicMock
 
-        mock_client = MagicMock()
-        mock_client.cancel_generation.return_value = {"status": "cancellation_requested"}
+        mock_response = MagicMock()
+        mock_response.status_code = 200
 
-        with patch("qwen3_tts.server.client.TTSClient", return_value=mock_client):
+        with patch("qwen3_tts.interface.ui.generation.is_server_running", return_value=True), \
+             patch("requests.post", return_value=mock_response):
             result = cancel_streaming_generation()
 
         # First element is status text
@@ -3152,15 +3153,17 @@ class TestClickCLI(unittest.TestCase):
             os.close(fd)
             temp_file_path = path
             mock_file.name = path
-            mock_file.write = MagicMock()
+            mock_file.write.side_effect = RuntimeError("Server error")
             mock_file.close = MagicMock()
             return mock_file
 
-        with patch('qwen3_tts.server.client.TTSClient') as mock_client_class, \
+        mock_resp = MagicMock()
+        mock_resp.status_code = 200
+        mock_resp.content = b"fake audio bytes"
+
+        with patch('qwen3_tts.interface.ui.voice_management.is_server_running', return_value=True), \
+             patch('requests.get', return_value=mock_resp), \
              patch('qwen3_tts.interface.ui.voice_management.tempfile.NamedTemporaryFile', side_effect=mock_named_temp_file):
-            mock_client = MagicMock()
-            mock_client.preview_prompt.side_effect = RuntimeError("Server error")
-            mock_client_class.return_value = mock_client
 
             from qwen3_tts.interface.ui import preview_voice
             result = preview_voice("test_prompt")
@@ -3195,11 +3198,13 @@ class TestClickCLI(unittest.TestCase):
             mock_file.close = MagicMock()
             return mock_file
 
-        with patch('qwen3_tts.server.client.TTSClient') as mock_client_class, \
+        mock_resp = MagicMock()
+        mock_resp.status_code = 200
+        mock_resp.content = b"fake audio bytes"
+
+        with patch('qwen3_tts.interface.ui.voice_management.is_server_running', return_value=True), \
+             patch('requests.get', return_value=mock_resp), \
              patch('qwen3_tts.interface.ui.voice_management.tempfile.NamedTemporaryFile', side_effect=mock_named_temp_file):
-            mock_client = MagicMock()
-            mock_client.preview_prompt.return_value = b"fake audio bytes"
-            mock_client_class.return_value = mock_client
 
             from qwen3_tts.interface.ui import preview_voice
             result = preview_voice("test_prompt")

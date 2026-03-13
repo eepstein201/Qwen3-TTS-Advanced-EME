@@ -266,37 +266,50 @@ def get_presets():
 
 
 def add_to_history(history_list, mode, text, output_path, duration_chunks):
-    """Add a generation to history."""
+    """Add a generation to history.
+
+    Args:
+        history_list: Existing history (not mutated).
+        mode: Generation mode string (e.g. "clone"). Stored capitalized.
+        text: Generated text. Truncated to 40 chars + "..." if longer.
+        output_path: Path to the output audio file.
+        duration_chunks: Number of audio chunks (int).
+
+    Returns:
+        New list with the entry prepended, capped at MAX_HISTORY_SIZE.
+    """
     import time
     entry = {
         "timestamp": time.time(),
-        "mode": mode,
-        "text": text[:100] + "..." if len(text) > 100 else text,
-        "output": output_path,
-        "duration": duration_chunks.get("duration_sec", 0) if duration_chunks else 0,
+        "mode": mode.capitalize() if mode else mode,
+        "text": text[:40] + "..." if len(text) > 40 else text,
+        "path": output_path,
+        "chunks": duration_chunks if isinstance(duration_chunks, int) else 0,
     }
-    history_list.insert(0, entry)
-    # Keep only last 50 entries
-    return history_list[:50]
+    new_list = [entry] + list(history_list)
+    return new_list[:MAX_HISTORY_SIZE]
 
 
 def get_history_data(history_list):
-    """Convert history list to DataFrame format."""
-    import pandas as pd
+    """Convert history list to list-of-lists format.
+
+    Returns:
+        List of [time, mode, text, chunks] rows.
+    """
+    import datetime
 
     if not history_list:
-        return pd.DataFrame(columns=["Time", "Mode", "Text", "Duration"])
+        return []
 
     rows = []
     for entry in history_list:
-        import datetime
         ts = entry.get("timestamp", 0)
         time_str = datetime.datetime.fromtimestamp(ts).strftime("%H:%M:%S") if ts else ""
-        rows.append({
-            "Time": time_str,
-            "Mode": entry.get("mode", "?"),
-            "Text": entry.get("text", "")[:50],
-            "Duration": f"{entry.get('duration', 0):.1f}s",
-        })
+        rows.append([
+            time_str,
+            entry.get("mode", "?"),
+            entry.get("text", ""),
+            entry.get("chunks", 0),
+        ])
 
-    return pd.DataFrame(rows)
+    return rows

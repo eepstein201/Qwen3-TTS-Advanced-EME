@@ -48,6 +48,8 @@ __all__ = [
     "add_to_history",
     "get_history_data",
     # Generation
+    "get_prosody_choices",
+    "apply_prosody_preset",
     "cancel_streaming_generation",
     "_prepare_streaming_config",
     "_save_completed_audio",
@@ -103,7 +105,9 @@ _LAZY_IMPORTS = {
     "get_presets": ".shared",
     "add_to_history": ".shared",
     "get_history_data": ".shared",
-    # Generation
+    # Generation (includes re-exports from voice_helpers)
+    "get_prosody_choices": ".generation",
+    "apply_prosody_preset": ".generation",
     "cancel_streaming_generation": ".generation",
     "_prepare_streaming_config": ".generation",
     "_save_completed_audio": ".generation",

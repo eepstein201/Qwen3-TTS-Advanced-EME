@@ -241,6 +241,7 @@ def preview_voice(name):
     if not name.endswith(".pt"):
         name = name + ".pt"
 
+    tmp_path = None
     try:
         import requests
         url = get_server_url(config)
@@ -256,16 +257,26 @@ def preview_voice(name):
             error = resp.json().get("error", "Unknown error")
             raise gr.Error(f"Preview failed: {error}")
 
-        # Save to temp file
-        with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as f:
+        # Save to temp file; track path for cleanup on failure
+        f = tempfile.NamedTemporaryFile(suffix=".wav", delete=False)
+        tmp_path = f.name
+        try:
             f.write(resp.content)
-            return f.name
+        finally:
+            f.close()
+        return tmp_path
 
     except gr.Error:
         raise
     except Exception as e:
         logger.error(f"Voice preview failed: {e}")
-        raise gr.Error(f"Preview failed: {e}")
+        if tmp_path is not None:
+            try:
+                import os
+                os.unlink(tmp_path)
+            except OSError:
+                pass
+        return None
 
 
 def rename_voice(old_name, new_name):
