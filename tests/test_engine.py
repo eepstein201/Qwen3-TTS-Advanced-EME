@@ -54,6 +54,18 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 class TestEngineFunctions(unittest.TestCase):
     """Tests for engine.py utility functions."""
 
+    def setUp(self):
+        """Reset ASR model state before each test to prevent pollution."""
+        from qwen3_tts.core.engine import asr
+        asr._asr_model_mlx = None
+        asr._asr_model_torch = None
+
+    def tearDown(self):
+        """Clean up ASR model state after each test."""
+        from qwen3_tts.core.engine import asr
+        asr._asr_model_mlx = None
+        asr._asr_model_torch = None
+
     def test_cuda_optimizations_falls_back_to_sdpa_without_flash_attn(self):
         """_apply_cuda_optimizations uses sdpa when flash_attn not installed on Ampere+."""
         from qwen3_tts.core.engine import model_loader

@@ -243,7 +243,14 @@ All other endpoints require `Authorization: Bearer <token>` (token from `~/.voic
 source ~/miniforge3/etc/profile.d/conda.sh && conda activate qwen3-tts-mlx
 ```
 
-**Preferred: Batch runner** (prevents hangs from cascading failures):
+**Required dependency:** `pytest` — install with `pip install pytest`. Some test modules (test_validation.py, test_voice_helpers.py, test_error_handling.py, test_ocp_strategy.py, test_protocols.py) require pytest and will fail to import without it.
+
+**Preferred: pytest full suite** (860+ tests, better isolation):
+```bash
+pip install pytest && python -m pytest tests/ -v --tb=short
+```
+
+**Alternative: Batch runner** (prevents hangs from cascading failures):
 ```bash
 # Run all batches
 python tests/run_batches.py
@@ -266,24 +273,24 @@ make test-voice        # Batch 2: Voice & CLI
 make test-server       # Batch 3: Server infrastructure
 make test-engine       # Batch 4: Engine & UI
 make test-optional     # Batch 5: Optional (pytest-dependent)
-```
-
-**Full test suite** (may hang):
-```bash
-python -m unittest discover -v tests/
+make test-e2e          # Batch 6: E2E Playwright (requires server)
 ```
 
 **Batches:**
 | Batch | Tests | Risk | Timeout |
 |-------|-------|------|---------|
-| 1: Core Utilities | audio_utils, text_processing, package_metadata, deprecated_refs, config, p3_p4_remediation | Low | 60s |
+| 1: Core Utilities | audio_utils, text_processing, package_metadata, deprecated_refs, config, p3_p4_remediation | Low | 90s |
 | 2: Voice & CLI | voice, cli_daemonization, caching, server_helpers | Medium | 120s |
 | 3: Server Infrastructure | fastapi_server, fastapi_endpoints, client | High | 180s |
 | 4: Engine & UI | engine, generate_server_fallback, ui_headless | Highest | 240s |
-| 5: Optional | flash_attn_install | Low | 30s |
-| 6: E2E Playwright | e2e_playwright (requires playwright + running server) | Highest | 600s |
+| 5: Optional | flash_attn_install, validation, voice_helpers, error_handling, ocp_strategy, protocols | Low | 30s |
+| 6: E2E Playwright | e2e_playwright (requires playwright + running TTS server with clone model) | Highest | 600s |
 
-560+ tests across 17 test files. No GPU, models, or running server required. Tests auto-skip when optional deps (`soundfile`, `gradio`, `fastapi`, `click`, `pytest`) are missing — run in a conda env for full coverage.
+860+ tests. No GPU, models, or running server required (except Batch 6). Tests auto-skip when optional deps (`soundfile`, `gradio`, `fastapi`, `click`, `pytest`, `playwright`) are missing.
+
+**Test isolation notes:**
+- ASR tests (TestASR) use setUp/tearDown to reset `_asr_model_mlx` and `_asr_model_torch` between tests
+- Some tests may pass in isolation but fail in full suite due to module state pollution — use pytest for better isolation
 
 ## Models
 
