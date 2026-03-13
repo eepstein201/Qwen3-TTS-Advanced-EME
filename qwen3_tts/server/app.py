@@ -55,6 +55,8 @@ from qwen3_tts.core.config import (
     CUSTOM_VOICE_SPEAKERS,
     HISTORY_FILE,
     IN_COLAB,
+    ConfigLoader,
+    DefaultConfigLoader,
     load_config,
     save_config,
     get_backend,
@@ -73,6 +75,21 @@ from qwen3_tts.core.config import (
 _VALID_SPEAKER_NAMES = frozenset(CUSTOM_VOICE_SPEAKERS.keys()) | frozenset(
     v["name"] for v in CUSTOM_VOICE_SPEAKERS.values()
 )
+
+# Config loader — can be replaced in tests for config injection
+_DEFAULT_CONFIG_LOADER = DefaultConfigLoader()
+_app_config_provider: Optional[ConfigLoader] = None
+
+
+def set_app_config_provider(provider: Optional[ConfigLoader]) -> None:
+    """Set a custom config loader for testing or custom deployments."""
+    global _app_config_provider
+    _app_config_provider = provider
+
+
+def _get_app_config() -> dict:
+    """Load application config, using override provider if set."""
+    return (_app_config_provider or _DEFAULT_CONFIG_LOADER).load()
 
 
 def _get_eta_cache_ttl() -> int:
@@ -799,7 +816,7 @@ async def update_model_config(request: Request, req: UpdateModelConfigRequest, _
             detail=f"Invalid mlx_quantization: {new_quant}. Valid: {', '.join(valid_quants)}",
         )
 
-    config = load_config()
+    config = _get_app_config()
     if "advanced" not in config:
         config["advanced"] = {}
 
@@ -856,7 +873,7 @@ async def update_startup_config(request: Request, req: UpdateStartupConfigReques
 
     valid_types = ("clone", "design", "custom")
     changes = []
-    config = load_config()
+    config = _get_app_config()
     if "models" not in config:
         config["models"] = {}
 
@@ -956,7 +973,7 @@ async def delete_prompt(request: Request, req: DeletePromptRequest, _auth: None 
 
     # If deleted prompt was the default, clear it
     try:
-        config = load_config()
+        config = _get_app_config()
         current_default = config.get("default_clone_prompt", "")
         default_base = _strip_extension(current_default)
         if default_base == base:
@@ -1024,7 +1041,7 @@ async def rename_prompt(request: Request, req: RenamePromptRequest, _auth: None 
 
     # Update default if the renamed prompt was the default
     try:
-        config = load_config()
+        config = _get_app_config()
         current_default = config.get("default_clone_prompt", "")
         default_base = _strip_extension(current_default)
         if default_base == old_base:
@@ -1332,6 +1349,7 @@ async def generate(request: Request, req: GenerateRequest, _auth: None = Depends
                     max_chunk_chars=max_chunk_chars,
                     progress_callback=_chunk_progress,
                     x_vector_only_mode=x_vector_only_mode,
+                    config_provider=_app_config_provider,
                 )
 
                 # Encode audio to base64 WAV in memory
@@ -1545,6 +1563,7 @@ async def generate_stream(request: Request, req: GenerateRequest, _auth: None = 
                         speaker=speaker,
                         instruct=instruct,
                         x_vector_only_mode=x_vector_only_mode,
+                        config_provider=_app_config_provider,
                     ):
                         if stop_event.is_set():
                             logger.info("Generation cancelled after %d chunks", chunk_idx)

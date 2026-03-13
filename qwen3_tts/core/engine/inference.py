@@ -12,6 +12,8 @@ import numpy as np
 
 from qwen3_tts.core.config import (
     CONFIG_PATH,
+    ConfigLoader,
+    DefaultConfigLoader,
     get_backend,
     get_torch_dtype_name,
     load_config,
@@ -20,6 +22,7 @@ from qwen3_tts.core.engine.text_processing import _normalize_text, _split_text
 
 logger = logging.getLogger("tts.engine")
 
+_DEFAULT_CONFIG_LOADER = DefaultConfigLoader()
 
 # ---------------------------------------------------------------------------
 # Strategy registries for OCP-compliant dispatch
@@ -348,7 +351,7 @@ def _run_inference_mlx(model, text, mode, gen_params, language="English",
 def _run_inference_mlx_streaming(model, text, mode, gen_params, language="English",
                                   voice_prompt=None, voice_description=None,
                                   speaker=None, instruct=None,
-                                  x_vector_only_mode=False):
+                                  x_vector_only_mode=False, config=None):
     """Run TTS inference using the MLX backend, yielding audio chunks as they generate.
 
     This is a generator that yields (audio_chunk, sample_rate) tuples as they
@@ -365,6 +368,7 @@ def _run_inference_mlx_streaming(model, text, mode, gen_params, language="Englis
         speaker: Speaker name string (custom mode).
         instruct: Style instruction string (custom mode).
         x_vector_only_mode: If True, use empty ref_text for speaker-embedding-only clone.
+        config: Pre-loaded config dict (optional, avoids redundant disk read).
 
     Yields:
         (audio_chunk, sample_rate) tuples where audio_chunk is a float32 numpy array.
@@ -372,7 +376,8 @@ def _run_inference_mlx_streaming(model, text, mode, gen_params, language="Englis
     import mlx.core as mx
 
     # Read defaults from config so MLX matches torch behavior (R-17)
-    config = load_config()
+    if config is None:
+        config = load_config()
     params = _get_mlx_gen_params(gen_params, config)
 
     if mode == "clone":
@@ -544,7 +549,7 @@ def run_inference(model, text, mode, gen_params, language="English",
                   voice_prompt=None, voice_description=None,
                   speaker=None, instruct=None,
                   max_chunk_chars=None, progress_callback=None,
-                  x_vector_only_mode=False):
+                  x_vector_only_mode=False, config_provider=None):
     """Run TTS inference, dispatching to the configured backend.
 
     For long texts, automatically splits into chunks at sentence boundaries
@@ -608,7 +613,7 @@ def run_inference(model, text, mode, gen_params, language="English",
         all_audio.append(wav)
 
     # Combine chunks: use silence_gap_seconds from config, or crossfade (default 50ms)
-    config = load_config()
+    config = (config_provider or _DEFAULT_CONFIG_LOADER).load()
     silence_gap = config.get("generation", {}).get("silence_gap_seconds", 0.0)
     if silence_gap > 0:
         result = _crossfade_chunks(all_audio, sample_rate, crossfade_ms=0, silence_gap_s=silence_gap)
@@ -691,7 +696,8 @@ def _run_inference_single(model, text, mode, gen_params, language="English",
 def run_inference_streaming(model, text, mode, gen_params, language="English",
                             voice_prompt=None, voice_description=None,
                             speaker=None, instruct=None,
-                            max_chunk_chars=None, x_vector_only_mode=False):
+                            max_chunk_chars=None, x_vector_only_mode=False,
+                            config_provider=None):
     """Run TTS inference in streaming mode, yielding audio chunks as they generate.
 
     For MLX backend, uses native streaming from model.generate().
@@ -712,6 +718,7 @@ def run_inference_streaming(model, text, mode, gen_params, language="English",
     Yields:
         (audio_chunk, sample_rate) tuples where audio_chunk is float32 numpy array.
     """
+    config = (config_provider or _DEFAULT_CONFIG_LOADER).load()
     backend = get_backend()
 
     if backend == "mlx":
@@ -720,7 +727,7 @@ def run_inference_streaming(model, text, mode, gen_params, language="English",
         yield from _run_inference_mlx_streaming(
             model, text, mode, gen_params, language,
             voice_prompt, voice_description, speaker, instruct,
-            x_vector_only_mode=x_vector_only_mode,
+            x_vector_only_mode=x_vector_only_mode, config=config,
         )
     else:
         # Torch fallback: chunk the text and yield per-chunk audio
