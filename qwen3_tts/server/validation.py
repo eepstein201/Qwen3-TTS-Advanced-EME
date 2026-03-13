@@ -117,40 +117,6 @@ class HealthResponse(BaseModel):
     dtype: Optional[str] = None
 
 
-class LoadModelRequest(BaseModel):
-    """Request model for /load-model endpoint."""
-    model_type: str
-
-
-class UnloadModelRequest(BaseModel):
-    """Request model for /unload-model endpoint."""
-    model_type: str
-
-
-class UpdateModelConfigRequest(BaseModel):
-    """Request model for /update-model-config endpoint."""
-    model_size: Optional[str] = None
-    mlx_quantization: Optional[str] = None
-
-
-class UpdateStartupConfigRequest(BaseModel):
-    """Request model for /update-startup-config endpoint."""
-    clone: Optional[bool] = None
-    design: Optional[bool] = None
-    custom: Optional[bool] = None
-
-
-class DeletePromptRequest(BaseModel):
-    """Request model for /delete-prompt endpoint."""
-    name: str
-
-
-class RenamePromptRequest(BaseModel):
-    """Request model for /rename-prompt endpoint."""
-    old_name: str
-    new_name: str
-
-
 # ---------------------------------------------------------------------------
 # Validation functions
 # ---------------------------------------------------------------------------
