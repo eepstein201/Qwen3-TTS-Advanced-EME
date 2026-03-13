@@ -8,7 +8,6 @@ exclusively over HTTP to the TTS server.
 import functools
 import json
 import os
-import shutil
 
 import requests
 
@@ -22,7 +21,6 @@ from qwen3_tts.core.config import (
     GenerationError,
     ModelError,
     VoicePromptError,
-    ServerConnectionError,
 )
 
 

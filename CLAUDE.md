@@ -74,7 +74,7 @@ config.json → qwen3_tts.core.config → qwen3_tts.core.engine (dispatch)
 | `qwen3_tts/core/config.py` | Constants, config I/O, error classes, `MODEL_INFO`, auth, platform detection, CUDA capability detection, voice description attributes, PID lifecycle (`read_pid_file`, `write_pid_file`, `cleanup_pid_file`, `is_pid_alive`, `find_pid_by_port`, `detect_server_state`) | No |
 | `qwen3_tts/core/engine/` | Package with 6 submodules: `text_processing`, `audio_processing`, `voice_prompt`, `model_loader`, `inference`, `asr`. `__init__.py` facade re-exports all public names. | No (all lazy) |
 | `qwen3_tts/server/app.py` | FastAPI server: auth, validation helpers (`_validate_generation_request`, `_create_temp_audio_copy`, `_prepare_mode_params`), progress, model management, generation/ETA/prompt caches | No (lazy via engine) |
-| `qwen3_tts/server/client.py` | HTTP client: `TTSClient` with generate, model management, prompt management | No |
+| `qwen3_tts/server/client/` | Package with 5 submodules: `_base`, `generator`, `models`, `voices`, `config_fetcher`. `__init__.py` facade re-exports TTSClient and generate. | No |
 | `qwen3_tts/interface/generate.py` | CLI generation, progress display, post-gen menu, batch/SSML/SRT/dialogue, voice management | No (lazy) |
 | `qwen3_tts/interface/ui.py` | Gradio web UI: 6 tabs (Clone/Design/Custom/Create Voice/Manage Voices/Manage Models). Streaming audio with JavaScript reset between generations and automatic fallback to non-streaming on errors. | No (HTTP only) |
 | `qwen3_tts/tools/create_voice.py` | Voice clone prompt creation, saves .pt + .wav/.txt dual format | Yes (via engine) |
@@ -115,7 +115,13 @@ config.json → qwen3_tts.core.config → qwen3_tts.core.engine (dispatch)
 │   ├── server/
 │   │   ├── __init__.py
 │   │   ├── app.py              # FastAPI server (port 5123)
-│   │   └── client.py           # HTTP client library
+│   │   └── client/             # HTTP client package
+│   │       ├── __init__.py     # Facade — re-exports TTSClient and generate
+│   │       ├── _base.py        # Base class, helpers, constants
+│   │       ├── generator.py    # Audio generation methods
+│   │       ├── models.py       # Model management methods
+│   │       ├── voices.py       # Voice prompt management methods
+│   │       └── config_fetcher.py  # Config and stats retrieval methods
 │   ├── interface/
 │   │   ├── __init__.py
 │   │   ├── generate.py         # CLI generation
@@ -382,7 +388,7 @@ with lock:
 | Constant | Location | Value | Purpose |
 |----------|----------|-------|---------|
 | `HF_CACHE` | `config.py` | `~/.cache/huggingface/hub` | HuggingFace model cache path |
-| `MAX_BUFFER_SIZE` | `client.py` | 100MB (100 * 1024 * 1024) | Streaming response buffer limit |
+| `MAX_BUFFER_SIZE` | `client/_base.py` | 100MB (100 * 1024 * 1024) | Streaming response buffer limit |
 
 ## Logging
 

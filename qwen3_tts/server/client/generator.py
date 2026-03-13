@@ -335,6 +335,7 @@ class GeneratorMixin:
         top_p=None,
         seed=None,
         repetition_penalty=None,
+        max_new_tokens=None,
         speed=None,
         pitch=None,
         normalize=False,
@@ -369,16 +370,9 @@ class GeneratorMixin:
         speakers = speakers or {}
 
         # Get generation parameters
-        gen_config = self.config.get("generation", {})
-        gen_params = {
-            "temperature": temperature if temperature is not None else gen_config.get("temperature", 0.7),
-            "top_k": top_k if top_k is not None else gen_config.get("top_k", 50),
-            "top_p": top_p if top_p is not None else gen_config.get("top_p", 0.95),
-            "repetition_penalty": repetition_penalty if repetition_penalty is not None else gen_config.get("repetition_penalty", 1.05),
-        }
-
-        if seed is not None:
-            gen_params["seed"] = seed
+        gen_params = _build_gen_params(
+            self.config, temperature, top_k, top_p, repetition_penalty, max_new_tokens, seed
+        )
 
         # Apply preset
         if preset:
@@ -414,13 +408,10 @@ class GeneratorMixin:
                 **gen_params,
             }
 
-            if mode == "clone":
-                payload["prompt_file"] = prompt
-            elif mode == "design":
-                payload["voice_description"] = description
-            else:  # custom
-                payload["speaker"] = custom_speaker
-                payload["instruct"] = instruct
+            self._add_mode_params(
+                payload, mode, prompt=prompt, description=description,
+                speaker=custom_speaker, instruct=instruct
+            )
 
             resp = self._session.post(f"{self.server_url}/generate", json=payload, timeout=600, headers=auth_headers())
             if resp.status_code != 200:

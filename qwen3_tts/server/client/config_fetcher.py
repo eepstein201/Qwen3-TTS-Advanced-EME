@@ -7,8 +7,6 @@ and get_health().
 This module NEVER imports torch or qwen3_tts.core.engine at module scope.
 """
 
-import requests
-
 from qwen3_tts.server.client._base import _require_server
 from qwen3_tts.core.config import auth_headers
 
