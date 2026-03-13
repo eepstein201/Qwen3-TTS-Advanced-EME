@@ -9,9 +9,7 @@ This module NEVER imports torch or qwen3_tts.core.engine at module scope.
 
 import os
 
-import requests
-
-from qwen3_tts.server.client._base import _require_server
+from qwen3_tts.server.client._base import _require_server, _extract_error_message
 from qwen3_tts.core.config import auth_headers, VoicePromptError, VOICE_PROMPTS_DIR
 
 
@@ -58,8 +56,7 @@ class VoiceManagerMixin:
             headers=auth_headers(),
         )
         if resp.status_code != 200:
-            error_msg = resp.json().get("error", "Unknown error")
-            raise VoicePromptError("delete", error_msg)
+            raise VoicePromptError("delete", _extract_error_message(resp))
         return resp.json()
 
     @_require_server
@@ -80,8 +77,7 @@ class VoiceManagerMixin:
             headers=auth_headers(),
         )
         if resp.status_code != 200:
-            error_msg = resp.json().get("error", "Unknown error")
-            raise VoicePromptError("rename", error_msg)
+            raise VoicePromptError("rename", _extract_error_message(resp))
         return resp.json()
 
     @_require_server
@@ -101,11 +97,7 @@ class VoiceManagerMixin:
             headers=auth_headers(),
         )
         if resp.status_code != 200:
-            try:
-                error_msg = resp.json().get("error", "Unknown error")
-            except (ValueError, requests.exceptions.JSONDecodeError):
-                error_msg = f"HTTP {resp.status_code}"
-            raise VoicePromptError("preview", error_msg)
+            raise VoicePromptError("preview", _extract_error_message(resp))
         return resp.content
 
     @_require_server
@@ -126,6 +118,5 @@ class VoiceManagerMixin:
             headers=auth_headers(),
         )
         if resp.status_code != 200:
-            error_msg = resp.json().get("error", "Unknown error")
-            raise VoicePromptError("details", error_msg)
+            raise VoicePromptError("details", _extract_error_message(resp))
         return resp.json()

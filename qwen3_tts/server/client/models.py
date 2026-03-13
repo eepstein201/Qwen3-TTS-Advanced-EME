@@ -7,9 +7,7 @@ and update_startup_config().
 This module NEVER imports torch or qwen3_tts.core.engine at module scope.
 """
 
-import requests
-
-from qwen3_tts.server.client._base import _require_server
+from qwen3_tts.server.client._base import _require_server, _extract_error_message
 from qwen3_tts.core.config import auth_headers, ModelError
 
 
@@ -33,13 +31,7 @@ class ModelManagerMixin:
             headers=auth_headers(),
         )
         if resp.status_code != 200:
-            try:
-                error_data = resp.json()
-                # Prefer structured error message
-                error_msg = error_data.get("message") or error_data.get("detail", "Unknown error")
-            except (ValueError, requests.exceptions.JSONDecodeError):
-                error_msg = f"Server returned HTTP {resp.status_code}"
-            raise ModelError(mode, "load", error_msg)
+            raise ModelError(mode, "load", _extract_error_message(resp))
         return resp.json()
 
     @_require_server
@@ -59,11 +51,7 @@ class ModelManagerMixin:
             headers=auth_headers(),
         )
         if resp.status_code not in (200, 409):
-            try:
-                error_msg = resp.json().get("error", "Unknown error")
-            except (ValueError, requests.exceptions.JSONDecodeError):
-                error_msg = f"Server returned HTTP {resp.status_code}"
-            raise ModelError(mode, "unload", error_msg)
+            raise ModelError(mode, "unload", _extract_error_message(resp))
         return resp.json()
 
     @_require_server
@@ -110,11 +98,7 @@ class ModelManagerMixin:
             headers=auth_headers(),
         )
         if resp.status_code != 200:
-            try:
-                error_msg = resp.json().get("error", "Unknown error")
-            except (ValueError, requests.exceptions.JSONDecodeError):
-                error_msg = f"Server returned HTTP {resp.status_code}"
-            raise ModelError("config", "update", error_msg)
+            raise ModelError("config", "update", _extract_error_message(resp))
         return resp.json()
 
     @_require_server
@@ -145,9 +129,5 @@ class ModelManagerMixin:
             headers=auth_headers(),
         )
         if resp.status_code != 200:
-            try:
-                error_msg = resp.json().get("error", "Unknown error")
-            except (ValueError, requests.exceptions.JSONDecodeError):
-                error_msg = f"Server returned HTTP {resp.status_code}"
-            raise ModelError("startup", "update", error_msg)
+            raise ModelError("startup", "update", _extract_error_message(resp))
         return resp.json()

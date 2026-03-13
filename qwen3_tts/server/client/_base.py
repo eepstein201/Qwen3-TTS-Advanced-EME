@@ -127,6 +127,15 @@ def _build_gen_params(config, temperature, top_k, top_p, repetition_penalty, max
     return gen_params
 
 
+def _extract_error_message(resp, default: str = "Unknown error") -> str:
+    """Extract a human-readable error message from an HTTP error response."""
+    try:
+        data = resp.json()
+        return data.get("error") or data.get("message") or data.get("detail") or default
+    except (ValueError, requests.exceptions.JSONDecodeError):
+        return f"Server returned HTTP {resp.status_code}"
+
+
 def _require_server(func):
     """Decorator that checks server is running before method execution."""
     @functools.wraps(func)

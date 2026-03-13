@@ -18,6 +18,7 @@ from qwen3_tts.server.client._base import (
     _resolve_voice_alias,
     _build_gen_params,
     _normalize_speaker_name,
+    _extract_error_message,
     MAX_BUFFER_SIZE,
 )
 from qwen3_tts.core.config import (
@@ -169,11 +170,7 @@ class GeneratorMixin:
 
         resp = self._session.post(f"{self.server_url}/generate", json=payload, timeout=600, headers=auth_headers())
         if resp.status_code != 200:
-            try:
-                error_msg = resp.json().get("error", "Unknown error")
-            except (ValueError, requests.exceptions.JSONDecodeError):
-                error_msg = f"Server returned HTTP {resp.status_code} (non-JSON response)"
-            raise GenerationError(error_msg)
+            raise GenerationError(_extract_error_message(resp))
 
         import io, base64
         import soundfile as sf
@@ -279,14 +276,14 @@ class GeneratorMixin:
             timeout=600,
         ) as resp:
             if resp.status_code != 200:
+                error_msg = _extract_error_message(resp)
+                # Include model_type prefix if present in JSON response
                 try:
                     error_data = resp.json()
-                    error_msg = error_data.get("message") or error_data.get("error", "Unknown error")
-                    # Include model_type if present
                     if "model_type" in error_data:
                         error_msg = f"{error_data['model_type']} model: {error_msg}"
                 except (ValueError, requests.exceptions.JSONDecodeError):
-                    error_msg = f"Server returned HTTP {resp.status_code}"
+                    pass
                 raise GenerationError(error_msg)
 
             buffer = b""
@@ -415,11 +412,7 @@ class GeneratorMixin:
 
             resp = self._session.post(f"{self.server_url}/generate", json=payload, timeout=600, headers=auth_headers())
             if resp.status_code != 200:
-                try:
-                    error_msg = resp.json().get("error", "Unknown error")
-                except (ValueError, requests.exceptions.JSONDecodeError):
-                    error_msg = f"Server returned HTTP {resp.status_code} (non-JSON response)"
-                raise GenerationError(error_msg)
+                raise GenerationError(_extract_error_message(resp))
 
             import io, base64
             import soundfile as sf
