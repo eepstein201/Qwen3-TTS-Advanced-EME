@@ -1349,6 +1349,7 @@ async def generate(request: Request, req: GenerateRequest, _auth: None = Depends
                     max_chunk_chars=max_chunk_chars,
                     progress_callback=_chunk_progress,
                     x_vector_only_mode=x_vector_only_mode,
+                    config_provider=_app_config_provider,
                 )
 
                 # Encode audio to base64 WAV in memory
@@ -1562,6 +1563,7 @@ async def generate_stream(request: Request, req: GenerateRequest, _auth: None = 
                         speaker=speaker,
                         instruct=instruct,
                         x_vector_only_mode=x_vector_only_mode,
+                        config_provider=_app_config_provider,
                     ):
                         if stop_event.is_set():
                             logger.info("Generation cancelled after %d chunks", chunk_idx)
