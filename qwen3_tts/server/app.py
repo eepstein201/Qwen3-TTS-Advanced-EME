@@ -55,6 +55,7 @@ from qwen3_tts.core.config import (
     CUSTOM_VOICE_SPEAKERS,
     HISTORY_FILE,
     IN_COLAB,
+    ConfigProvider,
     load_config,
     save_config,
     get_backend,
@@ -73,6 +74,22 @@ from qwen3_tts.core.config import (
 _VALID_SPEAKER_NAMES = frozenset(CUSTOM_VOICE_SPEAKERS.keys()) | frozenset(
     v["name"] for v in CUSTOM_VOICE_SPEAKERS.values()
 )
+
+# Config provider — can be replaced in tests for config injection
+_app_config_provider = None  # type: Optional[ConfigProvider]
+
+
+def set_app_config_provider(provider):
+    """Set a custom config provider for testing or custom deployments."""
+    global _app_config_provider
+    _app_config_provider = provider
+
+
+def _get_app_config() -> dict:
+    """Load application config, using override provider if set."""
+    if _app_config_provider is not None:
+        return _app_config_provider.load()
+    return load_config()
 
 
 def _get_eta_cache_ttl() -> int:

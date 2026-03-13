@@ -17,6 +17,7 @@ import platform
 import subprocess
 import sys
 import threading
+from typing import Protocol, runtime_checkable
 
 logger = logging.getLogger("tts.config")
 
@@ -122,6 +123,24 @@ def save_config(config):
             json.dump(config, f, indent=2)
         _config_cache["data"] = None
         _config_cache["mtime"] = 0
+
+
+# ---------------------------------------------------------------------------
+# ConfigProvider Protocol — enables dependency injection in tests and server
+# ---------------------------------------------------------------------------
+
+@runtime_checkable
+class ConfigProvider(Protocol):
+    """Protocol for config providers — allows DI in tests and server."""
+
+    def load(self) -> dict: ...
+
+
+class DefaultConfigProvider:
+    """Default implementation that reads from config.json on disk."""
+
+    def load(self) -> dict:
+        return load_config()
 
 
 def get_default_clone_prompt(config=None):

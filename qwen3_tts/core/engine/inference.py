@@ -12,6 +12,7 @@ import numpy as np
 
 from qwen3_tts.core.config import (
     CONFIG_PATH,
+    ConfigProvider,
     get_backend,
     get_torch_dtype_name,
     load_config,
@@ -544,7 +545,7 @@ def run_inference(model, text, mode, gen_params, language="English",
                   voice_prompt=None, voice_description=None,
                   speaker=None, instruct=None,
                   max_chunk_chars=None, progress_callback=None,
-                  x_vector_only_mode=False):
+                  x_vector_only_mode=False, config_provider=None):
     """Run TTS inference, dispatching to the configured backend.
 
     For long texts, automatically splits into chunks at sentence boundaries
@@ -608,7 +609,7 @@ def run_inference(model, text, mode, gen_params, language="English",
         all_audio.append(wav)
 
     # Combine chunks: use silence_gap_seconds from config, or crossfade (default 50ms)
-    config = load_config()
+    config = config_provider.load() if config_provider is not None else load_config()
     silence_gap = config.get("generation", {}).get("silence_gap_seconds", 0.0)
     if silence_gap > 0:
         result = _crossfade_chunks(all_audio, sample_rate, crossfade_ms=0, silence_gap_s=silence_gap)
@@ -691,7 +692,8 @@ def _run_inference_single(model, text, mode, gen_params, language="English",
 def run_inference_streaming(model, text, mode, gen_params, language="English",
                             voice_prompt=None, voice_description=None,
                             speaker=None, instruct=None,
-                            max_chunk_chars=None, x_vector_only_mode=False):
+                            max_chunk_chars=None, x_vector_only_mode=False,
+                            config_provider=None):
     """Run TTS inference in streaming mode, yielding audio chunks as they generate.
 
     For MLX backend, uses native streaming from model.generate().
