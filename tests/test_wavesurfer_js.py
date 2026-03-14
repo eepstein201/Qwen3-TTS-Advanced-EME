@@ -154,6 +154,237 @@ class TestLoadIntoPlayerJS(unittest.TestCase):
         self.assertIn("if (!audioData)", js)
 
 
+class TestPlayerConstants(unittest.TestCase):
+    """Test that magic numbers are replaced with named constants."""
+
+    def _get_js(self):
+        from qwen3_tts.interface.wavesurfer_js import get_streaming_player_js
+        return get_streaming_player_js()
+
+    def test_hard_timeout_constant_used(self):
+        js = self._get_js()
+        self.assertIn("HARD_TIMEOUT_MS", js)
+        # 300000 should only appear in the constant definition, not in setTimeout
+        lines_with_300000 = [l for l in js.split('\n') if '300000' in l]
+        self.assertEqual(len(lines_with_300000), 1)
+        self.assertIn("const HARD_TIMEOUT_MS", lines_with_300000[0])
+
+    def test_idle_timeout_constant_used(self):
+        js = self._get_js()
+        self.assertIn("IDLE_TIMEOUT_MS", js)
+        # 60000 should only appear in the constant definition
+        lines_with_60000 = [l for l in js.split('\n') if '60000' in l]
+        self.assertEqual(len(lines_with_60000), 1)
+        self.assertIn("const IDLE_TIMEOUT_MS", lines_with_60000[0])
+
+    def test_waveform_update_constant_used(self):
+        js = self._get_js()
+        self.assertIn("WAVEFORM_UPDATE_MS", js)
+
+    def test_waveform_max_bins_constant_used(self):
+        js = self._get_js()
+        self.assertIn("WAVEFORM_MAX_BINS", js)
+
+    def test_sample_rate_constant(self):
+        js = self._get_js()
+        self.assertIn("DEFAULT_SAMPLE_RATE", js)
+
+    def test_max_chunk_bytes_constant(self):
+        js = self._get_js()
+        self.assertIn("MAX_CHUNK_BYTES", js)
+
+    def test_waveform_height_constant(self):
+        from qwen3_tts.interface.wavesurfer_js import get_player_html
+        html = get_player_html("clone")
+        self.assertIn("min-height:", html)
+
+
+class TestDeadCodeRemoval(unittest.TestCase):
+    """Test that duplicate function bodies are removed."""
+
+    def test_no_duplicate_reexecutor_body(self):
+        from qwen3_tts.interface.wavesurfer_js import get_script_reexecutor_fn
+        js = get_script_reexecutor_fn()
+        self.assertEqual(js.count("Re-executing scripts"), 1)
+
+    def test_no_duplicate_loader_body(self):
+        from qwen3_tts.interface.wavesurfer_js import get_wavesurfer_loader_js
+        js = get_wavesurfer_loader_js()
+        self.assertEqual(js.count("_wavesurferFailed"), 1)
+
+
+class TestPlayerAccessibility(unittest.TestCase):
+    """Test WCAG 2.1 AA compliance for player controls."""
+
+    def test_play_button_has_aria_label(self):
+        from qwen3_tts.interface.wavesurfer_js import get_player_html
+        html = get_player_html("clone")
+        self.assertIn('aria-label="Play or pause audio"', html)
+
+    def test_download_button_has_aria_label(self):
+        from qwen3_tts.interface.wavesurfer_js import get_player_html
+        html = get_player_html("clone")
+        self.assertIn('aria-label="Download audio"', html)
+
+    def test_status_has_live_region(self):
+        from qwen3_tts.interface.wavesurfer_js import get_player_html
+        html = get_player_html("clone")
+        self.assertIn('role="status"', html)
+        self.assertIn('aria-live="polite"', html)
+
+    def test_buttons_have_focus_styles(self):
+        from qwen3_tts.interface.wavesurfer_js import get_player_html
+        html = get_player_html("clone")
+        self.assertIn(":focus", html)
+
+    def test_disabled_button_styling(self):
+        from qwen3_tts.interface.wavesurfer_js import get_player_html
+        html = get_player_html("clone")
+        self.assertIn(":disabled", html)
+        self.assertIn("cursor: not-allowed", html)
+
+    def test_css_class_on_buttons(self):
+        from qwen3_tts.interface.wavesurfer_js import get_player_html
+        html = get_player_html("clone")
+        self.assertIn('class="ws-btn"', html)
+
+    def test_css_block_present(self):
+        from qwen3_tts.interface.wavesurfer_js import get_player_html
+        html = get_player_html("clone")
+        self.assertIn("<style>", html)
+        self.assertIn(".ws-btn", html)
+
+
+class TestPlayerControls(unittest.TestCase):
+    """Test volume, speed, time display, and download filename."""
+
+    def test_volume_slider_in_html(self):
+        from qwen3_tts.interface.wavesurfer_js import get_player_html
+        html = get_player_html("clone")
+        self.assertIn('type="range"', html)
+        self.assertIn("clone-volume", html)
+        self.assertIn('aria-label="Volume"', html)
+
+    def test_volume_handler_in_js(self):
+        from qwen3_tts.interface.wavesurfer_js import get_streaming_player_js
+        js = get_streaming_player_js()
+        self.assertIn("setVolume", js)
+
+    def test_speed_selector_in_html(self):
+        from qwen3_tts.interface.wavesurfer_js import get_player_html
+        html = get_player_html("clone")
+        self.assertIn("<select", html)
+        self.assertIn("clone-speed", html)
+        self.assertIn("1.5x", html)
+
+    def test_speed_handler_in_js(self):
+        from qwen3_tts.interface.wavesurfer_js import get_streaming_player_js
+        js = get_streaming_player_js()
+        self.assertIn("playbackRate", js)
+
+    def test_time_display_in_html(self):
+        from qwen3_tts.interface.wavesurfer_js import get_player_html
+        html = get_player_html("clone")
+        self.assertIn("clone-time", html)
+
+    def test_time_update_in_js(self):
+        from qwen3_tts.interface.wavesurfer_js import get_streaming_player_js
+        js = get_streaming_player_js()
+        self.assertIn("_formatTime", js)
+        self.assertIn("audioprocess", js)
+
+    def test_download_uses_mode_timestamp(self):
+        from qwen3_tts.interface.wavesurfer_js import get_streaming_player_js
+        js = get_streaming_player_js()
+        self.assertNotIn("'tts_output.wav'", js)
+        self.assertIn("toISOString", js)
+
+    def test_format_time_has_nan_guard(self):
+        from qwen3_tts.interface.wavesurfer_js import get_streaming_player_js
+        js = get_streaming_player_js()
+        self.assertIn("isFinite", js)
+
+    def test_volume_uses_oninput_not_onchange(self):
+        from qwen3_tts.interface.wavesurfer_js import get_player_html
+        html = get_player_html("clone")
+        self.assertIn('oninput=', html)
+        # volume slider should use oninput for live updates
+        volume_section = html[html.index('clone-volume'):]
+        self.assertNotIn('onchange=', volume_section.split('>')[0])
+
+
+class TestStreamFormatValidation(unittest.TestCase):
+    """Test stream frame validation in the parser loop."""
+
+    def _get_js(self):
+        from qwen3_tts.interface.wavesurfer_js import get_streaming_player_js
+        return get_streaming_player_js()
+
+    def test_validates_sample_rate(self):
+        js = self._get_js()
+        self.assertIn("sampleRate === 0", js)
+
+    def test_validates_audio_length(self):
+        js = self._get_js()
+        # MAX_CHUNK_BYTES is used in chunk size check
+        self.assertIn("MAX_CHUNK_BYTES", js)
+        # It should appear more than once (definition + usage)
+        self.assertGreater(js.count("MAX_CHUNK_BYTES"), 1)
+
+    def test_rejects_zero_length_frames(self):
+        js = self._get_js()
+        self.assertIn("audioLen === 0", js)
+
+    def test_chunk_too_large_throws(self):
+        js = self._get_js()
+        self.assertIn("Chunk too large", js)
+
+
+class TestMemoryCleanup(unittest.TestCase):
+    """Test memory cleanup after finalization."""
+
+    def _get_js(self):
+        from qwen3_tts.interface.wavesurfer_js import get_streaming_player_js
+        return get_streaming_player_js()
+
+    def test_chunks_cleared_after_finalize(self):
+        js = self._get_js()
+        # _finalizeWaveform method body (index 2: after method definition) should clear allChunks
+        # split()[0]: before call site; split()[1]: between call and definition; split()[2]: body
+        parts = js.split("_finalizeWaveform")
+        method_body = "".join(parts[2:])
+        self.assertIn("this.allChunks = []", method_body)
+
+    def test_url_revoke_has_timeout_fallback(self):
+        js = self._get_js()
+        # Should have a setTimeout fallback for revokeObjectURL
+        # Count: should appear more than once (once in once('ready'), once in timeout)
+        revoke_count = js.count("revokeObjectURL")
+        self.assertGreater(revoke_count, 2)
+
+
+class TestErrorLogging(unittest.TestCase):
+    """Test that catch blocks log warnings instead of swallowing silently."""
+
+    def _get_js(self):
+        from qwen3_tts.interface.wavesurfer_js import get_streaming_player_js
+        return get_streaming_player_js()
+
+    def test_no_silent_empty_catch(self):
+        js = self._get_js()
+        self.assertNotIn("catch(e) {}", js)
+
+    def test_audiocontext_close_catch_logs(self):
+        js = self._get_js()
+        # The audioContext.close() catch should log, not be empty
+        # Find the close() section and verify it has a console.warn
+        self.assertIn("audioContext.close", js)
+        # The pattern "close();" followed eventually by console.warn should exist
+        close_idx = js.index("audioContext.close")
+        catch_region = js[close_idx:close_idx + 200]
+        self.assertIn("console.warn", catch_region)
+
+
 class TestStreamingTriggerJS(unittest.TestCase):
     """Test the JS trigger function for starting streaming."""
 
