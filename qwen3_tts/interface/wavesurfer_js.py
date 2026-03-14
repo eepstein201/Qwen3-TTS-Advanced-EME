@@ -52,72 +52,9 @@ def get_script_reexecutor_fn():
             }
         });
     }"""
-    """Return JS function body for demo.load(js=...) to re-execute innerHTML scripts.
-
-    This is the same as get_script_reexecutor_js() but without the <script> wrapper,
-    suitable for use with Gradio's demo.load(js=...) parameter which executes
-    JavaScript directly.
-    """
-    return """() => {
-        console.log('[ScriptReexecutor] Re-executing scripts from innerHTML...');
-
-        // Re-execute module scripts (like StreamingPlayer)
-        var moduleScripts = document.querySelectorAll('script[type="module"]');
-        moduleScripts.forEach(function(s) {
-            // Only process inline module scripts with substantial content
-            if (s.textContent && s.textContent.length > 100 && !s.src) {
-                try {
-                    var blob = new Blob([s.textContent], { type: 'application/javascript' });
-                    var url = URL.createObjectURL(blob);
-                    var ns = document.createElement('script');
-                    ns.type = 'module';
-                    ns.src = url;
-                    document.head.appendChild(ns);
-                    console.log('[ScriptReexecutor] Re-injected module script');
-                } catch(e) {
-                    console.error('[ScriptReexecutor] Failed to re-inject module:', e);
-                }
-            }
-        });
-
-        // Re-execute inline scripts that create elements (like WaveSurfer loader)
-        var inlineScripts = document.querySelectorAll('script:not([type]):not([src])');
-        inlineScripts.forEach(function(s) {
-            if (s.textContent && s.textContent.indexOf('createElement') >= 0) {
-                try {
-                    eval(s.textContent);
-                    console.log('[ScriptReexecutor] Re-executed inline script');
-                } catch(e) {
-                    console.error('[ScriptReexecutor] Failed to re-execute inline:', e);
-                }
-            }
-        });
-    }"""
 
 
 def get_wavesurfer_loader_js():
-    """Return a <script> tag that loads WaveSurfer 7.x from CDN.
-
-    Injects the script once into the page and exposes window.WaveSurfer.
-    Includes a fallback check so callers know if loading failed.
-    """
-    return """
-    <script>
-    (function() {
-        if (window.WaveSurfer) return;
-        var s = document.createElement('script');
-        s.src = 'https://unpkg.com/wavesurfer.js@7/dist/wavesurfer.esm.js';
-        s.type = 'module';
-        s.onload = function() { console.log('[WaveSurfer] Loaded from CDN'); };
-        s.onerror = function() {
-            console.warn('[WaveSurfer] CDN load failed, falling back to <audio>');
-            window._wavesurferFailed = true;
-        };
-        document.head.appendChild(s);
-    })();
-    </script>
-    """
-
     """Return a <script> tag that loads WaveSurfer 7.x from CDN.
 
     Injects the script once into the page and exposes window.WaveSurfer.
@@ -152,12 +89,19 @@ def get_streaming_player_js():
     - History playback via loadFile()
     """
     return """
+    const HARD_TIMEOUT_MS = 300000;
+    const IDLE_TIMEOUT_MS = 60000;
+    const WAVEFORM_UPDATE_MS = 200;
+    const WAVEFORM_MAX_BINS = 500;
+    const DEFAULT_SAMPLE_RATE = 24000;
+    const MAX_CHUNK_BYTES = 50 * 1024 * 1024;
+
     class StreamingPlayer {
         constructor(containerId) {
             this.containerId = containerId;
             this.audioContext = null;
             this.allChunks = [];
-            this.sampleRate = 24000;
+            this.sampleRate = DEFAULT_SAMPLE_RATE;
             this.nextPlayTime = 0;
             this.isPlaying = false;
             this.abortController = null;
@@ -195,6 +139,14 @@ def get_streaming_player_js():
                     });
                     this.wavesurfer.on('finish', () => {
                         this._updateControls('stopped');
+                    });
+                    this.wavesurfer.on('audioprocess', (time) => {
+                        const duration = this.wavesurfer.getDuration();
+                        this._updateTime(time, duration);
+                    });
+                    this.wavesurfer.on('ready', () => {
+                        const duration = this.wavesurfer.getDuration();
+                        this._updateTime(0, duration);
                     });
                     console.log('[StreamingPlayer] WaveSurfer initialized for', this.containerId);
                 }).catch(err => {
@@ -236,7 +188,7 @@ def get_streaming_player_js():
 
             try {
                 this.audioContext = new (window.AudioContext || window.webkitAudioContext)({
-                    sampleRate: 24000
+                    sampleRate: DEFAULT_SAMPLE_RATE
                 });
                 // Fire-and-forget resume — do NOT await; AudioContext.resume() returns a
                 // Promise that may never resolve if user-activation has expired after
@@ -247,11 +199,11 @@ def get_streaming_player_js():
 
                 this.abortController = new AbortController();
 
-                // 5-minute hard timeout for the entire request
+                // Hard timeout for the entire request
                 timeoutId = setTimeout(() => {
                     this._timedOut = true;
                     if (this.abortController) this.abortController.abort();
-                }, 300000);
+                }, HARD_TIMEOUT_MS);
 
                 const response = await fetch(serverUrl + '/generate-stream', {
                     method: 'POST',
@@ -276,13 +228,13 @@ def get_streaming_player_js():
                 let buffer = new Uint8Array(0);
                 let chunkCount = 0;
 
-                // 60-second idle timeout — resets on each received chunk
+                // Idle timeout — resets on each received chunk
                 const resetIdleTimeout = () => {
                     if (idleTimeoutId) clearTimeout(idleTimeoutId);
                     idleTimeoutId = setTimeout(() => {
                         this._timedOut = true;
                         if (this.abortController) this.abortController.abort();
-                    }, 60000);
+                    }, IDLE_TIMEOUT_MS);
                 };
                 resetIdleTimeout();
 
@@ -304,6 +256,15 @@ def get_streaming_player_js():
                         const audioLen = view.getUint32(4, true);
 
                         if (buffer.length < 8 + audioLen) break;
+
+                        // Validate frame header values before processing
+                        if (sampleRate === 0 || audioLen === 0) {
+                            buffer = buffer.slice(8 + audioLen);
+                            continue;
+                        }
+                        if (audioLen > MAX_CHUNK_BYTES) {
+                            throw new Error('Chunk too large: ' + audioLen + ' bytes');
+                        }
 
                         // Extract float32 audio data
                         const audioBytes = buffer.slice(8, 8 + audioLen);
@@ -358,7 +319,7 @@ def get_streaming_player_js():
             // Generation took seconds — user-activation may have refreshed.
             // Attempt resume here so audio plays as soon as context allows.
             if (this.audioContext.state === 'suspended') {
-                this.audioContext.resume().catch(() => {});
+                this.audioContext.resume().catch(e => console.warn('[StreamingPlayer] Resume error:', e));
             }
 
             try {
@@ -384,7 +345,7 @@ def get_streaming_player_js():
             this.waveformUpdateTimer = setTimeout(() => {
                 this.waveformUpdateTimer = null;
                 this._updateWaveformPeaks();
-            }, 200);
+            }, WAVEFORM_UPDATE_MS);
         }
 
         _updateWaveformPeaks() {
@@ -393,7 +354,7 @@ def get_streaming_player_js():
             try {
                 // Build peaks array from all chunks
                 const totalLen = this.allChunks.reduce((sum, c) => sum + c.length, 0);
-                const numBins = Math.min(totalLen, 500);
+                const numBins = Math.min(totalLen, WAVEFORM_MAX_BINS);
                 const samplesPerBin = Math.max(1, Math.floor(totalLen / numBins));
                 const peaks = new Float32Array(numBins);
 
@@ -432,11 +393,15 @@ def get_streaming_player_js():
 
             // Create full WAV blob and load into WaveSurfer for scrub/replay
             const wavBlob = this._createWavBlob();
+            // Free chunk memory — WAV blob is the authoritative copy from here on
+            this.allChunks = [];
+            this.totalSamples = 0;
             if (wavBlob && this.wavesurfer) {
                 const url = URL.createObjectURL(wavBlob);
                 this.wavesurfer.load(url);
-                // Clean up object URL after WaveSurfer loads
+                // Primary: revoke after WaveSurfer decodes; fallback: revoke after 30s if ready never fires
                 this.wavesurfer.once('ready', () => URL.revokeObjectURL(url));
+                setTimeout(() => URL.revokeObjectURL(url), 30000);
             } else if (wavBlob && this._fallbackAudio) {
                 if (this._fallbackAudioUrl) {
                     URL.revokeObjectURL(this._fallbackAudioUrl);
@@ -528,6 +493,40 @@ def get_streaming_player_js():
             }
         }
 
+        setVolume(value) {
+            const vol = parseFloat(value);
+            if (this.wavesurfer) {
+                this.wavesurfer.setVolume(vol);
+            }
+            if (this._fallbackAudio) {
+                this._fallbackAudio.volume = vol;
+            }
+        }
+
+        setSpeed(value) {
+            const rate = parseFloat(value);
+            if (this.wavesurfer) {
+                this.wavesurfer.setPlaybackRate(rate);
+            }
+            if (this._fallbackAudio) {
+                this._fallbackAudio.playbackRate = rate;
+            }
+        }
+
+        _formatTime(seconds) {
+            if (!isFinite(seconds) || seconds < 0) return '0:00';
+            const m = Math.floor(seconds / 60);
+            const s = Math.floor(seconds % 60);
+            return m + ':' + (s < 10 ? '0' : '') + s;
+        }
+
+        _updateTime(current, duration) {
+            const el = document.getElementById(this.containerId + '-time');
+            if (el) {
+                el.textContent = this._formatTime(current) + ' / ' + this._formatTime(duration);
+            }
+        }
+
         stop() {
             this.isPlaying = false;
             if (this.abortController) {
@@ -535,7 +534,7 @@ def get_streaming_player_js():
                 this.abortController = null;
             }
             if (this.audioContext) {
-                try { this.audioContext.close(); } catch(e) {}
+                try { this.audioContext.close(); } catch(e) { console.warn('[StreamingPlayer] AudioContext close error:', e); }
                 this.audioContext = null;
             }
             if (this.wavesurfer) {
@@ -567,7 +566,7 @@ def get_streaming_player_js():
             const url = URL.createObjectURL(blob);
             const a = document.createElement('a');
             a.href = url;
-            a.download = 'tts_output.wav';
+            a.download = this.containerId + '_' + new Date().toISOString().slice(0,19).replace(/:/g,'-') + '.wav';
             a.click();
             URL.revokeObjectURL(url);
         }
@@ -614,21 +613,68 @@ def get_player_html(tab_id):
         tab_id: Unique identifier for the tab (e.g., 'clone', 'design', 'custom').
     """
     return f"""
+    <style>
+        .ws-btn {{
+            padding: 10px 20px;
+            border-radius: 4px;
+            border: 1px solid #555;
+            background: #2a2a3e;
+            color: #ccc;
+            cursor: pointer;
+            font-size: 0.9em;
+        }}
+        .ws-btn:focus {{
+            outline: 2px solid #4a9eff;
+            outline-offset: 2px;
+        }}
+        .ws-btn:disabled {{
+            opacity: 0.5;
+            cursor: not-allowed;
+        }}
+        .ws-waveform {{
+            width: 100%;
+            min-height: 80px;
+            background: #1a1a2e;
+            border-radius: 8px;
+            margin-bottom: 8px;
+            overflow: hidden;
+        }}
+        .ws-controls {{
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }}
+    </style>
     <div id="{tab_id}-player" style="margin-top: 8px;">
-        <div id="{tab_id}-waveform" style="width: 100%; min-height: 80px; background: #1a1a2e;
-             border-radius: 8px; margin-bottom: 8px; overflow: hidden;"></div>
-        <div style="display: flex; align-items: center; gap: 8px;">
-            <button id="{tab_id}-play-btn" onclick="if (window.getOrCreatePlayer) window.getOrCreatePlayer('{tab_id}').play()"
-                    disabled style="padding: 6px 16px; border-radius: 4px; border: 1px solid #555;
-                    background: #2a2a3e; color: #ccc; cursor: pointer;">
+        <div id="{tab_id}-waveform" class="ws-waveform"></div>
+        <div class="ws-controls">
+            <button id="{tab_id}-play-btn" class="ws-btn"
+                    onclick="if (window.getOrCreatePlayer) window.getOrCreatePlayer('{tab_id}').play()"
+                    disabled aria-label="Play or pause audio">
                 Play / Pause
             </button>
-            <button id="{tab_id}-download-btn" onclick="if (window.getOrCreatePlayer) window.getOrCreatePlayer('{tab_id}').download()"
-                    disabled style="padding: 6px 16px; border-radius: 4px; border: 1px solid #555;
-                    background: #2a2a3e; color: #ccc; cursor: pointer;">
+            <button id="{tab_id}-download-btn" class="ws-btn"
+                    onclick="if (window.getOrCreatePlayer) window.getOrCreatePlayer('{tab_id}').download()"
+                    disabled aria-label="Download audio">
                 Download
             </button>
-            <span id="{tab_id}-status" style="color: #aaa; font-size: 0.9em; margin-left: 8px;"></span>
+            <input type="range" id="{tab_id}-volume" min="0" max="1" step="0.1" value="1"
+                   aria-label="Volume"
+                   oninput="if (window.getOrCreatePlayer) window.getOrCreatePlayer('{tab_id}').setVolume(this.value)"
+                   style="width: 80px;">
+            <select id="{tab_id}-speed" aria-label="Playback speed"
+                    onchange="if (window.getOrCreatePlayer) window.getOrCreatePlayer('{tab_id}').setSpeed(this.value)"
+                    style="background: #2a2a3e; color: #ccc; border: 1px solid #555; border-radius: 4px; padding: 4px;">
+                <option value="0.5">0.5x</option>
+                <option value="0.75">0.75x</option>
+                <option value="1" selected>1x</option>
+                <option value="1.25">1.25x</option>
+                <option value="1.5">1.5x</option>
+                <option value="2">2x</option>
+            </select>
+            <span id="{tab_id}-time" style="color: #aaa; font-size: 0.9em;">0:00 / 0:00</span>
+            <span id="{tab_id}-status" role="status" aria-live="polite" aria-atomic="true"
+                  style="color: #aaa; font-size: 0.9em; margin-left: 8px;"></span>
         </div>
     </div>
     """
