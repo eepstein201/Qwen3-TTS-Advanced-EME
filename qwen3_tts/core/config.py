@@ -147,8 +147,8 @@ def get_default_clone_prompt(config=None):
     """Return the default clone prompt filename.
 
     Reads from config's "default_clone_prompt" key. If missing or the file
-    doesn't exist, falls back to the first .pt file found in VOICE_PROMPTS_DIR.
-    Returns None if no prompts are available.
+    doesn't exist, falls back to the first prompt matching the current backend
+    (.wav+.txt for MLX, .pt for torch/vllm). Returns None if no prompts are available.
     """
     if config is None:
         try:
