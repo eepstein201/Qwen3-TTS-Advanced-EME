@@ -3218,6 +3218,42 @@ class TestClickCLI(unittest.TestCase):
 
 
 
+class TestGetDefaultClonePromptFallback(unittest.TestCase):
+    """Tests for get_default_clone_prompt() backend-aware fallback."""
+
+    @patch("qwen3_tts.core.config.get_backend", return_value="mlx")
+    @patch("qwen3_tts.core.config.os.listdir")
+    @patch("qwen3_tts.core.config.os.path.exists")
+    @patch("qwen3_tts.core.config.load_config", return_value={})
+    def test_mlx_fallback_returns_wav(self, mock_cfg, mock_exists, mock_ls, mock_be):
+        mock_ls.return_value = ["a.wav", "a.txt", "b.pt"]
+        mock_exists.side_effect = lambda p: True  # all files exist
+        from qwen3_tts.core.config import get_default_clone_prompt
+        result = get_default_clone_prompt()
+        self.assertEqual(result, "a.wav")
+
+    @patch("qwen3_tts.core.config.get_backend", return_value="torch")
+    @patch("qwen3_tts.core.config.os.listdir")
+    @patch("qwen3_tts.core.config.os.path.exists", return_value=False)
+    @patch("qwen3_tts.core.config.load_config", return_value={})
+    def test_torch_fallback_returns_pt(self, mock_cfg, mock_exists, mock_ls, mock_be):
+        mock_ls.return_value = ["a.pt", "a.wav", "a.txt"]
+        from qwen3_tts.core.config import get_default_clone_prompt
+        result = get_default_clone_prompt()
+        self.assertEqual(result, "a.pt")
+
+    @patch("qwen3_tts.core.config.get_backend", return_value="vllm")
+    @patch("qwen3_tts.core.config.os.listdir")
+    @patch("qwen3_tts.core.config.os.path.exists", return_value=False)
+    @patch("qwen3_tts.core.config.load_config", return_value={})
+    def test_vllm_fallback_returns_pt(self, mock_cfg, mock_exists, mock_ls, mock_be):
+        """vLLM backend uses .pt files like torch."""
+        mock_ls.return_value = ["a.pt", "a.wav", "a.txt"]
+        from qwen3_tts.core.config import get_default_clone_prompt
+        result = get_default_clone_prompt()
+        self.assertEqual(result, "a.pt")
+
+
 class TestGetVoicePrompts(unittest.TestCase):
     """Tests for get_voice_prompts() backend-aware filtering."""
 
