@@ -251,7 +251,7 @@ def get_voice_prompts():
 def get_presets():
     """Get list of available generation presets."""
     config = load_config()
-    return list(config.get("presets", {}).keys())
+    return ["(none)"] + list(config.get("presets", {}).keys())
 
 
 def add_to_history(history_list, mode, text, output_path, duration_chunks):

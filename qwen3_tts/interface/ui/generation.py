@@ -105,7 +105,7 @@ def _prepare_streaming_config(mode, text, preset, temperature, top_k, top_p,
             pass
 
     # Apply preset if specified
-    if preset:
+    if preset and preset != "(none)":
         presets = config.get("presets", {})
         if preset in presets:
             gen_params.update(presets[preset])

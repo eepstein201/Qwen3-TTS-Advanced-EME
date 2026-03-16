@@ -3218,5 +3218,32 @@ class TestClickCLI(unittest.TestCase):
 
 
 
+class TestGetPresets(unittest.TestCase):
+    """Tests for get_presets() preset dropdown choices."""
+
+    @patch("qwen3_tts.interface.ui.shared.load_config")
+    def test_includes_none_as_first_choice(self, mock_config):
+        mock_config.return_value = {"presets": {"consistent": {}, "creative": {}}}
+        from qwen3_tts.interface.ui.shared import get_presets
+        result = get_presets()
+        self.assertEqual(result[0], "(none)")
+
+    @patch("qwen3_tts.interface.ui.shared.load_config")
+    def test_contains_config_presets_after_none(self, mock_config):
+        mock_config.return_value = {"presets": {"consistent": {}, "creative": {}}}
+        from qwen3_tts.interface.ui.shared import get_presets
+        result = get_presets()
+        self.assertIn("consistent", result)
+        self.assertIn("creative", result)
+        self.assertEqual(result.index("(none)"), 0)
+
+    @patch("qwen3_tts.interface.ui.shared.load_config")
+    def test_empty_presets_still_has_none(self, mock_config):
+        mock_config.return_value = {"presets": {}}
+        from qwen3_tts.interface.ui.shared import get_presets
+        result = get_presets()
+        self.assertEqual(result, ["(none)"])
+
+
 if __name__ == "__main__":
     unittest.main()
