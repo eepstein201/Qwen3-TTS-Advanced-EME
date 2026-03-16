@@ -1732,8 +1732,7 @@ class TestUIModelSettings(unittest.TestCase):
     def test_apply_model_settings_requires_server(self):
         """apply_model_settings returns error when server not running."""
         from qwen3_tts.interface.ui import apply_model_settings
-        with unittest.mock.patch("qwen3_tts.server.client.TTSClient") as MockClient:
-            MockClient.return_value.is_server_running.return_value = False
+        with unittest.mock.patch("qwen3_tts.interface.ui.shared.is_server_running", return_value=False):
             msg, _ = apply_model_settings("0.6B", "4bit")
         self.assertIn("not running", msg.lower())
 
