@@ -3218,6 +3218,38 @@ class TestClickCLI(unittest.TestCase):
 
 
 
+class TestGetVoicePrompts(unittest.TestCase):
+    """Tests for get_voice_prompts() backend-aware filtering."""
+
+    @patch("qwen3_tts.interface.ui.shared.get_backend", return_value="mlx")
+    @patch("qwen3_tts.interface.ui.shared.os.listdir")
+    def test_mlx_returns_only_wav_with_matching_txt(self, mock_ls, mock_backend):
+        mock_ls.return_value = ["v1.pt", "v1.wav", "v1.txt", "v2.wav", "v2.txt", "orphan.wav"]
+        from qwen3_tts.interface.ui.shared import get_voice_prompts
+        result = get_voice_prompts()
+        self.assertEqual(result, ["v1.wav", "v2.wav"])
+        self.assertNotIn("v1.pt", result)
+        self.assertNotIn("orphan.wav", result)
+
+    @patch("qwen3_tts.interface.ui.shared.get_backend", return_value="torch")
+    @patch("qwen3_tts.interface.ui.shared.os.listdir")
+    def test_torch_returns_only_pt_files(self, mock_ls, mock_backend):
+        mock_ls.return_value = ["v1.pt", "v1.wav", "v1.txt", "v2.pt"]
+        from qwen3_tts.interface.ui.shared import get_voice_prompts
+        result = get_voice_prompts()
+        self.assertEqual(result, ["v1.pt", "v2.pt"])
+        self.assertNotIn("v1.wav", result)
+
+    @patch("qwen3_tts.interface.ui.shared.get_backend", return_value="vllm")
+    @patch("qwen3_tts.interface.ui.shared.os.listdir")
+    def test_vllm_returns_only_pt_files(self, mock_ls, mock_backend):
+        """vLLM backend uses .pt files like torch."""
+        mock_ls.return_value = ["v1.pt", "v1.wav", "v1.txt", "v2.pt"]
+        from qwen3_tts.interface.ui.shared import get_voice_prompts
+        result = get_voice_prompts()
+        self.assertEqual(result, ["v1.pt", "v2.pt"])
+
+
 class TestGetPresets(unittest.TestCase):
     """Tests for get_presets() preset dropdown choices."""
 
