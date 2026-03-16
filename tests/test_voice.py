@@ -3218,6 +3218,51 @@ class TestClickCLI(unittest.TestCase):
 
 
 
+class TestReturnValueCounts(unittest.TestCase):
+    """Tests that UI functions return correct number of values for Gradio wiring."""
+
+    @patch("qwen3_tts.interface.ui.voice_management.get_voice_prompts", return_value=["v.wav"])
+    @patch("qwen3_tts.interface.ui.voice_management.get_prompt_table_data", return_value=[])
+    @patch("qwen3_tts.interface.ui.voice_management.is_server_running", return_value=True)
+    @patch("qwen3_tts.interface.ui.voice_management.load_config", return_value={})
+    @patch("qwen3_tts.interface.ui.voice_management.get_server_url", return_value="http://127.0.0.1:5123")
+    @patch("qwen3_tts.interface.ui.voice_management.auth_headers", return_value={})
+    def test_rename_voice_returns_3_values(self, *mocks):
+        from unittest.mock import MagicMock
+        mock_resp = MagicMock()
+        mock_resp.status_code = 200
+        mock_resp.json.return_value = {}
+        with patch("requests.post", return_value=mock_resp):
+            from qwen3_tts.interface.ui.voice_management import rename_voice
+            result = rename_voice("old", "new_name")
+            self.assertEqual(len(result), 3, f"Expected 3 return values, got {len(result)}")
+
+    @patch("qwen3_tts.interface.ui.voice_management.get_voice_prompts", return_value=["v.wav"])
+    @patch("qwen3_tts.interface.ui.voice_management.get_prompt_table_data", return_value=[])
+    @patch("qwen3_tts.interface.ui.voice_management.is_server_running", return_value=True)
+    @patch("qwen3_tts.interface.ui.voice_management.load_config", return_value={})
+    @patch("qwen3_tts.interface.ui.voice_management.get_server_url", return_value="http://127.0.0.1:5123")
+    @patch("qwen3_tts.interface.ui.voice_management.auth_headers", return_value={})
+    def test_delete_voice_returns_3_values(self, *mocks):
+        from unittest.mock import MagicMock
+        mock_resp = MagicMock()
+        mock_resp.status_code = 200
+        mock_resp.json.return_value = {}
+        with patch("requests.post", return_value=mock_resp):
+            from qwen3_tts.interface.ui.voice_management import delete_voice
+            result = delete_voice("voice1")
+            self.assertEqual(len(result), 3, f"Expected 3 return values, got {len(result)}")
+
+    def test_prompt_table_rows_match_3_columns(self):
+        """Table data rows must have 3 elements to match headers [Name, Format, Default]."""
+        with patch("qwen3_tts.interface.ui.voice_management.get_voice_prompts", return_value=["v.pt"]):
+            with patch("qwen3_tts.interface.ui.voice_management.load_config", return_value={}):
+                from qwen3_tts.interface.ui.voice_management import get_prompt_table_data
+                rows = get_prompt_table_data()
+                if rows:
+                    self.assertEqual(len(rows[0]), 3)
+
+
 class TestSetVoiceDefaultExtension(unittest.TestCase):
     """Tests that set_voice_default uses backend-appropriate extension."""
 

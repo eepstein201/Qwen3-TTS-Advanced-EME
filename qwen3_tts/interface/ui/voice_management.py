@@ -138,7 +138,7 @@ def create_voice_prompt(audio_path, transcript, voice_name, no_transcript=False,
         prompts = get_voice_prompts()
         default = get_default_clone_prompt(config)
 
-        return status, prompts, default
+        return status, gr.update(choices=prompts), gr.update(choices=prompts, value=default)
 
     except gr.Error:
         raise
@@ -319,7 +319,8 @@ def rename_voice(old_name, new_name):
             error = resp.json().get("error", "Unknown error")
             raise gr.Error(f"Rename failed: {error}")
 
-        return f"Renamed '{old_name}' to '{new_name}'", get_prompt_table_data()
+        prompts = get_voice_prompts()
+        return f"Renamed '{old_name}' to '{new_name}'", get_prompt_table_data(), gr.update(choices=prompts)
 
     except gr.Error:
         raise
@@ -361,7 +362,8 @@ def delete_voice(name):
             error = resp.json().get("error", "Unknown error")
             raise gr.Error(f"Delete failed: {error}")
 
-        return f"Deleted '{name}'", get_prompt_table_data()
+        prompts = get_voice_prompts()
+        return f"Deleted '{name}'", get_prompt_table_data(), gr.update(choices=prompts)
 
     except gr.Error:
         raise

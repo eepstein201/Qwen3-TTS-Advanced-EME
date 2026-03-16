@@ -501,7 +501,7 @@ def build_ui():
                 with gr.Row():
                     with gr.Column(scale=2):
                         manage_table = gr.Dataframe(
-                            headers=["Name", "Formats", "Size (MB)", "Default"],
+                            headers=["Name", "Format", "Default"],
                             value=get_prompt_table_data(),
                             interactive=False,
                             wrap=True,
