@@ -325,7 +325,7 @@ def build_ui():
                 def design_config_handler(text, desc, preset, temp, top_k, top_p, rep, seed):
                     return _prepare_streaming_config(
                         "design", text, preset, temp, top_k, top_p, rep, seed,
-                        voice_description=desc)
+                        description=desc)
 
                 _wire_generation_tab(
                     "design", design_btns["btn"], design_btns["cancel_btn"],
@@ -587,7 +587,7 @@ def build_ui():
                 with gr.Row():
                     with gr.Column(scale=2):
                         model_table = gr.Dataframe(
-                            headers=["Model", "Status", "Memory", "Load Time", "Startup"],
+                            headers=["Model", "Status", "Memory", "Startup"],
                             value=get_model_table_data(),
                             interactive=False,
                             wrap=True,
@@ -674,12 +674,12 @@ def build_ui():
 
                 asr_load_btn.click(
                     fn=lambda: toggle_asr("load"),
-                    outputs=[model_manage_status, model_table]
+                    outputs=[model_manage_status, status_html]
                 )
 
                 asr_unload_btn.click(
                     fn=lambda: toggle_asr("unload"),
-                    outputs=[model_manage_status, model_table]
+                    outputs=[model_manage_status, status_html]
                 )
 
                 startup_save_btn.click(

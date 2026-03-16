@@ -110,7 +110,7 @@ def _prepare_streaming_config(mode, text, preset, temperature, top_k, top_p,
         if preset in presets:
             gen_params.update(presets[preset])
 
-    # Build request payload
+    # Build request payload for the server
     payload = {
         "mode": mode,
         "text": text,
@@ -128,12 +128,17 @@ def _prepare_streaming_config(mode, text, preset, temperature, top_k, top_p,
         payload["speaker"] = speaker
         payload["instruct"] = instruct or ""
 
-    # Add server URL for JS streaming
-    if is_server_running(config):
-        payload["server_url"] = get_server_url(config)
-        payload["token"] = open(os.path.expanduser("~/.voice_server_token")).read().strip()
+    # In Colab, the browser can't reach 127.0.0.1 — return sentinel so JS
+    # skips fetch() and the Python fallback generates audio server-side.
+    from qwen3_tts.core.config import IN_COLAB
+    if IN_COLAB:
+        return {"colab_fallback": True, "payload": payload}, "Generating (Colab mode)..."
 
-    return payload, "Generating..."
+    # Build streaming config: nested structure matching JS expectations
+    # JS reads config.server_url, config.auth_token, config.payload
+    server_url = get_server_url(config)
+    auth_token = open(os.path.expanduser("~/.voice_server_token")).read().strip()
+    return {"server_url": server_url, "auth_token": auth_token, "payload": payload}, "Connecting..."
 
 
 def _save_completed_audio(base64_wav, mode, text, history_list, stream_config=None):
@@ -216,7 +221,11 @@ def _generate_colab_fallback(base64_wav, mode, text, history_list, stream_config
     # Check if this is a Colab fallback request
     is_colab = (isinstance(stream_config, dict) and stream_config.get("colab_fallback"))
     if not is_colab:
-        # Not Colab, empty result means cancelled
+        # stream_config is None when validation failed — preserve the error
+        # status already set by Step 1 instead of overwriting with "Cancelled"
+        if stream_config is None:
+            return None, gr.update(), format_status_display(), history_list, gr.update()
+        # Non-Colab, empty result with valid config means user cancelled
         return None, "Cancelled", format_status_display(), history_list, gr.update()
 
     # Colab fallback: generate via Python TTSClient
