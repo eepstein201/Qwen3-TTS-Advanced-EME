@@ -15,6 +15,7 @@ import gradio as gr
 
 from qwen3_tts.core.config import (
     VOICE_PROMPTS_DIR,
+    get_backend,
     get_default_clone_prompt,
     set_default_clone_prompt,
     get_server_url,
@@ -237,10 +238,6 @@ def preview_voice(name):
     if not is_server_running(config):
         raise gr.Error("Server must be running for preview")
 
-    # Ensure .pt extension for server
-    if not name.endswith(".pt"):
-        name = name + ".pt"
-
     tmp_path = None
     try:
         import requests
@@ -385,9 +382,9 @@ def set_voice_default(name):
     if not name:
         raise gr.Error("Please select a voice prompt")
 
-    # Ensure .pt extension for default
-    if not name.endswith(".pt"):
-        name = name + ".pt"
+    backend = get_backend()
+    base = strip_extension(name)
+    name = f"{base}.wav" if backend == "mlx" else f"{base}.pt"
 
     set_default_clone_prompt(name)
 

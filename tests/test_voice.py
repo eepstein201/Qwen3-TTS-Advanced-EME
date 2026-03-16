@@ -3218,6 +3218,58 @@ class TestClickCLI(unittest.TestCase):
 
 
 
+class TestSetVoiceDefaultExtension(unittest.TestCase):
+    """Tests that set_voice_default uses backend-appropriate extension."""
+
+    @patch("qwen3_tts.interface.ui.voice_management.get_prompt_table_data")
+    @patch("qwen3_tts.interface.ui.voice_management.set_default_clone_prompt")
+    @patch("qwen3_tts.interface.ui.voice_management.get_backend", return_value="mlx")
+    def test_mlx_uses_wav_extension(self, mock_be, mock_set, mock_table):
+        from qwen3_tts.interface.ui.voice_management import set_voice_default
+        set_voice_default("my_voice")
+        mock_set.assert_called_once_with("my_voice.wav")
+
+    @patch("qwen3_tts.interface.ui.voice_management.get_prompt_table_data")
+    @patch("qwen3_tts.interface.ui.voice_management.set_default_clone_prompt")
+    @patch("qwen3_tts.interface.ui.voice_management.get_backend", return_value="torch")
+    def test_torch_uses_pt_extension(self, mock_be, mock_set, mock_table):
+        from qwen3_tts.interface.ui.voice_management import set_voice_default
+        set_voice_default("my_voice")
+        mock_set.assert_called_once_with("my_voice.pt")
+
+    @patch("qwen3_tts.interface.ui.voice_management.get_prompt_table_data")
+    @patch("qwen3_tts.interface.ui.voice_management.set_default_clone_prompt")
+    @patch("qwen3_tts.interface.ui.voice_management.get_backend", return_value="vllm")
+    def test_vllm_uses_pt_extension(self, mock_be, mock_set, mock_table):
+        """vLLM backend uses .pt files like torch."""
+        from qwen3_tts.interface.ui.voice_management import set_voice_default
+        set_voice_default("my_voice")
+        mock_set.assert_called_once_with("my_voice.pt")
+
+
+class TestPreviewVoiceExtension(unittest.TestCase):
+    """Tests that preview_voice does not force .pt extension."""
+
+    @patch("qwen3_tts.interface.ui.voice_management.is_server_running", return_value=True)
+    @patch("qwen3_tts.interface.ui.voice_management.load_config", return_value={})
+    @patch("qwen3_tts.interface.ui.voice_management.get_server_url", return_value="http://127.0.0.1:5123")
+    @patch("qwen3_tts.interface.ui.voice_management.auth_headers", return_value={})
+    def test_does_not_force_pt_extension(self, mock_auth, mock_url, mock_cfg, mock_running):
+        """Name sent to server should not have .pt forced onto it."""
+        from unittest.mock import MagicMock
+        mock_resp = MagicMock()
+        mock_resp.status_code = 200
+        mock_resp.content = b"RIFF" + b"\x00" * 100
+        with patch("requests.get", return_value=mock_resp) as mock_get:
+            from qwen3_tts.interface.ui.voice_management import preview_voice
+            preview_voice("my_voice")
+            # Check the name param sent to server
+            call_args = mock_get.call_args
+            params = call_args.kwargs.get("params", {})
+            self.assertNotEqual(params.get("name"), "my_voice.pt",
+                                "preview_voice should not force .pt extension")
+
+
 class TestValidatePromptNameCallers(unittest.TestCase):
     """Tests that validate_prompt_name callers handle return values correctly."""
 
