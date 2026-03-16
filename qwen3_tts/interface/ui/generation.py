@@ -137,7 +137,8 @@ def _prepare_streaming_config(mode, text, preset, temperature, top_k, top_p,
     # Build streaming config: nested structure matching JS expectations
     # JS reads config.server_url, config.auth_token, config.payload
     server_url = get_server_url(config)
-    auth_token = open(os.path.expanduser("~/.voice_server_token")).read().strip()
+    with open(os.path.expanduser("~/.voice_server_token")) as f:
+        auth_token = f.read().strip()
     return {"server_url": server_url, "auth_token": auth_token, "payload": payload}, "Connecting..."
 
 

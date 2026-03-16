@@ -284,7 +284,7 @@ def rename_voice(old_name, new_name):
         new_name: New name
 
     Returns:
-        Tuple of (status_message, prompt_table)
+        Tuple of (status_message, prompt_table, dropdown_update)
     """
     if not old_name:
         raise gr.Error("Please select a voice prompt to rename")
@@ -336,7 +336,7 @@ def delete_voice(name):
         name: Voice prompt name
 
     Returns:
-        Tuple of (status_message, prompt_table)
+        Tuple of (status_message, prompt_table, dropdown_update)
     """
     if not name:
         raise gr.Error("Please select a voice prompt to delete")
