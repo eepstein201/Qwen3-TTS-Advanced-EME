@@ -1732,8 +1732,7 @@ class TestUIModelSettings(unittest.TestCase):
     def test_apply_model_settings_requires_server(self):
         """apply_model_settings returns error when server not running."""
         from qwen3_tts.interface.ui import apply_model_settings
-        with unittest.mock.patch("qwen3_tts.server.client.TTSClient") as MockClient:
-            MockClient.return_value.is_server_running.return_value = False
+        with unittest.mock.patch("qwen3_tts.interface.ui.shared.is_server_running", return_value=False):
             msg, _ = apply_model_settings("0.6B", "4bit")
         self.assertIn("not running", msg.lower())
 
@@ -3216,6 +3215,246 @@ class TestClickCLI(unittest.TestCase):
                 self.assertFalse(os.path.exists(temp_file_path),
                                  f"Temp file {temp_file_path} should be cleaned up on write failure")
 
+
+
+class TestReturnValueCounts(unittest.TestCase):
+    """Tests that UI functions return correct number of values for Gradio wiring."""
+
+    @patch("qwen3_tts.interface.ui.voice_management.get_voice_prompts", return_value=["v.wav"])
+    @patch("qwen3_tts.interface.ui.voice_management.get_prompt_table_data", return_value=[])
+    @patch("qwen3_tts.interface.ui.voice_management.is_server_running", return_value=True)
+    @patch("qwen3_tts.interface.ui.voice_management.load_config", return_value={})
+    @patch("qwen3_tts.interface.ui.voice_management.get_server_url", return_value="http://127.0.0.1:5123")
+    @patch("qwen3_tts.interface.ui.voice_management.auth_headers", return_value={})
+    def test_rename_voice_returns_3_values(self, *mocks):
+        from unittest.mock import MagicMock
+        mock_resp = MagicMock()
+        mock_resp.status_code = 200
+        mock_resp.json.return_value = {}
+        with patch("requests.post", return_value=mock_resp):
+            from qwen3_tts.interface.ui.voice_management import rename_voice
+            result = rename_voice("old", "new_name")
+            self.assertEqual(len(result), 3, f"Expected 3 return values, got {len(result)}")
+
+    @patch("qwen3_tts.interface.ui.voice_management.get_voice_prompts", return_value=["v.wav"])
+    @patch("qwen3_tts.interface.ui.voice_management.get_prompt_table_data", return_value=[])
+    @patch("qwen3_tts.interface.ui.voice_management.is_server_running", return_value=True)
+    @patch("qwen3_tts.interface.ui.voice_management.load_config", return_value={})
+    @patch("qwen3_tts.interface.ui.voice_management.get_server_url", return_value="http://127.0.0.1:5123")
+    @patch("qwen3_tts.interface.ui.voice_management.auth_headers", return_value={})
+    def test_delete_voice_returns_3_values(self, *mocks):
+        from unittest.mock import MagicMock
+        mock_resp = MagicMock()
+        mock_resp.status_code = 200
+        mock_resp.json.return_value = {}
+        with patch("requests.post", return_value=mock_resp):
+            from qwen3_tts.interface.ui.voice_management import delete_voice
+            result = delete_voice("voice1")
+            self.assertEqual(len(result), 3, f"Expected 3 return values, got {len(result)}")
+
+    def test_prompt_table_rows_match_3_columns(self):
+        """Table data rows must have 3 elements to match headers [Name, Format, Default]."""
+        with patch("qwen3_tts.interface.ui.voice_management.get_voice_prompts", return_value=["v.pt"]):
+            with patch("qwen3_tts.interface.ui.voice_management.load_config", return_value={}):
+                from qwen3_tts.interface.ui.voice_management import get_prompt_table_data
+                rows = get_prompt_table_data()
+                if rows:
+                    self.assertEqual(len(rows[0]), 3)
+
+
+class TestSetVoiceDefaultExtension(unittest.TestCase):
+    """Tests that set_voice_default uses backend-appropriate extension."""
+
+    @patch("qwen3_tts.interface.ui.voice_management.get_prompt_table_data")
+    @patch("qwen3_tts.interface.ui.voice_management.set_default_clone_prompt")
+    @patch("qwen3_tts.interface.ui.voice_management.get_backend", return_value="mlx")
+    def test_mlx_uses_wav_extension(self, mock_be, mock_set, mock_table):
+        from qwen3_tts.interface.ui.voice_management import set_voice_default
+        set_voice_default("my_voice")
+        mock_set.assert_called_once_with("my_voice.wav")
+
+    @patch("qwen3_tts.interface.ui.voice_management.get_prompt_table_data")
+    @patch("qwen3_tts.interface.ui.voice_management.set_default_clone_prompt")
+    @patch("qwen3_tts.interface.ui.voice_management.get_backend", return_value="torch")
+    def test_torch_uses_pt_extension(self, mock_be, mock_set, mock_table):
+        from qwen3_tts.interface.ui.voice_management import set_voice_default
+        set_voice_default("my_voice")
+        mock_set.assert_called_once_with("my_voice.pt")
+
+    @patch("qwen3_tts.interface.ui.voice_management.get_prompt_table_data")
+    @patch("qwen3_tts.interface.ui.voice_management.set_default_clone_prompt")
+    @patch("qwen3_tts.interface.ui.voice_management.get_backend", return_value="vllm")
+    def test_vllm_uses_pt_extension(self, mock_be, mock_set, mock_table):
+        """vLLM backend uses .pt files like torch."""
+        from qwen3_tts.interface.ui.voice_management import set_voice_default
+        set_voice_default("my_voice")
+        mock_set.assert_called_once_with("my_voice.pt")
+
+
+class TestPreviewVoiceExtension(unittest.TestCase):
+    """Tests that preview_voice does not force .pt extension."""
+
+    @patch("qwen3_tts.interface.ui.voice_management.is_server_running", return_value=True)
+    @patch("qwen3_tts.interface.ui.voice_management.load_config", return_value={})
+    @patch("qwen3_tts.interface.ui.voice_management.get_server_url", return_value="http://127.0.0.1:5123")
+    @patch("qwen3_tts.interface.ui.voice_management.auth_headers", return_value={})
+    def test_does_not_force_pt_extension(self, mock_auth, mock_url, mock_cfg, mock_running):
+        """Name sent to server should not have .pt forced onto it."""
+        from unittest.mock import MagicMock
+        mock_resp = MagicMock()
+        mock_resp.status_code = 200
+        mock_resp.content = b"RIFF" + b"\x00" * 100
+        with patch("requests.get", return_value=mock_resp) as mock_get:
+            from qwen3_tts.interface.ui.voice_management import preview_voice
+            preview_voice("my_voice")
+            # Check the name param sent to server
+            call_args = mock_get.call_args
+            params = call_args.kwargs.get("params", {})
+            self.assertNotEqual(params.get("name"), "my_voice.pt",
+                                "preview_voice should not force .pt extension")
+
+
+class TestValidatePromptNameCallers(unittest.TestCase):
+    """Tests that validate_prompt_name callers handle return values correctly."""
+
+    @patch("qwen3_tts.interface.ui.voice_management.load_config", return_value={"advanced": {"backend": "mlx"}})
+    @patch("qwen3_tts.interface.ui.voice_management.validate_prompt_name", return_value=None)
+    def test_create_voice_valid_name_does_not_crash(self, mock_validate, mock_cfg):
+        """Valid name (returns None) must not raise TypeError from unpacking."""
+        from qwen3_tts.interface.ui.voice_management import create_voice_prompt
+        # Pass a real audio_path so we reach validate_prompt_name (not the audio check)
+        # Should proceed past validation, then hit the backend logic
+        try:
+            create_voice_prompt("/tmp/fake_audio.wav", "transcript", "valid_name")
+        except TypeError as e:
+            self.fail(f"Crashed unpacking validate_prompt_name return value: {e}")
+        except Exception:
+            pass  # Any other error (file not found, etc.) is fine
+
+    @patch("qwen3_tts.interface.ui.voice_management.validate_prompt_name")
+    def test_create_voice_invalid_name_raises_error(self, mock_validate):
+        """Invalid name must raise gr.Error with the error message."""
+        mock_validate.return_value = ({"error": "Invalid prompt name", "recovery": "config"}, 400)
+        from qwen3_tts.interface.ui.voice_management import create_voice_prompt
+        import gradio as gr
+        with self.assertRaises(gr.Error) as ctx:
+            create_voice_prompt("/tmp/fake_audio.wav", "transcript", "bad_name")
+        self.assertIn("Invalid", str(ctx.exception))
+
+    @patch("qwen3_tts.interface.ui.voice_management.validate_prompt_name", return_value=None)
+    @patch("qwen3_tts.interface.ui.voice_management.is_server_running", return_value=True)
+    @patch("qwen3_tts.interface.ui.voice_management.load_config", return_value={})
+    @patch("qwen3_tts.interface.ui.voice_management.get_server_url", return_value="http://127.0.0.1:5123")
+    @patch("qwen3_tts.interface.ui.voice_management.auth_headers", return_value={})
+    def test_rename_voice_valid_name_does_not_crash(self, *mocks):
+        """Valid new name (returns None) must not raise TypeError from unpacking."""
+        from qwen3_tts.interface.ui.voice_management import rename_voice
+        from unittest.mock import MagicMock
+        mock_resp = MagicMock()
+        mock_resp.status_code = 200
+        mock_resp.json.return_value = {}
+        with patch("requests.post", return_value=mock_resp):
+            try:
+                rename_voice("old", "new_name")
+            except TypeError as e:
+                self.fail(f"Crashed unpacking validate_prompt_name return value: {e}")
+            except Exception:
+                pass  # Other errors (network, etc.) are fine
+
+
+class TestGetDefaultClonePromptFallback(unittest.TestCase):
+    """Tests for get_default_clone_prompt() backend-aware fallback."""
+
+    @patch("qwen3_tts.core.config.get_backend", return_value="mlx")
+    @patch("qwen3_tts.core.config.os.listdir")
+    @patch("qwen3_tts.core.config.os.path.exists")
+    @patch("qwen3_tts.core.config.load_config", return_value={})
+    def test_mlx_fallback_returns_wav(self, mock_cfg, mock_exists, mock_ls, mock_be):
+        mock_ls.return_value = ["a.wav", "a.txt", "b.pt"]
+        mock_exists.side_effect = lambda p: True  # all files exist
+        from qwen3_tts.core.config import get_default_clone_prompt
+        result = get_default_clone_prompt()
+        self.assertEqual(result, "a.wav")
+
+    @patch("qwen3_tts.core.config.get_backend", return_value="torch")
+    @patch("qwen3_tts.core.config.os.listdir")
+    @patch("qwen3_tts.core.config.os.path.exists", return_value=False)
+    @patch("qwen3_tts.core.config.load_config", return_value={})
+    def test_torch_fallback_returns_pt(self, mock_cfg, mock_exists, mock_ls, mock_be):
+        mock_ls.return_value = ["a.pt", "a.wav", "a.txt"]
+        from qwen3_tts.core.config import get_default_clone_prompt
+        result = get_default_clone_prompt()
+        self.assertEqual(result, "a.pt")
+
+    @patch("qwen3_tts.core.config.get_backend", return_value="vllm")
+    @patch("qwen3_tts.core.config.os.listdir")
+    @patch("qwen3_tts.core.config.os.path.exists", return_value=False)
+    @patch("qwen3_tts.core.config.load_config", return_value={})
+    def test_vllm_fallback_returns_pt(self, mock_cfg, mock_exists, mock_ls, mock_be):
+        """vLLM backend uses .pt files like torch."""
+        mock_ls.return_value = ["a.pt", "a.wav", "a.txt"]
+        from qwen3_tts.core.config import get_default_clone_prompt
+        result = get_default_clone_prompt()
+        self.assertEqual(result, "a.pt")
+
+
+class TestGetVoicePrompts(unittest.TestCase):
+    """Tests for get_voice_prompts() backend-aware filtering."""
+
+    @patch("qwen3_tts.interface.ui.shared.get_backend", return_value="mlx")
+    @patch("qwen3_tts.interface.ui.shared.os.listdir")
+    def test_mlx_returns_only_wav_with_matching_txt(self, mock_ls, mock_backend):
+        mock_ls.return_value = ["v1.pt", "v1.wav", "v1.txt", "v2.wav", "v2.txt", "orphan.wav"]
+        from qwen3_tts.interface.ui.shared import get_voice_prompts
+        result = get_voice_prompts()
+        self.assertEqual(result, ["v1.wav", "v2.wav"])
+        self.assertNotIn("v1.pt", result)
+        self.assertNotIn("orphan.wav", result)
+
+    @patch("qwen3_tts.interface.ui.shared.get_backend", return_value="torch")
+    @patch("qwen3_tts.interface.ui.shared.os.listdir")
+    def test_torch_returns_only_pt_files(self, mock_ls, mock_backend):
+        mock_ls.return_value = ["v1.pt", "v1.wav", "v1.txt", "v2.pt"]
+        from qwen3_tts.interface.ui.shared import get_voice_prompts
+        result = get_voice_prompts()
+        self.assertEqual(result, ["v1.pt", "v2.pt"])
+        self.assertNotIn("v1.wav", result)
+
+    @patch("qwen3_tts.interface.ui.shared.get_backend", return_value="vllm")
+    @patch("qwen3_tts.interface.ui.shared.os.listdir")
+    def test_vllm_returns_only_pt_files(self, mock_ls, mock_backend):
+        """vLLM backend uses .pt files like torch."""
+        mock_ls.return_value = ["v1.pt", "v1.wav", "v1.txt", "v2.pt"]
+        from qwen3_tts.interface.ui.shared import get_voice_prompts
+        result = get_voice_prompts()
+        self.assertEqual(result, ["v1.pt", "v2.pt"])
+
+
+class TestGetPresets(unittest.TestCase):
+    """Tests for get_presets() preset dropdown choices."""
+
+    @patch("qwen3_tts.interface.ui.shared.load_config")
+    def test_includes_none_as_first_choice(self, mock_config):
+        mock_config.return_value = {"presets": {"consistent": {}, "creative": {}}}
+        from qwen3_tts.interface.ui.shared import get_presets
+        result = get_presets()
+        self.assertEqual(result[0], "(none)")
+
+    @patch("qwen3_tts.interface.ui.shared.load_config")
+    def test_contains_config_presets_after_none(self, mock_config):
+        mock_config.return_value = {"presets": {"consistent": {}, "creative": {}}}
+        from qwen3_tts.interface.ui.shared import get_presets
+        result = get_presets()
+        self.assertIn("consistent", result)
+        self.assertIn("creative", result)
+        self.assertEqual(result.index("(none)"), 0)
+
+    @patch("qwen3_tts.interface.ui.shared.load_config")
+    def test_empty_presets_still_has_none(self, mock_config):
+        mock_config.return_value = {"presets": {}}
+        from qwen3_tts.interface.ui.shared import get_presets
+        result = get_presets()
+        self.assertEqual(result, ["(none)"])
 
 
 if __name__ == "__main__":

@@ -216,8 +216,10 @@ class TestGenerateColabFallback(unittest.TestCase):
     @skip_if_no_gradio
     def test_cancel_returns_none(self):
         from qwen3_tts.interface.ui import _generate_colab_fallback
+        # Simulate cancel: JS returns '' but stream_config was valid (not None)
+        config = {"server_url": "http://127.0.0.1:5123", "auth_token": "tok", "payload": {}}
         audio_path, status, _, _, _ = _generate_colab_fallback(
-            "", "clone", "hello", [], None)
+            "", "clone", "hello", [], config)
         self.assertIsNone(audio_path)
         self.assertEqual(status, "Cancelled")
 

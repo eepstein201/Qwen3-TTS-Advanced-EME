@@ -147,8 +147,8 @@ def get_default_clone_prompt(config=None):
     """Return the default clone prompt filename.
 
     Reads from config's "default_clone_prompt" key. If missing or the file
-    doesn't exist, falls back to the first .pt file found in VOICE_PROMPTS_DIR.
-    Returns None if no prompts are available.
+    doesn't exist, falls back to the first prompt matching the current backend
+    (.wav+.txt for MLX, .pt for torch/vllm). Returns None if no prompts are available.
     """
     if config is None:
         try:
@@ -166,11 +166,19 @@ def get_default_clone_prompt(config=None):
         if pt_exists or mlx_exists:
             return configured
 
-    # Fallback: first .pt file in voice_prompts/
+    # Fallback: first prompt matching current backend
+    backend = get_backend()
     try:
-        prompts = sorted(f for f in os.listdir(VOICE_PROMPTS_DIR) if f.endswith(".pt"))
-        if prompts:
-            return prompts[0]
+        all_files = os.listdir(VOICE_PROMPTS_DIR)
+        if backend == "mlx":
+            txt_bases = {f[:-4] for f in all_files if f.endswith('.txt')}
+            for wav in sorted(f for f in all_files if f.endswith('.wav')):
+                if wav[:-4] in txt_bases:
+                    return wav
+        else:
+            prompts = sorted(f for f in all_files if f.endswith('.pt'))
+            if prompts:
+                return prompts[0]
     except OSError:
         pass
 

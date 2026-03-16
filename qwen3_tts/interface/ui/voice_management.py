@@ -15,6 +15,7 @@ import gradio as gr
 
 from qwen3_tts.core.config import (
     VOICE_PROMPTS_DIR,
+    get_backend,
     get_default_clone_prompt,
     set_default_clone_prompt,
     get_server_url,
@@ -56,9 +57,9 @@ def create_voice_prompt(audio_path, transcript, voice_name, no_transcript=False,
     voice_name = voice_name.strip()
 
     # Validate name
-    is_valid, error_msg = validate_prompt_name(voice_name)
-    if not is_valid:
-        raise gr.Error(error_msg)
+    validation_error = validate_prompt_name(voice_name)
+    if validation_error:
+        raise gr.Error(validation_error[0]["error"])
 
     config = load_config()
     backend = config.get("advanced", {}).get("backend", "mlx")
@@ -137,7 +138,7 @@ def create_voice_prompt(audio_path, transcript, voice_name, no_transcript=False,
         prompts = get_voice_prompts()
         default = get_default_clone_prompt(config)
 
-        return status, prompts, default
+        return status, gr.update(choices=prompts), gr.update(choices=prompts, value=default)
 
     except gr.Error:
         raise
@@ -237,10 +238,6 @@ def preview_voice(name):
     if not is_server_running(config):
         raise gr.Error("Server must be running for preview")
 
-    # Ensure .pt extension for server
-    if not name.endswith(".pt"):
-        name = name + ".pt"
-
     tmp_path = None
     try:
         import requests
@@ -287,7 +284,7 @@ def rename_voice(old_name, new_name):
         new_name: New name
 
     Returns:
-        Tuple of (status_message, prompt_table)
+        Tuple of (status_message, prompt_table, dropdown_update)
     """
     if not old_name:
         raise gr.Error("Please select a voice prompt to rename")
@@ -297,9 +294,9 @@ def rename_voice(old_name, new_name):
     new_name = new_name.strip()
 
     # Validate new name
-    is_valid, error_msg = validate_prompt_name(new_name)
-    if not is_valid:
-        raise gr.Error(error_msg)
+    validation_error = validate_prompt_name(new_name)
+    if validation_error:
+        raise gr.Error(validation_error[0]["error"])
 
     config = load_config()
 
@@ -322,7 +319,8 @@ def rename_voice(old_name, new_name):
             error = resp.json().get("error", "Unknown error")
             raise gr.Error(f"Rename failed: {error}")
 
-        return f"Renamed '{old_name}' to '{new_name}'", get_prompt_table_data()
+        prompts = get_voice_prompts()
+        return f"Renamed '{old_name}' to '{new_name}'", get_prompt_table_data(), gr.update(choices=prompts)
 
     except gr.Error:
         raise
@@ -338,7 +336,7 @@ def delete_voice(name):
         name: Voice prompt name
 
     Returns:
-        Tuple of (status_message, prompt_table)
+        Tuple of (status_message, prompt_table, dropdown_update)
     """
     if not name:
         raise gr.Error("Please select a voice prompt to delete")
@@ -364,7 +362,8 @@ def delete_voice(name):
             error = resp.json().get("error", "Unknown error")
             raise gr.Error(f"Delete failed: {error}")
 
-        return f"Deleted '{name}'", get_prompt_table_data()
+        prompts = get_voice_prompts()
+        return f"Deleted '{name}'", get_prompt_table_data(), gr.update(choices=prompts)
 
     except gr.Error:
         raise
@@ -385,9 +384,9 @@ def set_voice_default(name):
     if not name:
         raise gr.Error("Please select a voice prompt")
 
-    # Ensure .pt extension for default
-    if not name.endswith(".pt"):
-        name = name + ".pt"
+    backend = get_backend()
+    base = strip_extension(name)
+    name = f"{base}.wav" if backend == "mlx" else f"{base}.pt"
 
     set_default_clone_prompt(name)
 

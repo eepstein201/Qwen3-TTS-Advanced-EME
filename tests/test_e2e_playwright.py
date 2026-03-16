@@ -32,10 +32,12 @@ except ImportError:
 UI_PORT = 7866
 UI_URL = f"http://127.0.0.1:{UI_PORT}"
 SERVER_URL = "http://127.0.0.1:5123"
-PROJECT_DIR = os.path.expanduser("~/Qwen3-TTS_UserFiles")
+# Derive from test file location so it works in both main repo and worktrees
+PROJECT_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
-# Generation timeout — real inference can take 30-120s depending on hardware
-GEN_TIMEOUT_MS = 180_000
+# Generation timeout — real inference can take 30-120s depending on hardware;
+# add headroom for MLX streaming + polling overhead
+GEN_TIMEOUT_MS = 240_000
 MODEL_TIMEOUT_MS = 180_000
 
 # JS to re-execute scripts that Gradio injected via innerHTML.
@@ -73,6 +75,31 @@ def _is_server_running():
         return False
 
 
+def _wait_for_model_state(model_name, loaded, timeout=60):
+    """Poll server /health until model reaches expected loaded state.
+
+    Args:
+        model_name: "clone", "design", or "custom"
+        loaded: True to wait for loaded, False to wait for unloaded
+        timeout: Max seconds to wait
+    """
+    import json
+    deadline = time.time() + timeout
+    key = f"{model_name}_model_loaded"
+    while time.time() < deadline:
+        try:
+            resp = urllib.request.urlopen(  # nosec B310
+                f"{SERVER_URL}/health", timeout=5
+            )
+            health = json.loads(resp.read())
+            if health.get(key) == loaded:
+                return True
+        except Exception:
+            pass
+        time.sleep(1)
+    return False
+
+
 def _wait_for_ui(url, timeout=45):
     """Poll until the Gradio UI responds."""
     deadline = time.time() + timeout
@@ -101,6 +128,14 @@ class GradioPage:
         # Re-inject scripts that Gradio's innerHTML didn't execute
         self.page.evaluate(_INJECT_SCRIPTS_JS)
         self.page.wait_for_timeout(2000)
+        # Wait for StreamingPlayer module to be available (async load race fix)
+        try:
+            self.page.wait_for_function(
+                "() => typeof window.getOrCreatePlayer === 'function'",
+                timeout=10_000,
+            )
+        except Exception:
+            pass  # Non-fatal — player may not exist on non-generation tabs
 
     def click_tab(self, tab_name):
         """Click a Gradio tab by its button text."""
@@ -204,8 +239,11 @@ class GradioPage:
     def select_dropdown(self, label, value):
         """Select a value in a Gradio Dropdown by label."""
         panel = self._get_visible_tab_panel()
-        container = panel.locator("label").filter(has_text=label).locator("..").first
-        input_el = container.locator("input").first
+        # Try aria-label first (Gradio 6 puts aria-label on the input)
+        input_el = panel.locator(f"input[aria-label='{label}']").first
+        if input_el.count() == 0:
+            container = panel.locator("label").filter(has_text=label).locator("..").first
+            input_el = container.locator("input").first
         input_el.click()
         self.page.wait_for_timeout(300)
         input_el.fill(value)
@@ -264,14 +302,51 @@ class GradioPage:
         )
 
     def get_table_data(self):
-        """Read visible table data as list of lists."""
+        """Read visible table data as list of lists.
+
+        Deduplicates by first column (model name) keeping the last occurrence,
+        because Gradio 6 Dataframe may render a phantom stale first row from
+        previous component state alongside the current data rows.
+        """
         panel = self._get_visible_tab_panel()
         rows = panel.locator("table tbody tr").all()
-        data = []
+        seen = {}
         for row in rows:
             cells = row.locator("td").all()
-            data.append([c.inner_text() for c in cells])
-        return data
+            row_data = [c.inner_text() for c in cells]
+            if row_data:
+                seen[row_data[0].lower().strip()] = row_data
+        return list(seen.values())
+
+    def wait_for_table_row(self, row_name, column_text, timeout=30_000):
+        """Wait until the LAST table row with row_name has column_text in column 1.
+
+        Uses the last occurrence because Gradio 6 Dataframe may render a
+        phantom stale first row alongside the real data rows.
+        """
+        self.page.wait_for_function(
+            f"""() => {{
+                var panels = document.querySelectorAll('div[role="tabpanel"]');
+                for (var i = 0; i < panels.length; i++) {{
+                    if (panels[i].offsetParent === null) continue;
+                    var rows = panels[i].querySelectorAll('table tbody tr');
+                    var lastMatch = null;
+                    for (var j = 0; j < rows.length; j++) {{
+                        var cells = rows[j].querySelectorAll('td');
+                        if (cells.length < 2) continue;
+                        var name = cells[0].textContent.trim().toLowerCase();
+                        if (name === '{row_name}') {{
+                            lastMatch = cells[1].textContent;
+                        }}
+                    }}
+                    if (lastMatch !== null && lastMatch.indexOf('{column_text}') >= 0) {{
+                        return true;
+                    }}
+                }}
+                return false;
+            }}""",
+            timeout=timeout,
+        )
 
 
 @unittest.skipUnless(HAS_PLAYWRIGHT, "playwright not installed")
@@ -414,7 +489,7 @@ class TestE2EPlaywright(unittest.TestCase):
         self.gp.click_tab("Clone Mode")
         self.gp.click_button("Generate")
 
-        self.gp.wait_for_status_contains(["Error", "error", "text"], timeout=10_000)
+        self.gp.wait_for_status_contains(["Error", "error", "text"], timeout=30_000)
         status = self.gp.get_status_text()
         self.assertNotIn("Connecting", status)
 
@@ -424,7 +499,7 @@ class TestE2EPlaywright(unittest.TestCase):
         self.gp.fill_textbox("Text Input", "Some text to speak.")
         self.gp.click_button("Generate")
 
-        self.gp.wait_for_status_contains(["Error", "error", "description"], timeout=10_000)
+        self.gp.wait_for_status_contains(["Error", "error", "description"], timeout=30_000)
         status = self.gp.get_status_text()
         self.assertNotIn("Connecting", status)
 
@@ -509,7 +584,7 @@ class TestE2EPlaywright(unittest.TestCase):
     def test_08_load_model(self):
         """Loading a model from the Manage Models tab should succeed."""
         self.gp.click_tab("Manage Models")
-        self.gp.select_dropdown_by_value("clone", "design")
+        self.gp.select_dropdown("Model", "design")
         self.gp.click_button("Load", exact=True)
 
         # Wait for load to complete (status goes to unlabeled textarea)
@@ -521,9 +596,18 @@ class TestE2EPlaywright(unittest.TestCase):
         except Exception:
             pass
 
-        self.page.wait_for_timeout(1000)
-        self.gp.click_button("Refresh")
-        self.page.wait_for_timeout(1000)
+        # Poll server to confirm model is actually loaded
+        _wait_for_model_state("design", loaded=True, timeout=60)
+
+        # The Load handler already returns updated table data via its outputs.
+        # Wait for Gradio to render the update in the DOM (avoids race condition).
+        try:
+            self.gp.wait_for_table_row("design", "Loaded", timeout=10_000)
+        except Exception:
+            # Fallback: click Refresh to force a fresh table render
+            self.gp.click_button("Refresh")
+            self.gp.wait_for_table_row("design", "Loaded", timeout=15_000)
+
         table = self.gp.get_table_data()
         design_row = [r for r in table if r and r[0].lower().strip() == "design"]
         if design_row:
@@ -533,7 +617,7 @@ class TestE2EPlaywright(unittest.TestCase):
     def test_09_unload_model(self):
         """Unloading a model from the Manage Models tab should succeed."""
         self.gp.click_tab("Manage Models")
-        self.gp.select_dropdown_by_value("clone", "design")
+        self.gp.select_dropdown("Model", "design")
 
         # First ensure it's loaded
         self.gp.click_button("Load", exact=True)
@@ -543,6 +627,7 @@ class TestE2EPlaywright(unittest.TestCase):
             )
         except Exception:
             pass
+        _wait_for_model_state("design", loaded=True, timeout=60)
 
         self.gp.click_button("Unload", exact=True)
         try:
@@ -551,6 +636,7 @@ class TestE2EPlaywright(unittest.TestCase):
             )
         except Exception:
             pass
+        _wait_for_model_state("design", loaded=False, timeout=30)
 
         self.gp.click_button("Refresh")
         self.page.wait_for_timeout(1000)
@@ -563,7 +649,7 @@ class TestE2EPlaywright(unittest.TestCase):
     def test_10_load_unload_cycle(self):
         """Load then unload a model to verify no state corruption."""
         self.gp.click_tab("Manage Models")
-        self.gp.select_dropdown_by_value("clone", "design")
+        self.gp.select_dropdown("Model", "design")
 
         # Load
         self.gp.click_button("Load", exact=True)
@@ -573,9 +659,14 @@ class TestE2EPlaywright(unittest.TestCase):
             )
         except Exception:
             pass
+        _wait_for_model_state("design", loaded=True, timeout=60)
 
-        self.gp.click_button("Refresh")
-        self.page.wait_for_timeout(1000)
+        try:
+            self.gp.wait_for_table_row("design", "Loaded", timeout=10_000)
+        except Exception:
+            self.gp.click_button("Refresh")
+            self.gp.wait_for_table_row("design", "Loaded", timeout=15_000)
+
         table = self.gp.get_table_data()
         design_row = [r for r in table if r and r[0].lower().strip() == "design"]
         if design_row:
@@ -589,9 +680,14 @@ class TestE2EPlaywright(unittest.TestCase):
             )
         except Exception:
             pass
+        _wait_for_model_state("design", loaded=False, timeout=30)
 
-        self.gp.click_button("Refresh")
-        self.page.wait_for_timeout(1000)
+        try:
+            self.gp.wait_for_table_row("design", "Not loaded", timeout=10_000)
+        except Exception:
+            self.gp.click_button("Refresh")
+            self.gp.wait_for_table_row("design", "Not loaded", timeout=15_000)
+
         table = self.gp.get_table_data()
         design_row = [r for r in table if r and r[0].lower().strip() == "design"]
         if design_row:

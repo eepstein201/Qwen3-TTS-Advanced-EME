@@ -232,26 +232,24 @@ def format_status_display():
 
 
 def get_voice_prompts():
-    """Get list of available voice prompts."""
+    """Get list of available voice prompts, filtered by current backend."""
     from qwen3_tts.core.config import VOICE_PROMPTS_DIR
-
+    backend = get_backend()
     try:
         files = os.listdir(VOICE_PROMPTS_DIR)
     except OSError:
         return []
-
-    # Include .pt files and MLX prompt pairs (.wav + .txt)
-    pt_prompts = {f for f in files if f.endswith('.pt')}
-    txt_bases = {f[:-4] for f in files if f.endswith('.txt')}
-    mlx_prompts = {f for f in files if f.endswith('.wav') and f[:-4] in txt_bases}
-
-    return sorted(pt_prompts | mlx_prompts)
+    if backend == "mlx":
+        txt_bases = {f[:-4] for f in files if f.endswith('.txt')}
+        return sorted(f for f in files if f.endswith('.wav') and f[:-4] in txt_bases)
+    else:
+        return sorted(f for f in files if f.endswith('.pt'))
 
 
 def get_presets():
     """Get list of available generation presets."""
     config = load_config()
-    return list(config.get("presets", {}).keys())
+    return ["(none)"] + list(config.get("presets", {}).keys())
 
 
 def add_to_history(history_list, mode, text, output_path, duration_chunks):
