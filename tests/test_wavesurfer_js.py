@@ -443,14 +443,10 @@ class TestPrepareStreamingConfig(unittest.TestCase):
         self.assertIn("Error", status)
 
     def test_returns_error_when_server_not_running(self):
-        from unittest.mock import patch, MagicMock
+        from unittest.mock import patch
         from qwen3_tts.interface.ui import _prepare_streaming_config
 
-        with patch('qwen3_tts.server.client.TTSClient') as mock_cls:
-            mock_client = MagicMock()
-            mock_client.is_server_running.return_value = False
-            mock_cls.return_value = mock_client
-
+        with patch('qwen3_tts.interface.ui.generation.is_server_running', return_value=False):
             config, status = _prepare_streaming_config("clone", "hello", "(none)", 0.7, 50, 0.95, 1.05, "")
             self.assertIsNone(config)
             self.assertIn("not running", status)
