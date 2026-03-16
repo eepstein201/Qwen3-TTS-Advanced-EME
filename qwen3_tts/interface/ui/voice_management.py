@@ -56,9 +56,9 @@ def create_voice_prompt(audio_path, transcript, voice_name, no_transcript=False,
     voice_name = voice_name.strip()
 
     # Validate name
-    is_valid, error_msg = validate_prompt_name(voice_name)
-    if not is_valid:
-        raise gr.Error(error_msg)
+    validation_error = validate_prompt_name(voice_name)
+    if validation_error:
+        raise gr.Error(validation_error[0]["error"])
 
     config = load_config()
     backend = config.get("advanced", {}).get("backend", "mlx")
@@ -297,9 +297,9 @@ def rename_voice(old_name, new_name):
     new_name = new_name.strip()
 
     # Validate new name
-    is_valid, error_msg = validate_prompt_name(new_name)
-    if not is_valid:
-        raise gr.Error(error_msg)
+    validation_error = validate_prompt_name(new_name)
+    if validation_error:
+        raise gr.Error(validation_error[0]["error"])
 
     config = load_config()
 
