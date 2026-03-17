@@ -617,9 +617,9 @@ def get_player_html(tab_id):
         .ws-btn {{
             padding: 10px 20px;
             border-radius: 4px;
-            border: 1px solid #555;
-            background: #2a2a3e;
-            color: #ccc;
+            border: 1px solid var(--border-color-primary, #d1d5db);
+            background: var(--button-secondary-background-fill, #e5e7eb);
+            color: var(--button-secondary-text-color, #374151);
             cursor: pointer;
             font-size: 0.9em;
         }}
@@ -634,7 +634,7 @@ def get_player_html(tab_id):
         .ws-waveform {{
             width: 100%;
             min-height: 80px;
-            background: #1a1a2e;
+            background: var(--block-background-fill, #f7f7f8);
             border-radius: 8px;
             margin-bottom: 8px;
             overflow: hidden;
@@ -664,7 +664,7 @@ def get_player_html(tab_id):
                    style="width: 80px;">
             <select id="{tab_id}-speed" aria-label="Playback speed"
                     onchange="if (window.getOrCreatePlayer) window.getOrCreatePlayer('{tab_id}').setSpeed(this.value)"
-                    style="background: #2a2a3e; color: #ccc; border: 1px solid #555; border-radius: 4px; padding: 4px;">
+                    style="background: var(--button-secondary-background-fill, #e5e7eb); color: var(--button-secondary-text-color, #374151); border: 1px solid var(--border-color-primary, #d1d5db); border-radius: 4px; padding: 4px;">
                 <option value="0.5">0.5x</option>
                 <option value="0.75">0.75x</option>
                 <option value="1" selected>1x</option>
@@ -672,9 +672,9 @@ def get_player_html(tab_id):
                 <option value="1.5">1.5x</option>
                 <option value="2">2x</option>
             </select>
-            <span id="{tab_id}-time" style="color: #aaa; font-size: 0.9em;">0:00 / 0:00</span>
+            <span id="{tab_id}-time" style="color: var(--body-text-color-subdued, #6b7280); font-size: 0.9em;">0:00 / 0:00</span>
             <span id="{tab_id}-status" role="status" aria-live="polite" aria-atomic="true"
-                  style="color: #aaa; font-size: 0.9em; margin-left: 8px;"></span>
+                  style="color: var(--body-text-color-subdued, #6b7280); font-size: 0.9em; margin-left: 8px;"></span>
         </div>
     </div>
     """

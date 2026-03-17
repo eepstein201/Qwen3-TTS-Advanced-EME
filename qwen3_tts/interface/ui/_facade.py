@@ -192,7 +192,7 @@ def build_ui():
         history_state = gr.State([])
 
         # History (defined before tabs for wiring, renders here)
-        with gr.Accordion("Recent Generations", open=False):
+        with gr.Accordion("Recent Generations", open=True):
             history_df = gr.Dataframe(
                 headers=["Time", "Mode", "Text Preview", "Chunks"],
                 value=[],
@@ -780,7 +780,7 @@ def main():
         allowed_paths=allowed,
         # Hide data-flow components that use elem_classes=["gr-hidden"]
         # (Gradio 6 removes visible=False components from DOM, breaking JS↔Python chains)
-        css=".gr-hidden { display: none !important; }",
+        css=".gr-hidden { display: none !important; height: 0 !important; overflow: hidden !important; }",
     )
 
 
