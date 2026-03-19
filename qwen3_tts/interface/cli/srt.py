@@ -5,7 +5,6 @@ This module handles parsing and processing of SRT subtitle files.
 """
 
 import os
-import re
 
 import numpy as np
 import soundfile as sf
@@ -15,53 +14,10 @@ from qwen3_tts.interface.generate import (
     _decode_base64_result,
     generate_local,
     generate_via_server,
+    parse_srt,
     process_audio_args,
+    srt_time_to_ms,
 )
-
-
-# ---------------------------------------------------------------------------
-# SRT parsing
-# ---------------------------------------------------------------------------
-
-
-def parse_srt(srt_path):
-    """Parse an SRT subtitle file.
-
-    Args:
-        srt_path: Path to .srt file
-
-    Returns:
-        List of tuples: (index, start_ms, end_ms, text)
-    """
-    with open(srt_path, "r", encoding="utf-8") as f:
-        content = f.read()
-
-    pattern = r"(\d+)\s*\n(\d{2}:\d{2}:\d{2},\d{3})\s*-->\s*(\d{2}:\d{2}:\d{2},\d{3})\s*\n(.*?)(?=\n\n|\Z)"
-    matches = re.findall(pattern, content, re.DOTALL)
-
-    entries = []
-    for match in matches:
-        index = int(match[0])
-        start_time = srt_time_to_ms(match[1])
-        end_time = srt_time_to_ms(match[2])
-        text = match[3].strip().replace("\n", " ")
-        entries.append((index, start_time, end_time, text))
-
-    return entries
-
-
-def srt_time_to_ms(time_str):
-    """Convert SRT timestamp to milliseconds.
-
-    Args:
-        time_str: SRT timestamp string (HH:MM:SS,mmm)
-
-    Returns:
-        Integer milliseconds
-    """
-    parts = time_str.replace(",", ":").split(":")
-    hours, minutes, seconds, ms = map(int, parts)
-    return (hours * 3600 + minutes * 60 + seconds) * 1000 + ms
 
 
 # ---------------------------------------------------------------------------
