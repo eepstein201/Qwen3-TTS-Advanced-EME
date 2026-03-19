@@ -151,6 +151,12 @@ class TestWebSocketEndpointExists(unittest.TestCase):
         self.assertIn("WebSocket", content,
                        "WebSocket module must reference WebSocket type")
 
+    def test_websocket_route_registered(self):
+        """The /ws WebSocket route must be registered in the FastAPI app."""
+        from qwen3_tts.server.app import app
+        routes = [r.path for r in app.routes]
+        self.assertIn("/ws", routes, "/ws WebSocket route must be registered in app")
+
 
 if __name__ == "__main__":
     unittest.main()

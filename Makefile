@@ -51,7 +51,11 @@ test-optional:
 	python -m unittest tests.test_flash_attn_install -v
 
 test-voice:
-	python -m unittest tests.test_voice tests.test_cli_daemonization tests.test_caching tests.test_server_helpers -v
+	python -m unittest \
+		tests.test_voice_config tests.test_voice_server tests.test_voice_prompts \
+		tests.test_voice_streaming tests.test_voice_engine tests.test_voice_generation \
+		tests.test_voice_ui tests.test_voice_features \
+		tests.test_cli_daemonization tests.test_caching tests.test_server_helpers -v
 
 test-server:
 	python -m unittest tests.test_fastapi_server tests.test_fastapi_endpoints tests.test_client -v

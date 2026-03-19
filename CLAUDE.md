@@ -72,9 +72,10 @@ config.json → qwen3_tts.core.config → qwen3_tts.core.engine (dispatch)
 | `qwen3_tts/core/config.py` | Constants, config I/O, error classes, `MODEL_INFO`, auth, platform detection, CUDA capability detection, voice description attributes, PID lifecycle (`read_pid_file`, `write_pid_file`, `cleanup_pid_file`, `is_pid_alive`, `find_pid_by_port`, `detect_server_state`) | No |
 | `qwen3_tts/core/engine/` | Package with 6 submodules: `text_processing`, `audio_processing`, `voice_prompt`, `model_loader`, `inference`, `asr`. `__init__.py` facade re-exports all public names. | No (all lazy) |
 | `qwen3_tts/server/app.py` | FastAPI server: auth, validation helpers, progress, model management, generation/ETA/prompt caches | No (lazy via engine) |
+| `qwen3_tts/server/websocket.py` | WebSocket endpoint for bidirectional real-time TTS streaming (`/ws`). Handles auth, cancel, and binary audio chunk delivery. | No |
 | `qwen3_tts/server/client/` | Package with 5 submodules: `_base`, `generator`, `models`, `voices`, `config_fetcher`. `__init__.py` facade re-exports TTSClient and generate. | No |
-| `qwen3_tts/interface/generate.py` | CLI generation, progress display, post-gen menu, batch/SSML/SRT/dialogue, voice management | No (lazy) |
-| `qwen3_tts/interface/ui.py` | Gradio web UI: 6 tabs (Clone/Design/Custom/Create Voice/Manage Voices/Manage Models). Streaming audio with JavaScript reset between generations. | No (HTTP only) |
+| `qwen3_tts/interface/generate.py` | CLI generation, progress display, post-gen menu, voice management (main entry point; `cli/` package handles batch/srt/dialogue/parser) | No (lazy) |
+| `qwen3_tts/interface/ui/` | Gradio web UI package: `_facade.py` (launch), `generation.py` (Clone/Design/Custom tabs), `voice_management.py`, `model_management.py`, `shared.py`. Streaming audio with JavaScript reset. | No (HTTP only) |
 | `qwen3_tts/tools/create_voice.py` | Voice clone prompt creation, saves .pt + .wav/.txt dual format | Yes (via engine) |
 | `qwen3_tts/tools/model_cache.py` | HuggingFace cache management (list, size, prune, clear) | No |
 | `qwen3_tts/tools/healthcheck.py` | Installation health checks (deps, config, server) | No |
@@ -109,6 +110,7 @@ config.json → qwen3_tts.core.config → qwen3_tts.core.engine (dispatch)
 │   ├── server/
 │   │   ├── __init__.py
 │   │   ├── app.py              # FastAPI server (port 5123)
+│   │   ├── websocket.py        # WebSocket endpoint for bidirectional audio streaming
 │   │   └── client/             # HTTP client package
 │   │       ├── __init__.py     # Facade — re-exports TTSClient and generate
 │   │       ├── _base.py        # Base class, helpers, constants
@@ -118,8 +120,11 @@ config.json → qwen3_tts.core.config → qwen3_tts.core.engine (dispatch)
 │   │       └── config_fetcher.py  # Config and stats retrieval methods
 │   ├── interface/
 │   │   ├── __init__.py
-│   │   ├── generate.py         # CLI generation
-│   │   └── ui.py               # Gradio web UI (port 7860)
+│   │   ├── generate.py         # CLI generation (main entry point)
+│   │   ├── voice_helpers.py    # Voice management helpers
+│   │   ├── wavesurfer_js.py    # WaveSurfer.js integration
+│   │   ├── cli/                # CLI subcommand package (batch, srt, dialogue, parser)
+│   │   └── ui/                 # Gradio web UI package (facade, generation, voice/model mgmt)
 │   └── tools/
 │       ├── __init__.py
 │       ├── create_voice.py     # Voice clone creation
@@ -130,7 +135,7 @@ config.json → qwen3_tts.core.config → qwen3_tts.core.engine (dispatch)
 ├── install.sh                  # Cross-platform installer (macOS + Linux)
 ├── colab_notebook.ipynb        # Google Colab notebook
 ├── voice_prompts/              # .pt (torch) + .wav/.txt (MLX) files
-├── tests/                      # Test files, 860+ tests
+├── tests/                      # Test files, 990+ tests
 │   ├── run_batches.py          # Batch test runner
 │   ├── conftest.py             # Shared fixtures (pytest)
 │   └── test_*.py               # Test modules
@@ -154,6 +159,7 @@ All other endpoints require `Authorization: Bearer <token>` (token from `~/.voic
 | `/ready` | GET | Readiness probe (503 while loading, 200 when ready) |
 | `/generate` | POST | Generate audio (checks generation cache first) |
 | `/generate-stream` | POST | Stream audio chunks (float32) |
+| `/ws` | WebSocket | Bidirectional real-time TTS streaming (auth via first message) |
 | `/load-model` | POST | Load clone/design/custom model |
 | `/unload-model` | POST | Unload a model to free memory |
 | `/update-model-config` | POST | Change model size, quantization, audio loader |
@@ -193,7 +199,7 @@ source ~/miniforge3/etc/profile.d/conda.sh && conda activate qwen3-tts-mlx
 tts server stop && tts server start
 ```
 
-**Preferred: pytest full suite** (860+ tests):
+**Preferred: pytest full suite** (990+ tests):
 ```bash
 python -m pytest tests/ -v --tb=short
 ```
@@ -216,7 +222,7 @@ make test-optional # Batch 5: Optional (pytest-dependent)
 make test-e2e      # Batch 6: E2E Playwright (requires server)
 ```
 
-860+ tests. No GPU, models, or running server required (except E2E). Tests auto-skip when optional deps are missing.
+990+ tests. No GPU, models, or running server required (except E2E). Tests auto-skip when optional deps are missing.
 
 ## Models
 
