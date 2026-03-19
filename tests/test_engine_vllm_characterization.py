@@ -15,7 +15,7 @@ import asyncio
 import os
 import sys
 import unittest
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import MagicMock, patch
 
 # Ensure project root is importable
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -27,8 +27,6 @@ class TestVLLMAdapterInit(unittest.TestCase):
     def test_default_model_name(self):
         from qwen3_tts.core.engine_vllm import VLLMAdapter
 
-        adapter = VLLMAdapter.__new__(VLLMAdapter)
-        # Don't call __init__ — just verify the signature default
         import inspect
 
         sig = inspect.signature(VLLMAdapter.__init__)
@@ -281,7 +279,7 @@ class TestVLLMAdapterGenerateValidation(unittest.TestCase):
         self.assertFalse(adapter.is_ready())
 
         with self.assertRaises(RuntimeError) as ctx:
-            asyncio.get_event_loop().run_until_complete(
+            asyncio.run(
                 adapter.generate("hello", mode="clone", prompt_audio=b"fake")
             )
         self.assertIn("not ready", str(ctx.exception))
@@ -292,7 +290,7 @@ class TestVLLMAdapterGenerateValidation(unittest.TestCase):
         adapter._ready_event.set()
 
         with self.assertRaises(ValueError) as ctx:
-            asyncio.get_event_loop().run_until_complete(
+            asyncio.run(
                 adapter.generate("hello", mode="clone")
             )
         self.assertIn("prompt_audio", str(ctx.exception))
@@ -303,7 +301,7 @@ class TestVLLMAdapterGenerateValidation(unittest.TestCase):
         adapter._ready_event.set()
 
         with self.assertRaises(ValueError) as ctx:
-            asyncio.get_event_loop().run_until_complete(
+            asyncio.run(
                 adapter.generate("hello", mode="design")
             )
         self.assertIn("voice_description", str(ctx.exception))
@@ -314,7 +312,7 @@ class TestVLLMAdapterGenerateValidation(unittest.TestCase):
         adapter._ready_event.set()
 
         with self.assertRaises(ValueError) as ctx:
-            asyncio.get_event_loop().run_until_complete(
+            asyncio.run(
                 adapter.generate("hello", mode="custom")
             )
         self.assertIn("speaker", str(ctx.exception))
@@ -325,7 +323,7 @@ class TestVLLMAdapterGenerateValidation(unittest.TestCase):
         adapter._ready_event.set()
 
         with self.assertRaises(ValueError) as ctx:
-            asyncio.get_event_loop().run_until_complete(
+            asyncio.run(
                 adapter.generate("hello", mode="invalid_mode")
             )
         self.assertIn("Invalid mode", str(ctx.exception))
@@ -337,9 +335,6 @@ class TestVLLMAdapterGenerateValidation(unittest.TestCase):
         from qwen3_tts.core.engine_vllm import VLLMAdapter
 
         sig = inspect.signature(VLLMAdapter.generate)
-        # Return annotation should be tuple[int, np.ndarray]
-        import numpy as np
-
         ret = sig.return_annotation
         self.assertIn("tuple", str(ret).lower())
 
@@ -366,7 +361,7 @@ class TestVLLMAdapterGenerateStreamValidation(unittest.TestCase):
                 pass
 
         with self.assertRaises(RuntimeError) as ctx:
-            asyncio.get_event_loop().run_until_complete(run())
+            asyncio.run(run())
         self.assertIn("not ready", str(ctx.exception))
 
     def test_stream_clone_requires_prompt_audio(self):
@@ -379,7 +374,7 @@ class TestVLLMAdapterGenerateStreamValidation(unittest.TestCase):
                 pass
 
         with self.assertRaises(ValueError) as ctx:
-            asyncio.get_event_loop().run_until_complete(run())
+            asyncio.run(run())
         self.assertIn("prompt_audio", str(ctx.exception))
 
     def test_stream_design_requires_voice_description(self):
@@ -392,7 +387,7 @@ class TestVLLMAdapterGenerateStreamValidation(unittest.TestCase):
                 pass
 
         with self.assertRaises(ValueError) as ctx:
-            asyncio.get_event_loop().run_until_complete(run())
+            asyncio.run(run())
         self.assertIn("voice_description", str(ctx.exception))
 
     def test_stream_custom_requires_speaker(self):
@@ -405,7 +400,7 @@ class TestVLLMAdapterGenerateStreamValidation(unittest.TestCase):
                 pass
 
         with self.assertRaises(ValueError) as ctx:
-            asyncio.get_event_loop().run_until_complete(run())
+            asyncio.run(run())
         self.assertIn("speaker", str(ctx.exception))
 
     def test_stream_invalid_mode_raises(self):
@@ -418,7 +413,7 @@ class TestVLLMAdapterGenerateStreamValidation(unittest.TestCase):
                 pass
 
         with self.assertRaises(ValueError) as ctx:
-            asyncio.get_event_loop().run_until_complete(run())
+            asyncio.run(run())
         self.assertIn("Invalid mode", str(ctx.exception))
 
 
@@ -441,9 +436,11 @@ class TestVLLMAdapterCancellation(unittest.TestCase):
 
     def test_set_cancellation_callback_stores_callable(self):
         adapter = self._make_adapter()
-        cb = lambda: False
-        adapter.set_cancellation_callback(cb)
-        self.assertIs(adapter._cancellation_callback, cb)
+        def _noop():
+            return False
+
+        adapter.set_cancellation_callback(_noop)
+        self.assertIs(adapter._cancellation_callback, _noop)
 
 
 class TestVLLMAdapterStartGuard(unittest.TestCase):
