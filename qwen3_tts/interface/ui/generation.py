@@ -125,6 +125,9 @@ def _prepare_streaming_config(mode, text, preset, temperature, top_k, top_p,
     elif mode == "design":
         payload["voice_description"] = description
     elif mode == "custom":
+        # Dropdown sends full display string like "ryan (English) - ..."; extract key
+        if speaker and " (" in speaker:
+            speaker = speaker.split(" (")[0]
         payload["speaker"] = speaker
         payload["instruct"] = instruct or ""
 

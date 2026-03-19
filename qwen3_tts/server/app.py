@@ -14,7 +14,6 @@ import json
 import logging
 import logging.handlers
 import os
-import re
 import secrets
 import signal
 import struct

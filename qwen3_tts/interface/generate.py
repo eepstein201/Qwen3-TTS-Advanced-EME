@@ -11,7 +11,6 @@ import json
 import logging
 import os
 import re
-import shutil
 import subprocess  # nosec B404
 import sys
 import threading
@@ -576,7 +575,7 @@ def ensure_server_running(config):
         if (i + 1) % 10 == 0:
             print(f"  Still loading models... ({i + 1} seconds)")
 
-    print("Error: Server failed to start. Check log:", log_file)
+    print("Error: Server failed to start. Check log:", LOG_FILE)
     return False
 
 
