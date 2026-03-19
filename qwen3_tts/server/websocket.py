@@ -139,7 +139,7 @@ async def _stream_generation(
     await websocket.send_json({"status": "generating", "text_length": len(text)})
 
     queue: asyncio.Queue = asyncio.Queue()
-    loop = asyncio.get_event_loop()
+    loop = asyncio.get_running_loop()
 
     def inference_thread():
         try:

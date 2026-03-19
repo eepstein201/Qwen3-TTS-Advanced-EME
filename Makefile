@@ -48,14 +48,20 @@ test-core:
 	python -m unittest tests.test_audio_utils tests.test_text_processing tests.test_package_metadata tests.test_deprecated_refs tests.test_config -v
 
 test-optional:
-	python -m unittest tests.test_flash_attn_install -v
+	python -m unittest \
+		tests.test_flash_attn_install tests.test_solid_analyzer tests.test_protocols \
+		tests.test_voice_helpers tests.test_validation tests.test_error_handling \
+		tests.test_ocp_strategy \
+		tests.evaluations.test_wer tests.evaluations.test_speaker_similarity \
+		tests.evaluations.test_llm_judge -v
 
 test-voice:
 	python -m unittest \
 		tests.test_voice_config tests.test_voice_server tests.test_voice_prompts \
 		tests.test_voice_streaming tests.test_voice_engine tests.test_voice_generation \
 		tests.test_voice_ui tests.test_voice_features \
-		tests.test_cli_daemonization tests.test_caching tests.test_server_helpers -v
+		tests.test_cli_daemonization tests.test_caching tests.test_server_helpers \
+		tests.test_ui_audio_reset -v
 
 test-server:
 	python -m unittest tests.test_fastapi_server tests.test_fastapi_endpoints tests.test_client -v
