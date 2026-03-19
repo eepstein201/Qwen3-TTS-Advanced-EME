@@ -304,6 +304,64 @@ class VLLMAdapter:
             )
         return self._client
 
+    def _build_request(
+        self,
+        text: str,
+        mode: str,
+        prompt_audio: Optional[bytes],
+        voice_description: Optional[str],
+        speaker: Optional[str],
+        **kwargs,
+    ) -> dict:
+        """Build the vLLM request dict for clone/design/custom modes.
+
+        Args:
+            text: Input text to synthesize
+            mode: Generation mode ("clone", "design", "custom")
+            prompt_audio: Reference audio bytes (clone mode only)
+            voice_description: Voice description (design mode only)
+            speaker: Speaker name (custom mode only)
+            **kwargs: Additional generation parameters merged into input
+
+        Returns:
+            Request dict ready for /v1/audio/generations
+
+        Raises:
+            ValueError: If required mode parameter is missing or mode is invalid
+        """
+        if mode == "clone":
+            if prompt_audio is None:
+                raise ValueError("prompt_audio required for clone mode")
+            with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as f:
+                f.write(prompt_audio)
+                prompt_path = f.name
+            request = {
+                "model": self.model_name,
+                "input": {"text": text, "mode": "clone", "prompt_audio": prompt_path},
+            }
+
+        elif mode == "design":
+            if voice_description is None:
+                raise ValueError("voice_description required for design mode")
+            request = {
+                "model": self.model_name,
+                "input": {"text": text, "mode": "design", "voice_description": voice_description},
+            }
+
+        elif mode == "custom":
+            if speaker is None:
+                raise ValueError("speaker required for custom mode")
+            request = {
+                "model": self.model_name,
+                "input": {"text": text, "mode": "custom", "speaker": speaker},
+            }
+
+        else:
+            raise ValueError(f"Invalid mode: {mode}")
+
+        request["input"].update(kwargs)
+        return request
+
     def set_cancellation_callback(self, callback: Callable[[], bool]) -> None:
         """Register a callback to check for cancellation requests.
 
@@ -342,54 +400,9 @@ class VLLMAdapter:
             raise RuntimeError("vLLM server is not ready")
 
         client = self._get_client()
-
-        # Build request based on mode
-        if mode == "clone":
-            if prompt_audio is None:
-                raise ValueError("prompt_audio required for clone mode")
-            # Save prompt audio to temp file for vLLM
-            with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as f:
-                f.write(prompt_audio)
-                prompt_path = f.name
-
-            request = {
-                "model": self.model_name,
-                "input": {
-                    "text": text,
-                    "mode": "clone",
-                    "prompt_audio": prompt_path,
-                },
-            }
-
-        elif mode == "design":
-            if voice_description is None:
-                raise ValueError("voice_description required for design mode")
-            request = {
-                "model": self.model_name,
-                "input": {
-                    "text": text,
-                    "mode": "design",
-                    "voice_description": voice_description,
-                },
-            }
-
-        elif mode == "custom":
-            if speaker is None:
-                raise ValueError("speaker required for custom mode")
-            request = {
-                "model": self.model_name,
-                "input": {
-                    "text": text,
-                    "mode": "custom",
-                    "speaker": speaker,
-                },
-            }
-
-        else:
-            raise ValueError(f"Invalid mode: {mode}")
-
-        # Add optional generation parameters
-        request["input"].update(kwargs)
+        request = self._build_request(
+            text, mode, prompt_audio, voice_description, speaker, **kwargs
+        )
 
         try:
             response = await client.post("/v1/audio/generations", json=request)
@@ -445,52 +458,9 @@ class VLLMAdapter:
             raise RuntimeError("vLLM server is not ready")
 
         client = self._get_client()
-
-        # Build request (same as non-streaming)
-        if mode == "clone":
-            if prompt_audio is None:
-                raise ValueError("prompt_audio required for clone mode")
-            with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as f:
-                f.write(prompt_audio)
-                prompt_path = f.name
-
-            request = {
-                "model": self.model_name,
-                "input": {
-                    "text": text,
-                    "mode": "clone",
-                    "prompt_audio": prompt_path,
-                },
-            }
-
-        elif mode == "design":
-            if voice_description is None:
-                raise ValueError("voice_description required for design mode")
-            request = {
-                "model": self.model_name,
-                "input": {
-                    "text": text,
-                    "mode": "design",
-                    "voice_description": voice_description,
-                },
-            }
-
-        elif mode == "custom":
-            if speaker is None:
-                raise ValueError("speaker required for custom mode")
-            request = {
-                "model": self.model_name,
-                "input": {
-                    "text": text,
-                    "mode": "custom",
-                    "speaker": speaker,
-                },
-            }
-
-        else:
-            raise ValueError(f"Invalid mode: {mode}")
-
-        request["input"].update(kwargs)
+        request = self._build_request(
+            text, mode, prompt_audio, voice_description, speaker, **kwargs
+        )
         request["stream"] = True
 
         try:
