@@ -71,10 +71,12 @@ config.json → qwen3_tts.core.config → qwen3_tts.core.engine (dispatch)
 |--------|---------|----------------|
 | `qwen3_tts/core/config.py` | Constants, config I/O, error classes, `MODEL_INFO`, auth, platform detection, CUDA capability detection, voice description attributes, PID lifecycle (`read_pid_file`, `write_pid_file`, `cleanup_pid_file`, `is_pid_alive`, `find_pid_by_port`, `detect_server_state`) | No |
 | `qwen3_tts/core/engine/` | Package with 6 submodules: `text_processing`, `audio_processing`, `voice_prompt`, `model_loader`, `inference`, `asr`. `__init__.py` facade re-exports all public names. | No (all lazy) |
-| `qwen3_tts/server/app.py` | FastAPI server: auth, validation helpers, progress, model management, generation/ETA/prompt caches | No (lazy via engine) |
+| `qwen3_tts/core/protocols.py` | Abstract protocols for engine components. `FileConfigProvider` and `DefaultPromptManager` removed (dead code). | No |
+| `qwen3_tts/server/app.py` | FastAPI server: auth, generation/ETA/prompt caches. Validation delegated to `server/validation.py` (canonical source). | No (lazy via engine) |
+| `qwen3_tts/server/validation.py` | Canonical validation: `_validate_generation_request`, `_VALID_SPEAKER_NAMES` — do not re-define in app.py | No |
 | `qwen3_tts/server/websocket.py` | WebSocket endpoint for bidirectional real-time TTS streaming (`/ws`). Handles auth, cancel, and binary audio chunk delivery. | No |
 | `qwen3_tts/server/client/` | Package with 5 submodules: `_base`, `generator`, `models`, `voices`, `config_fetcher`. `__init__.py` facade re-exports TTSClient and generate. | No |
-| `qwen3_tts/interface/generate.py` | CLI generation, progress display, post-gen menu, voice management (main entry point; `cli/` package handles batch/srt/dialogue/parser) | No (lazy) |
+| `qwen3_tts/interface/generate.py` | CLI generation, progress display, post-gen menu, voice management (main entry point; `cli/` package handles batch/srt/dialogue) | No (lazy) |
 | `qwen3_tts/interface/ui/` | Gradio web UI package: `_facade.py` (launch), `generation.py` (Clone/Design/Custom tabs), `voice_management.py`, `model_management.py`, `shared.py`. Streaming audio with JavaScript reset. | No (HTTP only) |
 | `qwen3_tts/tools/create_voice.py` | Voice clone prompt creation, saves .pt + .wav/.txt dual format | Yes (via engine) |
 | `qwen3_tts/tools/model_cache.py` | HuggingFace cache management (list, size, prune, clear) | No |
@@ -123,7 +125,7 @@ config.json → qwen3_tts.core.config → qwen3_tts.core.engine (dispatch)
 │   │   ├── generate.py         # CLI generation (main entry point)
 │   │   ├── voice_helpers.py    # Voice management helpers
 │   │   ├── wavesurfer_js.py    # WaveSurfer.js integration
-│   │   ├── cli/                # CLI subcommand package (batch, srt, dialogue, parser)
+│   │   ├── cli/                # CLI subcommand package (batch, srt, dialogue)
 │   │   └── ui/                 # Gradio web UI package (facade, generation, voice/model mgmt)
 │   └── tools/
 │       ├── __init__.py
