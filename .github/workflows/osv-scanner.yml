@@ -26,6 +26,8 @@ permissions:
   security-events: write
   # Read commit contents
   contents: read
+  # Required to upload SARIF file to CodeQL
+  actions: read
 
 jobs:
   scan-scheduled:
