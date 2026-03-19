@@ -1,0 +1,274 @@
+# Qwen3-TTS Architecture Deep Dive
+
+This document contains detailed architectural reference extracted from CLAUDE.md for progressive disclosure. For essential project context, see the root `CLAUDE.md`.
+
+## Config Structure (Full)
+
+```json
+{
+  "default_voice_description": "...",
+  "default_clone_prompt": "my_voice.pt",
+  "output_directory": "~/Downloads",
+  "language": "English",
+  "server": { "host": "127.0.0.1", "port": 5123, "auto_shutdown_minutes": 0 },
+  "models": {
+    "clone": { "load_at_startup": true },
+    "design": { "load_at_startup": false },
+    "custom": { "load_at_startup": false }
+  },
+  "security": { "max_text_length": 10000, "max_batch_size": 20 },
+  "generation": {
+    "temperature": 0.7, "top_k": 50, "top_p": 0.95,
+    "repetition_penalty": 1.05, "seed": null, "max_chunk_chars": 500,
+    "max_new_tokens": 2048, "compile_model": true
+  },
+  "prompt_enhancer": {
+    "enabled": false, "provider": "anthropic",
+    "api_key_env": "ANTHROPIC_API_KEY", "model": "claude-haiku-4-5-20251001"
+  },
+  "presets": {
+    "consistent": { "temperature": 0.5, "top_k": 30, "seed": 42 },
+    "creative": { "temperature": 0.9, "top_p": 0.98 }
+  },
+  "prosody_presets": {
+    "excited": "Speak with excitement and high energy",
+    "calm": "Speak in a calm, soothing, relaxed manner",
+    "whisper": "Speak in a soft whisper", ...
+  },
+  "ui": { "port": 7860 },
+  "aliases": { "default": { "prompt": "default_clone.pt", "preset": "consistent" } },
+  "cache": {
+    "voice_prompt_max": 10, "generation_max": 5, "eta_ttl_seconds": 30
+  },
+  "default_speaker": "ryan",
+  "advanced": {
+    "dtype": "bfloat16",
+    "backend": "mlx",
+    "mlx_quantization": "8bit",
+    "torch_quantization": "none",
+    "model_size": "1.7B",
+    "audio_loader": "torchaudio",
+    "vllm_gpu_memory_utilization": 0.7,
+    "vllm_port": null
+  }
+}
+```
+
+## Security
+
+- Bearer token auth on all endpoints except `/health`, `/ready`, and `/generation-status`
+- Token: `~/.voice_server_token` (0o600 perms), auto-cleaned on shutdown
+- Input validation: text length, batch size, path traversal prevention, symlink resolution, mode/speaker validation
+- Rate limiting via `slowapi` (optional) with X-Forwarded-For IP resolution for reverse proxies
+- Audit logging for auth failures with client IP
+- Server binds `127.0.0.1` by default; `--public` for `0.0.0.0`; Colab auto-binds `0.0.0.0`
+
+## Platform Support
+
+| | macOS (Apple Silicon) | macOS (Intel) | Linux/Colab |
+|---|---|---|---|
+| Backend | MLX (default) or torch | torch only | torch + CUDA |
+| Device | Neural Engine / MPS | CPU | CUDA GPU |
+| Conda env | `qwen3-tts-mlx` | `qwen3-tts` | pip install |
+| Audio play | `afplay` | `afplay` | `ffplay` |
+| Install | `install.sh` (conda) | `install.sh` (conda) | `install.sh` (conda or venv) |
+
+Platform constants in `qwen3_tts/core/config.py`: `IN_COLAB`, `IS_MACOS`, `IS_LINUX`, `get_device()`
+
+### install.sh Linux Support
+
+`install.sh` (~1675 lines) supports macOS and Linux with a platform dispatcher pattern. Key Linux functions:
+
+- **`detect_platform()`** — `/etc/os-release` → distro family (debian/rhel/arch/suse)
+- **`detect_linux_gpu()`** — Cascading NVIDIA detection: `lspci -d '10de:'` → `nvcc` → `nvidia-smi` → version files → pkg manager → ldconfig
+- **`install_linux_system_deps()`** — Aggregates missing deps (ffmpeg, libsndfile, rubberband), routes to apt/dnf/pacman/zypper
+- **`get_torch_index_url()`** — Maps CUDA version to PyTorch index URL (cu118/cu121/cu124/cu126/cpu)
+- **`create_linux_venv()`** — Fallback when conda unavailable: finds Python 3.10+, creates venv, installs with CUDA index URL
+- **`get_linux_dtype()`/`get_linux_torch_quant()`** — Auto-selects dtype and quantization from GPU compute capability
+
+## Caching (4 layers)
+
+| Cache | Location | Strategy | Invalidation |
+|-------|----------|----------|-------------|
+| Voice prompt | `qwen3_tts/core/engine/voice_prompt.py` | LRU(10) torch .pt / dict for MLX .wav | `clear_voice_prompt_cache()` |
+| ETA | `qwen3_tts/server/app.py` | 30s TTL, avoids .jsonl reads per poll | Auto-expires |
+| Generation result | `qwen3_tts/server/app.py` | 5 entries, SHA256 key (text+mode+params) | Model config change, manual |
+| Audio loader | `qwen3_tts/core/engine/audio_processing.py` | `_AUDIO_LOADER` global, no disk I/O | `set_audio_loader()` only |
+
+## Thread Safety Guarantees
+
+All shared mutable state is protected by locks for concurrent access:
+
+| Lock | Location | Protects |
+|------|----------|----------|
+| `_mps_patch_lock` | `model_loader.py` | `_mps_patch_installed` flag during patch installation |
+| `_torch_prompt_cache_lock` | `voice_prompt.py` | `_torch_prompt_cache` OrderedDict + hit/miss counters |
+| `_mlx_prompt_cache_lock` | `voice_prompt.py` | `_mlx_prompt_cache` OrderedDict |
+| `_asr_lock` | `asr.py` | `_asr_model_torch`, `_asr_model_mlx` model references |
+| `request_queue_lock` | `app.py` | `request_queue` set for concurrent request tracking |
+| `gen_cache_lock` | `app.py` | `gen_cache` dict for generation result caching |
+
+**Pattern:** All locks use double-checked locking for efficiency:
+```python
+if cached_value is not None:
+    return cached_value
+with lock:
+    if cached_value is not None:  # Double-check after acquiring lock
+        return cached_value
+    # ... load and cache ...
+```
+
+## Constants
+
+| Constant | Location | Value | Purpose |
+|----------|----------|-------|---------|
+| `HF_CACHE` | `config.py` | `~/.cache/huggingface/hub` | HuggingFace model cache path |
+| `MAX_BUFFER_SIZE` | `client/_base.py` | 100MB (100 * 1024 * 1024) | Streaming response buffer limit |
+
+## Logging
+
+- `tts` — server (RotatingFileHandler: 5MB, 1 backup + stderr)
+- `tts.engine` — model/inference
+- `tts.cli` — CLI generation
+- `tts.ui` — Gradio UI
+- Log file: `.voice_server.log`
+
+## Error Responses
+
+Server returns structured JSON with recovery hints:
+```json
+{ "error": "message", "detail": "...", "recovery": "restart|config|retry|bug" }
+```
+
+CLI and UI parse the `recovery` field to show actionable guidance.
+
+## Hardware Optimization (CUDA)
+
+`_apply_cuda_optimizations()` in `qwen3_tts/core/engine/model_loader.py` auto-detects GPU and applies optimal settings:
+
+| GPU | Compute Cap | Attention | dtype | Quantization | torch.compile |
+|-----|------------|-----------|-------|-------------|---------------|
+| T4 (free Colab) | 7.5 | SDPA | float16 | 8-bit (bitsandbytes) | No |
+| L4 (Colab Pro) | 8.9 | Flash Attention 2 | bfloat16 | None needed | Yes |
+| A100 (Colab Pro+) | 8.0 | Flash Attention 2 | bfloat16 | None needed | Yes |
+| Non-CUDA | N/A | SDPA | float32 | N/A | No |
+
+`get_cuda_capability()` and `get_optimal_attn_config()` in `qwen3_tts/core/config.py` expose hardware detection. The Colab notebook auto-configures based on detected GPU tier.
+
+## Text Processing Roadmap
+
+**Current (implemented):** pySBD sentence splitting, num2words text normalization, token-aware chunking (torch backend).
+
+**Future options (not yet implemented):**
+- **NLTK punkt tokenizer** — Moderate-weight alternative to pySBD; requires punkt data download at first use. Good for multi-language academic text.
+- **NVIDIA NeMo text processing** — Production-grade normalization covering dates, times, measures, addresses, financial data. ~500MB+ in new dependencies; suitable for high-volume or broadcast-quality TTS.
+
+## Upstream Dependency Monitoring
+
+Periodically check (monthly) for upstream fixes that could remove local workarounds or require code updates:
+
+### Workarounds (can be removed when upstream fixes land)
+
+| Workaround | Location | Upstream Issue | Check |
+|------------|----------|----------------|-------|
+| Mistral tokenizer regex warning suppression | `model_loader.py:313-318` | [mlx-audio](https://github.com/Blaizzy/mlx-audio) | File issue requesting `fix_mistral_regex` support or upstream warning suppression |
+| `fix_mistral_regex=True` for torch backend | `model_loader.py:272` | [transformers #36615](https://github.com/huggingface/transformers/pull/36615) | Check if warning detection improved for non-Mistral models |
+
+**Rationale:** Qwen3-TTS is NOT a Mistral model, but the tokenizer regex warning fires for many non-Mistral models due to overly aggressive pattern detection. The warning suppression is safe and has no functional impact.
+
+### Breaking Changes to Monitor
+
+| Dependency | Current Version | Concern | What to Check |
+|------------|-----------------|---------|---------------|
+| **gradio** | 6.x | Gradio 6 removed `visible=False` from DOM; `.then()` chains break after JS-only steps | [Gradio changelog](https://github.com/gradio-app/gradio/releases) for fixes to JS chain handling |
+| **mlx-audio** | latest | Qwen3-TTS model support, tokenizer loading | [mlx-audio releases](https://github.com/Blaizzy/mlx-audio/releases) for Qwen3-TTS improvements |
+| **transformers** | 4.x | `fix_mistral_regex` parameter, Qwen3 tokenizer support | [transformers releases](https://github.com/huggingface/transformers/releases) for tokenizer improvements |
+| **pyrubberband** | 0.3.x | Audio time-stretching fallback to librosa | Check if pyrubberband installation issues on Apple Silicon resolved |
+| **pyloudnorm** | 0.1.x | LUFS normalization | Check for API changes affecting `audio_processing.py` |
+
+### Security Updates
+
+| Dependency | Why Monitor | Check Frequency |
+|------------|-------------|-----------------|
+| **torch** | CUDA/memory security patches | Monthly |
+| **numpy** | CVE fixes | Monthly |
+| **pillow** | Image processing security | Monthly |
+| **starlette/fastapi** | Web server security | Monthly |
+
+## Code Review Status (2026-03-03)
+
+Multi-agent review (8 agents, 56 deduplicated findings). **P1+P2 implemented** (R-1 through R-12). P3/P4 roadmap at `docs/plans/development-roadmap.md`.
+
+### What was fixed (P1+P2)
+- Graceful shutdown replaces `os._exit(0)` (R-1)
+- Thread-safe config lock (R-2)
+- Narrowed generation_lock scope (R-3)
+- Config-aware voice prompt cache replacing hardcoded LRU (R-4)
+- Gen cache temp file cleanup + NamedTemporaryFile leak fix (R-5)
+- CORS middleware for Gradio UI (R-6)
+- `/generate-stream` validation parity with `/generate` (R-7)
+- Standardized error response helper (R-8)
+- Pydantic response models for OpenAPI (R-9)
+- MPS float32 dtype restoration after inference (R-10)
+- Audio validation (NaN, clipping, silence) (R-11)
+- Content negotiation for binary WAV (R-12)
+
+### P3/P4 fixes implemented (2026-03-06)
+- Rate limiting with X-Forwarded-For IP resolution (R-13)
+- Crossfade between multi-chunk audio with raised-cosine window (R-14)
+- engine.py split into 6 submodules with facade (R-15)
+- Model warm-up after loading (R-16)
+- MLX temperature reads from config, not hardcoded (R-17)
+- Turing GPU respects explicit torch_quantization (R-18)
+- Thread-safe request_queue with lock (R-19)
+- Symlink resolution in /preview-prompt (R-20)
+- pysbd.Segmenter cached per language (R-21)
+- num2words cached at module level (R-22)
+- LUFS normalization via pyloudnorm (R-23)
+- Pagination for /prompts endpoint (R-24)
+- Streaming wire format documented (R-25)
+- Audit logging for auth failures (R-26)
+- Configurable silence gap between chunks (R-27)
+- `_normalize_text` logs warnings instead of bare except:pass
+- `torch.load` deprecation warning for TTS_ALLOW_UNSAFE_PICKLE
+- `_expand_currency` handles decimals ($5.99 → five dollars and ninety-nine cents)
+
+### TDD Code Audit fixes (2026-03-07)
+Comprehensive audit with TDD methodology (14 commits, all tests pass):
+- Thread-safe MPS patch installation with `_mps_patch_lock` (model_loader.py)
+- Thread-safe MLX voice prompt cache with `_mlx_prompt_cache_lock` (voice_prompt.py)
+- Thread-safe ASR model loading for MLX backend with `_asr_lock` (asr.py)
+- Extracted `_resolve_voice_alias()` and `_build_gen_params()` helpers (client.py)
+- Division by zero protection in ETA estimation (app.py)
+- Specific RuntimeError catching instead of bare except (inference.py)
+- Streaming buffer overflow protection with `MAX_BUFFER_SIZE = 100MB` (client.py)
+- Temp file cleanup on exception in preview_voice_callback (ui.py)
+- Empty chunk filtering in save_streaming_audio (ui.py)
+- Speaker name normalization to lowercase (client.py)
+- Consolidated `HF_CACHE` constant to config.py (was duplicated in 3 files)
+- Removed internal symbol exports from engine facade (tests import from submodules)
+
+### Server detection fix (2026-03-12)
+Unified server start/stop detection to fix PID-file-vs-health-check inconsistency:
+- PID lifecycle helpers in config.py: `read_pid_file()`, `write_pid_file()`, `cleanup_pid_file()`, `is_pid_alive()`, `detect_server_state()`
+- `detect_server_state()` returns rich state dict (running, health_ok, pid, pid_alive, stale_pid)
+- CLI `stop()`: health check → `/shutdown` → SIGTERM → SIGKILL fallback chain
+- CLI `start()`: auto-cleans stale PID files before starting
+- `/shutdown` endpoint: `BackgroundTask` + `SIGTERM` replaces `sys.exit(0)` for reliable termination
+- Gradio `stop_server()`: polls health for up to 5s instead of fixed 1s sleep
+- `healthcheck.py`: uses `detect_server_state()` instead of inline PID/kill logic
+- DRY: 6 inline PID file operations consolidated to shared functions in config.py
+
+### Orphan server stop fix (2026-03-12)
+Three bugs in `tts server stop` when encountering orphan servers (no PID file, stale auth token):
+- `find_pid_by_port(port)` in config.py: discovers PID via `lsof -ti :PORT` when PID file is missing
+- `stop()` auth failure detection: explicitly handles 401 responses, only polls if shutdown was accepted (200)
+- `stop()` verified termination: final `is_server_running()` check before claiming success; exits 1 with manual kill command if server still alive
+
+### Gradio 6 Generate button fix (2026-03-12)
+Generation button was broken: JS streaming completed but Gradio Status textbox stayed at "Connecting..." forever.
+**Root cause:** Gradio 6 removes `visible=False` components from the DOM entirely, and `.then()` chains break after JS-only steps (`fn=None, js=...`).
+- Hidden data-flow components now use `elem_classes=["gr-hidden"]` + CSS `.gr-hidden { display: none !important; }` instead of `visible=False`
+- JS-only `.then()` steps now include `fn=lambda x: x` passthrough alongside `js=...` to keep the chain alive
+- CSS passed via `demo.launch(css=...)` (Gradio 6 moved `css` from `Blocks()` to `launch()`)
+- E2E Playwright tests: fixed `unittest.SkipTest` being swallowed by `except Exception: pass`
