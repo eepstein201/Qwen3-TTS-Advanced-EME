@@ -69,12 +69,9 @@ class TestETACache(unittest.TestCase):
         self.assertIn("last_updated", app.state.eta_cache)
 
     def test_eta_cache_ttl_function(self):
-        """FastAPI app has _get_eta_cache_ttl function that reads from config."""
-        import qwen3_tts.server.app as _srv
-        self.assertTrue(hasattr(_srv, "_get_eta_cache_ttl"))
-        self.assertTrue(callable(_srv._get_eta_cache_ttl))
-        # Function should return default value of 30
-        result = _srv._get_eta_cache_ttl()
+        """get_eta_cache_ttl returns the configured default value."""
+        from qwen3_tts.core.config import get_eta_cache_ttl
+        result = get_eta_cache_ttl()
         self.assertEqual(result, 30)
 
     def test_estimate_eta_uses_cache(self):
@@ -135,12 +132,9 @@ class TestGenerationCache(unittest.TestCase):
         self.assertIsInstance(app.state.gen_cache, dict)
 
     def test_gen_cache_max_size_function(self):
-        """FastAPI app has _get_gen_cache_max function that reads from config."""
-        import qwen3_tts.server.app as _srv
-        self.assertTrue(hasattr(_srv, "_get_gen_cache_max"))
-        self.assertTrue(callable(_srv._get_gen_cache_max))
-        # Function should return default value of 5
-        result = _srv._get_gen_cache_max()
+        """get_generation_cache_max returns the configured default value."""
+        from qwen3_tts.core.config import get_generation_cache_max
+        result = get_generation_cache_max()
         self.assertEqual(result, 5)
 
 

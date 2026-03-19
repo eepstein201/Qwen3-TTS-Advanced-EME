@@ -51,7 +51,6 @@ from qwen3_tts.core.config import (
     LOG_FILE,
     MODEL_INFO,
     MLX_MODEL_INFO,
-    CUSTOM_VOICE_SPEAKERS,
     HISTORY_FILE,
     IN_COLAB,
     ConfigLoader,
@@ -70,11 +69,6 @@ from qwen3_tts.core.config import (
     cleanup_pid_file,
 )
 
-# Pre-computed valid speaker names (keys + display names)
-_VALID_SPEAKER_NAMES = frozenset(CUSTOM_VOICE_SPEAKERS.keys()) | frozenset(
-    v["name"] for v in CUSTOM_VOICE_SPEAKERS.values()
-)
-
 # Config loader — can be replaced in tests for config injection
 _DEFAULT_CONFIG_LOADER = DefaultConfigLoader()
 _app_config_provider: Optional[ConfigLoader] = None
@@ -90,15 +84,6 @@ def _get_app_config() -> dict:
     """Load application config, using override provider if set."""
     return (_app_config_provider or _DEFAULT_CONFIG_LOADER).load()
 
-
-def _get_eta_cache_ttl() -> int:
-    """Get ETA cache TTL from config (cached for performance)."""
-    return get_eta_cache_ttl()
-
-
-def _get_gen_cache_max() -> int:
-    """Get generation cache max size from config (cached for performance)."""
-    return get_generation_cache_max()
 
 
 
@@ -166,44 +151,12 @@ async def verify_auth(request: Request) -> None:
 # ---------------------------------------------------------------------------
 
 
-def _validate_generation_request(req: GenerateRequest, security_config: dict) -> None:
-    """Shared validation for /generate and /generate-stream.
-
-    Raises HTTPException for:
-    - Path traversal in prompt_file
-    - Invalid speaker name for custom mode
-    - Invalid mode
-    """
-    # Path traversal check
-    if req.prompt_file and (".." in req.prompt_file or "/" in req.prompt_file):
-        raise HTTPException(
-            status_code=400,
-            detail="Invalid prompt_file: path traversal not allowed",
-        )
-
-    # Speaker validation for custom mode
-    if req.mode == "custom" and req.speaker:
-        speaker_key = req.speaker.lower() if isinstance(req.speaker, str) else ""
-        if speaker_key not in CUSTOM_VOICE_SPEAKERS and req.speaker not in _VALID_SPEAKER_NAMES:
-            raise HTTPException(
-                status_code=400,
-                detail=f"Unknown speaker: {req.speaker}. Valid: {', '.join(CUSTOM_VOICE_SPEAKERS.keys())}",
-            )
-
-    # Mode validation
-    if req.mode not in ("clone", "design", "custom"):
-        raise HTTPException(
-            status_code=400,
-            detail=f"Invalid mode: {req.mode}. Must be clone, design, or custom",
-        )
-
-
 def _estimate_eta(app_state, text_length: int, elapsed_sec: float) -> Optional[float]:
     """Estimate remaining seconds from history data."""
     now = time.time()
 
     # Refresh cache if stale
-    if now - app_state.eta_cache["last_updated"] > _get_eta_cache_ttl():
+    if now - app_state.eta_cache["last_updated"] > get_eta_cache_ttl():
         try:
             if not os.path.exists(HISTORY_FILE):
                 app_state.eta_cache["median_rate"] = None
@@ -1365,7 +1318,7 @@ async def generate(request: Request, req: GenerateRequest, _auth: None = Depends
                 sf.write(cache_file.name, wav, sr)
 
                 with state.gen_cache_lock:
-                    if len(state.gen_cache) >= _get_gen_cache_max():
+                    if len(state.gen_cache) >= get_generation_cache_max():
                         oldest_key = min(state.gen_cache, key=lambda k: state.gen_cache[k]["timestamp"])
                         old_entry = state.gen_cache.pop(oldest_key)
                         old_main = old_entry.get("main_file")
