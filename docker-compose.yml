@@ -3,6 +3,7 @@ version: '3.8'
 services:
   qwen3-tts:
     build: .
+    ipc: host  # Required for PyTorch NCCL tensor parallelism
     ports:
       - "5123:5123"  # TTS server
       - "7860:7860"  # Gradio UI
@@ -10,13 +11,15 @@ services:
       - huggingface_cache:/root/.cache/huggingface
       - ./voice_prompts:/root/Qwen3-TTS_UserFiles/voice_prompts
       - ./config.json:/root/Qwen3-TTS_UserFiles/config.json
+    environment:
+      - GPU_AMOUNT=${GPU_AMOUNT:-1}
     # Server binds 0.0.0.0 via --public in Dockerfile CMD
     deploy:
       resources:
         reservations:
           devices:
             - driver: nvidia
-              count: 1
+              count: ${GPU_AMOUNT:-1}
               capabilities: [gpu]
     restart: unless-stopped
 

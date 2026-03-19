@@ -28,7 +28,7 @@ from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Optional, List
 
-from fastapi import FastAPI, Request, Response, HTTPException, Depends
+from fastapi import FastAPI, Request, Response, HTTPException, Depends, WebSocket
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse, FileResponse
 from pydantic import BaseModel, Field
@@ -102,6 +102,8 @@ def _get_gen_cache_max() -> int:
     return get_generation_cache_max()
 
 
+
+from qwen3_tts.server.websocket import websocket_tts_handler
 
 # Import validation module (models and helpers)
 from qwen3_tts.server.validation import (
@@ -1423,30 +1425,28 @@ async def generate(request: Request, req: GenerateRequest, _auth: None = Depends
 async def generate_stream(request: Request, req: GenerateRequest, _auth: None = Depends(verify_auth)):
     """Stream audio generation — returns chunked audio as it's produced.
 
-    Wire format: raw float32 little-endian samples streamed as binary chunks.
-    Sample rate is constant across chunks (typically 24000 Hz).
+    Wire format per chunk (little-endian):
+        [sample_rate: 4 bytes uint32][audio_len: 4 bytes uint32][audio: audio_len bytes float32]
 
     Python consumer::
 
         import struct, httpx
         with httpx.stream("POST", url, json=payload, headers=headers) as r:
-            for chunk in r.iter_bytes():
-                samples = struct.unpack(f'<{len(chunk)//4}f', chunk)
+            buf = b""
+            for raw in r.iter_bytes():
+                buf += raw
+                while len(buf) >= 8:
+                    sr, n = struct.unpack_from("<II", buf, 0)
+                    if len(buf) < 8 + n:
+                        break
+                    samples = struct.unpack_from(f'<{n//4}f', buf, 8)
+                    buf = buf[8 + n:]
+                    # process samples at sample rate sr
 
-    JavaScript consumer::
+    JavaScript consumer (see wavesurfer_js.py startStreaming() for full implementation)::
 
-        const response = await fetch(url, {
-            method: 'POST',
-            body: JSON.stringify(payload),
-            headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer <token>' }
-        });
-        const reader = response.body.getReader();
-        while (true) {
-            const { done, value } = await reader.read();
-            if (done) break;
-            const float32 = new Float32Array(value.buffer);
-            // Play float32 samples at 24000 Hz
-        }
+        // Each chunk: Float32Array samples at the given sample rate
+        // Parse header: DataView.getUint32(0, true) = sr, getUint32(4, true) = byteLen
     """
     state = request.app.state
     reset_activity_timer(state)
@@ -1622,6 +1622,17 @@ async def generate_stream(request: Request, req: GenerateRequest, _auth: None = 
             "X-Queue-Position": str(len(state.pending_requests)),
         },
     )
+
+
+@app.websocket("/ws")
+async def websocket_endpoint(websocket: WebSocket):
+    """Bidirectional WebSocket endpoint for real-time TTS streaming."""
+    state = websocket.app.state
+
+    def _verify_token(token: str) -> bool:
+        return secrets.compare_digest(token, state.auth_token)
+
+    await websocket_tts_handler(websocket, state, _verify_token)
 
 
 @app.post("/shutdown")

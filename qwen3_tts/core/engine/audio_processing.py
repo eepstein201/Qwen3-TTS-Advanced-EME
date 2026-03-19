@@ -232,3 +232,45 @@ def process_audio(audio, sample_rate, trim=False, normalize=False,
             logger.warning("LUFS normalization failed: %s", e)
 
     return audio
+
+
+# ---------------------------------------------------------------------------
+# Waveform peak calculation (for wavesurfer.js backend-side rendering)
+# ---------------------------------------------------------------------------
+
+def calculate_waveform_peaks(audio: np.ndarray, num_peaks: int = 500) -> list[float]:
+    """Pre-calculate normalized peak amplitudes for waveform visualization.
+
+    Divides the audio into `num_peaks` bins and computes the maximum absolute
+    amplitude in each bin, returning values in [-1.0, 1.0] suitable for
+    wavesurfer.js `load('', [peaks], duration)`.
+
+    Args:
+        audio: Audio samples as a 1-D float array.
+        num_peaks: Number of peak bins to produce.
+
+    Returns:
+        List of peak values, each in [-1.0, 1.0].
+    """
+    if audio.size == 0:
+        return [0.0] * num_peaks
+
+    # Flatten to mono if needed
+    if audio.ndim > 1:
+        audio = audio.mean(axis=-1)
+
+    num_peaks = min(num_peaks, audio.size)
+    samples_per_bin = audio.size / num_peaks
+    peaks = []
+
+    for i in range(num_peaks):
+        start = int(i * samples_per_bin)
+        end = int((i + 1) * samples_per_bin)
+        end = min(end, audio.size)
+        if start >= end:
+            peaks.append(0.0)
+        else:
+            peak_val = float(np.max(np.abs(audio[start:end])))
+            peaks.append(max(-1.0, min(1.0, peak_val)))
+
+    return peaks

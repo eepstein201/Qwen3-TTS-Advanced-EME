@@ -49,6 +49,7 @@ from qwen3_tts.core.engine.audio_processing import (
     adjust_speed,
     adjust_pitch,
     process_audio,
+    calculate_waveform_peaks,
 )
 
 # --- voice_prompt ---
