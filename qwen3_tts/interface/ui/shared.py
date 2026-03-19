@@ -15,8 +15,6 @@ import gradio as gr
 
 from qwen3_tts.core.config import (
     CUSTOM_VOICE_SPEAKERS,
-    VALID_MODEL_SIZES,
-    VALID_MLX_QUANTIZATIONS,
     get_backend,
     get_model_size,
     get_mlx_quantization,
@@ -156,7 +154,6 @@ def update_text_info(text):
     if not text or not text.strip():
         return ""
     chars = len(text)
-    words = len(text.split())
     # Estimate chunks (500 chars default)
     chunks = max(1, (chars + 499) // 500)
     if chunks > 1:

@@ -172,7 +172,8 @@ class GeneratorMixin:
         if resp.status_code != 200:
             raise GenerationError(_extract_error_message(resp))
 
-        import io, base64
+        import io
+        import base64
         import soundfile as sf
         result = resp.json()["results"][0]
         audio_bytes = base64.b64decode(result["audio_base64"])
@@ -414,7 +415,8 @@ class GeneratorMixin:
             if resp.status_code != 200:
                 raise GenerationError(_extract_error_message(resp))
 
-            import io, base64
+            import io
+            import base64
             import soundfile as sf
             result = resp.json()["results"][0]
             audio_bytes = base64.b64decode(result["audio_base64"])

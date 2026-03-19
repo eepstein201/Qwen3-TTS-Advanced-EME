@@ -7,20 +7,14 @@ exclusively over HTTP to the TTS server.
 
 import functools
 import json
-import os
 
 import requests
 
 from qwen3_tts.core.config import (
     CONFIG_PATH,
     VOICE_PROMPTS_DIR,
-    get_default_clone_prompt,
     get_server_url,
     is_server_running,
-    auth_headers,
-    GenerationError,
-    ModelError,
-    VoicePromptError,
 )
 
 

@@ -11,7 +11,7 @@ import re
 from typing import Optional, List
 
 from fastapi import HTTPException
-from pydantic import BaseModel, Field
+from pydantic import BaseModel
 
 from qwen3_tts.core.config import CUSTOM_VOICE_SPEAKERS
 

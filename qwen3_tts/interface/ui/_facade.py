@@ -17,7 +17,6 @@ import time
 import gradio as gr
 
 from qwen3_tts.core.config import (
-    CUSTOM_VOICE_SPEAKERS,
     VOICE_DESCRIPTION_ATTRIBUTES,
     VALID_MODEL_SIZES,
     VALID_MLX_QUANTIZATIONS,
@@ -47,19 +46,12 @@ from qwen3_tts.interface.ui.shared import (
     is_enhancer_available,
     get_current_model_settings,
     apply_model_settings,
-    update_text_info,
     format_status_display,
     get_voice_prompts,
     get_presets,
-    add_to_history,
-    get_history_data,
 )
 from qwen3_tts.interface.ui.generation import (
-    cancel_streaming_generation,
     _prepare_streaming_config,
-    _save_completed_audio,
-    _generate_colab_fallback,
-    _validate_inputs,
     _build_common_controls,
     _build_generate_buttons_and_output,
     _wire_generation_tab,

@@ -49,7 +49,7 @@ from qwen3_tts.core.engine.audio_processing import (
     adjust_speed,
     adjust_pitch,
     process_audio,
-    calculate_waveform_peaks,
+    calculate_waveform_peaks,  # noqa: F401
 )
 
 # --- voice_prompt ---
@@ -71,18 +71,18 @@ from qwen3_tts.core.engine.inference import (
     run_inference,
     run_inference_streaming,
     create_voice_prompt,
-    _validate_audio,
-    _run_inference_torch,
-    _run_inference_mlx,
-    _run_inference_mlx_streaming,
-    _run_inference_single,
-    _get_max_chunk_chars,
-    _get_max_chunk_tokens,
-    _crossfade_chunks,
-    _INFERENCE_STRATEGIES,
-    _MODE_STRATEGIES_TORCH,
-    register_backend,
-    _get_backend_strategy,
+    _validate_audio,  # noqa: F401
+    _run_inference_torch,  # noqa: F401
+    _run_inference_mlx,  # noqa: F401
+    _run_inference_mlx_streaming,  # noqa: F401
+    _run_inference_single,  # noqa: F401
+    _get_max_chunk_chars,  # noqa: F401
+    _get_max_chunk_tokens,  # noqa: F401
+    _crossfade_chunks,  # noqa: F401
+    _INFERENCE_STRATEGIES,  # noqa: F401
+    _MODE_STRATEGIES_TORCH,  # noqa: F401
+    register_backend,  # noqa: F401
+    _get_backend_strategy,  # noqa: F401
 )
 
 # --- asr ---

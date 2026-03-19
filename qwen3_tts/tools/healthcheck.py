@@ -5,7 +5,6 @@ Verifies installation status, backend availability, model cache,
 and common configuration issues.
 """
 
-import os
 import pathlib
 import platform
 import sys
@@ -17,10 +16,6 @@ from qwen3_tts.core.config import (
     CONFIG_PATH,
     VOICE_PROMPTS_DIR,
     USER_FILES_DIR,
-    HISTORY_FILE,
-    TOKEN_FILE,
-    PID_FILE,
-    LOG_FILE,
     HF_CACHE,
     detect_server_state,
 )
@@ -85,7 +80,7 @@ def check_backend_availability() -> tuple:
     # Check MLX (Apple Silicon only)
     if IS_MACOS and platform.machine() == "arm64":
         try:
-            import mlx
+            import mlx  # noqa: F401
             backends.append("mlx")
         except ImportError:
             issues.append("MLX not installed (run: pip install mlx-audio)")
@@ -112,7 +107,7 @@ def check_backend_availability() -> tuple:
     # Check vLLM (Linux only)
     if IS_LINUX:
         try:
-            import vllm
+            import vllm  # noqa: F401
             backends.append("vllm")
         except ImportError:
             issues.append("vLLM not installed (optional, for high-throughput)")
@@ -125,7 +120,7 @@ def check_backend_availability() -> tuple:
         details = "No backends available!"
 
     if issues:
-        details += f"\n    Issues:\n    - " + "\n    - ".join(issues)
+        details += "\n    Issues:\n    - " + "\n    - ".join(issues)
 
     return status, details
 
@@ -149,7 +144,7 @@ def check_config() -> tuple:
         except Exception as e:
             return "fail", f"Config error: {e}"
     else:
-        return "warn", f"Config not found (will be created with defaults)"
+        return "warn", "Config not found (will be created with defaults)"
 
 
 def check_model_cache() -> tuple:
@@ -308,11 +303,11 @@ def run_healthcheck() -> int:
     # Summary
     if all_pass:
         print(f"  {GREEN}All checks passed!{RESET}")
-        print(f"  Your TTS installation is healthy.")
+        print("  Your TTS installation is healthy.")
         return 0
     else:
         print(f"  {YELLOW}Some checks failed or warnings.{RESET}")
-        print(f"  See above for details.")
+        print("  See above for details.")
         return 1
 
 
@@ -331,7 +326,7 @@ def main():
         help="Show suggested fixes for issues",
     )
 
-    args = parser.parse_args()
+    parser.parse_args()
 
     return run_healthcheck()
 

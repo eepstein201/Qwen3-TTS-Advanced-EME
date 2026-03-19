@@ -14,7 +14,6 @@ import soundfile as sf
 from qwen3_tts.core.config import (
     CUSTOM_VOICE_SPEAKERS,
     get_default_clone_prompt,
-    load_config,
 )
 from qwen3_tts.interface.generate import (
     _decode_base64_result,
@@ -116,13 +115,6 @@ def process_dialogue(dialogue_path, config, args, gen_params, use_server):
                 resolved_speaker = custom_speaker
         else:
             resolved_speaker = None
-
-        if mode == "custom":
-            display_name = custom_speaker
-        elif mode == "clone":
-            display_name = prompt_file
-        else:
-            display_name = "design"
 
         preview = text[:40] + "..." if len(text) > 40 else text
         print(f"  [{idx}/{len(lines)}] {speaker_name} ({mode}): \"{preview}\"")

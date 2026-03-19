@@ -5,13 +5,12 @@ Provides commands to list, analyze, and clean up cached TTS models
 from the HuggingFace cache. Invoked via `tts cache` namespace.
 """
 
-import os
 import pathlib
 import shutil
 import sys
 from datetime import datetime, timedelta
 
-from qwen3_tts.core.config import USER_FILES_DIR, HF_CACHE
+from qwen3_tts.core.config import HF_CACHE
 from qwen3_tts.tools._shared import _format_size
 
 

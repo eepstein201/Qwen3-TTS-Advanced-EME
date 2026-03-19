@@ -118,7 +118,7 @@ def create_and_save_voice_prompt(audio_path, transcript, prompt_name,
         os.remove(wav_path)
 
     print(f"\nDone! Use with: tts -p {prompt_name} \"Your text here\"")
-    print(f"  (Works with both torch and MLX backends)")
+    print("  (Works with both torch and MLX backends)")
     return output_path
 
 

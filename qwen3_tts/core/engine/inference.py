@@ -12,7 +12,6 @@ import numpy as np
 
 from qwen3_tts.core.config import (
     CONFIG_PATH,
-    ConfigLoader,
     DefaultConfigLoader,
     get_backend,
     get_torch_dtype_name,
@@ -373,7 +372,6 @@ def _run_inference_mlx_streaming(model, text, mode, gen_params, language="Englis
     Yields:
         (audio_chunk, sample_rate) tuples where audio_chunk is a float32 numpy array.
     """
-    import mlx.core as mx
 
     # Read defaults from config so MLX matches torch behavior (R-17)
     if config is None:

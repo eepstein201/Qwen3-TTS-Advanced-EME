@@ -11,9 +11,7 @@ import os
 import soundfile as sf
 
 from qwen3_tts.core.config import (
-    VOICE_PROMPTS_DIR,
     get_default_clone_prompt,
-    load_config,
 )
 from qwen3_tts.interface.generate import (
     _decode_base64_result,

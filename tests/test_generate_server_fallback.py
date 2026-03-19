@@ -65,7 +65,7 @@ class TestEnsureServerRunningFallback(unittest.TestCase):
         # First call: server not running. Second call: server up after start.
         with patch("qwen3_tts.interface.generate.is_server_running",
                    side_effect=[False, True]), \
-             patch("qwen3_tts.interface.generate.shutil.which",
+             patch("shutil.which",
                    return_value=None), \
              patch("builtins.open", mock_open()), \
              patch("qwen3_tts.interface.generate.subprocess.Popen", mock_popen), \
@@ -103,7 +103,7 @@ class TestEnsureServerRunningFallback(unittest.TestCase):
         mock_which = MagicMock(return_value=None)
         with patch("qwen3_tts.interface.generate.is_server_running",
                    side_effect=[False, True]), \
-             patch("qwen3_tts.interface.generate.shutil.which", mock_which), \
+             patch("shutil.which", mock_which), \
              patch("builtins.open", mock_open()), \
              patch("qwen3_tts.interface.generate.subprocess.Popen", mock_popen), \
              patch("qwen3_tts.interface.generate.time.sleep", return_value=None):

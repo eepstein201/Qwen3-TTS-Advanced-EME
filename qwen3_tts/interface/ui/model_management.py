@@ -11,7 +11,6 @@ This module contains:
 
 import logging
 
-import gradio as gr
 
 from qwen3_tts.core.config import (
     get_server_url,
@@ -19,7 +18,6 @@ from qwen3_tts.core.config import (
     auth_headers,
     load_config,
     save_config,
-    get_backend,
 )
 from qwen3_tts.interface.ui.shared import format_status_display
 
@@ -198,7 +196,7 @@ def get_model_status_html(model_type):
     config = load_config()
 
     if not is_server_running(config):
-        return f'<span style="color: gray;">Server not running</span>'
+        return '<span style="color: gray;">Server not running</span>'
 
     try:
         import requests
@@ -206,7 +204,7 @@ def get_model_status_html(model_type):
         resp = requests.get(f"{url}/models", timeout=5, headers=auth_headers())
 
         if resp.status_code != 200:
-            return f'<span style="color: red;">Error</span>'
+            return '<span style="color: red;">Error</span>'
 
         data = resp.json()
         models = data.get("models", {})
@@ -217,11 +215,11 @@ def get_model_status_html(model_type):
         if loaded:
             return f'<span style="color: green;">✓ Loaded ({memory:.0f}MB)</span>'
         else:
-            return f'<span style="color: gray;">Not loaded</span>'
+            return '<span style="color: gray;">Not loaded</span>'
 
     except Exception as e:
         logger.error(f"Failed to get model status: {e}")
-        return f'<span style="color: red;">Error</span>'
+        return '<span style="color: red;">Error</span>'
 
 
 def get_audio_loader_setting():

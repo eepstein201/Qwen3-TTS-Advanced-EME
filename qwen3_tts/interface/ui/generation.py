@@ -11,26 +11,23 @@ This module contains:
 import base64
 import logging
 import os
-import tempfile
 
 import gradio as gr
 
 from qwen3_tts.core.config import (
-    VOICE_PROMPTS_DIR,
-    get_backend,
     get_server_url,
     is_server_running,
     auth_headers,
     load_config,
     get_prosody_presets,
 )
-from qwen3_tts.interface.voice_helpers import (
-    get_prosody_choices,
-    apply_prosody_preset,
-)
 from qwen3_tts.interface.ui.shared import (
     add_to_history,
     format_status_display,
+)
+from qwen3_tts.interface.voice_helpers import (  # noqa: F401 (re-exported via ui/__init__.py)
+    get_prosody_choices,
+    apply_prosody_preset,
 )
 
 logger = logging.getLogger("tts.ui")
@@ -125,6 +122,9 @@ def _prepare_streaming_config(mode, text, preset, temperature, top_k, top_p,
     elif mode == "design":
         payload["voice_description"] = description
     elif mode == "custom":
+        # Dropdown sends full display string like "ryan (English) - ..."; extract key
+        if speaker and " (" in speaker:
+            speaker = speaker.split(" (")[0]
         payload["speaker"] = speaker
         payload["instruct"] = instruct or ""
 
@@ -168,7 +168,6 @@ def _save_completed_audio(base64_wav, mode, text, history_list, stream_config=No
         audio_bytes = base64.b64decode(base64_wav)
 
         # Generate output path
-        config = load_config()
         import uuid
         output_path = os.path.expanduser(f"~/Downloads/voice_ui_{uuid.uuid4().hex[:8]}.wav")
 

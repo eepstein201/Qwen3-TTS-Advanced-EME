@@ -10,7 +10,7 @@ This module NEVER imports torch or qwen3_tts.core.engine at module scope.
 import os
 
 from qwen3_tts.server.client._base import _require_server, _extract_error_message
-from qwen3_tts.core.config import auth_headers, VoicePromptError, VOICE_PROMPTS_DIR
+from qwen3_tts.core.config import auth_headers, VoicePromptError
 
 
 class VoiceManagerMixin:

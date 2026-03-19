@@ -9,12 +9,10 @@
 
 import asyncio
 import atexit
-import hashlib
 import json
 import logging
 import logging.handlers
 import os
-import re
 import secrets
 import signal
 import struct
@@ -25,13 +23,11 @@ import time
 import uuid
 from collections import deque
 from contextlib import asynccontextmanager
-from pathlib import Path
-from typing import Optional, List
+from typing import Optional
 
 from fastapi import FastAPI, Request, Response, HTTPException, Depends, WebSocket
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse, FileResponse
-from pydantic import BaseModel, Field
 import uvicorn
 
 # Optional rate limiting (R-13)
@@ -44,15 +40,12 @@ except ImportError:
 
 logger = logging.getLogger("tts")
 
-from qwen3_tts.core.config import (
-    CONFIG_PATH,
+from qwen3_tts.core.config import (  # noqa: E402
     VOICE_PROMPTS_DIR,
-    PID_FILE,
     TOKEN_FILE,
     LOG_FILE,
     MODEL_INFO,
     MLX_MODEL_INFO,
-    CUSTOM_VOICE_SPEAKERS,
     HISTORY_FILE,
     IN_COLAB,
     ConfigLoader,
@@ -64,16 +57,10 @@ from qwen3_tts.core.config import (
     get_torch_dtype_name,
     get_mlx_quantization,
     get_model_size,
-    get_model_info,
     get_mlx_model_name,
     get_generation_cache_max,
     get_eta_cache_ttl,
     cleanup_pid_file,
-)
-
-# Pre-computed valid speaker names (keys + display names)
-_VALID_SPEAKER_NAMES = frozenset(CUSTOM_VOICE_SPEAKERS.keys()) | frozenset(
-    v["name"] for v in CUSTOM_VOICE_SPEAKERS.values()
 )
 
 # Config loader — can be replaced in tests for config injection
@@ -92,21 +79,12 @@ def _get_app_config() -> dict:
     return (_app_config_provider or _DEFAULT_CONFIG_LOADER).load()
 
 
-def _get_eta_cache_ttl() -> int:
-    """Get ETA cache TTL from config (cached for performance)."""
-    return get_eta_cache_ttl()
 
 
-def _get_gen_cache_max() -> int:
-    """Get generation cache max size from config (cached for performance)."""
-    return get_generation_cache_max()
-
-
-
-from qwen3_tts.server.websocket import websocket_tts_handler
+from qwen3_tts.server.websocket import websocket_tts_handler  # noqa: E402
 
 # Import validation module (models and helpers)
-from qwen3_tts.server.validation import (
+from qwen3_tts.server.validation import (  # noqa: E402
     # Request models
     GenerateRequest,
     LoadModelRequest,
@@ -116,9 +94,9 @@ from qwen3_tts.server.validation import (
     DeletePromptRequest,
     RenamePromptRequest,
     # Response models
-    ErrorResponse,
-    GenerateResult,
+    ErrorResponse,  # noqa: F401 (imported by test code via app module)
     GenerateResponse,
+    GenerateResult,  # noqa: F401 (imported by test code via app module)
     HealthResponse,
     # Validation helpers
     _validate_generation_request,
@@ -126,8 +104,6 @@ from qwen3_tts.server.validation import (
     _strip_extension,
     _gen_cache_key,
     _error_response,
-    # Speaker validation
-    _VALID_SPEAKER_NAMES,
 )
 
 
@@ -167,44 +143,12 @@ async def verify_auth(request: Request) -> None:
 # ---------------------------------------------------------------------------
 
 
-def _validate_generation_request(req: GenerateRequest, security_config: dict) -> None:
-    """Shared validation for /generate and /generate-stream.
-
-    Raises HTTPException for:
-    - Path traversal in prompt_file
-    - Invalid speaker name for custom mode
-    - Invalid mode
-    """
-    # Path traversal check
-    if req.prompt_file and (".." in req.prompt_file or "/" in req.prompt_file):
-        raise HTTPException(
-            status_code=400,
-            detail="Invalid prompt_file: path traversal not allowed",
-        )
-
-    # Speaker validation for custom mode
-    if req.mode == "custom" and req.speaker:
-        speaker_key = req.speaker.lower() if isinstance(req.speaker, str) else ""
-        if speaker_key not in CUSTOM_VOICE_SPEAKERS and req.speaker not in _VALID_SPEAKER_NAMES:
-            raise HTTPException(
-                status_code=400,
-                detail=f"Unknown speaker: {req.speaker}. Valid: {', '.join(CUSTOM_VOICE_SPEAKERS.keys())}",
-            )
-
-    # Mode validation
-    if req.mode not in ("clone", "design", "custom"):
-        raise HTTPException(
-            status_code=400,
-            detail=f"Invalid mode: {req.mode}. Must be clone, design, or custom",
-        )
-
-
 def _estimate_eta(app_state, text_length: int, elapsed_sec: float) -> Optional[float]:
     """Estimate remaining seconds from history data."""
     now = time.time()
 
     # Refresh cache if stale
-    if now - app_state.eta_cache["last_updated"] > _get_eta_cache_ttl():
+    if now - app_state.eta_cache["last_updated"] > get_eta_cache_ttl():
         try:
             if not os.path.exists(HISTORY_FILE):
                 app_state.eta_cache["median_rate"] = None
@@ -1252,7 +1196,8 @@ async def generate(request: Request, req: GenerateRequest, _auth: None = Depends
         state.request_queue.add(request_id)
 
     try:
-        import io, base64
+        import io
+        import base64
         import soundfile as sf
         from qwen3_tts.core.engine import load_voice_prompt, run_inference
 
@@ -1366,7 +1311,7 @@ async def generate(request: Request, req: GenerateRequest, _auth: None = Depends
                 sf.write(cache_file.name, wav, sr)
 
                 with state.gen_cache_lock:
-                    if len(state.gen_cache) >= _get_gen_cache_max():
+                    if len(state.gen_cache) >= get_generation_cache_max():
                         oldest_key = min(state.gen_cache, key=lambda k: state.gen_cache[k]["timestamp"])
                         old_entry = state.gen_cache.pop(oldest_key)
                         old_main = old_entry.get("main_file")
@@ -1527,7 +1472,6 @@ async def generate_stream(request: Request, req: GenerateRequest, _auth: None = 
         # Track in pending queue while waiting for inference lock
         async with state.pending_lock:
             state.pending_requests.append(queue_entry)
-        queue_position = len(state.pending_requests)
 
         # Acquire inference_lock to serialize GPU access
         async with inference_lock:
@@ -1681,10 +1625,6 @@ def run_server(host="127.0.0.1", port=5123, public=False):
     logging.getLogger("tts").setLevel(logging.DEBUG)
     logging.getLogger("tts").addHandler(file_handler)
     logging.getLogger("tts").addHandler(stderr_handler)
-
-    # Load config for settings
-    config = load_config()
-    server_config = config.get("server", {})
 
     if public:
         host = "0.0.0.0"
