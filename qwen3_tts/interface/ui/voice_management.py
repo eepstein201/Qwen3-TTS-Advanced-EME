@@ -29,7 +29,6 @@ from qwen3_tts.interface.voice_helpers import (
 )
 from qwen3_tts.interface.ui.shared import (
     get_voice_prompts,
-    format_status_display,
 )
 
 logger = logging.getLogger("tts.ui")

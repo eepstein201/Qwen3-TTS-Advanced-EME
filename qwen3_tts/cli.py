@@ -13,7 +13,6 @@ import os
 import subprocess
 import sys
 import time
-from pathlib import Path
 
 import click
 
@@ -364,7 +363,6 @@ def stop():
 def status():
     """Show server health, loaded models, and memory usage."""
     from qwen3_tts.core.config import load_config, get_server_url, is_server_running, auth_headers
-    import json
     import requests
 
     config = load_config()
@@ -816,9 +814,9 @@ def uninstall():
     pass
 
 
-@uninstall.command()
+@uninstall.command("models")
 @click.option('--dry-run', is_flag=True, help='Preview changes without deleting')
-def models(dry_run):
+def uninstall_models_cmd(dry_run):
     """Remove cached TTS models from HuggingFace cache."""
     from qwen3_tts.tools.uninstall import uninstall_models
     uninstall_models(dry_run=dry_run)

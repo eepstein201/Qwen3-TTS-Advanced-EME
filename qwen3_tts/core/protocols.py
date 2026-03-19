@@ -11,7 +11,7 @@ Using protocols enables:
 - Flexibility in implementation (file-based, database, API, etc.)
 - Clear interface contracts between components
 """
-from typing import Protocol, runtime_checkable, Iterator, List, Dict, Any, Optional
+from typing import Protocol, runtime_checkable, Iterator, List, Dict, Any
 
 
 @runtime_checkable

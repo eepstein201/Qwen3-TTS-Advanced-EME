@@ -7,7 +7,6 @@ and environment management without breaking the running environment.
 
 import os
 import shutil
-import pathlib
 import sys
 
 from qwen3_tts.core.config import (

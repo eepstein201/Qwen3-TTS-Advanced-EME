@@ -411,7 +411,6 @@ class VLLMAdapter:
             data = response.json()
             # vLLM-Omni returns audio in OpenAI-compatible format
             audio_base64 = data.get("data", [{}])[0].get("audio")
-            sample_rate = data.get("data", [{}])[0].get("sample_rate", 24000)
 
             # Decode base64 audio
             audio_bytes = base64.b64decode(audio_base64)

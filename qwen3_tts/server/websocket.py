@@ -17,9 +17,7 @@ import json
 import logging
 import struct
 import threading
-from typing import Optional
 
-import numpy as np
 from fastapi import WebSocket, WebSocketDisconnect
 
 logger = logging.getLogger("tts.server.websocket")

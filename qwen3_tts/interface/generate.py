@@ -20,15 +20,13 @@ import requests
 
 logger = logging.getLogger("tts.cli")
 
-from qwen3_tts.core.config import (
+from qwen3_tts.core.config import (  # noqa: E402
     CONFIG_PATH,
     VOICE_PROMPTS_DIR,
     HISTORY_FILE,
     MODEL_INFO,
-    MLX_MODEL_INFO,
     CUSTOM_VOICE_SPEAKERS,
     VALID_BACKENDS,
-    VALID_MODEL_SIZES,
     load_config,
     save_config,
     get_server_url,
@@ -38,7 +36,6 @@ from qwen3_tts.core.config import (
     get_torch_dtype_name,
     get_mlx_quantization,
     get_mlx_model_name,
-    get_model_size,
     get_default_clone_prompt,
 )
 
@@ -682,7 +679,7 @@ class _ProgressPoller:
             BarColumn(),
             TextColumn("[progress.percentage]{task.percentage:>3.0f}%"),
             TimeElapsedColumn(),
-            TimeRemainingColumn(),
+            TimeRemainingColumn(),  # noqa: F821
             console=console,
             transient=True,
         ) as progress:
@@ -791,7 +788,9 @@ def _build_generation_payload(mode, config, gen_params, prompt_file=None,
 
 def _decode_base64_result(result):
     """Decode base64 audio from server response to numpy array + sample rate."""
-    import base64, io, soundfile as sf
+    import base64
+    import io
+    import soundfile as sf
     audio_bytes = base64.b64decode(result["audio_base64"])
     wav, sr = sf.read(io.BytesIO(audio_bytes))
     return wav, sr
@@ -893,7 +892,6 @@ def generate_streaming(text, mode, config, gen_params, output_path,
     Also saves the complete audio to output_path.
     """
     import struct
-    import subprocess  # nosec B404
     import tempfile
     import numpy as np
     import soundfile as sf
@@ -1275,7 +1273,7 @@ def run_watch_mode(watch_dir, config, args, gen_params, use_server):
             except Exception as e:
                 print(f"Error processing {event.src_path}: {e}")
 
-    print(f"\n=== Watch Mode ===")
+    print("\n=== Watch Mode ===")
     print(f"Watching: {watch_dir}")
     print(f"Output to: {output_dir}")
     print("Drop .txt files into the watch directory to generate TTS.")
@@ -1361,13 +1359,6 @@ def process_dialogue(dialogue_path, config, args, gen_params, use_server):
                 resolved_speaker = custom_speaker
         else:
             resolved_speaker = None
-
-        if mode == "custom":
-            display_name = custom_speaker
-        elif mode == "clone":
-            display_name = prompt_file
-        else:
-            display_name = "design"
 
         preview = text[:40] + "..." if len(text) > 40 else text
         print(f"  [{idx}/{len(lines)}] {speaker_name} ({mode}): \"{preview}\"")
@@ -2062,7 +2053,7 @@ def main():
             print(f"Voice description: {voice_description}")
         print(f"Output directory: {output_dir}")
         print(f"Server mode: {'yes' if use_server else 'no (local)'}")
-        print(f"\nAudio processing:")
+        print("\nAudio processing:")
         print(f"  Trim silence: {'yes' if args.trim_silence else 'no'}")
         print(f"  Normalize: {'yes (-3dB peak)' if args.normalize else 'no'}")
         print(f"  Speed: {args.speed if args.speed else '1.0 (unchanged)'}")
@@ -2070,7 +2061,7 @@ def main():
         print(f"  SSML: {'enabled' if args.ssml else 'disabled'}")
         chunk_cfg = max_chunk_chars if max_chunk_chars is not None else config.get("generation", {}).get("max_chunk_chars", 500)
         print(f"  Text chunking: {'disabled' if chunk_cfg == 0 else f'max {chunk_cfg} chars/chunk'}")
-        print(f"\nGeneration parameters:")
+        print("\nGeneration parameters:")
         for k, v in gen_params.items():
             print(f"  {k}: {v}")
         print(f"\nTexts to generate ({len(texts)}):")

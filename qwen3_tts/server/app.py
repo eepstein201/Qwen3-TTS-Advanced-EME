@@ -9,7 +9,6 @@
 
 import asyncio
 import atexit
-import hashlib
 import json
 import logging
 import logging.handlers
@@ -24,13 +23,11 @@ import time
 import uuid
 from collections import deque
 from contextlib import asynccontextmanager
-from pathlib import Path
-from typing import Optional, List
+from typing import Optional
 
 from fastapi import FastAPI, Request, Response, HTTPException, Depends, WebSocket
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse, FileResponse
-from pydantic import BaseModel, Field
 import uvicorn
 
 # Optional rate limiting (R-13)
@@ -43,10 +40,8 @@ except ImportError:
 
 logger = logging.getLogger("tts")
 
-from qwen3_tts.core.config import (
-    CONFIG_PATH,
+from qwen3_tts.core.config import (  # noqa: E402
     VOICE_PROMPTS_DIR,
-    PID_FILE,
     TOKEN_FILE,
     LOG_FILE,
     MODEL_INFO,
@@ -62,7 +57,6 @@ from qwen3_tts.core.config import (
     get_torch_dtype_name,
     get_mlx_quantization,
     get_model_size,
-    get_model_info,
     get_mlx_model_name,
     get_generation_cache_max,
     get_eta_cache_ttl,
@@ -87,10 +81,10 @@ def _get_app_config() -> dict:
 
 
 
-from qwen3_tts.server.websocket import websocket_tts_handler
+from qwen3_tts.server.websocket import websocket_tts_handler  # noqa: E402
 
 # Import validation module (models and helpers)
-from qwen3_tts.server.validation import (
+from qwen3_tts.server.validation import (  # noqa: E402
     # Request models
     GenerateRequest,
     LoadModelRequest,
@@ -100,9 +94,9 @@ from qwen3_tts.server.validation import (
     DeletePromptRequest,
     RenamePromptRequest,
     # Response models
-    ErrorResponse,
-    GenerateResult,
+    ErrorResponse,  # noqa: F401 (imported by test code via app module)
     GenerateResponse,
+    GenerateResult,  # noqa: F401 (imported by test code via app module)
     HealthResponse,
     # Validation helpers
     _validate_generation_request,
@@ -110,8 +104,6 @@ from qwen3_tts.server.validation import (
     _strip_extension,
     _gen_cache_key,
     _error_response,
-    # Speaker validation
-    _VALID_SPEAKER_NAMES,
 )
 
 
@@ -1204,7 +1196,8 @@ async def generate(request: Request, req: GenerateRequest, _auth: None = Depends
         state.request_queue.add(request_id)
 
     try:
-        import io, base64
+        import io
+        import base64
         import soundfile as sf
         from qwen3_tts.core.engine import load_voice_prompt, run_inference
 
@@ -1479,7 +1472,6 @@ async def generate_stream(request: Request, req: GenerateRequest, _auth: None = 
         # Track in pending queue while waiting for inference lock
         async with state.pending_lock:
             state.pending_requests.append(queue_entry)
-        queue_position = len(state.pending_requests)
 
         # Acquire inference_lock to serialize GPU access
         async with inference_lock:
@@ -1633,10 +1625,6 @@ def run_server(host="127.0.0.1", port=5123, public=False):
     logging.getLogger("tts").setLevel(logging.DEBUG)
     logging.getLogger("tts").addHandler(file_handler)
     logging.getLogger("tts").addHandler(stderr_handler)
-
-    # Load config for settings
-    config = load_config()
-    server_config = config.get("server", {})
 
     if public:
         host = "0.0.0.0"
