@@ -9,6 +9,7 @@ This module provides:
 - Error class hierarchy
 """
 
+import copy
 import json
 import logging
 import os
@@ -60,32 +61,37 @@ def validate_config(config):
     in-memory only — no disk writes. Missing keys are left missing (no bloat).
     """
     issues = []
-    backend = config.get("advanced", {}).get("backend")
-    if backend and backend not in VALID_BACKENDS:
-        corrected = "mlx" if (IS_MACOS and platform.machine() == "arm64") else "torch"
-        config.setdefault("advanced", {})["backend"] = corrected
-        issues.append(f"corrected backend from {backend!r} to {corrected!r}")
-    size = config.get("advanced", {}).get("model_size")
-    if size and size not in ("1.7B", "0.6B"):
-        config.setdefault("advanced", {})["model_size"] = "1.7B"
-        issues.append(f"corrected model_size from {size!r} to '1.7B'")
-    temp = config.get("generation", {}).get("temperature")
-    if temp is not None and not (0.0 <= temp <= 2.0):
-        config.setdefault("generation", {})["temperature"] = 0.7
-        issues.append(f"corrected temperature from {temp} to 0.7")
-    mtl = config.get("security", {}).get("max_text_length")
-    if mtl is not None and (not isinstance(mtl, int) or mtl <= 0):
-        config.setdefault("security", {})["max_text_length"] = 10000
-        issues.append(f"corrected max_text_length from {mtl} to 10000")
-    # vLLM-specific validation
-    vllm_gpu = config.get("advanced", {}).get("vllm_gpu_memory_utilization")
-    if vllm_gpu is not None and not (0.0 < vllm_gpu <= 1.0):
-        config.setdefault("advanced", {})["vllm_gpu_memory_utilization"] = 0.7
-        issues.append(f"corrected vllm_gpu_memory_utilization from {vllm_gpu} to 0.7")
-    vllm_port = config.get("advanced", {}).get("vllm_port")
-    if vllm_port is not None and not (isinstance(vllm_port, int) and 1024 <= vllm_port <= 65535):
-        config.setdefault("advanced", {})["vllm_port"] = None
-        issues.append(f"corrected vllm_port from {vllm_port} to None")
+    adv = config.get("advanced")
+    if isinstance(adv, dict):
+        backend = adv.get("backend")
+        if backend and backend not in VALID_BACKENDS:
+            corrected = "mlx" if (IS_MACOS and platform.machine() == "arm64") else "torch"
+            adv["backend"] = corrected
+            issues.append(f"corrected backend from {backend!r} to {corrected!r}")
+        size = adv.get("model_size")
+        if size and size not in ("1.7B", "0.6B"):
+            adv["model_size"] = "1.7B"
+            issues.append(f"corrected model_size from {size!r} to '1.7B'")
+        vllm_gpu = adv.get("vllm_gpu_memory_utilization")
+        if vllm_gpu is not None and not (0.0 < vllm_gpu <= 1.0):
+            adv["vllm_gpu_memory_utilization"] = 0.7
+            issues.append(f"corrected vllm_gpu_memory_utilization from {vllm_gpu} to 0.7")
+        vllm_port = adv.get("vllm_port")
+        if vllm_port is not None and not (isinstance(vllm_port, int) and 1024 <= vllm_port <= 65535):
+            adv["vllm_port"] = None
+            issues.append(f"corrected vllm_port from {vllm_port} to None")
+    gen = config.get("generation")
+    if isinstance(gen, dict):
+        temp = gen.get("temperature")
+        if temp is not None and not (0.0 <= temp <= 2.0):
+            gen["temperature"] = 0.7
+            issues.append(f"corrected temperature from {temp} to 0.7")
+    sec = config.get("security")
+    if isinstance(sec, dict):
+        mtl = sec.get("max_text_length")
+        if mtl is not None and (not isinstance(mtl, int) or mtl <= 0):
+            sec["max_text_length"] = 10000
+            issues.append(f"corrected max_text_length from {mtl} to 10000")
     for issue in issues:
         logger.warning("Config validation: %s", issue)
     return issues
@@ -104,14 +110,14 @@ def load_config():
             current_mtime = 0
 
         if _config_cache["data"] is not None and current_mtime == _config_cache["mtime"]:
-            return _config_cache["data"]
+            return copy.deepcopy(_config_cache["data"])
 
         with open(CONFIG_PATH, "r") as f:
             data = json.load(f)
         _config_cache["data"] = data
         _config_cache["mtime"] = current_mtime
         validate_config(data)
-        return data
+        return copy.deepcopy(data)
 
 
 def save_config(config):

@@ -1072,7 +1072,8 @@ def run_repl(config, use_server):
         "counter": 1,
     }
 
-    gen_params = config.get("generation", {}).copy()
+    base_gen_params = config.get("generation", {}).copy()
+    gen_params = base_gen_params.copy()
 
     while True:
         try:
@@ -1102,7 +1103,7 @@ def run_repl(config, use_server):
                         if "preset" in alias:
                             state["preset"] = alias["preset"]
                             preset_params = config.get("presets", {}).get(alias["preset"], {})
-                            gen_params.update(preset_params)
+                            gen_params = {**base_gen_params, **preset_params}
                         print(f"Switched to voice alias: {arg}")
                     else:
                         print(f"Unknown alias: {arg}")
@@ -1113,7 +1114,7 @@ def run_repl(config, use_server):
                     presets = config.get("presets", {})
                     if arg in presets:
                         state["preset"] = arg
-                        gen_params.update(presets[arg])
+                        gen_params = {**base_gen_params, **presets[arg]}
                         print(f"Switched to preset: {arg}")
                     else:
                         print(f"Unknown preset: {arg}")
@@ -1783,7 +1784,10 @@ def _handle_generation(args, config, gen_params, use_server, max_chunk_chars):
         process_dialogue(dialogue_path, config, args, gen_params, use_server)
         return use_server
 
-    # Voice alias
+    # Voice alias — resolve into local overrides (do not mutate args)
+    alias_prompt = args.prompt
+    alias_mode = args.mode
+    alias_description = args.description
     if args.voice:
         alias = get_voice_alias(args.voice, config)
         if alias is None:
@@ -1795,21 +1799,21 @@ def _handle_generation(args, config, gen_params, use_server, max_chunk_chars):
             if not aliases:
                 print("  (none configured - add to config.json under 'aliases')")
             sys.exit(1)
-        if "prompt" in alias and not args.prompt:
-            args.prompt = alias["prompt"]
+        if "prompt" in alias and not alias_prompt:
+            alias_prompt = alias["prompt"]
         if "preset" in alias and not args.preset:
-            args.preset = alias["preset"]
             gen_params = get_generation_params(args, config)
-        if "mode" in alias and not args.mode:
-            args.mode = alias["mode"]
-        if "description" in alias and not args.description:
-            args.description = alias["description"]
+        if "mode" in alias and not alias_mode:
+            alias_mode = alias["mode"]
+        if "description" in alias and not alias_description:
+            alias_description = alias["description"]
         print(f"Using voice alias '{args.voice}'")
 
-    # Clipboard input
+    # Clipboard input — use local text_args (do not mutate args.text)
+    text_args = list(args.text) if args.text else []
     if args.clipboard:
         clipboard_text = get_clipboard_text()
-        args.text = [clipboard_text]
+        text_args = [clipboard_text]
         print(f"Read from clipboard ({len(clipboard_text)} chars)")
 
     # Dry-run mode
@@ -1831,26 +1835,26 @@ def _handle_generation(args, config, gen_params, use_server, max_chunk_chars):
         return use_server
 
     # Multiple texts as batch
-    if len(args.text) > 1:
-        texts = [get_text(t) for t in args.text]
+    if len(text_args) > 1:
+        texts = [get_text(t) for t in text_args]
         process_batch(texts, args, config, gen_params, use_server)
         return use_server
 
     # Read from stdin if piped
-    if not args.text and not sys.stdin.isatty():
+    if not text_args and not sys.stdin.isatty():
         stdin_text = sys.stdin.read().strip()
         if stdin_text:
-            args.text = [stdin_text]
+            text_args = [stdin_text]
 
     # Interactive mode if no text
-    if not args.text:
+    if not text_args:
         result = interactive_mode(use_server, config, gen_params)
         if result is None:
             return False
         return use_server
 
     # Resolve text
-    text = args.text_override if args.text_override else get_text(args.text[0])
+    text = args.text_override if args.text_override else get_text(text_args[0])
     if args.ssml:
         original_text = text
         text = process_ssml_text(text, args)
@@ -1870,17 +1874,18 @@ def _handle_generation(args, config, gen_params, use_server, max_chunk_chars):
     output_path = auto_increment_filename(os.path.join(output_dir, output_name))
 
     language = config.get("language", "English")
-    mode = args.mode or "clone"
-    prompt_file = args.prompt or get_default_clone_prompt(config)
-    voice_description = args.description or config.get("default_voice_description", "")
+    mode = alias_mode or "clone"
+    prompt_file = alias_prompt or get_default_clone_prompt(config)
+    voice_description = alias_description or config.get("default_voice_description", "")
 
-    # Resolve prosody preset into instruct text
-    if args.prosody and not args.instruct:
+    # Resolve prosody preset into local instruct (do not mutate args)
+    instruct = args.instruct or ""
+    if args.prosody and not instruct:
         from qwen3_tts.core.config import get_prosody_presets
         prosody_presets = get_prosody_presets(config)
         if args.prosody in prosody_presets:
-            args.instruct = prosody_presets[args.prosody]
-            print(f"Using prosody preset '{args.prosody}': {args.instruct}")
+            instruct = prosody_presets[args.prosody]
+            print(f"Using prosody preset '{args.prosody}': {instruct}")
         else:
             available = ", ".join(sorted(prosody_presets.keys()))
             print(f"Error: Unknown prosody preset '{args.prosody}'")
@@ -1889,9 +1894,9 @@ def _handle_generation(args, config, gen_params, use_server, max_chunk_chars):
 
     # Determine mode and speaker
     speaker_name = None
-    if args.mode == "design" or args.description:
+    if alias_mode == "design" or alias_description:
         mode = "design"
-    if args.mode == "custom" or args.speaker:
+    if alias_mode == "custom" or args.speaker:
         mode = "custom"
         speaker_key = (args.speaker or "ryan").lower()
         if speaker_key not in CUSTOM_VOICE_SPEAKERS:
@@ -1900,12 +1905,13 @@ def _handle_generation(args, config, gen_params, use_server, max_chunk_chars):
             sys.exit(1)
         speaker_name = CUSTOM_VOICE_SPEAKERS[speaker_key]["name"]
         speaker_lang = CUSTOM_VOICE_SPEAKERS[speaker_key]["lang"]
-        if not args.description:
+        if not alias_description:
             language = speaker_lang
 
     return _run_single_generation(
         text, args, config, gen_params, use_server, max_chunk_chars,
         output_path, mode, language, prompt_file, voice_description, speaker_name,
+        instruct=instruct,
     )
 
 
@@ -1973,11 +1979,10 @@ def _voice_param_for_log(mode, prompt_file, voice_description, speaker_name, ins
 
 def _run_single_generation(text, args, config, gen_params, use_server, max_chunk_chars,
                            output_path, mode, language, prompt_file, voice_description,
-                           speaker_name):
+                           speaker_name, *, instruct=""):
     """Execute a single text generation (streaming, server, or local) and save output."""
     import soundfile as sf  # lazy
     gen_start = time.time()
-    instruct = args.instruct or ""
 
     if getattr(args, "stream", False) and use_server:
         print("Using TTS server (streaming mode)...")
