@@ -114,6 +114,101 @@ def _safe_transform(text: str, step_name: str, transform_fn) -> str:
         return text
 
 
+# ---------------------------------------------------------------------------
+# Normalization step helpers (H7 — extracted from _normalize_text closure)
+# ---------------------------------------------------------------------------
+
+def _expand_email_match(m) -> str:
+    """Replace email address match with spoken form: 'user at example dot com'."""
+    addr = m.group()
+    local, _, domain = addr.partition("@")
+    domain_parts = domain.split(".")
+    return local + " at " + " dot ".join(domain_parts)
+
+
+def _expand_url_match(m) -> str:
+    """Replace URL match with spoken form: 'example dot com'."""
+    url = m.group()
+    url = _URL_PROTO_RE.sub('', url)
+    url = _URL_WWW_RE.sub('', url)
+    url = url.replace(".", " dot ").rstrip()
+    return url
+
+
+def _expand_phone_match(m) -> str:
+    """Replace phone number match with digit-by-digit spoken form."""
+    digits = _PHONE_NONDIGIT_RE.sub('', m.group())
+    return " ".join(digits)
+
+
+def _expand_currency_match(m, n2w, lang: str) -> str:
+    """Replace currency match (e.g. '$5.99') with spoken form."""
+    symbol = m.group(1)
+    amount_str = m.group(2)
+    singular, plural = _CURRENCY_MAP.get(symbol, ("unit", "units"))
+    try:
+        amount = float(amount_str)
+        whole = int(amount)
+        frac = round((amount - whole) * 100)
+        whole_words = n2w(whole, lang=lang) if n2w else str(whole)
+        label = singular if whole == 1 else plural
+        if frac > 0:
+            sub_singular, sub_plural = _SUBUNIT_MAP.get(symbol, ("cent", "cents"))
+            if sub_singular:
+                frac_words = n2w(frac, lang=lang) if n2w else str(frac)
+                sub_label = sub_singular if frac == 1 else sub_plural
+                return f"{whole_words} {label} and {frac_words} {sub_label}"
+        return f"{whole_words} {label}"
+    except Exception as e:
+        logger.warning("Currency expansion failed for '%s': %s", m.group(), e)
+        return m.group()
+
+
+def _expand_ordinal_match(m, n2w, lang: str) -> str:
+    """Replace ordinal match (e.g. '3rd') with spoken form."""
+    try:
+        n = int(m.group(1))
+        return n2w(n, lang=lang, to="ordinal") if n2w else m.group()
+    except Exception:
+        return m.group()
+
+
+def _expand_date_components(month: int, day: int, year: int, n2w, lang: str) -> str:
+    """Format date components into spoken form: 'March third, two thousand one'."""
+    import calendar
+    month_name = calendar.month_name[month]
+    if n2w:
+        day_word = n2w(day, lang=lang, to="ordinal")
+        year_word = n2w(year, lang=lang)
+    else:
+        day_word = str(day)
+        year_word = str(year)
+    return f"{month_name} {day_word}, {year_word}"
+
+
+def _expand_iso_date_match(m, n2w, lang: str) -> str:
+    """Replace ISO date match (YYYY-MM-DD) with spoken form."""
+    try:
+        return _expand_date_components(int(m.group(2)), int(m.group(3)), int(m.group(1)), n2w, lang)
+    except Exception:
+        return m.group()
+
+
+def _expand_us_date_match(m, n2w, lang: str) -> str:
+    """Replace US date match (MM/DD/YYYY) with spoken form."""
+    try:
+        return _expand_date_components(int(m.group(1)), int(m.group(2)), int(m.group(3)), n2w, lang)
+    except Exception:
+        return m.group()
+
+
+def _apply_abbreviations(t: str) -> str:
+    """Expand abbreviations (Dr., Mr., etc.) in text."""
+    for pattern, replacement in _ABBREV_TABLE_COMPILED:
+        t = pattern.sub(replacement, t)
+    return t
+
+
 def _normalize_text(text, language="English"):
     """Normalize text for TTS: expand numbers, dates, abbreviations, and URLs.
 
@@ -142,118 +237,21 @@ def _normalize_text(text, language="English"):
         _n2w_loaded = True
     _n2w = _n2w_cached
 
-    # 1. Emails: user@example.com → "user at example dot com"
-    def _expand_email(m):
-        addr = m.group()
-        local, _, domain = addr.partition("@")
-        domain_parts = domain.split(".")
-        return local + " at " + " dot ".join(domain_parts)
-    text = _safe_transform(text, "email", lambda t: _EMAIL_RE.sub(_expand_email, t))
-
-    # 2. URLs: https://example.com → "example dot com"
-    def _expand_url(m):
-        url = m.group()
-        url = _URL_PROTO_RE.sub('', url)
-        url = _URL_WWW_RE.sub('', url)
-        url = url.replace(".", " dot ").rstrip()
-        return url
-    text = _safe_transform(text, "url", lambda t: _URL_RE.sub(_expand_url, t))
-
-    # 3. Phone numbers: (800) 555-1234 or 555-1234 → "8 0 0 5 5 5 1 2 3 4"
-    def _expand_phone(m):
-        digits = _PHONE_NONDIGIT_RE.sub('', m.group())
-        return " ".join(digits)
-    text = _safe_transform(text, "phone", lambda t: _PHONE_RE.sub(_expand_phone, t))
-
-    # 4. Currencies: $5.99 → "five dollars and ninety-nine cents"
-    def _expand_currency(m):
-        symbol = m.group(1)
-        amount_str = m.group(2)
-        singular, plural = _CURRENCY_MAP.get(symbol, ("unit", "units"))
-        try:
-            amount = float(amount_str)
-            whole = int(amount)
-            frac = round((amount - whole) * 100)
-
-            if _n2w:
-                whole_words = _n2w(whole, lang=lang)
-            else:
-                whole_words = str(whole)
-            label = singular if whole == 1 else plural
-
-            if frac > 0:
-                sub_singular, sub_plural = _SUBUNIT_MAP.get(symbol, ("cent", "cents"))
-                if sub_singular:
-                    if _n2w:
-                        frac_words = _n2w(frac, lang=lang)
-                    else:
-                        frac_words = str(frac)
-                    sub_label = sub_singular if frac == 1 else sub_plural
-                    return f"{whole_words} {label} and {frac_words} {sub_label}"
-            return f"{whole_words} {label}"
-        except Exception as e:
-            logger.warning("Currency expansion failed for '%s': %s", m.group(), e)
-            return m.group()
-    text = _safe_transform(text, "currency", lambda t: _CURRENCY_RE.sub(_expand_currency, t))
-
-    # 5. Ordinals: 3rd, 21st, etc.
-    def _expand_ordinal(m):
-        try:
-            n = int(m.group(1))
-            return _n2w(n, lang=lang, to="ordinal") if _n2w else m.group()
-        except Exception:
-            return m.group()
-    text = _safe_transform(text, "ordinal", lambda t: _ORDINAL_RE.sub(_expand_ordinal, t))
-
-    # 6. ISO dates: YYYY-MM-DD
-    def _expand_iso_date(m):
-        year, month, day = int(m.group(1)), int(m.group(2)), int(m.group(3))
-        try:
-            import calendar
-            month_name = calendar.month_name[month]
-            if _n2w:
-                day_word = _n2w(day, lang=lang, to="ordinal")
-                year_word = _n2w(year, lang=lang)
-            else:
-                day_word = str(day)
-                year_word = str(year)
-            return f"{month_name} {day_word}, {year_word}"
-        except Exception:
-            return m.group()
-    text = _safe_transform(text, "iso_date", lambda t: _ISO_DATE_RE.sub(_expand_iso_date, t))
-
-    # 7. US dates: MM/DD/YYYY
-    def _expand_us_date(m):
-        month, day, year = int(m.group(1)), int(m.group(2)), int(m.group(3))
-        try:
-            import calendar
-            month_name = calendar.month_name[month]
-            if _n2w:
-                day_word = _n2w(day, lang=lang, to="ordinal")
-                year_word = _n2w(year, lang=lang)
-            else:
-                day_word = str(day)
-                year_word = str(year)
-            return f"{month_name} {day_word}, {year_word}"
-        except Exception:
-            return m.group()
-    text = _safe_transform(text, "us_date", lambda t: _US_DATE_RE.sub(_expand_us_date, t))
-
-    # 8. Abbreviations
-    def _apply_abbreviations(t):
-        for pattern, replacement in _ABBREV_TABLE_COMPILED:
-            t = pattern.sub(replacement, t)
-        return t
+    text = _safe_transform(text, "email", lambda t: _EMAIL_RE.sub(_expand_email_match, t))
+    text = _safe_transform(text, "url", lambda t: _URL_RE.sub(_expand_url_match, t))
+    text = _safe_transform(text, "phone", lambda t: _PHONE_RE.sub(_expand_phone_match, t))
+    text = _safe_transform(text, "currency", lambda t: _CURRENCY_RE.sub(
+        lambda m: _expand_currency_match(m, _n2w, lang), t))
+    text = _safe_transform(text, "ordinal", lambda t: _ORDINAL_RE.sub(
+        lambda m: _expand_ordinal_match(m, _n2w, lang), t))
+    text = _safe_transform(text, "iso_date", lambda t: _ISO_DATE_RE.sub(
+        lambda m: _expand_iso_date_match(m, _n2w, lang), t))
+    text = _safe_transform(text, "us_date", lambda t: _US_DATE_RE.sub(
+        lambda m: _expand_us_date_match(m, _n2w, lang), t))
     text = _safe_transform(text, "abbreviation", _apply_abbreviations)
-
-    # 9. Cardinal numbers (standalone integers)
     if _n2w:
-        def _expand_cardinal(m):
-            try:
-                return _n2w(int(m.group()), lang=lang)
-            except Exception:
-                return m.group()
-        text = _safe_transform(text, "cardinal", lambda t: _CARDINAL_RE.sub(_expand_cardinal, t))
+        text = _safe_transform(text, "cardinal", lambda t: _CARDINAL_RE.sub(
+            lambda m: _n2w(int(m.group()), lang=lang) if _n2w else m.group(), t))
 
     return text
 
@@ -261,6 +259,45 @@ def _normalize_text(text, language="English"):
 # ---------------------------------------------------------------------------
 # Text chunking for long-form reliability
 # ---------------------------------------------------------------------------
+
+def _pack_words(words: list, limit: int, measure) -> tuple:
+    """Pack words into chunks respecting limit.
+
+    Returns:
+        (chunks, current_chunk) — completed chunks and the in-progress remainder.
+    """
+    chunks = []
+    current = ""
+    for word in words:
+        if current and measure(current) + 1 + measure(word) > limit:
+            chunks.append(current.strip())
+            current = ""
+        current = (current + " " + word).strip() if current else word
+    return chunks, current
+
+
+def _pack_clauses(clauses: list, limit: int, measure) -> tuple:
+    """Pack clauses into chunks, splitting oversized clauses at word boundaries.
+
+    Returns:
+        (chunks, current_chunk) — completed chunks and the in-progress remainder.
+    """
+    chunks = []
+    current = ""
+    for clause in clauses:
+        if current and measure(current) + 1 + measure(clause) > limit:
+            chunks.append(current.strip())
+            current = ""
+        if measure(clause) > limit:
+            if current:
+                chunks.append(current.strip())
+                current = ""
+            word_chunks, current = _pack_words(clause.split(), limit, measure)
+            chunks.extend(word_chunks)
+        else:
+            current = (current + " " + clause).strip() if current else clause
+    return chunks, current
+
 
 def _split_text(text, max_chars=500, language="English", tokenizer=None, max_tokens=None):
     """Split text into chunks at sentence boundaries.
@@ -320,32 +357,18 @@ def _split_text(text, max_chars=500, language="English", tokenizer=None, max_tok
             chunks.append(current_chunk.strip())
             current_chunk = ""
 
-        if _measure(sentence) > limit:
-            if current_chunk:
-                chunks.append(current_chunk.strip())
-                current_chunk = ""
-
-            clauses = _CLAUSE_SPLIT_RE.split(sentence)
-
-            for clause in clauses:
-                if current_chunk and _measure(current_chunk) + 1 + _measure(clause) > limit:
-                    chunks.append(current_chunk.strip())
-                    current_chunk = ""
-
-                if _measure(clause) > limit:
-                    if current_chunk:
-                        chunks.append(current_chunk.strip())
-                        current_chunk = ""
-                    words = clause.split()
-                    for word in words:
-                        if current_chunk and _measure(current_chunk) + 1 + _measure(word) > limit:
-                            chunks.append(current_chunk.strip())
-                            current_chunk = ""
-                        current_chunk = (current_chunk + " " + word).strip() if current_chunk else word
-                else:
-                    current_chunk = (current_chunk + " " + clause).strip() if current_chunk else clause
-        else:
+        if _measure(sentence) <= limit:
             current_chunk = (current_chunk + " " + sentence).strip() if current_chunk else sentence
+            continue
+
+        # Sentence exceeds limit — flush current and split at clause boundaries
+        if current_chunk:
+            chunks.append(current_chunk.strip())
+            current_chunk = ""
+        clause_chunks, current_chunk = _pack_clauses(
+            _CLAUSE_SPLIT_RE.split(sentence), limit, _measure
+        )
+        chunks.extend(clause_chunks)
 
     if current_chunk.strip():
         chunks.append(current_chunk.strip())

@@ -8,8 +8,6 @@ model_loader, voice_prompt, and config.
 import logging
 import time
 
-import numpy as np
-
 from qwen3_tts.core.config import (
     CONFIG_PATH,
     DefaultConfigLoader,
@@ -74,6 +72,83 @@ def _get_backend_strategy(backend: str):
 
 
 # ---------------------------------------------------------------------------
+# Torch backend — inference helpers (H6)
+# ---------------------------------------------------------------------------
+
+def _apply_mps_float32_guard(model, mode: str):
+    """Override model to float32 for clone mode on MPS if needed.
+
+    Returns the original dtype (to restore later), or None if no override was needed.
+    """
+    import torch
+    if mode != "clone" or not torch.backends.mps.is_available():
+        return None
+    dtype_name = get_torch_dtype_name()
+    if dtype_name == "float32":
+        return None
+    logger.warning(
+        "Clone mode on MPS requires float32 (configured: %s). "
+        "Overriding to float32 for this generation. "
+        "Set advanced.dtype to 'float32' in %s to silence this warning.",
+        dtype_name, CONFIG_PATH,
+    )
+    original_dtype = next(model.parameters()).dtype
+    model.float()
+    return original_dtype
+
+
+def _build_torch_params(gen_params: dict) -> dict:
+    """Extract standard generation parameters from gen_params dict."""
+    return {
+        "temperature": gen_params.get("temperature", 0.7),
+        "top_k": gen_params.get("top_k", 50),
+        "top_p": gen_params.get("top_p", 0.95),
+        "repetition_penalty": gen_params.get("repetition_penalty", 1.05),
+        "max_new_tokens": gen_params.get("max_new_tokens", 2048),
+    }
+
+
+def _dispatch_torch_mode(model, text: str, mode: str, language: str, params: dict,
+                         voice_prompt, voice_description, speaker, instruct,
+                         x_vector_only_mode: bool):
+    """Call the appropriate model method for the given mode. Returns (wavs, sr)."""
+    import torch
+    with torch.inference_mode():
+        if mode == "clone":
+            clone_kwargs = dict(text=text, language=language, voice_clone_prompt=voice_prompt, **params)
+            if x_vector_only_mode:
+                clone_kwargs["x_vector_only_mode"] = True
+            return model.generate_voice_clone(**clone_kwargs)
+        elif mode == "custom":
+            return model.generate_custom_voice(
+                text=text, speaker=speaker, instruct=instruct or "", language=language, **params,
+            )
+        else:  # design
+            return model.generate_voice_design(
+                text=text, instruct=voice_description or "", language=language, **params,
+            )
+
+
+def _cleanup_device_memory():
+    """Release MPS or CUDA cached memory after inference and log usage."""
+    import torch
+    if torch.backends.mps.is_available():
+        try:
+            torch.mps.empty_cache()
+            peak = torch.mps.current_allocated_memory()
+            logger.debug("MPS memory after generation: %.1f MB", peak / (1024 * 1024))
+        except RuntimeError as e:
+            logger.debug("MPS memory cleanup failed: %s", e)
+    elif torch.cuda.is_available():
+        try:
+            torch.cuda.empty_cache()
+            peak = torch.cuda.max_memory_allocated()
+            logger.debug("CUDA memory after generation: %.1f MB", peak / (1024 * 1024))
+        except RuntimeError as e:
+            logger.debug("CUDA memory cleanup failed: %s", e)
+
+
+# ---------------------------------------------------------------------------
 # Torch backend — inference
 # ---------------------------------------------------------------------------
 
@@ -85,62 +160,18 @@ def _run_inference_torch(model, text, mode, gen_params, language="English",
     import torch
 
     t0 = time.time()
-
-    # Float32 guard: clone mode on MPS requires float32 to avoid NaN/Inf errors.
-    # If a non-float32 dtype is configured, override for this call and warn.
-    original_dtype = None
-    if mode == "clone" and torch.backends.mps.is_available():
-        dtype_name = get_torch_dtype_name()
-        if dtype_name != "float32":
-            logger.warning(
-                "Clone mode on MPS requires float32 (configured: %s). "
-                "Overriding to float32 for this generation. "
-                "Set advanced.dtype to 'float32' in %s to silence this warning.",
-                dtype_name, CONFIG_PATH,
-            )
-            # Save original dtype and cast model to float32 for this call
-            original_dtype = next(model.parameters()).dtype
-            model.float()
-
-    params = {
-        "temperature": gen_params.get("temperature", 0.7),
-        "top_k": gen_params.get("top_k", 50),
-        "top_p": gen_params.get("top_p", 0.95),
-        "repetition_penalty": gen_params.get("repetition_penalty", 1.05),
-        "max_new_tokens": gen_params.get("max_new_tokens", 2048),
-    }
+    original_dtype = _apply_mps_float32_guard(model, mode)
+    params = _build_torch_params(gen_params)
 
     seed = gen_params.get("seed")
     if seed is not None:
         torch.manual_seed(seed)
 
     try:
-        with torch.inference_mode():
-            if mode == "clone":
-                clone_kwargs = dict(
-                    text=text,
-                    language=language,
-                    voice_clone_prompt=voice_prompt,
-                    **params,
-                )
-                if x_vector_only_mode:
-                    clone_kwargs["x_vector_only_mode"] = True
-                wavs, sr = model.generate_voice_clone(**clone_kwargs)
-            elif mode == "custom":
-                wavs, sr = model.generate_custom_voice(
-                    text=text,
-                    speaker=speaker,
-                    instruct=instruct or "",
-                    language=language,
-                    **params,
-                )
-            else:  # design
-                wavs, sr = model.generate_voice_design(
-                    text=text,
-                    instruct=voice_description or "",
-                    language=language,
-                    **params,
-                )
+        wavs, sr = _dispatch_torch_mode(
+            model, text, mode, language, params,
+            voice_prompt, voice_description, speaker, instruct, x_vector_only_mode,
+        )
     except RuntimeError as e:
         if "inf" in str(e) or "nan" in str(e):
             dtype_name = get_torch_dtype_name()
@@ -150,41 +181,17 @@ def _run_inference_torch(model, text, mode, gen_params, language="English",
                     "Switch to float32 in %s under advanced.dtype for stability.",
                     dtype_name, CONFIG_PATH,
                 )
-            raise
         raise
     finally:
-        # Restore original dtype if we overrode it
         if original_dtype is not None:
-            model.to(original_dtype)
+            try:
+                model.to(original_dtype)
+            except Exception as restore_err:
+                logger.warning("Failed to restore model dtype after MPS guard: %s", restore_err)
 
-    # Device memory management
-    if torch.backends.mps.is_available():
-        try:
-            torch.mps.empty_cache()
-            peak = torch.mps.current_allocated_memory()
-            logger.debug(
-                "MPS memory after generation: %.1f MB",
-                peak / (1024 * 1024),
-            )
-        except RuntimeError as e:
-            logger.debug("MPS memory cleanup failed: %s", e)
-    elif torch.cuda.is_available():
-        try:
-            torch.cuda.empty_cache()
-            peak = torch.cuda.max_memory_allocated()
-            logger.debug(
-                "CUDA memory after generation: %.1f MB",
-                peak / (1024 * 1024),
-            )
-        except RuntimeError as e:
-            logger.debug("CUDA memory cleanup failed: %s", e)
+    _cleanup_device_memory()
 
-    elapsed = time.time() - t0
-    logger.info(
-        "Inference complete: %d chars, %.1fs, mode=%s [torch]",
-        len(text), elapsed, mode,
-    )
-
+    logger.info("Inference complete: %d chars, %.1fs, mode=%s [torch]", len(text), time.time() - t0, mode)
     wav = _validate_audio(wavs[0], sr, mode=mode)
     return wav, sr
 
@@ -203,6 +210,7 @@ def _validate_audio(wav, sample_rate, mode="unknown"):
     Returns:
         Validated/corrected audio array
     """
+    import numpy as np  # lazy — heavy import
     if wav is None or len(wav) == 0:
         logger.warning("Generated audio is empty (mode=%s)", mode)
         return wav
@@ -320,6 +328,7 @@ def _run_inference_mlx(model, text, mode, gen_params, language="English",
         raise RuntimeError("MLX generation returned no results")
 
     # Collect audio from all segments and concatenate
+    import numpy as np  # lazy — heavy import
     import mlx.core as mx
 
     audio_segments = [r.audio for r in results]
@@ -373,6 +382,7 @@ def _run_inference_mlx_streaming(model, text, mode, gen_params, language="Englis
         (audio_chunk, sample_rate) tuples where audio_chunk is a float32 numpy array.
     """
 
+    import numpy as np  # lazy — heavy import
     # Read defaults from config so MLX matches torch behavior (R-17)
     if config is None:
         config = load_config()
@@ -455,6 +465,7 @@ def _crossfade_chunks(chunks, sample_rate, crossfade_ms=50, silence_gap_s=None):
     Returns:
         Combined float32 numpy array.
     """
+    import numpy as np  # lazy — heavy import
     if len(chunks) == 0:
         return np.array([], dtype=np.float32)
     if len(chunks) == 1:
@@ -633,6 +644,7 @@ def _run_inference_single(model, text, mode, gen_params, language="English",
 
     Dispatches to the appropriate backend strategy via the registry.
     """
+    import numpy as np  # lazy — heavy import (used in Metal retry concatenation)
     backend = get_backend()
 
     # Get strategy from registry (OCP: extensible without modification)
@@ -760,6 +772,7 @@ def create_voice_prompt(model, ref_audio, ref_sr, transcript):
     Returns:
         Voice prompt tensor (suitable for torch.save / generate_voice_clone).
     """
+    import numpy as np  # lazy — heavy import
     # Convert to mono if stereo
     if ref_audio.ndim > 1:
         ref_audio = np.mean(ref_audio, axis=-1).astype(np.float32)

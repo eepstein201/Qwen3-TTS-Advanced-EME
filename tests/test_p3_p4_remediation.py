@@ -346,14 +346,16 @@ class TestTuringQuantizationOverride(unittest.TestCase):
 
     def test_explicit_quantization_respected(self):
         """When user explicitly sets torch_quantization, don't auto-override."""
-        from qwen3_tts.core.engine.model_loader import _load_model_torch
-        source = inspect.getsource(_load_model_torch)
+        # Logic extracted to _resolve_load_kwargs in Phase 5 refactor
+        from qwen3_tts.core.engine.model_loader import _resolve_load_kwargs
+        source = inspect.getsource(_resolve_load_kwargs)
         self.assertIn("explicitly", source.lower())
 
     def test_explicitly_set_check_in_code(self):
         """Code should check if torch_quantization is in config."""
-        from qwen3_tts.core.engine.model_loader import _load_model_torch
-        source = inspect.getsource(_load_model_torch)
+        # Logic extracted to _resolve_load_kwargs in Phase 5 refactor
+        from qwen3_tts.core.engine.model_loader import _resolve_load_kwargs
+        source = inspect.getsource(_resolve_load_kwargs)
         self.assertIn("explicitly_set", source)
         self.assertIn("torch_quantization", source)
 
@@ -367,22 +369,25 @@ class TestTorchLoadSecurity(unittest.TestCase):
     """Verify security measures for torch.load in voice_prompt.py."""
 
     def test_path_traversal_check_exists(self):
-        """_load_voice_prompt_torch should check realpath for path traversal."""
-        from qwen3_tts.core.engine.voice_prompt import _load_voice_prompt_torch
-        source = inspect.getsource(_load_voice_prompt_torch)
+        """_load_pt_safe should check realpath for path traversal."""
+        # Logic extracted to _load_pt_safe in Phase 5 refactor
+        from qwen3_tts.core.engine.voice_prompt import _load_pt_safe
+        source = inspect.getsource(_load_pt_safe)
         self.assertIn("realpath", source)
         self.assertIn("TTS_ALLOW_UNSAFE_PICKLE", source)
 
     def test_deprecation_warning_on_unsafe(self):
         """Should warn that TTS_ALLOW_UNSAFE_PICKLE is deprecated."""
-        from qwen3_tts.core.engine.voice_prompt import _load_voice_prompt_torch
-        source = inspect.getsource(_load_voice_prompt_torch)
+        # Logic extracted to _load_pt_safe in Phase 5 refactor
+        from qwen3_tts.core.engine.voice_prompt import _load_pt_safe
+        source = inspect.getsource(_load_pt_safe)
         self.assertIn("deprecated", source.lower())
 
     def test_refuses_path_outside_prompts_dir(self):
         """Should refuse to load files outside VOICE_PROMPTS_DIR."""
-        from qwen3_tts.core.engine.voice_prompt import _load_voice_prompt_torch
-        source = inspect.getsource(_load_voice_prompt_torch)
+        # Logic extracted to _load_pt_safe in Phase 5 refactor
+        from qwen3_tts.core.engine.voice_prompt import _load_pt_safe
+        source = inspect.getsource(_load_pt_safe)
         self.assertIn("Refusing to load", source)
 
 
@@ -399,12 +404,20 @@ class TestTorchLoadSecurity(unittest.TestCase):
 class TestRateLimiting(unittest.TestCase):
     """Verify rate limiting infrastructure."""
 
-    def test_real_ip_resolver_checks_forwarded_header(self):
-        """Rate limiter should use X-Forwarded-For for real client IP."""
+    def test_real_ip_resolver_ignores_xff_for_loopback(self):
+        """S2 fix: XFF is NOT trusted when client connects from loopback (spoofing prevention)."""
         from qwen3_tts.server.app import _get_real_client_ip
         mock_request = unittest.mock.MagicMock()
         mock_request.headers = {"X-Forwarded-For": "1.2.3.4, 10.0.0.1"}
         mock_request.client.host = "127.0.0.1"
+        self.assertEqual(_get_real_client_ip(mock_request), "127.0.0.1")
+
+    def test_real_ip_resolver_trusts_xff_for_non_loopback(self):
+        """XFF is trusted when client connects from a non-loopback address (behind proxy)."""
+        from qwen3_tts.server.app import _get_real_client_ip
+        mock_request = unittest.mock.MagicMock()
+        mock_request.headers = {"X-Forwarded-For": "1.2.3.4, 10.0.0.1"}
+        mock_request.client.host = "10.0.0.5"
         self.assertEqual(_get_real_client_ip(mock_request), "1.2.3.4")
 
     def test_real_ip_falls_back_to_client_host(self):

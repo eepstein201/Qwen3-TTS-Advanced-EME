@@ -7,8 +7,6 @@ Base utility module — imports only from config.py, never from other engine sub
 import logging
 import threading
 
-import numpy as np
-
 from qwen3_tts.core.config import load_config
 
 logger = logging.getLogger("tts.engine")
@@ -54,6 +52,7 @@ def set_audio_loader(loader):
 
 def load_audio(file_path, target_sr=16000):
     """Load audio file, resample to target_sr. Uses cached loader preference."""
+    import numpy as np  # lazy — heavy import
     if get_audio_loader() == "torchaudio":
         try:
             import torchaudio
@@ -78,6 +77,7 @@ def load_audio(file_path, target_sr=16000):
 
 def load_audio_for_cloning(file_path, max_duration=VOICE_EMBEDDING_MAX_DURATION, target_sr=DEFAULT_SAMPLE_RATE):
     """Load audio truncated to max_duration seconds. For voice embedding only."""
+    import numpy as np  # lazy — heavy import
     if get_audio_loader() == "torchaudio":
         try:
             import torchaudio
@@ -110,6 +110,7 @@ def load_audio_for_cloning(file_path, max_duration=VOICE_EMBEDDING_MAX_DURATION,
 
 def trim_silence(audio, sample_rate, threshold_db=SILENCE_THRESHOLD_DB, min_silence_ms=100):
     """Trim leading and trailing silence from audio."""
+    import numpy as np  # lazy — heavy import
     threshold = 10 ** (threshold_db / 20)
     min_samples = int(sample_rate * min_silence_ms / 1000)
 
@@ -130,6 +131,7 @@ def trim_silence(audio, sample_rate, threshold_db=SILENCE_THRESHOLD_DB, min_sile
 
 def normalize_audio(audio, target_db=NORMALIZATION_TARGET_DB):
     """Normalize audio to target peak dB level."""
+    import numpy as np  # lazy — heavy import
     peak = np.max(np.abs(audio))
     if peak == 0:
         return audio
@@ -237,7 +239,7 @@ def process_audio(audio, sample_rate, trim=False, normalize=False,
 # Waveform peak calculation (for wavesurfer.js backend-side rendering)
 # ---------------------------------------------------------------------------
 
-def calculate_waveform_peaks(audio: np.ndarray, num_peaks: int = 500) -> list[float]:
+def calculate_waveform_peaks(audio, num_peaks: int = 500) -> list[float]:
     """Pre-calculate normalized peak amplitudes for waveform visualization.
 
     Divides the audio into `num_peaks` bins and computes the maximum absolute
@@ -251,6 +253,7 @@ def calculate_waveform_peaks(audio: np.ndarray, num_peaks: int = 500) -> list[fl
     Returns:
         List of peak values, each in [-1.0, 1.0].
     """
+    import numpy as np  # lazy — heavy import
     if audio.size == 0:
         return [0.0] * num_peaks
 

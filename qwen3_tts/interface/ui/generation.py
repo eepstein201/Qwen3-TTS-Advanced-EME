@@ -137,8 +137,12 @@ def _prepare_streaming_config(mode, text, preset, temperature, top_k, top_p,
     # Build streaming config: nested structure matching JS expectations
     # JS reads config.server_url, config.auth_token, config.payload
     server_url = get_server_url(config)
-    with open(os.path.expanduser("~/.voice_server_token")) as f:
-        auth_token = f.read().strip()
+    token_path = os.path.expanduser("~/.voice_server_token")
+    try:
+        with open(token_path) as f:
+            auth_token = f.read().strip()
+    except FileNotFoundError:
+        return None, "Error: Auth token not found. Start the server with 'tts server start'."
     return {"server_url": server_url, "auth_token": auth_token, "payload": payload}, "Connecting..."
 
 

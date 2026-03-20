@@ -155,8 +155,8 @@ def uninstall_config(dry_run: bool = False) -> None:
         print_info("Dry run mode: config was not modified.")
         return
 
-    # Import default config generation
-    from qwen3_tts.core.config import load_config
+    # Import config utilities
+    from qwen3_tts.core.config import load_config, get_default_config
 
     # Backup current config
     backup_path = CONFIG_PATH.with_suffix(".backup")
@@ -166,86 +166,14 @@ def uninstall_config(dry_run: bool = False) -> None:
     except OSError as e:
         print_warning(f"Could not create backup: {e}")
 
-    # Load current config to preserve some settings
+    # Load current config to preserve some settings (backend, model_size)
     try:
         current_config = load_config()
     except Exception:
         current_config = {}
 
-    # Create default config (preserving some keys)
-    default_config = {
-        "default_voice_description": "A calm, friendly male voice with clear articulation and moderate pace.",
-        "default_clone_prompt": "default_clone.pt",
-        "default_speaker": "ryan",
-        "output_directory": "~/Downloads",
-        "language": "English",
-        "server": {
-            "host": "127.0.0.1",
-            "port": 5123,
-            "auto_shutdown_minutes": 0,
-        },
-        "models": {
-            "clone": {"load_at_startup": True},
-            "design": {"load_at_startup": False},
-            "custom": {"load_at_startup": False},
-        },
-        "security": {
-            "max_text_length": 10000,
-            "max_batch_size": 20,
-        },
-        "advanced": {
-            "dtype": "bfloat16",
-            "backend": current_config.get("advanced", {}).get("backend", "mlx"),
-            "mlx_quantization": "8bit",
-            "model_size": current_config.get("advanced", {}).get("model_size", "1.7B"),
-            "torch_quantization": "none",
-            "audio_loader": "torchaudio",
-            "vllm_gpu_memory_utilization": 0.7,
-            "vllm_port": None,
-        },
-        "generation": {
-            "temperature": 0.7,
-            "top_k": 50,
-            "top_p": 0.95,
-            "repetition_penalty": 1.05,
-            "seed": None,
-            "max_chunk_chars": 500,
-            "max_new_tokens": 2048,
-            "compile_model": True,
-            "max_chunk_tokens": 200,
-        },
-        "presets": {
-            "consistent": {"temperature": 0.5, "top_k": 30, "seed": 42},
-            "creative": {"temperature": 0.9, "top_p": 0.98},
-        },
-        "ui": {"port": 7860},
-        "aliases": {
-            "default": {"prompt": "default_clone.pt", "preset": "consistent"},
-        },
-        "cache": {
-            "voice_prompt_max": 10,
-            "generation_max": 5,
-            "eta_ttl_seconds": 30,
-        },
-        "prosody_presets": {
-            "excited": "Speak with excitement and high energy",
-            "calm": "Speak in a calm, soothing, relaxed manner",
-            "whisper": "Speak in a soft whisper",
-            "authoritative": "Speak in a confident, authoritative tone",
-            "slow": "Speak slowly and deliberately with clear enunciation",
-            "fast": "Speak quickly with urgency",
-            "dramatic": "Speak with dramatic flair and emotional intensity",
-            "conversational": "Speak in a casual, natural conversational style",
-        },
-        "prompt_enhancer": {
-            "enabled": False,
-            "provider": "anthropic",
-            "api_key_env": "ANTHROPIC_API_KEY",
-            "model": "claude-haiku-4-5-20251001",
-        },
-    }
-
-    # Save default config
+    # Build and save the default config
+    default_config = get_default_config(current_config)
     import json
     with open(CONFIG_PATH, "w") as f:
         json.dump(default_config, f, indent=2)

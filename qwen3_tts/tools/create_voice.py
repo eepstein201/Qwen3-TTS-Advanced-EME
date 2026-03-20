@@ -39,7 +39,9 @@ def create_and_save_voice_prompt(audio_path, transcript, prompt_name,
     try:
         ref_audio, ref_sr = sf.read(audio_path)
         print(f"Audio loaded: {len(ref_audio)/ref_sr:.1f} seconds at {ref_sr}Hz")
-    except Exception:
+    except (sf.SoundFileError, RuntimeError):
+        # Format not supported by soundfile — try pydub conversion.
+        # PermissionError, FileNotFoundError, MemoryError etc. propagate normally.
         if ext == 'm4a':
             ext = 'mp4'
         print(f"Converting {audio_path} to wav format...")
@@ -122,6 +124,97 @@ def create_and_save_voice_prompt(audio_path, transcript, prompt_name,
     return output_path
 
 
+def _resolve_audio_path(args) -> str:
+    """Resolve the reference audio path from args or interactive input."""
+    if not args.audio:
+        print("\n=== Create Custom Voice Clone ===\n")
+        audio_path = input("Path to reference audio file: ").strip()
+        if not audio_path:
+            print("Error: Audio path required")
+            sys.exit(1)
+    else:
+        audio_path = args.audio
+
+    audio_path = os.path.expanduser(audio_path)
+    if not os.path.isfile(audio_path):
+        downloads_path = os.path.expanduser(f"~/Downloads/{audio_path}")
+        if os.path.isfile(downloads_path):
+            return downloads_path
+        print(f"Error: Audio file not found: {audio_path}")
+        sys.exit(1)
+    return audio_path
+
+
+def _transcribe_with_asr(audio_path: str) -> str | None:
+    """Auto-transcribe audio using MLX ASR. Returns transcript or None on failure/abort."""
+    from qwen3_tts.core.engine import transcribe_audio
+    print("\nAuto-transcribing reference audio...")
+    try:
+        transcript = transcribe_audio(audio_path)
+        print(f"\nTranscript ({len(transcript)} chars):\n  \"{transcript}\"")
+        confirm = input("\nUse this transcript? [Y/n]: ").strip().lower()
+        if confirm and confirm not in ("y", "yes"):
+            return None
+        return transcript
+    except Exception as e:
+        print(f"Auto-transcription failed: {e}")
+        return None
+
+
+def _resolve_transcript(args, audio_path: str) -> str:
+    """Resolve transcript from flags, ASR, or interactive input."""
+    from qwen3_tts.core.engine import is_asr_available
+
+    if args.no_transcript:
+        print("Using x-vector only mode (no transcript)")
+        return ""
+
+    if args.transcript:
+        transcript_path = os.path.expanduser(args.transcript)
+        if os.path.isfile(transcript_path):
+            with open(transcript_path, "r") as f:
+                transcript = f.read().strip()
+            print(f"Loaded transcript from file ({len(transcript)} chars)")
+            return transcript
+        return args.transcript
+
+    if args.auto_transcribe:
+        if not is_asr_available():
+            print("Error: Auto-transcription requires MLX backend with mlx-audio STT support.")
+            print("  Switch to MLX: set 'backend': 'mlx' in config.json")
+            sys.exit(1)
+        result = _transcribe_with_asr(audio_path)
+        if result is None:
+            print("Aborted. Provide transcript manually with --transcript.")
+            sys.exit(1)
+        return result
+
+    # Interactive mode: offer ASR if available
+    transcript = None
+    if is_asr_available():
+        print("\nNo transcript provided. Options:")
+        print("  1. Auto-transcribe with MLX ASR")
+        print("  2. Enter transcript manually")
+        if input("Choose [1/2]: ").strip() == "1":
+            transcript = _transcribe_with_asr(audio_path)
+
+    if transcript is None:
+        print("\nEnter the transcript of what is said in the audio.")
+        print("(This helps the model understand the voice characteristics)")
+        print("(You can paste the text directly or provide a path to a .txt file)")
+        transcript = input("Transcript: ").strip()
+        transcript_path = os.path.expanduser(transcript)
+        if os.path.isfile(transcript_path):
+            with open(transcript_path, "r") as f:
+                transcript = f.read().strip()
+            print(f"Loaded transcript from file ({len(transcript)} chars)")
+
+    if transcript is None:
+        print("Error: Transcript required (use --no-transcript for x-vector only mode)")
+        sys.exit(1)
+    return transcript
+
+
 def main():
     parser = argparse.ArgumentParser(
         description="Create a custom voice clone prompt from reference audio",
@@ -144,124 +237,16 @@ def main():
                         help="Auto-transcribe reference audio using MLX ASR (MLX backend only)")
     parser.add_argument("--no-transcript", action="store_true",
                         help="Create voice with empty transcript (x-vector only mode, lower fidelity)")
-
     args = parser.parse_args()
 
-    # Interactive mode if no arguments
-    if not args.audio:
-        print("\n=== Create Custom Voice Clone ===\n")
-        audio_path = input("Path to reference audio file: ").strip()
-        if not audio_path:
-            print("Error: Audio path required")
-            sys.exit(1)
-    else:
-        audio_path = args.audio
+    audio_path = _resolve_audio_path(args)
+    transcript = _resolve_transcript(args, audio_path)
 
-    # Expand and validate audio path
-    audio_path = os.path.expanduser(audio_path)
-    if not os.path.isfile(audio_path):
-        # Check Downloads
-        downloads_path = os.path.expanduser(f"~/Downloads/{audio_path}")
-        if os.path.isfile(downloads_path):
-            audio_path = downloads_path
-        else:
-            print(f"Error: Audio file not found: {audio_path}")
-            sys.exit(1)
-
-    # Get transcript — via --transcript, --auto-transcribe, --no-transcript, or interactive prompt
-    transcript = None
-
-    if args.no_transcript:
-        transcript = ""
-        print("Using x-vector only mode (no transcript)")
-
-    elif args.transcript:
-        transcript = args.transcript
-        # Check if transcript is a file path
-        transcript_path = os.path.expanduser(transcript)
-        if os.path.isfile(transcript_path):
-            with open(transcript_path, "r") as f:
-                transcript = f.read().strip()
-            print(f"Loaded transcript from file ({len(transcript)} chars)")
-
-    elif args.auto_transcribe:
-        # Auto-transcribe using MLX ASR
-        from qwen3_tts.core.engine import transcribe_audio, is_asr_available
-
-        if not is_asr_available():
-            print("Error: Auto-transcription requires MLX backend with mlx-audio STT support.")
-            print("  Switch to MLX: set 'backend': 'mlx' in config.json")
-            print("  Or update mlx-audio: pip install --upgrade mlx-audio")
-            sys.exit(1)
-
-        print("\nAuto-transcribing reference audio with MLX ASR...")
-        try:
-            transcript = transcribe_audio(audio_path)
-            print(f"\nTranscript ({len(transcript)} chars):")
-            print(f"  \"{transcript}\"")
-
-            # Confirm with user
-            confirm = input("\nUse this transcript? [Y/n]: ").strip().lower()
-            if confirm and confirm not in ("y", "yes"):
-                print("Aborted. Provide transcript manually with --transcript.")
-                sys.exit(1)
-        except Exception as e:
-            print(f"Error: Auto-transcription failed: {e}")
-            sys.exit(1)
-
-    else:
-        # Interactive mode: check if ASR is available and offer it
-        from qwen3_tts.core.engine import is_asr_available
-
-        if is_asr_available():
-            print("\nNo transcript provided. Options:")
-            print("  1. Auto-transcribe with MLX ASR")
-            print("  2. Enter transcript manually")
-            choice = input("Choose [1/2]: ").strip()
-
-            if choice == "1":
-                from qwen3_tts.core.engine import transcribe_audio
-                print("\nAuto-transcribing reference audio...")
-                try:
-                    transcript = transcribe_audio(audio_path)
-                    print(f"\nTranscript ({len(transcript)} chars):")
-                    print(f"  \"{transcript}\"")
-
-                    confirm = input("\nUse this transcript? [Y/n]: ").strip().lower()
-                    if confirm and confirm not in ("y", "yes"):
-                        transcript = None  # Fall through to manual entry
-                except Exception as e:
-                    print(f"Auto-transcription failed: {e}")
-                    transcript = None  # Fall through to manual entry
-
-        if transcript is None:
-            print("\nEnter the transcript of what is said in the audio.")
-            print("(This helps the model understand the voice characteristics)")
-            print("(You can paste the text directly or provide a path to a .txt file)")
-            transcript = input("Transcript: ").strip()
-
-            # Check if transcript is a file path
-            transcript_path = os.path.expanduser(transcript)
-            if os.path.isfile(transcript_path):
-                with open(transcript_path, "r") as f:
-                    transcript = f.read().strip()
-                print(f"Loaded transcript from file ({len(transcript)} chars)")
-
-    if transcript is None:
-        print("Error: Transcript required (use --no-transcript for x-vector only mode)")
-        sys.exit(1)
-
-    # Get prompt name
     if args.name:
         prompt_name = args.name
     else:
-        prompt_name = input("\nName for this voice (e.g., 'john_doe'): ").strip()
-        if not prompt_name:
-            prompt_name = "custom_voice"
+        prompt_name = input("\nName for this voice (e.g., 'john_doe'): ").strip() or "custom_voice"
 
-    # Determine mlx_only mode:
-    # - Explicitly set via --mlx-only flag
-    # - Auto-enabled when backend is MLX (unless --force-torch is set)
     use_mlx_only = args.mlx_only
     if not use_mlx_only and not args.force_torch and get_backend() == "mlx":
         use_mlx_only = True

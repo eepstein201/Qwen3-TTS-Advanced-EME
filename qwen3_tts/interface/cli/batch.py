@@ -8,8 +8,6 @@ import json
 import logging
 import os
 
-import soundfile as sf
-
 from qwen3_tts.core.config import (
     get_default_clone_prompt,
 )
@@ -37,6 +35,7 @@ def process_batch(texts, args, config, gen_params, use_server):
     Returns:
         List of output file paths
     """
+    import soundfile as sf  # lazy — heavy import
     output_dir = os.path.expanduser(args.output or config.get("output_directory", "~/Downloads"))
     if not os.path.isdir(output_dir):
         os.makedirs(output_dir, exist_ok=True)

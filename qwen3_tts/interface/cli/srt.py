@@ -6,15 +6,13 @@ This module handles parsing and processing of SRT subtitle files.
 
 import os
 
-import numpy as np
-import soundfile as sf
-
 from qwen3_tts.core.config import get_default_clone_prompt
 from qwen3_tts.interface.generate import (
     _decode_base64_result,
     generate_local,
     generate_via_server,
     parse_srt,
+    play_audio,
     process_audio_args,
 )
 
@@ -34,6 +32,8 @@ def process_srt_file(srt_path, config, args, gen_params, use_server):
         gen_params: Generation parameters dict
         use_server: Whether to use server for generation
     """
+    import numpy as np  # lazy — heavy import
+    import soundfile as sf  # lazy — heavy import
     entries = parse_srt(srt_path)
     if not entries:
         print(f"Error: No subtitles found in {srt_path}")
@@ -101,19 +101,3 @@ def process_srt_file(srt_path, config, args, gen_params, use_server):
         play_audio(combined_path)
 
 
-def play_audio(file_path):
-    """Play audio file using system player (platform-aware)."""
-    from qwen3_tts.core.config import IS_MACOS, IS_LINUX, IN_COLAB
-    if IN_COLAB:
-        return
-    if IS_MACOS:
-        cmd = ["afplay", file_path]
-    elif IS_LINUX:
-        cmd = ["ffplay", "-nodisp", "-autoexit", file_path]
-    else:
-        return
-    import subprocess  # nosec B404
-    try:
-        subprocess.run(cmd, check=True)  # nosec B603
-    except (subprocess.CalledProcessError, FileNotFoundError):
-        pass

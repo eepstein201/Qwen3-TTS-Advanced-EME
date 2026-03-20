@@ -36,80 +36,62 @@ _torch_prompt_cache_hits = 0
 _torch_prompt_cache_misses = 0
 
 
-def _load_voice_prompt_torch(prompt_file):
-    """Load and cache a .pt voice prompt (torch backend).
-
-    If the .pt file doesn't exist but .wav + .txt files do, auto-creates
-    the .pt using the already-loaded clone model (avoids loading a second model).
-
-    Results are cached (up to cache.voice_prompt_max entries, default 10) for
-    repeated lookups. Cache is config-aware and respects the voice_prompt_max setting.
-    """
-    global _torch_prompt_cache_hits, _torch_prompt_cache_misses
-    import torch
-
-    # Check cache first (move to end on hit for LRU eviction)
+def _store_in_torch_cache(prompt_file: str, result) -> None:
+    """Insert result into the LRU cache, evicting oldest entry if full."""
+    global _torch_prompt_cache_misses
     with _torch_prompt_cache_lock:
-        if prompt_file in _torch_prompt_cache:
-            _torch_prompt_cache.move_to_end(prompt_file)
-            _torch_prompt_cache_hits += 1
-            return _torch_prompt_cache[prompt_file]
+        _evict_if_full(_torch_prompt_cache, get_voice_prompt_cache_max())
+        _torch_prompt_cache[prompt_file] = result
+        _torch_prompt_cache_misses += 1
 
-    prompt_path = os.path.join(VOICE_PROMPTS_DIR, prompt_file)
-    if not os.path.exists(prompt_path):
-        # Try to auto-create .pt from .wav + .txt
-        base_name = prompt_file[:-3] if prompt_file.endswith('.pt') else prompt_file
-        wav_path = os.path.join(VOICE_PROMPTS_DIR, f"{base_name}.wav")
-        txt_path = os.path.join(VOICE_PROMPTS_DIR, f"{base_name}.txt")
-        if os.path.exists(wav_path):
-            logger.info("Auto-creating .pt from .wav for %s", base_name)
-            ref_audio, ref_sr = load_audio_for_cloning(wav_path)
-            transcript = ""
-            if os.path.exists(txt_path):
-                with open(txt_path, "r") as f:
-                    transcript = f.read().strip()
-            if not transcript:
-                logger.warning("No transcript for %s, using empty string", base_name)
-            # Lazy import to avoid circular dependency
-            from qwen3_tts.core.engine.model_loader import load_model
-            from qwen3_tts.core.engine.inference import create_voice_prompt
-            model = load_model("clone")
-            voice_prompt = create_voice_prompt(model, ref_audio, ref_sr, transcript)
-            torch.save(voice_prompt, prompt_path)
-            logger.info("Auto-created and saved %s", prompt_path)
-            # Cache the result
-            with _torch_prompt_cache_lock:
-                _evict_if_full(_torch_prompt_cache, get_voice_prompt_cache_max())
-                _torch_prompt_cache[prompt_file] = voice_prompt
-                _torch_prompt_cache_misses += 1
-            return voice_prompt
+
+def _auto_create_pt_from_wav(base_name: str, wav_path: str, txt_path: str,
+                              prompt_path: str, prompt_file: str):
+    """Create a .pt voice prompt from .wav + .txt files and cache the result.
+
+    Returns the voice_prompt tensor, or None if wav_path does not exist.
+    """
+    import torch
+    if not os.path.exists(wav_path):
         return None
-    from qwen3_tts.core.config import get_device
-    device = get_device()
-    # Register VoiceClonePromptItem as a safe global so torch.load(weights_only=True)
-    # can deserialize .pt files containing this class (PyTorch 2.6+ requirement).
+    logger.info("Auto-creating .pt from .wav for %s", base_name)
+    ref_audio, ref_sr = load_audio_for_cloning(wav_path)
+    transcript = ""
+    if os.path.exists(txt_path):
+        with open(txt_path, "r") as f:
+            transcript = f.read().strip()
+    if not transcript:
+        logger.warning("No transcript for %s, using empty string", base_name)
+    from qwen3_tts.core.engine.model_loader import load_model
+    from qwen3_tts.core.engine.inference import create_voice_prompt
+    model = load_model("clone")
+    voice_prompt = create_voice_prompt(model, ref_audio, ref_sr, transcript)
+    torch.save(voice_prompt, prompt_path)
+    logger.info("Auto-created and saved %s", prompt_path)
+    _store_in_torch_cache(prompt_file, voice_prompt)
+    return voice_prompt
+
+
+def _load_pt_safe(prompt_path: str, prompt_file: str, device: str):
+    """Load a .pt file with weights_only=True; fall back to unsafe load if permitted."""
+    import torch
     try:
         from qwen_tts.inference.qwen3_tts_model import VoiceClonePromptItem
         torch.serialization.add_safe_globals([VoiceClonePromptItem])
     except ImportError:
-        pass  # qwen_tts not installed — fall through to exception handler
+        pass
     try:
         result = torch.load(prompt_path, weights_only=True, map_location=device)
-        # Cache the result
-        with _torch_prompt_cache_lock:
-            _evict_if_full(_torch_prompt_cache, get_voice_prompt_cache_max())
-            _torch_prompt_cache[prompt_file] = result
-            _torch_prompt_cache_misses += 1
+        _store_in_torch_cache(prompt_file, result)
         return result
-    except Exception:
-        allow_unsafe = os.environ.get("TTS_ALLOW_UNSAFE_PICKLE") == "1"
+    except (RuntimeError, ValueError, TypeError):
+        # Only unpickling/weights_only failures reach here.
+        # PermissionError, MemoryError, OSError propagate normally.
         real_prompt = os.path.realpath(prompt_path)
         real_prompts_dir = os.path.realpath(VOICE_PROMPTS_DIR)
         if not real_prompt.startswith(real_prompts_dir + os.sep):
-            raise ValueError(
-                f"Refusing to load {prompt_file}: outside voice_prompts/ directory"
-            )
-        if not allow_unsafe:
+            raise ValueError(f"Refusing to load {prompt_file}: outside voice_prompts/ directory")
+        if os.environ.get("TTS_ALLOW_UNSAFE_PICKLE") != "1":
             raise RuntimeError(
                 f"Cannot load {prompt_file} with weights_only=True. "
                 f"If this is a trusted file, set TTS_ALLOW_UNSAFE_PICKLE=1"
@@ -121,12 +103,37 @@ def _load_voice_prompt_torch(prompt_file):
             prompt_file,
         )
         result = torch.load(prompt_path, weights_only=False, map_location=device)  # nosec B614
-        # Cache the result
-        with _torch_prompt_cache_lock:
-            _evict_if_full(_torch_prompt_cache, get_voice_prompt_cache_max())
-            _torch_prompt_cache[prompt_file] = result
-            _torch_prompt_cache_misses += 1
+        _store_in_torch_cache(prompt_file, result)
         return result
+
+
+def _load_voice_prompt_torch(prompt_file):
+    """Load and cache a .pt voice prompt (torch backend).
+
+    If the .pt file doesn't exist but .wav + .txt files do, auto-creates
+    the .pt using the already-loaded clone model (avoids loading a second model).
+
+    Results are cached (up to cache.voice_prompt_max entries, default 10) for
+    repeated lookups. Cache is config-aware and respects the voice_prompt_max setting.
+    """
+    global _torch_prompt_cache_hits
+    import torch  # noqa: F401 — needed for cache type
+
+    with _torch_prompt_cache_lock:
+        if prompt_file in _torch_prompt_cache:
+            _torch_prompt_cache.move_to_end(prompt_file)
+            _torch_prompt_cache_hits += 1
+            return _torch_prompt_cache[prompt_file]
+
+    prompt_path = os.path.join(VOICE_PROMPTS_DIR, prompt_file)
+    if not os.path.exists(prompt_path):
+        base_name = prompt_file[:-3] if prompt_file.endswith('.pt') else prompt_file
+        wav_path = os.path.join(VOICE_PROMPTS_DIR, f"{base_name}.wav")
+        txt_path = os.path.join(VOICE_PROMPTS_DIR, f"{base_name}.txt")
+        return _auto_create_pt_from_wav(base_name, wav_path, txt_path, prompt_path, prompt_file)
+
+    from qwen3_tts.core.config import get_device
+    return _load_pt_safe(prompt_path, prompt_file, get_device())
 
 
 def load_voice_prompt(prompt_file):

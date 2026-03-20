@@ -139,6 +139,102 @@ def _retry_model_load(loader_fn, model_type: str, model_name: str):
 
 
 # ---------------------------------------------------------------------------
+# Torch backend — model loading helpers (H5)
+# ---------------------------------------------------------------------------
+
+def _resolve_load_kwargs(torch_quant: str, torch_dtype, device: str, attn_impl: str, device_map: str) -> dict:
+    """Build the from_pretrained kwargs dict based on quantization setting."""
+    import torch
+    import sys
+
+    load_kwargs: dict = dict(attn_implementation=attn_impl, device_map=device_map)
+
+    if torch_quant == "4bit":
+        if not (torch.cuda.is_available() and sys.platform.startswith("linux")):
+            raise RuntimeError(
+                "4-bit quantization requires CUDA on Linux. "
+                "Set torch_quantization to 'none' or '8bit', or use a different backend."
+            )
+        try:
+            from transformers import BitsAndBytesConfig
+            import bitsandbytes  # noqa: F401
+        except ImportError as e:
+            raise RuntimeError(
+                f"4-bit quantization requires bitsandbytes. Install with: pip install bitsandbytes. Error: {e}"
+            )
+        load_kwargs["quantization_config"] = BitsAndBytesConfig(
+            load_in_4bit=True, bnb_4bit_compute_dtype=torch_dtype, bnb_4bit_use_double_quant=True,
+        )
+        logger.info("Using 4-bit quantization (bitsandbytes NF4)")
+    elif torch_quant == "8bit":
+        if not torch.cuda.is_available():
+            raise RuntimeError(
+                "8-bit quantization requires CUDA. Set torch_quantization to 'none' or use a different backend."
+            )
+        try:
+            import bitsandbytes  # noqa: F401
+        except ImportError as e:
+            raise RuntimeError(
+                f"8-bit quantization requires bitsandbytes. Install with: pip install bitsandbytes. Error: {e}"
+            )
+        load_kwargs["load_in_8bit"] = True
+        logger.info("Using 8-bit quantization (bitsandbytes)")
+    else:
+        load_kwargs["dtype"] = torch_dtype
+        if device == "cuda":
+            cap = torch.cuda.get_device_capability()
+            explicitly_set = "torch_quantization" in load_config().get("advanced", {})
+            if cap[0] < 8 and not explicitly_set:
+                load_kwargs["load_in_8bit"] = True
+                logger.info(
+                    "Auto-enabled 8-bit quantization for compute capability %s "
+                    "(override: set advanced.torch_quantization in config)", cap,
+                )
+            elif cap[0] < 8 and explicitly_set:
+                logger.info(
+                    "Turing GPU (compute %s) but torch_quantization explicitly set to '%s' "
+                    "— respecting user config", cap, torch_quant,
+                )
+
+    return load_kwargs
+
+
+def _is_model_cached(repo_id: str) -> bool:
+    """Return True if the model snapshot is already in the local HF cache."""
+    from huggingface_hub import snapshot_download
+    try:
+        snapshot_download(
+            repo_id, local_files_only=True,
+            allow_patterns=["*.json", "*.txt", "*.bin", "*.safetensors"],
+        )
+        return True
+    except Exception:
+        return False
+
+
+def _apply_torch_compile(model, model_type: str, device: str, should_compile: bool):
+    """Apply torch.compile to the model's inner nn.Module if conditions are met."""
+    import torch
+    if should_compile and device == "cuda":
+        try:
+            logger.info("Applying torch.compile (reduce-overhead) to %s model", model_type)
+            model.model = torch.compile(model.model, mode="reduce-overhead")
+        except Exception as e:
+            logger.warning("torch.compile failed (%s) — running without compilation", e)
+    return model
+
+
+def _patch_tokenizer(model, repo_id: str):
+    """Reload tokenizer with fix_mistral_regex=True if the transformers version supports it."""
+    try:
+        from transformers import AutoTokenizer
+        model.tokenizer = AutoTokenizer.from_pretrained(repo_id, fix_mistral_regex=True)  # nosec B615
+    except TypeError:
+        pass  # Older transformers doesn't support fix_mistral_regex
+    return model
+
+
+# ---------------------------------------------------------------------------
 # Torch backend — model loading
 # ---------------------------------------------------------------------------
 
@@ -148,24 +244,15 @@ def _load_model_torch(model_type):
     Retries up to 3 times with exponential backoff on download/load failures.
     """
     import torch
-    import sys
     from qwen_tts import Qwen3TTSModel
 
     _install_mps_patch()
 
     repo_id = get_torch_model_name(model_type)
     model_size = get_model_size()
-
     dtype_name = get_torch_dtype_name()
-    dtype_map = {
-        "float32": torch.float32,
-        "float16": torch.float16,
-        "bfloat16": torch.bfloat16,
-    }
-
+    dtype_map = {"float32": torch.float32, "float16": torch.float16, "bfloat16": torch.bfloat16}
     attn_impl, optimal_dtype, should_compile = _apply_cuda_optimizations(load_config())
-
-    # Read torch_quantization setting
     torch_quant = get_torch_quantization()
 
     logger.info("Loading %s (%s) with dtype=%s, quant=%s, size=%s [torch backend]...",
@@ -175,105 +262,20 @@ def _load_model_torch(model_type):
     def _do_load():
         from qwen3_tts.core.config import get_device
         device = get_device()
-        # Override dtype with CUDA-optimal dtype when on CUDA
         torch_dtype = optimal_dtype if device == "cuda" else dtype_map[dtype_name]
-        # CUDA uses "auto" for multi-GPU support; MPS/CPU use device name directly
         device_map = "auto" if device == "cuda" else device
 
-        # Build load_kwargs based on quantization setting
-        load_kwargs = dict(
-            attn_implementation=attn_impl,
-            device_map=device_map,
-        )
+        load_kwargs = _resolve_load_kwargs(torch_quant, torch_dtype, device, attn_impl, device_map)
 
-        # Handle 4-bit quantization (requires bitsandbytes on CUDA/Linux)
-        if torch_quant == "4bit":
-            if not (torch.cuda.is_available() and sys.platform.startswith("linux")):
-                raise RuntimeError(
-                    "4-bit quantization requires CUDA on Linux. "
-                    "Set torch_quantization to 'none' or '8bit', or use a different backend."
-                )
-            try:
-                from transformers import BitsAndBytesConfig
-                import bitsandbytes  # noqa: F401 - Verify import
-            except ImportError as e:
-                raise RuntimeError(
-                    "4-bit quantization requires bitsandbytes. "
-                    f"Install with: pip install bitsandbytes. Error: {e}"
-                )
-            load_kwargs["quantization_config"] = BitsAndBytesConfig(
-                load_in_4bit=True,
-                bnb_4bit_compute_dtype=torch_dtype,
-                bnb_4bit_use_double_quant=True,
-            )
-            logger.info("Using 4-bit quantization (bitsandbytes NF4)")
-        # Handle 8-bit quantization
-        elif torch_quant == "8bit":
-            if not torch.cuda.is_available():
-                raise RuntimeError(
-                    "8-bit quantization requires CUDA. "
-                    "Set torch_quantization to 'none' or use a different backend."
-                )
-            try:
-                import bitsandbytes  # noqa: F401 - Verify import
-            except ImportError as e:
-                raise RuntimeError(
-                    "8-bit quantization requires bitsandbytes. "
-                    f"Install with: pip install bitsandbytes. Error: {e}"
-                )
-            load_kwargs["load_in_8bit"] = True
-            logger.info("Using 8-bit quantization (bitsandbytes)")
-        # No quantization (torch_quant == "none")
-        else:
-            load_kwargs["dtype"] = torch_dtype
-            # Auto-enable 8-bit on older CUDA GPUs (Turing/T4) for memory efficiency,
-            # but only if user hasn't explicitly set torch_quantization (R-18)
-            if device == "cuda":
-                cap = torch.cuda.get_device_capability()
-                user_config = load_config()
-                explicitly_set = "torch_quantization" in user_config.get("advanced", {})
-                if cap[0] < 8 and not explicitly_set:
-                    load_kwargs["load_in_8bit"] = True
-                    logger.info(
-                        "Auto-enabled 8-bit quantization for compute capability %s "
-                        "(override: set advanced.torch_quantization in config)", cap,
-                    )
-                elif cap[0] < 8 and explicitly_set:
-                    logger.info(
-                        "Turing GPU (compute %s) but torch_quantization explicitly "
-                        "set to '%s' — respecting user config", cap, torch_quant,
-                    )
-
-        # Check if model is already cached (for better user feedback)
-        from huggingface_hub import snapshot_download
-        try:
-            # Try to get snapshot info without downloading
-            snapshot_download(repo_id, local_files_only=True, allow_patterns=["*.json", "*.txt", "*.bin", "*.safetensors"])
-            model_cached = True
-        except Exception:
-            model_cached = False
-
-        if not model_cached:
+        if not _is_model_cached(repo_id):
             logger.info("Downloading %s model (this may take several minutes on first run)...", model_type)
             logger.info("Model size: ~%s — ensure stable internet connection",
                         "3.5GB" if model_size == "1.7B" else "2GB")
 
         model = Qwen3TTSModel.from_pretrained(repo_id, **load_kwargs)
-        # Apply torch.compile to inner nn.Module for supported CUDA hardware
-        if should_compile and device == "cuda":
-            try:
-                logger.info("Applying torch.compile (reduce-overhead) to %s model", model_type)
-                model.model = torch.compile(model.model, mode="reduce-overhead")
-            except Exception as e:
-                logger.warning("torch.compile failed (%s) — running without compilation", e)
-        # Fix tokenizer regex if supported
-        try:
-            from transformers import AutoTokenizer
-            model.tokenizer = AutoTokenizer.from_pretrained(repo_id, fix_mistral_regex=True)  # nosec B615
-        except TypeError:
-            pass  # Older transformers doesn't support fix_mistral_regex
-        elapsed = time.time() - t0
-        logger.info("Loaded %s model in %.1fs", model_type, elapsed)
+        model = _apply_torch_compile(model, model_type, device, should_compile)
+        model = _patch_tokenizer(model, repo_id)
+        logger.info("Loaded %s model in %.1fs", model_type, time.time() - t0)
         return model
 
     return _retry_model_load(_do_load, model_type, repo_id)

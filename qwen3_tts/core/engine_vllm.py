@@ -27,18 +27,9 @@ import subprocess
 import sys
 import tempfile
 from pathlib import Path
-from typing import AsyncIterator, Callable, Optional
-
-import numpy as np
+from typing import Any, AsyncIterator, Callable, Optional
 
 logger = logging.getLogger("tts.engine.vllm")
-
-# Lazy-import soundfile at module level
-try:
-    import soundfile as sf
-except ImportError:
-    sf = None
-    logger.warning("soundfile not available - vLLM adapter will fail at runtime")
 
 
 class VLLMAdapter:
@@ -74,6 +65,7 @@ class VLLMAdapter:
 
         self._process: Optional[subprocess.Popen] = None
         self._client: Optional[httpx.AsyncClient] = None
+        self._log_fh = None  # File handle for vLLM subprocess stdout/stderr
         self._ready_event = asyncio.Event()
         self._cancellation_callback: Optional[Callable[[], bool]] = None
         self._auto_port = port is None
@@ -152,14 +144,14 @@ class VLLMAdapter:
 
         logger.info("Starting vLLM subprocess: %s", " ".join(cmd))
 
-        # Open log file for subprocess output
-        log_fh = open(log_path, "w")  # noqa: PTH123
+        # Open log file for subprocess output (stored so stop() can close it)
+        self._log_fh = open(log_path, "w")  # noqa: PTH123
 
         # Start subprocess with POSIX process group
         self._process = subprocess.Popen(
             cmd,
-            stdout=log_fh,
-            stderr=log_fh,
+            stdout=self._log_fh,
+            stderr=self._log_fh,
             preexec_fn=os.setsid,  # Create new process group
             start_new_session=True,  # Windows equivalent (ignored on POSIX)
         )
@@ -182,7 +174,7 @@ class VLLMAdapter:
             RuntimeError: If server exits unexpectedly
         """
         base_url = f"http://127.0.0.1:{self.port}"
-        start_time = asyncio.get_event_loop().time()
+        start_time = asyncio.get_running_loop().time()
 
         logger.info("Waiting for vLLM server to be ready at %s", base_url)
 
@@ -207,7 +199,7 @@ class VLLMAdapter:
                 logger.debug("vLLM not ready yet: %s", e)
 
             # Check timeout
-            elapsed = asyncio.get_event_loop().time() - start_time
+            elapsed = asyncio.get_running_loop().time() - start_time
             if elapsed >= timeout:
                 raise TimeoutError(
                     f"vLLM server did not become ready within {timeout}s. "
@@ -281,10 +273,18 @@ class VLLMAdapter:
             self._process = None
             self._ready_event.clear()
 
+        # Close log file handle
+        if self._log_fh:
+            try:
+                self._log_fh.close()
+            except Exception as e:
+                logger.warning("Error closing vLLM log file handle: %s", e)
+            self._log_fh = None
+
         # Close HTTP client if exists
         if self._client:
             try:
-                asyncio.get_event_loop().create_task(self._client.aclose())
+                asyncio.get_running_loop().create_task(self._client.aclose())
             except Exception as e:
                 logger.warning("Error closing HTTP client: %s", e)
             self._client = None
@@ -332,9 +332,18 @@ class VLLMAdapter:
         if mode == "clone":
             if prompt_audio is None:
                 raise ValueError("prompt_audio required for clone mode")
-            with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as f:
-                f.write(prompt_audio)
-                prompt_path = f.name
+            # Write to a temp file; caller is responsible for cleanup via the
+            # returned path stored in request["input"]["prompt_audio"].
+            tmp = tempfile.NamedTemporaryFile(suffix=".wav", delete=False)
+            try:
+                tmp.write(prompt_audio)
+                prompt_path = tmp.name
+            except Exception:
+                tmp.close()
+                os.unlink(tmp.name)
+                raise
+            finally:
+                tmp.close()
             request = {
                 "model": self.model_name,
                 "input": {"text": text, "mode": "clone", "prompt_audio": prompt_path},
@@ -382,7 +391,7 @@ class VLLMAdapter:
         voice_description: Optional[str] = None,
         speaker: Optional[str] = None,
         **kwargs,
-    ) -> tuple[int, np.ndarray]:
+    ) -> tuple[int, Any]:
         """Generate audio from text using vLLM-Omni.
 
         Args:
@@ -416,9 +425,7 @@ class VLLMAdapter:
             audio_bytes = base64.b64decode(audio_base64)
 
             # Load audio bytes into numpy array
-            if sf is None:
-                raise RuntimeError("soundfile not available - cannot decode audio")
-
+            import soundfile as sf  # lazy — heavy import
             audio, sr = sf.read(io.BytesIO(audio_bytes))
             return sr, audio
 
@@ -437,7 +444,7 @@ class VLLMAdapter:
         voice_description: Optional[str] = None,
         speaker: Optional[str] = None,
         **kwargs,
-    ) -> AsyncIterator[tuple[int, np.ndarray]]:
+    ) -> AsyncIterator[tuple[int, Any]]:
         """Generate audio from text with streaming using vLLM-Omni.
 
         Yields audio chunks as they are generated, enabling real-time playback.
@@ -488,8 +495,7 @@ class VLLMAdapter:
                             audio_base64 = chunk_data.get("audio")
                             if audio_base64:
                                 audio_bytes = base64.b64decode(audio_base64)
-                                if sf is None:
-                                    raise RuntimeError("soundfile not available - cannot decode audio")
+                                import soundfile as sf  # lazy — heavy import
                                 audio, sr = sf.read(io.BytesIO(audio_bytes))
                                 yield sr, audio
 

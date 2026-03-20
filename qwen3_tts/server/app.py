@@ -13,6 +13,7 @@ import json
 import logging
 import logging.handlers
 import os
+import re as _re
 import secrets
 import signal
 import struct
@@ -108,6 +109,19 @@ from qwen3_tts.server.validation import (  # noqa: E402
 
 
 # ---------------------------------------------------------------------------
+# Error sanitization — strip filesystem paths from public error responses
+# ---------------------------------------------------------------------------
+
+def _sanitize_error(msg: str) -> str:
+    """Remove absolute filesystem paths from error messages for public endpoints."""
+    # Replace Unix-style absolute paths (e.g. /Users/foo/bar.pt → <path>)
+    sanitized = _re.sub(r"/[^\s\"']+", "<path>", str(msg))
+    # Replace Windows-style absolute paths
+    sanitized = _re.sub(r"[A-Za-z]:\\[^\s\"']+", "<path>", sanitized)
+    return sanitized[:200]  # cap length
+
+
+# ---------------------------------------------------------------------------
 # Real client IP resolution (R-13)
 # ---------------------------------------------------------------------------
 
@@ -116,11 +130,20 @@ def _get_real_client_ip(request: Request) -> str:
 
     Critical for Colab/Gradio share links where all traffic
     comes through a reverse proxy or tunnel.
+
+    X-Forwarded-For is only trusted when the server is NOT bound exclusively
+    to localhost (i.e. listening on a public interface for Colab/tunnel use).
+    Trusting XFF on a loopback-only server allows any client to spoof their IP
+    and bypass rate limiting.
     """
-    forwarded = request.headers.get("X-Forwarded-For")
-    if forwarded:
-        return forwarded.split(",")[0].strip()
-    return request.client.host if request.client else "127.0.0.1"
+    direct_host = request.client.host if request.client else "127.0.0.1"
+    # Trust XFF only when not on pure loopback — prevents rate-limit bypass
+    is_loopback = direct_host in ("127.0.0.1", "::1", "localhost")
+    if not is_loopback:
+        forwarded = request.headers.get("X-Forwarded-For")
+        if forwarded:
+            return forwarded.split(",")[0].strip()
+    return direct_host
 
 
 # ---------------------------------------------------------------------------
@@ -330,7 +353,8 @@ def _background_load(app_state):
         except Exception as e:
             error_msg = str(e)
             logger.error("Failed to load %s model: %s", model_type, error_msg, exc_info=True)
-            app_state.model_load_errors[model_type] = error_msg
+            # Sanitize before storing — /health is a public endpoint
+            app_state.model_load_errors[model_type] = _sanitize_error(error_msg)
 
     # MLX prompt migration for torch backend
     if get_backend() == "torch":
@@ -518,7 +542,7 @@ async def queue_status(request: Request):
         "active": gen_state.get("active", False),
         "active_mode": gen_state.get("mode", "") if gen_state.get("active") else None,
         "positions": [
-            {"id": p["id"], "mode": p["mode"], "text_preview": p["text_preview"]}
+            {"id": p["id"], "mode": p["mode"]}
             for p in pending
         ],
     }

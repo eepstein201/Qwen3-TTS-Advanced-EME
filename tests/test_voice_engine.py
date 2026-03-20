@@ -212,11 +212,11 @@ class TestFloat32Guard(unittest.TestCase):
     """Test float32 dtype guard for torch clone mode on MPS."""
 
     def test_float32_guard_exists_in_torch_inference(self):
-        """_run_inference_torch has float32 guard logic."""
-        from qwen3_tts.core.engine.inference import _run_inference_torch
+        """_apply_mps_float32_guard has float32 guard logic for clone mode on MPS."""
+        # Logic extracted to _apply_mps_float32_guard in Phase 5 refactor
+        from qwen3_tts.core.engine.inference import _apply_mps_float32_guard
         import inspect
-        source = inspect.getsource(_run_inference_torch)
-        # Should have float32 override logic for clone mode
+        source = inspect.getsource(_apply_mps_float32_guard)
         self.assertIn("float32", source)
         self.assertIn("clone", source)
 
@@ -277,10 +277,11 @@ class TestDeviceAwareEngine(unittest.TestCase):
         self.assertIn("IS_MACOS", source)
 
     def test_cuda_memory_cleanup_exists(self):
-        """_run_inference_torch has CUDA memory cleanup code."""
+        """_cleanup_device_memory has CUDA memory cleanup code."""
+        # Logic extracted to _cleanup_device_memory in Phase 5 refactor
         import inspect
-        from qwen3_tts.core.engine.inference import _run_inference_torch
-        source = inspect.getsource(_run_inference_torch)
+        from qwen3_tts.core.engine.inference import _cleanup_device_memory
+        source = inspect.getsource(_cleanup_device_memory)
         self.assertIn("torch.cuda.is_available", source)
         self.assertIn("torch.cuda.empty_cache", source)
 

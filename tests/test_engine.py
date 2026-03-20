@@ -161,22 +161,26 @@ class TestEngineFunctions(unittest.TestCase):
                 self.assertEqual(result, 0)
 
     def test_load_model_torch_passes_dtype(self):
-        """_load_model_torch passes dtype (not deprecated torch_dtype) to from_pretrained."""
-        from qwen3_tts.core.engine.model_loader import _load_model_torch
-        source = inspect.getsource(_load_model_torch)
-        self.assertIn("dtype=torch_dtype", source)
+        """_resolve_load_kwargs passes dtype (not deprecated torch_dtype) to load_kwargs."""
+        # Logic extracted to _resolve_load_kwargs in Phase 5 refactor
+        from qwen3_tts.core.engine.model_loader import _resolve_load_kwargs
+        source = inspect.getsource(_resolve_load_kwargs)
+        self.assertIn("dtype", source)
+        self.assertIn("torch_dtype", source)
 
     def test_load_model_torch_compiles_inner_model(self):
         """torch.compile targets model.model (inner nn.Module), not the wrapper."""
-        from qwen3_tts.core.engine.model_loader import _load_model_torch
-        source = inspect.getsource(_load_model_torch)
+        # Logic extracted to _apply_torch_compile in Phase 5 refactor
+        from qwen3_tts.core.engine.model_loader import _apply_torch_compile
+        source = inspect.getsource(_apply_torch_compile)
         self.assertIn("model.model", source)
         self.assertIn("torch.compile(model.model", source)
 
     def test_load_model_torch_compile_has_fallback(self):
         """torch.compile is wrapped in its own try/except for graceful degradation."""
-        from qwen3_tts.core.engine.model_loader import _load_model_torch
-        source = inspect.getsource(_load_model_torch)
+        # Logic extracted to _apply_torch_compile in Phase 5 refactor
+        from qwen3_tts.core.engine.model_loader import _apply_torch_compile
+        source = inspect.getsource(_apply_torch_compile)
         lines = source.split('\n')
         compile_line = None
         for i, line in enumerate(lines):
@@ -184,7 +188,6 @@ class TestEngineFunctions(unittest.TestCase):
                 compile_line = i
                 break
         self.assertIsNotNone(compile_line, "torch.compile not found in source")
-        # Check for a try: within 3 lines before torch.compile (not the outer retry try)
         nearby_before = '\n'.join(lines[max(0, compile_line - 3):compile_line])
         nearby_after = '\n'.join(lines[compile_line:compile_line + 4])
         self.assertIn('try:', nearby_before,
@@ -193,9 +196,10 @@ class TestEngineFunctions(unittest.TestCase):
                        "torch.compile should have a nearby except block")
 
     def test_load_voice_prompt_torch_registers_safe_globals(self):
-        """_load_voice_prompt_torch registers VoiceClonePromptItem via add_safe_globals."""
-        from qwen3_tts.core.engine.voice_prompt import _load_voice_prompt_torch
-        source = inspect.getsource(_load_voice_prompt_torch)
+        """_load_pt_safe registers VoiceClonePromptItem via add_safe_globals."""
+        # Logic extracted to _load_pt_safe in Phase 5 refactor
+        from qwen3_tts.core.engine.voice_prompt import _load_pt_safe
+        source = inspect.getsource(_load_pt_safe)
         self.assertIn("add_safe_globals", source,
                        "Must register VoiceClonePromptItem via torch.serialization.add_safe_globals")
         self.assertIn("VoiceClonePromptItem", source,

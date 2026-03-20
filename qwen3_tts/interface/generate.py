@@ -16,8 +16,6 @@ import sys
 import threading
 import time
 
-import requests
-
 logger = logging.getLogger("tts.cli")
 
 from qwen3_tts.core.config import (  # noqa: E402
@@ -82,10 +80,12 @@ def get_text(text_or_file):
     if os.path.isfile(expanded):
         with open(expanded, "r") as f:
             return f.read().strip()
-    downloads_path = os.path.expanduser(f"~/Downloads/{text_or_file}")
-    if os.path.isfile(downloads_path):
-        with open(downloads_path, "r") as f:
-            return f.read().strip()
+    # Path traversal guard: only look up bare filenames in ~/Downloads
+    if ".." not in text_or_file and "/" not in text_or_file:
+        downloads_path = os.path.expanduser(f"~/Downloads/{text_or_file}")
+        if os.path.isfile(downloads_path):
+            with open(downloads_path, "r") as f:
+                return f.read().strip()
     return text_or_file
 
 
@@ -339,6 +339,7 @@ def rename_voice_prompt(old_name, new_name):
 
 def preview_voice_prompt(prompt_name, config):
     """Preview a voice prompt by generating a short sample."""
+    import requests  # lazy
     if not prompt_name.endswith('.pt'):
         prompt_name += '.pt'
 
@@ -604,6 +605,7 @@ def launch_gradio_ui(config):
 
 def load_model_on_server(config, model_type):
     """Request the server to load a model on demand."""
+    import requests  # lazy
     url = get_server_url(config)
     print(f"Loading {model_type} model on server (this may take 30-60 seconds)...")
     resp = requests.post(f"{url}/load-model", json={"model_type": model_type}, timeout=120, headers=auth_headers())
@@ -668,6 +670,7 @@ class _ProgressPoller:
 
     def _run_rich(self):
         """Run with Rich progress bar."""
+        import requests  # lazy
         from rich.progress import Progress, SpinnerColumn, TextColumn, BarColumn, TimeElapsedColumn
         from rich.console import Console
 
@@ -712,13 +715,14 @@ class _ProgressPoller:
                                     total_est = elapsed + eta
                                     pct = min(95, int(elapsed / total_est * 100)) if total_est > 0 else 0
                                     progress.update(task_id, completed=pct)
-                except Exception:
-                    pass
+                except Exception as e:
+                    logger.debug("Progress poller (_run_rich) error: %s", e)
 
                 self._stop.wait(1.0)
 
     def _run_fallback(self):
         """Run with print-based progress (original implementation)."""
+        import requests  # lazy
         tick = 0
         while not self._stop.is_set():
             try:
@@ -755,8 +759,8 @@ class _ProgressPoller:
 
                         sys.stderr.write(line)
                         sys.stderr.flush()
-            except Exception:  # nosec B110
-                pass
+            except Exception as e:  # nosec B110
+                logger.debug("Progress poller (_run_fallback) error: %s", e)
 
             tick += 1
             self._stop.wait(1.0)
@@ -809,6 +813,7 @@ def generate_via_server(texts, mode, config, gen_params,
                         speaker=None, instruct=None, auto_load_model=True,
                         max_chunk_chars=None, x_vector_only_mode=False):
     """Generate audio via the TTS server."""
+    import requests  # lazy
     url = get_server_url(config)
 
     payload = _build_generation_payload(
@@ -891,6 +896,7 @@ def generate_streaming(text, mode, config, gen_params, output_path,
     Streams from server and plays audio chunks as they arrive.
     Also saves the complete audio to output_path.
     """
+    import requests  # lazy
     import struct
     import tempfile
     import numpy as np
@@ -1299,135 +1305,12 @@ def run_watch_mode(watch_dir, config, args, gen_params, use_server):
 # ---------------------------------------------------------------------------
 
 def process_dialogue(dialogue_path, config, args, gen_params, use_server):
-    """Process a dialogue JSON file with multiple speakers."""
-    import numpy as np
-    import soundfile as sf
-    with open(dialogue_path, "r") as f:
-        data = json.load(f)
+    """Process a dialogue JSON file with multiple speakers.
 
-    if isinstance(data, list):
-        lines = data
-        speakers = {}
-        pause_ms = 500
-    else:
-        speakers = data.get("speakers", {})
-        lines = data.get("lines", data.get("dialogue", []))
-        pause_ms = data.get("pause_ms", 500)
-
-    if not lines:
-        print("Error: No dialogue lines found in file")
-        return
-
-    output_dir = os.path.expanduser(args.output or config.get("output_directory", "~/Downloads"))
-    os.makedirs(output_dir, exist_ok=True)
-
-    basename = os.path.splitext(os.path.basename(dialogue_path))[0]
-    language = config.get("language", "English")
-
-    print(f"\nProcessing dialogue: {dialogue_path}")
-    print(f"Found {len(lines)} lines, pause between lines: {pause_ms}ms")
-
-    all_audio = []
-    sample_rate = None
-
-    for idx, line in enumerate(lines, 1):
-        text = line.get("text", "")
-        if not text:
-            continue
-
-        # Resolve speaker config
-        if "speaker" in line and line["speaker"] in speakers:
-            speaker_config = speakers[line["speaker"]].copy()
-            speaker_name = line["speaker"]
-        else:
-            speaker_config = line.copy()
-            speaker_name = line.get("speaker", line.get("prompt", "unknown"))
-
-        mode = speaker_config.get("mode", "clone")
-
-        prompt_file = speaker_config.get("prompt", get_default_clone_prompt(config))
-        voice_description = speaker_config.get("description", config.get("default_voice_description", ""))
-        custom_speaker = speaker_config.get("speaker", "ryan")
-        instruct = speaker_config.get("instruct", line.get("instruct", ""))
-
-        # Resolve custom speaker name
-        if mode == "custom":
-            speaker_key = custom_speaker.lower()
-            if speaker_key in CUSTOM_VOICE_SPEAKERS:
-                resolved_speaker = CUSTOM_VOICE_SPEAKERS[speaker_key]["name"]
-            else:
-                resolved_speaker = custom_speaker
-        else:
-            resolved_speaker = None
-
-        preview = text[:40] + "..." if len(text) > 40 else text
-        print(f"  [{idx}/{len(lines)}] {speaker_name} ({mode}): \"{preview}\"")
-
-        try:
-            if use_server:
-                results = generate_via_server(
-                    [text], mode, config, gen_params,
-                    prompt_file=prompt_file if mode == "clone" else None,
-                    voice_description=voice_description if mode == "design" else None,
-                    speaker=resolved_speaker if mode == "custom" else None,
-                    instruct=instruct if mode == "custom" else None,
-                )
-                wav, sr = _decode_base64_result(results[0])
-            else:
-                wav, sr = generate_local(
-                    text, mode, gen_params, language,
-                    prompt_file=prompt_file,
-                    voice_description=voice_description,
-                    speaker=resolved_speaker,
-                    instruct=instruct,
-                )
-
-            wav = process_audio_args(wav, sr, args)
-
-            if sample_rate is None:
-                sample_rate = sr
-
-            all_audio.append(wav)
-
-            if args.save_individual:
-                individual_path = os.path.join(output_dir, f"{basename}_{idx:03d}.wav")
-                sf.write(individual_path, wav, sr)
-
-        except Exception as e:
-            print(f"    Error generating line {idx}: {e}")
-            continue
-
-    if not all_audio:
-        print("Error: No audio generated")
-        return
-
-    # Combine with pauses
-    print("\nCombining audio...")
-    silence_samples = int(sample_rate * pause_ms / 1000)
-    combined = []
-
-    for i, wav in enumerate(all_audio):
-        combined.extend(wav)
-        if i < len(all_audio) - 1:
-            combined.extend(np.zeros(silence_samples))
-
-    combined_path = os.path.join(output_dir, f"{basename}.wav")
-    sf.write(combined_path, np.array(combined), sample_rate)
-
-    duration_sec = len(combined) / sample_rate
-    print(f"\nSaved: {combined_path}")
-    print(f"Duration: {duration_sec:.1f}s ({len(all_audio)} segments)")
-
-    log_generation(
-        f"[Dialogue: {len(lines)} lines]",
-        "dialogue", basename, combined_path,
-        gen_params, duration_sec,
-    )
-
-    if args.play:
-        play_audio(combined_path)
-    elif not args.no_open:
-        open_file(combined_path)
+    Delegates to qwen3_tts.interface.cli.dialogue to avoid duplication.
+    """
+    from qwen3_tts.interface.cli.dialogue import process_dialogue as _impl
+    return _impl(dialogue_path, config, args, gen_params, use_server)
 
 
 # ---------------------------------------------------------------------------
@@ -1435,74 +1318,12 @@ def process_dialogue(dialogue_path, config, args, gen_params, use_server):
 # ---------------------------------------------------------------------------
 
 def process_srt_file(srt_path, config, args, gen_params, use_server):
-    """Process an SRT file and generate audio for each subtitle."""
-    import numpy as np
-    import soundfile as sf
-    entries = parse_srt(srt_path)
-    if not entries:
-        print(f"Error: No subtitles found in {srt_path}")
-        return
+    """Process an SRT file and generate audio for each subtitle.
 
-    output_dir = os.path.expanduser(args.output or config.get("output_directory", "~/Downloads"))
-    os.makedirs(output_dir, exist_ok=True)
-
-    basename = os.path.splitext(os.path.basename(srt_path))[0]
-    mode = args.mode or "clone"
-    prompt_file = args.prompt or get_default_clone_prompt(config)
-    voice_description = args.description or config.get("default_voice_description", "")
-
-    print(f"\nProcessing SRT: {srt_path}")
-    print(f"Found {len(entries)} subtitles")
-
-    all_audio = []
-    sample_rate = None
-
-    for idx, start_ms, end_ms, text in entries:
-        print(f"  [{idx}/{len(entries)}] {text[:50]}{'...' if len(text) > 50 else ''}")
-
-        if use_server:
-            results = generate_via_server(
-                [text], mode, config, gen_params,
-                prompt_file=prompt_file if mode == "clone" else None,
-                voice_description=voice_description if mode == "design" else None,
-            )
-            wav, sr = _decode_base64_result(results[0])
-        else:
-            wav, sr = generate_local(
-                text, mode, gen_params,
-                config.get("language", "English"),
-                prompt_file=prompt_file,
-                voice_description=voice_description,
-            )
-
-        wav = process_audio_args(wav, sr, args)
-
-        if sample_rate is None:
-            sample_rate = sr
-
-        all_audio.append(wav)
-
-        individual_path = os.path.join(output_dir, f"{basename}_{idx:03d}.wav")
-        sf.write(individual_path, wav, sr)
-
-    # Combined file
-    print("\nCreating combined audio...")
-    combined = []
-    silence_samples = int(sample_rate * 0.5)
-
-    for i, wav in enumerate(all_audio):
-        combined.extend(wav)
-        if i < len(all_audio) - 1:
-            combined.extend(np.zeros(silence_samples))
-
-    combined_path = os.path.join(output_dir, f"{basename}_combined.wav")
-    sf.write(combined_path, np.array(combined), sample_rate)
-
-    print(f"\nSaved {len(entries)} individual files to: {output_dir}")
-    print(f"Combined audio: {combined_path}")
-
-    if args.play:
-        play_audio(combined_path)
+    Delegates to qwen3_tts.interface.cli.srt to avoid duplication.
+    """
+    from qwen3_tts.interface.cli.srt import process_srt_file as _impl
+    return _impl(srt_path, config, args, gen_params, use_server)
 
 
 # ---------------------------------------------------------------------------
@@ -1691,6 +1512,7 @@ def process_batch(texts, args, config, gen_params, use_server):
 
 def main():
     import soundfile as sf
+    import requests  # lazy
     parser = argparse.ArgumentParser(description="Qwen3-TTS Generator")
     parser.add_argument("text", nargs="*", help="Text(s) to synthesize or path to text file")
     parser.add_argument("-o", "--output", help="Output filename or directory for batch")
@@ -2123,6 +1945,9 @@ def main():
         f.write(text)
 
     output_name = args.output or "tts_output.wav"
+    if ".." in output_name or output_name.startswith("/"):
+        print(f"Error: Invalid output path: {output_name}")
+        return use_server
     if not output_name.endswith('.wav'):
         output_name += '.wav'
     output_dir = os.path.expanduser(config.get("output_directory", "~/Downloads"))

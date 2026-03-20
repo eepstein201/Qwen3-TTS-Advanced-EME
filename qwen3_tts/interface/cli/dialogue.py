@@ -8,9 +8,6 @@ import json
 import logging
 import os
 
-import numpy as np
-import soundfile as sf
-
 from qwen3_tts.core.config import (
     CUSTOM_VOICE_SPEAKERS,
     get_default_clone_prompt,
@@ -58,6 +55,8 @@ def process_dialogue(dialogue_path, config, args, gen_params, use_server):
             ]
         }
     """
+    import numpy as np  # lazy — heavy import
+    import soundfile as sf  # lazy — heavy import
     with open(dialogue_path, "r") as f:
         data = json.load(f)
 
@@ -69,6 +68,11 @@ def process_dialogue(dialogue_path, config, args, gen_params, use_server):
         speakers = data.get("speakers", {})
         lines = data.get("lines", data.get("dialogue", []))
         pause_ms = data.get("pause_ms", 500)
+        # Validate: clamp to [0, 10000ms] to prevent negative or excessive allocation
+        try:
+            pause_ms = max(0, min(10000, int(pause_ms)))
+        except (TypeError, ValueError):
+            pause_ms = 500
 
     if not lines:
         print("Error: No dialogue lines found in file")

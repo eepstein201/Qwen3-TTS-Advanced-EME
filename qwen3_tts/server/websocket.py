@@ -67,6 +67,11 @@ async def websocket_tts_handler(
             except WebSocketDisconnect:
                 break
 
+            # Reject oversized messages (64KB limit)
+            if len(message) > 65536:
+                await websocket.send_json({"error": "Message too large (max 64KB)"})
+                continue
+
             try:
                 data = json.loads(message)
             except json.JSONDecodeError:
@@ -132,6 +137,25 @@ async def _stream_generation(
     model = app_state.models.get(mode)
     if model is None:
         await websocket.send_json({"error": f"Model '{mode}' not loaded"})
+        return
+
+    # Validate request (path traversal, speaker, mode) — same checks as HTTP endpoints
+    try:
+        from fastapi import HTTPException
+        from qwen3_tts.server.validation import GenerateRequest, _validate_generation_request
+        req = GenerateRequest(
+            text=text,
+            mode=mode,
+            prompt_file=data.get("prompt_file"),
+            speaker=data.get("speaker"),
+            voice_description=data.get("voice_description", ""),
+            instruct=data.get("instruct", ""),
+        )
+        security = app_state.server_config.get("security", {}) if hasattr(app_state, "server_config") else {}
+        _validate_generation_request(req, security)
+    except HTTPException as e:
+        detail = e.detail if isinstance(e.detail, str) else e.detail.get("detail", str(e.detail))
+        await websocket.send_json({"error": detail})
         return
 
     await websocket.send_json({"status": "generating", "text_length": len(text)})

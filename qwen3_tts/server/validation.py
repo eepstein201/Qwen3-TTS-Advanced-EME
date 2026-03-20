@@ -11,7 +11,7 @@ import re
 from typing import Optional, List
 
 from fastapi import HTTPException
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from qwen3_tts.core.config import CUSTOM_VOICE_SPEAKERS
 
@@ -36,11 +36,11 @@ class GenerateRequest(BaseModel):
     language: str = "English"
     speaker: Optional[str] = None
     instruct: str = ""
-    temperature: float = 0.7
-    top_k: int = 50
-    top_p: float = 0.95
-    repetition_penalty: float = 1.05
-    max_new_tokens: int = 2048
+    temperature: float = Field(default=0.7, ge=0.0, le=2.0)
+    top_k: int = Field(default=50, ge=1, le=1000)
+    top_p: float = Field(default=0.95, ge=0.0, le=1.0)
+    repetition_penalty: float = Field(default=1.05, ge=0.5, le=2.0)
+    max_new_tokens: int = Field(default=2048, ge=1, le=8192)
     seed: Optional[int] = None
     max_chunk_chars: Optional[int] = None
     x_vector_only_mode: bool = False
