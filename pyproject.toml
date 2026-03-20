@@ -104,3 +104,15 @@ markers = [
     "slow: marks tests as slow (deselect with '-m \"not slow\"')",
     "requires_server: needs a running server",
 ]
+
+[tool.coverage.run]
+source = ["qwen3_tts"]
+omit = ["qwen3_tts/test_cli.py"]
+
+[tool.coverage.report]
+show_missing = true
+exclude_lines = [
+    "pragma: no cover",
+    "if __name__ == .__main__.",
+    "if TYPE_CHECKING:",
+]

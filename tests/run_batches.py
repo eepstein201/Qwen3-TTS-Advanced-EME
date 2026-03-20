@@ -91,6 +91,7 @@ BATCHES = {
             "tests.test_generate_interactive",
             "tests.test_generate_server_fallback",
             "tests.test_ui_headless",
+            "tests.test_ui_model_management",
             "tests.test_wavesurfer_js",
         ],
         "timeout": 240,  # Longest timeout
@@ -107,6 +108,8 @@ BATCHES = {
             "tests.test_validation",
             "tests.test_error_handling",
             "tests.test_ocp_strategy",
+            "tests.test_backend_torch",
+            "tests.test_colab_paths",
             "tests.evaluations.test_wer",
             "tests.evaluations.test_speaker_similarity",
             "tests.evaluations.test_llm_judge",
