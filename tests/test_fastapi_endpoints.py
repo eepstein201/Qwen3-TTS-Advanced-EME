@@ -49,9 +49,9 @@ except ImportError:
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 try:
-    from fastapi.testclient import TestClient
+    from fastapi.testclient import TestClient  # noqa: F401
     import soundfile  # noqa: F401
-    import numpy as np
+    import numpy as np  # noqa: F401
     HAS_DEPS = True
 except ImportError:
     HAS_DEPS = False
@@ -59,7 +59,8 @@ except ImportError:
 if HAS_DEPS:
     _skip = pytest.mark.skipif(not HAS_DEPS, reason="requires fastapi, soundfile, numpy")
 else:
-    _skip = lambda f: f  # Dummy skip decorator when pytest unavailable
+    def _skip(f):
+        return f
 
 if HAS_DEPS:
     from qwen3_tts.server.app import app

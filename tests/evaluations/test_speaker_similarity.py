@@ -82,9 +82,9 @@ class TestSpeakerSimilarityThreshold(unittest.TestCase):
 
 
 try:
-    import torch
-    import torchaudio
-    from transformers import WavLMForXVector
+    import torch  # noqa: F401
+    import torchaudio  # noqa: F401
+    from transformers import WavLMForXVector  # noqa: F401
     HAS_SIM_DEPS = True
 except ImportError:
     HAS_SIM_DEPS = False

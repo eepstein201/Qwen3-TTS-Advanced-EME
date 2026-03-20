@@ -99,7 +99,6 @@ class TestProsodyPresets(unittest.TestCase):
     def test_prosody_cli_flag_exists(self):
         """qwen3_tts.interface.generate should accept --prosody flag."""
         from qwen3_tts.interface import generate as voice_generate
-        import argparse
         # Build parser and check --prosody is registered
         parser = voice_generate.build_parser() if hasattr(voice_generate, 'build_parser') else None
         if parser is None:
@@ -298,7 +297,7 @@ class TestClickCLI(unittest.TestCase):
         """preview_voice must clean up temp file on exception."""
         import os
         import tempfile
-        from unittest.mock import patch, MagicMock
+        from unittest.mock import patch
 
         # Track the temp file path
         temp_file_path = None
@@ -338,7 +337,7 @@ class TestClickCLI(unittest.TestCase):
         """preview_voice must clean up temp file when write fails."""
         import os
         import tempfile
-        from unittest.mock import patch, MagicMock
+        from unittest.mock import patch
 
         # Track the temp file path
         temp_file_path = None

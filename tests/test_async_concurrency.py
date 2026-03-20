@@ -31,9 +31,6 @@ class TestMPSPatchThreadSafety(unittest.TestCase):
         # Reset state
         model_loader._mps_patch_installed = False
 
-        # Track how many times torch.multinomial gets reassigned
-        call_count = {"count": 0}
-
         # Mock torch module
         mock_torch = MagicMock()
         mock_torch.multinomial = MagicMock()
@@ -85,7 +82,6 @@ class TestMLXPromptCacheThreadSafety(unittest.TestCase):
 
     def test_mlx_prompt_cache_concurrent_access(self):
         """Concurrent cache access should not raise RuntimeError."""
-        from qwen3_tts.core.engine import voice_prompt
         from collections import OrderedDict
 
         # Create a test cache that simulates concurrent access

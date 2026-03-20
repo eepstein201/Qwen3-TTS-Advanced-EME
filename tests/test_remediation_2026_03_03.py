@@ -9,7 +9,6 @@ Fix 5: Config validation enforcement in config.py
 """
 
 import asyncio
-import platform
 import re
 import unittest
 from unittest.mock import MagicMock, patch, AsyncMock
@@ -46,7 +45,7 @@ class TestConfigValidationEnforcement(unittest.TestCase):
 
     def test_temperature_negative_corrected(self):
         config = {"generation": {"temperature": -1.0}}
-        issues = self._validate(config)
+        self._validate(config)
         self.assertEqual(config["generation"]["temperature"], 0.7)
 
     def test_temperature_valid_not_corrected(self):
@@ -63,7 +62,7 @@ class TestConfigValidationEnforcement(unittest.TestCase):
 
     def test_max_text_length_non_int_corrected(self):
         config = {"security": {"max_text_length": "abc"}}
-        issues = self._validate(config)
+        self._validate(config)
         self.assertEqual(config["security"]["max_text_length"], 10000)
 
     def test_vllm_gpu_utilization_too_high_corrected(self):
@@ -74,7 +73,7 @@ class TestConfigValidationEnforcement(unittest.TestCase):
 
     def test_vllm_gpu_utilization_zero_corrected(self):
         config = {"advanced": {"vllm_gpu_memory_utilization": 0.0}}
-        issues = self._validate(config)
+        self._validate(config)
         self.assertEqual(config["advanced"]["vllm_gpu_memory_utilization"], 0.7)
 
     def test_vllm_port_out_of_range_corrected(self):
@@ -85,7 +84,7 @@ class TestConfigValidationEnforcement(unittest.TestCase):
 
     def test_vllm_port_too_high_corrected(self):
         config = {"advanced": {"vllm_port": 99999}}
-        issues = self._validate(config)
+        self._validate(config)
         self.assertIsNone(config["advanced"]["vllm_port"])
 
     def test_empty_config_no_keys_added(self):
@@ -189,7 +188,6 @@ class TestMetalRetryDepthLimit(unittest.TestCase):
 
         # Create a mock strategy that raises Metal error first, then succeeds
         call_count = [0]
-        original_mlx = _INFERENCE_STRATEGIES.get("mlx")
 
         def mock_strategy(*args, **kwargs):
             call_count[0] += 1
@@ -348,7 +346,6 @@ class TestPortRaceRetry(unittest.TestCase):
 
         call_count = [0]
         ports_seen = []
-        original_start = adapter._start
 
         def mock_start():
             ports_seen.append(adapter.port)

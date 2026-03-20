@@ -289,7 +289,7 @@ def print_summary(results: dict, batches: dict):
     print(f"Total: {total_passed}/{total_ran} batches passed")
 
     if total_failed > 0:
-        print(colorize(f"\nSome batches failed. Run specific batch to debug:", Colors.YELLOW))
+        print(colorize("\nSome batches failed. Run specific batch to debug:", Colors.YELLOW))
         for num in results["failed"]:
             print(f"  python tests/run_batches.py --batch {num}")
 

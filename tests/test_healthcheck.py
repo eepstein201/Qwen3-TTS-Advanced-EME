@@ -2,7 +2,6 @@
 import unittest
 from unittest import mock
 import sys
-import pathlib
 from io import StringIO
 
 

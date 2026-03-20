@@ -1,8 +1,4 @@
 """Tests for SOLID analyzer tool."""
-import ast
-import tempfile
-from pathlib import Path
-from unittest import TestCase
 
 import pytest
 

@@ -424,7 +424,7 @@ class TestSetDefaultClonePrompt(unittest.TestCase):
 
     def test_set_default_writes_config(self):
         """set_default_clone_prompt updates config.json."""
-        from qwen3_tts.core.config import set_default_clone_prompt, load_config, save_config, CONFIG_PATH
+        from qwen3_tts.core.config import set_default_clone_prompt, load_config, save_config
         # Save original config
         original = load_config()
         try:
@@ -539,7 +539,6 @@ class TestValidatePromptNameCallers(unittest.TestCase):
     def test_rename_voice_valid_name_does_not_crash(self, *mocks):
         """Valid new name (returns None) must not raise TypeError from unpacking."""
         from qwen3_tts.interface.ui.voice_management import rename_voice
-        from unittest.mock import MagicMock
         mock_resp = MagicMock()
         mock_resp.status_code = 200
         mock_resp.json.return_value = {}
@@ -590,7 +589,6 @@ class TestPreviewVoiceExtension(unittest.TestCase):
     @patch("qwen3_tts.interface.ui.voice_management.auth_headers", return_value={})
     def test_does_not_force_pt_extension(self, mock_auth, mock_url, mock_cfg, mock_running):
         """Name sent to server should not have .pt forced onto it."""
-        from unittest.mock import MagicMock
         mock_resp = MagicMock()
         mock_resp.status_code = 200
         mock_resp.content = b"RIFF" + b"\x00" * 100

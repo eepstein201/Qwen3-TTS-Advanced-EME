@@ -1,6 +1,5 @@
 """Tests for core protocols module."""
-import pytest
-from typing import Protocol, runtime_checkable
+from typing import Protocol
 
 
 class TestConfigProvider:
@@ -24,7 +23,6 @@ class TestConfigProvider:
 
     def test_class_implementing_config_provider(self):
         """A class implementing ConfigProvider methods satisfies the protocol."""
-        from qwen3_tts.core.protocols import ConfigProvider
 
         class MockConfigProvider:
             def get_server_url(self) -> str:
@@ -52,7 +50,6 @@ class TestGenerator:
 
     def test_class_implementing_generator(self):
         """A class implementing Generator methods satisfies the protocol."""
-        from qwen3_tts.core.protocols import Generator
 
         class MockGenerator:
             def generate(self, text: str, **kwargs) -> str:
@@ -76,7 +73,6 @@ class TestServerManager:
 
     def test_class_implementing_server_manager(self):
         """A class implementing ServerManager methods satisfies the protocol."""
-        from qwen3_tts.core.protocols import ServerManager
 
         class MockServerManager:
             def is_server_running(self) -> bool:
@@ -103,7 +99,6 @@ class TestPromptManager:
 
     def test_class_implementing_prompt_manager(self):
         """A class implementing PromptManager methods satisfies the protocol."""
-        from qwen3_tts.core.protocols import PromptManager
 
         class MockPromptManager:
             def list_prompts(self) -> list:

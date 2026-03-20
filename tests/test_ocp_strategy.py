@@ -1,6 +1,4 @@
 """Tests for OCP strategy pattern in inference module."""
-import pytest
-from unittest import mock
 import numpy as np
 
 
