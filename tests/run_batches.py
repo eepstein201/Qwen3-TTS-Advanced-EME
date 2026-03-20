@@ -34,6 +34,7 @@ BATCHES = {
             "tests.test_p3_p4_remediation",
             "tests.test_healthcheck",
             "tests.test_model_cache",
+            "tests.test_model_cache_commands",
         ],
         "timeout": 90,  # Quick tests
     },
@@ -50,6 +51,7 @@ BATCHES = {
             "tests.test_voice_server",
             "tests.test_voice_ui",
             "tests.test_cli_daemonization",
+            "tests.test_cli_commands",
             "tests.test_cli_batch",
             "tests.test_cli_dialogue",
             "tests.test_cli_srt",
@@ -93,6 +95,7 @@ BATCHES = {
             "tests.test_ui_headless",
             "tests.test_ui_model_management",
             "tests.test_wavesurfer_js",
+            "tests.test_model_loader_extended",
         ],
         "timeout": 240,  # Longest timeout
     },
