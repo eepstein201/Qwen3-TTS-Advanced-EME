@@ -10,7 +10,6 @@ No GPU, models, or running server required.
 import inspect
 import os
 import sys
-import tempfile
 import unittest
 from unittest.mock import patch, MagicMock
 
@@ -88,11 +87,11 @@ class TestLaunchGradioUI(unittest.TestCase):
 
     def test_calls_build_ui_and_launch(self):
         """launch_gradio_ui delegates to build_ui_and_launch."""
-        from qwen3_tts.interface import generate as gen_mod
+        from qwen3_tts.interface import generate_server as srv_mod
 
-        with patch.object(gen_mod, "build_ui_and_launch") as mock_build:
-            with patch.object(gen_mod, "ensure_server_running", return_value=True):
-                gen_mod.launch_gradio_ui({"ui": {"port": 7860}})
+        with patch.object(srv_mod, "build_ui_and_launch") as mock_build:
+            with patch.object(srv_mod, "ensure_server_running", return_value=True):
+                srv_mod.launch_gradio_ui({"ui": {"port": 7860}})
         mock_build.assert_called_once()
 
 

@@ -36,6 +36,7 @@ server = [
     "fastapi>=0.110.0",
     "uvicorn[standard]>=0.29.0",
     "soundfile>=0.12.1",
+    "psutil>=5.9",
 ]
 
 # Gradio web UI

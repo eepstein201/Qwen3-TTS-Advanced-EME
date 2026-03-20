@@ -100,6 +100,58 @@ def _wait_for_model_state(model_name, loaded, timeout=60):
     return False
 
 
+def _get_auth_token():
+    """Read the server auth token."""
+    token_path = os.path.expanduser("~/.voice_server_token")
+    try:
+        with open(token_path, "r") as f:
+            return f.read().strip()
+    except FileNotFoundError:
+        return ""
+
+
+def _ensure_model_unloaded(model_name, timeout=30):
+    """Unload a model via API if it's currently loaded.
+
+    Prevents test failures caused by stale model state from previous tests.
+    """
+    import json
+    try:
+        resp = urllib.request.urlopen(f"{SERVER_URL}/health", timeout=5)  # nosec B310
+        health = json.loads(resp.read())
+        if not health.get(f"{model_name}_model_loaded"):
+            return True  # Already unloaded
+    except Exception:
+        return False
+
+    # Unload it
+    token = _get_auth_token()
+    data = json.dumps({"model_type": model_name}).encode()
+    req = urllib.request.Request(
+        f"{SERVER_URL}/unload-model",
+        data=data,
+        headers={
+            "Authorization": f"Bearer {token}",
+            "Content-Type": "application/json",
+        },
+        method="POST",
+    )
+    try:
+        urllib.request.urlopen(req, timeout=10)  # nosec B310
+    except Exception:
+        pass
+    return _wait_for_model_state(model_name, loaded=False, timeout=timeout)
+
+
+def _ensure_only_clone_loaded(timeout=30):
+    """Unload design and custom models, keeping only clone loaded.
+
+    Prevents OOM when running memory-intensive tests like concurrent generation.
+    """
+    _ensure_model_unloaded("design", timeout=timeout)
+    _ensure_model_unloaded("custom", timeout=timeout)
+
+
 def _wait_for_ui(url, timeout=45):
     """Poll until the Gradio UI responds."""
     deadline = time.time() + timeout
@@ -538,8 +590,9 @@ class TestE2EPlaywright(unittest.TestCase):
 
         Uses Clone mode in both tabs since it's the only model guaranteed
         to be loaded. Tests that the server handles concurrent requests.
+        Unloads design/custom first to prevent OOM with concurrent streaming.
         """
-        page1 = self.page
+        _ensure_only_clone_loaded()
         gp1 = self.gp
         gp1.click_tab("Clone Mode")
         gp1.fill_textbox("Text Input", "Page one concurrent test.")
@@ -583,6 +636,7 @@ class TestE2EPlaywright(unittest.TestCase):
 
     def test_08_load_model(self):
         """Loading a model from the Manage Models tab should succeed."""
+        _ensure_model_unloaded("design")
         self.gp.click_tab("Manage Models")
         self.gp.select_dropdown("Model", "design")
         self.gp.click_button("Load", exact=True)
@@ -648,6 +702,7 @@ class TestE2EPlaywright(unittest.TestCase):
 
     def test_10_load_unload_cycle(self):
         """Load then unload a model to verify no state corruption."""
+        _ensure_model_unloaded("design")
         self.gp.click_tab("Manage Models")
         self.gp.select_dropdown("Model", "design")
 
