@@ -314,8 +314,8 @@ class TestManageVoicesRaceCondition(unittest.TestCase):
 
     def test_action_buttons_start_non_interactive(self):
         """Action buttons are created with interactive=False."""
-        from qwen3_tts.interface import ui
-        source = inspect.getsource(ui.build_ui)
+        from qwen3_tts.interface.ui._facade import _build_manage_voices_tab
+        source = inspect.getsource(_build_manage_voices_tab)
         lines = source.split('\n')
         for line in lines:
             if 'manage_default_btn' in line and 'gr.Button' in line:
@@ -327,8 +327,8 @@ class TestManageVoicesRaceCondition(unittest.TestCase):
 
     def test_select_event_enables_buttons(self):
         """on_table_select returns gr.update(interactive=True) for buttons."""
-        from qwen3_tts.interface import ui
-        source = inspect.getsource(ui.build_ui)
+        from qwen3_tts.interface.ui._facade import _build_manage_voices_tab
+        source = inspect.getsource(_build_manage_voices_tab)
         # The .select() outputs list must include manage_default_btn
         self.assertIn('manage_default_btn', source)
         # on_table_select must return interactive updates

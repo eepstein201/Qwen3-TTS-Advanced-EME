@@ -1510,9 +1510,8 @@ def process_batch(texts, args, config, gen_params, use_server):
 # Main
 # ---------------------------------------------------------------------------
 
-def main():
-    import soundfile as sf
-    import requests  # lazy
+def _build_parser():
+    """Build the argparse parser for generate.py."""
     parser = argparse.ArgumentParser(description="Qwen3-TTS Generator")
     parser.add_argument("text", nargs="*", help="Text(s) to synthesize or path to text file")
     parser.add_argument("-o", "--output", help="Output filename or directory for batch")
@@ -1526,24 +1525,16 @@ def main():
                         help="Clone using speaker embedding only (no transcript needed)")
     parser.add_argument("--batch", help="JSON file with array of texts")
     parser.add_argument("--preset", help="Use named preset from config")
-
-    # Generation parameters
     parser.add_argument("--temperature", type=float, help="Sampling temperature")
     parser.add_argument("--top-k", type=int, dest="top_k", help="Top-k sampling")
     parser.add_argument("--top-p", type=float, dest="top_p", help="Top-p (nucleus) sampling")
     parser.add_argument("--seed", type=int, help="Random seed for reproducibility")
     parser.add_argument("--repetition-penalty", type=float, dest="repetition_penalty", help="Repetition penalty")
-
-    # Text chunking
     parser.add_argument("--max-chunk-chars", type=int, dest="max_chunk_chars", metavar="N",
                         help="Max chars per chunk for long text (default: 500 from config, 0 to disable)")
-
-    # Backend and model size override
     parser.add_argument("--backend", choices=["torch", "mlx"], help="Override backend for this run (default: from config.json)")
     parser.add_argument("--model-size", choices=["1.7B", "0.6B"], help="Override model size for this run (default: from config.json)")
     parser.add_argument("--list-backends", action="store_true", help="List available backends and current setting")
-
-    # Utility options
     parser.add_argument("--list-prompts", action="store_true", help="List available voice prompts")
     parser.add_argument("--voices", action="store_true", help="List available voice prompts (alias for --list-prompts)")
     parser.add_argument("--list-presets", action="store_true", help="List available presets")
@@ -1563,19 +1554,11 @@ def main():
     parser.add_argument("--speed", type=float, metavar="FACTOR", help="Speed factor (1.2 = 20%% faster, 0.8 = 20%% slower)")
     parser.add_argument("--pitch", type=float, metavar="SEMITONES", help="Pitch shift in semitones (+2 = higher, -2 = lower)")
     parser.add_argument("--dry-run", action="store_true", help="Show what would be generated without running")
-
-    # Voice alias
     parser.add_argument("-v", "--voice", help="Use a voice alias from config (combines prompt + preset)")
-
-    # Voice prompt management
     parser.add_argument("--delete-prompt", metavar="NAME", help="Delete a voice prompt")
     parser.add_argument("--rename-prompt", nargs=2, metavar=("OLD", "NEW"), help="Rename a voice prompt")
     parser.add_argument("--preview-prompt", metavar="NAME", help="Preview a voice prompt")
-
-    # History
     parser.add_argument("--history", nargs="?", const=10, type=int, metavar="N", help="Show last N generations (default: 10)")
-
-    # Integration features
     parser.add_argument("--repl", action="store_true", help="Start interactive REPL mode")
     parser.add_argument("--watch", metavar="DIR", help="Watch directory for .txt files")
     parser.add_argument("--srt", metavar="FILE", help="Process SRT subtitle file")
@@ -1583,31 +1566,16 @@ def main():
     parser.add_argument("--dialogue", metavar="FILE", help="Process dialogue JSON file with multiple speakers")
     parser.add_argument("--save-individual", action="store_true", help="Save individual audio files for each dialogue line")
     parser.add_argument("--ui", "--gui", action="store_true", dest="ui", help="Launch the Gradio web interface")
-
-    # Internal flags set by wrapper script
     parser.add_argument("--_server-mode", dest="server_mode", action="store_true", help=argparse.SUPPRESS)
     parser.add_argument("--text-override", dest="text_override", help=argparse.SUPPRESS)
+    return parser
 
-    args = parser.parse_args()
-    config = load_config()
-    gen_params = get_generation_params(args, config)
 
-    # Text chunking override (None = use config default)
-    max_chunk_chars = getattr(args, "max_chunk_chars", None)
+def _handle_info_commands(args, config, gen_params):
+    """Handle --list-*, --stats, --edit-config, --history, prompt management.
 
-    # Apply --backend and --model-size overrides via environment variables
-    if args.backend:
-        os.environ["TTS_BACKEND"] = args.backend
-    if args.model_size:
-        os.environ["TTS_MODEL_SIZE"] = args.model_size
-
-    # Launch Gradio UI
-    if args.ui:
-        launch_gradio_ui(config)
-        return False
-
-    # --- List / info commands (no torch needed) ---
-
+    Returns False if a command was handled, None if no info command matched.
+    """
     if args.list_backends:
         current = get_backend()
         override = f" (overridden to '{args.backend}')" if args.backend else ""
@@ -1674,16 +1642,12 @@ def main():
     if args.list_speakers:
         print("Premium CustomVoice speakers (use with -m custom -s SPEAKER):")
         print()
-        print("  English:")
-        for key, info in CUSTOM_VOICE_SPEAKERS.items():
-            if info["lang"] == "English":
-                print(f"    {key:<12} - {info['desc']}")
-        print()
-        print("  Chinese:")
-        for key, info in CUSTOM_VOICE_SPEAKERS.items():
-            if info["lang"] == "Chinese":
-                print(f"    {key:<12} - {info['desc']}")
-        print()
+        for group_name, lang_filter in [("English", "English"), ("Chinese", "Chinese")]:
+            print(f"  {group_name}:")
+            for key, info in CUSTOM_VOICE_SPEAKERS.items():
+                if info["lang"] == lang_filter:
+                    print(f"    {key:<12} - {info['desc']}")
+            print()
         print("  Other languages:")
         for key, info in CUSTOM_VOICE_SPEAKERS.items():
             if info["lang"] not in ("English", "Chinese"):
@@ -1693,69 +1657,10 @@ def main():
         return False
 
     if args.list_models:
-        models_config = config.get("models", {})
-        print("\nAvailable TTS Models:")
-        print("=" * 60)
-        print()
-
-        model_display = {
-            "clone": {"name": "Base (Clone)", "usage": "-m clone -p voice.pt", "memory": "~3.5GB"},
-            "design": {"name": "VoiceDesign", "usage": "-m design -d 'warm female voice'", "memory": "~3.5GB"},
-            "custom": {"name": "CustomVoice", "usage": "-m custom -s ryan", "memory": "~3.5GB"},
-        }
-
-        # Check server for loaded status
-        server_status = {}
-        if is_server_running(config):
-            try:
-                url = get_server_url(config)
-                resp = requests.get(f"{url}/models", timeout=5, headers=auth_headers())
-                if resp.status_code == 200:
-                    server_status = resp.json().get("models", {})
-            except Exception:  # nosec B110
-                pass
-
-        for model_type, info in MODEL_INFO.items():
-            display = model_display.get(model_type, {})
-            cfg = models_config.get(model_type, {})
-            load_at_startup = cfg.get("load_at_startup", False)
-
-            if server_status:
-                loaded = server_status.get(model_type, {}).get("loaded", False)
-                status = "LOADED" if loaded else "not loaded"
-            else:
-                status = "server not running"
-
-            startup_str = "YES" if load_at_startup else "no"
-
-            print(f"  {display.get('name', model_type):<16} [{status}]")
-            print(f"    Model:       {info['name']}")
-            print(f"    Purpose:     {info['description']}")
-            print(f"    Usage:       {display.get('usage', '')}")
-            print(f"    Memory:      {display.get('memory', '?')}")
-            print(f"    Auto-load:   {startup_str} (config.json: models.{model_type}.load_at_startup)")
-            print()
-
-        print("To change which models load at startup, edit config.json:")
-        print('  "models": { "clone": { "load_at_startup": true }, ... }')
-        print()
-        print("Models can also be loaded on-demand when you use a feature that requires them.")
-        return False
+        return _handle_list_models(args, config)
 
     if args.stats:
-        if is_server_running(config):
-            url = get_server_url(config)
-            resp = requests.get(f"{url}/stats", timeout=5, headers=auth_headers())
-            if resp.status_code == 200:
-                stats = resp.json()
-                print("TTS Server Statistics:")
-                for k, v in stats.items():
-                    print(f"  {k}: {v}")
-            else:
-                print("Error: Failed to get stats")
-        else:
-            print("Server not running. Start with 'tts server start'.")
-        return False
+        return _handle_stats(config)
 
     if args.edit_config:
         print(f"Current voice description: {config.get('default_voice_description', '')}")
@@ -1781,49 +1686,115 @@ def main():
         preview_voice_prompt(args.preview_prompt, config)
         return False
 
-    # --- Modes that need generation ---
+    return None  # No info command matched
 
-    # Check server status
-    use_server_early = args.server_mode and not args.local
 
+def _handle_list_models(args, config):
+    """Display available TTS models and their load status."""
+    import requests  # lazy
+    models_config = config.get("models", {})
+    print("\nAvailable TTS Models:")
+    print("=" * 60)
+    print()
+
+    model_display = {
+        "clone": {"name": "Base (Clone)", "usage": "-m clone -p voice.pt", "memory": "~3.5GB"},
+        "design": {"name": "VoiceDesign", "usage": "-m design -d 'warm female voice'", "memory": "~3.5GB"},
+        "custom": {"name": "CustomVoice", "usage": "-m custom -s ryan", "memory": "~3.5GB"},
+    }
+
+    server_status = {}
+    if is_server_running(config):
+        try:
+            url = get_server_url(config)
+            resp = requests.get(f"{url}/models", timeout=5, headers=auth_headers())
+            if resp.status_code == 200:
+                server_status = resp.json().get("models", {})
+        except Exception:  # nosec B110
+            pass
+
+    for model_type, info in MODEL_INFO.items():
+        display = model_display.get(model_type, {})
+        cfg = models_config.get(model_type, {})
+        load_at_startup = cfg.get("load_at_startup", False)
+
+        if server_status:
+            loaded = server_status.get(model_type, {}).get("loaded", False)
+            status = "LOADED" if loaded else "not loaded"
+        else:
+            status = "server not running"
+
+        startup_str = "YES" if load_at_startup else "no"
+
+        print(f"  {display.get('name', model_type):<16} [{status}]")
+        print(f"    Model:       {info['name']}")
+        print(f"    Purpose:     {info['description']}")
+        print(f"    Usage:       {display.get('usage', '')}")
+        print(f"    Memory:      {display.get('memory', '?')}")
+        print(f"    Auto-load:   {startup_str} (config.json: models.{model_type}.load_at_startup)")
+        print()
+
+    print("To change which models load at startup, edit config.json:")
+    print('  "models": { "clone": { "load_at_startup": true }, ... }')
+    print()
+    print("Models can also be loaded on-demand when you use a feature that requires them.")
+    return False
+
+
+def _handle_stats(config):
+    """Display server statistics."""
+    import requests  # lazy
+    if is_server_running(config):
+        url = get_server_url(config)
+        resp = requests.get(f"{url}/stats", timeout=5, headers=auth_headers())
+        if resp.status_code == 200:
+            stats = resp.json()
+            print("TTS Server Statistics:")
+            for k, v in stats.items():
+                print(f"  {k}: {v}")
+        else:
+            print("Error: Failed to get stats")
+    else:
+        print("Server not running. Start with 'tts server start'.")
+    return False
+
+
+def _handle_generation(args, config, gen_params, use_server, max_chunk_chars):
+    """Handle all generation: special modes, text resolution, and single-text output."""
+    # Special modes
     if args.repl:
-        run_repl(config, use_server_early)
-        return use_server_early
-
+        run_repl(config, use_server)
+        return use_server
     if args.watch:
-        run_watch_mode(args.watch, config, args, gen_params, use_server_early)
-        return use_server_early
-
+        run_watch_mode(args.watch, config, args, gen_params, use_server)
+        return use_server
     if args.srt:
         srt_path = os.path.expanduser(args.srt)
         if not os.path.isfile(srt_path):
             print(f"Error: SRT file not found: {srt_path}")
             sys.exit(1)
-        process_srt_file(srt_path, config, args, gen_params, use_server_early)
-        return use_server_early
-
+        process_srt_file(srt_path, config, args, gen_params, use_server)
+        return use_server
     if args.dialogue:
         dialogue_path = os.path.expanduser(args.dialogue)
         if not os.path.isfile(dialogue_path):
             print(f"Error: Dialogue file not found: {dialogue_path}")
             sys.exit(1)
-        process_dialogue(dialogue_path, config, args, gen_params, use_server_early)
-        return use_server_early
+        process_dialogue(dialogue_path, config, args, gen_params, use_server)
+        return use_server
 
-    # Handle voice alias
+    # Voice alias
     if args.voice:
         alias = get_voice_alias(args.voice, config)
         if alias is None:
             print(f"Error: Unknown voice alias '{args.voice}'")
             print("Available aliases:")
             aliases = config.get("aliases", {})
-            if aliases:
-                for name, settings in aliases.items():
-                    print(f"  - {name}: {settings}")
-            else:
+            for name, settings in aliases.items():
+                print(f"  - {name}: {settings}")
+            if not aliases:
                 print("  (none configured - add to config.json under 'aliases')")
             sys.exit(1)
-
         if "prompt" in alias and not args.prompt:
             args.prompt = alias["prompt"]
         if "preset" in alias and not args.preset:
@@ -1835,65 +1806,15 @@ def main():
             args.description = alias["description"]
         print(f"Using voice alias '{args.voice}'")
 
-    # Handle clipboard input
+    # Clipboard input
     if args.clipboard:
         clipboard_text = get_clipboard_text()
         args.text = [clipboard_text]
         print(f"Read from clipboard ({len(clipboard_text)} chars)")
 
-    use_server = args.server_mode and not args.local
-
     # Dry-run mode
     if args.dry_run:
-        mode = args.mode or "clone"
-        prompt_file = args.prompt or get_default_clone_prompt(config)
-        voice_description = args.description or config.get("default_voice_description", "")
-        output_dir = os.path.expanduser(args.output or config.get("output_directory", "~/Downloads"))
-
-        texts = []
-        if args.batch:
-            batch_path = os.path.expanduser(args.batch)
-            with open(batch_path, "r") as f:
-                texts = json.load(f)
-        elif args.text:
-            texts = [get_text(t) for t in args.text]
-
-        print("\n=== DRY RUN ===")
-        print(f"Mode: {mode}")
-        if mode == "clone":
-            print(f"Voice prompt: {prompt_file}")
-        elif mode == "custom":
-            speaker_key = (args.speaker or "ryan").lower()
-            if speaker_key in CUSTOM_VOICE_SPEAKERS:
-                speaker_info = CUSTOM_VOICE_SPEAKERS[speaker_key]
-                print(f"Speaker: {speaker_info['name']} ({speaker_info['desc']})")
-            else:
-                print(f"Speaker: {args.speaker} (unknown)")
-            if args.instruct:
-                print(f"Instruction: {args.instruct}")
-        else:
-            print(f"Voice description: {voice_description}")
-        print(f"Output directory: {output_dir}")
-        print(f"Server mode: {'yes' if use_server else 'no (local)'}")
-        print("\nAudio processing:")
-        print(f"  Trim silence: {'yes' if args.trim_silence else 'no'}")
-        print(f"  Normalize: {'yes (-3dB peak)' if args.normalize else 'no'}")
-        print(f"  Speed: {args.speed if args.speed else '1.0 (unchanged)'}")
-        print(f"  Pitch: {args.pitch if args.pitch else '0 (unchanged)'} semitones")
-        print(f"  SSML: {'enabled' if args.ssml else 'disabled'}")
-        chunk_cfg = max_chunk_chars if max_chunk_chars is not None else config.get("generation", {}).get("max_chunk_chars", 500)
-        print(f"  Text chunking: {'disabled' if chunk_cfg == 0 else f'max {chunk_cfg} chars/chunk'}")
-        print("\nGeneration parameters:")
-        for k, v in gen_params.items():
-            print(f"  {k}: {v}")
-        print(f"\nTexts to generate ({len(texts)}):")
-        for i, t in enumerate(texts[:5], 1):
-            preview = t[:80] + "..." if len(t) > 80 else t
-            print(f"  {i}. {preview}")
-        if len(texts) > 5:
-            print(f"  ... and {len(texts) - 5} more")
-        print("\n=== END DRY RUN ===")
-        return False
+        return _handle_dry_run(args, config, gen_params, use_server, max_chunk_chars)
 
     # Batch mode from file
     if args.batch:
@@ -1928,19 +1849,14 @@ def main():
             return False
         return use_server
 
-    # --- Single text mode ---
-    if args.text_override:
-        text = args.text_override
-    else:
-        text = get_text(args.text[0])
-
+    # Resolve text
+    text = args.text_override if args.text_override else get_text(args.text[0])
     if args.ssml:
         original_text = text
         text = process_ssml_text(text, args)
         if text != original_text:
             print(f"SSML processed: {len(original_text)} -> {len(text)} chars")
 
-    # Save text for post-generation menu
     with open(LAST_TEXT_FILE, "w") as f:
         f.write(text)
 
@@ -1971,7 +1887,7 @@ def main():
             print(f"Available: {available}")
             sys.exit(1)
 
-    # Determine mode
+    # Determine mode and speaker
     speaker_name = None
     if args.mode == "design" or args.description:
         mode = "design"
@@ -1987,9 +1903,82 @@ def main():
         if not args.description:
             language = speaker_lang
 
-    gen_start = time.time()
+    return _run_single_generation(
+        text, args, config, gen_params, use_server, max_chunk_chars,
+        output_path, mode, language, prompt_file, voice_description, speaker_name,
+    )
 
-    # Streaming mode (plays audio as it generates)
+
+def _handle_dry_run(args, config, gen_params, use_server, max_chunk_chars):
+    """Display dry-run summary of what would be generated."""
+    mode = args.mode or "clone"
+    prompt_file = args.prompt or get_default_clone_prompt(config)
+    voice_description = args.description or config.get("default_voice_description", "")
+    output_dir = os.path.expanduser(args.output or config.get("output_directory", "~/Downloads"))
+
+    texts = []
+    if args.batch:
+        batch_path = os.path.expanduser(args.batch)
+        with open(batch_path, "r") as f:
+            texts = json.load(f)
+    elif args.text:
+        texts = [get_text(t) for t in args.text]
+
+    print("\n=== DRY RUN ===")
+    print(f"Mode: {mode}")
+    if mode == "clone":
+        print(f"Voice prompt: {prompt_file}")
+    elif mode == "custom":
+        speaker_key = (args.speaker or "ryan").lower()
+        if speaker_key in CUSTOM_VOICE_SPEAKERS:
+            speaker_info = CUSTOM_VOICE_SPEAKERS[speaker_key]
+            print(f"Speaker: {speaker_info['name']} ({speaker_info['desc']})")
+        else:
+            print(f"Speaker: {args.speaker} (unknown)")
+        if args.instruct:
+            print(f"Instruction: {args.instruct}")
+    else:
+        print(f"Voice description: {voice_description}")
+    print(f"Output directory: {output_dir}")
+    print(f"Server mode: {'yes' if use_server else 'no (local)'}")
+    print("\nAudio processing:")
+    print(f"  Trim silence: {'yes' if args.trim_silence else 'no'}")
+    print(f"  Normalize: {'yes (-3dB peak)' if args.normalize else 'no'}")
+    print(f"  Speed: {args.speed if args.speed else '1.0 (unchanged)'}")
+    print(f"  Pitch: {args.pitch if args.pitch else '0 (unchanged)'} semitones")
+    print(f"  SSML: {'enabled' if args.ssml else 'disabled'}")
+    chunk_cfg = max_chunk_chars if max_chunk_chars is not None else config.get("generation", {}).get("max_chunk_chars", 500)
+    print(f"  Text chunking: {'disabled' if chunk_cfg == 0 else f'max {chunk_cfg} chars/chunk'}")
+    print("\nGeneration parameters:")
+    for k, v in gen_params.items():
+        print(f"  {k}: {v}")
+    print(f"\nTexts to generate ({len(texts)}):")
+    for i, t in enumerate(texts[:5], 1):
+        preview = t[:80] + "..." if len(t) > 80 else t
+        print(f"  {i}. {preview}")
+    if len(texts) > 5:
+        print(f"  ... and {len(texts) - 5} more")
+    print("\n=== END DRY RUN ===")
+    return False
+
+
+def _voice_param_for_log(mode, prompt_file, voice_description, speaker_name, instruct):
+    """Build the voice_param string for log_generation()."""
+    if mode == "clone":
+        return prompt_file
+    elif mode == "design":
+        return voice_description
+    return f"{speaker_name}" + (f" ({instruct})" if instruct else "")
+
+
+def _run_single_generation(text, args, config, gen_params, use_server, max_chunk_chars,
+                           output_path, mode, language, prompt_file, voice_description,
+                           speaker_name):
+    """Execute a single text generation (streaming, server, or local) and save output."""
+    import soundfile as sf  # lazy
+    gen_start = time.time()
+    instruct = args.instruct or ""
+
     if getattr(args, "stream", False) and use_server:
         print("Using TTS server (streaming mode)...")
         if mode == "clone":
@@ -1999,25 +1988,16 @@ def main():
         elif mode == "design":
             generate_streaming(text, mode, config, gen_params, output_path,
                                voice_description=voice_description)
-        else:  # custom
+        else:
             generate_streaming(text, mode, config, gen_params, output_path,
-                               speaker=speaker_name, instruct=args.instruct or "")
-
+                               speaker=speaker_name, instruct=instruct)
         gen_duration = time.time() - gen_start
         print(f"Streaming complete ({gen_duration:.1f}s)")
-
-        # Log to history
-        if mode == "clone":
-            voice_param = prompt_file
-        elif mode == "design":
-            voice_param = voice_description
-        else:
-            voice_param = f"{speaker_name}" + (f" ({args.instruct})" if args.instruct else "")
+        voice_param = _voice_param_for_log(mode, prompt_file, voice_description, speaker_name, instruct)
         log_generation(text, mode, voice_param, output_path, gen_params, duration_sec=gen_duration)
-
         return use_server
 
-    elif use_server:
+    if use_server:
         print("Using TTS server...")
         if mode == "clone":
             results = generate_via_server([text], mode, config, gen_params, prompt_file=prompt_file,
@@ -2026,11 +2006,10 @@ def main():
         elif mode == "design":
             results = generate_via_server([text], mode, config, gen_params, voice_description=voice_description,
                                           max_chunk_chars=max_chunk_chars)
-        else:  # custom
+        else:
             results = generate_via_server([text], mode, config, gen_params,
-                                          speaker=speaker_name, instruct=args.instruct or "",
+                                          speaker=speaker_name, instruct=instruct,
                                           max_chunk_chars=max_chunk_chars)
-
         needs_processing = args.trim_silence or args.normalize or args.speed or args.pitch
         if needs_processing:
             wav, sr = _decode_base64_result(results[0])
@@ -2040,46 +2019,54 @@ def main():
             _save_base64_result(results[0], output_path)
     else:
         if mode == "custom":
-            wav, sr = generate_local(
-                text, mode, gen_params, language,
-                speaker=speaker_name, instruct=args.instruct,
-                max_chunk_chars=max_chunk_chars,
-            )
+            wav, sr = generate_local(text, mode, gen_params, language,
+                                     speaker=speaker_name, instruct=instruct,
+                                     max_chunk_chars=max_chunk_chars)
         elif mode == "design":
-            wav, sr = generate_local(
-                text, mode, gen_params, language,
-                voice_description=voice_description,
-                max_chunk_chars=max_chunk_chars,
-            )
+            wav, sr = generate_local(text, mode, gen_params, language,
+                                     voice_description=voice_description,
+                                     max_chunk_chars=max_chunk_chars)
         else:
-            wav, sr = generate_local(
-                text, mode, gen_params, language,
-                prompt_file=prompt_file,
-                max_chunk_chars=max_chunk_chars,
-            )
-
+            wav, sr = generate_local(text, mode, gen_params, language,
+                                     prompt_file=prompt_file,
+                                     max_chunk_chars=max_chunk_chars)
         wav = process_audio_args(wav, sr, args)
         sf.write(output_path, wav, sr)
 
     gen_duration = time.time() - gen_start
     print(f"Saved to: {output_path} ({gen_duration:.1f}s)")
-
-    # Log to history
-    if mode == "clone":
-        voice_param = prompt_file
-    elif mode == "design":
-        voice_param = voice_description
-    else:
-        voice_param = f"{speaker_name}" + (f" ({args.instruct})" if args.instruct else "")
+    voice_param = _voice_param_for_log(mode, prompt_file, voice_description, speaker_name, instruct)
     log_generation(text, mode, voice_param, output_path, gen_params, duration_sec=gen_duration)
 
-    # Handle playback/opening
     if args.play:
         play_audio(output_path)
     elif not args.no_open:
         open_file(output_path)
 
     return use_server
+
+
+def main():
+    args = _build_parser().parse_args()
+    config = load_config()
+    gen_params = get_generation_params(args, config)
+    max_chunk_chars = getattr(args, "max_chunk_chars", None)
+
+    if args.backend:
+        os.environ["TTS_BACKEND"] = args.backend
+    if args.model_size:
+        os.environ["TTS_MODEL_SIZE"] = args.model_size
+
+    if args.ui:
+        launch_gradio_ui(config)
+        return False
+
+    result = _handle_info_commands(args, config, gen_params)
+    if result is not None:
+        return result
+
+    use_server = args.server_mode and not args.local
+    return _handle_generation(args, config, gen_params, use_server, max_chunk_chars)
 
 
 if __name__ == "__main__":
