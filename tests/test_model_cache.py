@@ -2,7 +2,7 @@
 import unittest
 from unittest import mock
 import pathlib
-from datetime import datetime, timedelta
+from datetime import datetime
 
 
 class TestSharedFormatSize(unittest.TestCase):

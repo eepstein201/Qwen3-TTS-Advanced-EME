@@ -1,6 +1,5 @@
 """Tests for server validation module."""
 import pytest
-from unittest import mock
 
 from fastapi import HTTPException
 

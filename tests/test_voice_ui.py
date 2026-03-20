@@ -8,7 +8,7 @@ from unittest.mock import patch, MagicMock
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from tests.voice_test_helpers import (
-    _skip_ui, _skip_generate,
+    _skip_ui,
 )
 
 
@@ -94,7 +94,6 @@ class TestUICancelFunction(unittest.TestCase):
     def test_cancel_streaming_generation_returns_tuple(self):
         """cancel_streaming_generation returns a 2-tuple (status, status_html)."""
         from qwen3_tts.interface.ui import cancel_streaming_generation
-        from unittest.mock import patch, MagicMock
 
         mock_client = MagicMock()
         mock_client.cancel_generation.return_value = {"status": "no_active_generation"}
@@ -109,7 +108,6 @@ class TestUICancelFunction(unittest.TestCase):
     def test_cancel_streaming_generation_status_text(self):
         """cancel_streaming_generation returns status text as first element."""
         from qwen3_tts.interface.ui import cancel_streaming_generation
-        from unittest.mock import patch, MagicMock
 
         mock_response = MagicMock()
         mock_response.status_code = 200

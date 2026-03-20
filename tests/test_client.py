@@ -417,7 +417,7 @@ class TestSpeakerNameNormalization(unittest.TestCase):
     def test_generate_normalizes_speaker_name(self):
         """generate() should normalize speaker names to lowercase."""
         from qwen3_tts.server.client import TTSClient
-        import io, base64
+        import base64
 
         tmp = self._make_config()
         try:

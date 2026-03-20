@@ -4,7 +4,7 @@ import os
 import sys
 import tempfile
 import unittest
-from unittest.mock import patch, MagicMock
+from unittest.mock import patch
 
 # Ensure project root is importable
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -43,7 +43,7 @@ class TestTTSConfig(unittest.TestCase):
         self.assertIn("Audio generation failed", html)
 
     def test_read_auth_token_missing(self):
-        from qwen3_tts.core.config import TOKEN_FILE, read_auth_token
+        from qwen3_tts.core.config import read_auth_token
         # Use a temp path that doesn't exist
         with patch("qwen3_tts.core.config.TOKEN_FILE", os.path.join(tempfile.gettempdir(), "nonexistent_token_test_xyz")):
             result = read_auth_token()
@@ -64,8 +64,8 @@ class TestTTSConfig(unittest.TestCase):
             with patch("qwen3_tts.core.config.TOKEN_FILE", token_path):
                 from qwen3_tts.core.config import read_auth_token, auth_headers
                 # Need to reimport to pick up patched value
-                token = read_auth_token()
-                headers = auth_headers()
+                read_auth_token()
+                auth_headers()
             # The token file exists so we should get headers
             # (actual behavior depends on whether TOKEN_FILE is patched at call time)
         finally:
@@ -307,7 +307,6 @@ class TestPlatformDetection(unittest.TestCase):
 
     def test_get_device_returns_mps_on_macos_arm(self):
         """get_device returns 'mps' on macOS ARM64."""
-        import platform as _platform
         with patch("qwen3_tts.core.config.IS_MACOS", True), \
              patch("qwen3_tts.core.config.IS_LINUX", False), \
              patch("qwen3_tts.core.config.IN_COLAB", False), \

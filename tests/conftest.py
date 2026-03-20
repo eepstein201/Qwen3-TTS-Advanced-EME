@@ -148,6 +148,8 @@ def initialize_app_state_for_xdist():
         app.state.eta_cache = {"median_rate": None, "last_updated": 0}
         app.state.model_load_errors = {"clone": None, "design": None, "custom": None}
         app.state.shutdown_timer = None
+        app.state.pending_lock = asyncio.Lock()
+        app.state.pending_requests = []
 
         yield
 
@@ -349,6 +351,8 @@ def fastapi_client(tmp_config, unused_port):
         app.state.eta_cache = {"median_rate": None, "last_updated": 0}
         app.state.model_load_errors = {"clone": None, "design": None, "custom": None}
         app.state.shutdown_timer = None
+        app.state.pending_lock = asyncio.Lock()
+        app.state.pending_requests = []
 
         # Update server_config with the dynamic port
         test_config = tmp_config["data"].copy()

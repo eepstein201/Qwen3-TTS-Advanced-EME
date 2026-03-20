@@ -7,7 +7,6 @@ import os
 import subprocess
 import sys
 import tempfile
-import time
 import unittest
 from pathlib import Path
 from unittest.mock import Mock, patch
@@ -87,7 +86,6 @@ class TestCLIDaemonization(unittest.TestCase):
 
     def test_server_foreground_flag(self):
         """Server should accept --foreground flag for Colab."""
-        import subprocess
         # Test that the flag is accepted (doesn't crash)
         result = subprocess.run(
             [sys.executable, '-m', 'qwen3_tts.cli', 'server', 'start', '--help'],

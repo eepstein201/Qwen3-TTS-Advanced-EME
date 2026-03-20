@@ -39,6 +39,13 @@ try:
 except ImportError:
     _HAS_SLOWAPI = False
 
+# Optional memory monitoring for OOM safeguard
+try:
+    import psutil
+    _HAS_PSUTIL = True
+except ImportError:
+    _HAS_PSUTIL = False
+
 logger = logging.getLogger("tts")
 
 from qwen3_tts.core.config import (  # noqa: E402
@@ -201,6 +208,27 @@ def _estimate_eta(app_state, text_length: int, elapsed_sec: float) -> Optional[f
     estimated_total = text_length / median_rate
     remaining = max(0, estimated_total - elapsed_sec)
     return round(remaining, 1)
+
+
+_MEMORY_THRESHOLD_BYTES = 1024 * 1024 * 1024  # 1 GB
+
+
+def _check_memory_available() -> tuple[bool, int]:
+    """Check if sufficient system memory is available for generation.
+
+    Returns:
+        (ok, available_mb): ok is True if memory is above threshold,
+        available_mb is the current available memory in MB.
+    """
+    if not _HAS_PSUTIL:
+        return True, 0  # Skip check if psutil not installed
+    mem = psutil.virtual_memory()
+    available_mb = mem.available // (1024 * 1024)
+    if mem.available < _MEMORY_THRESHOLD_BYTES:
+        return False, available_mb
+    if mem.available < _MEMORY_THRESHOLD_BYTES * 2:
+        logger.warning("Low memory: %dMB available", available_mb)
+    return True, available_mb
 
 
 def _get_queue_size(app_state) -> int:
@@ -1144,6 +1172,18 @@ async def generate(request: Request, req: GenerateRequest, _auth: None = Depends
     state = request.app.state
     reset_activity_timer(state)
 
+    # Memory guard — prevent OOM crash
+    mem_ok, available_mb = _check_memory_available()
+    if not mem_ok:
+        raise HTTPException(
+            status_code=503,
+            detail={
+                "error": "insufficient_memory",
+                "detail": f"Only {available_mb}MB available. Unload unused models to free memory.",
+                "recovery": "unload",
+            },
+        )
+
     # Validate and normalize request
     security = state.server_config.get("security", {})
     max_text_length = security.get("max_text_length", 10000)
@@ -1419,6 +1459,18 @@ async def generate_stream(request: Request, req: GenerateRequest, _auth: None = 
     """
     state = request.app.state
     reset_activity_timer(state)
+
+    # Memory guard — prevent OOM crash
+    mem_ok, available_mb = _check_memory_available()
+    if not mem_ok:
+        raise HTTPException(
+            status_code=503,
+            detail={
+                "error": "insufficient_memory",
+                "detail": f"Only {available_mb}MB available. Unload unused models to free memory.",
+                "recovery": "unload",
+            },
+        )
 
     # Validate request
     security = state.server_config.get("security", {})

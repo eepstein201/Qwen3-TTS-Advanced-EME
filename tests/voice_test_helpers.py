@@ -7,6 +7,7 @@ that were originally at the top of test_voice.py.
 import os
 import sys
 import unittest
+from contextlib import asynccontextmanager
 
 from unittest.mock import patch, MagicMock  # noqa: F401 — re-exported for test files
 
@@ -28,7 +29,7 @@ except ImportError:
 
 try:
     from fastapi.testclient import TestClient  # noqa: F401
-    import soundfile  # already imported above, but need for server deps
+    import soundfile  # noqa: F401
     HAS_FASTAPI = True
 except ImportError:
     HAS_FASTAPI = False
@@ -92,8 +93,6 @@ def _setup_fastapi_app_state(app, server_config=None):
             "auto_shutdown_minutes": 0,
         }
 
-
-from contextlib import asynccontextmanager
 
 @asynccontextmanager
 async def _null_lifespan(app):

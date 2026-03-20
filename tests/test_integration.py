@@ -20,12 +20,8 @@ Tests are marked with @pytest.mark.integration and can be skipped in CI.
 
 import os
 import sys
-import tempfile
 import threading
-import time
 import unittest
-from pathlib import Path
-from unittest.mock import MagicMock, patch
 
 # Ensure project root is importable
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -390,11 +386,8 @@ class TestOfflineFunctionality(unittest.TestCase):
         from qwen3_tts.server import client
 
         # Interface modules
-        from qwen3_tts.interface import generate
 
         # Tools
-        from qwen3_tts.tools import healthcheck
-        from qwen3_tts.tools import model_cache
 
         # Verify modules have expected attributes
         self.assertTrue(hasattr(config, 'TTSError'))

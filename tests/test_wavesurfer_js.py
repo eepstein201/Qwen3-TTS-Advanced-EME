@@ -165,7 +165,7 @@ class TestPlayerConstants(unittest.TestCase):
         js = self._get_js()
         self.assertIn("HARD_TIMEOUT_MS", js)
         # 300000 should only appear in the constant definition, not in setTimeout
-        lines_with_300000 = [l for l in js.split('\n') if '300000' in l]
+        lines_with_300000 = [line for line in js.split('\n') if '300000' in line]
         self.assertEqual(len(lines_with_300000), 1)
         self.assertIn("const HARD_TIMEOUT_MS", lines_with_300000[0])
 
@@ -173,7 +173,7 @@ class TestPlayerConstants(unittest.TestCase):
         js = self._get_js()
         self.assertIn("IDLE_TIMEOUT_MS", js)
         # 60000 should only appear in the constant definition
-        lines_with_60000 = [l for l in js.split('\n') if '60000' in l]
+        lines_with_60000 = [line for line in js.split('\n') if '60000' in line]
         self.assertEqual(len(lines_with_60000), 1)
         self.assertIn("const IDLE_TIMEOUT_MS", lines_with_60000[0])
 
@@ -468,7 +468,6 @@ class TestSaveCompletedAudio(unittest.TestCase):
 
     def test_saves_valid_base64_wav(self):
         import base64
-        import os
         import tempfile
         from unittest.mock import patch
         from qwen3_tts.interface.ui import _save_completed_audio

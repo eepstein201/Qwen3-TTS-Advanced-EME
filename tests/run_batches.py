@@ -33,7 +33,9 @@ BATCHES = {
             "tests.test_config",
             "tests.test_p3_p4_remediation",
             "tests.test_healthcheck",
+            "tests.test_healthcheck_ext",
             "tests.test_model_cache",
+            "tests.test_model_cache_commands",
         ],
         "timeout": 90,  # Quick tests
     },
@@ -50,6 +52,13 @@ BATCHES = {
             "tests.test_voice_server",
             "tests.test_voice_ui",
             "tests.test_cli_daemonization",
+            "tests.test_cli_commands",
+            "tests.test_cli_batch",
+            "tests.test_cli_dialogue",
+            "tests.test_cli_srt",
+            "tests.test_cli_ext",
+            "tests.test_create_voice_functions",
+            "tests.test_uninstall_functions",
             "tests.test_caching",
             "tests.test_server_helpers",
             "tests.test_ui_audio_reset",
@@ -63,6 +72,8 @@ BATCHES = {
             "tests.test_fastapi_server",
             "tests.test_fastapi_endpoints",
             "tests.test_client",
+            "tests.test_client_extended",
+            "tests.test_websocket",
             "tests.test_async_concurrency",
             "tests.test_remediation_2026_03_03",
             "tests.test_remediation_2026_03_04",
@@ -71,6 +82,7 @@ BATCHES = {
             "tests.test_decoupled_inference",
             "tests.test_docker_config",
             "tests.test_streaming_and_peaks",
+            "tests.test_fastapi_app_ext2",
         ],
         "timeout": 180,  # Higher timeout for async operations
     },
@@ -79,9 +91,21 @@ BATCHES = {
         "description": "Highest risk - model loading, Gradio Timer",
         "modules": [
             "tests.test_engine",
+            "tests.test_generate_helpers",
+            "tests.test_generate_server",
+            "tests.test_generate_interactive",
+            "tests.test_generate_interactive_ext",
+            "tests.test_generate_main",
             "tests.test_generate_server_fallback",
             "tests.test_ui_headless",
+            "tests.test_ui_model_management",
+            "tests.test_ui_facade",
+            "tests.test_ui_shared_ext",
+            "tests.test_ui_voice_mgmt",
+            "tests.test_ui_generation_ext",
+            "tests.test_fastapi_app_ext",
             "tests.test_wavesurfer_js",
+            "tests.test_model_loader_extended",
         ],
         "timeout": 240,  # Longest timeout
     },
@@ -97,6 +121,8 @@ BATCHES = {
             "tests.test_validation",
             "tests.test_error_handling",
             "tests.test_ocp_strategy",
+            "tests.test_backend_torch",
+            "tests.test_colab_paths",
             "tests.evaluations.test_wer",
             "tests.evaluations.test_speaker_similarity",
             "tests.evaluations.test_llm_judge",
@@ -273,7 +299,7 @@ def print_summary(results: dict, batches: dict):
     print(f"Total: {total_passed}/{total_ran} batches passed")
 
     if total_failed > 0:
-        print(colorize(f"\nSome batches failed. Run specific batch to debug:", Colors.YELLOW))
+        print(colorize("\nSome batches failed. Run specific batch to debug:", Colors.YELLOW))
         for num in results["failed"]:
             print(f"  python tests/run_batches.py --batch {num}")
 

@@ -283,7 +283,6 @@ class TestEngineFunctions(unittest.TestCase):
 
         # Verify all expected public symbols are present
         missing = expected_public - actual_public
-        extra = actual_public - expected_public
 
         self.assertEqual(
             internal_exports, [],

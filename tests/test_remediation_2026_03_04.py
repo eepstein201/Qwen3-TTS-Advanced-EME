@@ -14,7 +14,7 @@ import os
 import sys
 import threading
 import unittest
-from unittest.mock import patch, MagicMock
+from unittest.mock import patch
 
 try:
     import pytest
