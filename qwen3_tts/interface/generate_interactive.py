@@ -217,7 +217,7 @@ class _ProgressPoller:
     def _run_rich(self):
         """Run with Rich progress bar."""
         import requests  # lazy
-        from rich.progress import Progress, SpinnerColumn, TextColumn, BarColumn, TimeElapsedColumn
+        from rich.progress import Progress, SpinnerColumn, TextColumn, BarColumn, TimeElapsedColumn, TimeRemainingColumn
         from rich.console import Console
 
         console = Console(stderr=True)
@@ -228,7 +228,7 @@ class _ProgressPoller:
             BarColumn(),
             TextColumn("[progress.percentage]{task.percentage:>3.0f}%"),
             TimeElapsedColumn(),
-            TimeRemainingColumn(),  # noqa: F821
+            TimeRemainingColumn(),
             console=console,
             transient=True,
         ) as progress:

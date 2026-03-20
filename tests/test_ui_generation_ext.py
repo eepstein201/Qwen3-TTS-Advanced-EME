@@ -339,5 +339,75 @@ class TestValidateInputs(unittest.TestCase):
         self.assertIsNone(msg)
 
 
+@unittest.skipUnless(HAS_GRADIO, "requires gradio")
+class TestEdgeCases(unittest.TestCase):
+    """Cover remaining uncovered lines in generation.py."""
+
+    def test_invalid_seed_ignored(self):
+        """Line 101-102: ValueError branch when seed is non-numeric."""
+        import qwen3_tts.core.config as _cfg
+        from qwen3_tts.interface.ui.generation import _prepare_streaming_config
+        orig = _cfg.IN_COLAB
+        try:
+            _cfg.IN_COLAB = True
+            with patch(f"{_MOD}.load_config", return_value={"language": "English"}), \
+                 patch(f"{_MOD}.is_server_running", return_value=True), \
+                 patch(f"{_MOD}.get_prosody_presets", return_value={}):
+                cfg, _ = _prepare_streaming_config(
+                    mode="clone", text="Hello", preset=None,
+                    temperature=0.7, top_k=50, top_p=0.95,
+                    repetition_penalty=1.05, seed="not_a_number",
+                    prompt_file="voice1.wav",
+                )
+            self.assertNotIn("seed", cfg["payload"])
+        finally:
+            _cfg.IN_COLAB = orig
+
+    def test_auth_token_success_non_colab(self):
+        """Lines 143, 146: non-Colab path where token file exists."""
+        import qwen3_tts.core.config as _cfg
+        from qwen3_tts.interface.ui.generation import _prepare_streaming_config
+        orig = _cfg.IN_COLAB
+        try:
+            _cfg.IN_COLAB = False
+            mock_open = MagicMock()
+            mock_open.return_value.__enter__ = MagicMock(
+                return_value=MagicMock(read=MagicMock(return_value="test-token\n"))
+            )
+            mock_open.return_value.__exit__ = MagicMock(return_value=False)
+            with patch(f"{_MOD}.load_config", return_value={"language": "English"}), \
+                 patch(f"{_MOD}.is_server_running", return_value=True), \
+                 patch(f"{_MOD}.get_server_url", return_value="http://127.0.0.1:5123"), \
+                 patch(f"{_MOD}.get_prosody_presets", return_value={}), \
+                 patch("builtins.open", mock_open):
+                cfg, status = _prepare_streaming_config(
+                    mode="clone", text="Hello", preset=None,
+                    temperature=0.7, top_k=50, top_p=0.95,
+                    repetition_penalty=1.05, seed="",
+                    prompt_file="voice1.wav",
+                )
+            self.assertIsNotNone(cfg)
+            self.assertEqual(cfg["auth_token"], "test-token")
+            self.assertIn("Connecting", status)
+        finally:
+            _cfg.IN_COLAB = orig
+
+    def test_save_completed_audio_none_history(self):
+        """Line 158: history_list is None."""
+        from qwen3_tts.interface.ui.generation import _save_completed_audio
+        with patch(f"{_MOD}.format_status_display", return_value="<html>"):
+            status, html, hist, df = _save_completed_audio("", "clone", "hi", None)
+        self.assertEqual(status, "Cancelled")
+        self.assertIsInstance(hist, list)
+
+    def test_colab_fallback_none_history(self):
+        """Line 207: history_list is None in _generate_colab_fallback."""
+        from qwen3_tts.interface.ui.generation import _generate_colab_fallback
+        with patch(f"{_MOD}.format_status_display", return_value="<html>"):
+            result = _generate_colab_fallback("ERROR:fail", "clone", "hi", None, None)
+        self.assertIsNone(result[0])
+        self.assertIn("fail", result[1])
+
+
 if __name__ == "__main__":
     unittest.main()

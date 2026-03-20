@@ -82,6 +82,7 @@ BATCHES = {
             "tests.test_decoupled_inference",
             "tests.test_docker_config",
             "tests.test_streaming_and_peaks",
+            "tests.test_fastapi_app_ext2",
         ],
         "timeout": 180,  # Higher timeout for async operations
     },
