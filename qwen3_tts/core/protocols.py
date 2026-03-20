@@ -11,7 +11,7 @@ Using protocols enables:
 - Flexibility in implementation (file-based, database, API, etc.)
 - Clear interface contracts between components
 """
-from typing import Protocol, runtime_checkable, Iterator, List, Dict, Any
+from typing import Protocol, runtime_checkable, Iterator, Any
 
 
 @runtime_checkable
@@ -33,7 +33,7 @@ class ConfigProvider(Protocol):
         """
         ...
 
-    def get_generation_params(self) -> Dict[str, Any]:
+    def get_generation_params(self) -> dict[str, Any]:
         """Get default generation parameters.
 
         Returns:
@@ -126,7 +126,7 @@ class ServerManager(Protocol):
         """
         ...
 
-    def get_stats(self) -> Dict[str, Any]:
+    def get_stats(self) -> dict[str, Any]:
         """Get server statistics.
 
         Returns:
@@ -149,7 +149,7 @@ class PromptManager(Protocol):
     - Mock for testing
     """
 
-    def list_prompts(self) -> List[str]:
+    def list_prompts(self) -> list[str]:
         """List available voice prompts.
 
         Returns:

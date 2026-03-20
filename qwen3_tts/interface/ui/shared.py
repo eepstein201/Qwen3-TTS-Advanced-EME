@@ -78,7 +78,7 @@ def enhance_description_with_ai(description):
         else:
             raise gr.Error(f"Unsupported provider: {provider}")
     except Exception as e:
-        logger.error(f"AI enhancement failed: {e}")
+        logger.error("AI enhancement failed: %s", e)
         raise gr.Error(f"Enhancement failed: {e}")
 
 
@@ -114,7 +114,7 @@ def get_current_model_settings():
                         settings.get("backend", backend),
                     )
         except Exception as e:
-            logger.warning(f"Could not fetch model settings from server: {e}")
+            logger.warning("Could not fetch model settings from server: %s", e)
 
     return model_size, mlx_quant, backend
 

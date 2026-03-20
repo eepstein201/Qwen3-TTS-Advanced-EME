@@ -185,7 +185,7 @@ def _save_completed_audio(base64_wav, mode, text, history_list, stream_config=No
                 format_status_display(), history_list, get_history_data(history_list))
 
     except Exception as e:
-        logger.error(f"Failed to save audio: {e}")
+        logger.error("Failed to save audio: %s", e)
         return f"Error saving audio: {e}", format_status_display(), history_list, gr.update()
 
 
@@ -265,7 +265,7 @@ def _generate_colab_fallback(base64_wav, mode, text, history_list, stream_config
             get_history_data(history_list),
         )
     except Exception as e:
-        logger.error(f"Colab fallback generation failed: {e}")
+        logger.error("Colab fallback generation failed: %s", e)
         return None, f"Error: {e}", format_status_display(), history_list, get_history_data(history_list)
 
 

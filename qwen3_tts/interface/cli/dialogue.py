@@ -154,7 +154,7 @@ def process_dialogue(dialogue_path, config, args, gen_params, use_server):
                 sf.write(individual_path, wav, sr)
 
         except Exception as e:
-            logger.error(f"Error generating line {idx}: {e}")
+            logger.error("Error generating line %d: %s", idx, e)
             print(f"    Error generating line {idx}: {e}")
             continue
 

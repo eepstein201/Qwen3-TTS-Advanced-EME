@@ -34,9 +34,9 @@ class TestNormalizeTextLogging(unittest.TestCase):
             self.assertIsInstance(result, str)
             # Should have logged a warning
             mock_logger.warning.assert_called()
-            # Verify the warning mentions "email" in the format string
+            # Verify the warning mentions "email" in the step name arg
             call_args = mock_logger.warning.call_args_list[0]
-            self.assertIn("email", call_args[0][0])
+            self.assertIn("email", call_args[0][1])
         finally:
             tp._EMAIL_RE = original
 
@@ -51,7 +51,7 @@ class TestNormalizeTextLogging(unittest.TestCase):
             self.assertIsInstance(result, str)
             mock_logger.warning.assert_called()
             call_args = mock_logger.warning.call_args_list[0]
-            self.assertIn("url", call_args[0][0])
+            self.assertIn("url", call_args[0][1])
         finally:
             tp._URL_RE = original
 
@@ -66,7 +66,7 @@ class TestNormalizeTextLogging(unittest.TestCase):
             self.assertIsInstance(result, str)
             mock_logger.warning.assert_called()
             call_args = mock_logger.warning.call_args_list[0]
-            self.assertIn("phone", call_args[0][0])
+            self.assertIn("phone", call_args[0][1])
         finally:
             tp._PHONE_RE = original
 

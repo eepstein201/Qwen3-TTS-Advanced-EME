@@ -31,6 +31,14 @@ from typing import Any, AsyncIterator, Callable, Optional
 
 logger = logging.getLogger("tts.engine.vllm")
 
+# Named constants for timeouts and limits (M25)
+_STARTUP_TIMEOUT_SECS = 300.0
+_HEALTH_CHECK_TIMEOUT_SECS = 5.0
+_HEALTH_CHECK_POLL_SECS = 2.0
+_GRACEFUL_STOP_TIMEOUT_SECS = 10.0
+_GENERATION_TIMEOUT_SECS = 600.0
+_GENERATION_CONNECT_TIMEOUT_SECS = 60.0
+
 
 class VLLMAdapter:
     """Adapter for vLLM-Omni TTS server subprocess.
@@ -163,7 +171,7 @@ class VLLMAdapter:
             self.log_file,
         )
 
-    async def _wait_until_ready(self, timeout: float = 300.0) -> None:
+    async def _wait_until_ready(self, timeout: float = _STARTUP_TIMEOUT_SECS) -> None:
         """Wait until vLLM server is ready by polling /v1/models.
 
         Args:
@@ -189,7 +197,7 @@ class VLLMAdapter:
 
             # Try health check
             try:
-                async with httpx.AsyncClient(timeout=5.0) as client:
+                async with httpx.AsyncClient(timeout=_HEALTH_CHECK_TIMEOUT_SECS) as client:
                     response = await client.get(f"{base_url}/v1/models")
                     if response.status_code == 200:
                         logger.info("vLLM server is ready")
@@ -207,7 +215,7 @@ class VLLMAdapter:
                 )
 
             # Wait before retry
-            await asyncio.sleep(2.0)
+            await asyncio.sleep(_HEALTH_CHECK_POLL_SECS)
 
     async def start(self) -> None:
         """Start vLLM server and wait until ready.
@@ -258,7 +266,7 @@ class VLLMAdapter:
 
             # Wait for graceful shutdown (max 10 seconds)
             try:
-                self._process.wait(timeout=10.0)
+                self._process.wait(timeout=_GRACEFUL_STOP_TIMEOUT_SECS)
                 logger.info("vLLM subprocess shut down gracefully")
             except subprocess.TimeoutExpired:
                 logger.warning("vLLM did not shut down gracefully, forcing SIGKILL")
@@ -297,7 +305,7 @@ class VLLMAdapter:
         """
         if self._client is None:
             base_url = f"http://127.0.0.1:{self.port}"
-            timeout = httpx.Timeout(600.0, connect=60.0)
+            timeout = httpx.Timeout(_GENERATION_TIMEOUT_SECS, connect=_GENERATION_CONNECT_TIMEOUT_SECS)
             limits = httpx.Limits(max_keepalive_connections=5, max_connections=10)
             self._client = httpx.AsyncClient(
                 base_url=base_url, timeout=timeout, limits=limits

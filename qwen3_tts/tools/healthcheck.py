@@ -319,13 +319,6 @@ def main():
         description="Check TTS installation health",
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
-
-    parser.add_argument(
-        "--fix",
-        action="store_true",
-        help="Show suggested fixes for issues",
-    )
-
     parser.parse_args()
 
     return run_healthcheck()

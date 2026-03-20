@@ -142,7 +142,7 @@ def create_voice_prompt(audio_path, transcript, voice_name, no_transcript=False,
     except gr.Error:
         raise
     except Exception as e:
-        logger.error(f"Failed to create voice prompt: {e}")
+        logger.error("Failed to create voice prompt: %s", e)
         raise gr.Error(f"Failed to create prompt: {e}")
 
 
@@ -191,7 +191,7 @@ def auto_transcribe_audio(audio_path):
     except gr.Error:
         raise
     except Exception as e:
-        logger.error(f"Auto-transcription failed: {e}")
+        logger.error("Auto-transcription failed: %s", e)
         raise gr.Error(f"Transcription failed: {e}")
 
 
@@ -265,7 +265,7 @@ def preview_voice(name):
     except gr.Error:
         raise
     except Exception as e:
-        logger.error(f"Voice preview failed: {e}")
+        logger.error("Voice preview failed: %s", e)
         if tmp_path is not None:
             try:
                 import os
@@ -324,7 +324,7 @@ def rename_voice(old_name, new_name):
     except gr.Error:
         raise
     except Exception as e:
-        logger.error(f"Rename failed: {e}")
+        logger.error("Rename failed: %s", e)
         raise gr.Error(f"Rename failed: {e}")
 
 
@@ -367,7 +367,7 @@ def delete_voice(name):
     except gr.Error:
         raise
     except Exception as e:
-        logger.error(f"Delete failed: {e}")
+        logger.error("Delete failed: %s", e)
         raise gr.Error(f"Delete failed: {e}")
 
 

@@ -49,7 +49,7 @@ def process_batch(texts, args, config, gen_params, use_server):
     needs_processing = args.trim_silence or args.normalize or args.speed or args.pitch
 
     if use_server:
-        logger.info(f"Using TTS server for batch of {len(texts)} texts...")
+        logger.info("Using TTS server for batch of %d texts...", len(texts))
         print(f"Using TTS server for batch of {len(texts)} texts...")
         results = generate_via_server(
             texts, mode, config, gen_params,

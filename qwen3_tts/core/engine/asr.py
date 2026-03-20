@@ -23,8 +23,9 @@ def _ensure_asr_torch_loaded():
     with _asr_lock:
         if _asr_model_torch is not None:
             return
+        import time
         logger.info("Loading torch ASR model...")
-        t0 = __import__('time').time()
+        t0 = time.time()
         try:
             from transformers import pipeline as hf_pipeline
             from qwen3_tts.core.config import get_device
@@ -41,7 +42,7 @@ def _ensure_asr_torch_loaded():
                 device=device,
                 chunk_length_s=30,
             )
-            logger.info("Torch ASR model loaded in %.1fs", __import__('time').time() - t0)
+            logger.info("Torch ASR model loaded in %.1fs", time.time() - t0)
         except ImportError as e:
             raise ImportError(
                 f"ASR transcription requires transformers: {e}\n"
@@ -84,24 +85,10 @@ def load_asr_model():
 
 def _transcribe_mlx(audio_path, language="en"):
     """Transcribe using MLX ASR (Apple Silicon)."""
-    global _asr_model_mlx
     import time
 
     if _asr_model_mlx is None:
-        with _asr_lock:
-            # Double-check after acquiring lock
-            if _asr_model_mlx is None:
-                logger.info("Loading MLX ASR model for transcription (first use)...")
-                t0 = time.time()
-                try:
-                    from mlx_audio.stt import load_model as load_stt_model
-                    _asr_model_mlx = load_stt_model("mlx-community/whisper-large-v3-turbo")
-                    logger.info("MLX ASR model loaded in %.1fs", time.time() - t0)
-                except ImportError as e:
-                    raise ImportError(
-                        f"ASR transcription requires mlx-audio with STT support: {e}\n"
-                        "Update mlx-audio: pip install --upgrade mlx-audio"
-                    )
+        load_asr_model()
 
     logger.info("Transcribing (MLX): %s", audio_path)
     t0 = time.time()

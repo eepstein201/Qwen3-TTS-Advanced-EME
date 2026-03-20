@@ -67,7 +67,7 @@ def get_model_table_data():
         return rows
 
     except Exception as e:
-        logger.error(f"Failed to get model table data: {e}")
+        logger.error("Failed to get model table data: %s", e)
         return [["clone", f"error: {e}", "-", "—"],
                 ["design", f"error: {e}", "-", "—"],
                 ["custom", f"error: {e}", "-", "—"]]
@@ -113,7 +113,7 @@ def toggle_model(model_type, action):
             return f"Failed: {error}", get_model_table_data(), format_status_display()
 
     except Exception as e:
-        logger.error(f"Model toggle failed: {e}")
+        logger.error("Model toggle failed: %s", e)
         return f"Error: {e}", get_model_table_data(), format_status_display()
 
 
@@ -155,7 +155,7 @@ def toggle_asr(action):
             return f"Failed: {error}", format_status_display()
 
     except Exception as e:
-        logger.error(f"ASR toggle failed: {e}")
+        logger.error("ASR toggle failed: %s", e)
         return f"Error: {e}", format_status_display()
 
 
@@ -218,7 +218,7 @@ def get_model_status_html(model_type):
             return '<span style="color: gray;">Not loaded</span>'
 
     except Exception as e:
-        logger.error(f"Failed to get model status: {e}")
+        logger.error("Failed to get model status: %s", e)
         return '<span style="color: red;">Error</span>'
 
 

@@ -323,7 +323,7 @@ def stop():
     # Fallback: SIGTERM if PID is known and still alive
     pid = state["pid"]
 
-    # Bug 2: discover PID by port if PID file was missing
+    # Discover PID by port if PID file was missing
     if pid is None:
         pid = find_pid_by_port(port)
         if pid is not None:
@@ -350,7 +350,7 @@ def stop():
 
     cleanup_pid_file()
 
-    # Bug 1: verify server is actually stopped before claiming success
+    # Verify server is actually stopped before claiming success
     if is_server_running(config):
         click.echo(f"Error: TTS Server is still running on port {port}.")
         click.echo(f"Manual kill: kill -9 $(lsof -ti :{port})")

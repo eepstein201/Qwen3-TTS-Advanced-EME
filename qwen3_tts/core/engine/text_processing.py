@@ -110,7 +110,7 @@ def _safe_transform(text: str, step_name: str, transform_fn) -> str:
     try:
         return transform_fn(text)
     except Exception as e:
-        logger.warning(f"Text normalization ({step_name}) failed: %s", e)
+        logger.warning("Text normalization (%s) failed: %s", step_name, e)
         return text
 
 
