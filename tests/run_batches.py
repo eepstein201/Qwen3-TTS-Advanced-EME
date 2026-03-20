@@ -97,6 +97,8 @@ BATCHES = {
             "tests.test_ui_headless",
             "tests.test_ui_model_management",
             "tests.test_ui_facade",
+            "tests.test_ui_shared_ext",
+            "tests.test_ui_voice_mgmt",
             "tests.test_wavesurfer_js",
             "tests.test_model_loader_extended",
         ],
