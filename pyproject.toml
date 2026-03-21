@@ -104,6 +104,13 @@ markers = [
     "slow: marks tests as slow (deselect with '-m \"not slow\"')",
     "requires_server: needs a running server",
 ]
+filterwarnings = [
+    # All DeprecationWarnings from external dependencies (SWIG, transformers, etc.)
+    # We cannot fix these - they are upstream issues
+    "ignore::DeprecationWarning",
+    # Gradio async cleanup (not our code)
+    "ignore::ResourceWarning",
+]
 
 [tool.ruff]
 exclude = ["colab_notebook.ipynb"]
