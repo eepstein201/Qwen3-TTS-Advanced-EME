@@ -14,18 +14,16 @@ Covers:
 
 Run: pytest tests/test_fastapi_app_ext.py -v
 """
-import asyncio
 import os
 import sys
 import time
-import threading
 import pytest
-from unittest.mock import patch, MagicMock, AsyncMock
+from unittest.mock import patch, MagicMock
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 try:
-    from fastapi.testclient import TestClient
+    from qwen3_tts.server.app import app as _app
     HAS_FASTAPI = True
 except ImportError:
     HAS_FASTAPI = False
@@ -36,71 +34,13 @@ pytestmark = pytest.mark.skipif(not HAS_FASTAPI, reason="requires fastapi")
 
 
 # ---------------------------------------------------------------------------
-# Helpers
-# ---------------------------------------------------------------------------
-
-@pytest.fixture
-def fastapi_client(tmp_path):
-    """Minimal FastAPI test client with auth, using tmp_path for voice_prompts."""
-    from qwen3_tts.server.app import app
-
-    token = "test_tok"
-    app.state.auth_token = token
-    app.state.models = {"clone": None, "design": None, "custom": None}
-    app.state.model_load_times = {}
-    app.state.generation_lock = AsyncMock()
-    app.state.generation_lock.__aenter__.return_value = None
-    app.state.generation_lock.__aexit__.return_value = None
-    app.state.generation_state = {
-        "active": False, "start_time": 0.0, "text_length": 0,
-        "mode": "", "batch_index": 0, "batch_total": 0,
-        "chunk_index": 0, "chunk_total": 0,
-        "generation_id": None, "cancelled": False,
-    }
-    app.state.request_queue = set()
-    app.state.request_queue_lock = threading.Lock()
-    app.state.last_activity = 0
-    app.state.models_loaded = threading.Event()
-    app.state.gen_cache = {}
-    app.state.gen_cache_lock = threading.Lock()
-    app.state.inference_lock = asyncio.Lock()
-    app.state.eta_cache = {"median_rate": None, "last_updated": 0}
-    app.state.model_load_errors = {"clone": None, "design": None, "custom": None}
-    app.state.shutdown_timer = None
-    app.state.pending_lock = asyncio.Lock()
-    app.state.pending_requests = []
-    app.state.server_config = {
-        "security": {"max_text_length": 10000, "max_batch_size": 20},
-        "models": {},
-    }
-
-    raw = TestClient(app)
-
-    class _AuthClient:
-        def __init__(self, c, t):
-            self._c, self._t = c, t
-
-        def get(self, path, **kw):
-            h = kw.pop("headers", {})
-            h["Authorization"] = f"Bearer {self._t}"
-            return self._c.get(path, headers=h, **kw)
-
-        def post(self, path, **kw):
-            h = kw.pop("headers", {})
-            h["Authorization"] = f"Bearer {self._t}"
-            return self._c.post(path, headers=h, **kw)
-
-    yield _AuthClient(raw, token), app, tmp_path
-
-
-# ---------------------------------------------------------------------------
 # /load-model success + error paths
 # ---------------------------------------------------------------------------
 
 class TestLoadModelSuccess:
 
     def test_load_success(self, fastapi_client):
-        client, app, _ = fastapi_client
+        client = fastapi_client
         mock_model = MagicMock()
         info = {"name": "TestModel", "description": "Test"}
         with patch("qwen3_tts.core.engine.load_model", return_value=mock_model), \
@@ -109,29 +49,29 @@ class TestLoadModelSuccess:
         assert resp.status_code == 200
         data = resp.json()
         assert data["status"] == "loaded"
-        assert app.state.models["clone"] is mock_model
+        assert _app.state.models["clone"] is mock_model
 
     def test_load_import_error(self, fastapi_client):
-        client, app, _ = fastapi_client
+        client = fastapi_client
         info = {"name": "TestModel", "description": "Test"}
         with patch("qwen3_tts.core.engine.load_model", side_effect=ImportError("no mlx")), \
              patch("qwen3_tts.core.config.get_model_info", return_value=info):
             resp = client.post("/load-model", json={"model_type": "design"})
         # _error_response raises HTTPException → 500
         assert resp.status_code == 500
-        assert app.state.model_load_errors["design"] is not None
+        assert _app.state.model_load_errors["design"] is not None
 
     def test_load_runtime_error(self, fastapi_client):
-        client, app, _ = fastapi_client
+        client = fastapi_client
         info = {"name": "TestModel", "description": "Test"}
         with patch("qwen3_tts.core.engine.load_model", side_effect=RuntimeError("OOM")), \
              patch("qwen3_tts.core.config.get_model_info", return_value=info):
             resp = client.post("/load-model", json={"model_type": "custom"})
         assert resp.status_code == 500
-        assert app.state.model_load_errors["custom"] is not None
+        assert _app.state.model_load_errors["custom"] is not None
 
     def test_load_unexpected_error(self, fastapi_client):
-        client, app, _ = fastapi_client
+        client = fastapi_client
         info = {"name": "TestModel", "description": "Test"}
         with patch("qwen3_tts.core.engine.load_model", side_effect=TypeError("weird")), \
              patch("qwen3_tts.core.config.get_model_info", return_value=info):
@@ -146,27 +86,27 @@ class TestLoadModelSuccess:
 class TestUnloadModelSuccess:
 
     def test_unload_success(self, fastapi_client):
-        client, app, _ = fastapi_client
-        app.state.models["clone"] = MagicMock()
-        app.state.model_load_times["clone"] = 5.0
+        client = fastapi_client
+        _app.state.models["clone"] = MagicMock()
+        _app.state.model_load_times["clone"] = 5.0
         with patch("qwen3_tts.core.engine.unload_model_cleanup"):
             resp = client.post("/unload-model", json={"model_type": "clone"})
         assert resp.status_code == 200
         assert resp.json()["status"] == "unloaded"
-        assert app.state.models["clone"] is None
-        assert "clone" not in app.state.model_load_times
+        assert _app.state.models["clone"] is None
+        assert "clone" not in _app.state.model_load_times
 
     def test_unload_clears_gen_cache(self, fastapi_client, tmp_path):
-        client, app, _ = fastapi_client
-        app.state.models["design"] = MagicMock()
+        client = fastapi_client
+        _app.state.models["design"] = MagicMock()
         # Create a cache file
         cache_file = tmp_path / "cached.wav"
         cache_file.write_text("data")
-        app.state.gen_cache = {"key1": {"main_file": str(cache_file), "sample_rate": 24000}}
+        _app.state.gen_cache = {"key1": {"main_file": str(cache_file), "sample_rate": 24000}}
         with patch("qwen3_tts.core.engine.unload_model_cleanup"):
             resp = client.post("/unload-model", json={"model_type": "design"})
         assert resp.status_code == 200
-        assert len(app.state.gen_cache) == 0
+        assert len(_app.state.gen_cache) == 0
         assert not cache_file.exists()
 
 
@@ -178,11 +118,11 @@ class TestGenerateSuccess:
 
     def test_generate_clone_success(self, fastapi_client):
         """Test the full generate success path with mocked inference."""
-        client, app, _ = fastapi_client
+        client = fastapi_client
         import numpy as np
         mock_model = MagicMock()
-        app.state.models["clone"] = mock_model
-        app.state.models_loaded.set()
+        _app.state.models["clone"] = mock_model
+        _app.state.models_loaded.set()
 
         # Create a small WAV-like array
         wav = np.zeros(4800, dtype=np.float32)
@@ -211,14 +151,14 @@ class TestGenerateSuccess:
 
     def test_generate_cache_hit_pre_lock(self, fastapi_client, tmp_path):
         """Test full cache hit (pre-lock) skips inference entirely."""
-        client, app, _ = fastapi_client
+        client = fastapi_client
         mock_model = MagicMock()
-        app.state.models["clone"] = mock_model
+        _app.state.models["clone"] = mock_model
 
         # Put a file in gen_cache
         cache_file = tmp_path / "cached.wav"
         cache_file.write_bytes(b"RIFF" + b"\x00" * 100)
-        app.state.gen_cache = {"test_key": {
+        _app.state.gen_cache = {"test_key": {
             "main_file": str(cache_file),
             "sample_rate": 24000,
             "timestamp": time.time(),
@@ -238,10 +178,10 @@ class TestGenerateSuccess:
 
     def test_generate_design_mode(self, fastapi_client):
         """Test design mode generation (no prompt_file needed)."""
-        client, app, _ = fastapi_client
+        client = fastapi_client
         import numpy as np
         mock_model = MagicMock()
-        app.state.models["design"] = mock_model
+        _app.state.models["design"] = mock_model
 
         wav = np.zeros(4800, dtype=np.float32)
         sr = 24000
@@ -265,8 +205,8 @@ class TestGenerateSuccess:
 
     def test_generate_inference_error(self, fastapi_client):
         """Test error during inference returns 500."""
-        client, app, _ = fastapi_client
-        app.state.models["clone"] = MagicMock()
+        client = fastapi_client
+        _app.state.models["clone"] = MagicMock()
 
         with patch(f"{_APP}._check_memory_available", return_value=(True, 4000)), \
              patch("qwen3_tts.core.engine.load_voice_prompt", return_value=MagicMock()), \
@@ -281,8 +221,8 @@ class TestGenerateSuccess:
 
     def test_generate_clone_no_prompt(self, fastapi_client):
         """Test clone mode without prompt_file raises 400."""
-        client, app, _ = fastapi_client
-        app.state.models["clone"] = MagicMock()
+        client = fastapi_client
+        _app.state.models["clone"] = MagicMock()
 
         with patch(f"{_APP}._check_memory_available", return_value=(True, 4000)), \
              patch(f"{_APP}._gen_cache_key", return_value="nope"):
@@ -300,8 +240,8 @@ class TestGenerateSuccess:
 class TestShutdownEndpoint:
 
     def test_shutdown_returns_json(self, fastapi_client):
-        client, app, _ = fastapi_client
-        app.state.shutdown_timer = None
+        client = fastapi_client
+        _app.state.shutdown_timer = None
         # Prevent the background task from actually sending SIGTERM
         with patch("os.kill"), \
              patch(f"{_APP}.cleanup_pid_file"), \
@@ -313,9 +253,9 @@ class TestShutdownEndpoint:
         assert data["status"] == "shutting_down"
 
     def test_shutdown_cancels_timer(self, fastapi_client):
-        client, app, _ = fastapi_client
+        client = fastapi_client
         mock_timer = MagicMock()
-        app.state.shutdown_timer = mock_timer
+        _app.state.shutdown_timer = mock_timer
         with patch("os.kill"), \
              patch(f"{_APP}.cleanup_pid_file"), \
              patch(f"{_APP}.cleanup_resources"), \
@@ -331,8 +271,8 @@ class TestShutdownEndpoint:
 
 class TestRenamePromptSuccess:
 
-    def test_rename_success(self, fastapi_client):
-        client, app, tmp_path = fastapi_client
+    def test_rename_success(self, fastapi_client, tmp_path):
+        client = fastapi_client
         # Create prompt files
         wav_path = tmp_path / "old_voice.wav"
         txt_path = tmp_path / "old_voice.txt"
@@ -354,9 +294,9 @@ class TestRenamePromptSuccess:
         assert (tmp_path / "new_voice.txt").exists()
         assert not wav_path.exists()
 
-    def test_rename_updates_default(self, fastapi_client):
+    def test_rename_updates_default(self, fastapi_client, tmp_path):
         """When the renamed prompt was the default, config is updated."""
-        client, app, tmp_path = fastapi_client
+        client = fastapi_client
         (tmp_path / "my_voice.wav").write_text("audio")
         (tmp_path / "my_voice.txt").write_text("text")
         saved_config = {}
@@ -375,9 +315,9 @@ class TestRenamePromptSuccess:
         assert resp.status_code == 200
         assert saved_config.get("default_clone_prompt") == "renamed_voice"
 
-    def test_rename_rollback_on_failure(self, fastapi_client):
+    def test_rename_rollback_on_failure(self, fastapi_client, tmp_path):
         """If rename fails mid-way, already-renamed files are rolled back."""
-        client, app, tmp_path = fastapi_client
+        client = fastapi_client
         (tmp_path / "voice.wav").write_text("audio")
         (tmp_path / "voice.txt").write_text("text")
 
@@ -405,8 +345,8 @@ class TestRenamePromptSuccess:
 
 class TestPreviewPromptSuccess:
 
-    def test_preview_returns_wav(self, fastapi_client):
-        client, app, tmp_path = fastapi_client
+    def test_preview_returns_wav(self, fastapi_client, tmp_path):
+        client = fastapi_client
         wav_path = tmp_path / "my_voice.wav"
         wav_path.write_bytes(b"RIFF" + b"\x00" * 40)
 
@@ -422,8 +362,8 @@ class TestPreviewPromptSuccess:
 
 class TestPromptDetailsSuccess:
 
-    def test_single_prompt_details(self, fastapi_client):
-        client, app, tmp_path = fastapi_client
+    def test_single_prompt_details(self, fastapi_client, tmp_path):
+        client = fastapi_client
         wav = tmp_path / "test_voice.wav"
         txt = tmp_path / "test_voice.txt"
         wav.write_bytes(b"RIFF" + b"\x00" * 40)
@@ -439,8 +379,8 @@ class TestPromptDetailsSuccess:
         assert ".txt" in data["formats"]
         assert data["is_default"] is True
 
-    def test_all_prompt_details(self, fastapi_client):
-        client, app, tmp_path = fastapi_client
+    def test_all_prompt_details(self, fastapi_client, tmp_path):
+        client = fastapi_client
         (tmp_path / "a.wav").write_text("audio")
         (tmp_path / "a.txt").write_text("text")
         (tmp_path / "b.pt").write_text("model")
@@ -453,7 +393,7 @@ class TestPromptDetailsSuccess:
         assert len(data["prompts"]) == 2
 
     def test_prompt_details_oserror(self, fastapi_client):
-        client, _, _ = fastapi_client
+        client = fastapi_client
         with patch(f"{_APP}.VOICE_PROMPTS_DIR", "/nonexistent_dir_xyz"), \
              patch(f"{_APP}.get_default_clone_prompt", return_value=""):
             resp = client.get("/prompt-details")
@@ -577,9 +517,9 @@ class TestRunServer:
 
 class TestDeletePromptDefaultClear:
 
-    def test_delete_clears_default(self, fastapi_client):
+    def test_delete_clears_default(self, fastapi_client, tmp_path):
         """When deleted prompt was the default, config.default_clone_prompt is cleared."""
-        client, app, tmp_path = fastapi_client
+        client = fastapi_client
         (tmp_path / "def_voice.wav").write_text("audio")
         (tmp_path / "def_voice.txt").write_text("text")
         saved_config = {}
@@ -603,10 +543,10 @@ class TestDeletePromptDefaultClear:
 class TestListModels:
 
     def test_list_models_with_loaded(self, fastapi_client):
-        client, app, _ = fastapi_client
-        app.state.models["clone"] = MagicMock()
-        app.state.model_load_times["clone"] = 3.5
-        app.state.models_loaded.set()
+        client = fastapi_client
+        _app.state.models["clone"] = MagicMock()
+        _app.state.model_load_times["clone"] = 3.5
+        _app.state.models_loaded.set()
 
         info = {"name": "TestModel", "description": "Test", "memory_mb": 2500}
         with patch("qwen3_tts.core.config.get_model_info", return_value=info), \
