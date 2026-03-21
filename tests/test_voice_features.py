@@ -85,10 +85,9 @@ class TestProsodyPresets(unittest.TestCase):
         self.assertIn("calm", presets)
 
     def test_prosody_presets_in_config_json(self):
-        """config.json should have prosody_presets section."""
-        config_path = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "config.json")
-        with open(config_path) as f:
-            config = json.load(f)
+        """Verify default config schema includes prosody_presets."""
+        from qwen3_tts.core.config import get_default_config
+        config = get_default_config()
         self.assertIn("prosody_presets", config)
         self.assertIn("excited", config["prosody_presets"])
 
