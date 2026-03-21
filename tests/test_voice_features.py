@@ -99,7 +99,8 @@ class TestProsodyPresets(unittest.TestCase):
         parser = voice_generate.build_parser() if hasattr(voice_generate, 'build_parser') else None
         if parser is None:
             # Check that the module has the argparse setup
-            source = open(voice_generate.__file__).read()
+            with open(voice_generate.__file__) as f:
+                source = f.read()
             self.assertIn("--prosody", source)
 
 
