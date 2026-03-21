@@ -258,11 +258,10 @@ class TestConfigOperations(unittest.TestCase):
 
     @_skip_integration
     def test_config_has_expected_structure(self):
-        """Verify config has expected keys."""
-        from qwen3_tts.core.config import load_config
+        """Verify default config has expected keys."""
+        from qwen3_tts.core.config import get_default_config
 
-        # This will load from file or use defaults
-        config = load_config()
+        config = get_default_config()
 
         self.assertIn("generation", config)
         self.assertIn("server", config)
@@ -278,9 +277,9 @@ class TestConfigOperations(unittest.TestCase):
     @_skip_integration
     def test_security_defaults(self):
         """Verify security defaults are safe."""
-        from qwen3_tts.core.config import load_config
+        from qwen3_tts.core.config import get_default_config
 
-        config = load_config()
+        config = get_default_config()
         security = config.get("security", {})
 
         # Should have reasonable limits
