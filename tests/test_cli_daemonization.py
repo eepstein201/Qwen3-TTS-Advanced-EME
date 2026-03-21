@@ -57,7 +57,7 @@ class TestCLIDaemonization(unittest.TestCase):
 
             with patch('qwen3_tts.core.config.PID_FILE', test_pid_file):
                 # Mock subprocess.Popen to avoid actually starting server
-                with patch('qwen3_tts.cli.subprocess.Popen') as mock_popen:
+                with patch('qwen3_tts.cli_server.subprocess.Popen') as mock_popen:
                     mock_proc = mock_popen.return_value
                     mock_proc.pid = 12345
 
@@ -471,7 +471,7 @@ class TestCLIStartRewrite(unittest.TestCase):
             fake_pid = Path(tmpdir) / "test.pid"
 
             with patch('qwen3_tts.core.config.PID_FILE', fake_pid), \
-                 patch('qwen3_tts.cli.subprocess.Popen') as mock_popen:
+                 patch('qwen3_tts.cli_server.subprocess.Popen') as mock_popen:
                 mock_proc = mock_popen.return_value
                 mock_proc.pid = 54321
 
