@@ -59,7 +59,7 @@ OPTIONAL_DEPS = {
     },
     "torch": {
         "evaluation": ["openai-whisper", "jiwer"],
-        "speaker_similarity": ["torchaudio", "transformers"],  # WavLM requires these
+        "speaker_similarity": ["torchaudio", "transformers", "torchcodec"],  # WavLM requires these
         "e2e": ["playwright"],
     },
 }
@@ -163,18 +163,26 @@ def stop_server(env: str, dry_run: bool = False) -> None:
 
 
 def start_server(env: str, dry_run: bool = False) -> bool:
-    """Start the TTS server and wait for readiness."""
+    """Start the TTS server and wait for readiness.
+
+    Sets QWEN3_TTS_BACKEND env var based on environment to ensure correct backend.
+    """
     print("\n🚀 Starting TTS server...")
+
+    # Determine correct backend for this environment
+    backend = "mlx" if "mlx" in env else "torch"
+    print(f"   Using backend: {backend}")
 
     if dry_run:
         print("   [DRY RUN] Would run: tts server start")
         print("   [DRY RUN] Would wait for server ready on port 5123")
         return True
 
-    # Start server in background
+    # Start server in background with correct backend env var
     subprocess.Popen(
         ["bash", "-lc",
-         f"source {CONDA_BASE}/etc/profile.d/conda.sh && conda activate {env} && tts server start"],
+         f"source {CONDA_BASE}/etc/profile.d/conda.sh && conda activate {env} && "
+         f"export QWEN3_TTS_BACKEND={backend} && tts server start"],
         stdout=subprocess.DEVNULL,
         stderr=subprocess.DEVNULL,
     )

@@ -117,6 +117,10 @@ def load_config():
 
     Returns a cached copy if config.json has not been modified since the last read.
     Thread-safe: uses lock to prevent concurrent reads/writes.
+
+    Environment variable override:
+        QWEN3_TTS_BACKEND: If set, overrides the backend setting in config.
+                           Useful for testing in different environments.
     """
     with _config_lock:
         try:
@@ -131,6 +135,14 @@ def load_config():
             data = json.load(f)
         _config_cache["mtime"] = current_mtime
         data, _ = validate_config(data)
+
+        # Allow environment variable override for backend (useful for test runner)
+        env_backend = os.environ.get("QWEN3_TTS_BACKEND")
+        if env_backend and env_backend in VALID_BACKENDS:
+            if "advanced" not in data:
+                data["advanced"] = {}
+            data["advanced"]["backend"] = env_backend
+
         _config_cache["data"] = data
         return copy.deepcopy(data)
 
