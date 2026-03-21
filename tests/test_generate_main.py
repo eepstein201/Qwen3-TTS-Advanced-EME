@@ -15,12 +15,8 @@ Covers:
 Run: pytest tests/test_generate_main.py -v
 """
 import argparse
-import os
-import sys
 import unittest
 from unittest.mock import patch, MagicMock, mock_open
-
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 # MODEL_INFO in config.py is keyed by size ("1.7B"/"0.6B") then model_type.
 # _handle_list_models iterates MODEL_INFO.items() expecting model_type keys

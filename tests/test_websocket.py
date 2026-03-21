@@ -15,13 +15,9 @@ Run: pytest tests/test_websocket.py -v --tb=short
 """
 
 import json
-import os
 import struct
-import sys
 import unittest
 from unittest.mock import MagicMock, patch
-
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 try:
     from fastapi.testclient import TestClient

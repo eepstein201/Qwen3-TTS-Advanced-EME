@@ -18,13 +18,8 @@ Note: Many tests require a running server or will start one.
 Tests are marked with @pytest.mark.integration and can be skipped in CI.
 """
 
-import os
-import sys
 import threading
 import unittest
-
-# Ensure project root is importable
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 # Check optional dependencies
 try:

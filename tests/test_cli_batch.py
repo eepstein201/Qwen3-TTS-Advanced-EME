@@ -6,13 +6,10 @@ No GPU, models, or running server required.
 """
 import json
 import os
-import sys
 import tempfile
 import unittest
 from types import SimpleNamespace
 from unittest.mock import patch
-
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 try:
     from qwen3_tts.interface.cli.batch import load_batch_file, process_batch

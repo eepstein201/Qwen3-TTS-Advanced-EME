@@ -20,13 +20,10 @@ Run: python -m pytest tests/test_fastapi_app_ext2.py -v
 """
 import asyncio
 import os
-import sys
 import threading
 import time
 import unittest
 from unittest.mock import patch, MagicMock, AsyncMock
-
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 _APP = "qwen3_tts.server.app"
 

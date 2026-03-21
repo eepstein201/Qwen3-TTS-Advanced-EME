@@ -10,8 +10,6 @@ Run with:
 No GPU, models, or running server required.
 """
 
-import os
-import sys
 import threading
 import unittest
 from unittest.mock import patch
@@ -42,8 +40,6 @@ except ImportError:
     class _DummyPytest:
         mark = _DummyMark()
     pytest = _DummyPytest()
-
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 try:
     import numpy as np

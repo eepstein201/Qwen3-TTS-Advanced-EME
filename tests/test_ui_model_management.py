@@ -11,8 +11,6 @@ Covers:
 
 Run: pytest tests/test_ui_model_management.py -v
 """
-import os
-import sys
 
 try:
     import pytest
@@ -34,8 +32,6 @@ except ImportError:
         mark = _DummyMark()
 
     pytest = _DummyPytest()
-
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from unittest.mock import patch, MagicMock
 

@@ -9,7 +9,6 @@ No running server required — all HTTP calls are mocked.
 
 import json
 import os
-import sys
 import tempfile
 import unittest
 from unittest.mock import patch, MagicMock
@@ -44,8 +43,6 @@ except ImportError:
     class _DummyPytest:
         mark = _DummyMark()
     pytest = _DummyPytest()
-
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 
 @pytest.mark.unit

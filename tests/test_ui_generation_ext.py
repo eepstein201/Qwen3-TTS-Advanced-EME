@@ -10,12 +10,8 @@ Covers:
 
 Run: pytest tests/test_ui_generation_ext.py -v
 """
-import os
-import sys
 import unittest
 from unittest.mock import patch, MagicMock
-
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 try:
     import gradio as gr  # noqa: F401

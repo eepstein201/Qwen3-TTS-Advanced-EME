@@ -4,12 +4,8 @@ Covers _ProgressPoller, delete_voice_prompt, rename_voice_prompt,
 and preview_voice_prompt with all external dependencies mocked.
 """
 
-import os
-import sys
 import unittest
 from unittest.mock import patch, MagicMock
-
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 
 class TestProgressPollerInit(unittest.TestCase):

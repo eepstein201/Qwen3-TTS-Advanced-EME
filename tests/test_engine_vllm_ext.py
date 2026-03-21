@@ -21,12 +21,9 @@ import asyncio
 import io
 import json
 import os
-import sys
 import unittest
 from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock, patch
-
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 _MOD = "qwen3_tts.core.engine_vllm"
 

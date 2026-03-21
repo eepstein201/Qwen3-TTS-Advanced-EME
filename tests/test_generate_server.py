@@ -6,8 +6,6 @@ _voice_param_for_log, and _run_single_generation.
 
 Run: python -m pytest tests/test_generate_server.py -v
 """
-import os
-import sys
 import unittest
 from unittest.mock import MagicMock, mock_open, patch
 
@@ -42,8 +40,6 @@ except ImportError:
         mark = _DummyMark()
 
     pytest = _DummyPytest()
-
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 try:
     from qwen3_tts.interface.generate_server import (

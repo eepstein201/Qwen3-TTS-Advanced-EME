@@ -46,9 +46,6 @@ except ImportError:
         mark = _DummyMark()
     pytest = _DummyPytest()
 
-# Ensure project root is importable
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-
 
 @pytest.mark.unit
 class TestEngineFunctions(unittest.TestCase):

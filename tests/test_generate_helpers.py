@@ -12,7 +12,6 @@ import base64
 import io
 import json
 import os
-import sys
 import tempfile
 import unittest
 from types import SimpleNamespace
@@ -38,8 +37,6 @@ except ImportError:
         mark = _DummyMark()
 
     pytest = _DummyPytest()
-
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 
 # =========================================================================

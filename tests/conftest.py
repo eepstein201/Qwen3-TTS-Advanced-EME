@@ -17,7 +17,6 @@ Usage:
 import json
 import os
 import socket
-import sys
 import tempfile
 from unittest.mock import AsyncMock, MagicMock
 
@@ -52,9 +51,6 @@ except ImportError:
         mark = _DummyMark()
     pytest = _DummyPytest()
 
-# Add project root to path for imports
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-
 try:
     from fastapi.testclient import TestClient
     import soundfile  # noqa: F401
@@ -85,6 +81,68 @@ def unused_port():
     yield port
 
 
+def _init_app_state(app, auth_token="test_token"):
+    """Initialize app.state with minimal required attributes for testing.
+
+    Shared by both the autouse xdist fixture and the fastapi_client fixture.
+    """
+    import asyncio
+    import threading
+
+    app.state.auth_token = auth_token  # nosec B105
+    app.state.models = {"clone": None, "design": None, "custom": None}
+    app.state.model_load_times = {}
+    mock_lock = AsyncMock()
+    mock_lock.__aenter__.return_value = None
+    mock_lock.__aexit__.return_value = None
+    app.state.generation_lock = mock_lock
+    app.state.generation_state = {
+        "active": False,
+        "start_time": 0.0,
+        "text_length": 0,
+        "mode": "",
+        "batch_index": 0,
+        "batch_total": 0,
+        "chunk_index": 0,
+        "chunk_total": 0,
+        "generation_id": None,
+        "cancelled": False,
+    }
+    app.state.request_queue = set()
+    app.state.request_queue_lock = threading.Lock()
+    app.state.last_activity = 0
+    app.state.models_loaded = threading.Event()
+    app.state.gen_cache = {}
+    app.state.gen_cache_lock = threading.Lock()
+    app.state.inference_lock = asyncio.Lock()
+    app.state.eta_cache = {"median_rate": None, "last_updated": 0}
+    app.state.model_load_errors = {"clone": None, "design": None, "custom": None}
+    app.state.shutdown_timer = None
+    app.state.pending_lock = asyncio.Lock()
+    app.state.pending_requests = []
+
+
+def _save_app_state(app):
+    """Snapshot non-private app.state attributes for later restoration."""
+    original = {}
+    for key in dir(app.state):
+        if not key.startswith('_'):
+            original[key] = getattr(app.state, key, None)
+    return original
+
+
+def _restore_app_state(app, original):
+    """Restore app.state from a snapshot."""
+    for key, value in original.items():
+        if value is None:
+            try:
+                delattr(app.state, key)
+            except AttributeError:
+                pass
+        else:
+            setattr(app.state, key, value)
+
+
 @pytest.fixture(autouse=True)
 def initialize_app_state_for_xdist():
     """Auto-initialize app.state for all tests to support xdist parallel execution.
@@ -100,8 +158,6 @@ def initialize_app_state_for_xdist():
         yield
         return
 
-    import asyncio
-    import threading
     from qwen3_tts.server.app import app
 
     # Check if already initialized (another test in same worker may have set it up)
@@ -109,61 +165,18 @@ def initialize_app_state_for_xdist():
         yield
         return
 
-    # Store original state for cleanup
-    original_state = {}
-    for key in dir(app.state):
-        if not key.startswith('_'):
-            original_state[key] = getattr(app.state, key, None)
+    original_state = _save_app_state(app)
 
     try:
-        # Minimal app.state initialization for xdist workers
-        app.state.auth_token = "xdist_test_token"  # nosec B105
-        app.state._xdist_initialized = True  # Mark as initialized
+        _init_app_state(app, auth_token="xdist_test_token")
+        app.state._xdist_initialized = True
         app.state.test_port = 5123  # Default port for bare TestClient tests
-        app.state.models = {"clone": None, "design": None, "custom": None}
-        app.state.model_load_times = {}
-        mock_lock = AsyncMock()
-        mock_lock.__aenter__.return_value = None
-        mock_lock.__aexit__.return_value = None
-        app.state.generation_lock = mock_lock
-        app.state.generation_state = {
-            "active": False,
-            "start_time": 0.0,
-            "text_length": 0,
-            "mode": "",
-            "batch_index": 0,
-            "batch_total": 0,
-            "chunk_index": 0,
-            "chunk_total": 0,
-            "generation_id": None,
-            "cancelled": False,
-        }
-        app.state.request_queue = set()
-        app.state.request_queue_lock = threading.Lock()
-        app.state.last_activity = 0
-        app.state.models_loaded = threading.Event()
-        app.state.gen_cache = {}
-        app.state.gen_cache_lock = threading.Lock()
-        app.state.inference_lock = asyncio.Lock()
-        app.state.eta_cache = {"median_rate": None, "last_updated": 0}
-        app.state.model_load_errors = {"clone": None, "design": None, "custom": None}
-        app.state.shutdown_timer = None
-        app.state.pending_lock = asyncio.Lock()
-        app.state.pending_requests = []
 
         yield
 
     finally:
-        # Cleanup - restore original state
         app.state._xdist_initialized = False
-        for key, value in original_state.items():
-            if value is None:
-                try:
-                    delattr(app.state, key)
-                except AttributeError:
-                    pass
-            else:
-                setattr(app.state, key, value)
+        _restore_app_state(app, original_state)
 
 
 @pytest.fixture
@@ -308,51 +321,14 @@ def fastapi_client(tmp_config, unused_port):
     if not HAS_FASTAPI:
         pytest.skip("requires fastapi and soundfile")
 
-    import asyncio
-    import threading
     from qwen3_tts.server.app import app
 
-    # Store original state for cleanup
-    original_state = {}
-    for key in dir(app.state):
-        if not key.startswith('_'):
-            original_state[key] = getattr(app.state, key, None)
+    test_token = "test_token_fixture"  # nosec B105
+    original_state = _save_app_state(app)
 
     try:
-        # Initialize app.state with minimal required attributes (mimics lifespan)
-        test_token = "test_token_fixture"  # nosec B105
-        app.state.auth_token = test_token
+        _init_app_state(app, auth_token=test_token)
         app.state.test_port = unused_port  # Store dynamic port for any URL construction
-        app.state.models = {"clone": None, "design": None, "custom": None}
-        app.state.model_load_times = {}
-        mock_lock = AsyncMock()
-        mock_lock.__aenter__.return_value = None
-        mock_lock.__aexit__.return_value = None
-        app.state.generation_lock = mock_lock
-        app.state.generation_state = {
-            "active": False,
-            "start_time": 0.0,
-            "text_length": 0,
-            "mode": "",
-            "batch_index": 0,
-            "batch_total": 0,
-            "chunk_index": 0,
-            "chunk_total": 0,
-            "generation_id": None,
-            "cancelled": False,
-        }
-        app.state.request_queue = set()
-        app.state.request_queue_lock = threading.Lock()
-        app.state.last_activity = 0
-        app.state.models_loaded = threading.Event()
-        app.state.gen_cache = {}
-        app.state.gen_cache_lock = threading.Lock()
-        app.state.inference_lock = asyncio.Lock()
-        app.state.eta_cache = {"median_rate": None, "last_updated": 0}
-        app.state.model_load_errors = {"clone": None, "design": None, "custom": None}
-        app.state.shutdown_timer = None
-        app.state.pending_lock = asyncio.Lock()
-        app.state.pending_requests = []
 
         # Update server_config with the dynamic port
         test_config = tmp_config["data"].copy()
@@ -393,50 +369,7 @@ def fastapi_client(tmp_config, unused_port):
         yield AuthenticatedTestClient(raw_client, test_token, unused_port)
 
     finally:
-        # Restore original state
-        for key, value in original_state.items():
-            if value is None:
-                # Remove attributes that weren't originally present
-                try:
-                    delattr(app.state, key)
-                except AttributeError:
-                    pass
-            else:
-                setattr(app.state, key, value)
-
-
-@pytest.fixture
-def loaded_models(fastapi_client):
-    """Context manager that temporarily marks models as loaded.
-
-    Useful for testing endpoints that require models to be loaded
-    without actually loading them.
-
-    Example:
-        def test_generate_with_loaded_models(loaded_models):
-            # Models are "loaded" for this test
-            response = fastapi_client.post("/generate", json={...})
-    """
-    from qwen3_tts.server.app import app
-
-    # Store original state
-    original_clone = app.state.models.get("clone")
-    original_design = app.state.models.get("design")
-    original_custom = app.state.models.get("custom")
-
-    try:
-        # Set fake loaded models
-        app.state.models["clone"] = MagicMock()
-        app.state.models["design"] = MagicMock()
-        app.state.models["custom"] = MagicMock()
-
-        yield
-
-    finally:
-        # Restore
-        app.state.models["clone"] = original_clone
-        app.state.models["design"] = original_design
-        app.state.models["custom"] = original_custom
+        _restore_app_state(app, original_state)
 
 
 def pytest_configure(config):

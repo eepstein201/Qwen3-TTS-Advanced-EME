@@ -13,7 +13,6 @@ import io
 import json
 import os
 import struct
-import sys
 import tempfile
 import unittest
 from unittest.mock import MagicMock, patch
@@ -35,8 +34,6 @@ except ImportError:
 HAS_DEPS = HAS_SOUNDFILE and HAS_NUMPY
 
 _skip = unittest.skipUnless(HAS_DEPS, "soundfile and numpy required")
-
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 
 # ---------------------------------------------------------------------------

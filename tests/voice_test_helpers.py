@@ -4,15 +4,10 @@ Provides dependency checks, skip decorators, and FastAPI test helpers
 that were originally at the top of test_voice.py.
 """
 
-import os
-import sys
 import unittest
 from contextlib import asynccontextmanager
 
 from unittest.mock import patch, MagicMock  # noqa: F401 — re-exported for test files
-
-# Ensure project root is importable
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 # Check optional dependencies — tests that need these are skipped when missing
 try:

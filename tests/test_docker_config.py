@@ -4,11 +4,7 @@ Verifies IPC settings, dtype, tensor parallelism, multimodal params,
 and HuggingFace cache volume mounting.
 """
 
-import os
-import sys
 import unittest
-
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 try:
     import yaml

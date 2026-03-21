@@ -11,14 +11,10 @@ Covers:
   - main: CLI entry point with various flags
 """
 import json
-import os
 import pathlib
-import sys
 import tempfile
 import unittest
 from unittest import mock
-
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 
 # ---------------------------------------------------------------------------

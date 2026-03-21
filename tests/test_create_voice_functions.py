@@ -15,8 +15,6 @@ import unittest
 from types import SimpleNamespace
 from unittest import mock
 
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-
 try:
     import numpy as np
     import soundfile  # noqa: F401

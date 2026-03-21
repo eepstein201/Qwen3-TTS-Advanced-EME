@@ -1,13 +1,10 @@
 """Generation-related tests extracted from test_voice.py."""
 
 import os
-import sys
 import tempfile
 import time
 import unittest
 from unittest.mock import patch, MagicMock
-
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from tests.voice_test_helpers import (
     _skip_server, _skip_client, _skip_generate, _make_test_client,

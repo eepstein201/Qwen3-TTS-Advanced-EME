@@ -12,13 +12,8 @@ These tests use mocking to avoid requiring vLLM, GPU, or a running server.
 """
 
 import asyncio
-import os
-import sys
 import unittest
 from unittest.mock import MagicMock, patch
-
-# Ensure project root is importable
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 
 class TestVLLMAdapterInit(unittest.TestCase):

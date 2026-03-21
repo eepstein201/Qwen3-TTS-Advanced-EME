@@ -7,12 +7,9 @@ Task 3.2: WebSocket endpoint (when implemented)
 
 import ast
 import os
-import sys
 import unittest
 
 import numpy as np
-
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 
 class TestStreamingResponseType(unittest.TestCase):

@@ -1,10 +1,6 @@
 """Streaming tests extracted from test_voice.py."""
 
-import os
-import sys
 import unittest
-
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from tests.voice_test_helpers import (
     _skip_server, _skip_client, _make_test_client,

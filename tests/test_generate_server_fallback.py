@@ -6,7 +6,6 @@ Tests that when `tts` CLI is not on PATH, the fallback uses
 
 Run: python -m pytest tests/test_generate_server_fallback.py -v
 """
-import os
 import sys
 import unittest
 from unittest.mock import MagicMock, mock_open, patch
@@ -37,8 +36,6 @@ except ImportError:
     class _DummyPytest:
         mark = _DummyMark()
     pytest = _DummyPytest()
-
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 try:
     from qwen3_tts.interface.generate import ensure_server_running

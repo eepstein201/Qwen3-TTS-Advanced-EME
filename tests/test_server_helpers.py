@@ -9,7 +9,6 @@ No GPU, models, or running server required.
 
 import inspect
 import os
-import sys
 import unittest
 from unittest.mock import patch, MagicMock
 
@@ -43,9 +42,6 @@ except ImportError:
     class _DummyPytest:
         mark = _DummyMark()
     pytest = _DummyPytest()
-
-# Ensure project root is importable
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 # Check optional dependencies
 try:

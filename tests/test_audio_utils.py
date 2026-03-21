@@ -5,8 +5,6 @@ Covers normalize_audio, trim_silence, process_audio, and _split_text.
 No GPU, models, or running server required — uses numpy for test audio.
 """
 
-import os
-import sys
 import unittest
 
 import numpy as np
@@ -41,8 +39,6 @@ except ImportError:
     class _DummyPytest:
         mark = _DummyMark()
     pytest = _DummyPytest()
-
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 
 @pytest.mark.unit

@@ -36,6 +36,7 @@ BATCHES = {
             "tests.test_healthcheck_ext",
             "tests.test_model_cache",
             "tests.test_model_cache_commands",
+            "tests.test_decomposition_check",
         ],
         "timeout": 90,  # Quick tests
     },

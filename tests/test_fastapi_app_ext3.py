@@ -45,8 +45,6 @@ import time
 import unittest
 from unittest.mock import patch, MagicMock
 
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-
 _APP = "qwen3_tts.server.app"
 _ENGINE = "qwen3_tts.core.engine"
 

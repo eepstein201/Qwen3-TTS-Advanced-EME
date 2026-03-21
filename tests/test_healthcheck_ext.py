@@ -15,13 +15,9 @@ Covers uncovered functions:
 
 Run: pytest tests/test_healthcheck_ext.py -v
 """
-import os
-import sys
 import pathlib
 import unittest
 from unittest.mock import patch, MagicMock
-
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 _MOD = "qwen3_tts.tools.healthcheck"
 

@@ -15,12 +15,9 @@ Covers:
 Run: pytest tests/test_fastapi_app_ext.py -v
 """
 import os
-import sys
 import time
 import pytest
 from unittest.mock import patch, MagicMock
-
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 try:
     from qwen3_tts.server.app import app as _app

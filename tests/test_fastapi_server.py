@@ -13,8 +13,6 @@ No GPU, models, or running server required. Tests use FastAPI TestClient.
 
 Run: pytest tests/test_fastapi_server.py -v
 """
-import os
-import sys
 import time
 from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
@@ -38,8 +36,6 @@ except ImportError:
     class _DummyPytest:
         mark = _DummyMark()
     pytest = _DummyPytest()
-
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 try:
     from fastapi.testclient import TestClient  # noqa: F401

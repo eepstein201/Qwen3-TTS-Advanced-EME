@@ -12,11 +12,8 @@ Covers deeper paths not in test_generate_interactive.py:
 Run: pytest tests/test_generate_interactive_ext.py -v
 """
 import os
-import sys
 import unittest
 from unittest.mock import patch, MagicMock
-
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 
 class TestDeleteVoicePromptDeep(unittest.TestCase):

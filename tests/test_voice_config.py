@@ -6,9 +6,6 @@ import tempfile
 import unittest
 from unittest.mock import patch
 
-# Ensure project root is importable
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-
 
 class TestTTSConfig(unittest.TestCase):
     """Test qwen3_tts.core.config module (no heavy imports)."""
