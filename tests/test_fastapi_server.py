@@ -127,7 +127,7 @@ def test_get_real_client_ip_no_client():
 def test_check_memory_available_no_psutil():
     """_check_memory_available returns (True, 0) when psutil missing."""
     from qwen3_tts.server.app import _check_memory_available
-    with patch("qwen3_tts.server.app._HAS_PSUTIL", False):
+    with patch("qwen3_tts.server.app_lifespan._HAS_PSUTIL", False):
         ok, mb = _check_memory_available()
     assert ok is True
     assert mb == 0
@@ -138,7 +138,7 @@ def test_check_memory_available_no_psutil():
 def test_check_memory_available_low():
     """_check_memory_available returns False when memory below threshold."""
     from qwen3_tts.server.app import _check_memory_available
-    import qwen3_tts.server.app as _app_mod
+    import qwen3_tts.server.app_lifespan as _app_mod
     mock_mem = MagicMock()
     mock_mem.available = 500 * 1024 * 1024  # 500 MB
     mock_psutil = MagicMock()
@@ -164,7 +164,7 @@ def test_check_memory_available_low():
 def test_check_memory_available_ok():
     """_check_memory_available returns True when memory sufficient."""
     from qwen3_tts.server.app import _check_memory_available
-    import qwen3_tts.server.app as _app_mod
+    import qwen3_tts.server.app_lifespan as _app_mod
     mock_mem = MagicMock()
     mock_mem.available = 4 * 1024 * 1024 * 1024  # 4 GB
     mock_psutil = MagicMock()

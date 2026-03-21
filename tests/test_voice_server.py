@@ -521,8 +521,8 @@ class TestGenerateStreamIdCheck(unittest.TestCase):
     def test_generate_stream_checks_generation_id(self):
         """generate_stream only resets state if generation_id matches."""
         import inspect
-        from qwen3_tts.server import app as app_module
-        source = inspect.getsource(app_module)
+        from qwen3_tts.server import app_generation
+        source = inspect.getsource(app_generation)
         # Should check generation_id before resetting
         self.assertIn('if state.generation_state.get("generation_id") == gen_id', source)
 

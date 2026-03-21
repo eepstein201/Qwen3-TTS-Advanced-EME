@@ -282,7 +282,7 @@ def test_generate_memory_guard(fastapi_client):
     """POST /generate returns 503 when memory is low."""
     from unittest.mock import patch
     app.state.models_loaded.set()
-    with patch("qwen3_tts.server.app._check_memory_available", return_value=(False, 500)):
+    with patch("qwen3_tts.server.app_generation._check_memory_available", return_value=(False, 500)):
         response = fastapi_client.post(
             "/generate",
             json={"text": "Hello", "mode": "clone", "prompt_file": "v.wav"},
@@ -329,7 +329,7 @@ def test_generate_stream_memory_guard(fastapi_client):
     """POST /generate-stream returns 503 when memory is low."""
     from unittest.mock import patch
     app.state.models_loaded.set()
-    with patch("qwen3_tts.server.app._check_memory_available", return_value=(False, 300)):
+    with patch("qwen3_tts.server.app_generation._check_memory_available", return_value=(False, 300)):
         response = fastapi_client.post(
             "/generate-stream",
             json={"text": "Hello", "mode": "clone", "prompt_file": "v.wav"},

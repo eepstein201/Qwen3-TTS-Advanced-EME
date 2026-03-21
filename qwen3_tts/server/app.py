@@ -5,30 +5,24 @@
 - Proper streaming via asyncio.Queue
 - app.state for worker-safe state
 - inference_lock for GPU serialization
+
+Lifecycle (lifespan, cleanup) lives in app_lifespan.py.
+Generation handlers (/generate, /generate-stream) live in app_generation.py.
 """
 
-import asyncio
-import atexit
 import json
 import logging
 import logging.handlers
 import os
-import re as _re
 import secrets
 import signal
-import struct
 import sys
-import tempfile
-import threading
 import time
-import uuid
-from collections import deque
-from contextlib import asynccontextmanager
 from typing import Optional
 
-from fastapi import FastAPI, Request, Response, HTTPException, Depends, WebSocket
+from fastapi import FastAPI, Request, HTTPException, Depends, WebSocket
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import StreamingResponse, FileResponse
+from fastapi.responses import FileResponse
 import uvicorn
 
 # Optional rate limiting (R-13)
@@ -39,13 +33,6 @@ try:
 except ImportError:
     _HAS_SLOWAPI = False
 
-# Optional memory monitoring for OOM safeguard
-try:
-    import psutil
-    _HAS_PSUTIL = True
-except ImportError:
-    _HAS_PSUTIL = False
-
 logger = logging.getLogger("tts")
 
 from qwen3_tts.core.config import (  # noqa: E402
@@ -54,7 +41,6 @@ from qwen3_tts.core.config import (  # noqa: E402
     LOG_FILE,
     MODEL_INFO,
     MLX_MODEL_INFO,
-    HISTORY_FILE,
     IN_COLAB,
     ConfigLoader,
     DefaultConfigLoader,
@@ -66,8 +52,6 @@ from qwen3_tts.core.config import (  # noqa: E402
     get_mlx_quantization,
     get_model_size,
     get_mlx_model_name,
-    get_generation_cache_max,
-    get_eta_cache_ttl,
     cleanup_pid_file,
 )
 
@@ -85,8 +69,6 @@ def set_app_config_provider(provider: Optional[ConfigLoader]) -> None:
 def _get_app_config() -> dict:
     """Load application config, using override provider if set."""
     return (_app_config_provider or _DEFAULT_CONFIG_LOADER).load()
-
-
 
 
 from qwen3_tts.server.websocket import websocket_tts_handler  # noqa: E402
@@ -107,28 +89,33 @@ from qwen3_tts.server.validation import (  # noqa: E402
     GenerateResult,  # noqa: F401 (imported by test code via app module)
     HealthResponse,
     # Validation helpers
-    _validate_generation_request,
+    _validate_generation_request,  # noqa: F401 (re-exported for test backward compat)
     _validate_prompt_name,
     _strip_extension,
-    _gen_cache_key,
-    _error_response,
+    _gen_cache_key,  # noqa: F401 (re-exported for test backward compat)
+    _error_response,  # noqa: F401 (re-exported for test backward compat)
 )
 
+# Import lifecycle/infrastructure from app_lifespan
+from qwen3_tts.server.app_lifespan import (  # noqa: E402
+    MAX_ERROR_MSG_LEN,  # noqa: F401 (re-exported)
+    _sanitize_error,  # noqa: F401 (re-exported for test backward compat)
+    _estimate_eta,
+    _check_memory_available,  # noqa: F401 (re-exported for test backward compat)
+    _get_queue_size,
+    reset_activity_timer,
+    auto_shutdown,  # noqa: F401 (re-exported for test backward compat)
+    lifespan,
+    _background_load,  # noqa: F401 (re-exported for test backward compat)
+    cleanup_resources,
+    cleanup_pid,  # noqa: F401 (re-exported for test backward compat)
+)
 
-# ---------------------------------------------------------------------------
-# Error sanitization — strip filesystem paths from public error responses
-# ---------------------------------------------------------------------------
-
-MAX_ERROR_MSG_LEN = 200  # max chars for sanitized error messages
-
-
-def _sanitize_error(msg: str) -> str:
-    """Remove absolute filesystem paths from error messages for public endpoints."""
-    # Replace Unix-style absolute paths (e.g. /Users/foo/bar.pt → <path>)
-    sanitized = _re.sub(r"/[^\s\"']+", "<path>", str(msg))
-    # Replace Windows-style absolute paths
-    sanitized = _re.sub(r"[A-Za-z]:\\[^\s\"']+", "<path>", sanitized)
-    return sanitized[:MAX_ERROR_MSG_LEN]
+# Import generation handlers
+from qwen3_tts.server.app_generation import (  # noqa: E402
+    handle_generate,
+    handle_generate_stream,
+)
 
 
 # ---------------------------------------------------------------------------
@@ -169,284 +156,6 @@ async def verify_auth(request: Request) -> None:
         client_ip = _get_real_client_ip(request)
         logger.warning("Auth failure from %s on %s %s", client_ip, request.method, request.url.path)
         raise HTTPException(status_code=401, detail="Unauthorized")
-
-
-# ---------------------------------------------------------------------------
-# Helper functions
-# ---------------------------------------------------------------------------
-
-
-def _estimate_eta(app_state, text_length: int, elapsed_sec: float) -> Optional[float]:
-    """Estimate remaining seconds from history data."""
-    now = time.time()
-
-    # Refresh cache if stale
-    if now - app_state.eta_cache["last_updated"] > get_eta_cache_ttl():
-        try:
-            if not os.path.exists(HISTORY_FILE):
-                app_state.eta_cache["median_rate"] = None
-            else:
-                with open(HISTORY_FILE, "r") as f:
-                    lines = deque(f, maxlen=20)
-                rates = []
-                for line in lines:
-                    entry = json.loads(line)
-                    dur = entry.get("duration_sec")
-                    tl = entry.get("text_length")
-                    if dur and tl and dur > 0:
-                        rates.append(tl / dur)
-                if rates:
-                    rates.sort()
-                    app_state.eta_cache["median_rate"] = rates[len(rates) // 2]
-                else:
-                    app_state.eta_cache["median_rate"] = None
-        except (json.JSONDecodeError, OSError, KeyError, ValueError):
-            app_state.eta_cache["median_rate"] = None
-        app_state.eta_cache["last_updated"] = now
-
-    median_rate = app_state.eta_cache["median_rate"]
-    if median_rate is None or median_rate <= 0:
-        return None
-
-    estimated_total = text_length / median_rate
-    remaining = max(0, estimated_total - elapsed_sec)
-    return round(remaining, 1)
-
-
-_MEMORY_THRESHOLD_BYTES = 1024 * 1024 * 1024  # 1 GB
-
-
-def _check_memory_available() -> tuple[bool, int]:
-    """Check if sufficient system memory is available for generation.
-
-    Returns:
-        (ok, available_mb): ok is True if memory is above threshold,
-        available_mb is the current available memory in MB.
-    """
-    if not _HAS_PSUTIL:
-        return True, 0  # Skip check if psutil not installed
-    mem = psutil.virtual_memory()
-    available_mb = mem.available // (1024 * 1024)
-    if mem.available < _MEMORY_THRESHOLD_BYTES:
-        return False, available_mb
-    if mem.available < _MEMORY_THRESHOLD_BYTES * 2:
-        logger.warning("Low memory: %dMB available", available_mb)
-    return True, available_mb
-
-
-def _get_queue_size(app_state) -> int:
-    """Return request queue size (thread-safe)."""
-    with app_state.request_queue_lock:
-        return len(app_state.request_queue)
-
-
-def reset_activity_timer(app_state):
-    """Reset the auto-shutdown timer on activity."""
-    app_state.last_activity = time.time()
-
-    auto_shutdown_minutes = app_state.server_config.get("auto_shutdown_minutes", 0)
-    if auto_shutdown_minutes <= 0:
-        return
-
-    # Cancel existing timer
-    if app_state.shutdown_timer is not None:
-        app_state.shutdown_timer.cancel()
-
-    # Start new timer
-    app_state.shutdown_timer = threading.Timer(
-        auto_shutdown_minutes * 60,
-        lambda: auto_shutdown(app_state)
-    )
-    app_state.shutdown_timer.daemon = True
-    app_state.shutdown_timer.start()
-
-
-def auto_shutdown(app_state):
-    """Auto-shutdown due to inactivity."""
-    logger.info("Auto-shutdown: No activity for %d minutes.",
-                app_state.server_config.get("auto_shutdown_minutes", 0))
-    cleanup_resources(app_state)
-    sys.exit(0)
-
-
-# ---------------------------------------------------------------------------
-# Lifespan
-# ---------------------------------------------------------------------------
-
-@asynccontextmanager
-async def lifespan(app: FastAPI):
-    """FastAPI lifespan — startup and shutdown."""
-    # Initialize app.state
-    app.state.auth_token = secrets.token_hex(32)
-    app.state.models = {"clone": None, "design": None, "custom": None}
-    app.state.model_load_times = {}
-    app.state.generation_lock = asyncio.Lock()
-    app.state.generation_state = {
-        "active": False,
-        "start_time": 0.0,
-        "text_length": 0,
-        "mode": "",
-        "batch_index": 0,
-        "batch_total": 0,
-        "chunk_index": 0,
-        "chunk_total": 0,
-        "generation_id": None,
-        "cancelled": False,
-    }
-    app.state.request_queue = set()
-    app.state.request_queue_lock = threading.Lock()
-    app.state.pending_requests = []  # [{id, text_preview, mode, queued_at}]
-    app.state.pending_lock = asyncio.Lock()
-    app.state.last_activity = time.time()
-    app.state.models_loaded = threading.Event()
-    app.state.gen_cache = {}
-    app.state.gen_cache_lock = threading.Lock()
-
-    # CRITICAL: Add inference_lock to prevent parallel OOM
-    app.state.inference_lock = asyncio.Lock()
-
-    # ETA cache
-    app.state.eta_cache = {"median_rate": None, "last_updated": 0}
-
-    # Model load error tracking
-    app.state.model_load_errors = {"clone": None, "design": None, "custom": None}
-
-    # Auto-shutdown timer
-    app.state.shutdown_timer = None
-
-    # Graceful shutdown event
-    app.state.shutdown_event = asyncio.Event()
-
-    # Server config (loaded from config.json)
-    config = load_config()
-    app.state.server_config = config.get("server", {})
-    app.state.server_config["models"] = config.get("models", {})
-    app.state.server_config["security"] = config.get("security", {})
-
-    # Write token file
-    with open(TOKEN_FILE, "w") as f:
-        f.write(app.state.auth_token)
-    os.chmod(TOKEN_FILE, 0o600)
-
-    # Register atexit handler as safety net for cleanup
-    atexit.register(cleanup_resources, app.state)
-
-    logger.info("FastAPI server starting...")
-
-    # Start background model loading
-    loader = threading.Thread(target=_background_load, args=(app.state,), daemon=True)
-    loader.start()
-
-    yield
-
-    # Shutdown
-    logger.info("FastAPI server shutting down...")
-    cleanup_resources(app.state)
-
-    # Clean up token file
-    try:
-        os.unlink(TOKEN_FILE)
-    except FileNotFoundError:
-        pass
-
-
-def _background_load(app_state):
-    """Background thread that loads models at startup."""
-    from qwen3_tts.core.engine import load_model, migrate_orphan_mlx_prompts
-
-    config = app_state.server_config
-    models_config = config.get("models", {})
-
-    if not models_config:
-        models_config = {"clone": {"load_at_startup": True}}
-
-    models_to_load = []
-    for model_type, settings in models_config.items():
-        if settings.get("load_at_startup", False):
-            models_to_load.append(model_type)
-
-    if not models_to_load:
-        logger.warning("No models configured to load at startup.")
-    else:
-        logger.info("Loading %d model(s): %s", len(models_to_load), ", ".join(models_to_load))
-
-    for model_type in models_to_load:
-        try:
-            from qwen3_tts.core.config import get_model_info
-            info = get_model_info(model_type)
-            model_name = info.get("name", info.get("name_template", model_type))
-            logger.info("Loading %s...", model_name)
-            t0 = time.time()
-            model = load_model(model_type)
-            app_state.models[model_type] = model
-            app_state.model_load_times[model_type] = round(time.time() - t0, 1)
-            logger.info("Loaded %s model successfully in %.1fs.", model_type, app_state.model_load_times[model_type])
-        except (ImportError, RuntimeError, OSError, ValueError, MemoryError) as e:
-            error_msg = str(e)
-            logger.error("Failed to load %s model: %s", model_type, error_msg, exc_info=True)
-            # Sanitize before storing — /health is a public endpoint
-            app_state.model_load_errors[model_type] = _sanitize_error(error_msg)
-
-    # MLX prompt migration for torch backend
-    if get_backend() == "torch":
-        try:
-            migrate_orphan_mlx_prompts(clone_model=app_state.models.get("clone"))
-        except (ImportError, RuntimeError, OSError, ValueError) as e:
-            logger.warning("MLX prompt migration failed: %s", e)
-
-    app_state.models_loaded.set()
-    logger.info("Background model loading complete.")
-
-
-def cleanup_resources(app_state):
-    """Clean up resources on shutdown."""
-    # Cancel shutdown timer
-    shutdown_timer = getattr(app_state, "shutdown_timer", None)
-    if shutdown_timer is not None:
-        shutdown_timer.cancel()
-
-    # Clean up models
-    models = getattr(app_state, "models", None)
-    if models is not None:
-        for name in ("clone", "design", "custom"):
-            model = models.get(name)
-            if model is not None:
-                try:
-                    del model
-                    models[name] = None
-                except Exception:
-                    pass
-
-    # Clean up generation cache temp files
-    gen_cache = getattr(app_state, "gen_cache", None)
-    if gen_cache:
-        for entry in gen_cache.values():
-            main_file = entry.get("main_file") or entry.get("file")
-            if main_file and os.path.exists(main_file):
-                try:
-                    os.remove(main_file)
-                except OSError:
-                    pass
-        gen_cache.clear()
-
-    # Clean up PID file
-    cleanup_pid_file()
-
-
-def cleanup_pid(app_state):
-    """Clean up PID file and initiate graceful shutdown."""
-    shutdown_timer = getattr(app_state, "shutdown_timer", None)
-    if shutdown_timer is not None:
-        shutdown_timer.cancel()
-    cleanup_pid_file()
-    if os.path.exists(TOKEN_FILE):
-        os.remove(TOKEN_FILE)
-    # Set shutdown event for graceful termination
-    shutdown_event = getattr(app_state, "shutdown_event", None)
-    if shutdown_event is not None:
-        shutdown_event.set()
-    cleanup_resources(app_state)
-    sys.exit(0)
 
 
 # Create FastAPI app
@@ -1167,6 +876,10 @@ async def cancel_generation(request: Request, _auth: None = Depends(verify_auth)
     }
 
 
+# ---------------------------------------------------------------------------
+# Generation endpoints — thin wrappers delegating to app_generation.py
+# ---------------------------------------------------------------------------
+
 @app.post("/generate", response_model=GenerateResponse,
           responses={200: {"content": {"audio/wav": {"schema": {"type": "string", "format": "binary"}}}}})
 @_rate_limit(_generate_limit)
@@ -1174,262 +887,8 @@ async def generate(request: Request, req: GenerateRequest, _auth: None = Depends
     """Generate audio from text."""
     state = request.app.state
     reset_activity_timer(state)
-
-    # Memory guard — prevent OOM crash
-    mem_ok, available_mb = _check_memory_available()
-    if not mem_ok:
-        raise HTTPException(
-            status_code=503,
-            detail={
-                "error": "insufficient_memory",
-                "detail": f"Only {available_mb}MB available. Unload unused models to free memory.",
-                "recovery": "unload",
-            },
-        )
-
-    # Validate and normalize request
     security = state.server_config.get("security", {})
-    max_text_length = security.get("max_text_length", 10000)
-    max_batch_size = security.get("max_batch_size", 20)
-
-    # Support both text and texts
-    if req.text:
-        texts = [req.text]
-    elif req.texts:
-        texts = req.texts
-    else:
-        raise HTTPException(status_code=400, detail="No text provided")
-
-    if isinstance(texts, str):
-        texts = [texts]
-
-    if len(texts) > max_batch_size:
-        raise HTTPException(
-            status_code=400,
-            detail=f"Batch size {len(texts)} exceeds limit of {max_batch_size}",
-        )
-
-    for i, t in enumerate(texts):
-        if not isinstance(t, str) or not t.strip():
-            raise HTTPException(status_code=400, detail=f"Text at index {i} is empty or invalid")
-        if len(t) > max_text_length:
-            raise HTTPException(
-                status_code=400,
-                detail=f"Text at index {i} exceeds {max_text_length} character limit ({len(t)} chars)",
-            )
-
-    _validate_generation_request(req, security)
-
-    mode = req.mode
-    prompt_file = req.prompt_file
-    speaker = req.speaker
-
-    # Check if required model is loaded
-    model = state.models.get(mode)
-    if model is None:
-        from qwen3_tts.core.config import get_model_info
-        info = get_model_info(mode)
-        detail = info.get('description', '')
-        raise HTTPException(
-            status_code=503,
-            detail={
-                "error": "model_not_loaded",
-                "detail": f"The '{mode}' model is not loaded. {detail}",
-                "recovery": "restart",
-                "model_type": mode,
-            },
-        )
-
-    # Generation parameters
-    gen_params = {
-        "temperature": req.temperature,
-        "top_k": req.top_k,
-        "top_p": req.top_p,
-        "repetition_penalty": req.repetition_penalty,
-        "max_new_tokens": req.max_new_tokens,
-    }
-    if req.seed is not None:
-        gen_params["seed"] = req.seed
-
-    voice_description = req.voice_description
-    language = req.language
-    instruct = req.instruct
-    x_vector_only_mode = req.x_vector_only_mode
-    max_chunk_chars = req.max_chunk_chars
-
-    # Track this request in queue (thread-safe, R-19)
-    request_id = id(request)
-    with state.request_queue_lock:
-        state.request_queue.add(request_id)
-
-    try:
-        import io
-        import base64
-        import soundfile as sf
-        from qwen3_tts.core.engine import load_voice_prompt, run_inference
-
-        # Pre-lock cache check
-        pre_lock_cache_keys = {}
-        pre_lock_results = {}
-        for i, text in enumerate(texts):
-            cache_key = _gen_cache_key(
-                text, mode, gen_params,
-                prompt_file=prompt_file,
-                voice_description=voice_description,
-                speaker=speaker, instruct=instruct,
-            )
-            pre_lock_cache_keys[i] = cache_key
-            with state.gen_cache_lock:
-                entry = state.gen_cache.get(cache_key)
-            if entry:
-                cache_file = entry.get("main_file") or entry.get("file")
-                if cache_file and os.path.exists(cache_file):
-                    with open(cache_file, "rb") as f:
-                        b64_audio = base64.b64encode(f.read()).decode("utf-8")
-                    pre_lock_results[i] = {"index": i, "audio_base64": b64_audio, "sample_rate": entry["sample_rate"]}
-                    logger.info("Generation cache hit (pre-lock) for text %d/%d", i + 1, len(texts))
-
-        # If ALL texts hit cache, skip the lock entirely
-        if len(pre_lock_results) == len(texts):
-            results = [pre_lock_results[i] for i in range(len(texts))]
-            with state.request_queue_lock:
-                state.request_queue.discard(request_id)
-            return {"results": results}
-
-        # Acquire inference_lock for GPU serialization (generation_lock used only for state updates)
-        async with state.inference_lock:
-            results = []
-
-            for i, text in enumerate(texts):
-                # Use pre-lock cache hit if available
-                if i in pre_lock_results:
-                    results.append(pre_lock_results[i])
-                    continue
-
-                # Post-lock cache check
-                cache_key = pre_lock_cache_keys[i]
-                with state.gen_cache_lock:
-                    entry = state.gen_cache.get(cache_key)
-                if entry:
-                    cache_file = entry.get("main_file") or entry.get("file")
-                    if cache_file and os.path.exists(cache_file):
-                        with open(cache_file, "rb") as f:
-                            b64_audio = base64.b64encode(f.read()).decode("utf-8")
-                        results.append({"index": i, "audio_base64": b64_audio, "sample_rate": entry["sample_rate"]})
-                        logger.info("Generation cache hit (post-lock) for text %d/%d", i + 1, len(texts))
-                    continue
-
-                # Brief lock to set generation state
-                async with state.generation_lock:
-                    state.generation_state.update({
-                        "active": True,
-                        "start_time": time.time(),
-                        "text_length": len(text),
-                        "mode": mode,
-                        "batch_index": i,
-                        "batch_total": len(texts),
-                    })
-
-                # Prepare mode-specific params
-                voice_prompt = None
-                if mode == "clone":
-                    if not prompt_file:
-                        raise HTTPException(status_code=400, detail="prompt_file required for clone mode")
-                    voice_prompt = load_voice_prompt(prompt_file)
-                    if voice_prompt is None:
-                        raise HTTPException(
-                            status_code=404,
-                            detail=f"Voice prompt not found: {prompt_file}",
-                        )
-
-                def _chunk_progress(chunk_idx, chunk_total):
-                    state.generation_state.update({
-                        "chunk_index": chunk_idx,
-                        "chunk_total": chunk_total,
-                    })
-
-                # Run inference (offloaded to thread pool to avoid blocking event loop)
-                wav, sr = await asyncio.to_thread(
-                    run_inference,
-                    model=model,
-                    text=text,
-                    mode=mode,
-                    gen_params=gen_params,
-                    language=language,
-                    voice_prompt=voice_prompt,
-                    voice_description=voice_description,
-                    speaker=speaker,
-                    instruct=instruct,
-                    max_chunk_chars=max_chunk_chars,
-                    progress_callback=_chunk_progress,
-                    x_vector_only_mode=x_vector_only_mode,
-                    config_provider=_app_config_provider,
-                )
-
-                # Encode audio to base64 WAV in memory
-                buf = io.BytesIO()
-                sf.write(buf, wav, sr, format="WAV")
-                b64_audio = base64.b64encode(buf.getvalue()).decode("utf-8")
-
-                # Store persistent cache file for future hits
-                cache_file = tempfile.NamedTemporaryFile(suffix=".wav", delete=False)
-                cache_file.close()  # Close handle before sf.write to avoid leak
-                os.chmod(cache_file.name, 0o600)
-                sf.write(cache_file.name, wav, sr)
-
-                with state.gen_cache_lock:
-                    if len(state.gen_cache) >= get_generation_cache_max():
-                        oldest_key = min(state.gen_cache, key=lambda k: state.gen_cache[k]["timestamp"])
-                        old_entry = state.gen_cache.pop(oldest_key)
-                        old_main = old_entry.get("main_file")
-                        if old_main and os.path.exists(old_main):
-                            try:
-                                os.remove(old_main)
-                            except OSError:
-                                pass
-                    state.gen_cache[cache_key] = {
-                        "main_file": cache_file.name,
-                        "sample_rate": sr,
-                        "timestamp": time.time(),
-                    }
-
-                results.append({"index": i, "audio_base64": b64_audio, "sample_rate": sr})
-
-            # Content negotiation: return binary WAV if Accept header contains audio/wav
-            accept = request.headers.get("accept", "application/json")
-            if "audio/wav" in accept and len(results) == 1:
-                # Single text generation with audio/wav Accept: return binary WAV directly
-                result = results[0]
-                if result.get("audio_base64"):
-                    audio_bytes = base64.b64decode(result["audio_base64"])
-                    return Response(
-                        content=audio_bytes,
-                        media_type="audio/wav",
-                        headers={"X-Sample-Rate": str(result["sample_rate"])},
-                    )
-
-            return {"results": results}
-
-    except HTTPException:
-        raise
-    except (RuntimeError, OSError, ValueError, MemoryError, TypeError, ImportError) as e:
-        logger.error("Generation failed: %s", e, exc_info=True)
-        _error_response(500, "Audio generation failed",
-                        "An internal error occurred. Check server logs for details.", "retry")
-    finally:
-        # Clear generation state
-        state.generation_state.update({
-            "active": False,
-            "start_time": 0.0,
-            "text_length": 0,
-            "mode": "",
-            "batch_index": 0,
-            "batch_total": 0,
-            "chunk_index": 0,
-            "chunk_total": 0,
-        })
-        with state.request_queue_lock:
-            state.request_queue.discard(request_id)
+    return await handle_generate(request, state, req, security, _app_config_provider)
 
 
 @app.post("/generate-stream")
@@ -1462,190 +921,13 @@ async def generate_stream(request: Request, req: GenerateRequest, _auth: None = 
     """
     state = request.app.state
     reset_activity_timer(state)
-
-    # Memory guard — prevent OOM crash
-    mem_ok, available_mb = _check_memory_available()
-    if not mem_ok:
-        raise HTTPException(
-            status_code=503,
-            detail={
-                "error": "insufficient_memory",
-                "detail": f"Only {available_mb}MB available. Unload unused models to free memory.",
-                "recovery": "unload",
-            },
-        )
-
-    # Validate request
     security = state.server_config.get("security", {})
-    max_text_length = security.get("max_text_length", 10000)
+    return await handle_generate_stream(request, state, req, security, _app_config_provider)
 
-    if not req.text:
-        raise HTTPException(status_code=400, detail="No text provided")
 
-    text = req.text
-    if len(text) > max_text_length:
-        raise HTTPException(
-            status_code=400,
-            detail=f"Text exceeds {max_text_length} character limit ({len(text)} chars)",
-        )
-
-    # Shared validation (path traversal, speaker, mode)
-    _validate_generation_request(req, security)
-
-    mode = req.mode
-
-    # Check if required model is loaded
-    model = state.models.get(mode)
-    if model is None:
-        error_msg = state.model_load_errors.get(mode, "Model not loaded")
-        raise HTTPException(
-            status_code=503,
-            detail={"error": "model_not_loaded", "message": error_msg, "model_type": mode},
-        )
-
-    # Generation parameters
-    gen_params = {
-        "temperature": req.temperature,
-        "top_k": req.top_k,
-        "top_p": req.top_p,
-        "repetition_penalty": req.repetition_penalty,
-        "max_new_tokens": req.max_new_tokens,
-    }
-    if req.seed is not None:
-        gen_params["seed"] = req.seed
-
-    # Prepare mode-specific params
-    from qwen3_tts.core.engine import load_voice_prompt
-
-    voice_prompt = None
-    if mode == "clone":
-        prompt_file = req.prompt_file
-        if not prompt_file:
-            raise HTTPException(status_code=400, detail="prompt_file required for clone mode")
-        voice_prompt = load_voice_prompt(prompt_file)
-        if voice_prompt is None:
-            raise HTTPException(status_code=404, detail=f"Voice prompt not found: {prompt_file}")
-
-    voice_description = req.voice_description
-    language = req.language
-    speaker = req.speaker
-    instruct = req.instruct
-    x_vector_only_mode = req.x_vector_only_mode
-
-    # Create queue for streaming chunks
-    queue: asyncio.Queue = asyncio.Queue()
-    loop = asyncio.get_event_loop()
-    stop_event = threading.Event()
-    inference_lock = state.inference_lock
-
-    # Register in pending queue
-    queue_entry = {
-        "id": str(uuid.uuid4())[:8],
-        "text_preview": text[:40],
-        "mode": mode,
-        "queued_at": time.time(),
-    }
-
-    async def audio_stream_generator():
-        """Async generator that yields audio chunks."""
-        # Track in pending queue while waiting for inference lock
-        async with state.pending_lock:
-            state.pending_requests.append(queue_entry)
-
-        # Acquire inference_lock to serialize GPU access
-        async with inference_lock:
-            # Remove from pending queue once we have the lock
-            async with state.pending_lock:
-                if queue_entry in state.pending_requests:
-                    state.pending_requests.remove(queue_entry)
-
-            gen_id = str(uuid.uuid4())[:8]
-            state.generation_state.update({
-                "active": True,
-                "start_time": time.time(),
-                "text_length": len(text),
-                "mode": mode,
-                "generation_id": gen_id,
-                "cancelled": False,
-            })
-
-            def inference_thread():
-                """Run inference in a thread and push chunks to queue."""
-                try:
-                    from qwen3_tts.core.engine import run_inference_streaming
-
-                    chunk_idx = 0
-                    for wav_chunk, sr in run_inference_streaming(
-                        model=model,
-                        text=text,
-                        mode=mode,
-                        gen_params=gen_params,
-                        language=language,
-                        voice_prompt=voice_prompt,
-                        voice_description=voice_description,
-                        speaker=speaker,
-                        instruct=instruct,
-                        x_vector_only_mode=x_vector_only_mode,
-                        config_provider=_app_config_provider,
-                    ):
-                        if stop_event.is_set():
-                            logger.info("Generation cancelled after %d chunks", chunk_idx)
-                            break
-
-                        chunk_idx += 1
-                        state.generation_state["chunk_index"] = chunk_idx
-
-                        # Length-prefixed format: [sample_rate:4][length:4][audio:length]
-                        audio_bytes = wav_chunk.astype("<f4").tobytes()
-                        header = struct.pack("<II", sr, len(audio_bytes))
-
-                        # Use call_soon_threadsafe to safely put from thread to async queue
-                        loop.call_soon_threadsafe(queue.put_nowait, header + audio_bytes)
-
-                except (RuntimeError, OSError, ValueError, MemoryError, TypeError) as e:
-                    logger.error("Streaming inference failed: %s", e, exc_info=True)
-                    loop.call_soon_threadsafe(queue.put_nowait, None)
-                else:
-                    # Signal completion
-                    loop.call_soon_threadsafe(queue.put_nowait, None)
-
-            # Start inference thread
-            thread = threading.Thread(target=inference_thread, daemon=True)
-            thread.start()
-
-            try:
-                # Yield chunks as they arrive
-                while True:
-                    chunk = await queue.get()
-                    if chunk is None:
-                        break
-                    yield chunk
-            finally:
-                stop_event.set()
-                # Reset generation state if still our generation
-                if state.generation_state.get("generation_id") == gen_id:
-                    state.generation_state.update({
-                        "active": False,
-                        "start_time": 0.0,
-                        "text_length": 0,
-                        "mode": "",
-                        "chunk_index": 0,
-                        "chunk_total": 0,
-                        "generation_id": None,
-                        "cancelled": False,
-                    })
-
-    return StreamingResponse(
-        audio_stream_generator(),
-        media_type="application/octet-stream",
-        headers={
-            "X-Content-Type": "audio/raw-float32",
-            # Approximate: read without lock since response is already committed.
-            # Exact position available via /queue-status endpoint.
-            "X-Queue-Position": str(len(state.pending_requests)),
-        },
-    )
-
+# ---------------------------------------------------------------------------
+# WebSocket
+# ---------------------------------------------------------------------------
 
 @app.websocket("/ws")
 async def websocket_endpoint(websocket: WebSocket):
@@ -1680,6 +962,7 @@ async def shutdown(request: Request, _auth: None = Depends(verify_auth)):
         cleanup_resources(state)
         os.kill(os.getpid(), signal.SIGTERM)
 
+    from fastapi import Response
     return Response(
         content=json.dumps({"status": "shutting_down"}),
         media_type="application/json",

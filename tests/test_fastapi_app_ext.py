@@ -26,6 +26,8 @@ except ImportError:
     HAS_FASTAPI = False
 
 _APP = "qwen3_tts.server.app"
+_APP_LIFESPAN = "qwen3_tts.server.app_lifespan"
+_APP_GENERATION = "qwen3_tts.server.app_generation"
 
 pytestmark = pytest.mark.skipif(not HAS_FASTAPI, reason="requires fastapi")
 
@@ -125,10 +127,10 @@ class TestGenerateSuccess:
         wav = np.zeros(4800, dtype=np.float32)
         sr = 24000
 
-        with patch(f"{_APP}._check_memory_available", return_value=(True, 4000)), \
+        with patch(f"{_APP_GENERATION}._check_memory_available", return_value=(True, 4000)), \
              patch("qwen3_tts.core.engine.load_voice_prompt", return_value=MagicMock()), \
              patch("qwen3_tts.core.engine.run_inference", return_value=(wav, sr)), \
-             patch(f"{_APP}._gen_cache_key", return_value="test_key"), \
+             patch(f"{_APP_GENERATION}._gen_cache_key", return_value="test_key"), \
              patch("tempfile.NamedTemporaryFile") as mock_tmp:
             mock_file = MagicMock()
             mock_file.name = "/tmp/test_cache.wav"
@@ -161,8 +163,8 @@ class TestGenerateSuccess:
             "timestamp": time.time(),
         }}
 
-        with patch(f"{_APP}._check_memory_available", return_value=(True, 4000)), \
-             patch(f"{_APP}._gen_cache_key", return_value="test_key"):
+        with patch(f"{_APP_GENERATION}._check_memory_available", return_value=(True, 4000)), \
+             patch(f"{_APP_GENERATION}._gen_cache_key", return_value="test_key"):
             resp = client.post("/generate", json={
                 "text": "Hello cached",
                 "mode": "clone",
@@ -183,9 +185,9 @@ class TestGenerateSuccess:
         wav = np.zeros(4800, dtype=np.float32)
         sr = 24000
 
-        with patch(f"{_APP}._check_memory_available", return_value=(True, 4000)), \
+        with patch(f"{_APP_GENERATION}._check_memory_available", return_value=(True, 4000)), \
              patch("qwen3_tts.core.engine.run_inference", return_value=(wav, sr)), \
-             patch(f"{_APP}._gen_cache_key", return_value="design_key"), \
+             patch(f"{_APP_GENERATION}._gen_cache_key", return_value="design_key"), \
              patch("tempfile.NamedTemporaryFile") as mock_tmp:
             mock_file = MagicMock()
             mock_file.name = "/tmp/design_cache.wav"
@@ -205,10 +207,10 @@ class TestGenerateSuccess:
         client = fastapi_client
         _app.state.models["clone"] = MagicMock()
 
-        with patch(f"{_APP}._check_memory_available", return_value=(True, 4000)), \
+        with patch(f"{_APP_GENERATION}._check_memory_available", return_value=(True, 4000)), \
              patch("qwen3_tts.core.engine.load_voice_prompt", return_value=MagicMock()), \
              patch("qwen3_tts.core.engine.run_inference", side_effect=RuntimeError("CUDA OOM")), \
-             patch(f"{_APP}._gen_cache_key", return_value="err_key"):
+             patch(f"{_APP_GENERATION}._gen_cache_key", return_value="err_key"):
             resp = client.post("/generate", json={
                 "text": "Hello",
                 "mode": "clone",
@@ -221,8 +223,8 @@ class TestGenerateSuccess:
         client = fastapi_client
         _app.state.models["clone"] = MagicMock()
 
-        with patch(f"{_APP}._check_memory_available", return_value=(True, 4000)), \
-             patch(f"{_APP}._gen_cache_key", return_value="nope"):
+        with patch(f"{_APP_GENERATION}._check_memory_available", return_value=(True, 4000)), \
+             patch(f"{_APP_GENERATION}._gen_cache_key", return_value="nope"):
             resp = client.post("/generate", json={
                 "text": "Hello",
                 "mode": "clone",
@@ -422,7 +424,7 @@ class TestBackgroundLoad:
         info = {"name": "TestModel"}
         with patch("qwen3_tts.core.engine.load_model", return_value=mock_model), \
              patch("qwen3_tts.core.config.get_model_info", return_value=info), \
-             patch(f"{_APP}.get_backend", return_value="mlx"), \
+             patch(f"{_APP_LIFESPAN}.get_backend", return_value="mlx"), \
              patch("qwen3_tts.core.engine.migrate_orphan_mlx_prompts"):
             _background_load(app_state)
 
@@ -443,7 +445,7 @@ class TestBackgroundLoad:
 
         with patch("qwen3_tts.core.engine.load_model", side_effect=RuntimeError("OOM")), \
              patch("qwen3_tts.core.config.get_model_info", return_value={"name": "M"}), \
-             patch(f"{_APP}.get_backend", return_value="mlx"), \
+             patch(f"{_APP_LIFESPAN}.get_backend", return_value="mlx"), \
              patch("qwen3_tts.core.engine.migrate_orphan_mlx_prompts"):
             _background_load(app_state)
 
@@ -459,7 +461,7 @@ class TestBackgroundLoad:
         app_state.model_load_times = {}
         app_state.model_load_errors = {"clone": None, "design": None, "custom": None}
 
-        with patch(f"{_APP}.get_backend", return_value="mlx"), \
+        with patch(f"{_APP_LIFESPAN}.get_backend", return_value="mlx"), \
              patch("qwen3_tts.core.engine.migrate_orphan_mlx_prompts"):
             _background_load(app_state)
 
@@ -474,7 +476,7 @@ class TestBackgroundLoad:
         app_state.model_load_times = {}
         app_state.model_load_errors = {"clone": None, "design": None, "custom": None}
 
-        with patch(f"{_APP}.get_backend", return_value="torch"), \
+        with patch(f"{_APP_LIFESPAN}.get_backend", return_value="torch"), \
              patch("qwen3_tts.core.engine.migrate_orphan_mlx_prompts") as mock_migrate:
             _background_load(app_state)
 

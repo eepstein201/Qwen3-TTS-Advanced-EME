@@ -46,6 +46,8 @@ import unittest
 from unittest.mock import patch, MagicMock
 
 _APP = "qwen3_tts.server.app"
+_APP_LIFESPAN = "qwen3_tts.server.app_lifespan"
+_APP_GENERATION = "qwen3_tts.server.app_generation"
 _ENGINE = "qwen3_tts.core.engine"
 
 
@@ -114,8 +116,8 @@ class TestEstimateEtaException(unittest.TestCase):
         state = MagicMock()
         state.eta_cache = {"median_rate": None, "last_updated": 0}
 
-        with patch(f"{_APP}.get_eta_cache_ttl", return_value=0), \
-             patch(f"{_APP}.HISTORY_FILE", "/nonexistent/path.jsonl"):
+        with patch(f"{_APP_LIFESPAN}.get_eta_cache_ttl", return_value=0), \
+             patch(f"{_APP_LIFESPAN}.HISTORY_FILE", "/nonexistent/path.jsonl"):
             result = _estimate_eta(state, 100, 1.0)
         self.assertIsNone(result)
 
@@ -128,8 +130,8 @@ class TestEstimateEtaException(unittest.TestCase):
         tmp.write("not valid json\n")
         tmp.close()
         try:
-            with patch(f"{_APP}.get_eta_cache_ttl", return_value=0), \
-                 patch(f"{_APP}.HISTORY_FILE", tmp.name):
+            with patch(f"{_APP_LIFESPAN}.get_eta_cache_ttl", return_value=0), \
+                 patch(f"{_APP_LIFESPAN}.HISTORY_FILE", tmp.name):
                 result = _estimate_eta(state, 100, 1.0)
             self.assertIsNone(result)
         finally:
@@ -526,7 +528,7 @@ class TestGenerateEndpointExt3(unittest.TestCase):
         fake_wav = np.zeros(1000, dtype=np.float32)
         with patch(f"{_ENGINE}.load_voice_prompt", return_value=MagicMock()), \
              patch(f"{_ENGINE}.run_inference", return_value=(fake_wav, 24000)), \
-             patch(f"{_APP}._check_memory_available", return_value=(True, 4096)):
+             patch(f"{_APP_GENERATION}._check_memory_available", return_value=(True, 4096)):
             resp = self.client.post("/generate",
                                     json={"text": "seed test", "mode": "clone",
                                           "prompt_file": "test.wav", "seed": 42},
@@ -536,7 +538,7 @@ class TestGenerateEndpointExt3(unittest.TestCase):
     # --- clone voice_prompt is None (line 1337) ---
     def test_generate_clone_voice_prompt_not_found(self):
         with patch(f"{_ENGINE}.load_voice_prompt", return_value=None), \
-             patch(f"{_APP}._check_memory_available", return_value=(True, 4096)):
+             patch(f"{_APP_GENERATION}._check_memory_available", return_value=(True, 4096)):
             resp = self.client.post("/generate",
                                     json={"text": "hello", "mode": "clone",
                                           "prompt_file": "nonexistent.wav"},
@@ -563,7 +565,7 @@ class TestGenerateEndpointExt3(unittest.TestCase):
 
         with patch(f"{_ENGINE}.load_voice_prompt", return_value=MagicMock()), \
              patch(f"{_ENGINE}.run_inference", side_effect=mock_run_inference), \
-             patch(f"{_APP}._check_memory_available", return_value=(True, 4096)):
+             patch(f"{_APP_GENERATION}._check_memory_available", return_value=(True, 4096)):
             resp = self.client.post("/generate",
                                     json={"text": "chunk test", "mode": "clone",
                                           "prompt_file": "test.wav"},
@@ -577,7 +579,7 @@ class TestGenerateEndpointExt3(unittest.TestCase):
 
         fake_wav = np.zeros(500, dtype=np.float32)
         # Fill cache to max
-        with patch(f"{_APP}.get_generation_cache_max", return_value=1):
+        with patch(f"{_APP_GENERATION}.get_generation_cache_max", return_value=1):
             # Put one entry in cache
             old_tmp = tempfile.NamedTemporaryFile(suffix=".wav", delete=False)
             old_tmp.close()
@@ -587,7 +589,7 @@ class TestGenerateEndpointExt3(unittest.TestCase):
 
             with patch(f"{_ENGINE}.load_voice_prompt", return_value=MagicMock()), \
                  patch(f"{_ENGINE}.run_inference", return_value=(fake_wav, 24000)), \
-                 patch(f"{_APP}._check_memory_available", return_value=(True, 4096)):
+                 patch(f"{_APP_GENERATION}._check_memory_available", return_value=(True, 4096)):
                 resp = self.client.post("/generate",
                                         json={"text": "evict test", "mode": "clone",
                                               "prompt_file": "test.wav"},
@@ -608,7 +610,7 @@ class TestGenerateEndpointExt3(unittest.TestCase):
         fake_wav = np.zeros(500, dtype=np.float32)
         with patch(f"{_ENGINE}.load_voice_prompt", return_value=MagicMock()), \
              patch(f"{_ENGINE}.run_inference", return_value=(fake_wav, 24000)), \
-             patch(f"{_APP}._check_memory_available", return_value=(True, 4096)):
+             patch(f"{_APP_GENERATION}._check_memory_available", return_value=(True, 4096)):
             resp = self.client.post("/generate",
                                     json={"text": "wav accept", "mode": "clone",
                                           "prompt_file": "test.wav"},
@@ -647,7 +649,7 @@ class TestGenerateEndpointExt3(unittest.TestCase):
         }
 
         try:
-            with patch(f"{_APP}._check_memory_available", return_value=(True, 4096)):
+            with patch(f"{_APP_GENERATION}._check_memory_available", return_value=(True, 4096)):
                 resp = self.client.post("/generate",
                                         json={"text": "cached text", "mode": "design",
                                               "voice_description": "friendly"},
@@ -676,7 +678,7 @@ class TestGenerateEndpointExt3(unittest.TestCase):
 
         with patch(f"{_ENGINE}.load_voice_prompt", return_value=MagicMock()), \
              patch(f"{_ENGINE}.run_inference_streaming", return_value=mock_run_inference_streaming(None, None)), \
-             patch(f"{_APP}._check_memory_available", return_value=(True, 4096)):
+             patch(f"{_APP_GENERATION}._check_memory_available", return_value=(True, 4096)):
             resp = self.client.post("/generate-stream",
                                     json={"text": "seed stream", "mode": "clone",
                                           "prompt_file": "test.wav", "seed": 99},

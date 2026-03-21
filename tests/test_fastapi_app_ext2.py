@@ -26,6 +26,8 @@ import unittest
 from unittest.mock import patch, MagicMock, AsyncMock
 
 _APP = "qwen3_tts.server.app"
+_APP_LIFESPAN = "qwen3_tts.server.app_lifespan"
+_APP_GENERATION = "qwen3_tts.server.app_generation"
 
 
 def _make_app_state(**overrides):
@@ -97,7 +99,7 @@ class TestAutoShutdown(unittest.TestCase):
         from qwen3_tts.server.app import auto_shutdown
         state = _make_app_state()
         state.server_config = {"auto_shutdown_minutes": 10}
-        with patch(f"{_APP}.cleanup_resources") as mock_cleanup, \
+        with patch(f"{_APP_LIFESPAN}.cleanup_resources") as mock_cleanup, \
              patch("sys.exit") as mock_exit:
             auto_shutdown(state)
         mock_cleanup.assert_called_once_with(state)
@@ -116,9 +118,9 @@ class TestCleanupPid(unittest.TestCase):
         timer = MagicMock()
         state.shutdown_timer = timer
         state.shutdown_event = MagicMock()
-        with patch(f"{_APP}.cleanup_pid_file") as mock_cpf, \
-             patch(f"{_APP}.cleanup_resources") as mock_cr, \
-             patch(f"{_APP}.TOKEN_FILE", "/tmp/fake_token_xyz"), \
+        with patch(f"{_APP_LIFESPAN}.cleanup_pid_file") as mock_cpf, \
+             patch(f"{_APP_LIFESPAN}.cleanup_resources") as mock_cr, \
+             patch(f"{_APP_LIFESPAN}.TOKEN_FILE", "/tmp/fake_token_xyz"), \
              patch("os.path.exists", return_value=True), \
              patch("os.remove") as mock_rm, \
              patch("sys.exit") as mock_exit:
@@ -135,9 +137,9 @@ class TestCleanupPid(unittest.TestCase):
         state = _make_app_state()
         state.shutdown_timer = None
         state.shutdown_event = None
-        with patch(f"{_APP}.cleanup_pid_file"), \
-             patch(f"{_APP}.cleanup_resources"), \
-             patch(f"{_APP}.TOKEN_FILE", "/tmp/nonexistent_xyz"), \
+        with patch(f"{_APP_LIFESPAN}.cleanup_pid_file"), \
+             patch(f"{_APP_LIFESPAN}.cleanup_resources"), \
+             patch(f"{_APP_LIFESPAN}.TOKEN_FILE", "/tmp/nonexistent_xyz"), \
              patch("os.path.exists", return_value=False), \
              patch("sys.exit"):
             cleanup_pid(state)
@@ -206,7 +208,7 @@ class TestCheckMemoryAvailable(unittest.TestCase):
 
     def test_no_psutil(self):
         from qwen3_tts.server.app import _check_memory_available
-        with patch(f"{_APP}._HAS_PSUTIL", False):
+        with patch(f"{_APP_LIFESPAN}._HAS_PSUTIL", False):
             ok, mb = _check_memory_available()
         self.assertTrue(ok)
         self.assertEqual(mb, 0)
@@ -217,9 +219,9 @@ class TestCheckMemoryAvailable(unittest.TestCase):
         mock_mem.available = 10 * 1024 * 1024 * 1024  # 10 GB
         mock_psutil = MagicMock()
         mock_psutil.virtual_memory.return_value = mock_mem
-        with patch(f"{_APP}._HAS_PSUTIL", True), \
+        with patch(f"{_APP_LIFESPAN}._HAS_PSUTIL", True), \
              patch.dict("sys.modules", {"psutil": mock_psutil}):
-            import qwen3_tts.server.app as app_mod
+            import qwen3_tts.server.app_lifespan as app_mod
             orig_psutil = getattr(app_mod, "psutil", None)
             app_mod.psutil = mock_psutil
             try:
@@ -239,11 +241,11 @@ class TestCheckMemoryAvailable(unittest.TestCase):
         mock_mem.available = 500 * 1024 * 1024  # 500 MB
         mock_psutil = MagicMock()
         mock_psutil.virtual_memory.return_value = mock_mem
-        import qwen3_tts.server.app as app_mod
+        import qwen3_tts.server.app_lifespan as app_mod
         orig_psutil = getattr(app_mod, "psutil", None)
         app_mod.psutil = mock_psutil
         try:
-            with patch(f"{_APP}._HAS_PSUTIL", True):
+            with patch(f"{_APP_LIFESPAN}._HAS_PSUTIL", True):
                 ok, mb = _check_memory_available()
         finally:
             if orig_psutil is None:
@@ -260,11 +262,11 @@ class TestCheckMemoryAvailable(unittest.TestCase):
         mock_mem.available = int(1.5 * 1024 * 1024 * 1024)  # 1.5 GB
         mock_psutil = MagicMock()
         mock_psutil.virtual_memory.return_value = mock_mem
-        import qwen3_tts.server.app as app_mod
+        import qwen3_tts.server.app_lifespan as app_mod
         orig_psutil = getattr(app_mod, "psutil", None)
         app_mod.psutil = mock_psutil
         try:
-            with patch(f"{_APP}._HAS_PSUTIL", True):
+            with patch(f"{_APP_LIFESPAN}._HAS_PSUTIL", True):
                 ok, mb = _check_memory_available()
         finally:
             if orig_psutil is None:
@@ -290,7 +292,7 @@ class TestBackgroundLoad(unittest.TestCase):
         with patch("qwen3_tts.core.engine.load_model", return_value=mock_model), \
              patch("qwen3_tts.core.config.get_model_info", return_value=info), \
              patch("qwen3_tts.core.engine.migrate_orphan_mlx_prompts"), \
-             patch(f"{_APP}.get_backend", return_value="mlx"):
+             patch(f"{_APP_LIFESPAN}.get_backend", return_value="mlx"):
             _background_load(state)
         self.assertIs(state.models["clone"], mock_model)
         self.assertTrue(state.models_loaded.is_set())
@@ -301,7 +303,7 @@ class TestBackgroundLoad(unittest.TestCase):
         state.server_config = {"models": {"clone": {"load_at_startup": False}}}
         with patch("qwen3_tts.core.engine.load_model") as mock_load, \
              patch("qwen3_tts.core.engine.migrate_orphan_mlx_prompts"), \
-             patch(f"{_APP}.get_backend", return_value="mlx"):
+             patch(f"{_APP_LIFESPAN}.get_backend", return_value="mlx"):
             _background_load(state)
         mock_load.assert_not_called()
         self.assertTrue(state.models_loaded.is_set())
@@ -314,7 +316,7 @@ class TestBackgroundLoad(unittest.TestCase):
         with patch("qwen3_tts.core.engine.load_model", side_effect=RuntimeError("OOM")), \
              patch("qwen3_tts.core.config.get_model_info", return_value=info), \
              patch("qwen3_tts.core.engine.migrate_orphan_mlx_prompts"), \
-             patch(f"{_APP}.get_backend", return_value="mlx"):
+             patch(f"{_APP_LIFESPAN}.get_backend", return_value="mlx"):
             _background_load(state)
         self.assertIsNotNone(state.model_load_errors["design"])
         self.assertIsNone(state.models["design"])
@@ -327,7 +329,7 @@ class TestBackgroundLoad(unittest.TestCase):
         with patch("qwen3_tts.core.engine.load_model", return_value=MagicMock()), \
              patch("qwen3_tts.core.config.get_model_info", return_value=info), \
              patch("qwen3_tts.core.engine.migrate_orphan_mlx_prompts") as mock_migrate, \
-             patch(f"{_APP}.get_backend", return_value="torch"):
+             patch(f"{_APP_LIFESPAN}.get_backend", return_value="torch"):
             _background_load(state)
         mock_migrate.assert_called_once()
 
@@ -340,7 +342,7 @@ class TestBackgroundLoad(unittest.TestCase):
              patch("qwen3_tts.core.config.get_model_info", return_value=info), \
              patch("qwen3_tts.core.engine.migrate_orphan_mlx_prompts",
                    side_effect=RuntimeError("migrate fail")), \
-             patch(f"{_APP}.get_backend", return_value="torch"):
+             patch(f"{_APP_LIFESPAN}.get_backend", return_value="torch"):
             _background_load(state)
         # Should not raise
 
@@ -423,7 +425,7 @@ class TestStatsMemory(unittest.TestCase):
         with patch(f"{_APP}.get_backend", return_value="torch"), \
              patch(f"{_APP}.get_model_size", return_value="1.7B"), \
              patch(f"{_APP}.get_torch_dtype_name", return_value="float16"), \
-             patch(f"{_APP}.get_generation_cache_max", return_value=10), \
+             patch(f"{_APP_GENERATION}.get_generation_cache_max", return_value=10), \
              patch("qwen3_tts.core.engine.voice_prompt.voice_prompt_cache_info",
                    return_value=mock_cache_info), \
              patch.dict("sys.modules", {"torch": mock_torch}):
@@ -470,7 +472,7 @@ class TestStatsMemory(unittest.TestCase):
         with patch(f"{_APP}.get_backend", return_value="torch"), \
              patch(f"{_APP}.get_model_size", return_value="1.7B"), \
              patch(f"{_APP}.get_torch_dtype_name", return_value="float16"), \
-             patch(f"{_APP}.get_generation_cache_max", return_value=10), \
+             patch(f"{_APP_GENERATION}.get_generation_cache_max", return_value=10), \
              patch("qwen3_tts.core.engine.voice_prompt.voice_prompt_cache_info",
                    return_value=mock_cache_info), \
              patch.dict("sys.modules", {"torch": mock_torch}):
@@ -673,8 +675,8 @@ class TestGenerateStream(unittest.TestCase):
         mock_prompt = MagicMock()
         with patch("qwen3_tts.core.engine.load_voice_prompt", return_value=mock_prompt), \
              patch("qwen3_tts.core.engine.run_inference_streaming", side_effect=fake_stream), \
-             patch(f"{_APP}._check_memory_available", return_value=(True, 8000)), \
-             patch(f"{_APP}._validate_generation_request"):
+             patch(f"{_APP_GENERATION}._check_memory_available", return_value=(True, 8000)), \
+             patch(f"{_APP_GENERATION}._validate_generation_request"):
             resp = client.post(
                 "/generate-stream",
                 json={"text": "Hello", "mode": "clone", "prompt_file": "voice1.wav"},
@@ -694,8 +696,8 @@ class TestGenerateStream(unittest.TestCase):
         client, token, state = self._setup_stream_client()
         state.models["clone"] = None
 
-        with patch(f"{_APP}._check_memory_available", return_value=(True, 8000)), \
-             patch(f"{_APP}._validate_generation_request"):
+        with patch(f"{_APP_GENERATION}._check_memory_available", return_value=(True, 8000)), \
+             patch(f"{_APP_GENERATION}._validate_generation_request"):
             resp = client.post(
                 "/generate-stream",
                 json={"text": "Hello", "mode": "clone", "prompt_file": "voice1.wav"},
@@ -705,8 +707,8 @@ class TestGenerateStream(unittest.TestCase):
 
     def test_stream_low_memory(self):
         client, token, state = self._setup_stream_client()
-        with patch(f"{_APP}._check_memory_available", return_value=(False, 500)), \
-             patch(f"{_APP}._validate_generation_request"):
+        with patch(f"{_APP_GENERATION}._check_memory_available", return_value=(False, 500)), \
+             patch(f"{_APP_GENERATION}._validate_generation_request"):
             resp = client.post(
                 "/generate-stream",
                 json={"text": "Hello", "mode": "clone", "prompt_file": "voice1.wav"},
@@ -721,8 +723,8 @@ class TestGenerateStream(unittest.TestCase):
 
     def test_stream_missing_prompt_file(self):
         client, token, state = self._setup_stream_client()
-        with patch(f"{_APP}._check_memory_available", return_value=(True, 8000)), \
-             patch(f"{_APP}._validate_generation_request"):
+        with patch(f"{_APP_GENERATION}._check_memory_available", return_value=(True, 8000)), \
+             patch(f"{_APP_GENERATION}._validate_generation_request"):
             resp = client.post(
                 "/generate-stream",
                 json={"text": "Hello", "mode": "clone"},
@@ -733,8 +735,8 @@ class TestGenerateStream(unittest.TestCase):
     def test_stream_prompt_not_found(self):
         client, token, state = self._setup_stream_client()
         with patch("qwen3_tts.core.engine.load_voice_prompt", return_value=None), \
-             patch(f"{_APP}._check_memory_available", return_value=(True, 8000)), \
-             patch(f"{_APP}._validate_generation_request"):
+             patch(f"{_APP_GENERATION}._check_memory_available", return_value=(True, 8000)), \
+             patch(f"{_APP_GENERATION}._validate_generation_request"):
             resp = client.post(
                 "/generate-stream",
                 json={"text": "Hello", "mode": "clone", "prompt_file": "missing.wav"},
@@ -798,11 +800,11 @@ class TestLifespan(unittest.TestCase):
         }
 
         async def _run():
-            with patch(f"{_APP}.load_config", return_value=mock_config), \
-                 patch(f"{_APP}.TOKEN_FILE", "/tmp/test_token_xyz"), \
-                 patch(f"{_APP}._background_load"), \
-                 patch(f"{_APP}.cleanup_resources"), \
-                 patch(f"{_APP}.cleanup_pid_file"), \
+            with patch(f"{_APP_LIFESPAN}.load_config", return_value=mock_config), \
+                 patch(f"{_APP_LIFESPAN}.TOKEN_FILE", "/tmp/test_token_xyz"), \
+                 patch(f"{_APP_LIFESPAN}._background_load"), \
+                 patch(f"{_APP_LIFESPAN}.cleanup_resources"), \
+                 patch(f"{_APP_LIFESPAN}.cleanup_pid_file"), \
                  patch("atexit.register"), \
                  patch("builtins.open", MagicMock()), \
                  patch("os.chmod"), \
@@ -847,8 +849,8 @@ class TestEstimateEta(unittest.TestCase):
         from qwen3_tts.server.app import _estimate_eta
         state = _make_app_state()
         state.eta_cache = {"median_rate": None, "last_updated": 0}
-        with patch(f"{_APP}.get_eta_cache_ttl", return_value=60), \
-             patch(f"{_APP}.HISTORY_FILE", "/nonexistent_history.jsonl"), \
+        with patch(f"{_APP_LIFESPAN}.get_eta_cache_ttl", return_value=60), \
+             patch(f"{_APP_LIFESPAN}.HISTORY_FILE", "/nonexistent_history.jsonl"), \
              patch("os.path.exists", return_value=False):
             result = _estimate_eta(state, 100, 5.0)
         self.assertIsNone(result)
@@ -858,7 +860,7 @@ class TestEstimateEta(unittest.TestCase):
         state = _make_app_state()
         # median_rate = chars/sec; fresh cache
         state.eta_cache = {"median_rate": 10.0, "last_updated": time.time()}
-        with patch(f"{_APP}.get_eta_cache_ttl", return_value=60):
+        with patch(f"{_APP_LIFESPAN}.get_eta_cache_ttl", return_value=60):
             result = _estimate_eta(state, 100, 5.0)
         # estimated_total = 100/10 = 10s, remaining = 10 - 5 = 5.0
         self.assertAlmostEqual(result, 5.0, places=1)

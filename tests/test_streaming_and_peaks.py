@@ -16,16 +16,16 @@ class TestStreamingResponseType(unittest.TestCase):
     """Task 3.1: Verify /generate-stream returns StreamingResponse."""
 
     def test_generate_stream_returns_streaming_response(self):
-        """The generate_stream function should return a StreamingResponse."""
-        # Parse app.py AST to verify the return type
-        with open("qwen3_tts/server/app.py") as f:
+        """The handle_generate_stream function should return a StreamingResponse."""
+        # Parse app_generation.py AST to verify the return type
+        with open("qwen3_tts/server/app_generation.py") as f:
             tree = ast.parse(f.read())
 
-        # Find the generate_stream function
+        # Find the handle_generate_stream function
         found_streaming = False
         for node in ast.walk(tree):
             if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
-                if node.name == "generate_stream":
+                if node.name == "handle_generate_stream":
                     # Check for StreamingResponse in function body
                     source = ast.dump(node)
                     found_streaming = "StreamingResponse" in source
@@ -37,14 +37,14 @@ class TestStreamingResponseType(unittest.TestCase):
         )
 
     def test_streaming_response_imported(self):
-        """StreamingResponse must be imported in app.py."""
-        with open("qwen3_tts/server/app.py") as f:
+        """StreamingResponse must be imported in app_generation.py."""
+        with open("qwen3_tts/server/app_generation.py") as f:
             content = f.read()
         self.assertIn("StreamingResponse", content)
 
     def test_streaming_media_type_is_octet_stream(self):
         """Streaming response should use application/octet-stream media type."""
-        with open("qwen3_tts/server/app.py") as f:
+        with open("qwen3_tts/server/app_generation.py") as f:
             content = f.read()
         self.assertIn("application/octet-stream", content)
 

@@ -467,7 +467,7 @@ class TestRequestQueueThreadSafety(unittest.TestCase):
     def test_request_queue_lock_in_source(self):
         """Source should reference request_queue_lock."""
         source = inspect.getsource(
-            __import__('qwen3_tts.server.app', fromlist=['app'])
+            __import__('qwen3_tts.server.app_lifespan', fromlist=['_get_queue_size'])
         )
         self.assertIn("request_queue_lock", source)
 
