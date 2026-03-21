@@ -17,6 +17,8 @@ from pydantic import BaseModel, Field
 from qwen3_tts.core.config import CUSTOM_VOICE_SPEAKERS, VOICE_PROMPTS_DIR
 
 
+MAX_PROMPT_NAME_LEN = 255  # max length for voice prompt names
+
 # Pre-computed valid speaker names (keys + display names)
 _VALID_SPEAKER_NAMES = frozenset(CUSTOM_VOICE_SPEAKERS.keys()) | frozenset(
     v["name"] for v in CUSTOM_VOICE_SPEAKERS.values()
@@ -167,7 +169,7 @@ def _validate_prompt_name(name: str) -> Optional[tuple]:
     if not name or not name.strip():
         return {"error": "Missing prompt name", "recovery": "config"}, 400
     name = name.strip()
-    if len(name) > 255:
+    if len(name) > MAX_PROMPT_NAME_LEN:
         return {"error": "Prompt name too long", "recovery": "config"}, 400
     if not re.match(r'^[a-zA-Z0-9_\-\.]+$', name):
         return {"error": "Invalid prompt name: only alphanumeric, dash, underscore, dot allowed", "recovery": "config"}, 400

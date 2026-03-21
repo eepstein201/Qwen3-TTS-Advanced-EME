@@ -119,13 +119,16 @@ from qwen3_tts.server.validation import (  # noqa: E402
 # Error sanitization — strip filesystem paths from public error responses
 # ---------------------------------------------------------------------------
 
+MAX_ERROR_MSG_LEN = 200  # max chars for sanitized error messages
+
+
 def _sanitize_error(msg: str) -> str:
     """Remove absolute filesystem paths from error messages for public endpoints."""
     # Replace Unix-style absolute paths (e.g. /Users/foo/bar.pt → <path>)
     sanitized = _re.sub(r"/[^\s\"']+", "<path>", str(msg))
     # Replace Windows-style absolute paths
     sanitized = _re.sub(r"[A-Za-z]:\\[^\s\"']+", "<path>", sanitized)
-    return sanitized[:200]  # cap length
+    return sanitized[:MAX_ERROR_MSG_LEN]
 
 
 # ---------------------------------------------------------------------------
