@@ -237,7 +237,7 @@ def check_audio_dependencies() -> tuple:
 
     # Check for rubberband (optional but recommended)
     try:
-        result = subprocess.run(["rubberband", "-h"],
+        result = subprocess.run(["rubberband", "--version"],
                               capture_output=True, timeout=5)
         has_rubberband = result.returncode == 0
     except (FileNotFoundError, subprocess.TimeoutExpired):
