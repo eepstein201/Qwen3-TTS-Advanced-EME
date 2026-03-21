@@ -9,6 +9,8 @@ This module NEVER imports torch or qwen3_tts.core.engine at module scope.
 
 import os
 
+import requests
+
 from qwen3_tts.server.client._base import _require_server, _extract_error_message
 from qwen3_tts.core.config import auth_headers, VoicePromptError
 
@@ -27,7 +29,7 @@ class VoiceManagerMixin:
                 resp = self._session.get(f"{self.server_url}/prompts", timeout=5, headers=auth_headers())
                 if resp.status_code == 200:
                     return resp.json().get("prompts", [])
-            except Exception:  # nosec B110
+            except (requests.RequestException, OSError):
                 pass
         # Fallback to local filesystem (.pt for torch, .wav+.txt for MLX)
         try:

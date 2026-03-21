@@ -381,7 +381,7 @@ def _background_load(app_state):
             app_state.models[model_type] = model
             app_state.model_load_times[model_type] = round(time.time() - t0, 1)
             logger.info("Loaded %s model successfully in %.1fs.", model_type, app_state.model_load_times[model_type])
-        except Exception as e:
+        except (ImportError, RuntimeError, OSError, ValueError, MemoryError) as e:
             error_msg = str(e)
             logger.error("Failed to load %s model: %s", model_type, error_msg, exc_info=True)
             # Sanitize before storing — /health is a public endpoint
@@ -391,7 +391,7 @@ def _background_load(app_state):
     if get_backend() == "torch":
         try:
             migrate_orphan_mlx_prompts(clone_model=app_state.models.get("clone"))
-        except Exception as e:
+        except (ImportError, RuntimeError, OSError, ValueError) as e:
             logger.warning("MLX prompt migration failed: %s", e)
 
     app_state.models_loaded.set()
@@ -1412,7 +1412,7 @@ async def generate(request: Request, req: GenerateRequest, _auth: None = Depends
 
     except HTTPException:
         raise
-    except Exception as e:
+    except (RuntimeError, OSError, ValueError, MemoryError, TypeError, ImportError) as e:
         logger.error("Generation failed: %s", e, exc_info=True)
         _error_response(500, "Audio generation failed",
                         "An internal error occurred. Check server logs for details.", "retry")
@@ -1602,7 +1602,7 @@ async def generate_stream(request: Request, req: GenerateRequest, _auth: None = 
                         # Use call_soon_threadsafe to safely put from thread to async queue
                         loop.call_soon_threadsafe(queue.put_nowait, header + audio_bytes)
 
-                except Exception as e:
+                except (RuntimeError, OSError, ValueError, MemoryError, TypeError) as e:
                     logger.error("Streaming inference failed: %s", e, exc_info=True)
                     loop.call_soon_threadsafe(queue.put_nowait, None)
                 else:
