@@ -45,6 +45,8 @@ import time
 import unittest
 from unittest.mock import patch, MagicMock
 
+import pytest
+
 _APP = "qwen3_tts.server.app"
 _APP_LIFESPAN = "qwen3_tts.server.app_lifespan"
 _APP_GENERATION = "qwen3_tts.server.app_generation"
@@ -143,6 +145,7 @@ class TestEstimateEtaException(unittest.TestCase):
 class TestCleanupResourcesEdgeCases(unittest.TestCase):
     """Lines 414-415, 425-426: model delete exception and gen_cache OSError."""
 
+    @pytest.mark.filterwarnings("ignore::pytest.PytestUnraisableExceptionWarning")
     def test_model_delete_exception_suppressed(self):
         from qwen3_tts.server.app import cleanup_resources
         state = MagicMock()
