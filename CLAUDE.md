@@ -4,8 +4,8 @@ Text-to-speech system with voice cloning, built on Qwen3-TTS. Three modes: clone
 
 Features: pyrubberband audio processing (with librosa fallback), prosody presets for Custom/Design modes, x_vector_only_mode for transcript-free cloning.
 
-## User_Name - This will be used to ensure you're working from the right claude.md scope (global, project, branch, and/or local will have unique variable here)
-*<User_Name>*EpsteinDockerIsland*</User_Name>*
+## User_Name - Scope Check
+**<User_Name>**EpsteinDockerIsland**</User_Name>**
 
 ## Rules
 
