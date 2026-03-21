@@ -105,6 +105,9 @@ markers = [
     "requires_server: needs a running server",
 ]
 
+[tool.ruff]
+exclude = ["colab_notebook.ipynb"]
+
 [tool.coverage.run]
 source = ["qwen3_tts"]
 omit = ["qwen3_tts/test_cli.py"]
