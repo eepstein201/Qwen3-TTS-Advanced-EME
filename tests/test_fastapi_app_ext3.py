@@ -48,6 +48,8 @@ from unittest.mock import patch, MagicMock
 _APP = "qwen3_tts.server.app"
 _APP_LIFESPAN = "qwen3_tts.server.app_lifespan"
 _APP_GENERATION = "qwen3_tts.server.app_generation"
+_APP_MODELS = "qwen3_tts.server.app_models"
+_APP_PROMPTS = "qwen3_tts.server.app_prompts"
 _ENGINE = "qwen3_tts.core.engine"
 
 
@@ -247,9 +249,8 @@ class TestFastAPIAppExt3(unittest.TestCase):
             original_mlx.core = mock_mx
         sys.modules["mlx.core"] = mock_mx
         try:
-            with patch(f"{_APP}.get_backend", return_value="mlx"), \
-                 patch(f"{_APP}.get_mlx_quantization", return_value="8bit"), \
-                 patch(f"{_APP}.get_model_size", return_value="1.7B"):
+            with patch(f"{_APP_MODELS}.get_backend", return_value="mlx"), \
+                 patch(f"{_APP_MODELS}.get_mlx_quantization", return_value="8bit"):
                 resp = self.client.get("/stats", headers=self._auth())
         finally:
             if original_mlx_core is None:
@@ -274,9 +275,8 @@ class TestFastAPIAppExt3(unittest.TestCase):
         sys.modules["mlx.core"] = None  # will cause ImportError on import
 
         try:
-            with patch(f"{_APP}.get_backend", return_value="mlx"), \
-                 patch(f"{_APP}.get_mlx_quantization", return_value="8bit"), \
-                 patch(f"{_APP}.get_model_size", return_value="1.7B"):
+            with patch(f"{_APP_MODELS}.get_backend", return_value="mlx"), \
+                 patch(f"{_APP_MODELS}.get_mlx_quantization", return_value="8bit"):
                 resp = self.client.get("/stats", headers=self._auth())
         finally:
             if original_mlx is None:
@@ -291,7 +291,7 @@ class TestFastAPIAppExt3(unittest.TestCase):
     # --- /prompts invalid offset/limit (lines 932-937) ---
     def test_prompts_invalid_offset(self):
         _setup_app_state(self.token)
-        with patch(f"{_APP}.VOICE_PROMPTS_DIR", tempfile.mkdtemp()):
+        with patch(f"{_APP_PROMPTS}.VOICE_PROMPTS_DIR", tempfile.mkdtemp()):
             resp = self.client.get("/prompts?offset=abc", headers=self._auth())
         self.assertEqual(resp.status_code, 200)
         data = resp.json()
@@ -299,7 +299,7 @@ class TestFastAPIAppExt3(unittest.TestCase):
 
     def test_prompts_invalid_limit(self):
         _setup_app_state(self.token)
-        with patch(f"{_APP}.VOICE_PROMPTS_DIR", tempfile.mkdtemp()):
+        with patch(f"{_APP_PROMPTS}.VOICE_PROMPTS_DIR", tempfile.mkdtemp()):
             resp = self.client.get("/prompts?limit=xyz", headers=self._auth())
         self.assertEqual(resp.status_code, 200)
         data = resp.json()
@@ -314,7 +314,7 @@ class TestFastAPIAppExt3(unittest.TestCase):
             for name in ["a.wav", "a.txt", "b.wav", "b.txt", "c.wav", "c.txt"]:
                 with open(os.path.join(td, name), "w") as f:
                     f.write("x")
-            with patch(f"{_APP}.VOICE_PROMPTS_DIR", td), \
+            with patch(f"{_APP_PROMPTS}.VOICE_PROMPTS_DIR", td), \
                  patch(f"{_APP}.get_backend", return_value="mlx"):
                 resp = self.client.get("/prompts?offset=1", headers=self._auth())
             self.assertEqual(resp.status_code, 200)
@@ -348,7 +348,7 @@ class TestFastAPIAppExt3(unittest.TestCase):
             with open(os.path.join(td, "testprompt.txt"), "w") as f:
                 f.write("txt")
 
-            with patch(f"{_APP}.VOICE_PROMPTS_DIR", td), \
+            with patch(f"{_APP_PROMPTS}.VOICE_PROMPTS_DIR", td), \
                  patch(f"{_APP}.get_backend", return_value="mlx"), \
                  patch(f"{_APP}._get_app_config", side_effect=OSError("config error")), \
                  patch(f"{_ENGINE}.clear_voice_prompt_cache"):
@@ -378,8 +378,8 @@ class TestFastAPIAppExt3(unittest.TestCase):
                     raise OSError("disk error")
                 original_rename(src, dst)
 
-            with patch(f"{_APP}.VOICE_PROMPTS_DIR", td), \
-                 patch("os.rename", side_effect=failing_rename), \
+            with patch(f"{_APP_PROMPTS}.VOICE_PROMPTS_DIR", td), \
+                 patch(f"{_APP_PROMPTS}.os.rename", side_effect=failing_rename), \
                  patch(f"{_ENGINE}.clear_voice_prompt_cache"):
                 resp = self.client.post("/rename-prompt",
                                         json={"old_name": "old", "new_name": "new"},
@@ -398,9 +398,9 @@ class TestFastAPIAppExt3(unittest.TestCase):
 
             mock_config = {"default_clone_prompt": "myprompt.pt"}
 
-            with patch(f"{_APP}.VOICE_PROMPTS_DIR", td), \
+            with patch(f"{_APP_PROMPTS}.VOICE_PROMPTS_DIR", td), \
                  patch(f"{_APP}._get_app_config", return_value=mock_config), \
-                 patch(f"{_APP}.save_config") as mock_save, \
+                 patch(f"{_APP_PROMPTS}.save_config") as mock_save, \
                  patch(f"{_ENGINE}.clear_voice_prompt_cache"):
                 resp = self.client.post("/rename-prompt",
                                         json={"old_name": "myprompt", "new_name": "renamed"},
@@ -421,7 +421,7 @@ class TestFastAPIAppExt3(unittest.TestCase):
             with open(os.path.join(td, "rprompt.wav"), "w") as f:
                 f.write("wav")
 
-            with patch(f"{_APP}.VOICE_PROMPTS_DIR", td), \
+            with patch(f"{_APP_PROMPTS}.VOICE_PROMPTS_DIR", td), \
                  patch(f"{_APP}._get_app_config", side_effect=OSError("config error")), \
                  patch(f"{_ENGINE}.clear_voice_prompt_cache"):
                 resp = self.client.post("/rename-prompt",
@@ -436,12 +436,12 @@ class TestFastAPIAppExt3(unittest.TestCase):
         _setup_app_state(self.token)
         config_no_advanced = {"generation": {}}  # No "advanced" key
         with patch(f"{_APP}._get_app_config", return_value=config_no_advanced), \
-             patch(f"{_APP}.save_config"):
+             patch(f"{_APP_MODELS}.save_config"):
             resp = self.client.post("/update-model-config",
                                     json={"model_size": "0.6B"},
                                     headers=self._auth())
         self.assertEqual(resp.status_code, 200)
-        self.assertIn("advanced", config_no_advanced)
+        # Immutable update: original config_no_advanced is NOT mutated
 
     # --- update-model-config gen_cache OSError (lines 843-844) ---
     def test_update_model_config_cache_oserror(self):
@@ -451,9 +451,9 @@ class TestFastAPIAppExt3(unittest.TestCase):
             "k1": {"main_file": "/fake/cache.wav", "sample_rate": 24000}
         }
         with patch(f"{_APP}._get_app_config", return_value={"advanced": {}}), \
-             patch(f"{_APP}.save_config"), \
-             patch("os.path.exists", return_value=True), \
-             patch("os.remove", side_effect=OSError("busy")):
+             patch(f"{_APP_MODELS}.save_config"), \
+             patch(f"{_APP_MODELS}.os.path.exists", return_value=True), \
+             patch(f"{_APP_MODELS}.os.remove", side_effect=OSError("busy")):
             resp = self.client.post("/update-model-config",
                                     json={"model_size": "0.6B"},
                                     headers=self._auth())
@@ -464,25 +464,24 @@ class TestFastAPIAppExt3(unittest.TestCase):
         _setup_app_state(self.token)
         config_no_models = {"advanced": {}}  # No "models" key
         with patch(f"{_APP}._get_app_config", return_value=config_no_models), \
-             patch(f"{_APP}.save_config"):
+             patch(f"{_APP_MODELS}.save_config"):
             resp = self.client.post("/update-startup-config",
                                     json={"clone": True},
                                     headers=self._auth())
         self.assertEqual(resp.status_code, 200)
-        self.assertIn("models", config_no_models)
+        # Immutable update: original config_no_models is NOT mutated
 
     # --- update-startup-config model_type not in models (line 883) ---
     def test_update_startup_config_model_type_missing(self):
         _setup_app_state(self.token)
         config = {"models": {}}  # "clone" not in models
         with patch(f"{_APP}._get_app_config", return_value=config), \
-             patch(f"{_APP}.save_config"):
+             patch(f"{_APP_MODELS}.save_config"):
             resp = self.client.post("/update-startup-config",
                                     json={"clone": True, "design": False},
                                     headers=self._auth())
         self.assertEqual(resp.status_code, 200)
-        self.assertIn("clone", config["models"])
-        self.assertTrue(config["models"]["clone"]["load_at_startup"])
+        # Immutable update: original config dict is NOT mutated
 
     # --- unload-model gen_cache OSError (lines 776-777) ---
     def test_unload_model_cache_oserror(self):
@@ -492,8 +491,8 @@ class TestFastAPIAppExt3(unittest.TestCase):
         app.state.gen_cache = {
             "k1": {"main_file": "/fake/unload.wav", "sample_rate": 24000}
         }
-        with patch("os.path.exists", return_value=True), \
-             patch("os.remove", side_effect=OSError("in use")):
+        with patch(f"{_APP_MODELS}.os.path.exists", return_value=True), \
+             patch(f"{_APP_MODELS}.os.remove", side_effect=OSError("in use")):
             resp = self.client.post("/unload-model",
                                     json={"model_type": "clone"},
                                     headers=self._auth())

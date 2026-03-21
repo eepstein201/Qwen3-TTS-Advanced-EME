@@ -22,7 +22,6 @@ from typing import Optional
 
 from fastapi import FastAPI, Request, HTTPException, Depends, WebSocket
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse
 import uvicorn
 
 # Optional rate limiting (R-13)
@@ -36,22 +35,16 @@ except ImportError:
 logger = logging.getLogger("tts")
 
 from qwen3_tts.core.config import (  # noqa: E402
-    VOICE_PROMPTS_DIR,
     TOKEN_FILE,
     LOG_FILE,
-    MODEL_INFO,
-    MLX_MODEL_INFO,
     IN_COLAB,
     ConfigLoader,
     DefaultConfigLoader,
     load_config,
-    save_config,
     get_backend,
-    get_default_clone_prompt,
     get_torch_dtype_name,
     get_mlx_quantization,
     get_model_size,
-    get_mlx_model_name,
     cleanup_pid_file,
 )
 
@@ -90,8 +83,6 @@ from qwen3_tts.server.validation import (  # noqa: E402
     HealthResponse,
     # Validation helpers
     _validate_generation_request,  # noqa: F401 (re-exported for test backward compat)
-    _validate_prompt_name,
-    _strip_extension,
     _gen_cache_key,  # noqa: F401 (re-exported for test backward compat)
     _error_response,  # noqa: F401 (re-exported for test backward compat)
 )
@@ -102,7 +93,7 @@ from qwen3_tts.server.app_lifespan import (  # noqa: E402
     _sanitize_error,  # noqa: F401 (re-exported for test backward compat)
     _estimate_eta,
     _check_memory_available,  # noqa: F401 (re-exported for test backward compat)
-    _get_queue_size,
+    _get_queue_size,  # noqa: F401 (re-exported for test backward compat)
     reset_activity_timer,
     auto_shutdown,  # noqa: F401 (re-exported for test backward compat)
     lifespan,
@@ -115,6 +106,23 @@ from qwen3_tts.server.app_lifespan import (  # noqa: E402
 from qwen3_tts.server.app_generation import (  # noqa: E402
     handle_generate,
     handle_generate_stream,
+)
+
+# Import model/stats and prompt handlers
+from qwen3_tts.server.app_models import (  # noqa: E402
+    handle_stats,
+    handle_list_models,
+    handle_load_model,
+    handle_unload_model,
+    handle_update_model_config,
+    handle_update_startup_config,
+)
+from qwen3_tts.server.app_prompts import (  # noqa: E402
+    handle_list_prompts,
+    handle_delete_prompt,
+    handle_rename_prompt,
+    handle_preview_prompt,
+    handle_prompt_details,
 )
 
 
@@ -297,68 +305,7 @@ async def stats(request: Request, _auth: None = Depends(verify_auth)):
     """Get server statistics."""
     state = request.app.state
     reset_activity_timer(state)
-
-    idle_seconds = int(time.time() - state.last_activity)
-    auto_shutdown_minutes = state.server_config.get("auto_shutdown_minutes", 0)
-
-    from qwen3_tts.core.engine import voice_prompt_cache_info
-    cache_info = voice_prompt_cache_info()
-
-    backend = get_backend()
-    stats_data = {
-        "status": "ok",
-        "backend": backend,
-        "clone_model_loaded": state.models.get("clone") is not None,
-        "design_model_loaded": state.models.get("design") is not None,
-        "custom_model_loaded": state.models.get("custom") is not None,
-        "voice_prompts_cached": cache_info.currsize,
-        "voice_prompts_cache_hits": cache_info.hits,
-        "idle_seconds": idle_seconds,
-        "auto_shutdown_minutes": auto_shutdown_minutes if auto_shutdown_minutes > 0 else "disabled",
-        "generation_queue_size": _get_queue_size(state),
-    }
-    if backend == "mlx":
-        stats_data["mlx_quantization"] = get_mlx_quantization()
-    else:
-        stats_data["dtype"] = get_torch_dtype_name()
-
-    # GPU memory stats (lazy torch import)
-    try:
-        import torch
-        if torch.backends.mps.is_available():
-            try:
-                allocated = torch.mps.current_allocated_memory()
-                stats_data["mps_memory_allocated_mb"] = round(allocated / (1024 * 1024), 2)
-            except (AttributeError, RuntimeError):
-                stats_data["mps_memory_allocated_mb"] = "unavailable"
-
-        if torch.cuda.is_available():
-            try:
-                allocated = torch.cuda.memory_allocated()
-                reserved = torch.cuda.memory_reserved()
-                stats_data["cuda_memory_allocated_mb"] = round(allocated / (1024 * 1024), 2)
-                stats_data["cuda_memory_reserved_mb"] = round(reserved / (1024 * 1024), 2)
-            except (AttributeError, RuntimeError):
-                pass
-    except ImportError:
-        pass
-
-    # MLX memory stats
-    if backend == "mlx":
-        try:
-            import mlx.core as mx
-            try:
-                active_mem = mx.get_active_memory()
-                peak_mem = mx.get_peak_memory()
-            except AttributeError:
-                active_mem = mx.metal.get_active_memory()
-                peak_mem = mx.metal.get_peak_memory()
-            stats_data["mlx_memory_active_mb"] = round(active_mem / (1024 * 1024), 2)
-            stats_data["mlx_memory_peak_mb"] = round(peak_mem / (1024 * 1024), 2)
-        except (ImportError, AttributeError, RuntimeError):
-            pass
-
-    return stats_data
+    return handle_stats(state, state.server_config)
 
 
 @app.get("/models")
@@ -366,35 +313,7 @@ async def list_models(request: Request, _auth: None = Depends(verify_auth)):
     """List model status."""
     state = request.app.state
     reset_activity_timer(state)
-
-    backend = get_backend()
-    model_size = get_model_size()
-
-    size_model_info = MODEL_INFO.get(model_size, MODEL_INFO["1.7B"])
-    size_mlx_info = MLX_MODEL_INFO.get(model_size, MLX_MODEL_INFO["1.7B"])
-
-    models_data = {}
-    for model_type, info in size_model_info.items():
-        loaded = state.models.get(model_type) is not None
-        models_cfg = state.server_config.get("models", {})
-        load_at_startup = models_cfg.get(model_type, {}).get("load_at_startup", False)
-
-        entry = {
-            "loaded": loaded,
-            "description": info["description"],
-            "memory_mb": info["memory_mb"],
-            "repo_id": info["name"],
-            "load_at_startup": load_at_startup,
-            "load_time_sec": state.model_load_times.get(model_type),
-        }
-        if backend == "mlx":
-            mlx_info = size_mlx_info.get(model_type)
-            if mlx_info:
-                entry["repo_id"] = get_mlx_model_name(model_type)
-                entry["memory_mb"] = mlx_info["memory_mb"]
-        models_data[model_type] = entry
-
-    return {"models": models_data, "backend": backend, "model_size": model_size}
+    return handle_list_models(state, state.server_config)
 
 
 @app.post("/load-model")
@@ -403,49 +322,7 @@ async def load_model_endpoint(request: Request, req: LoadModelRequest, _auth: No
     """Load a model on demand."""
     state = request.app.state
     reset_activity_timer(state)
-
-    model_type = req.model_type
-
-    valid_types = ("clone", "design", "custom")
-    if model_type not in valid_types:
-        raise HTTPException(
-            status_code=400,
-            detail=f"Unknown model type: {model_type}. Valid: {', '.join(valid_types)}",
-        )
-
-    # Check if already loaded
-    if state.models.get(model_type) is not None:
-        return {"status": "already_loaded", "model": model_type}
-
-    # Load the model
-    try:
-        from qwen3_tts.core.engine import load_model
-        from qwen3_tts.core.config import get_model_info
-
-        info = get_model_info(model_type)
-        model_name = info.get("name", info.get("name_template", model_type))
-        logger.info("Loading %s...", model_name)
-        t0 = time.time()
-        model = load_model(model_type)
-        state.models[model_type] = model
-        state.model_load_times[model_type] = round(time.time() - t0, 1)
-        logger.info("Loaded %s model successfully in %.1fs.", model_type, state.model_load_times[model_type])
-        # Clear any previous load error for this model
-        state.model_load_errors[model_type] = None
-    except ImportError as e:
-        logger.error("Backend not available for model loading %s: %s", model_type, e, exc_info=True)
-        state.model_load_errors[model_type] = str(e)
-        _error_response(500, "import_error", str(e), "config")
-    except (RuntimeError, OSError, ValueError) as e:
-        logger.error("Failed to load model %s: %s", model_type, e, exc_info=True)
-        state.model_load_errors[model_type] = str(e)
-        _error_response(500, "load_failed", str(e), "restart")
-    except Exception as e:
-        logger.error("Unexpected error loading model %s: %s", model_type, e, exc_info=True)
-        state.model_load_errors[model_type] = str(e)
-        _error_response(500, "unknown_error", str(e), "bug")
-
-    return {"status": "loaded", "model": model_type}
+    return handle_load_model(state, req)
 
 
 @app.post("/unload-model")
@@ -453,46 +330,7 @@ async def unload_model(request: Request, req: UnloadModelRequest, _auth: None = 
     """Unload a model to free memory."""
     state = request.app.state
     reset_activity_timer(state)
-
-    model_type = req.model_type
-
-    valid_types = ("clone", "design", "custom")
-    if model_type not in valid_types:
-        raise HTTPException(
-            status_code=400,
-            detail=f"Unknown model type: {model_type}. Valid: {', '.join(valid_types)}",
-        )
-
-    # Check if generation is active for this mode
-    if state.generation_state["active"] and state.generation_state["mode"] == model_type:
-        raise HTTPException(
-            status_code=409,
-            detail=f"Cannot unload {model_type} model while generation is active",
-        )
-
-    if state.models.get(model_type) is None:
-        return {"status": "already_unloaded", "model": model_type}
-
-    state.models[model_type] = None
-
-    from qwen3_tts.core.engine import unload_model_cleanup
-    unload_model_cleanup()
-
-    # Invalidate generation cache
-    with state.gen_cache_lock:
-        for entry in state.gen_cache.values():
-            try:
-                main_file = entry.get("main_file") or entry.get("file")
-                if main_file and os.path.exists(main_file):
-                    os.remove(main_file)
-            except OSError:
-                pass
-        state.gen_cache.clear()
-
-    state.model_load_times.pop(model_type, None)
-    logger.info("Unloaded %s model.", model_type)
-
-    return {"status": "unloaded", "model": model_type}
+    return handle_unload_model(state, req)
 
 
 @app.post("/update-model-config")
@@ -501,78 +339,7 @@ async def update_model_config(request: Request, req: UpdateModelConfigRequest, _
     """Update model size and/or quantization settings."""
     state = request.app.state
     reset_activity_timer(state)
-
-    new_size = req.model_size
-    new_quant = req.mlx_quantization
-
-    if not new_size and not new_quant:
-        raise HTTPException(
-            status_code=400,
-            detail="At least one of model_size or mlx_quantization required",
-        )
-
-    valid_sizes = ("1.7B", "0.6B")
-    valid_quants = ("4bit", "8bit", "bf16")
-
-    if new_size and new_size not in valid_sizes:
-        raise HTTPException(
-            status_code=400,
-            detail=f"Invalid model_size: {new_size}. Valid: {', '.join(valid_sizes)}",
-        )
-
-    if new_quant and new_quant not in valid_quants:
-        raise HTTPException(
-            status_code=400,
-            detail=f"Invalid mlx_quantization: {new_quant}. Valid: {', '.join(valid_quants)}",
-        )
-
-    config = _get_app_config()
-    if "advanced" not in config:
-        config["advanced"] = {}
-
-    changes = []
-    if new_size:
-        config["advanced"]["model_size"] = new_size
-        changes.append(f"model_size={new_size}")
-    if new_quant:
-        config["advanced"]["mlx_quantization"] = new_quant
-        changes.append(f"mlx_quantization={new_quant}")
-
-    save_config(config)
-
-    # Unload all models so new settings take effect
-    async with state.generation_lock:
-        for name in ("clone", "design", "custom"):
-            state.models[name] = None
-
-    # Invalidate generation cache
-    with state.gen_cache_lock:
-        for entry in state.gen_cache.values():
-            try:
-                main_file = entry.get("main_file") or entry.get("file")
-                if main_file and os.path.exists(main_file):
-                    os.remove(main_file)
-            except OSError:
-                pass
-        state.gen_cache.clear()
-
-    # Sync audio loader cache if config changed
-    new_loader = config.get("advanced", {}).get("audio_loader")
-    if new_loader:
-        try:
-            from qwen3_tts.core.engine import set_audio_loader
-            set_audio_loader(new_loader)
-        except (ValueError, ImportError):
-            pass
-
-    logger.info("Model config updated: %s. Models unloaded. Generation cache cleared.", ", ".join(changes))
-
-    return {
-        "status": "config_updated",
-        "changes": changes,
-        "models_unloaded": True,
-        "note": "New model will be loaded on next generation",
-    }
+    return await handle_update_model_config(state, req, _get_app_config)
 
 
 @app.post("/update-startup-config")
@@ -580,81 +347,15 @@ async def update_startup_config(request: Request, req: UpdateStartupConfigReques
     """Update which models load at startup in config.json."""
     state = request.app.state
     reset_activity_timer(state)
-
-    valid_types = ("clone", "design", "custom")
-    changes = []
-    config = _get_app_config()
-    if "models" not in config:
-        config["models"] = {}
-
-    for model_type in valid_types:
-        val = getattr(req, model_type, None)
-        if val is not None:
-            val_bool = bool(val)
-            if model_type not in config["models"]:
-                config["models"][model_type] = {}
-            config["models"][model_type]["load_at_startup"] = val_bool
-            changes.append(f"{model_type}={'on' if val_bool else 'off'}")
-
-    if not changes:
-        raise HTTPException(status_code=400, detail="No valid model types provided")
-
-    save_config(config)
-
-    # Update server config cache
-    state.server_config["models"] = config.get("models", {})
-
-    logger.info("Startup config updated: %s", ", ".join(changes))
-    return {"status": "updated", "changes": changes}
+    return handle_update_startup_config(state, req, _get_app_config)
 
 
 @app.get("/prompts")
 async def list_prompts(request: Request, _auth: None = Depends(verify_auth)):
-    """List voice prompts with optional pagination (R-24).
-
-    Query params:
-        offset: Start index (default 0).
-        limit: Max results (default 0 = return all, for backward compat).
-    """
+    """List voice prompts with optional pagination (R-24)."""
     state = request.app.state
     reset_activity_timer(state)
-
-    backend = get_backend()
-    try:
-        all_files = set(os.listdir(VOICE_PROMPTS_DIR))
-    except OSError:
-        return {"prompts": [], "total": 0}
-
-    if backend == "mlx":
-        # MLX uses .wav+.txt pairs
-        wav_files = {f[:-4] for f in all_files if f.endswith('.wav')}
-        txt_files = {f[:-4] for f in all_files if f.endswith('.txt')}
-        names = sorted(wav_files & txt_files)
-        prompts = [f"{n}.wav" for n in names]
-    else:
-        # Torch uses .pt files only (not .wav files)
-        pt_names = {f[:-3] for f in all_files if f.endswith('.pt')}
-        prompts = sorted(f"{n}.pt" for n in pt_names)
-
-    total = len(prompts)
-
-    # Pagination (R-24) — default limit=0 means return all (backward compat)
-    try:
-        offset = max(0, int(request.query_params.get("offset", 0)))
-    except (ValueError, TypeError):
-        offset = 0
-    try:
-        limit = max(0, int(request.query_params.get("limit", 0)))
-    except (ValueError, TypeError):
-        limit = 0
-
-    if offset > 0 or limit > 0:
-        if limit > 0:
-            prompts = prompts[offset:offset + limit]
-        else:
-            prompts = prompts[offset:]
-
-    return {"prompts": prompts, "total": total, "offset": offset, "limit": limit}
+    return handle_list_prompts(state, get_backend(), request.query_params)
 
 
 @app.post("/delete-prompt")
@@ -662,42 +363,7 @@ async def delete_prompt(request: Request, req: DeletePromptRequest, _auth: None 
     """Delete a voice prompt and all its format files."""
     state = request.app.state
     reset_activity_timer(state)
-
-    name = req.name
-    err = _validate_prompt_name(name)
-    if err:
-        raise HTTPException(status_code=err[1], detail=err[0]["error"])
-
-    base = _strip_extension(name)
-
-    # Find and delete all matching files
-    files_removed = []
-    for ext in (".pt", ".wav", ".txt"):
-        path = os.path.join(VOICE_PROMPTS_DIR, f"{base}{ext}")
-        if os.path.exists(path):
-            os.remove(path)
-            files_removed.append(f"{base}{ext}")
-
-    if not files_removed:
-        raise HTTPException(status_code=404, detail=f"Voice prompt '{base}' not found")
-
-    # If deleted prompt was the default, clear it
-    try:
-        config = _get_app_config()
-        current_default = config.get("default_clone_prompt", "")
-        default_base = _strip_extension(current_default)
-        if default_base == base:
-            config["default_clone_prompt"] = ""
-            save_config(config)
-    except (OSError, json.JSONDecodeError, KeyError):
-        pass
-
-    # Clear voice prompt cache
-    from qwen3_tts.core.engine import clear_voice_prompt_cache
-    clear_voice_prompt_cache()
-
-    logger.info("Deleted voice prompt '%s': %s", base, files_removed)
-    return {"status": "deleted", "name": base, "files_removed": files_removed}
+    return handle_delete_prompt(state, req, _get_app_config)
 
 
 @app.post("/rename-prompt")
@@ -705,71 +371,7 @@ async def rename_prompt(request: Request, req: RenamePromptRequest, _auth: None 
     """Rename a voice prompt (all format files) with rollback on partial failure."""
     state = request.app.state
     reset_activity_timer(state)
-
-    for name_val in (req.old_name, req.new_name):
-        err = _validate_prompt_name(name_val)
-        if err:
-            raise HTTPException(status_code=err[1], detail=err[0]["error"])
-
-    old_base = _strip_extension(req.old_name)
-    new_base = _strip_extension(req.new_name)
-
-    if old_base == new_base:
-        raise HTTPException(status_code=400, detail="Old and new names are the same")
-
-    # Collision check
-    for ext in (".pt", ".wav", ".txt"):
-        if os.path.exists(os.path.join(VOICE_PROMPTS_DIR, f"{new_base}{ext}")):
-            raise HTTPException(status_code=409, detail=f"Voice prompt '{new_base}' already exists")
-
-    # Check that at least one old file exists
-    old_exists = any(
-        os.path.exists(os.path.join(VOICE_PROMPTS_DIR, f"{old_base}{ext}"))
-        for ext in (".pt", ".wav", ".txt")
-    )
-    if not old_exists:
-        raise HTTPException(status_code=404, detail=f"Voice prompt '{old_base}' not found")
-
-    # Rename with rollback on partial failure
-    renamed = []
-    try:
-        for ext in (".pt", ".wav", ".txt"):
-            old_path = os.path.join(VOICE_PROMPTS_DIR, f"{old_base}{ext}")
-            new_path = os.path.join(VOICE_PROMPTS_DIR, f"{new_base}{ext}")
-            if os.path.exists(old_path):
-                os.rename(old_path, new_path)
-                renamed.append((new_path, old_path))
-    except OSError as e:
-        # Rollback
-        for current, rollback_to in renamed:
-            try:
-                os.rename(current, rollback_to)
-            except OSError:
-                pass
-        logger.error("Rename failed %s -> %s: %s", req.old_name, req.new_name, e, exc_info=True)
-        raise HTTPException(status_code=500, detail="Rename failed. Check server logs for details.")
-
-    # Update default if the renamed prompt was the default
-    try:
-        config = _get_app_config()
-        current_default = config.get("default_clone_prompt", "")
-        default_base = _strip_extension(current_default)
-        if default_base == old_base:
-            if current_default.endswith(".pt"):
-                config["default_clone_prompt"] = f"{new_base}.pt"
-            else:
-                config["default_clone_prompt"] = new_base
-            save_config(config)
-    except (OSError, json.JSONDecodeError, KeyError):
-        pass
-
-    # Clear voice prompt cache
-    from qwen3_tts.core.engine import clear_voice_prompt_cache
-    clear_voice_prompt_cache()
-
-    files_renamed = [os.path.basename(new) for new, _ in renamed]
-    logger.info("Renamed voice prompt '%s' -> '%s': %s", old_base, new_base, files_renamed)
-    return {"status": "renamed", "old_name": old_base, "new_name": new_base, "files_renamed": files_renamed}
+    return handle_rename_prompt(state, req, _get_app_config)
 
 
 @app.get("/preview-prompt")
@@ -777,25 +379,7 @@ async def preview_prompt(request: Request, _auth: None = Depends(verify_auth)):
     """Return the .wav file for a voice prompt as audio/wav."""
     state = request.app.state
     reset_activity_timer(state)
-
-    name = request.query_params.get("name", "")
-    err = _validate_prompt_name(name)
-    if err:
-        raise HTTPException(status_code=err[1], detail=err[0]["error"])
-
-    base = _strip_extension(name)
-    wav_path = os.path.join(VOICE_PROMPTS_DIR, f"{base}.wav")
-
-    # Symlink resolution — prevent path traversal via symlinks (R-20)
-    real_path = os.path.realpath(wav_path)
-    real_prompts_dir = os.path.realpath(VOICE_PROMPTS_DIR)
-    if not real_path.startswith(real_prompts_dir + os.sep):
-        raise HTTPException(status_code=403, detail="Access denied: path outside voice prompts directory")
-
-    if not os.path.exists(wav_path):
-        raise HTTPException(status_code=404, detail=f"No .wav file found for prompt '{base}'")
-
-    return FileResponse(wav_path, media_type="audio/wav")
+    return handle_preview_prompt(request.query_params.get("name", ""))
 
 
 @app.get("/prompt-details")
@@ -803,60 +387,7 @@ async def prompt_details(request: Request, _auth: None = Depends(verify_auth)):
     """Return metadata for voice prompts."""
     state = request.app.state
     reset_activity_timer(state)
-
-    name = request.query_params.get("name")
-
-    # Get current default
-    current_default = get_default_clone_prompt() or ""
-    default_base = _strip_extension(current_default)
-
-    def _prompt_info(base):
-        """Build metadata dict for a single prompt."""
-        formats = []
-        total_size = 0
-        created = None
-        for ext in (".pt", ".wav", ".txt"):
-            path = os.path.join(VOICE_PROMPTS_DIR, f"{base}{ext}")
-            if os.path.exists(path):
-                formats.append(ext)
-                total_size += os.path.getsize(path)
-                mtime = os.path.getmtime(path)
-                if created is None or mtime < created:
-                    created = mtime
-        return {
-            "name": base,
-            "formats": formats,
-            "size_bytes": total_size,
-            "created": created,
-            "is_default": (base == default_base),
-        }
-
-    if name:
-        err = _validate_prompt_name(name)
-        if err:
-            raise HTTPException(status_code=err[1], detail=err[0]["error"])
-        base = _strip_extension(name)
-        info = _prompt_info(base)
-        if not info["formats"]:
-            raise HTTPException(status_code=404, detail=f"Voice prompt '{base}' not found")
-        return info
-
-    # All prompts
-    try:
-        all_files = os.listdir(VOICE_PROMPTS_DIR)
-    except OSError:
-        return {"prompts": []}
-
-    # Collect unique base names
-    bases = set()
-    for f in all_files:
-        for ext in (".pt", ".wav", ".txt"):
-            if f.endswith(ext):
-                bases.add(f[:-len(ext)])
-                break
-
-    prompts = [_prompt_info(b) for b in sorted(bases)]
-    return {"prompts": prompts}
+    return handle_prompt_details(request.query_params.get("name"))
 
 
 @app.post("/cancel-generation")

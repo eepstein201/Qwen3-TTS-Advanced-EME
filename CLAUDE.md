@@ -75,7 +75,11 @@ config.json → qwen3_tts.core.config → qwen3_tts.core.engine (dispatch)
 | `qwen3_tts/core/config.py` | Constants, config I/O, error classes, `MODEL_INFO`, auth, platform detection, CUDA capability detection, voice description attributes, PID lifecycle (`read_pid_file`, `write_pid_file`, `cleanup_pid_file`, `is_pid_alive`, `find_pid_by_port`, `detect_server_state`) | No |
 | `qwen3_tts/core/engine/` | Package with 6 submodules: `text_processing`, `audio_processing`, `voice_prompt`, `model_loader`, `inference`, `asr`. `__init__.py` facade re-exports all public names. | No (all lazy) |
 | `qwen3_tts/core/protocols.py` | Abstract protocols for engine components. `FileConfigProvider` and `DefaultPromptManager` removed (dead code). | No |
-| `qwen3_tts/server/app.py` | FastAPI server: auth, generation/ETA/prompt caches. Validation delegated to `server/validation.py` (canonical source). | No (lazy via engine) |
+| `qwen3_tts/server/app.py` | FastAPI server: auth, endpoint wrappers, CORS, rate limiting. Thin wrappers delegate to handler modules. | No (lazy via engine) |
+| `qwen3_tts/server/app_lifespan.py` | Server lifecycle: lifespan context, background model loading, cleanup, auto-shutdown, ETA, memory checking, error sanitization | No |
+| `qwen3_tts/server/app_generation.py` | Generation endpoint handlers: `/generate`, `/generate-stream` | No (lazy) |
+| `qwen3_tts/server/app_models.py` | Model/stats endpoint handlers: `/stats`, `/models`, `/load-model`, `/unload-model`, `/update-model-config`, `/update-startup-config` | No |
+| `qwen3_tts/server/app_prompts.py` | Prompt endpoint handlers: `/prompts`, `/delete-prompt`, `/rename-prompt`, `/preview-prompt`, `/prompt-details` | No |
 | `qwen3_tts/server/validation.py` | Canonical validation: `_validate_generation_request`, `_VALID_SPEAKER_NAMES` — do not re-define in app.py | No |
 | `qwen3_tts/server/websocket.py` | WebSocket endpoint for bidirectional real-time TTS streaming (`/ws`). Handles auth, cancel, and binary audio chunk delivery. | No |
 | `qwen3_tts/server/client/` | Package with 5 submodules: `_base`, `generator`, `models`, `voices`, `config_fetcher`. `__init__.py` facade re-exports TTSClient and generate. | No |
@@ -114,7 +118,11 @@ config.json → qwen3_tts.core.config → qwen3_tts.core.engine (dispatch)
 │   │       └── asr.py              # Speech recognition
 │   ├── server/
 │   │   ├── __init__.py
-│   │   ├── app.py              # FastAPI server (port 5123)
+│   │   ├── app.py              # FastAPI server — thin endpoint wrappers (port 5123)
+│   │   ├── app_lifespan.py     # Lifecycle: lifespan, cleanup, auto-shutdown, ETA
+│   │   ├── app_generation.py   # Handler: /generate, /generate-stream
+│   │   ├── app_models.py       # Handler: /stats, /models, /load-model, config endpoints
+│   │   ├── app_prompts.py      # Handler: /prompts, /delete-prompt, /rename-prompt, etc.
 │   │   ├── websocket.py        # WebSocket endpoint for bidirectional audio streaming
 │   │   └── client/             # HTTP client package
 │   │       ├── __init__.py     # Facade — re-exports TTSClient and generate

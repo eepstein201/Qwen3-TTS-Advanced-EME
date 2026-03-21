@@ -19,7 +19,7 @@ from unittest.mock import MagicMock, patch, AsyncMock
 
 
 class TestConfigValidationEnforcement(unittest.TestCase):
-    """validate_config() should correct invalid values in-memory."""
+    """validate_config() should return corrected copy without mutating input."""
 
     def _validate(self, config):
         from qwen3_tts.core.config import validate_config
@@ -27,71 +27,71 @@ class TestConfigValidationEnforcement(unittest.TestCase):
 
     def test_invalid_backend_corrected_to_platform_default(self):
         config = {"advanced": {"backend": "invalid_backend"}}
-        issues = self._validate(config)
-        self.assertIn(config["advanced"]["backend"], ("torch", "mlx"))
+        result, issues = self._validate(config)
+        self.assertIn(result["advanced"]["backend"], ("torch", "mlx"))
         self.assertTrue(any("corrected" in i and "backend" in i for i in issues))
 
     def test_invalid_model_size_corrected_to_1_7B(self):
         config = {"advanced": {"model_size": "99B"}}
-        issues = self._validate(config)
-        self.assertEqual(config["advanced"]["model_size"], "1.7B")
+        result, issues = self._validate(config)
+        self.assertEqual(result["advanced"]["model_size"], "1.7B")
         self.assertTrue(any("corrected" in i and "model_size" in i for i in issues))
 
     def test_temperature_too_high_corrected(self):
         config = {"generation": {"temperature": 5.0}}
-        issues = self._validate(config)
-        self.assertEqual(config["generation"]["temperature"], 0.7)
+        result, issues = self._validate(config)
+        self.assertEqual(result["generation"]["temperature"], 0.7)
         self.assertTrue(any("corrected" in i and "temperature" in i for i in issues))
 
     def test_temperature_negative_corrected(self):
         config = {"generation": {"temperature": -1.0}}
-        self._validate(config)
-        self.assertEqual(config["generation"]["temperature"], 0.7)
+        result, _ = self._validate(config)
+        self.assertEqual(result["generation"]["temperature"], 0.7)
 
     def test_temperature_valid_not_corrected(self):
         config = {"generation": {"temperature": 1.5}}
-        issues = self._validate(config)
-        self.assertEqual(config["generation"]["temperature"], 1.5)
+        result, issues = self._validate(config)
+        self.assertEqual(result["generation"]["temperature"], 1.5)
         self.assertFalse(any("corrected" in i and "temperature" in i for i in issues))
 
     def test_max_text_length_invalid_corrected(self):
         config = {"security": {"max_text_length": -5}}
-        issues = self._validate(config)
-        self.assertEqual(config["security"]["max_text_length"], 10000)
+        result, issues = self._validate(config)
+        self.assertEqual(result["security"]["max_text_length"], 10000)
         self.assertTrue(any("corrected" in i and "max_text_length" in i for i in issues))
 
     def test_max_text_length_non_int_corrected(self):
         config = {"security": {"max_text_length": "abc"}}
-        self._validate(config)
-        self.assertEqual(config["security"]["max_text_length"], 10000)
+        result, _ = self._validate(config)
+        self.assertEqual(result["security"]["max_text_length"], 10000)
 
     def test_vllm_gpu_utilization_too_high_corrected(self):
         config = {"advanced": {"vllm_gpu_memory_utilization": 1.5}}
-        issues = self._validate(config)
-        self.assertEqual(config["advanced"]["vllm_gpu_memory_utilization"], 0.7)
+        result, issues = self._validate(config)
+        self.assertEqual(result["advanced"]["vllm_gpu_memory_utilization"], 0.7)
         self.assertTrue(any("corrected" in i and "vllm_gpu_memory_utilization" in i for i in issues))
 
     def test_vllm_gpu_utilization_zero_corrected(self):
         config = {"advanced": {"vllm_gpu_memory_utilization": 0.0}}
-        self._validate(config)
-        self.assertEqual(config["advanced"]["vllm_gpu_memory_utilization"], 0.7)
+        result, _ = self._validate(config)
+        self.assertEqual(result["advanced"]["vllm_gpu_memory_utilization"], 0.7)
 
     def test_vllm_port_out_of_range_corrected(self):
         config = {"advanced": {"vllm_port": 80}}
-        issues = self._validate(config)
-        self.assertIsNone(config["advanced"]["vllm_port"])
+        result, issues = self._validate(config)
+        self.assertIsNone(result["advanced"]["vllm_port"])
         self.assertTrue(any("corrected" in i and "vllm_port" in i for i in issues))
 
     def test_vllm_port_too_high_corrected(self):
         config = {"advanced": {"vllm_port": 99999}}
-        self._validate(config)
-        self.assertIsNone(config["advanced"]["vllm_port"])
+        result, _ = self._validate(config)
+        self.assertIsNone(result["advanced"]["vllm_port"])
 
     def test_empty_config_no_keys_added(self):
         """Empty config {} should not gain any new keys."""
         config = {}
-        issues = self._validate(config)
-        self.assertEqual(config, {})
+        result, issues = self._validate(config)
+        self.assertEqual(result, {})
         self.assertEqual(issues, [])
 
     def test_valid_config_unchanged(self):
@@ -101,17 +101,17 @@ class TestConfigValidationEnforcement(unittest.TestCase):
             "generation": {"temperature": 1.0},
             "security": {"max_text_length": 5000},
         }
-        issues = self._validate(config)
-        self.assertEqual(config["advanced"]["backend"], "torch")
-        self.assertEqual(config["generation"]["temperature"], 1.0)
+        result, issues = self._validate(config)
+        self.assertEqual(result["advanced"]["backend"], "torch")
+        self.assertEqual(result["generation"]["temperature"], 1.0)
         self.assertFalse(any("corrected" in i for i in issues))
 
     def test_missing_subsection_no_bloat(self):
         """Config with only 'generation' should not gain 'advanced' or 'security'."""
         config = {"generation": {"temperature": 0.5}}
-        self._validate(config)
-        self.assertNotIn("advanced", config)
-        self.assertNotIn("security", config)
+        result, _ = self._validate(config)
+        self.assertNotIn("advanced", result)
+        self.assertNotIn("security", result)
 
 
 # ---------------------------------------------------------------------------

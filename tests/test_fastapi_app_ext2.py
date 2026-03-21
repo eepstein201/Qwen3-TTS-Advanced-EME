@@ -28,6 +28,7 @@ from unittest.mock import patch, MagicMock, AsyncMock
 _APP = "qwen3_tts.server.app"
 _APP_LIFESPAN = "qwen3_tts.server.app_lifespan"
 _APP_GENERATION = "qwen3_tts.server.app_generation"
+_APP_MODELS = "qwen3_tts.server.app_models"
 
 
 def _make_app_state(**overrides):
@@ -422,9 +423,8 @@ class TestStatsMemory(unittest.TestCase):
 
         mock_cache_info = MagicMock(currsize=0, hits=0)
 
-        with patch(f"{_APP}.get_backend", return_value="torch"), \
-             patch(f"{_APP}.get_model_size", return_value="1.7B"), \
-             patch(f"{_APP}.get_torch_dtype_name", return_value="float16"), \
+        with patch(f"{_APP_MODELS}.get_backend", return_value="torch"), \
+             patch(f"{_APP_MODELS}.get_torch_dtype_name", return_value="float16"), \
              patch(f"{_APP_GENERATION}.get_generation_cache_max", return_value=10), \
              patch("qwen3_tts.core.engine.voice_prompt.voice_prompt_cache_info",
                    return_value=mock_cache_info), \
@@ -469,9 +469,8 @@ class TestStatsMemory(unittest.TestCase):
 
         mock_cache_info = MagicMock(currsize=0, hits=0)
 
-        with patch(f"{_APP}.get_backend", return_value="torch"), \
-             patch(f"{_APP}.get_model_size", return_value="1.7B"), \
-             patch(f"{_APP}.get_torch_dtype_name", return_value="float16"), \
+        with patch(f"{_APP_MODELS}.get_backend", return_value="torch"), \
+             patch(f"{_APP_MODELS}.get_torch_dtype_name", return_value="float16"), \
              patch(f"{_APP_GENERATION}.get_generation_cache_max", return_value=10), \
              patch("qwen3_tts.core.engine.voice_prompt.voice_prompt_cache_info",
                    return_value=mock_cache_info), \
@@ -533,7 +532,7 @@ class TestUpdateModelConfig(unittest.TestCase):
         client, token, state = self._setup_client()
         with patch(f"{_APP}._get_app_config",
                    return_value={"advanced": {"model_size": "1.7B"}}), \
-             patch(f"{_APP}.save_config"):
+             patch(f"{_APP_MODELS}.save_config"):
             resp = client.post(
                 "/update-model-config",
                 json={"model_size": "0.6B", "mlx_quantization": "4bit"},
@@ -549,7 +548,7 @@ class TestUpdateModelConfig(unittest.TestCase):
         client, token, state = self._setup_client()
         config = {"advanced": {"model_size": "1.7B", "audio_loader": "librosa"}}
         with patch(f"{_APP}._get_app_config", return_value=config), \
-             patch(f"{_APP}.save_config"), \
+             patch(f"{_APP_MODELS}.save_config"), \
              patch("qwen3_tts.core.engine.set_audio_loader") as mock_sal:
             resp = client.post(
                 "/update-model-config",
@@ -563,7 +562,7 @@ class TestUpdateModelConfig(unittest.TestCase):
         client, token, state = self._setup_client()
         config = {"advanced": {"model_size": "1.7B", "audio_loader": "bad"}}
         with patch(f"{_APP}._get_app_config", return_value=config), \
-             patch(f"{_APP}.save_config"), \
+             patch(f"{_APP_MODELS}.save_config"), \
              patch("qwen3_tts.core.engine.set_audio_loader",
                    side_effect=ImportError("no module")):
             resp = client.post(
@@ -587,7 +586,7 @@ class TestUpdateModelConfig(unittest.TestCase):
 
             with patch(f"{_APP}._get_app_config",
                        return_value={"advanced": {"model_size": "1.7B"}}), \
-                 patch(f"{_APP}.save_config"):
+                 patch(f"{_APP_MODELS}.save_config"):
                 resp = client.post(
                     "/update-model-config",
                     json={"model_size": "0.6B"},
@@ -605,7 +604,7 @@ class TestUpdateModelConfig(unittest.TestCase):
         state.gen_cache = {"k1": {"main_file": "/nonexistent/x.wav"}}
         with patch(f"{_APP}._get_app_config",
                    return_value={"advanced": {"model_size": "1.7B"}}), \
-             patch(f"{_APP}.save_config"):
+             patch(f"{_APP_MODELS}.save_config"):
             resp = client.post(
                 "/update-model-config",
                 json={"model_size": "0.6B"},

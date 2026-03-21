@@ -191,14 +191,14 @@ class TestDeletePromptEndpoint(unittest.TestCase):
 
     def test_delete_nonexistent(self):
         """POST /delete-prompt returns 404 for missing prompt."""
-        with patch("qwen3_tts.server.app.VOICE_PROMPTS_DIR", self.tmpdir):
+        with patch("qwen3_tts.server.app_prompts.VOICE_PROMPTS_DIR", self.tmpdir):
             resp = self.client.post("/delete-prompt", json={"name": "nonexistent"},
                                     headers=self.auth)
         self.assertEqual(resp.status_code, 404)
 
     def test_delete_success(self):
         """POST /delete-prompt deletes all format files."""
-        with patch("qwen3_tts.server.app.VOICE_PROMPTS_DIR", self.tmpdir):
+        with patch("qwen3_tts.server.app_prompts.VOICE_PROMPTS_DIR", self.tmpdir):
             resp = self.client.post("/delete-prompt", json={"name": "test_voice"},
                                     headers=self.auth)
         self.assertEqual(resp.status_code, 200)
@@ -255,7 +255,7 @@ class TestRenamePromptEndpoint(unittest.TestCase):
         # Create collision target
         with open(os.path.join(self.tmpdir, "existing.wav"), "w") as f:
             f.write("fake")
-        with patch("qwen3_tts.server.app.VOICE_PROMPTS_DIR", self.tmpdir):
+        with patch("qwen3_tts.server.app_prompts.VOICE_PROMPTS_DIR", self.tmpdir):
             resp = self.client.post("/rename-prompt",
                                     json={"old_name": "old_voice", "new_name": "existing"},
                                     headers=self.auth)
@@ -263,7 +263,7 @@ class TestRenamePromptEndpoint(unittest.TestCase):
 
     def test_rename_success(self):
         """POST /rename-prompt renames all format files."""
-        with patch("qwen3_tts.server.app.VOICE_PROMPTS_DIR", self.tmpdir):
+        with patch("qwen3_tts.server.app_prompts.VOICE_PROMPTS_DIR", self.tmpdir):
             resp = self.client.post("/rename-prompt",
                                     json={"old_name": "old_voice", "new_name": "new_voice"},
                                     headers=self.auth)
@@ -277,7 +277,7 @@ class TestRenamePromptEndpoint(unittest.TestCase):
 
     def test_rename_not_found(self):
         """POST /rename-prompt returns 404 for missing prompt."""
-        with patch("qwen3_tts.server.app.VOICE_PROMPTS_DIR", self.tmpdir):
+        with patch("qwen3_tts.server.app_prompts.VOICE_PROMPTS_DIR", self.tmpdir):
             resp = self.client.post("/rename-prompt",
                                     json={"old_name": "nonexistent", "new_name": "new"},
                                     headers=self.auth)
@@ -315,14 +315,14 @@ class TestPreviewPromptEndpoint(unittest.TestCase):
 
     def test_preview_not_found(self):
         """GET /preview-prompt returns 404 for missing prompt."""
-        with patch("qwen3_tts.server.app.VOICE_PROMPTS_DIR", self.tmpdir):
+        with patch("qwen3_tts.server.app_prompts.VOICE_PROMPTS_DIR", self.tmpdir):
             resp = self.client.get("/preview-prompt?name=nonexistent",
                                    headers=self.auth)
         self.assertEqual(resp.status_code, 404)
 
     def test_preview_returns_audio(self):
         """GET /preview-prompt returns audio/wav content."""
-        with patch("qwen3_tts.server.app.VOICE_PROMPTS_DIR", self.tmpdir):
+        with patch("qwen3_tts.server.app_prompts.VOICE_PROMPTS_DIR", self.tmpdir):
             resp = self.client.get("/preview-prompt?name=test_voice",
                                    headers=self.auth)
         self.assertEqual(resp.status_code, 200)
@@ -361,7 +361,7 @@ class TestPromptDetailsEndpoint(unittest.TestCase):
 
     def test_details_single_prompt(self):
         """GET /prompt-details?name=X returns metadata for one prompt."""
-        with patch("qwen3_tts.server.app.VOICE_PROMPTS_DIR", self.tmpdir):
+        with patch("qwen3_tts.server.app_prompts.VOICE_PROMPTS_DIR", self.tmpdir):
             resp = self.client.get("/prompt-details?name=voice_a",
                                    headers=self.auth)
         self.assertEqual(resp.status_code, 200)
@@ -374,7 +374,7 @@ class TestPromptDetailsEndpoint(unittest.TestCase):
 
     def test_details_all_prompts(self):
         """GET /prompt-details without name returns all prompts."""
-        with patch("qwen3_tts.server.app.VOICE_PROMPTS_DIR", self.tmpdir):
+        with patch("qwen3_tts.server.app_prompts.VOICE_PROMPTS_DIR", self.tmpdir):
             resp = self.client.get("/prompt-details", headers=self.auth)
         self.assertEqual(resp.status_code, 200)
         data = resp.json()

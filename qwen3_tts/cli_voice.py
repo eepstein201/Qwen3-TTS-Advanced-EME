@@ -209,7 +209,7 @@ def models():
                 mem = model_info.get("memory_mb")
                 mem_str = f" ({mem}MB)" if mem else ""
                 click.echo(f"  {name}: {status_str}{mem_str}")
-        except Exception:
+        except (requests.ConnectionError, requests.Timeout, requests.RequestException, ValueError, KeyError):
             click.echo("\nCould not reach server for live status.")
     else:
         click.echo("\nServer not running — showing configured models:")

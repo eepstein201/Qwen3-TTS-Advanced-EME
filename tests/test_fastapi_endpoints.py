@@ -441,7 +441,7 @@ def test_update_model_config_invalid_quant(fastapi_client):
 def test_update_model_config_valid(fastapi_client):
     """POST /update-model-config with valid params succeeds."""
     from unittest.mock import patch
-    with patch("qwen3_tts.server.app.save_config"), \
+    with patch("qwen3_tts.server.app_models.save_config"), \
          patch("qwen3_tts.server.app._get_app_config", return_value={"advanced": {}}):
         response = fastapi_client.post(
             "/update-model-config", json={"model_size": "0.6B"}
@@ -467,7 +467,7 @@ def test_update_startup_config_no_types(fastapi_client):
 def test_update_startup_config_valid(fastapi_client):
     """POST /update-startup-config saves config correctly."""
     from unittest.mock import patch
-    with patch("qwen3_tts.server.app.save_config") as mock_save, \
+    with patch("qwen3_tts.server.app_models.save_config") as mock_save, \
          patch("qwen3_tts.server.app._get_app_config",
                return_value={"models": {"clone": {}, "design": {}, "custom": {}}}):
         response = fastapi_client.post(

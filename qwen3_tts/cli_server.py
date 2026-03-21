@@ -119,7 +119,7 @@ def stop():
                 click.echo("Shutdown rejected: 401 Unauthorized (token mismatch).")
             else:
                 click.echo(f"Shutdown returned HTTP {resp.status_code}.")
-        except Exception:
+        except (requests.ConnectionError, requests.Timeout, requests.RequestException, OSError):
             click.echo("Server did not respond to shutdown request.")
 
         # Only poll if shutdown was accepted
@@ -200,7 +200,7 @@ def status():
         mem_key = next((k for k in stats if 'memory' in k.lower() and 'mb' in k.lower()), None)
         if mem_key:
             click.echo(f"\nMemory: {stats[mem_key]}MB")
-    except Exception as e:
+    except (requests.ConnectionError, requests.Timeout, requests.RequestException, ValueError, KeyError) as e:
         click.echo(f"Error connecting to server: {e}")
         sys.exit(1)
 

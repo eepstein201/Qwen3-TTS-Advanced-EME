@@ -236,11 +236,11 @@ class TestMLXMemoryStats(unittest.TestCase):
     """Test MLX memory stats collection in /stats endpoint."""
 
     def test_stats_mlx_memory_code_exists(self):
-        """FastAPI app has MLX memory collection code."""
+        """Stats handler has MLX memory collection code."""
         import inspect
-        from qwen3_tts.server import app as app_module
-        # Find the stats route handler
-        source = inspect.getsource(app_module)
+        from qwen3_tts.server import app_models
+        # Find the stats handler
+        source = inspect.getsource(app_models)
         # Should have MLX memory collection
         self.assertIn("mlx_memory_active_mb", source)
         self.assertIn("mlx_memory_peak_mb", source)

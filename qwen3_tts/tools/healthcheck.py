@@ -132,7 +132,7 @@ def check_config() -> tuple:
         try:
             from qwen3_tts.core.config import load_config, validate_config
             config = load_config()
-            issues = validate_config(config)
+            _, issues = validate_config(config)
 
             if issues:
                 return "warn", f"Config has {len(issues)} validation issue(s)"

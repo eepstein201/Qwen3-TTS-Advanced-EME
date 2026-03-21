@@ -486,15 +486,15 @@ class TestPreviewPromptSymlink(unittest.TestCase):
     """Verify /preview-prompt resolves symlinks."""
 
     def test_realpath_validation_in_endpoint(self):
-        """preview_prompt endpoint should check realpath."""
-        from qwen3_tts.server.app import preview_prompt
-        source = inspect.getsource(preview_prompt)
+        """preview_prompt handler should check realpath."""
+        from qwen3_tts.server.app_prompts import handle_preview_prompt
+        source = inspect.getsource(handle_preview_prompt)
         self.assertIn("realpath", source)
 
     def test_rejects_path_outside_dir(self):
-        """preview_prompt should reject paths resolving outside VOICE_PROMPTS_DIR."""
-        from qwen3_tts.server.app import preview_prompt
-        source = inspect.getsource(preview_prompt)
+        """preview_prompt handler should reject paths resolving outside VOICE_PROMPTS_DIR."""
+        from qwen3_tts.server.app_prompts import handle_preview_prompt
+        source = inspect.getsource(handle_preview_prompt)
         self.assertIn("Access denied", source)
 
 
@@ -507,9 +507,9 @@ class TestPromptsPagination(unittest.TestCase):
     """Verify /prompts supports pagination."""
 
     def test_pagination_params_in_source(self):
-        """list_prompts should reference offset and limit."""
-        from qwen3_tts.server.app import list_prompts
-        source = inspect.getsource(list_prompts)
+        """list_prompts handler should reference offset and limit."""
+        from qwen3_tts.server.app_prompts import handle_list_prompts
+        source = inspect.getsource(handle_list_prompts)
         self.assertIn("total", source)
         self.assertIn("offset", source)
         self.assertIn("limit", source)

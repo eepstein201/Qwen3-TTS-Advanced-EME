@@ -55,12 +55,18 @@ _config_cache = {"data": None, "mtime": 0}
 
 
 def validate_config(config):
-    """Validate config structure and values, correcting invalid values.
+    """Validate config structure and values, returning corrected copy.
 
-    Invalid values are replaced with safe defaults. Nested dicts are replaced
-    with new objects rather than mutated in-place. Missing keys are left missing.
+    Invalid values are replaced with safe defaults. Returns a new config dict
+    with corrections applied — the input config is never mutated.
+    Missing keys are left missing (no bloat).
+
+    Returns:
+        (result, issues): result is a new dict with corrections; issues is a
+        list of human-readable correction descriptions.
     """
     issues = []
+    result = dict(config)
     adv = config.get("advanced")
     if isinstance(adv, dict):
         corrected_adv = dict(adv)
@@ -82,7 +88,7 @@ def validate_config(config):
             corrected_adv["vllm_port"] = None
             issues.append(f"corrected vllm_port from {vllm_port} to None")
         if corrected_adv != adv:
-            config["advanced"] = corrected_adv
+            result["advanced"] = corrected_adv
     gen = config.get("generation")
     if isinstance(gen, dict):
         corrected_gen = dict(gen)
@@ -91,7 +97,7 @@ def validate_config(config):
             corrected_gen["temperature"] = 0.7
             issues.append(f"corrected temperature from {temp} to 0.7")
         if corrected_gen != gen:
-            config["generation"] = corrected_gen
+            result["generation"] = corrected_gen
     sec = config.get("security")
     if isinstance(sec, dict):
         corrected_sec = dict(sec)
@@ -100,10 +106,10 @@ def validate_config(config):
             corrected_sec["max_text_length"] = 10000
             issues.append(f"corrected max_text_length from {mtl} to 10000")
         if corrected_sec != sec:
-            config["security"] = corrected_sec
+            result["security"] = corrected_sec
     for issue in issues:
         logger.warning("Config validation: %s", issue)
-    return issues
+    return result, issues
 
 
 def load_config():
@@ -123,9 +129,9 @@ def load_config():
 
         with open(CONFIG_PATH, "r") as f:
             data = json.load(f)
-        _config_cache["data"] = data
         _config_cache["mtime"] = current_mtime
-        validate_config(data)
+        data, _ = validate_config(data)
+        _config_cache["data"] = data
         return copy.deepcopy(data)
 
 

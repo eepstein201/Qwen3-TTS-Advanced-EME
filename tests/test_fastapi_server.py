@@ -419,7 +419,7 @@ def test_cancel_generation_active(fastapi_client):
 def test_prompts_mlx_backend(fastapi_client):
     """GET /prompts lists MLX-style prompts (wav+txt pairs)."""
     with patch("qwen3_tts.server.app.get_backend", return_value="mlx"), \
-         patch("qwen3_tts.server.app.os.listdir",
+         patch("qwen3_tts.server.app_prompts.os.listdir",
                return_value=["alice.wav", "alice.txt", "bob.wav", "bob.txt", "orphan.wav"]):
         response = fastapi_client.get("/prompts")
     assert response.status_code == 200
@@ -434,7 +434,7 @@ def test_prompts_mlx_backend(fastapi_client):
 def test_prompts_torch_backend(fastapi_client):
     """GET /prompts lists torch-style prompts (.pt files)."""
     with patch("qwen3_tts.server.app.get_backend", return_value="torch"), \
-         patch("qwen3_tts.server.app.os.listdir",
+         patch("qwen3_tts.server.app_prompts.os.listdir",
                return_value=["alice.pt", "bob.pt", "readme.txt"]):
         response = fastapi_client.get("/prompts")
     assert response.status_code == 200
@@ -449,7 +449,7 @@ def test_prompts_torch_backend(fastapi_client):
 def test_prompts_pagination(fastapi_client):
     """GET /prompts supports offset and limit."""
     with patch("qwen3_tts.server.app.get_backend", return_value="torch"), \
-         patch("qwen3_tts.server.app.os.listdir",
+         patch("qwen3_tts.server.app_prompts.os.listdir",
                return_value=["a.pt", "b.pt", "c.pt", "d.pt"]):
         response = fastapi_client.get("/prompts?offset=1&limit=2")
     assert response.status_code == 200
@@ -462,7 +462,7 @@ def test_prompts_pagination(fastapi_client):
 @_skip
 def test_prompts_empty_dir(fastapi_client):
     """GET /prompts returns empty when VOICE_PROMPTS_DIR fails."""
-    with patch("qwen3_tts.server.app.os.listdir", side_effect=OSError("no dir")):
+    with patch("qwen3_tts.server.app_prompts.os.listdir", side_effect=OSError("no dir")):
         response = fastapi_client.get("/prompts")
     assert response.status_code == 200
     assert response.json()["prompts"] == []
@@ -472,8 +472,8 @@ def test_prompts_empty_dir(fastapi_client):
 @_skip
 def test_delete_prompt_success(fastapi_client):
     """POST /delete-prompt removes matching files."""
-    with patch("qwen3_tts.server.app.os.path.exists", side_effect=lambda p: p.endswith(".wav") or p.endswith(".txt")), \
-         patch("qwen3_tts.server.app.os.remove") as mock_rm, \
+    with patch("qwen3_tts.server.app_prompts.os.path.exists", side_effect=lambda p: p.endswith(".wav") or p.endswith(".txt")), \
+         patch("qwen3_tts.server.app_prompts.os.remove") as mock_rm, \
          patch("qwen3_tts.server.app._get_app_config", return_value={"default_clone_prompt": ""}), \
          patch("qwen3_tts.core.engine.clear_voice_prompt_cache"):
         response = fastapi_client.post(
@@ -489,7 +489,7 @@ def test_delete_prompt_success(fastapi_client):
 @_skip
 def test_delete_prompt_not_found(fastapi_client):
     """POST /delete-prompt returns 404 for missing prompt."""
-    with patch("qwen3_tts.server.app.os.path.exists", return_value=False):
+    with patch("qwen3_tts.server.app_prompts.os.path.exists", return_value=False):
         response = fastapi_client.post(
             "/delete-prompt", json={"name": "nonexistent"}
         )
@@ -521,7 +521,7 @@ def test_rename_prompt_same_name(fastapi_client):
 @_skip
 def test_rename_prompt_collision(fastapi_client):
     """POST /rename-prompt returns 409 when new name exists."""
-    with patch("qwen3_tts.server.app.os.path.exists", return_value=True):
+    with patch("qwen3_tts.server.app_prompts.os.path.exists", return_value=True):
         response = fastapi_client.post(
             "/rename-prompt", json={"old_name": "alice", "new_name": "bob"}
         )
@@ -535,7 +535,7 @@ def test_rename_prompt_not_found(fastapi_client):
     """POST /rename-prompt returns 404 when old prompt not found."""
     # First call (collision check for .pt): False, .wav: False, .txt: False
     # Then old_exists check: all False
-    with patch("qwen3_tts.server.app.os.path.exists", return_value=False):
+    with patch("qwen3_tts.server.app_prompts.os.path.exists", return_value=False):
         response = fastapi_client.post(
             "/rename-prompt", json={"old_name": "gone", "new_name": "newname"}
         )
@@ -546,8 +546,8 @@ def test_rename_prompt_not_found(fastapi_client):
 @_skip
 def test_preview_prompt_not_found(fastapi_client):
     """GET /preview-prompt returns 404 when .wav not found."""
-    with patch("qwen3_tts.server.app.os.path.exists", return_value=False), \
-         patch("qwen3_tts.server.app.os.path.realpath", side_effect=lambda p: p):
+    with patch("qwen3_tts.server.app_prompts.os.path.exists", return_value=False), \
+         patch("qwen3_tts.server.app_prompts.os.path.realpath", side_effect=lambda p: p):
         response = fastapi_client.get("/preview-prompt?name=missing")
     assert response.status_code == 404
 
@@ -556,9 +556,9 @@ def test_preview_prompt_not_found(fastapi_client):
 @_skip
 def test_preview_prompt_symlink_traversal(fastapi_client):
     """GET /preview-prompt rejects symlinks outside prompts dir."""
-    with patch("qwen3_tts.server.app.os.path.realpath",
+    with patch("qwen3_tts.server.app_prompts.os.path.realpath",
                side_effect=lambda p: "/etc/passwd" if "voice" in str(p) else p), \
-         patch("qwen3_tts.server.app.os.path.exists", return_value=True):
+         patch("qwen3_tts.server.app_prompts.os.path.exists", return_value=True):
         response = fastapi_client.get("/preview-prompt?name=evil")
     assert response.status_code == 403
 
@@ -567,9 +567,9 @@ def test_preview_prompt_symlink_traversal(fastapi_client):
 @_skip
 def test_prompt_details_not_found(fastapi_client):
     """GET /prompt-details returns 404 for missing prompt."""
-    with patch("qwen3_tts.server.app.os.path.exists", return_value=False), \
-         patch("qwen3_tts.server.app.os.path.getsize", return_value=0), \
-         patch("qwen3_tts.server.app.os.path.getmtime", return_value=0):
+    with patch("qwen3_tts.server.app_prompts.os.path.exists", return_value=False), \
+         patch("qwen3_tts.server.app_prompts.os.path.getsize", return_value=0), \
+         patch("qwen3_tts.server.app_prompts.os.path.getmtime", return_value=0):
         response = fastapi_client.get("/prompt-details?name=missing")
     assert response.status_code == 404
 
@@ -579,11 +579,11 @@ def test_prompt_details_not_found(fastapi_client):
 def test_prompt_details_all_prompts(fastapi_client):
     """GET /prompt-details without name returns all prompts."""
     fake_files = ["alice.pt", "alice.wav", "alice.txt", "bob.pt"]
-    with patch("qwen3_tts.server.app.os.listdir", return_value=fake_files), \
-         patch("qwen3_tts.server.app.os.path.exists", return_value=True), \
-         patch("qwen3_tts.server.app.os.path.getsize", return_value=1000), \
-         patch("qwen3_tts.server.app.os.path.getmtime", return_value=1000000.0), \
-         patch("qwen3_tts.server.app.get_default_clone_prompt", return_value="alice.pt"):
+    with patch("qwen3_tts.server.app_prompts.os.listdir", return_value=fake_files), \
+         patch("qwen3_tts.server.app_prompts.os.path.exists", return_value=True), \
+         patch("qwen3_tts.server.app_prompts.os.path.getsize", return_value=1000), \
+         patch("qwen3_tts.server.app_prompts.os.path.getmtime", return_value=1000000.0), \
+         patch("qwen3_tts.server.app_prompts.get_default_clone_prompt", return_value="alice.pt"):
         response = fastapi_client.get("/prompt-details")
     assert response.status_code == 200
     data = response.json()

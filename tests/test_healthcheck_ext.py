@@ -72,7 +72,7 @@ class TestCheckConfig(unittest.TestCase):
         with patch(f"{_MOD}.CONFIG_PATH", "/tmp/fake_config.json"), \
              patch("pathlib.Path.exists", return_value=True), \
              patch("qwen3_tts.core.config.load_config", return_value=mock_config), \
-             patch("qwen3_tts.core.config.validate_config", return_value=[]):
+             patch("qwen3_tts.core.config.validate_config", return_value=({}, [])):
             status, details = check_config()
         self.assertEqual(status, "pass")
         self.assertIn("mlx", details)
@@ -82,7 +82,7 @@ class TestCheckConfig(unittest.TestCase):
         with patch(f"{_MOD}.CONFIG_PATH", "/tmp/fake_config.json"), \
              patch("pathlib.Path.exists", return_value=True), \
              patch("qwen3_tts.core.config.load_config", return_value={}), \
-             patch("qwen3_tts.core.config.validate_config", return_value=["issue1", "issue2"]):
+             patch("qwen3_tts.core.config.validate_config", return_value=({}, ["issue1", "issue2"])):
             status, details = check_config()
         self.assertEqual(status, "warn")
         self.assertIn("2 validation", details)
@@ -100,7 +100,7 @@ class TestCheckConfig(unittest.TestCase):
         with patch(f"{_MOD}.CONFIG_PATH", "/tmp/fake.json"), \
              patch("pathlib.Path.exists", return_value=True), \
              patch("qwen3_tts.core.config.load_config", side_effect=ValueError("bad json")), \
-             patch("qwen3_tts.core.config.validate_config", return_value=[]):
+             patch("qwen3_tts.core.config.validate_config", return_value=({}, [])):
             status, details = check_config()
         self.assertEqual(status, "fail")
         self.assertIn("error", details.lower())

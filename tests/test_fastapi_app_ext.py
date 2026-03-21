@@ -28,6 +28,8 @@ except ImportError:
 _APP = "qwen3_tts.server.app"
 _APP_LIFESPAN = "qwen3_tts.server.app_lifespan"
 _APP_GENERATION = "qwen3_tts.server.app_generation"
+_APP_MODELS = "qwen3_tts.server.app_models"
+_APP_PROMPTS = "qwen3_tts.server.app_prompts"
 
 pytestmark = pytest.mark.skipif(not HAS_FASTAPI, reason="requires fastapi")
 
@@ -278,10 +280,10 @@ class TestRenamePromptSuccess:
         wav_path.write_text("audio")
         txt_path.write_text("transcript")
 
-        with patch(f"{_APP}.VOICE_PROMPTS_DIR", str(tmp_path)), \
+        with patch(f"{_APP_PROMPTS}.VOICE_PROMPTS_DIR", str(tmp_path)), \
              patch("qwen3_tts.core.engine.clear_voice_prompt_cache"), \
              patch(f"{_APP}._get_app_config", return_value={"default_clone_prompt": ""}), \
-             patch(f"{_APP}.save_config"):
+             patch(f"{_APP_PROMPTS}.save_config"):
             resp = client.post("/rename-prompt", json={
                 "old_name": "old_voice",
                 "new_name": "new_voice",
@@ -303,10 +305,10 @@ class TestRenamePromptSuccess:
         def _save(cfg):
             saved_config.update(cfg)
 
-        with patch(f"{_APP}.VOICE_PROMPTS_DIR", str(tmp_path)), \
+        with patch(f"{_APP_PROMPTS}.VOICE_PROMPTS_DIR", str(tmp_path)), \
              patch("qwen3_tts.core.engine.clear_voice_prompt_cache"), \
              patch(f"{_APP}._get_app_config", return_value={"default_clone_prompt": "my_voice"}), \
-             patch(f"{_APP}.save_config", side_effect=_save):
+             patch(f"{_APP_PROMPTS}.save_config", side_effect=_save):
             resp = client.post("/rename-prompt", json={
                 "old_name": "my_voice",
                 "new_name": "renamed_voice",
@@ -329,8 +331,8 @@ class TestRenamePromptSuccess:
                 raise OSError("disk full")
             original_rename(src, dst)
 
-        with patch(f"{_APP}.VOICE_PROMPTS_DIR", str(tmp_path)), \
-             patch("os.rename", side_effect=_failing_rename):
+        with patch(f"{_APP_PROMPTS}.VOICE_PROMPTS_DIR", str(tmp_path)), \
+             patch(f"{_APP_PROMPTS}.os.rename", side_effect=_failing_rename):
             resp = client.post("/rename-prompt", json={
                 "old_name": "voice",
                 "new_name": "voice2",
@@ -349,7 +351,7 @@ class TestPreviewPromptSuccess:
         wav_path = tmp_path / "my_voice.wav"
         wav_path.write_bytes(b"RIFF" + b"\x00" * 40)
 
-        with patch(f"{_APP}.VOICE_PROMPTS_DIR", str(tmp_path)):
+        with patch(f"{_APP_PROMPTS}.VOICE_PROMPTS_DIR", str(tmp_path)):
             resp = client.get("/preview-prompt?name=my_voice")
         assert resp.status_code == 200
         assert resp.headers.get("content-type", "").startswith("audio/wav")
@@ -368,8 +370,8 @@ class TestPromptDetailsSuccess:
         wav.write_bytes(b"RIFF" + b"\x00" * 40)
         txt.write_text("transcript")
 
-        with patch(f"{_APP}.VOICE_PROMPTS_DIR", str(tmp_path)), \
-             patch(f"{_APP}.get_default_clone_prompt", return_value="test_voice"):
+        with patch(f"{_APP_PROMPTS}.VOICE_PROMPTS_DIR", str(tmp_path)), \
+             patch(f"{_APP_PROMPTS}.get_default_clone_prompt", return_value="test_voice"):
             resp = client.get("/prompt-details?name=test_voice")
         assert resp.status_code == 200
         data = resp.json()
@@ -384,8 +386,8 @@ class TestPromptDetailsSuccess:
         (tmp_path / "a.txt").write_text("text")
         (tmp_path / "b.pt").write_text("model")
 
-        with patch(f"{_APP}.VOICE_PROMPTS_DIR", str(tmp_path)), \
-             patch(f"{_APP}.get_default_clone_prompt", return_value="a"):
+        with patch(f"{_APP_PROMPTS}.VOICE_PROMPTS_DIR", str(tmp_path)), \
+             patch(f"{_APP_PROMPTS}.get_default_clone_prompt", return_value="a"):
             resp = client.get("/prompt-details")
         assert resp.status_code == 200
         data = resp.json()
@@ -393,8 +395,8 @@ class TestPromptDetailsSuccess:
 
     def test_prompt_details_oserror(self, fastapi_client):
         client = fastapi_client
-        with patch(f"{_APP}.VOICE_PROMPTS_DIR", "/nonexistent_dir_xyz"), \
-             patch(f"{_APP}.get_default_clone_prompt", return_value=""):
+        with patch(f"{_APP_PROMPTS}.VOICE_PROMPTS_DIR", "/nonexistent_dir_xyz"), \
+             patch(f"{_APP_PROMPTS}.get_default_clone_prompt", return_value=""):
             resp = client.get("/prompt-details")
         assert resp.status_code == 200
         assert resp.json()["prompts"] == []
@@ -526,10 +528,10 @@ class TestDeletePromptDefaultClear:
         def _save(cfg):
             saved_config.update(cfg)
 
-        with patch(f"{_APP}.VOICE_PROMPTS_DIR", str(tmp_path)), \
+        with patch(f"{_APP_PROMPTS}.VOICE_PROMPTS_DIR", str(tmp_path)), \
              patch("qwen3_tts.core.engine.clear_voice_prompt_cache"), \
              patch(f"{_APP}._get_app_config", return_value={"default_clone_prompt": "def_voice"}), \
-             patch(f"{_APP}.save_config", side_effect=_save):
+             patch(f"{_APP_PROMPTS}.save_config", side_effect=_save):
             resp = client.post("/delete-prompt", json={"name": "def_voice"})
         assert resp.status_code == 200
         assert saved_config.get("default_clone_prompt") == ""
@@ -549,7 +551,7 @@ class TestListModels:
 
         info = {"name": "TestModel", "description": "Test", "memory_mb": 2500}
         with patch("qwen3_tts.core.config.get_model_info", return_value=info), \
-             patch(f"{_APP}.get_backend", return_value="mlx"):
+             patch(f"{_APP_MODELS}.get_backend", return_value="mlx"):
             resp = client.get("/models")
         assert resp.status_code == 200
         data = resp.json()

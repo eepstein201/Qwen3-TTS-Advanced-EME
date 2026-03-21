@@ -143,8 +143,8 @@ class TestServerValidation(unittest.TestCase):
             # Old file exists as .pt; new file does not exist (no collision)
             return "existing.pt" in path and "new_name" not in path
 
-        with patch('qwen3_tts.server.app.os.path.exists', side_effect=mock_exists), \
-             patch('qwen3_tts.server.app.os.rename', side_effect=OSError(secret_path)):
+        with patch('qwen3_tts.server.app_prompts.os.path.exists', side_effect=mock_exists), \
+             patch('qwen3_tts.server.app_prompts.os.rename', side_effect=OSError(secret_path)):
             resp = self.client.post(
                 "/rename-prompt",
                 json={"old_name": "existing.pt", "new_name": "new_name.pt"},
@@ -630,8 +630,8 @@ class TestUpdateStartupConfigEndpoint(unittest.TestCase):
             headers={"Authorization": "Bearer test_token"})
         self.assertEqual(resp.status_code, 400)
 
-    @patch("qwen3_tts.server.app.save_config")
-    @patch("qwen3_tts.server.app.load_config")
+    @patch("qwen3_tts.server.app_models.save_config")
+    @patch("qwen3_tts.core.config.load_config")
     def test_startup_config_saves(self, mock_load, mock_save):
         """POST /update-startup-config saves to config."""
         mock_load.return_value = {"models": {"clone": {}, "design": {}, "custom": {}}}
@@ -642,8 +642,8 @@ class TestUpdateStartupConfigEndpoint(unittest.TestCase):
         self.assertEqual(resp.json()["status"], "updated")
         self.assertTrue(mock_save.called)
 
-    @patch("qwen3_tts.server.app.save_config")
-    @patch("qwen3_tts.server.app.load_config")
+    @patch("qwen3_tts.server.app_models.save_config")
+    @patch("qwen3_tts.core.config.load_config")
     def test_startup_config_partial_update(self, mock_load, mock_save):
         """POST /update-startup-config accepts partial updates."""
         mock_load.return_value = {"models": {"clone": {"load_at_startup": True}}}

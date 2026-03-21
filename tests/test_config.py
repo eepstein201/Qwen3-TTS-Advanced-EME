@@ -100,31 +100,33 @@ class TestConfigValidation(unittest.TestCase):
             "generation": {"temperature": 0.7},
             "security": {"max_text_length": 10000},
         }
-        self.assertEqual(validate_config(config), [])
+        _, issues = validate_config(config)
+        self.assertEqual(issues, [])
 
     def test_invalid_backend(self):
         from qwen3_tts.core.config import validate_config
-        issues = validate_config({"advanced": {"backend": "invalid"}})
+        _, issues = validate_config({"advanced": {"backend": "invalid"}})
         self.assertTrue(any("backend" in i for i in issues))
 
     def test_invalid_model_size(self):
         from qwen3_tts.core.config import validate_config
-        issues = validate_config({"advanced": {"model_size": "99B"}})
+        _, issues = validate_config({"advanced": {"model_size": "99B"}})
         self.assertTrue(any("model_size" in i for i in issues))
 
     def test_temperature_out_of_range(self):
         from qwen3_tts.core.config import validate_config
-        issues = validate_config({"generation": {"temperature": 5.0}})
+        _, issues = validate_config({"generation": {"temperature": 5.0}})
         self.assertTrue(any("temperature" in i for i in issues))
 
     def test_negative_max_text_length(self):
         from qwen3_tts.core.config import validate_config
-        issues = validate_config({"security": {"max_text_length": -1}})
+        _, issues = validate_config({"security": {"max_text_length": -1}})
         self.assertTrue(any("max_text_length" in i for i in issues))
 
     def test_empty_config_no_issues(self):
         from qwen3_tts.core.config import validate_config
-        self.assertEqual(validate_config({}), [])
+        _, issues = validate_config({})
+        self.assertEqual(issues, [])
 
 
 # =========================================================================

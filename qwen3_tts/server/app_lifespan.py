@@ -296,7 +296,7 @@ def cleanup_resources(app_state):
                 try:
                     del model
                     models[name] = None
-                except Exception:
+                except (TypeError, RuntimeError, OSError):
                     pass
 
     # Clean up generation cache temp files
