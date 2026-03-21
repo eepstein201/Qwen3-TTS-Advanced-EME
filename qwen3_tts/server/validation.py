@@ -8,12 +8,13 @@ This module contains:
 """
 import hashlib
 import re
+from pathlib import Path
 from typing import Optional, List
 
 from fastapi import HTTPException
 from pydantic import BaseModel, Field
 
-from qwen3_tts.core.config import CUSTOM_VOICE_SPEAKERS
+from qwen3_tts.core.config import CUSTOM_VOICE_SPEAKERS, VOICE_PROMPTS_DIR
 
 
 # Pre-computed valid speaker names (keys + display names)
@@ -129,12 +130,20 @@ def _validate_generation_request(req: GenerateRequest, security_config: dict) ->
     - Invalid speaker name for custom mode
     - Invalid mode
     """
-    # Path traversal check
-    if req.prompt_file and (".." in req.prompt_file or "/" in req.prompt_file):
-        raise HTTPException(
-            status_code=400,
-            detail="Invalid prompt_file: path traversal not allowed",
-        )
+    # Path traversal check — use pathlib.resolve() to catch encoded sequences and symlinks
+    if req.prompt_file:
+        try:
+            resolved = (Path(VOICE_PROMPTS_DIR) / req.prompt_file).resolve()
+            if not resolved.is_relative_to(Path(VOICE_PROMPTS_DIR).resolve()):
+                raise HTTPException(
+                    status_code=400,
+                    detail="Invalid prompt_file: path traversal not allowed",
+                )
+        except (ValueError, OSError):
+            raise HTTPException(
+                status_code=400,
+                detail="Invalid prompt_file: path traversal not allowed",
+            )
 
     # Speaker validation for custom mode
     if req.mode == "custom" and req.speaker:

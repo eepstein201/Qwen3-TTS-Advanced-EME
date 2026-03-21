@@ -38,14 +38,23 @@ class TestValidateGenerationRequest:
         assert exc.value.status_code == 400
         assert "path traversal" in exc.value.detail.lower()
 
-    def test_rejects_slash_in_prompt_file(self, security_config):
-        """Validation rejects slash in prompt_file."""
+    def test_accepts_subdir_path_in_prompt_file(self, security_config):
+        """Validation accepts subdirectory path in prompt_file (pathlib-based check)."""
         from qwen3_tts.server.validation import _validate_generation_request, GenerateRequest
 
         req = GenerateRequest(texts=["test"], mode="clone", prompt_file="subdir/file.pt")
+        # Should NOT raise — pathlib check allows paths that resolve within voice_prompts dir
+        _validate_generation_request(req, security_config)
+
+    def test_rejects_absolute_path_in_prompt_file(self, security_config):
+        """Validation rejects absolute path in prompt_file."""
+        from qwen3_tts.server.validation import _validate_generation_request, GenerateRequest
+
+        req = GenerateRequest(texts=["test"], mode="clone", prompt_file="/etc/passwd")
         with pytest.raises(HTTPException) as exc:
             _validate_generation_request(req, security_config)
         assert exc.value.status_code == 400
+        assert "path traversal" in exc.value.detail.lower()
 
     def test_rejects_invalid_speaker_for_custom_mode(self, security_config):
         """Validation rejects invalid speaker for custom mode."""

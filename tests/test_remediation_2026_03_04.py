@@ -163,11 +163,11 @@ class TestValidateGenerationRequest(unittest.TestCase):
             validate(req, {})
         self.assertEqual(ctx.exception.status_code, 400)
 
-    def test_path_traversal_slash_blocked(self):
-        """Forward slash in prompt_file raises HTTPException."""
+    def test_absolute_path_blocked(self):
+        """Absolute path in prompt_file raises HTTPException (pathlib-based check)."""
         from fastapi import HTTPException
         validate, Request = self._get_validator_and_request_class()
-        req = Request(text="Hello", mode="clone", prompt_file="foo/bar.pt")
+        req = Request(text="Hello", mode="clone", prompt_file="/etc/passwd")
         with self.assertRaises(HTTPException) as ctx:
             validate(req, {})
         self.assertEqual(ctx.exception.status_code, 400)
