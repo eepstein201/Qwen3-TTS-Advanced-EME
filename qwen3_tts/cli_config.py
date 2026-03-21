@@ -34,17 +34,106 @@ def show():
 
 
 @config.command()
-def edit():
-    """Edit default voice description."""
+@click.option('--backend', type=click.Choice(['mlx', 'torch', 'vllm']), help='Set backend (mlx/torch/vllm)')
+@click.option('--model-size', type=click.Choice(['1.7B', '0.6B']), help='Set model size')
+@click.option('--mlx-quantization', type=click.Choice(['4bit', '8bit', 'bf16']), help='Set MLX quantization')
+@click.option('--torch-quantization', type=click.Choice(['none', '4bit', '8bit']), help='Set Torch quantization')
+@click.option('--language', help='Set default language')
+@click.option('--output-dir', help='Set output directory for generated audio')
+@click.option('--voice-description', help='Set default voice description')
+def edit(backend, model_size, mlx_quantization, torch_quantization, language, output_dir, voice_description):
+    """Edit TTS configuration settings.
+
+    Without options, opens interactive editor for voice description.
+    With options, sets specific values directly.
+
+    Examples:
+        tts config edit --backend mlx
+        tts config edit --model-size 0.6B --mlx-quantization 4bit
+        tts config edit --language Spanish
+    """
     from qwen3_tts.core.config import load_config, save_config
     config_data = load_config()
-    current = config_data.get("default_voice_description", "")
-    click.echo(f"Current voice description:\n  {current}\n")
-    new_desc = click.prompt("New description (or Enter to keep)", default=current)
-    if new_desc != current:
-        config_data["default_voice_description"] = new_desc
+
+    # Track if any changes were made
+    changes = []
+
+    # Handle backend
+    if backend:
+        if "advanced" not in config_data:
+            config_data["advanced"] = {}
+        old = config_data["advanced"].get("backend")
+        if backend != old:
+            config_data["advanced"]["backend"] = backend
+            changes.append(f"backend: {old} → {backend}")
+
+    # Handle model size
+    if model_size:
+        if "advanced" not in config_data:
+            config_data["advanced"] = {}
+        old = config_data["advanced"].get("model_size")
+        if model_size != old:
+            config_data["advanced"]["model_size"] = model_size
+            changes.append(f"model_size: {old} → {model_size}")
+
+    # Handle MLX quantization
+    if mlx_quantization:
+        if "advanced" not in config_data:
+            config_data["advanced"] = {}
+        old = config_data["advanced"].get("mlx_quantization")
+        if mlx_quantization != old:
+            config_data["advanced"]["mlx_quantization"] = mlx_quantization
+            changes.append(f"mlx_quantization: {old} → {mlx_quantization}")
+
+    # Handle Torch quantization
+    if torch_quantization:
+        if "advanced" not in config_data:
+            config_data["advanced"] = {}
+        old = config_data["advanced"].get("torch_quantization")
+        if torch_quantization != old:
+            config_data["advanced"]["torch_quantization"] = torch_quantization
+            changes.append(f"torch_quantization: {old} → {torch_quantization}")
+
+    # Handle language
+    if language:
+        old = config_data.get("language")
+        if language != old:
+            config_data["language"] = language
+            changes.append(f"language: {old} → {language}")
+
+    # Handle output directory
+    if output_dir:
+        old = config_data.get("output_directory")
+        if output_dir != old:
+            config_data["output_directory"] = output_dir
+            changes.append(f"output_directory: {old} → {output_dir}")
+
+    # Handle voice description (direct setting or interactive)
+    if voice_description:
+        old = config_data.get("default_voice_description")
+        if voice_description != old:
+            config_data["default_voice_description"] = voice_description
+            changes.append(f"default_voice_description updated")
+
+    # If no options provided, fall back to interactive voice description editor
+    if not any([backend, model_size, mlx_quantization, torch_quantization, language, output_dir, voice_description]):
+        current = config_data.get("default_voice_description", "")
+        click.echo(f"Current voice description:\n  {current}\n")
+        new_desc = click.prompt("New description (or Enter to keep)", default=current)
+        if new_desc != current:
+            config_data["default_voice_description"] = new_desc
+            save_config(config_data)
+            click.echo("Voice description updated.")
+        else:
+            click.echo("No changes.")
+        return
+
+    # Save if there were changes
+    if changes:
         save_config(config_data)
-        click.echo("Voice description updated.")
+        click.echo("Configuration updated:")
+        for change in changes:
+            click.echo(f"  • {change}")
     else:
         click.echo("No changes.")
 
