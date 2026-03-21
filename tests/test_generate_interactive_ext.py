@@ -11,7 +11,6 @@ Covers deeper paths not in test_generate_interactive.py:
 
 Run: pytest tests/test_generate_interactive_ext.py -v
 """
-import os
 import unittest
 from unittest.mock import patch, MagicMock
 

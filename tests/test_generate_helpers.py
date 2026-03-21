@@ -8,8 +8,6 @@ Run with:
     cd ~/Qwen3-TTS_UserFiles/.worktrees/coverage-pr1 && python -m pytest tests/test_generate_helpers.py -v
 """
 
-import base64
-import io
 import json
 import os
 import tempfile
