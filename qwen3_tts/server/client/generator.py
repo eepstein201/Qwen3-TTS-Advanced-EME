@@ -158,15 +158,16 @@ class GeneratorMixin:
     def _generate_via_server(self, text, mode, prompt, description, speaker, instruct, gen_params,
                              x_vector_only_mode=False):
         """Generate audio via the TTS server."""
-        payload = {
-            "texts": [text],
-            "mode": mode,
-            "language": self.config.get("language", "English"),
-            **gen_params,
-        }
-
-        self._add_mode_params(payload, mode, prompt=prompt, description=description,
-                              speaker=speaker, instruct=instruct, x_vector_only_mode=x_vector_only_mode)
+        payload = self._add_mode_params(
+            {
+                "texts": [text],
+                "mode": mode,
+                "language": self.config.get("language", "English"),
+                **gen_params,
+            },
+            mode, prompt=prompt, description=description,
+            speaker=speaker, instruct=instruct, x_vector_only_mode=x_vector_only_mode,
+        )
 
         resp = self._session.post(f"{self.server_url}/generate", json=payload, timeout=600, headers=auth_headers())
         if resp.status_code != 200:
@@ -258,15 +259,16 @@ class GeneratorMixin:
             description = description or self.config.get("default_voice_description", "")
 
         # Build payload
-        payload = {
-            "text": text,
-            "mode": mode,
-            "language": self.config.get("language", "English"),
-            **gen_params,
-        }
-
-        self._add_mode_params(payload, mode, prompt=prompt, description=description,
-                              speaker=speaker, instruct=instruct, x_vector_only_mode=x_vector_only_mode)
+        payload = self._add_mode_params(
+            {
+                "text": text,
+                "mode": mode,
+                "language": self.config.get("language", "English"),
+                **gen_params,
+            },
+            mode, prompt=prompt, description=description,
+            speaker=speaker, instruct=instruct, x_vector_only_mode=x_vector_only_mode,
+        )
 
         # Stream from server
         with self._session.post(
@@ -399,16 +401,15 @@ class GeneratorMixin:
             instruct = speaker_config.get("instruct", line.get("instruct", ""))
 
             # Generate this line
-            payload = {
-                "texts": [text],
-                "mode": mode,
-                "language": self.config.get("language", "English"),
-                **gen_params,
-            }
-
-            self._add_mode_params(
-                payload, mode, prompt=prompt, description=description,
-                speaker=custom_speaker, instruct=instruct
+            payload = self._add_mode_params(
+                {
+                    "texts": [text],
+                    "mode": mode,
+                    "language": self.config.get("language", "English"),
+                    **gen_params,
+                },
+                mode, prompt=prompt, description=description,
+                speaker=custom_speaker, instruct=instruct,
             )
 
             resp = self._session.post(f"{self.server_url}/generate", json=payload, timeout=600, headers=auth_headers())

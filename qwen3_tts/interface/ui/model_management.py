@@ -171,15 +171,14 @@ def update_startup_defaults(clone_startup, design_startup, custom_startup):
         Tuple of (status_message, model_table)
     """
     config = load_config()
-
-    if "models" not in config:
-        config["models"] = {}
-
-    config["models"]["clone"] = {"load_at_startup": clone_startup}
-    config["models"]["design"] = {"load_at_startup": design_startup}
-    config["models"]["custom"] = {"load_at_startup": custom_startup}
-
-    save_config(config)
+    existing_models = config.get("models", {})
+    new_models = {
+        **existing_models,
+        "clone": {"load_at_startup": clone_startup},
+        "design": {"load_at_startup": design_startup},
+        "custom": {"load_at_startup": custom_startup},
+    }
+    save_config({**config, "models": new_models})
 
     return "Startup config updated (restart server to apply)", get_model_table_data()
 
@@ -242,11 +241,7 @@ def set_audio_loader_setting(loader):
         Status message
     """
     config = load_config()
-
-    if "advanced" not in config:
-        config["advanced"] = {}
-
-    config["advanced"]["audio_loader"] = loader
-    save_config(config)
+    adv = config.get("advanced", {})
+    save_config({**config, "advanced": {**adv, "audio_loader": loader}})
 
     return f"Audio loader set to: {loader} (restart server to apply)"

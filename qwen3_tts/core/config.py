@@ -55,43 +55,52 @@ _config_cache = {"data": None, "mtime": 0}
 
 
 def validate_config(config):
-    """Validate config structure and values, correcting invalid values in-memory.
+    """Validate config structure and values, correcting invalid values.
 
-    Invalid values are replaced with safe defaults. The config dict is mutated
-    in-memory only — no disk writes. Missing keys are left missing (no bloat).
+    Invalid values are replaced with safe defaults. Nested dicts are replaced
+    with new objects rather than mutated in-place. Missing keys are left missing.
     """
     issues = []
     adv = config.get("advanced")
     if isinstance(adv, dict):
+        corrected_adv = dict(adv)
         backend = adv.get("backend")
         if backend and backend not in VALID_BACKENDS:
-            corrected = "mlx" if (IS_MACOS and platform.machine() == "arm64") else "torch"
-            adv["backend"] = corrected
-            issues.append(f"corrected backend from {backend!r} to {corrected!r}")
+            new_backend = "mlx" if (IS_MACOS and platform.machine() == "arm64") else "torch"
+            corrected_adv["backend"] = new_backend
+            issues.append(f"corrected backend from {backend!r} to {new_backend!r}")
         size = adv.get("model_size")
         if size and size not in ("1.7B", "0.6B"):
-            adv["model_size"] = "1.7B"
+            corrected_adv["model_size"] = "1.7B"
             issues.append(f"corrected model_size from {size!r} to '1.7B'")
         vllm_gpu = adv.get("vllm_gpu_memory_utilization")
         if vllm_gpu is not None and not (0.0 < vllm_gpu <= 1.0):
-            adv["vllm_gpu_memory_utilization"] = 0.7
+            corrected_adv["vllm_gpu_memory_utilization"] = 0.7
             issues.append(f"corrected vllm_gpu_memory_utilization from {vllm_gpu} to 0.7")
         vllm_port = adv.get("vllm_port")
         if vllm_port is not None and not (isinstance(vllm_port, int) and 1024 <= vllm_port <= 65535):
-            adv["vllm_port"] = None
+            corrected_adv["vllm_port"] = None
             issues.append(f"corrected vllm_port from {vllm_port} to None")
+        if corrected_adv != adv:
+            config["advanced"] = corrected_adv
     gen = config.get("generation")
     if isinstance(gen, dict):
+        corrected_gen = dict(gen)
         temp = gen.get("temperature")
         if temp is not None and not (0.0 <= temp <= 2.0):
-            gen["temperature"] = 0.7
+            corrected_gen["temperature"] = 0.7
             issues.append(f"corrected temperature from {temp} to 0.7")
+        if corrected_gen != gen:
+            config["generation"] = corrected_gen
     sec = config.get("security")
     if isinstance(sec, dict):
+        corrected_sec = dict(sec)
         mtl = sec.get("max_text_length")
         if mtl is not None and (not isinstance(mtl, int) or mtl <= 0):
-            sec["max_text_length"] = 10000
+            corrected_sec["max_text_length"] = 10000
             issues.append(f"corrected max_text_length from {mtl} to 10000")
+        if corrected_sec != sec:
+            config["security"] = corrected_sec
     for issue in issues:
         logger.warning("Config validation: %s", issue)
     return issues
@@ -279,8 +288,7 @@ def set_default_clone_prompt(prompt_name, config=None):
     """Set the default clone prompt in config.json."""
     if config is None:
         config = load_config()
-    config["default_clone_prompt"] = prompt_name
-    save_config(config)
+    save_config({**config, "default_clone_prompt": prompt_name})
 
 
 def get_device():
@@ -858,9 +866,7 @@ def get_prosody_presets(config=None):
         except (json.JSONDecodeError, OSError):
             config = {}
     user_presets = config.get("prosody_presets", {})
-    merged = dict(DEFAULT_PROSODY_PRESETS)
-    merged.update(user_presets)
-    return merged
+    return {**DEFAULT_PROSODY_PRESETS, **user_presets}
 
 
 # ---------------------------------------------------------------------------

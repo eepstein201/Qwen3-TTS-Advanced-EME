@@ -212,14 +212,14 @@ class _ClientBase:
         speaker=None,
         instruct=None,
         x_vector_only_mode: bool = False,
-    ) -> None:
-        """Mutate payload in-place with mode-specific generation parameters."""
+    ) -> dict:
+        """Return a new payload dict with mode-specific generation parameters added."""
         if mode == "clone":
-            payload["prompt_file"] = prompt
+            extra = {"prompt_file": prompt}
             if x_vector_only_mode:
-                payload["x_vector_only_mode"] = True
+                extra["x_vector_only_mode"] = True
         elif mode == "custom":
-            payload["speaker"] = speaker
-            payload["instruct"] = instruct or ""
+            extra = {"speaker": speaker, "instruct": instruct or ""}
         else:
-            payload["voice_description"] = description
+            extra = {"voice_description": description}
+        return {**payload, **extra}
