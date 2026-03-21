@@ -118,6 +118,16 @@ class TestMLXPromptCacheThreadSafety(unittest.TestCase):
         )
 
 
+def _is_mlx_backend():
+    """Check if current backend is MLX."""
+    try:
+        from qwen3_tts.core.config import load_config
+        config = load_config()
+        return config.get("advanced", {}).get("backend") == "mlx"
+    except Exception:
+        return False
+
+
 class TestASRThreadSafety(unittest.TestCase):
     """Test that ASR model loading is thread-safe."""
 
@@ -136,6 +146,7 @@ class TestASRThreadSafety(unittest.TestCase):
             "_asr_lock should be a threading.Lock"
         )
 
+    @unittest.skipUnless(_is_mlx_backend(), "requires MLX backend")
     def test_asr_mlx_thread_safety(self):
         """Concurrent load_asr_model() calls should only load model once for MLX backend."""
         from qwen3_tts.core.engine import asr
@@ -183,6 +194,7 @@ class TestASRThreadSafety(unittest.TestCase):
         )
         self.assertEqual(len(errors), 0, f"Concurrent loading caused errors: {errors}")
 
+    @unittest.skipUnless(_is_mlx_backend(), "requires MLX backend")
     def test_asr_mlx_transcribe_thread_safety(self):
         """Concurrent _transcribe_mlx calls should only load model once."""
         from qwen3_tts.core.engine import asr

@@ -42,6 +42,11 @@ class TestRubberBandAudioProcessing(unittest.TestCase):
             except ImportError:
                 # librosa may not be installed either — that's OK in test env
                 pass
+            except KeyError as e:
+                # numba/LLVM duplicate registration bug (external dep issue)
+                if "duplicate registration" in str(e):
+                    self.skipTest(f"numba/LLVM bug: {e}")
+                raise
 
     def test_adjust_pitch_with_librosa_fallback(self):
         """Pitch adjustment should work even when pyrubberband is missing."""
@@ -54,6 +59,11 @@ class TestRubberBandAudioProcessing(unittest.TestCase):
                 self.assertIsInstance(result, np.ndarray)
             except ImportError:
                 pass
+            except KeyError as e:
+                # numba/LLVM duplicate registration bug (external dep issue)
+                if "duplicate registration" in str(e):
+                    self.skipTest(f"numba/LLVM bug: {e}")
+                raise
 
 
 class TestProsodyPresets(unittest.TestCase):

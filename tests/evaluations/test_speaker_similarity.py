@@ -89,8 +89,15 @@ try:
 except ImportError:
     HAS_SIM_DEPS = False
 
+# Check if TorchCodec is available (required by torchaudio 2.6+ for some formats)
+try:
+    import torchcodec  # noqa: F401
+    HAS_TORCHCODEC = True
+except ImportError:
+    HAS_TORCHCODEC = False
 
-@unittest.skipUnless(HAS_SIM_DEPS, "requires torch, torchaudio, transformers (WavLM)")
+
+@unittest.skipUnless(HAS_SIM_DEPS and HAS_TORCHCODEC, "requires torch, torchaudio, transformers (WavLM), and torchcodec")
 class TestSpeakerSimilarity(unittest.TestCase):
     """Full speaker similarity tests requiring heavy dependencies."""
 
