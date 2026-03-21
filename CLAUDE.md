@@ -4,8 +4,8 @@ Text-to-speech system with voice cloning, built on Qwen3-TTS. Three modes: clone
 
 Features: pyrubberband audio processing (with librosa fallback), prosody presets for Custom/Design modes, x_vector_only_mode for transcript-free cloning.
 
-## User_Name - Scope Check
-**<User_Name>**EpsteinDockerIsland**</User_Name>**
+## Username - Scope Check
+**<Username>** EpsteinDockerIsland_feature/codebase-review **</Username>**
 
 ## Rules
 
