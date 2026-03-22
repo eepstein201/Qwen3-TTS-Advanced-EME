@@ -19,6 +19,7 @@ import subprocess
 import sys
 import threading
 from typing import Protocol, runtime_checkable
+from urllib.parse import urlparse
 
 logger = logging.getLogger("tts.config")
 
@@ -361,12 +362,35 @@ def get_optimal_attn_config():
     return "sdpa", "float16", True
 
 
+def _validate_server_url(url: str) -> str:
+    """Validate the configured server URL to mitigate SSRF-style misuse.
+
+    Currently this performs lightweight checks:
+      - scheme must be http or https
+      - host must not be a known metadata/privileged endpoint
+    Raises ValueError if the URL is considered invalid.
+    """
+    parsed = urlparse(url)
+    if parsed.scheme not in ("http", "https"):
+        raise ValueError(f"Unsupported server URL scheme: {parsed.scheme!r}")
+    host = parsed.hostname or ""
+    # Deny-list common metadata/privileged endpoints.
+    forbidden_hosts = {
+        "169.254.169.254",  # AWS/GCP/Azure instance metadata
+        "metadata.google.internal",
+    }
+    if host in forbidden_hosts:
+        raise ValueError(f"Refusing to use forbidden server host {host!r}")
+    return url
+
+
 def get_server_url(config):
     """Return the server base URL from a config dict."""
     server = config.get("server", {})
     host = server.get("host", "127.0.0.1")
     port = server.get("port", 5123)
-    return f"http://{host}:{port}"
+    url = f"http://{host}:{port}"
+    return _validate_server_url(url)
 
 
 def is_server_running(config_or_url=None):
