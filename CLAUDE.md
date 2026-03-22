@@ -4,9 +4,6 @@ Text-to-speech system with voice cloning, built on Qwen3-TTS. Three modes: clone
 
 Features: pyrubberband audio processing (with librosa fallback), prosody presets for Custom/Design modes, x_vector_only_mode for transcript-free cloning.
 
-## Username - Scope Check
-**<Username>** EpsteinDockerIsland_feature/codebase-review **</Username>**
-
 ## Rules
 
 - NEVER amend existing commits unless explicitly asked — always create new commits
@@ -48,7 +45,7 @@ Features: pyrubberband audio processing (with librosa fallback), prosody presets
 | `tts watch DIR` | Watch for .txt files |
 | `tts doctor` | Check installation health |
 | `tts voice info NAME` | Show prompt metadata (via server) |
-| `tts config edit` | Edit default voice description |
+| `tts config edit` | Edit config settings (backend, model-size, etc.) |
 | `tts config path` | Print config.json path |
 | `tts uninstall models` | Remove cached HuggingFace models |
 | `tts uninstall voices` | Remove all voice prompts |
@@ -148,8 +145,9 @@ config.json → qwen3_tts.core.config → qwen3_tts.core.engine (dispatch)
 ├── install.sh                  # Cross-platform installer (macOS + Linux)
 ├── colab_notebook.ipynb        # Google Colab notebook
 ├── voice_prompts/              # .pt (torch) + .wav/.txt (MLX) files
-├── tests/                      # Test files, 990+ tests
+├── tests/                      # Test files, 1554+ tests
 │   ├── run_batches.py          # Batch test runner
+│   ├── run_full_suite.py       # Full suite runner with --full flag
 │   ├── conftest.py             # Shared fixtures (pytest)
 │   └── test_*.py               # Test modules
 ├── docs/
@@ -212,9 +210,16 @@ source ~/miniforge3/etc/profile.d/conda.sh && conda activate qwen3-tts-mlx
 tts server stop && tts server start
 ```
 
-**Preferred: pytest full suite** (990+ tests):
+**Preferred: pytest full suite** (1554+ tests):
 ```bash
 python -m pytest tests/ -v --tb=short
+```
+
+**Full suite runner** (multi-environment testing):
+```bash
+python tests/run_full_suite.py --full --env mlx   # MLX environment
+python tests/run_full_suite.py --full --env torch  # Torch environment
+python tests/run_full_suite.py --full --env all    # Both environments
 ```
 
 **Batch runner** (prevents hangs from cascading failures):
@@ -235,7 +240,7 @@ make test-optional # Batch 5: Optional (pytest-dependent)
 make test-e2e      # Batch 6: E2E Playwright (requires server)
 ```
 
-990+ tests. No GPU, models, or running server required (except E2E). Tests auto-skip when optional deps are missing.
+1554+ tests. No GPU, models, or running server required (except E2E). Tests auto-skip when optional deps are missing.
 
 ## Models
 

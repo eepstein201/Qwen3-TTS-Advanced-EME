@@ -273,7 +273,15 @@ for wav_chunk, sr in client.generate_streaming("Long text...", output="stream.wa
 
 ## Configuration
 
-Settings are stored in `config.json`.
+Settings are stored in `config.json`. Use `tts config edit` to modify settings:
+
+```bash
+tts config edit --backend mlx           # Set backend
+tts config edit --model-size 0.6B       # Set model size
+tts config edit --mlx-quantization 4bit # Set MLX quantization
+tts config edit --language Spanish      # Set default language
+tts config edit                          # Interactive voice description editor
+```
 
 | Key | Default | Description |
 |-----|---------|-------------|
@@ -411,10 +419,11 @@ All public functions are re-exported through `engine/__init__.py` for backward c
 
 ### Testing
 
-Run the test suite using the batch runner (990+ tests across 49+ test files, organized in 6 batches):
+Run the test suite using the batch runner (1554+ tests across 49+ test files, organized in 6 batches):
 ```bash
 python tests/run_batches.py        # Run all batches
 python tests/run_batches.py --batch 1  # Run a specific batch
+python tests/run_full_suite.py --full --env mlx  # Full suite in MLX env
 make test-batch                    # Or use the Makefile
 ```
 
