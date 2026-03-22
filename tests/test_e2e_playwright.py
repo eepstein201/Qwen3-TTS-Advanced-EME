@@ -415,6 +415,27 @@ class TestE2EPlaywright(unittest.TestCase):
         if not _is_server_running():
             raise unittest.SkipTest("TTS server not running on port 5123")
 
+        # Kill any stale Gradio UI on our port to prevent tests connecting to old code
+        import socket
+        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+            if s.connect_ex(("127.0.0.1", UI_PORT)) == 0:
+                # Port is occupied — find and kill the process
+                try:
+                    import subprocess as _sp
+                    result = _sp.run(
+                        ["lsof", "-ti", f":{UI_PORT}"],
+                        capture_output=True, text=True, timeout=5,
+                    )
+                    if result.returncode == 0 and result.stdout.strip():
+                        for pid_str in result.stdout.strip().splitlines():
+                            try:
+                                os.kill(int(pid_str), signal.SIGTERM)
+                            except (ProcessLookupError, ValueError):
+                                pass
+                        time.sleep(1)  # Give it time to die
+                except Exception:
+                    pass
+
         env = os.environ.copy()
         cls.ui_proc = subprocess.Popen(  # nosec B603
             [
@@ -437,6 +458,12 @@ class TestE2EPlaywright(unittest.TestCase):
         if not _wait_for_ui(UI_URL, timeout=45):
             cls._kill_ui()
             raise unittest.SkipTest(f"Gradio UI failed to start on port {UI_PORT}")
+
+        # Verify the subprocess is still alive — if it died, port was occupied by stale process
+        if cls.ui_proc.poll() is not None:
+            raise unittest.SkipTest(
+                f"Gradio UI subprocess exited immediately (port {UI_PORT} conflict?)"
+            )
 
         cls.playwright_instance = sync_playwright().start()
         cls.browser = cls.playwright_instance.chromium.launch(headless=True)
@@ -472,19 +499,19 @@ class TestE2EPlaywright(unittest.TestCase):
             self.page.close()
 
     # ------------------------------------------------------------------
-    # Generation tests — use JS status span (#mode-status) as the
-    # reliable indicator, since Gradio's hidden component state doesn't
-    # propagate to the DOM in headless Chromium.
+    # Generation tests — use Gradio Status textbox as the reliable
+    # indicator. Server-side Python generation updates the Status textbox
+    # to "Generated: ..." on success and "Error: ..." on failure.
     # ------------------------------------------------------------------
 
     def _assert_generation_success(self, mode):
-        """Wait for JS streaming to complete and assert no error."""
-        self.gp.wait_for_js_status_contains(
-            mode, ["Complete", "Error"], timeout=GEN_TIMEOUT_MS
+        """Wait for server-side generation to complete and assert no error."""
+        self.gp.wait_for_status_contains(
+            ["Generated:", "Error"], timeout=GEN_TIMEOUT_MS
         )
-        js_status = self.gp.get_js_status(mode)
-        self.assertIn("Complete", js_status,
-                       f"Generation failed. JS status: {js_status}")
+        status = self.gp.get_status_text()
+        self.assertIn("Generated:", status,
+                       f"Generation failed. Status: {status}")
 
     def test_01_clone_generation(self):
         """Generate audio in Clone mode via the browser UI."""
@@ -566,20 +593,23 @@ class TestE2EPlaywright(unittest.TestCase):
                               "This is a longer text for the cancel test.")
         self.gp.click_button("Generate")
 
-        # Wait for generation to start (JS status updates immediately)
+        # Wait for server-side generation to start (status → "Generating...")
         try:
-            self.gp.wait_for_js_status_contains(
-                "clone", ["Connecting", "Generating"], timeout=30_000
+            self.gp.wait_for_status_contains(
+                ["Generating", "Generated:", "Error"], timeout=30_000
             )
         except Exception:
-            return  # Completed too fast
+            return  # Completed too fast or validation failed
 
-        self.gp.click_button("Stop")
-        self.page.wait_for_timeout(3000)
+        # Only send cancel if still actively generating
+        current_status = self.gp.get_status_text()
+        if "Generating" in current_status:
+            self.gp.click_button("Stop")
+            self.page.wait_for_timeout(3000)
 
-        # Page should be responsive (not hung)
-        js_status = self.gp.get_js_status("clone")
-        self.assertIsNotNone(js_status)
+        # Page should be responsive
+        status = self.gp.get_status_text()
+        self.assertIsNotNone(status)
 
     # ------------------------------------------------------------------
     # Concurrent generation test
@@ -607,27 +637,27 @@ class TestE2EPlaywright(unittest.TestCase):
         gp2.click_button("Generate")
 
         try:
-            gp1.wait_for_js_status_contains(
-                "clone", ["Complete", "Error"], timeout=GEN_TIMEOUT_MS
+            gp1.wait_for_status_contains(
+                ["Generated:", "Error"], timeout=GEN_TIMEOUT_MS
             )
         except Exception as e:
             page2.close()
             self.fail(f"Page 1 timed out: {e}")
 
         try:
-            gp2.wait_for_js_status_contains(
-                "clone", ["Complete", "Error"], timeout=GEN_TIMEOUT_MS
+            gp2.wait_for_status_contains(
+                ["Generated:", "Error"], timeout=GEN_TIMEOUT_MS
             )
         except Exception as e:
             page2.close()
             self.fail(f"Page 2 timed out: {e}")
 
-        status1 = gp1.get_js_status("clone")
-        status2 = gp2.get_js_status("clone")
+        status1 = gp1.get_status_text()
+        status2 = gp2.get_status_text()
         page2.close()
 
-        self.assertIn("Complete", status1, f"Page 1 failed: {status1}")
-        self.assertIn("Complete", status2, f"Page 2 failed: {status2}")
+        self.assertIn("Generated:", status1, f"Page 1 failed: {status1}")
+        self.assertIn("Generated:", status2, f"Page 2 failed: {status2}")
 
     # ------------------------------------------------------------------
     # Model management tests — use Gradio Status textbox (Python-only

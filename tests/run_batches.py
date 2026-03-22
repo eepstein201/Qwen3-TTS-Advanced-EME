@@ -136,7 +136,7 @@ BATCHES = {
             "tests.evaluations.test_speaker_similarity",
             "tests.evaluations.test_llm_judge",
         ],
-        "timeout": 60,
+        "timeout": 600,  # speaker_similarity loads WavLM (~300MB) + runs inference under memory pressure
     },
     # E2E browser tests (requires playwright + running TTS server)
     6: {
@@ -145,7 +145,7 @@ BATCHES = {
         "modules": [
             "tests.test_e2e_playwright",
         ],
-        "timeout": 600,
+        "timeout": 1800,  # 10 tests × up to ~120s generation + model load/unload cycles
     },
 }
 
