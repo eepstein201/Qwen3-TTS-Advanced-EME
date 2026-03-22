@@ -209,7 +209,8 @@ def _is_model_cached(repo_id: str) -> bool:
             allow_patterns=["*.json", "*.txt", "*.bin", "*.safetensors"],
         )
         return True
-    except Exception:
+    except Exception as e:
+        logger.debug("Cache check failed for %s: %s", repo_id, e)
         return False
 
 

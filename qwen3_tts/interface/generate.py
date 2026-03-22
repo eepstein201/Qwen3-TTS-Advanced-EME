@@ -371,7 +371,7 @@ def _handle_list_models(args, config):
             if resp.status_code == 200:
                 server_status = resp.json().get("models", {})
         except Exception:  # nosec B110
-            pass
+            logger.debug("Could not fetch server model status")
 
     for model_type, info in MODEL_INFO.items():
         display = model_display.get(model_type, {})

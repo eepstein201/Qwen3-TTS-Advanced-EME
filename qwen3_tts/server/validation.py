@@ -201,7 +201,7 @@ def _gen_cache_key(text: str, mode: str, gen_params: dict, prompt_file: str = No
     if instruct:
         key_parts.append(instruct)
     raw = "|".join(key_parts)
-    return hashlib.sha256(raw.encode()).hexdigest()[:16]
+    return hashlib.sha256(raw.encode(), usedforsecurity=False).hexdigest()[:16]
 
 
 def _error_response(status_code: int, error: str, detail: str = "", recovery: str = "retry") -> None:

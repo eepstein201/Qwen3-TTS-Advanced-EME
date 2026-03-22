@@ -169,7 +169,8 @@ def _expand_ordinal_match(m, n2w, lang: str) -> str:
     try:
         n = int(m.group(1))
         return n2w(n, lang=lang, to="ordinal") if n2w else m.group()
-    except Exception:
+    except Exception as e:
+        logger.debug("Ordinal expansion failed for '%s': %s", m.group(), e)
         return m.group()
 
 
@@ -190,7 +191,8 @@ def _expand_iso_date_match(m, n2w, lang: str) -> str:
     """Replace ISO date match (YYYY-MM-DD) with spoken form."""
     try:
         return _expand_date_components(int(m.group(2)), int(m.group(3)), int(m.group(1)), n2w, lang)
-    except Exception:
+    except Exception as e:
+        logger.debug("ISO date expansion failed for '%s': %s", m.group(), e)
         return m.group()
 
 
@@ -198,7 +200,8 @@ def _expand_us_date_match(m, n2w, lang: str) -> str:
     """Replace US date match (MM/DD/YYYY) with spoken form."""
     try:
         return _expand_date_components(int(m.group(1)), int(m.group(2)), int(m.group(3)), n2w, lang)
-    except Exception:
+    except Exception as e:
+        logger.debug("US date expansion failed for '%s': %s", m.group(), e)
         return m.group()
 
 

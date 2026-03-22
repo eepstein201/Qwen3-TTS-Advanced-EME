@@ -162,10 +162,10 @@ def open_file(path):
         print(f"File saved: {path}")
         return
     if IS_MACOS:
-        subprocess.run(["open", path])  # nosec B603 B607
+        subprocess.run(["open", path], timeout=10)  # nosec B603 B607
     elif IS_LINUX:
         try:
-            subprocess.run(["xdg-open", path])  # nosec B603 B607
+            subprocess.run(["xdg-open", path], timeout=10)  # nosec B603 B607
         except FileNotFoundError:
             logger.warning("xdg-open not found — cannot open file automatically")
 

@@ -22,7 +22,7 @@ def config(ctx):
         import subprocess  # nosec B404
         from qwen3_tts.core.config import USER_FILES_DIR
         wizard = os.path.join(USER_FILES_DIR, "install.sh")
-        subprocess.run([wizard, '--reconfigure'])  # nosec B603
+        subprocess.run([wizard, '--reconfigure'], timeout=300)  # nosec B603
 
 
 @config.command()

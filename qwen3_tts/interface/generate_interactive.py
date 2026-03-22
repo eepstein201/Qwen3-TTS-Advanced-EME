@@ -381,11 +381,13 @@ def interactive_mode(use_server, config, gen_params):
     output_name = input("\nOutput filename (saved to ~/Downloads/): ").strip()
     if not output_name:
         output_name = "tts_output.wav"
+    # Strip directory separators to prevent path traversal
+    output_name = os.path.basename(output_name)
     if not output_name.endswith('.wav'):
         output_name += '.wav'
 
     output_dir = os.path.expanduser(config.get("output_directory", "~/Downloads"))
-    output_path = os.path.join(output_dir, output_name)
+    output_path = safe_path_join(output_dir, output_name)
 
     print()
     language = config.get("language", "English")
@@ -620,7 +622,7 @@ def run_watch_mode(watch_dir, config, args, gen_params, use_server):
 
                 processed_files.add(event.src_path)
                 basename = os.path.splitext(os.path.basename(event.src_path))[0]
-                output_path = os.path.join(output_dir, f"{basename}.wav")
+                output_path = safe_path_join(output_dir, f"{basename}.wav")
 
                 print(f"\nProcessing: {event.src_path}")
 

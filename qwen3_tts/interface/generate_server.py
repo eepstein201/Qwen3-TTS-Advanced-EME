@@ -279,7 +279,7 @@ def generate_streaming(text, mode, config, gen_params, output_path,
                 try:
                     play_audio(temp.name)
                 except Exception:  # nosec B110
-                    pass
+                    logger.debug("Streaming audio playback failed: skipping")
                 finally:
                     os.unlink(temp.name)
 

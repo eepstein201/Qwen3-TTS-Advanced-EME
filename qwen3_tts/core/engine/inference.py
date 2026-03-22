@@ -508,7 +508,8 @@ def _get_max_chunk_chars():
     try:
         config = load_config()
         return config.get("generation", {}).get("max_chunk_chars", 500)
-    except Exception:
+    except Exception as e:
+        logger.debug("Config read failed for max_chunk_chars, using default: %s", e)
         return 500
 
 
@@ -517,7 +518,8 @@ def _get_max_chunk_tokens():
     try:
         config = load_config()
         return config.get("generation", {}).get("max_chunk_tokens", 200)
-    except Exception:
+    except Exception as e:
+        logger.debug("Config read failed for max_chunk_tokens, using default: %s", e)
         return 200
 
 

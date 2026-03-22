@@ -111,9 +111,9 @@ def create_and_save_voice_prompt(audio_path, transcript, prompt_name,
         print(f"Test audio saved to: {test_output}")
         from qwen3_tts.core.config import IS_MACOS, IS_LINUX
         if IS_MACOS:
-            subprocess.run(["open", test_output])  # nosec B603 B607
+            subprocess.run(["open", test_output], timeout=10)  # nosec B603 B607
         elif IS_LINUX:
-            subprocess.run(["xdg-open", test_output], stderr=subprocess.DEVNULL)  # nosec B603 B607
+            subprocess.run(["xdg-open", test_output], stderr=subprocess.DEVNULL, timeout=10)  # nosec B603 B607
 
     # Cleanup temp file
     if wav_path and os.path.exists(wav_path):

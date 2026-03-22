@@ -5,9 +5,12 @@ Provides selective cleanup of models, voice prompts, configuration,
 and environment management without breaking the running environment.
 """
 
+import logging
 import os
 import shutil
 import sys
+
+logger = logging.getLogger("tts.uninstall")
 
 from qwen3_tts.core.config import (
     USER_FILES_DIR,
@@ -169,7 +172,8 @@ def uninstall_config(dry_run: bool = False) -> None:
     # Load current config to preserve some settings (backend, model_size)
     try:
         current_config = load_config()
-    except Exception:
+    except Exception as e:
+        logger.warning("Could not load existing config before reset: %s", e)
         current_config = {}
 
     # Build and save the default config
