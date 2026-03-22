@@ -106,7 +106,11 @@ def info(name):
     if not is_server_running(config):
         click.echo("Server not running. Start with: tts server start")
         sys.exit(1)
-    url = get_server_url(config)
+    try:
+        url = get_server_url(config)
+    except ValueError as exc:
+        click.echo(f"Invalid server configuration: {exc}")
+        sys.exit(1)
     resp = requests.get(f"{url}/prompt-details", params={"name": name},
                         headers=auth_headers(), timeout=10)
     if resp.status_code == 200:
