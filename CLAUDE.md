@@ -217,9 +217,11 @@ python -m pytest tests/ -v --tb=short
 
 **Full suite runner** (multi-environment testing):
 ```bash
-python tests/run_full_suite.py --full --env mlx   # MLX environment
-python tests/run_full_suite.py --full --env torch  # Torch environment
+python tests/run_full_suite.py --full --env mlx   # MLX environment only
+python tests/run_full_suite.py --full --env torch  # Torch environment only
 python tests/run_full_suite.py --full --env all    # Both environments
+python tests/run_full_suite.py --full --test-type unit  # Unit tests only
+python tests/run_full_suite.py --full --dry-run     # Preview without running
 ```
 
 **Batch runner** (prevents hangs from cascading failures):

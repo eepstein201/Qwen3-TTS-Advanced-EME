@@ -423,8 +423,16 @@ Run the test suite using the batch runner (1554+ tests across 49+ test files, or
 ```bash
 python tests/run_batches.py        # Run all batches
 python tests/run_batches.py --batch 1  # Run a specific batch
-python tests/run_full_suite.py --full --env mlx  # Full suite in MLX env
 make test-batch                    # Or use the Makefile
+```
+
+**Full suite runner** (multi-environment testing with server lifecycle management):
+```bash
+python tests/run_full_suite.py --full --env mlx    # MLX environment only
+python tests/run_full_suite.py --full --env torch   # Torch environment only
+python tests/run_full_suite.py --full --env all     # Both environments
+python tests/run_full_suite.py --full --test-type unit  # Unit tests only
+python tests/run_full_suite.py --full --dry-run     # Preview without running
 ```
 
 ## License
