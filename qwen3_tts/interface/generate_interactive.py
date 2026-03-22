@@ -19,6 +19,7 @@ from qwen3_tts.core.config import (  # noqa: E402
     is_server_running,
     auth_headers,
     get_default_clone_prompt,
+    safe_path_join,
 )
 from qwen3_tts.interface.generate_helpers import (  # noqa: E402
     _decode_base64_result,
@@ -50,9 +51,9 @@ def delete_voice_prompt(prompt_name):
             break
 
     # Find all format files that exist
-    pt_path = os.path.join(VOICE_PROMPTS_DIR, f"{base}.pt")
-    wav_path = os.path.join(VOICE_PROMPTS_DIR, f"{base}.wav")
-    txt_path = os.path.join(VOICE_PROMPTS_DIR, f"{base}.txt")
+    pt_path = safe_path_join(VOICE_PROMPTS_DIR, f"{base}.pt")
+    wav_path = safe_path_join(VOICE_PROMPTS_DIR, f"{base}.wav")
+    txt_path = safe_path_join(VOICE_PROMPTS_DIR, f"{base}.txt")
     to_delete = [p for p in (pt_path, wav_path, txt_path) if os.path.exists(p)]
 
     if not to_delete:
@@ -90,8 +91,8 @@ def rename_voice_prompt(old_name, new_name):
     # Find all format files that exist for old name
     rename_pairs = []
     for ext in ('.pt', '.wav', '.txt'):
-        old_path = os.path.join(VOICE_PROMPTS_DIR, f"{old_base}{ext}")
-        new_path = os.path.join(VOICE_PROMPTS_DIR, f"{new_base}{ext}")
+        old_path = safe_path_join(VOICE_PROMPTS_DIR, f"{old_base}{ext}")
+        new_path = safe_path_join(VOICE_PROMPTS_DIR, f"{new_base}{ext}")
         if os.path.exists(old_path):
             if os.path.exists(new_path):
                 print(f"Error: Voice prompt already exists: {new_base}{ext}")
@@ -491,7 +492,7 @@ def run_repl(config, use_server):
             elif cmd == "/prompt":
                 if arg:
                     prompt_name = arg if arg.endswith(".pt") else arg + ".pt"
-                    prompt_path = os.path.join(VOICE_PROMPTS_DIR, prompt_name)
+                    prompt_path = safe_path_join(VOICE_PROMPTS_DIR, prompt_name)
                     if os.path.exists(prompt_path):
                         state["prompt"] = prompt_name
                         print(f"Switched to prompt: {prompt_name}")

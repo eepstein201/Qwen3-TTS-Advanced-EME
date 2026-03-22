@@ -35,6 +35,7 @@ from qwen3_tts.core.config import (  # noqa: E402
     get_mlx_quantization,
     get_mlx_model_name,
     get_default_clone_prompt,
+    safe_path_join,
 )
 
 # ---------------------------------------------------------------------------
@@ -112,7 +113,7 @@ def process_batch(texts, args, config, gen_params, use_server):
         )
 
         for i, result in enumerate(results):
-            output_path = os.path.join(output_dir, f"output_{i+1}.wav")
+            output_path = safe_path_join(output_dir, f"output_{i+1}.wav")
             if needs_processing:
                 wav, sr = _decode_base64_result(result)
                 wav = process_audio_args(wav, sr, args)
@@ -131,7 +132,7 @@ def process_batch(texts, args, config, gen_params, use_server):
             )
             wav = process_audio_args(wav, sr, args)
 
-            output_path = os.path.join(output_dir, f"output_{i+1}.wav")
+            output_path = safe_path_join(output_dir, f"output_{i+1}.wav")
             sf.write(output_path, wav, sr)
             output_paths.append(output_path)
             print(f"Saved: {output_path}")
@@ -533,7 +534,7 @@ def _handle_generation(args, config, gen_params, use_server, max_chunk_chars):
     if not output_name.endswith('.wav'):
         output_name += '.wav'
     output_dir = os.path.expanduser(config.get("output_directory", "~/Downloads"))
-    output_path = auto_increment_filename(os.path.join(output_dir, output_name))
+    output_path = auto_increment_filename(safe_path_join(output_dir, output_name))
 
     language = config.get("language", "English")
     mode = alias_mode or "clone"

@@ -192,6 +192,8 @@ class TestGenerateColabFallback(unittest.TestCase):
 
         with tempfile.TemporaryDirectory() as tmpdir:
             with patch('qwen3_tts.server.client.TTSClient') as mock_cls, \
+                 patch('qwen3_tts.interface.ui.generation.load_config',
+                       return_value={"output_directory": tmpdir}), \
                  patch('qwen3_tts.interface.ui.generation.os.path.expanduser',
                        side_effect=lambda p: p.replace("~/Downloads", tmpdir)):
                 mock_client = MagicMock()

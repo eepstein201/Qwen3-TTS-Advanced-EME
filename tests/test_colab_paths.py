@@ -93,7 +93,8 @@ def test_play_audio_macos():
     from qwen3_tts.interface.generate_helpers import play_audio
 
     with _set_platform(macos=True), \
-         patch("subprocess.run") as mock_run:
+         patch("subprocess.run") as mock_run, \
+         patch("os.path.isfile", return_value=True):
         play_audio("/tmp/test.wav")
     mock_run.assert_called_once()
     assert mock_run.call_args[0][0] == ["afplay", "/tmp/test.wav"]
@@ -105,7 +106,8 @@ def test_play_audio_linux():
     from qwen3_tts.interface.generate_helpers import play_audio
 
     with _set_platform(linux=True), \
-         patch("subprocess.run") as mock_run:
+         patch("subprocess.run") as mock_run, \
+         patch("os.path.isfile", return_value=True):
         play_audio("/tmp/test.wav")
     mock_run.assert_called_once()
     assert "ffplay" in mock_run.call_args[0][0]

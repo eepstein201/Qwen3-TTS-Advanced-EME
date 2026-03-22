@@ -11,6 +11,7 @@ import os
 from qwen3_tts.core.config import (
     CUSTOM_VOICE_SPEAKERS,
     get_default_clone_prompt,
+    safe_path_join,
 )
 from qwen3_tts.interface.generate import (
     _decode_base64_result,
@@ -150,7 +151,7 @@ def process_dialogue(dialogue_path, config, args, gen_params, use_server):
             all_audio.append(wav)
 
             if args.save_individual:
-                individual_path = os.path.join(output_dir, f"{basename}_{idx:03d}.wav")
+                individual_path = safe_path_join(output_dir, f"{basename}_{idx:03d}.wav")
                 sf.write(individual_path, wav, sr)
 
         except Exception as e:
@@ -172,7 +173,7 @@ def process_dialogue(dialogue_path, config, args, gen_params, use_server):
         if i < len(all_audio) - 1:
             combined.extend(np.zeros(silence_samples))
 
-    combined_path = os.path.join(output_dir, f"{basename}.wav")
+    combined_path = safe_path_join(output_dir, f"{basename}.wav")
     sf.write(combined_path, np.array(combined), sample_rate)
 
     duration_sec = len(combined) / sample_rate

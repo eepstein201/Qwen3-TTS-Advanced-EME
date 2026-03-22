@@ -15,7 +15,7 @@ import shutil
 import subprocess  # nosec B404
 import sys
 
-from qwen3_tts.core.config import VOICE_PROMPTS_DIR, USER_FILES_DIR, get_backend
+from qwen3_tts.core.config import VOICE_PROMPTS_DIR, USER_FILES_DIR, get_backend, safe_path_join
 
 
 def create_and_save_voice_prompt(audio_path, transcript, prompt_name,
@@ -57,8 +57,8 @@ def create_and_save_voice_prompt(audio_path, transcript, prompt_name,
     base_name = prompt_name[:-3]
 
     # --- Save MLX-compatible files (.wav + .txt) ---
-    mlx_wav_path = os.path.join(VOICE_PROMPTS_DIR, f"{base_name}.wav")
-    mlx_txt_path = os.path.join(VOICE_PROMPTS_DIR, f"{base_name}.txt")
+    mlx_wav_path = safe_path_join(VOICE_PROMPTS_DIR, f"{base_name}.wav")
+    mlx_txt_path = safe_path_join(VOICE_PROMPTS_DIR, f"{base_name}.txt")
 
     # Save .wav — copy from temp or write from loaded audio
     if wav_path:
@@ -88,7 +88,7 @@ def create_and_save_voice_prompt(audio_path, transcript, prompt_name,
     print("\nCreating voice clone prompt...")
     voice_prompt = create_voice_prompt(model, ref_audio, ref_sr, transcript)
 
-    output_path = os.path.join(VOICE_PROMPTS_DIR, prompt_name)
+    output_path = safe_path_join(VOICE_PROMPTS_DIR, prompt_name)
     torch.save(voice_prompt, output_path)
     print(f"Torch file saved: {output_path}")
 

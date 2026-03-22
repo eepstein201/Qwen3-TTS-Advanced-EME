@@ -86,7 +86,7 @@ def get_platform() -> str:
 
 def run_cmd(cmd: list[str], check: bool = True, capture: bool = False) -> subprocess.CompletedProcess:
     """Run a command with optional capture."""
-    result = subprocess.run(
+    result = subprocess.run(  # CodeQL: cmd is a hardcoded list, not user input [py/command-line-injection]
         cmd,
         capture_output=capture,
         text=True,

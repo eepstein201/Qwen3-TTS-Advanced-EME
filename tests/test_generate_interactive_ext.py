@@ -19,7 +19,7 @@ class TestDeleteVoicePromptDeep(unittest.TestCase):
     """Deeper tests for delete_voice_prompt."""
 
     @patch("os.path.exists", side_effect=lambda p: p.endswith(".pt"))
-    @patch("os.path.join", side_effect=lambda d, f: f"/voice_prompts/{f}")
+    @patch("qwen3_tts.interface.generate_interactive.safe_path_join", side_effect=lambda d, f: f"/voice_prompts/{f}")
     @patch("os.remove")
     @patch("builtins.input", return_value="y")
     @patch("builtins.print")
@@ -30,7 +30,7 @@ class TestDeleteVoicePromptDeep(unittest.TestCase):
         mock_remove.assert_called_once()
 
     @patch("os.path.exists", side_effect=lambda p: p.endswith(".pt"))
-    @patch("os.path.join", side_effect=lambda d, f: f"/voice_prompts/{f}")
+    @patch("qwen3_tts.interface.generate_interactive.safe_path_join", side_effect=lambda d, f: f"/voice_prompts/{f}")
     @patch("builtins.input", return_value="n")
     @patch("builtins.print")
     def test_cancelled_deletion(self, _print, _input, _join, _exists):
@@ -39,7 +39,7 @@ class TestDeleteVoicePromptDeep(unittest.TestCase):
         self.assertFalse(result)
 
     @patch("os.path.exists", side_effect=lambda p: p.endswith(".wav") or p.endswith(".txt"))
-    @patch("os.path.join", side_effect=lambda d, f: f"/voice_prompts/{f}")
+    @patch("qwen3_tts.interface.generate_interactive.safe_path_join", side_effect=lambda d, f: f"/voice_prompts/{f}")
     @patch("os.remove")
     @patch("builtins.input", return_value="y")
     @patch("builtins.print")
@@ -60,7 +60,7 @@ class TestRenameVoicePromptDeep(unittest.TestCase):
     """Deeper tests for rename_voice_prompt."""
 
     @patch("os.path.exists")
-    @patch("os.path.join", side_effect=lambda d, f: f"/voice_prompts/{f}")
+    @patch("qwen3_tts.interface.generate_interactive.safe_path_join", side_effect=lambda d, f: f"/voice_prompts/{f}")
     @patch("os.rename")
     @patch("builtins.print")
     def test_successful_rename(self, _print, mock_rename, _join, mock_exists):
@@ -72,7 +72,7 @@ class TestRenameVoicePromptDeep(unittest.TestCase):
         mock_rename.assert_called_once()
 
     @patch("os.path.exists")
-    @patch("os.path.join", side_effect=lambda d, f: f"/voice_prompts/{f}")
+    @patch("qwen3_tts.interface.generate_interactive.safe_path_join", side_effect=lambda d, f: f"/voice_prompts/{f}")
     @patch("builtins.print")
     def test_target_already_exists(self, mock_print, _join, mock_exists):
         from qwen3_tts.interface.generate_interactive import rename_voice_prompt
@@ -84,7 +84,7 @@ class TestRenameVoicePromptDeep(unittest.TestCase):
         self.assertIn("already exists", output)
 
     @patch("os.path.exists")
-    @patch("os.path.join", side_effect=lambda d, f: f"/voice_prompts/{f}")
+    @patch("qwen3_tts.interface.generate_interactive.safe_path_join", side_effect=lambda d, f: f"/voice_prompts/{f}")
     @patch("os.rename")
     @patch("builtins.print")
     def test_rollback_on_oserror(self, _print, mock_rename, _join, mock_exists):
@@ -351,7 +351,7 @@ class TestRenameExtensionStripping(unittest.TestCase):
     """Cover lines 86, 88: extension stripping in rename_voice_prompt."""
 
     @patch("os.path.exists")
-    @patch("os.path.join", side_effect=lambda d, f: f"/voice_prompts/{f}")
+    @patch("qwen3_tts.interface.generate_interactive.safe_path_join", side_effect=lambda d, f: f"/voice_prompts/{f}")
     @patch("os.rename")
     @patch("builtins.print")
     def test_rename_strips_pt_extension(self, _print, mock_rename, _join, mock_exists):
@@ -363,7 +363,7 @@ class TestRenameExtensionStripping(unittest.TestCase):
         mock_rename.assert_called_once()
 
     @patch("os.path.exists")
-    @patch("os.path.join", side_effect=lambda d, f: f"/voice_prompts/{f}")
+    @patch("qwen3_tts.interface.generate_interactive.safe_path_join", side_effect=lambda d, f: f"/voice_prompts/{f}")
     @patch("os.rename")
     @patch("builtins.print")
     def test_rename_strips_wav_extension(self, _print, mock_rename, _join, mock_exists):
@@ -373,7 +373,7 @@ class TestRenameExtensionStripping(unittest.TestCase):
         self.assertTrue(result)
 
     @patch("os.path.exists")
-    @patch("os.path.join", side_effect=lambda d, f: f"/voice_prompts/{f}")
+    @patch("qwen3_tts.interface.generate_interactive.safe_path_join", side_effect=lambda d, f: f"/voice_prompts/{f}")
     @patch("os.rename")
     @patch("builtins.print")
     def test_rollback_also_fails(self, _print, mock_rename, _join, mock_exists):

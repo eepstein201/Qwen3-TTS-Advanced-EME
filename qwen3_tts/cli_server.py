@@ -59,7 +59,12 @@ def start(public, foreground):
     state = detect_server_state(config)
 
     if state["running"]:
-        click.echo(f"TTS Server is already running at {get_server_url(config)}")
+        try:
+            url = get_server_url(config)
+        except ValueError as exc:
+            click.echo(f"Invalid server configuration: {exc}")
+            sys.exit(1)
+        click.echo(f"TTS Server is already running at {url}")
         sys.exit(1)
 
     if state["stale_pid"]:
@@ -108,7 +113,11 @@ def stop():
     # Server is running — attempt graceful shutdown via /shutdown
     shutdown_accepted = False
     if state["health_ok"]:
-        url = get_server_url(config)
+        try:
+            url = get_server_url(config)
+        except ValueError as exc:
+            click.echo(f"Invalid server configuration: {exc}")
+            sys.exit(1)
         try:
             import requests
             resp = requests.post(f"{url}/shutdown", headers=auth_headers(), timeout=5)
@@ -181,7 +190,11 @@ def status():
         click.echo("TTS Server is not running.")
         sys.exit(1)
 
-    url = get_server_url(config)
+    try:
+        url = get_server_url(config)
+    except ValueError as exc:
+        click.echo(f"Invalid server configuration: {exc}")
+        sys.exit(1)
     try:
         resp = requests.get(f"{url}/health", timeout=5)
         health = resp.json()
@@ -250,7 +263,11 @@ def stats_command():
     if not is_server_running(config):
         click.echo("Server not running. Start with: tts server start")
         sys.exit(1)
-    url = get_server_url(config)
+    try:
+        url = get_server_url(config)
+    except ValueError as exc:
+        click.echo(f"Invalid server configuration: {exc}")
+        sys.exit(1)
     resp = requests.get(f"{url}/stats", headers=auth_headers(), timeout=10)
     if resp.status_code == 200:
         click.echo(json.dumps(resp.json(), indent=2))

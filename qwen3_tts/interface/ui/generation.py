@@ -11,6 +11,9 @@ This module contains:
 import base64
 import logging
 import os
+import shutil
+import tempfile
+import uuid
 
 import gradio as gr
 
@@ -157,17 +160,24 @@ def _save_completed_audio(base64_wav, mode, text, history_list, stream_config=No
         # Decode and save audio
         audio_bytes = base64.b64decode(base64_wav)
 
-        # Generate output path
-        import uuid
-        output_path = os.path.expanduser(f"~/Downloads/voice_ui_{uuid.uuid4().hex[:8]}.wav")
+        # Save to temp dir first (Gradio always allows tempdir paths)
+        filename = f"voice_ui_{uuid.uuid4().hex[:8]}.wav"
+        temp_path = os.path.join(tempfile.gettempdir(), filename)
 
-        with open(output_path, "wb") as f:
+        with open(temp_path, "wb") as f:
             f.write(audio_bytes)
 
-        # Add to history
-        history_list = add_to_history(history_list, mode, text, output_path, 0)
+        # Copy to user's output directory for persistent access
+        config = load_config()
+        output_dir = os.path.expanduser(config.get("output_directory", "~/Downloads"))
+        os.makedirs(output_dir, exist_ok=True)
+        persistent_path = os.path.join(output_dir, filename)
+        shutil.copy2(temp_path, persistent_path)
 
-        return (f"Generated: {os.path.basename(output_path)}",
+        # History tracks the persistent path; Gradio gets the temp path
+        history_list = add_to_history(history_list, mode, text, persistent_path, 0)
+
+        return (f"Generated: {os.path.basename(persistent_path)}",
                 format_status_display(), history_list, get_history_data(history_list))
 
     except Exception as e:
@@ -183,7 +193,6 @@ def _generate_server_side(mode, text, history_list, stream_config):
     Returns:
         tuple: (audio_path_or_none, status_text, status_html, history_list, history_df_data)
     """
-    import uuid
     from qwen3_tts.interface.ui.shared import get_history_data, add_to_history
     import gradio as gr
 
@@ -200,12 +209,13 @@ def _generate_server_side(mode, text, history_list, stream_config):
     try:
         from qwen3_tts.server.client import TTSClient
         payload = stream_config.get("payload", {})
-        unique_id = uuid.uuid4().hex[:8]
-        output_path = os.path.expanduser(f"~/Downloads/voice_ui_{unique_id}.wav")
+        filename = f"voice_ui_{uuid.uuid4().hex[:8]}.wav"
+        # Save to temp dir (Gradio always allows tempdir paths)
+        temp_path = os.path.join(tempfile.gettempdir(), filename)
         client = TTSClient()
         client.generate(
             text=payload.get("text", ""),
-            output=output_path,
+            output=temp_path,
             mode=payload.get("mode", "clone"),
             prompt=payload.get("prompt_file"),
             description=payload.get("voice_description"),
@@ -220,10 +230,18 @@ def _generate_server_side(mode, text, history_list, stream_config):
             x_vector_only_mode=payload.get("x_vector_only_mode", False),
         )
 
-        history_list = add_to_history(history_list, mode, text, output_path, 0)
+        # Copy to user's output directory for persistent access
+        config = load_config()
+        output_dir = os.path.expanduser(config.get("output_directory", "~/Downloads"))
+        os.makedirs(output_dir, exist_ok=True)
+        persistent_path = os.path.join(output_dir, filename)
+        shutil.copy2(temp_path, persistent_path)
+
+        # History tracks persistent path; Gradio gets temp path
+        history_list = add_to_history(history_list, mode, text, persistent_path, 0)
         return (
-            output_path,
-            f"Generated: {os.path.basename(output_path)}",
+            temp_path,
+            f"Generated: {os.path.basename(persistent_path)}",
             format_status_display(),
             history_list,
             get_history_data(history_list),

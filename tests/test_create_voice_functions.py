@@ -339,9 +339,9 @@ class TestCreateAndSaveVoicePromptMlxOnly(unittest.TestCase):
             with open(os.path.join(prompts_dir, "test_voice.txt")) as f:
                 self.assertEqual(f.read(), "Hello test")
 
-            # Return value is the .wav path
+            # Return value is the .wav path (realpath-resolved)
             self.assertEqual(result,
-                             os.path.join(prompts_dir, "test_voice.wav"))
+                             os.path.realpath(os.path.join(prompts_dir, "test_voice.wav")))
 
     def test_mlx_only_with_pt_extension_in_name(self):
         """Handles prompt_name that already has .pt extension."""
@@ -444,9 +444,9 @@ class TestCreateAndSaveVoicePromptTorch(unittest.TestCase):
                             test_generation=False, mlx_only=False,
                         )
 
-            # .pt file path returned
+            # .pt file path returned (realpath-resolved)
             self.assertEqual(result,
-                             os.path.join(prompts_dir, "torch_voice.pt"))
+                             os.path.realpath(os.path.join(prompts_dir, "torch_voice.pt")))
 
             # MLX files also created
             self.assertTrue(os.path.exists(
@@ -454,10 +454,10 @@ class TestCreateAndSaveVoicePromptTorch(unittest.TestCase):
             self.assertTrue(os.path.exists(
                 os.path.join(prompts_dir, "torch_voice.txt")))
 
-            # torch.save was called
+            # torch.save was called (with realpath-resolved path)
             mock_torch.save.assert_called_once_with(
                 mock_voice_prompt,
-                os.path.join(prompts_dir, "torch_voice.pt"),
+                os.path.realpath(os.path.join(prompts_dir, "torch_voice.pt")),
             )
 
     @mock.patch("qwen3_tts.core.engine.run_inference")

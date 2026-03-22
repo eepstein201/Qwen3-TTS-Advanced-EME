@@ -84,6 +84,10 @@ class TestSpeakerSimilarityThreshold(unittest.TestCase):
 try:
     import torch  # noqa: F401
     import torchaudio  # noqa: F401
+    # Force PyTorch backend before importing transformers — on Apple Silicon with
+    # mlx installed, transformers 5.0 defaults to MLX, which causes Metal shader
+    # compilation and extreme slowdown under memory pressure.
+    os.environ.setdefault("TRANSFORMERS_BACKEND", "pt")
     from transformers import WavLMForXVector  # noqa: F401
     HAS_SIM_DEPS = True
 except ImportError:

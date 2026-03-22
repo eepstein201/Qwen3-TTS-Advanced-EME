@@ -36,8 +36,13 @@ def extract_wavlm_embedding(audio_path: str) -> np.ndarray:
     Returns:
         1-D numpy array of speaker embedding features.
     """
+    import os
     import torch
     import torchaudio
+
+    # Force PyTorch backend — transformers 5.0 defaults to MLX on Apple Silicon,
+    # which causes Metal shader compilation and extreme slowdown under memory pressure.
+    os.environ.setdefault("TRANSFORMERS_BACKEND", "pt")
     from transformers import Wav2Vec2FeatureExtractor, WavLMForXVector
 
     model_name = "microsoft/wavlm-base-plus-sv"
@@ -54,6 +59,12 @@ def extract_wavlm_embedding(audio_path: str) -> np.ndarray:
     # Convert to mono
     if waveform.shape[0] > 1:
         waveform = waveform.mean(dim=0, keepdim=True)
+
+    # Truncate to first 10 seconds — speaker identity is captured in the first few
+    # seconds; longer files cause WavLM CPU inference to take many minutes.
+    max_samples = 10 * 16000
+    if waveform.shape[-1] > max_samples:
+        waveform = waveform[..., :max_samples]
 
     inputs = feature_extractor(
         waveform.squeeze().numpy(),

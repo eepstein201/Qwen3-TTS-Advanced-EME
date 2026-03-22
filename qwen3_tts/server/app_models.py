@@ -17,6 +17,7 @@ from qwen3_tts.core.config import (
     get_mlx_quantization,
     get_torch_dtype_name,
     get_mlx_model_name,
+    sanitize_log,
     save_config,
 )
 from qwen3_tts.server.app_lifespan import _get_queue_size, _sanitize_error
@@ -155,24 +156,24 @@ def handle_load_model(state, req):
 
         info = get_model_info(model_type)
         model_name = info.get("name", info.get("name_template", model_type))
-        logger.info("Loading %s...", model_name)
+        logger.info("Loading %s...", sanitize_log(model_name))
         t0 = time.time()
         model = load_model(model_type)
         state.models[model_type] = model
         state.model_load_times[model_type] = round(time.time() - t0, 1)
-        logger.info("Loaded %s model successfully in %.1fs.", model_type, state.model_load_times[model_type])
+        logger.info("Loaded %s model successfully in %.1fs.", sanitize_log(model_type), state.model_load_times[model_type])
         # Clear any previous load error for this model
         state.model_load_errors[model_type] = None
     except ImportError as e:
-        logger.error("Backend not available for model loading %s: %s", model_type, e, exc_info=True)
+        logger.error("Backend not available for model loading %s: %s", sanitize_log(model_type), sanitize_log(e), exc_info=True)
         state.model_load_errors[model_type] = str(e)
         _error_response(500, "import_error", _sanitize_error(str(e)), "config")
     except (RuntimeError, OSError, ValueError) as e:
-        logger.error("Failed to load model %s: %s", model_type, e, exc_info=True)
+        logger.error("Failed to load model %s: %s", sanitize_log(model_type), sanitize_log(e), exc_info=True)
         state.model_load_errors[model_type] = str(e)
         _error_response(500, "load_failed", _sanitize_error(str(e)), "restart")
     except Exception as e:
-        logger.error("Unexpected error loading model %s: %s", model_type, e, exc_info=True)
+        logger.error("Unexpected error loading model %s: %s", sanitize_log(model_type), sanitize_log(e), exc_info=True)
         state.model_load_errors[model_type] = str(e)
         _error_response(500, "unknown_error", _sanitize_error(str(e)), "bug")
 
@@ -221,7 +222,7 @@ def handle_unload_model(state, req):
         state.gen_cache.clear()
 
     state.model_load_times.pop(model_type, None)
-    logger.info("Unloaded %s model.", model_type)
+    logger.info("Unloaded %s model.", sanitize_log(model_type))
 
     return {"status": "unloaded", "model": model_type}
 
@@ -298,7 +299,7 @@ async def handle_update_model_config(state, req, config_fn):
         except (ValueError, ImportError):
             pass
 
-    logger.info("Model config updated: %s. Models unloaded. Generation cache cleared.", ", ".join(changes))
+    logger.info("Model config updated: %s. Models unloaded. Generation cache cleared.", sanitize_log(", ".join(changes)))
 
     return {
         "status": "config_updated",

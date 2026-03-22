@@ -14,6 +14,8 @@ from qwen3_tts.core.config import (
     VOICE_PROMPTS_DIR,
     get_backend,
     get_voice_prompt_cache_max,
+    safe_path_join,
+    sanitize_log,
 )
 from qwen3_tts.core.engine.audio_processing import load_audio_for_cloning
 
@@ -54,20 +56,20 @@ def _auto_create_pt_from_wav(base_name: str, wav_path: str, txt_path: str,
     import torch
     if not os.path.exists(wav_path):
         return None
-    logger.info("Auto-creating .pt from .wav for %s", base_name)
+    logger.info("Auto-creating .pt from .wav for %s", sanitize_log(base_name))
     ref_audio, ref_sr = load_audio_for_cloning(wav_path)
     transcript = ""
     if os.path.exists(txt_path):
         with open(txt_path, "r") as f:
             transcript = f.read().strip()
     if not transcript:
-        logger.warning("No transcript for %s, using empty string", base_name)
+        logger.warning("No transcript for %s, using empty string", sanitize_log(base_name))
     from qwen3_tts.core.engine.model_loader import load_model
     from qwen3_tts.core.engine.inference import create_voice_prompt
     model = load_model("clone")
     voice_prompt = create_voice_prompt(model, ref_audio, ref_sr, transcript)
     torch.save(voice_prompt, prompt_path)
-    logger.info("Auto-created and saved %s", prompt_path)
+    logger.info("Auto-created and saved %s", sanitize_log(prompt_path))
     _store_in_torch_cache(prompt_file, voice_prompt)
     return voice_prompt
 
@@ -81,7 +83,7 @@ def _load_pt_safe(prompt_path: str, prompt_file: str, device: str):
     except ImportError:
         pass
     try:
-        result = torch.load(prompt_path, weights_only=True, map_location=device)
+        result = torch.load(prompt_path, weights_only=True, map_location=device)  # CodeQL: weights_only=True is safe [py/unsafe-deserialization]
         _store_in_torch_cache(prompt_file, result)
         return result
     except (RuntimeError, ValueError, TypeError):
@@ -115,11 +117,11 @@ def _load_voice_prompt_torch(prompt_file):
             _torch_prompt_cache_hits += 1
             return _torch_prompt_cache[prompt_file]
 
-    prompt_path = os.path.join(VOICE_PROMPTS_DIR, prompt_file)
+    prompt_path = safe_path_join(VOICE_PROMPTS_DIR, prompt_file)
     if not os.path.exists(prompt_path):
         base_name = prompt_file[:-3] if prompt_file.endswith('.pt') else prompt_file
-        wav_path = os.path.join(VOICE_PROMPTS_DIR, f"{base_name}.wav")
-        txt_path = os.path.join(VOICE_PROMPTS_DIR, f"{base_name}.txt")
+        wav_path = safe_path_join(VOICE_PROMPTS_DIR, f"{base_name}.wav")
+        txt_path = safe_path_join(VOICE_PROMPTS_DIR, f"{base_name}.txt")
         return _auto_create_pt_from_wav(base_name, wav_path, txt_path, prompt_path, prompt_file)
 
     from qwen3_tts.core.config import get_device
@@ -186,7 +188,7 @@ def migrate_orphan_mlx_prompts(clone_model=None):
     model = None  # Lazy: only load if migration needed and no model passed
     for wav_path in wav_files:
         base = os.path.splitext(os.path.basename(wav_path))[0]
-        pt_path = os.path.join(VOICE_PROMPTS_DIR, f"{base}.pt")
+        pt_path = safe_path_join(VOICE_PROMPTS_DIR, f"{base}.pt")
         if not os.path.exists(pt_path):
             logger.info("Migrating orphan MLX prompt: %s", base)
             try:
@@ -196,7 +198,7 @@ def migrate_orphan_mlx_prompts(clone_model=None):
                     model = clone_model or load_model("clone")
                 ref_audio, ref_sr = load_audio_for_cloning(wav_path)
                 transcript = ""
-                txt_path = os.path.join(VOICE_PROMPTS_DIR, f"{base}.txt")
+                txt_path = safe_path_join(VOICE_PROMPTS_DIR, f"{base}.txt")
                 if os.path.exists(txt_path):
                     with open(txt_path, "r") as f:
                         transcript = f.read().strip()
@@ -248,12 +250,12 @@ def load_voice_prompt_mlx(prompt_name):
     elif base.endswith(".wav"):
         base = base[:-4]
 
-    wav_path = os.path.join(VOICE_PROMPTS_DIR, f"{base}.wav")
-    txt_path = os.path.join(VOICE_PROMPTS_DIR, f"{base}.txt")
+    wav_path = safe_path_join(VOICE_PROMPTS_DIR, f"{base}.wav")
+    txt_path = safe_path_join(VOICE_PROMPTS_DIR, f"{base}.txt")
 
     if not os.path.exists(wav_path) or not os.path.exists(txt_path):
         # Check if a .pt file exists (torch-only prompt)
-        pt_path = os.path.join(VOICE_PROMPTS_DIR, f"{base}.pt")
+        pt_path = safe_path_join(VOICE_PROMPTS_DIR, f"{base}.pt")
         if os.path.exists(pt_path):
             raise FileNotFoundError(
                 f"Voice prompt '{base}' only has a .pt file (torch format). "

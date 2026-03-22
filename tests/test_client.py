@@ -76,10 +76,10 @@ class TestTTSClientInit(unittest.TestCase):
     def test_server_url_from_config(self):
         """TTSClient.server_url reads from config."""
         from qwen3_tts.server.client import TTSClient
-        tmp = self._make_config({"server": {"host": "10.0.0.1", "port": 9999}})
+        tmp = self._make_config({"server": {"host": "127.0.0.1", "port": 9999}})
         try:
             client = TTSClient(config_path=tmp)
-            self.assertEqual(client.server_url, "http://10.0.0.1:9999")
+            self.assertEqual(client.server_url, "http://127.0.0.1:9999")
             client.close()
         finally:
             os.unlink(tmp)

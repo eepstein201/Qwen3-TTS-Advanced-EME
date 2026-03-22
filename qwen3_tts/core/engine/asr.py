@@ -7,7 +7,7 @@ Imports from: config, audio_processing.
 import logging
 import threading
 
-from qwen3_tts.core.config import get_backend
+from qwen3_tts.core.config import get_backend, sanitize_log
 
 logger = logging.getLogger("tts.engine")
 
@@ -90,7 +90,7 @@ def _transcribe_mlx(audio_path, language="en"):
     if _asr_model_mlx is None:
         load_asr_model()
 
-    logger.info("Transcribing (MLX): %s", audio_path)
+    logger.info("Transcribing (MLX): %s", sanitize_log(audio_path))
     t0 = time.time()
     try:
         result = _asr_model_mlx.generate(audio_path, language=language)
@@ -106,7 +106,7 @@ def _transcribe_torch(audio_path, language="en"):
     import time
     _ensure_asr_torch_loaded()
 
-    logger.info("Transcribing (torch): %s", audio_path)
+    logger.info("Transcribing (torch): %s", sanitize_log(audio_path))
     t0 = time.time()
     try:
         kwargs = {}

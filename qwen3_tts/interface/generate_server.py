@@ -20,6 +20,7 @@ from qwen3_tts.core.config import (  # noqa: E402
     get_server_url,
     is_server_running,
     auth_headers,
+    safe_path_join,
 )
 from qwen3_tts.interface.generate_helpers import (  # noqa: E402
     _build_generation_payload,
@@ -326,7 +327,7 @@ def generate_local(text, mode, gen_params, language="English",
                 print(f"  Need: voice_prompts/{base}.wav + voice_prompts/{base}.txt")
                 print(f"  Create with: tts voice create <audio> -t <transcript> -n {base} --mlx-only")
             else:
-                print(f"Error: Voice prompt not found: {os.path.join(VOICE_PROMPTS_DIR, prompt_file)}")
+                print(f"Error: Voice prompt not found: {safe_path_join(VOICE_PROMPTS_DIR, prompt_file)}")
             sys.exit(1)
         print(f"Loading voice prompt: {prompt_file}")
         voice_prompt = load_voice_prompt(prompt_file)

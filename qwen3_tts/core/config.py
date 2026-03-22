@@ -18,7 +18,7 @@ import platform
 import subprocess
 import sys
 import threading
-from typing import Protocol, runtime_checkable
+from typing import Any, Protocol, runtime_checkable
 from urllib.parse import urlparse
 
 logger = logging.getLogger("tts.config")
@@ -111,7 +111,7 @@ def validate_config(config):
         if corrected_sec != sec:
             result["security"] = corrected_sec
     for issue in issues:
-        logger.warning("Config validation: %s", issue)
+        logger.warning("Config validation: %s", sanitize_log(issue))
     return result, issues
 
 
@@ -280,9 +280,9 @@ def get_default_clone_prompt(config=None):
     if configured:
         # Check it exists (as .pt or as MLX .wav/.txt pair)
         base = configured[:-3] if configured.endswith(".pt") else configured
-        pt_exists = os.path.exists(os.path.join(VOICE_PROMPTS_DIR, f"{base}.pt"))
-        mlx_exists = (os.path.exists(os.path.join(VOICE_PROMPTS_DIR, f"{base}.wav"))
-                      and os.path.exists(os.path.join(VOICE_PROMPTS_DIR, f"{base}.txt")))
+        pt_exists = os.path.exists(safe_path_join(VOICE_PROMPTS_DIR, f"{base}.pt"))
+        mlx_exists = (os.path.exists(safe_path_join(VOICE_PROMPTS_DIR, f"{base}.wav"))
+                      and os.path.exists(safe_path_join(VOICE_PROMPTS_DIR, f"{base}.txt")))
         if pt_exists or mlx_exists:
             return configured
 
@@ -364,25 +364,27 @@ def get_optimal_attn_config():
     return "sdpa", "float16", True
 
 
-def _validate_server_url(url: str) -> str:
-    """Validate the configured server URL to mitigate SSRF-style misuse.
+_ALLOWED_HOSTS = frozenset({"127.0.0.1", "localhost", "::1"})
 
-    Currently this performs lightweight checks:
-      - scheme must be http or https
-      - host must not be a known metadata/privileged endpoint
+
+def _validate_server_url(url: str) -> str:
+    """Validate server URL -- allowlist approach for SSRF prevention.
+
+    Only localhost variants are permitted as the TTS server always runs locally.
     Raises ValueError if the URL is considered invalid.
     """
     parsed = urlparse(url)
     if parsed.scheme not in ("http", "https"):
         raise ValueError(f"Unsupported server URL scheme: {parsed.scheme!r}")
     host = parsed.hostname or ""
-    # Deny-list common metadata/privileged endpoints.
-    forbidden_hosts = {
-        "169.254.169.254",  # AWS/GCP/Azure instance metadata
-        "metadata.google.internal",
-    }
-    if host in forbidden_hosts:
-        raise ValueError(f"Refusing to use forbidden server host {host!r}")
+    if host not in _ALLOWED_HOSTS:
+        raise ValueError(
+            f"Server host {host!r} not allowed. "
+            f"Valid: {', '.join(sorted(_ALLOWED_HOSTS))}"
+        )
+    port = parsed.port
+    if port is not None and not (1 <= port <= 65535):
+        raise ValueError(f"Invalid port: {port}")
     return url
 
 
@@ -391,8 +393,39 @@ def get_server_url(config):
     server = config.get("server", {})
     host = server.get("host", "127.0.0.1")
     port = server.get("port", 5123)
-    url = f"http://{host}:{port}"
+    # Bracket IPv6 addresses for valid URL syntax
+    if ":" in host:
+        url = f"http://[{host}]:{port}"
+    else:
+        url = f"http://{host}:{port}"
     return _validate_server_url(url)
+
+
+def sanitize_log(value: Any) -> str:
+    """Strip newlines and control characters for safe logging.
+
+    Prevents log injection by replacing \\n and \\r with their escaped
+    representations and removing null bytes. Non-string values are
+    converted to str first (immutable — returns a new string).
+    """
+    s = str(value) if not isinstance(value, str) else value
+    return s.replace('\n', '\\n').replace('\r', '\\r').replace('\x00', '')
+
+
+def safe_path_join(base_dir: str, *parts: str) -> str:
+    """Join paths safely, preventing directory traversal.
+
+    Resolves the joined path to its real (canonical) location and verifies
+    it is inside base_dir. Raises ValueError if traversal is detected.
+
+    Returns:
+        The resolved absolute path (immutable — returns a new string).
+    """
+    joined = os.path.realpath(os.path.join(base_dir, *parts))
+    real_base = os.path.realpath(base_dir)
+    if not (joined == real_base or joined.startswith(real_base + os.sep)):
+        raise ValueError("Path traversal detected")
+    return joined
 
 
 def is_server_running(config_or_url=None):
@@ -657,7 +690,7 @@ def get_vllm_port():
         port = None
     if port is not None:
         if not isinstance(port, int) or not (1024 <= port <= 65535):
-            logger.warning("Invalid vllm_port %s, using auto-find", port)
+            logger.warning("Invalid vllm_port %s, using auto-find", sanitize_log(port))
             port = None
     return port
 

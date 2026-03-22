@@ -22,6 +22,7 @@ from qwen3_tts.core.config import (
     is_server_running,
     auth_headers,
     load_config,
+    safe_path_join,
 )
 from qwen3_tts.interface.voice_helpers import (
     strip_extension,
@@ -67,11 +68,11 @@ def create_voice_prompt(audio_path, transcript, voice_name, no_transcript=False,
     base_name = strip_extension(voice_name)
     if backend == "mlx":
         # MLX needs .wav + .txt pair
-        wav_path = os.path.join(VOICE_PROMPTS_DIR, f"{base_name}.wav")
-        txt_path = os.path.join(VOICE_PROMPTS_DIR, f"{base_name}.txt")
+        wav_path = safe_path_join(VOICE_PROMPTS_DIR, f"{base_name}.wav")
+        txt_path = safe_path_join(VOICE_PROMPTS_DIR, f"{base_name}.txt")
     else:
         # Torch uses .pt files
-        pt_path = os.path.join(VOICE_PROMPTS_DIR, f"{base_name}.pt")
+        pt_path = safe_path_join(VOICE_PROMPTS_DIR, f"{base_name}.pt")
 
     # Check if prompt already exists
     if backend == "mlx":

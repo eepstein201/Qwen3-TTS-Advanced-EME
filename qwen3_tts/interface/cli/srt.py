@@ -6,7 +6,7 @@ This module handles parsing and processing of SRT subtitle files.
 
 import os
 
-from qwen3_tts.core.config import get_default_clone_prompt
+from qwen3_tts.core.config import get_default_clone_prompt, safe_path_join
 from qwen3_tts.interface.generate import (
     _decode_base64_result,
     generate_local,
@@ -78,7 +78,7 @@ def process_srt_file(srt_path, config, args, gen_params, use_server):
 
         all_audio.append(wav)
 
-        individual_path = os.path.join(output_dir, f"{basename}_{idx:03d}.wav")
+        individual_path = safe_path_join(output_dir, f"{basename}_{idx:03d}.wav")
         sf.write(individual_path, wav, sr)
 
     # Combined file
@@ -91,7 +91,7 @@ def process_srt_file(srt_path, config, args, gen_params, use_server):
         if i < len(all_audio) - 1:
             combined.extend(np.zeros(silence_samples))
 
-    combined_path = os.path.join(output_dir, f"{basename}_combined.wav")
+    combined_path = safe_path_join(output_dir, f"{basename}_combined.wav")
     sf.write(combined_path, np.array(combined), sample_rate)
 
     print(f"\nSaved {len(entries)} individual files to: {output_dir}")

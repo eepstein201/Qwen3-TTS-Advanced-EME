@@ -14,6 +14,7 @@ from qwen3_tts.core.config import (
     get_backend,
     get_torch_dtype_name,
     load_config,
+    sanitize_log,
 )
 from qwen3_tts.core.engine.text_processing import _normalize_text, _split_text
 
@@ -90,7 +91,7 @@ def _apply_mps_float32_guard(model, mode: str):
         "Clone mode on MPS requires float32 (configured: %s). "
         "Overriding to float32 for this generation. "
         "Set advanced.dtype to 'float32' in %s to silence this warning.",
-        dtype_name, CONFIG_PATH,
+        sanitize_log(dtype_name), CONFIG_PATH,
     )
     original_dtype = next(model.parameters()).dtype
     model.float()
@@ -179,7 +180,7 @@ def _run_inference_torch(model, text, mode, gen_params, language="English",
                 logger.error(
                     "Generation produced NaN/Inf with dtype=%s. "
                     "Switch to float32 in %s under advanced.dtype for stability.",
-                    dtype_name, CONFIG_PATH,
+                    sanitize_log(dtype_name), CONFIG_PATH,
                 )
         raise
     finally:
@@ -608,7 +609,7 @@ def run_inference(model, text, mode, gen_params, language="English",
             progress_callback(i, len(chunks))
 
         preview = chunk[:50] + "..." if len(chunk) > 50 else chunk
-        logger.info("Chunk %d/%d: '%s' (%d chars)", i + 1, len(chunks), preview, len(chunk))
+        logger.info("Chunk %d/%d: '%s' (%d chars)", i + 1, len(chunks), sanitize_log(preview), len(chunk))
 
         wav, sr = _run_inference_single(
             model, chunk, mode, gen_params, language,

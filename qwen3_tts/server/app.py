@@ -46,6 +46,7 @@ from qwen3_tts.core.config import (  # noqa: E402
     get_mlx_quantization,
     get_model_size,
     cleanup_pid_file,
+    sanitize_log,
 )
 
 # Config loader — can be replaced in tests for config injection
@@ -162,7 +163,7 @@ async def verify_auth(request: Request) -> None:
     token = request.headers.get("Authorization", "").replace("Bearer ", "")
     if not secrets.compare_digest(token, request.app.state.auth_token):
         client_ip = _get_real_client_ip(request)
-        logger.warning("Auth failure from %s on %s %s", client_ip, request.method, request.url.path)
+        logger.warning("Auth failure from %s on %s %s", sanitize_log(client_ip), request.method, request.url.path)
         raise HTTPException(status_code=401, detail="Unauthorized")
 
 

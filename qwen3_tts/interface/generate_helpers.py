@@ -18,6 +18,8 @@ from qwen3_tts.core.config import (  # noqa: E402
     VOICE_PROMPTS_DIR,
     HISTORY_FILE,
     get_backend,
+    safe_path_join,
+    sanitize_log,
 )
 
 
@@ -36,11 +38,11 @@ def voice_prompt_exists(prompt_file):
         base = prompt_file
         if base.endswith(".pt"):
             base = base[:-3]
-        wav = os.path.join(VOICE_PROMPTS_DIR, f"{base}.wav")
-        txt = os.path.join(VOICE_PROMPTS_DIR, f"{base}.txt")
+        wav = safe_path_join(VOICE_PROMPTS_DIR, f"{base}.wav")
+        txt = safe_path_join(VOICE_PROMPTS_DIR, f"{base}.txt")
         return os.path.exists(wav) and os.path.exists(txt)
     else:
-        pt_path = os.path.join(VOICE_PROMPTS_DIR, prompt_file)
+        pt_path = safe_path_join(VOICE_PROMPTS_DIR, prompt_file)
         return os.path.exists(pt_path)
 
 
@@ -134,6 +136,10 @@ def play_audio(file_path):
     if IN_COLAB:
         logger.info("Audio generated (playback skipped in headless mode)")
         return
+    # Validate file exists before playback
+    if not os.path.isfile(file_path):
+        logger.warning("Audio file not found for playback")
+        return
     if IS_MACOS:
         cmd = ["afplay", file_path]
     elif IS_LINUX:
@@ -142,11 +148,11 @@ def play_audio(file_path):
         logger.warning("Audio playback not supported on this platform")
         return
     try:
-        subprocess.run(cmd, check=True)  # nosec B603
+        subprocess.run(cmd, check=True)  # nosec B603  # CodeQL: cmd is a validated hardcoded list [py/command-line-injection]
     except subprocess.CalledProcessError:
         logger.warning("Failed to play audio")
     except FileNotFoundError:
-        logger.warning("%s not found — audio playback unavailable", cmd[0])
+        logger.warning("%s not found — audio playback unavailable", sanitize_log(cmd[0]))
 
 
 def open_file(path):
@@ -247,7 +253,11 @@ def parse_ssml(text):
     """
     metadata = {"has_ssml": False, "breaks": [], "prosody": None}
 
-    if not re.search(r'<[a-z]+[^>]*>', text, re.IGNORECASE):
+    # Guard against ReDoS on extremely long inputs
+    if len(text) > 50000:
+        return text, metadata
+
+    if not re.search(r'<[a-z][a-z0-9-]*(?:\s[^>]{0,500})?>', text, re.IGNORECASE):
         return text, metadata
 
     metadata["has_ssml"] = True
@@ -290,7 +300,7 @@ def parse_ssml(text):
     processed = re.sub(r'<emphasis(?:\s+level=["\'][^"\']+["\'])?>([^<]*)</emphasis>', r'\1', processed, flags=re.IGNORECASE)
 
     # <prosody>
-    prosody_match = re.search(r'<prosody\s+([^>]+)>([^<]*)</prosody>', processed, flags=re.IGNORECASE)
+    prosody_match = re.search(r'<prosody\s+([^>]{1,200})>([^<]{0,5000})</prosody>', processed, flags=re.IGNORECASE)
     if prosody_match:
         attrs = prosody_match.group(1)
         rate_match = re.search(r'rate=["\']([^"\']+)["\']', attrs)
@@ -314,10 +324,10 @@ def parse_ssml(text):
                 metadata["prosody"] = metadata.get("prosody") or {}
                 metadata["prosody"]["pitch"] = 2
 
-    processed = re.sub(r'<prosody\s+[^>]+>([^<]*)</prosody>', r'\1', processed, flags=re.IGNORECASE)
+    processed = re.sub(r'<prosody\s+[^>]{1,200}>([^<]{0,5000})</prosody>', r'\1', processed, flags=re.IGNORECASE)
 
     # Remove remaining XML tags
-    processed = re.sub(r'<[^>]+>', '', processed)
+    processed = re.sub(r'<[^>]{1,500}>', '', processed)
     processed = re.sub(r'\s+', ' ', processed).strip()
 
     return processed, metadata

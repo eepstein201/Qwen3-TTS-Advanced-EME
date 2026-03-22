@@ -243,7 +243,10 @@ class TestSaveCompletedAudio(unittest.TestCase):
              patch(f"{_MOD}.add_to_history", return_value=[{"path": "/tmp/out.wav"}]), \
              patch("qwen3_tts.interface.ui.shared.get_history_data", return_value=[]), \
              patch("builtins.open", MagicMock()), \
-             patch("os.path.expanduser", return_value="/tmp/voice_ui_test.wav"):
+             patch(f"{_MOD}.shutil.copy2"), \
+             patch(f"{_MOD}.load_config", return_value={"output_directory": "/tmp"}), \
+             patch("os.path.expanduser", return_value="/tmp"), \
+             patch("os.makedirs"):
             status, html, hist, df = _save_completed_audio(wav_b64, "clone", "hi", [])
         self.assertIn("Generated", status)
 
@@ -279,7 +282,10 @@ class TestGenerateServerSide(unittest.TestCase):
              patch("qwen3_tts.server.client.TTSClient", return_value=mock_client), \
              patch(f"{_MOD}.add_to_history", return_value=[{"path": "/tmp/out.wav"}]), \
              patch("qwen3_tts.interface.ui.shared.get_history_data", return_value=[]), \
-             patch("os.path.expanduser", return_value="/tmp/voice_ui_test.wav"):
+             patch(f"{_MOD}.shutil.copy2"), \
+             patch(f"{_MOD}.load_config", return_value={"output_directory": "/tmp"}), \
+             patch("os.path.expanduser", return_value="/tmp"), \
+             patch("os.makedirs"):
             result = _generate_server_side("clone", "hi", [], stream_config)
         self.assertIsNotNone(result[0])
         self.assertIn("Generated", result[1])

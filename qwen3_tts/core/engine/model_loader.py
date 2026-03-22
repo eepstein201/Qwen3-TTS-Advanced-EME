@@ -16,6 +16,7 @@ from qwen3_tts.core.config import (
     get_torch_model_name,
     get_torch_quantization,
     load_config,
+    sanitize_log,
 )
 
 logger = logging.getLogger("tts.engine")
@@ -256,7 +257,7 @@ def _load_model_torch(model_type):
     torch_quant = get_torch_quantization()
 
     logger.info("Loading %s (%s) with dtype=%s, quant=%s, size=%s [torch backend]...",
-                model_type, repo_id, dtype_name, torch_quant, model_size)
+                sanitize_log(model_type), sanitize_log(repo_id), sanitize_log(dtype_name), sanitize_log(torch_quant), sanitize_log(model_size))
     t0 = time.time()
 
     def _do_load():
@@ -304,7 +305,7 @@ def _load_model_mlx(model_type):
 
     repo_id = get_mlx_model_name(model_type)
     model_size = get_model_size()
-    logger.info("Loading %s (%s) size=%s [mlx backend]...", model_type, repo_id, model_size)
+    logger.info("Loading %s (%s) size=%s [mlx backend]...", sanitize_log(model_type), sanitize_log(repo_id), sanitize_log(model_size))
     t0 = time.time()
 
     def _do_load():

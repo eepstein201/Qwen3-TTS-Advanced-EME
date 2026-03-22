@@ -13,6 +13,8 @@ from fastapi.responses import FileResponse
 from qwen3_tts.core.config import (
     VOICE_PROMPTS_DIR,
     get_default_clone_prompt,
+    safe_path_join,
+    sanitize_log,
     save_config,
 )
 from qwen3_tts.server.validation import _validate_prompt_name, _strip_extension
@@ -88,7 +90,7 @@ def handle_delete_prompt(state, req, config_fn):
     # Find and delete all matching files
     files_removed = []
     for ext in (".pt", ".wav", ".txt"):
-        path = os.path.join(VOICE_PROMPTS_DIR, f"{base}{ext}")
+        path = safe_path_join(VOICE_PROMPTS_DIR, f"{base}{ext}")
         if os.path.exists(path):
             os.remove(path)
             files_removed.append(f"{base}{ext}")
@@ -110,7 +112,7 @@ def handle_delete_prompt(state, req, config_fn):
     from qwen3_tts.core.engine import clear_voice_prompt_cache
     clear_voice_prompt_cache()
 
-    logger.info("Deleted voice prompt '%s': %s", base, files_removed)
+    logger.info("Deleted voice prompt '%s': %s", sanitize_log(base), sanitize_log(files_removed))
     return {"status": "deleted", "name": base, "files_removed": files_removed}
 
 
@@ -137,12 +139,12 @@ def handle_rename_prompt(state, req, config_fn):
 
     # Collision check
     for ext in (".pt", ".wav", ".txt"):
-        if os.path.exists(os.path.join(VOICE_PROMPTS_DIR, f"{new_base}{ext}")):
+        if os.path.exists(safe_path_join(VOICE_PROMPTS_DIR, f"{new_base}{ext}")):
             raise HTTPException(status_code=409, detail=f"Voice prompt '{new_base}' already exists")
 
     # Check that at least one old file exists
     old_exists = any(
-        os.path.exists(os.path.join(VOICE_PROMPTS_DIR, f"{old_base}{ext}"))
+        os.path.exists(safe_path_join(VOICE_PROMPTS_DIR, f"{old_base}{ext}"))
         for ext in (".pt", ".wav", ".txt")
     )
     if not old_exists:
@@ -152,8 +154,8 @@ def handle_rename_prompt(state, req, config_fn):
     renamed = []
     try:
         for ext in (".pt", ".wav", ".txt"):
-            old_path = os.path.join(VOICE_PROMPTS_DIR, f"{old_base}{ext}")
-            new_path = os.path.join(VOICE_PROMPTS_DIR, f"{new_base}{ext}")
+            old_path = safe_path_join(VOICE_PROMPTS_DIR, f"{old_base}{ext}")
+            new_path = safe_path_join(VOICE_PROMPTS_DIR, f"{new_base}{ext}")
             if os.path.exists(old_path):
                 os.rename(old_path, new_path)
                 renamed.append((new_path, old_path))
@@ -164,7 +166,7 @@ def handle_rename_prompt(state, req, config_fn):
                 os.rename(current, rollback_to)
             except OSError:
                 pass
-        logger.error("Rename failed %s -> %s: %s", req.old_name, req.new_name, e, exc_info=True)
+        logger.error("Rename failed %s -> %s: %s", sanitize_log(req.old_name), sanitize_log(req.new_name), sanitize_log(e), exc_info=True)
         raise HTTPException(status_code=500, detail="Rename failed. Check server logs for details.")
 
     # Update default if the renamed prompt was the default (immutable — Phase 10d)
@@ -185,7 +187,7 @@ def handle_rename_prompt(state, req, config_fn):
     clear_voice_prompt_cache()
 
     files_renamed = [os.path.basename(new) for new, _ in renamed]
-    logger.info("Renamed voice prompt '%s' -> '%s': %s", old_base, new_base, files_renamed)
+    logger.info("Renamed voice prompt '%s' -> '%s': %s", sanitize_log(old_base), sanitize_log(new_base), sanitize_log(files_renamed))
     return {"status": "renamed", "old_name": old_base, "new_name": new_base, "files_renamed": files_renamed}
 
 
@@ -205,7 +207,7 @@ def handle_preview_prompt(name_param):
         raise HTTPException(status_code=err[1], detail=err[0]["error"])
 
     base = _strip_extension(name_param)
-    wav_path = os.path.join(VOICE_PROMPTS_DIR, f"{base}.wav")
+    wav_path = safe_path_join(VOICE_PROMPTS_DIR, f"{base}.wav")
 
     # Symlink resolution -- prevent path traversal via symlinks (R-20)
     real_path = os.path.realpath(wav_path)
@@ -241,7 +243,7 @@ def handle_prompt_details(name_param):
         total_size = 0
         created = None
         for ext in (".pt", ".wav", ".txt"):
-            path = os.path.join(VOICE_PROMPTS_DIR, f"{base}{ext}")
+            path = safe_path_join(VOICE_PROMPTS_DIR, f"{base}{ext}")
             if os.path.exists(path):
                 formats.append(ext)
                 total_size += os.path.getsize(path)

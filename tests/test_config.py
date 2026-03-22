@@ -182,6 +182,59 @@ class TestConfigFunctions(unittest.TestCase):
         result = get_server_url({})
         self.assertEqual(result, "http://127.0.0.1:5123")
 
+    def test_validate_server_url_accepts_localhost_variants(self):
+        """_validate_server_url accepts all localhost variants."""
+        from qwen3_tts.core.config import _validate_server_url
+        for host in ("127.0.0.1", "localhost"):
+            url = f"http://{host}:5123"
+            result = _validate_server_url(url)
+            self.assertEqual(result, url)
+        # IPv6 requires brackets in URL syntax
+        ipv6_url = "http://[::1]:5123"
+        result = _validate_server_url(ipv6_url)
+        self.assertEqual(result, ipv6_url)
+
+    def test_validate_server_url_rejects_bind_all(self):
+        """_validate_server_url rejects 0.0.0.0 (bind-all, not a valid client target)."""
+        from qwen3_tts.core.config import _validate_server_url
+        with self.assertRaises(ValueError):
+            _validate_server_url("http://0.0.0.0:5123")
+
+    def test_validate_server_url_rejects_external_hosts(self):
+        """_validate_server_url rejects non-localhost hosts."""
+        from qwen3_tts.core.config import _validate_server_url
+        for host in ("evil.com", "169.254.169.254", "10.0.0.1",
+                      "metadata.google.internal", "192.168.1.1"):
+            with self.assertRaises(ValueError, msg=f"Should reject {host}"):
+                _validate_server_url(f"http://{host}:5123")
+
+    def test_validate_server_url_rejects_bad_scheme(self):
+        """_validate_server_url rejects non-http(s) schemes."""
+        from qwen3_tts.core.config import _validate_server_url
+        with self.assertRaises(ValueError):
+            _validate_server_url("ftp://localhost:5123")
+
+    def test_validate_server_url_rejects_invalid_port(self):
+        """_validate_server_url rejects ports outside 1-65535."""
+        from qwen3_tts.core.config import _validate_server_url
+        with self.assertRaises(ValueError):
+            _validate_server_url("http://localhost:0")
+        with self.assertRaises(ValueError):
+            _validate_server_url("http://localhost:99999")
+
+    def test_validate_server_url_accepts_https(self):
+        """_validate_server_url accepts https scheme."""
+        from qwen3_tts.core.config import _validate_server_url
+        result = _validate_server_url("https://localhost:5123")
+        self.assertEqual(result, "https://localhost:5123")
+
+    def test_get_server_url_rejects_external_host_config(self):
+        """get_server_url raises ValueError for non-localhost host in config."""
+        from qwen3_tts.core.config import get_server_url
+        config = {"server": {"host": "evil.com", "port": 5123}}
+        with self.assertRaises(ValueError):
+            get_server_url(config)
+
     def test_get_torch_dtype_name_returns_valid(self):
         """get_torch_dtype_name returns a valid dtype string."""
         from qwen3_tts.core.config import get_torch_dtype_name
@@ -283,6 +336,79 @@ class TestHFConsolidatedConstant(unittest.TestCase):
                       "uninstall.HF_CACHE should be imported from config")
         self.assertIs(healthcheck_hf_cache, config_hf_cache,
                       "healthcheck.HF_CACHE should be imported from config")
+
+
+@pytest.mark.unit
+class TestSanitizeLog(unittest.TestCase):
+    """Tests for sanitize_log utility."""
+
+    def test_strips_newlines(self):
+        from qwen3_tts.core.config import sanitize_log
+        self.assertEqual(sanitize_log("hello\nworld"), "hello\\nworld")
+
+    def test_strips_carriage_return(self):
+        from qwen3_tts.core.config import sanitize_log
+        self.assertEqual(sanitize_log("hello\rworld"), "hello\\rworld")
+
+    def test_strips_null_bytes(self):
+        from qwen3_tts.core.config import sanitize_log
+        self.assertEqual(sanitize_log("hello\x00world"), "helloworld")
+
+    def test_handles_non_string(self):
+        from qwen3_tts.core.config import sanitize_log
+        self.assertEqual(sanitize_log(42), "42")
+        self.assertEqual(sanitize_log(None), "None")
+
+    def test_passes_clean_string(self):
+        from qwen3_tts.core.config import sanitize_log
+        self.assertEqual(sanitize_log("clean_string"), "clean_string")
+
+    def test_combined_control_chars(self):
+        from qwen3_tts.core.config import sanitize_log
+        self.assertEqual(sanitize_log("a\nb\rc\x00d"), "a\\nb\\rcd")
+
+
+class TestSafePathJoin(unittest.TestCase):
+    """Tests for safe_path_join utility."""
+
+    def test_valid_filename(self):
+        from qwen3_tts.core.config import safe_path_join
+        result = safe_path_join("/tmp/base", "file.txt")
+        self.assertEqual(result, os.path.realpath("/tmp/base/file.txt"))
+
+    def test_valid_nested_path(self):
+        from qwen3_tts.core.config import safe_path_join
+        result = safe_path_join("/tmp/base", "sub", "file.txt")
+        self.assertEqual(result, os.path.realpath("/tmp/base/sub/file.txt"))
+
+    def test_rejects_parent_traversal(self):
+        from qwen3_tts.core.config import safe_path_join
+        with self.assertRaises(ValueError):
+            safe_path_join("/tmp/base", "../etc/passwd")
+
+    def test_rejects_absolute_override(self):
+        from qwen3_tts.core.config import safe_path_join
+        with self.assertRaises(ValueError):
+            safe_path_join("/tmp/base", "/etc/passwd")
+
+    def test_rejects_deep_traversal(self):
+        from qwen3_tts.core.config import safe_path_join
+        # Double-dot in subdir that resolves outside
+        with self.assertRaises(ValueError):
+            safe_path_join("/tmp/base", "subdir/../../outside")
+        # Multiple levels
+        with self.assertRaises(ValueError):
+            safe_path_join("/tmp/base", "a/b/../../../etc")
+
+    def test_accepts_base_dir_itself(self):
+        from qwen3_tts.core.config import safe_path_join
+        result = safe_path_join("/tmp/base", "")
+        self.assertEqual(result, os.path.realpath("/tmp/base"))
+
+    def test_accepts_dot_current_dir(self):
+        from qwen3_tts.core.config import safe_path_join
+        result = safe_path_join("/tmp/base", ".", "file.txt")
+        self.assertEqual(result, os.path.realpath("/tmp/base/file.txt"))
 
 
 if __name__ == "__main__":

@@ -36,7 +36,7 @@ class TestMLXVoicePrompt(unittest.TestCase):
             result = load_voice_prompt_mlx("test_voice.pt")
 
         self.assertIsInstance(result, dict)
-        self.assertEqual(result["ref_audio"], wav_path)
+        self.assertEqual(result["ref_audio"], os.path.realpath(wav_path))
         self.assertEqual(result["ref_text"], "Hello, this is a test transcript.")
 
     def test_load_voice_prompt_mlx_strips_pt(self):
@@ -51,7 +51,7 @@ class TestMLXVoicePrompt(unittest.TestCase):
 
         with patch("qwen3_tts.core.engine.voice_prompt.VOICE_PROMPTS_DIR", self.tmpdir):
             result = load_voice_prompt_mlx("voice.pt")
-        self.assertEqual(result["ref_audio"], wav_path)
+        self.assertEqual(result["ref_audio"], os.path.realpath(wav_path))
 
     def test_load_voice_prompt_mlx_missing_files(self):
         """Raises FileNotFoundError when wav/txt missing."""
