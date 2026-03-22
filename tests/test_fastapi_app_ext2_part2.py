@@ -6,6 +6,7 @@ Covers: run_server, lifespan, CORS regex, ETA estimation.
 
 Run: python -m pytest tests/test_fastapi_app_ext2_part2.py -v
 """
+import pathlib
 import time
 import unittest
 from unittest.mock import patch, MagicMock, AsyncMock
@@ -93,7 +94,7 @@ class TestLifespan(unittest.TestCase):
 
         async def _run():
             with patch(f"{_APP_LIFESPAN}.load_config", return_value=mock_config), \
-                 patch(f"{_APP_LIFESPAN}.TOKEN_FILE", "/tmp/test_token_xyz"), \
+                 patch(f"{_APP_LIFESPAN}.TOKEN_FILE", pathlib.Path("/tmp/test_token_xyz")), \
                  patch(f"{_APP_LIFESPAN}._background_load"), \
                  patch(f"{_APP_LIFESPAN}.cleanup_resources"), \
                  patch(f"{_APP_LIFESPAN}.cleanup_pid_file"), \

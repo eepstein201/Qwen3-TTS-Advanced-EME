@@ -182,9 +182,20 @@ app.add_middleware(
     CORSMiddleware,
     allow_origin_regex=_cors_regex,
     allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
+    allow_methods=["GET", "POST"],
+    allow_headers=["Authorization", "Content-Type"],
 )
+
+
+@app.middleware("http")
+async def security_headers(request: Request, call_next):
+    """Add security response headers to all responses."""
+    response = await call_next(request)
+    response.headers["X-Content-Type-Options"] = "nosniff"
+    response.headers["X-Frame-Options"] = "DENY"
+    response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
+    return response
+
 
 # Rate limiting (R-13) — optional, requires slowapi
 if _HAS_SLOWAPI:
@@ -198,6 +209,7 @@ else:
     limiter = None
     _generate_limit = "10/minute"
     _model_limit = "5/minute"
+    logger.warning("slowapi not installed — rate limiting is disabled. Install with: pip install slowapi")
 
 
 def _rate_limit(limit_string):
@@ -269,18 +281,26 @@ async def ready(request: Request):
 
 @app.get("/generation-status")
 async def generation_status(request: Request):
-    """Get current generation status."""
+    """Get current generation status (public — sensitive fields stripped)."""
     state = request.app.state
-    gen_state = dict(state.generation_state)
+    gen_state = state.generation_state
+    result = {
+        "active": gen_state["active"],
+        "batch_index": gen_state["batch_index"],
+        "batch_total": gen_state["batch_total"],
+        "chunk_index": gen_state["chunk_index"],
+        "chunk_total": gen_state["chunk_total"],
+        "cancelled": gen_state["cancelled"],
+    }
     if gen_state["active"]:
-        gen_state["elapsed_sec"] = round(time.time() - gen_state["start_time"], 1)
-        gen_state["eta_sec"] = _estimate_eta(state, gen_state["text_length"], gen_state["elapsed_sec"])
-    return gen_state
+        result["elapsed_sec"] = round(time.time() - gen_state["start_time"], 1)
+        result["eta_sec"] = _estimate_eta(state, gen_state["text_length"], result["elapsed_sec"])
+    return result
 
 
 @app.get("/queue-status")
 async def queue_status(request: Request):
-    """Get generation queue status (no auth required)."""
+    """Get generation queue status (public — sensitive fields stripped)."""
     state = request.app.state
     async with state.pending_lock:
         pending = list(state.pending_requests)
@@ -288,11 +308,6 @@ async def queue_status(request: Request):
     return {
         "queue_length": len(pending),
         "active": gen_state.get("active", False),
-        "active_mode": gen_state.get("mode", "") if gen_state.get("active") else None,
-        "positions": [
-            {"id": p["id"], "mode": p["mode"]}
-            for p in pending
-        ],
     }
 
 

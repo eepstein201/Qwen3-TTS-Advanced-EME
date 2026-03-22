@@ -41,7 +41,9 @@ VOICE_PROMPTS_DIR = os.path.join(USER_FILES_DIR, "voice_prompts")
 HISTORY_FILE = os.path.expanduser("~/.voice_history.jsonl")
 PID_FILE = pathlib.Path(os.path.join(USER_FILES_DIR, ".voice_server.pid"))
 LOG_FILE = pathlib.Path(os.path.join(USER_FILES_DIR, ".voice_server.log"))
-TOKEN_FILE = pathlib.Path(os.path.expanduser("~/.voice_server_token"))
+_TOKEN_DIR = pathlib.Path(os.path.expanduser("~/.config/qwen3-tts"))
+TOKEN_FILE = _TOKEN_DIR / ".voice_server_token"
+_LEGACY_TOKEN_FILE = pathlib.Path(os.path.expanduser("~/.voice_server_token"))
 
 # HuggingFace cache location (single source of truth)
 HF_CACHE = pathlib.Path.home() / ".cache" / "huggingface" / "hub"
@@ -894,11 +896,23 @@ def get_prosody_presets(config=None):
 def read_auth_token():
     """Read the server auth token from TOKEN_FILE.
 
+    Falls back to legacy path (~/.voice_server_token) with a deprecation warning.
+
     Returns:
         The token string, or None if file doesn't exist.
     """
     if os.path.exists(TOKEN_FILE):
         with open(TOKEN_FILE, "r") as f:
+            return f.read().strip()
+    # Backward compat: check legacy location
+    if os.path.exists(_LEGACY_TOKEN_FILE):
+        import logging
+        logging.getLogger("tts").warning(
+            "Reading auth token from legacy path %s — "
+            "restart the server to migrate to %s",
+            _LEGACY_TOKEN_FILE, TOKEN_FILE,
+        )
+        with open(_LEGACY_TOKEN_FILE, "r") as f:
             return f.read().strip()
     return None
 

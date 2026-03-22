@@ -73,7 +73,7 @@ def _auto_create_pt_from_wav(base_name: str, wav_path: str, txt_path: str,
 
 
 def _load_pt_safe(prompt_path: str, prompt_file: str, device: str):
-    """Load a .pt file with weights_only=True; fall back to unsafe load if permitted."""
+    """Load a .pt file with weights_only=True (safe deserialization only)."""
     import torch
     try:
         from qwen_tts.inference.qwen3_tts_model import VoiceClonePromptItem
@@ -91,20 +91,10 @@ def _load_pt_safe(prompt_path: str, prompt_file: str, device: str):
         real_prompts_dir = os.path.realpath(VOICE_PROMPTS_DIR)
         if not real_prompt.startswith(real_prompts_dir + os.sep):
             raise ValueError(f"Refusing to load {prompt_file}: outside voice_prompts/ directory")
-        if os.environ.get("TTS_ALLOW_UNSAFE_PICKLE") != "1":
-            raise RuntimeError(
-                f"Cannot load {prompt_file} with weights_only=True. "
-                f"If this is a trusted file, set TTS_ALLOW_UNSAFE_PICKLE=1"
-            )
-        logger.warning(
-            "TTS_ALLOW_UNSAFE_PICKLE is deprecated and will be removed. "
-            "Re-create voice prompts with 'tts voice create' for safe .pt files. "
-            "Loading %s with weights_only=False.",
-            prompt_file,
+        raise RuntimeError(
+            f"Cannot load {prompt_file} safely. "
+            f"Re-create with 'tts voice create'."
         )
-        result = torch.load(prompt_path, weights_only=False, map_location=device)  # nosec B614
-        _store_in_torch_cache(prompt_file, result)
-        return result
 
 
 def _load_voice_prompt_torch(prompt_file):

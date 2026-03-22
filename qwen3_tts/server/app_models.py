@@ -19,7 +19,7 @@ from qwen3_tts.core.config import (
     get_mlx_model_name,
     save_config,
 )
-from qwen3_tts.server.app_lifespan import _get_queue_size
+from qwen3_tts.server.app_lifespan import _get_queue_size, _sanitize_error
 from qwen3_tts.server.validation import _error_response
 
 logger = logging.getLogger("tts")
@@ -166,15 +166,15 @@ def handle_load_model(state, req):
     except ImportError as e:
         logger.error("Backend not available for model loading %s: %s", model_type, e, exc_info=True)
         state.model_load_errors[model_type] = str(e)
-        _error_response(500, "import_error", str(e), "config")
+        _error_response(500, "import_error", _sanitize_error(str(e)), "config")
     except (RuntimeError, OSError, ValueError) as e:
         logger.error("Failed to load model %s: %s", model_type, e, exc_info=True)
         state.model_load_errors[model_type] = str(e)
-        _error_response(500, "load_failed", str(e), "restart")
+        _error_response(500, "load_failed", _sanitize_error(str(e)), "restart")
     except Exception as e:
         logger.error("Unexpected error loading model %s: %s", model_type, e, exc_info=True)
         state.model_load_errors[model_type] = str(e)
-        _error_response(500, "unknown_error", str(e), "bug")
+        _error_response(500, "unknown_error", _sanitize_error(str(e)), "bug")
 
     return {"status": "loaded", "model": model_type}
 

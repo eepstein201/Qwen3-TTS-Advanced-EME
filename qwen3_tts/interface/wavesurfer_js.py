@@ -763,9 +763,10 @@ def get_streaming_trigger_js(tab_id):
 
 
 def get_cancel_js(tab_id):
-    """Return JS that cancels the current streaming generation.
+    """Return JS that stops local player playback.
 
-    Calls both the server cancel endpoint and stops local playback.
+    Server-side cancellation is handled by the Python cancel handler
+    (cancel_streaming_generation) — no auth token is sent to the browser.
 
     Args:
         tab_id: The tab identifier matching the player instance.
@@ -775,16 +776,10 @@ def get_cancel_js(tab_id):
         try {{
             if (typeof window.getOrCreatePlayer !== 'function') {{
                 console.error('[Cancel] getOrCreatePlayer not available');
-                return 'ERROR:Audio player not loaded';
+                return 'Cancelled';
             }}
             const player = window.getOrCreatePlayer('{tab_id}');
             player.stop();
-            if (config && config.server_url && config.auth_token) {{
-                await fetch(config.server_url + '/cancel-generation', {{
-                    method: 'POST',
-                    headers: {{ 'Authorization': 'Bearer ' + config.auth_token }},
-                }});
-            }}
         }} catch (e) {{
             console.error('[Cancel] Error:', e);
         }}

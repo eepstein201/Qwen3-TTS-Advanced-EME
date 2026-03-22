@@ -128,22 +128,8 @@ def _prepare_streaming_config(mode, text, preset, temperature, top_k, top_p,
         payload["speaker"] = speaker
         payload["instruct"] = instruct or ""
 
-    # In Colab, the browser can't reach 127.0.0.1 — return sentinel so JS
-    # skips fetch() and the Python fallback generates audio server-side.
-    from qwen3_tts.core.config import IN_COLAB
-    if IN_COLAB:
-        return {"colab_fallback": True, "payload": payload}, "Generating (Colab mode)..."
-
-    # Build streaming config: nested structure matching JS expectations
-    # JS reads config.server_url, config.auth_token, config.payload
-    server_url = get_server_url(config)
-    token_path = os.path.expanduser("~/.voice_server_token")
-    try:
-        with open(token_path) as f:
-            auth_token = f.read().strip()
-    except FileNotFoundError:
-        return None, "Error: Auth token not found. Start the server with 'tts server start'."
-    return {"server_url": server_url, "auth_token": auth_token, "payload": payload}, "Connecting..."
+    # Generate server-side via Python TTSClient — auth token never reaches the browser
+    return {"server_side": True, "payload": payload}, "Generating..."
 
 
 def _save_completed_audio(base64_wav, mode, text, history_list, stream_config=None):
@@ -189,12 +175,10 @@ def _save_completed_audio(base64_wav, mode, text, history_list, stream_config=No
         return f"Error saving audio: {e}", format_status_display(), history_list, gr.update()
 
 
-def _generate_colab_fallback(base64_wav, mode, text, history_list, stream_config):
-    """Handle generation for Colab environment where JS streaming doesn't work.
+def _generate_server_side(mode, text, history_list, stream_config):
+    """Generate audio server-side via Python TTSClient (no token in browser).
 
-    If JS streaming succeeded (base64_wav is non-empty), delegates to _save_completed_audio.
-    In Colab mode (stream_config has colab_fallback=True and base64_wav is empty),
-    generates audio server-side via TTSClient and returns the file path.
+    Auth token stays in the Python process — never sent to the browser JS layer.
 
     Returns:
         tuple: (audio_path_or_none, status_text, status_html, history_list, history_df_data)
@@ -206,33 +190,13 @@ def _generate_colab_fallback(base64_wav, mode, text, history_list, stream_config
     if history_list is None:
         history_list = []
 
-    # JS streaming returned an error
-    if base64_wav and base64_wav.startswith('ERROR:'):
-        error_msg = base64_wav[6:]
-        return None, f"Error: {error_msg}", format_status_display(), history_list, gr.update()
+    # stream_config is None when validation failed — preserve the error
+    if stream_config is None:
+        return None, gr.update(), format_status_display(), history_list, gr.update()
 
-    # JS timed out waiting for audio
-    if base64_wav == 'TIMEOUT':
-        return None, "Error: Timed out waiting for audio — try again", format_status_display(), history_list, gr.update()
-
-    # JS streaming succeeded — save as usual
-    if base64_wav and not base64_wav.startswith('ERROR:'):
-        status, html, hist, df = _save_completed_audio(base64_wav, mode, text, history_list)
-        # Return the saved file path so the JS .then() step can load it into WaveSurfer
-        saved_path = hist[-1].get("path") if hist else None
-        return saved_path, status, html, hist, df
-
-    # Check if this is a Colab fallback request
-    is_colab = (isinstance(stream_config, dict) and stream_config.get("colab_fallback"))
-    if not is_colab:
-        # stream_config is None when validation failed — preserve the error
-        # status already set by Step 1 instead of overwriting with "Cancelled"
-        if stream_config is None:
-            return None, gr.update(), format_status_display(), history_list, gr.update()
-        # Non-Colab, empty result with valid config means user cancelled
+    if not isinstance(stream_config, dict) or not stream_config.get("server_side"):
         return None, "Cancelled", format_status_display(), history_list, gr.update()
 
-    # Colab fallback: generate via Python TTSClient
     try:
         from qwen3_tts.server.client import TTSClient
         payload = stream_config.get("payload", {})
@@ -265,7 +229,7 @@ def _generate_colab_fallback(base64_wav, mode, text, history_list, stream_config
             get_history_data(history_list),
         )
     except Exception as e:
-        logger.error("Colab fallback generation failed: %s", e)
+        logger.error("Server-side generation failed: %s", e)
         return None, f"Error: {e}", format_status_display(), history_list, get_history_data(history_list)
 
 
@@ -368,17 +332,16 @@ def _wire_generation_tab(mode, btn, cancel_btn, status, stream_config, result_da
         config_handler: Function returning (config_dict, status_text).
         api_name: Optional API name for the endpoint.
         history_state: Optional history state component.
-        audio_url_converter: Hidden gr.Audio for Colab fallback file URL conversion.
+        audio_url_converter: Hidden gr.Audio for server-side file URL conversion.
     """
     from qwen3_tts.interface.ui.model_management import get_model_status_html
     from qwen3_tts.interface.wavesurfer_js import (
-        get_streaming_trigger_js,
         get_cancel_js,
         get_load_into_player_js,
     )
     from qwen3_tts.interface.ui.shared import update_text_info
 
-    # Step 1: Python validates inputs, returns streaming config JSON
+    # Step 1: Python validates inputs, returns generation config JSON
     click_kwargs = {
         "fn": config_handler,
         "inputs": inputs_list,
@@ -387,28 +350,20 @@ def _wire_generation_tab(mode, btn, cancel_btn, status, stream_config, result_da
     if api_name:
         click_kwargs["api_name"] = api_name
 
-    # Gradio 6 breaks .then() chains after JS-only steps (fn=None, js=...).
-    # Workaround: provide a passthrough fn alongside js so the chain continues.
+    # Generation flow: Python validates → Python generates server-side → JS loads audio
+    # Auth token stays in the Python process and never reaches the browser.
     btn.click(**click_kwargs).then(
-        # Also capture the text input for the save step
+        # Capture the text input for the generation step
         fn=lambda t: t,
         inputs=[text],
         outputs=[text_hidden],
     ).then(
-        # Step 2: JS reads config and starts streaming via fetch()
-        # In Colab, config has no server_url so JS returns '' immediately
-        # NOTE: fn=passthrough required for Gradio 6 .then() chain continuity
-        fn=lambda x: x,
-        js=get_streaming_trigger_js(mode),
-        inputs=[stream_config],
-        outputs=[result_data],
-    ).then(
-        # Step 3: Handle result — JS streaming success OR Colab Python fallback
-        fn=_generate_colab_fallback,
-        inputs=[result_data, mode_hidden, text_hidden, history_state, stream_config],
+        # Step 2: Generate audio server-side via TTSClient (no JS streaming)
+        fn=_generate_server_side,
+        inputs=[mode_hidden, text_hidden, history_state, stream_config],
         outputs=[audio_url_converter, status, status_html, history_state, history_df],
     ).then(
-        # Step 4: Load saved file into tab's WaveSurfer player via hidden gr.Audio URL
+        # Step 3: Load saved file into tab's WaveSurfer player via hidden gr.Audio URL
         # NOTE: fn=passthrough required for Gradio 6 .then() chain continuity
         fn=lambda x: x,
         js=get_load_into_player_js(mode),
@@ -419,7 +374,7 @@ def _wire_generation_tab(mode, btn, cancel_btn, status, stream_config, result_da
         outputs=model_indicator,
     )
 
-    # Cancel button — Python cancels server-side, then JS aborts fetch + stops player
+    # Cancel button — Python cancels server-side, then JS stops local player
     cancel_btn.click(
         fn=cancel_streaming_generation,
         outputs=[status, status_html],

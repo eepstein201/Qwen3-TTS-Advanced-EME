@@ -5,7 +5,7 @@ Covers:
   - cancel_streaming_generation
   - _prepare_streaming_config: validation, mode-specific payloads, Colab
   - _save_completed_audio: decode, save, error paths
-  - _generate_colab_fallback: error/timeout/success/Colab TTSClient
+  - _generate_server_side: server-side generation via TTSClient
   - _validate_inputs: basic validation
 
 Run: pytest tests/test_ui_generation_ext.py -v
@@ -116,19 +116,13 @@ class TestPrepareStreamingConfig(unittest.TestCase):
         self.assertIsNone(cfg)
         self.assertIn("speaker", status)
 
-    def test_clone_colab_mode(self):
-        import qwen3_tts.core.config as _cfg
-        orig = _cfg.IN_COLAB
-        try:
-            _cfg.IN_COLAB = True
-            with patch(f"{_MOD}.load_config", return_value={"language": "English"}), \
-                 patch(f"{_MOD}.is_server_running", return_value=True), \
-                 patch(f"{_MOD}.get_prosody_presets", return_value={}):
-                cfg, status = self._call()
-            self.assertTrue(cfg.get("colab_fallback"))
-            self.assertIn("Colab", status)
-        finally:
-            _cfg.IN_COLAB = orig
+    def test_clone_returns_server_side_config(self):
+        with patch(f"{_MOD}.load_config", return_value={"language": "English"}), \
+             patch(f"{_MOD}.is_server_running", return_value=True), \
+             patch(f"{_MOD}.get_prosody_presets", return_value={}):
+            cfg, status = self._call()
+        self.assertTrue(cfg.get("server_side"))
+        self.assertEqual(status, "Generating...")
 
     def test_design_with_prosody(self):
         import qwen3_tts.core.config as _cfg
@@ -203,19 +197,19 @@ class TestPrepareStreamingConfig(unittest.TestCase):
         finally:
             _cfg.IN_COLAB = orig
 
-    def test_auth_token_not_found(self):
+    def test_non_colab_returns_server_side_config(self):
+        """Non-Colab path now returns server_side config (no token reading)."""
         import qwen3_tts.core.config as _cfg
         orig = _cfg.IN_COLAB
         try:
             _cfg.IN_COLAB = False
             with patch(f"{_MOD}.load_config", return_value={"language": "English"}), \
                  patch(f"{_MOD}.is_server_running", return_value=True), \
-                 patch(f"{_MOD}.get_server_url", return_value="http://127.0.0.1:5123"), \
-                 patch(f"{_MOD}.get_prosody_presets", return_value={}), \
-                 patch("builtins.open", side_effect=FileNotFoundError):
+                 patch(f"{_MOD}.get_prosody_presets", return_value={}):
                 cfg, status = self._call()
-            self.assertIsNone(cfg)
-            self.assertIn("Auth token not found", status)
+            self.assertTrue(cfg.get("server_side"))
+            self.assertEqual(cfg["payload"]["mode"], "clone")
+            self.assertEqual(status, "Generating...")
         finally:
             _cfg.IN_COLAB = orig
 
@@ -261,37 +255,24 @@ class TestSaveCompletedAudio(unittest.TestCase):
 
 
 @unittest.skipUnless(HAS_GRADIO, "requires gradio")
-class TestGenerateColabFallback(unittest.TestCase):
-
-    def test_error_prefix(self):
-        from qwen3_tts.interface.ui.generation import _generate_colab_fallback
-        with patch(f"{_MOD}.format_status_display", return_value="<html>"):
-            result = _generate_colab_fallback("ERROR:fail", "clone", "hi", [], None)
-        self.assertIsNone(result[0])
-        self.assertIn("fail", result[1])
-
-    def test_timeout(self):
-        from qwen3_tts.interface.ui.generation import _generate_colab_fallback
-        with patch(f"{_MOD}.format_status_display", return_value="<html>"):
-            result = _generate_colab_fallback("TIMEOUT", "clone", "hi", [], None)
-        self.assertIn("Timed out", result[1])
+class TestGenerateServerSide(unittest.TestCase):
 
     def test_none_config_preserves_error(self):
-        from qwen3_tts.interface.ui.generation import _generate_colab_fallback
+        from qwen3_tts.interface.ui.generation import _generate_server_side
         with patch(f"{_MOD}.format_status_display", return_value="<html>"):
-            result = _generate_colab_fallback("", "clone", "hi", [], None)
+            result = _generate_server_side("clone", "hi", [], None)
         self.assertIsNone(result[0])
 
-    def test_non_colab_cancelled(self):
-        from qwen3_tts.interface.ui.generation import _generate_colab_fallback
+    def test_non_server_side_cancelled(self):
+        from qwen3_tts.interface.ui.generation import _generate_server_side
         with patch(f"{_MOD}.format_status_display", return_value="<html>"):
-            result = _generate_colab_fallback("", "clone", "hi", [], {"server_url": "x"})
+            result = _generate_server_side("clone", "hi", [], {"payload": {}})
         self.assertEqual(result[1], "Cancelled")
 
-    def test_colab_fallback_success(self):
-        from qwen3_tts.interface.ui.generation import _generate_colab_fallback
+    def test_server_side_success(self):
+        from qwen3_tts.interface.ui.generation import _generate_server_side
         mock_client = MagicMock()
-        stream_config = {"colab_fallback": True, "payload": {
+        stream_config = {"server_side": True, "payload": {
             "text": "hi", "mode": "clone", "temperature": 0.7,
         }}
         with patch(f"{_MOD}.format_status_display", return_value="<html>"), \
@@ -299,18 +280,18 @@ class TestGenerateColabFallback(unittest.TestCase):
              patch(f"{_MOD}.add_to_history", return_value=[{"path": "/tmp/out.wav"}]), \
              patch("qwen3_tts.interface.ui.shared.get_history_data", return_value=[]), \
              patch("os.path.expanduser", return_value="/tmp/voice_ui_test.wav"):
-            result = _generate_colab_fallback("", "clone", "hi", [], stream_config)
+            result = _generate_server_side("clone", "hi", [], stream_config)
         self.assertIsNotNone(result[0])
         self.assertIn("Generated", result[1])
         mock_client.generate.assert_called_once()
 
-    def test_colab_fallback_error(self):
-        from qwen3_tts.interface.ui.generation import _generate_colab_fallback
-        stream_config = {"colab_fallback": True, "payload": {"text": "hi", "mode": "clone"}}
+    def test_server_side_error(self):
+        from qwen3_tts.interface.ui.generation import _generate_server_side
+        stream_config = {"server_side": True, "payload": {"text": "hi", "mode": "clone"}}
         with patch(f"{_MOD}.format_status_display", return_value="<html>"), \
              patch("qwen3_tts.server.client.TTSClient", side_effect=Exception("conn")), \
              patch("qwen3_tts.interface.ui.shared.get_history_data", return_value=[]):
-            result = _generate_colab_fallback("", "clone", "hi", [], stream_config)
+            result = _generate_server_side("clone", "hi", [], stream_config)
         self.assertIsNone(result[0])
         self.assertIn("Error", result[1])
 
@@ -359,23 +340,16 @@ class TestEdgeCases(unittest.TestCase):
         finally:
             _cfg.IN_COLAB = orig
 
-    def test_auth_token_success_non_colab(self):
-        """Lines 143, 146: non-Colab path where token file exists."""
+    def test_server_side_config_non_colab(self):
+        """Non-Colab path returns server_side config (no token in config)."""
         import qwen3_tts.core.config as _cfg
         from qwen3_tts.interface.ui.generation import _prepare_streaming_config
         orig = _cfg.IN_COLAB
         try:
             _cfg.IN_COLAB = False
-            mock_open = MagicMock()
-            mock_open.return_value.__enter__ = MagicMock(
-                return_value=MagicMock(read=MagicMock(return_value="test-token\n"))
-            )
-            mock_open.return_value.__exit__ = MagicMock(return_value=False)
             with patch(f"{_MOD}.load_config", return_value={"language": "English"}), \
                  patch(f"{_MOD}.is_server_running", return_value=True), \
-                 patch(f"{_MOD}.get_server_url", return_value="http://127.0.0.1:5123"), \
-                 patch(f"{_MOD}.get_prosody_presets", return_value={}), \
-                 patch("builtins.open", mock_open):
+                 patch(f"{_MOD}.get_prosody_presets", return_value={}):
                 cfg, status = _prepare_streaming_config(
                     mode="clone", text="Hello", preset=None,
                     temperature=0.7, top_k=50, top_p=0.95,
@@ -383,8 +357,9 @@ class TestEdgeCases(unittest.TestCase):
                     prompt_file="voice1.wav",
                 )
             self.assertIsNotNone(cfg)
-            self.assertEqual(cfg["auth_token"], "test-token")
-            self.assertIn("Connecting", status)
+            self.assertTrue(cfg.get("server_side"))
+            self.assertNotIn("auth_token", cfg)
+            self.assertEqual(status, "Generating...")
         finally:
             _cfg.IN_COLAB = orig
 
@@ -396,13 +371,12 @@ class TestEdgeCases(unittest.TestCase):
         self.assertEqual(status, "Cancelled")
         self.assertIsInstance(hist, list)
 
-    def test_colab_fallback_none_history(self):
-        """Line 207: history_list is None in _generate_colab_fallback."""
-        from qwen3_tts.interface.ui.generation import _generate_colab_fallback
+    def test_server_side_none_history(self):
+        """history_list is None in _generate_server_side."""
+        from qwen3_tts.interface.ui.generation import _generate_server_side
         with patch(f"{_MOD}.format_status_display", return_value="<html>"):
-            result = _generate_colab_fallback("ERROR:fail", "clone", "hi", None, None)
+            result = _generate_server_side("clone", "hi", None, None)
         self.assertIsNone(result[0])
-        self.assertIn("fail", result[1])
 
 
 if __name__ == "__main__":

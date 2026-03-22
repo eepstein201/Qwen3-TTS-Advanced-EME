@@ -205,7 +205,9 @@ async def lifespan(app):
     app.state.server_config["models"] = config.get("models", {})
     app.state.server_config["security"] = config.get("security", {})
 
-    # Write token file
+    # Write token file (create directory with restricted permissions)
+    TOKEN_FILE.parent.mkdir(parents=True, exist_ok=True)
+    os.chmod(TOKEN_FILE.parent, 0o700)
     with open(TOKEN_FILE, "w") as f:
         f.write(app.state.auth_token)
     os.chmod(TOKEN_FILE, 0o600)

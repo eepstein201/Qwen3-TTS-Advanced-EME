@@ -370,18 +370,16 @@ class TestTorchLoadSecurity(unittest.TestCase):
 
     def test_path_traversal_check_exists(self):
         """_load_pt_safe should check realpath for path traversal."""
-        # Logic extracted to _load_pt_safe in Phase 5 refactor
         from qwen3_tts.core.engine.voice_prompt import _load_pt_safe
         source = inspect.getsource(_load_pt_safe)
         self.assertIn("realpath", source)
-        self.assertIn("TTS_ALLOW_UNSAFE_PICKLE", source)
 
-    def test_deprecation_warning_on_unsafe(self):
-        """Should warn that TTS_ALLOW_UNSAFE_PICKLE is deprecated."""
-        # Logic extracted to _load_pt_safe in Phase 5 refactor
+    def test_no_unsafe_deserialization_escape_hatch(self):
+        """Unsafe deserialization env var must not exist in _load_pt_safe."""
         from qwen3_tts.core.engine.voice_prompt import _load_pt_safe
         source = inspect.getsource(_load_pt_safe)
-        self.assertIn("deprecated", source.lower())
+        self.assertNotIn("ALLOW_UNSAFE", source)
+        self.assertNotIn("weights_only=False", source)
 
     def test_refuses_path_outside_prompts_dir(self):
         """Should refuse to load files outside VOICE_PROMPTS_DIR."""

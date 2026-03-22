@@ -414,10 +414,11 @@ class TestStreamingTriggerJS(unittest.TestCase):
 class TestCancelJS(unittest.TestCase):
     """Test the cancel JS function."""
 
-    def test_calls_cancel_endpoint(self):
+    def test_returns_cancelled_string(self):
+        """Cancel JS stops the player and returns 'Cancelled' (server cancel is Python-side)."""
         from qwen3_tts.interface.wavesurfer_js import get_cancel_js
         js = get_cancel_js("clone")
-        self.assertIn("cancel-generation", js)
+        self.assertIn("Cancelled", js)
 
     def test_stops_player(self):
         from qwen3_tts.interface.wavesurfer_js import get_cancel_js

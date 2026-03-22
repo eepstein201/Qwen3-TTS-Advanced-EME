@@ -187,46 +187,8 @@ class TestGenerateColabFallback(unittest.TestCase):
     @skip_if_no_gradio
     def test_js_success_returns_saved_path(self):
         import base64
-        import struct
         import tempfile
-        from qwen3_tts.interface.ui import _generate_colab_fallback
-
-        wav_data = b'RIFF' + struct.pack('<I', 36) + b'WAVE'
-        wav_data += b'fmt ' + struct.pack('<IHHIIHH', 16, 1, 1, 24000, 48000, 2, 16)
-        wav_data += b'data' + struct.pack('<I', 0)
-        b64 = base64.b64encode(wav_data).decode()
-
-        with tempfile.TemporaryDirectory() as tmpdir:
-            with patch('qwen3_tts.interface.ui.generation.os.path.expanduser',
-                       side_effect=lambda p: p.replace("~/Downloads", tmpdir)):
-                audio_path, status, _, hist, _ = _generate_colab_fallback(
-                    b64, "clone", "hello", [], None)
-                self.assertIn("Generated:", status)
-                self.assertIsNotNone(audio_path)
-                self.assertEqual(len(hist), 1)
-
-    @skip_if_no_gradio
-    def test_error_returns_none(self):
-        from qwen3_tts.interface.ui import _generate_colab_fallback
-        audio_path, status, _, _, _ = _generate_colab_fallback(
-            "ERROR:connection refused", "clone", "hello", [], None)
-        self.assertIsNone(audio_path)
-        self.assertIn("connection refused", status)
-
-    @skip_if_no_gradio
-    def test_cancel_returns_none(self):
-        from qwen3_tts.interface.ui import _generate_colab_fallback
-        # Simulate cancel: JS returns '' but stream_config was valid (not None)
-        config = {"server_url": "http://127.0.0.1:5123", "auth_token": "tok", "payload": {}}
-        audio_path, status, _, _, _ = _generate_colab_fallback(
-            "", "clone", "hello", [], config)
-        self.assertIsNone(audio_path)
-        self.assertEqual(status, "Cancelled")
-
-    @skip_if_no_gradio
-    def test_colab_fallback_generates_via_client(self):
-        from qwen3_tts.interface.ui import _generate_colab_fallback
-        import tempfile
+        from qwen3_tts.interface.ui import _generate_server_side
 
         with tempfile.TemporaryDirectory() as tmpdir:
             with patch('qwen3_tts.server.client.TTSClient') as mock_cls, \
@@ -235,18 +197,50 @@ class TestGenerateColabFallback(unittest.TestCase):
                 mock_client = MagicMock()
                 mock_cls.return_value = mock_client
 
-                # Create the output file that TTSClient.generate() would create
                 def fake_generate(**kwargs):
                     with open(kwargs['output'], 'wb') as f:
                         f.write(b'fake wav')
                 mock_client.generate.side_effect = fake_generate
 
-                config = {"colab_fallback": True, "payload": {"text": "hello", "mode": "clone"}}
-                audio_path, status, _, hist, _ = _generate_colab_fallback(
-                    "", "clone", "hello", [], config)
-                self.assertIsNotNone(audio_path)
+                config = {"server_side": True, "payload": {"text": "hello", "mode": "clone"}}
+                audio_path, status, _, hist, _ = _generate_server_side(
+                    "clone", "hello", [], config)
                 self.assertIn("Generated:", status)
+                self.assertIsNotNone(audio_path)
+                self.assertEqual(len(hist), 1)
                 mock_client.generate.assert_called_once()
+
+    @skip_if_no_gradio
+    def test_none_config_preserves_error(self):
+        from qwen3_tts.interface.ui import _generate_server_side
+        audio_path, status, _, _, _ = _generate_server_side(
+            "clone", "hello", [], None)
+        self.assertIsNone(audio_path)
+
+    @skip_if_no_gradio
+    def test_cancel_returns_none(self):
+        from qwen3_tts.interface.ui import _generate_server_side
+        # Non-server_side config means user cancelled
+        config = {"payload": {}}
+        audio_path, status, _, _, _ = _generate_server_side(
+            "clone", "hello", [], config)
+        self.assertIsNone(audio_path)
+        self.assertEqual(status, "Cancelled")
+
+    @skip_if_no_gradio
+    def test_client_error_returns_error_status(self):
+        from qwen3_tts.interface.ui import _generate_server_side
+
+        with patch('qwen3_tts.server.client.TTSClient') as mock_cls:
+            mock_client = MagicMock()
+            mock_cls.return_value = mock_client
+            mock_client.generate.side_effect = RuntimeError("connection refused")
+
+            config = {"server_side": True, "payload": {"text": "hello", "mode": "clone"}}
+            audio_path, status, _, _, _ = _generate_server_side(
+                "clone", "hello", [], config)
+            self.assertIsNone(audio_path)
+            self.assertIn("connection refused", status)
 
 
 if __name__ == "__main__":
