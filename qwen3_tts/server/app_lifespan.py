@@ -148,7 +148,8 @@ def auto_shutdown(app_state):
     logger.info("Auto-shutdown: No activity for %d minutes.",
                 app_state.server_config.get("auto_shutdown_minutes", 0))
     cleanup_resources(app_state)
-    sys.exit(0)
+    import signal
+    os.kill(os.getpid(), signal.SIGTERM)
 
 
 # ---------------------------------------------------------------------------

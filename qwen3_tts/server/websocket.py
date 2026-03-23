@@ -214,20 +214,21 @@ async def _stream_generation(
         finally:
             loop.call_soon_threadsafe(queue.put_nowait, None)
 
-    thread = threading.Thread(target=inference_thread, daemon=True)
-    thread.start()
+    async with app_state.inference_lock:
+        thread = threading.Thread(target=inference_thread, daemon=True)
+        thread.start()
 
-    chunk_count = 0
-    try:
-        while True:
-            chunk = await queue.get()
-            if chunk is None:
-                break
-            await websocket.send_bytes(chunk)
-            chunk_count += 1
-    except WebSocketDisconnect:
-        stop_event.set()
-        return
+        chunk_count = 0
+        try:
+            while True:
+                chunk = await queue.get()
+                if chunk is None:
+                    break
+                await websocket.send_bytes(chunk)
+                chunk_count += 1
+        except WebSocketDisconnect:
+            stop_event.set()
+            return
 
     await websocket.send_json({
         "status": "complete",

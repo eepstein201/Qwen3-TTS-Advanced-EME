@@ -356,12 +356,15 @@ def handle_create_voice_prompt(state, req):
     except ImportError as e:
         logger.error("Backend not available for voice creation: %s", sanitize_log(e))
         _error_response(500, "import_error", _sanitize_error(str(e)), "config")
+        return
     except (RuntimeError, OSError, ValueError) as e:
         logger.error("Voice prompt creation failed: %s", sanitize_log(e))
         _error_response(500, "creation_failed", _sanitize_error(str(e)), "retry")
+        return
     except Exception as e:
         logger.error("Unexpected error creating voice prompt: %s", sanitize_log(e))
         _error_response(500, "unknown_error", _sanitize_error(str(e)), "bug")
+        return
     finally:
         if tmp_path and os.path.exists(tmp_path):
             try:

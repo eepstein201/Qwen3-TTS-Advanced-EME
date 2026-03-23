@@ -63,7 +63,7 @@ def load_audio(file_path, target_sr=16000):
                 resampler = torchaudio.transforms.Resample(sr, target_sr)
                 waveform = resampler(waveform)
             return waveform.squeeze(0).numpy(), target_sr
-        except Exception as e:
+        except (ImportError, RuntimeError, OSError) as e:
             logger.warning("torchaudio failed, falling back to soundfile: %s", e)
     import soundfile as sf
     audio, sr = sf.read(file_path)
@@ -90,7 +90,7 @@ def load_audio_for_cloning(file_path, max_duration=VOICE_EMBEDDING_MAX_DURATION,
                 resampler = torchaudio.transforms.Resample(sr, target_sr)
                 waveform = resampler(waveform)
             return waveform.squeeze(0).numpy(), target_sr
-        except Exception as e:
+        except (ImportError, RuntimeError, OSError) as e:
             logger.warning("torchaudio failed, falling back to soundfile: %s", e)
     import soundfile as sf
     audio, sr = sf.read(file_path)

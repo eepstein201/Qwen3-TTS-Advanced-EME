@@ -440,14 +440,14 @@ class GeneratorMixin:
 
         # Combine with pauses
         silence_samples = int(sample_rate * pause_ms / 1000)
-        combined = []
+        parts = []
 
         for i, wav in enumerate(all_audio):
-            combined.extend(wav)
+            parts.append(wav)
             if i < len(all_audio) - 1:
-                combined.extend(np.zeros(silence_samples))
+                parts.append(np.zeros(silence_samples, dtype=np.float32))
 
-        combined = np.array(combined)
+        combined = np.concatenate(parts)
 
         # Determine output path
         if output is None:

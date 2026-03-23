@@ -123,11 +123,89 @@ The annotation says `Optional[tuple]` but the actual return type is `Optional[tu
 - **Location**: `qwen3_tts/server/app_generation.py` (streaming path)
 - **Fix**: Update `generation_state["chunk_total"]` when chunk count is known, matching the non-streaming path
 
-### R-36: generate_dialogue Uses list.extend() on NumPy Arrays
+### R-36: generate_dialogue Uses list.extend() on NumPy Arrays ✅ Fixed
 `list.extend()` on numpy arrays iterates scalar-by-scalar, which is very slow for large audio arrays.
 
 - **Location**: `qwen3_tts/server/client/generator.py:446`
-- **Fix**: Replace with `np.concatenate()` for O(n) single-allocation concatenation — matching the pattern used in `_crossfade_chunks` in the engine
+- **Fix**: Replaced with `np.concatenate()` for O(n) single-allocation — implemented in Python review remediation
+
+### R-37: Fix _validate_prompt_name Return Type
+`_validate_prompt_name` in `validation.py:181` has an inconsistent return type (`Optional[tuple[dict, int]]` but returns `None` or a tuple). Add type annotation and Optional return type.
+
+- **Location**: `qwen3_tts/server/validation.py:181`
+- **Fix**: Add `-> Optional[tuple[dict, int]]` return type annotation
+
+### R-38: Lock eta_cache Read-Modify-Write in app_lifespan.py
+`eta_cache` in `app_lifespan.py:61-95` has an unprotected read-modify-write sequence that could race under concurrent requests.
+
+- **Location**: `qwen3_tts/server/app_lifespan.py:61-95`
+- **Fix**: Wrap `eta_cache` update in a `threading.Lock`
+
+### R-39: Make write_pid_file Atomic via Temp-File + os.replace()
+`write_pid_file` in `config.py:472-473` writes the PID file non-atomically; a crash mid-write leaves a partial PID.
+
+- **Location**: `qwen3_tts/core/config.py:472-473`
+- **Fix**: Write to a temp file, then `os.replace()` for atomic rename
+
+### R-40: Serve realpath in FileResponse for preview_prompt
+`handle_preview_prompt` resolves the real path for security checks but then passes the original `wav_path` to `FileResponse`. Should serve `real_path`.
+
+- **Location**: `qwen3_tts/server/app_prompts.py:214-222`
+- **Fix**: `FileResponse(real_path, media_type="audio/wav")`
+
+### R-41: Wrap os.remove in try/except with Partial-Failure Reporting in delete_prompt
+`handle_delete_prompt` calls `os.remove()` without per-file error handling. A partial delete should report which files failed.
+
+- **Location**: `qwen3_tts/server/app_prompts.py:93-97`
+- **Fix**: Wrap each `os.remove` in `try/except OSError` and collect failures
+
+### R-42: Add json.JSONDecodeError Handling in load_config
+`load_config` in `config.py:137` does not catch `json.JSONDecodeError`, so a corrupt config.json causes an unhandled exception.
+
+- **Location**: `qwen3_tts/core/config.py:137`
+- **Fix**: Catch `json.JSONDecodeError` with a clear error message
+
+### R-43: Refactor create_voice.main() to Accept Args Directly
+`create_voice.main()` reads from `sys.argv` directly, making it untestable without subprocess calls.
+
+- **Location**: `qwen3_tts/cli_voice.py:62-68`
+- **Fix**: Accept `args` parameter instead of reading from `sys.argv`
+
+### R-44: Add Cancellation Check in Non-Streaming Batch Loop
+`handle_generate` in `app.py:462-464` processes all chunks in a batch loop without checking for cancellation. A cancelled request continues generating.
+
+- **Location**: `qwen3_tts/server/app.py:462-464`
+- **Fix**: Check `generation_state["cancelled"]` inside the loop
+
+### R-45: Apply sanitize_log to model_name Consistently in app_lifespan.py
+`app_lifespan.py:262` logs `model_name` without `sanitize_log`, inconsistent with other log calls.
+
+- **Location**: `qwen3_tts/server/app_lifespan.py:262`
+- **Fix**: `logger.info("...", sanitize_log(model_name))`
+
+### R-46: Narrow dtype-restore except in inference.py
+`inference.py:189` uses broad `except Exception` for dtype restore. Should narrow to `except (RuntimeError,)`.
+
+- **Location**: `qwen3_tts/core/engine/inference.py:189`
+- **Fix**: `except (RuntimeError,) as e:`
+
+### R-47: Change VOICE_PROMPTS_DIR to pathlib.Path
+`config.py:41` defines `VOICE_PROMPTS_DIR` as a string, but `uninstall.py` uses `.exists()` and `.glob()` on it (pathlib methods). Make it a `pathlib.Path`.
+
+- **Location**: `qwen3_tts/core/config.py:41`
+- **Fix**: `VOICE_PROMPTS_DIR = Path(...)`
+
+### R-48: Remove f-prefix from plain string in cli_config.py
+`cli_config.py:116` uses an f-string with no interpolation (`f"default_voice_description updated"`).
+
+- **Location**: `qwen3_tts/cli_config.py:116`
+- **Fix**: Remove `f` prefix (ruff F541)
+
+### R-49: Move Imports to Top of uninstall.py
+`uninstall.py:15,25,26` has non-top-level imports (ruff E402).
+
+- **Location**: `qwen3_tts/tools/uninstall.py:15,25,26`
+- **Fix**: Move imports to top of file
 
 ## Priority 5 — Future / Upstream-Dependent
 

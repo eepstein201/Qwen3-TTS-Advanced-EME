@@ -353,7 +353,7 @@ async def unload_model(request: Request, req: UnloadModelRequest, _auth: None = 
     """Unload a model to free memory."""
     state = request.app.state
     reset_activity_timer(state)
-    return handle_unload_model(state, req)
+    return await asyncio.to_thread(handle_unload_model, state, req)
 
 
 @app.post("/update-model-config")
@@ -370,7 +370,7 @@ async def update_startup_config(request: Request, req: UpdateStartupConfigReques
     """Update which models load at startup in config.json."""
     state = request.app.state
     reset_activity_timer(state)
-    return handle_update_startup_config(state, req, _get_app_config)
+    return await asyncio.to_thread(handle_update_startup_config, state, req, _get_app_config)
 
 
 # ---------------------------------------------------------------------------
@@ -383,7 +383,7 @@ async def load_asr(request: Request, _auth: None = Depends(verify_auth)):
     """Load the ASR model for transcription."""
     state = request.app.state
     reset_activity_timer(state)
-    return handle_load_asr(state)
+    return await asyncio.to_thread(handle_load_asr, state)
 
 
 @app.post("/unload-asr")
@@ -391,7 +391,7 @@ async def unload_asr(request: Request, _auth: None = Depends(verify_auth)):
     """Unload the ASR model to free memory."""
     state = request.app.state
     reset_activity_timer(state)
-    return handle_unload_asr(state)
+    return await asyncio.to_thread(handle_unload_asr, state)
 
 
 @app.post("/transcribe")

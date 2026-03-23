@@ -3,6 +3,7 @@
 Extracted from app.py to keep each module under 800 lines.
 """
 
+import asyncio
 import logging
 import os
 import time
@@ -177,14 +178,17 @@ def handle_load_model(state, req):
         logger.error("Backend not available for model loading %s: %s", sanitize_log(model_type), sanitize_log(e), exc_info=True)
         state.model_load_errors[model_type] = str(e)
         _error_response(500, "import_error", _sanitize_error(str(e)), "config")
+        return  # explicit guard — _error_response raises, but this ensures no fall-through
     except (RuntimeError, OSError, ValueError) as e:
         logger.error("Failed to load model %s: %s", sanitize_log(model_type), sanitize_log(e), exc_info=True)
         state.model_load_errors[model_type] = str(e)
         _error_response(500, "load_failed", _sanitize_error(str(e)), "restart")
+        return
     except Exception as e:
         logger.error("Unexpected error loading model %s: %s", sanitize_log(model_type), sanitize_log(e), exc_info=True)
         state.model_load_errors[model_type] = str(e)
         _error_response(500, "unknown_error", _sanitize_error(str(e)), "bug")
+        return
 
     return {"status": "loaded", "model": model_type}
 
@@ -281,7 +285,7 @@ async def handle_update_model_config(state, req, config_fn):
     if new_quant:
         adv["mlx_quantization"] = new_quant
         changes.append(f"mlx_quantization={new_quant}")
-    save_config({**config, "advanced": adv})
+    await asyncio.to_thread(save_config, {**config, "advanced": adv})
 
     # Unload all models so new settings take effect
     async with state.generation_lock:
@@ -377,12 +381,15 @@ def handle_load_asr(state):
     except ImportError as e:
         logger.error("ASR backend not available: %s", sanitize_log(e), exc_info=True)
         _error_response(500, "import_error", _sanitize_error(str(e)), "config")
+        return
     except (RuntimeError, OSError, ValueError) as e:
         logger.error("Failed to load ASR model: %s", sanitize_log(e), exc_info=True)
         _error_response(500, "load_failed", _sanitize_error(str(e)), "restart")
+        return
     except Exception as e:
         logger.error("Unexpected error loading ASR: %s", sanitize_log(e), exc_info=True)
         _error_response(500, "unknown_error", _sanitize_error(str(e)), "bug")
+        return
 
 
 def handle_unload_asr(state):

@@ -58,62 +58,58 @@ def edit(backend, model_size, mlx_quantization, torch_quantization, language, ou
     # Track if any changes were made
     changes = []
 
+    # Build immutable updates — never mutate config_data in-place
+    adv = dict(config_data.get("advanced", {}))
+    top = dict(config_data)
+
     # Handle backend
     if backend:
-        if "advanced" not in config_data:
-            config_data["advanced"] = {}
-        old = config_data["advanced"].get("backend")
+        old = adv.get("backend")
         if backend != old:
-            config_data["advanced"]["backend"] = backend
+            adv = {**adv, "backend": backend}
             changes.append(f"backend: {old} → {backend}")
 
     # Handle model size
     if model_size:
-        if "advanced" not in config_data:
-            config_data["advanced"] = {}
-        old = config_data["advanced"].get("model_size")
+        old = adv.get("model_size")
         if model_size != old:
-            config_data["advanced"]["model_size"] = model_size
+            adv = {**adv, "model_size": model_size}
             changes.append(f"model_size: {old} → {model_size}")
 
     # Handle MLX quantization
     if mlx_quantization:
-        if "advanced" not in config_data:
-            config_data["advanced"] = {}
-        old = config_data["advanced"].get("mlx_quantization")
+        old = adv.get("mlx_quantization")
         if mlx_quantization != old:
-            config_data["advanced"]["mlx_quantization"] = mlx_quantization
+            adv = {**adv, "mlx_quantization": mlx_quantization}
             changes.append(f"mlx_quantization: {old} → {mlx_quantization}")
 
     # Handle Torch quantization
     if torch_quantization:
-        if "advanced" not in config_data:
-            config_data["advanced"] = {}
-        old = config_data["advanced"].get("torch_quantization")
+        old = adv.get("torch_quantization")
         if torch_quantization != old:
-            config_data["advanced"]["torch_quantization"] = torch_quantization
+            adv = {**adv, "torch_quantization": torch_quantization}
             changes.append(f"torch_quantization: {old} → {torch_quantization}")
 
     # Handle language
     if language:
-        old = config_data.get("language")
+        old = top.get("language")
         if language != old:
-            config_data["language"] = language
+            top = {**top, "language": language}
             changes.append(f"language: {old} → {language}")
 
     # Handle output directory
     if output_dir:
-        old = config_data.get("output_directory")
+        old = top.get("output_directory")
         if output_dir != old:
-            config_data["output_directory"] = output_dir
+            top = {**top, "output_directory": output_dir}
             changes.append(f"output_directory: {old} → {output_dir}")
 
     # Handle voice description (direct setting or interactive)
     if voice_description:
-        old = config_data.get("default_voice_description")
+        old = top.get("default_voice_description")
         if voice_description != old:
-            config_data["default_voice_description"] = voice_description
-            changes.append(f"default_voice_description updated")
+            top = {**top, "default_voice_description": voice_description}
+            changes.append("default_voice_description updated")
 
     # If no options provided, fall back to interactive voice description editor
     if not any([backend, model_size, mlx_quantization, torch_quantization, language, output_dir, voice_description]):
@@ -121,8 +117,7 @@ def edit(backend, model_size, mlx_quantization, torch_quantization, language, ou
         click.echo(f"Current voice description:\n  {current}\n")
         new_desc = click.prompt("New description (or Enter to keep)", default=current)
         if new_desc != current:
-            config_data["default_voice_description"] = new_desc
-            save_config(config_data)
+            save_config({**config_data, "default_voice_description": new_desc})
             click.echo("Voice description updated.")
         else:
             click.echo("No changes.")
@@ -130,7 +125,8 @@ def edit(backend, model_size, mlx_quantization, torch_quantization, language, ou
 
     # Save if there were changes
     if changes:
-        save_config(config_data)
+        updated = {**top, "advanced": adv}
+        save_config(updated)
         click.echo("Configuration updated:")
         for change in changes:
             click.echo(f"  • {change}")
