@@ -75,8 +75,8 @@ config.json → qwen3_tts.core.config → qwen3_tts.core.engine (dispatch)
 | `qwen3_tts/server/app.py` | FastAPI server: auth, endpoint wrappers, CORS, rate limiting. Thin wrappers delegate to handler modules. | No (lazy via engine) |
 | `qwen3_tts/server/app_lifespan.py` | Server lifecycle: lifespan context, background model loading, cleanup, auto-shutdown, ETA, memory checking, error sanitization | No |
 | `qwen3_tts/server/app_generation.py` | Generation endpoint handlers: `/generate`, `/generate-stream` | No (lazy) |
-| `qwen3_tts/server/app_models.py` | Model/stats endpoint handlers: `/stats`, `/models`, `/load-model`, `/unload-model`, `/update-model-config`, `/update-startup-config` | No |
-| `qwen3_tts/server/app_prompts.py` | Prompt endpoint handlers: `/prompts`, `/delete-prompt`, `/rename-prompt`, `/preview-prompt`, `/prompt-details` | No |
+| `qwen3_tts/server/app_models.py` | Model/stats endpoint handlers: `/stats`, `/models`, `/load-model`, `/unload-model`, `/update-model-config`, `/update-startup-config`, `/load-asr`, `/unload-asr`, `/transcribe` | No |
+| `qwen3_tts/server/app_prompts.py` | Prompt endpoint handlers: `/prompts`, `/delete-prompt`, `/rename-prompt`, `/preview-prompt`, `/prompt-details`, `/create-voice-prompt` | No |
 | `qwen3_tts/server/validation.py` | Canonical validation: `_validate_generation_request`, `_VALID_SPEAKER_NAMES` — do not re-define in app.py | No |
 | `qwen3_tts/server/websocket.py` | WebSocket endpoint for bidirectional real-time TTS streaming (`/ws`). Handles auth, cancel, and binary audio chunk delivery. | No |
 | `qwen3_tts/server/client/` | Package with 5 submodules: `_base`, `generator`, `models`, `voices`, `config_fetcher`. `__init__.py` facade re-exports TTSClient and generate. | No |
@@ -161,7 +161,7 @@ config.json → qwen3_tts.core.config → qwen3_tts.core.engine (dispatch)
 ├── install.sh                  # Cross-platform installer (macOS + Linux)
 ├── colab_notebook.ipynb        # Google Colab notebook
 ├── voice_prompts/              # .pt (torch) + .wav/.txt (MLX) files
-├── tests/                      # Test files, 1900+ tests across 80+ modules
+├── tests/                      # Test files, 1970+ tests across 83 modules
 │   ├── run_batches.py          # Batch test runner
 │   ├── run_full_suite.py       # Full suite runner with --full flag
 │   ├── conftest.py             # Shared fixtures (pytest)
@@ -191,8 +191,12 @@ All other endpoints require `Authorization: Bearer <token>` (token from `~/.voic
 | `/unload-model` | POST | Unload a model to free memory |
 | `/update-model-config` | POST | Change model size, quantization, audio loader |
 | `/update-startup-config` | POST | Set which models load at startup |
-| `/models` | GET | Model status (loaded, memory, load_time, startup config) |
+| `/models` | GET | Model status (loaded, memory, load_time, startup config, ASR) |
+| `/load-asr` | POST | Load ASR model for transcription |
+| `/unload-asr` | POST | Unload ASR model to free memory |
+| `/transcribe` | POST | Transcribe audio to text using ASR |
 | `/prompts` | GET | List voice prompts (backend-aware: .pt or .wav+.txt) |
+| `/create-voice-prompt` | POST | Create voice clone prompt from uploaded audio |
 | `/delete-prompt` | POST | Delete voice prompt (all formats) |
 | `/rename-prompt` | POST | Rename prompt with rollback on failure |
 | `/preview-prompt` | GET | Return .wav audio bytes |
@@ -259,7 +263,7 @@ make test-optional # Batch 5: Optional (pytest-dependent)
 make test-e2e      # Batch 6: E2E Playwright (requires server)
 ```
 
-1900+ tests across 80+ modules. No GPU, models, or running server required (except E2E). Tests auto-skip when optional deps are missing.
+1970+ tests across 83 modules. No GPU, models, or running server required (except E2E). Tests auto-skip when optional deps are missing.
 
 ## Models
 
@@ -274,6 +278,23 @@ make test-e2e      # Batch 6: E2E Playwright (requires server)
 - `mlx-community/Qwen3-TTS-12Hz-{size}-VoiceDesign-{quant}`
 - `mlx-community/Qwen3-TTS-12Hz-{size}-CustomVoice-{quant}`
 - Quantizations: `4bit`, `8bit` (default), `bf16`
+
+## PM2 Services
+
+| Port | Name | Type |
+|------|------|------|
+| 5123 | tts-server-5123 | FastAPI (Python) |
+
+**Terminal Commands:**
+```bash
+pm2 start ecosystem.config.cjs   # First time
+pm2 start all                    # After first time
+pm2 stop all / pm2 restart all
+pm2 start tts-server-5123 / pm2 stop tts-server-5123
+pm2 logs / pm2 status / pm2 monit
+pm2 save                         # Save process list
+pm2 resurrect                    # Restore saved list
+```
 
 ## Deep Dive Reference
 
