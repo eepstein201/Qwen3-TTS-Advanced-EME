@@ -83,6 +83,20 @@ class RenamePromptRequest(BaseModel):
     new_name: str
 
 
+class TranscribeRequest(BaseModel):
+    """Request model for /transcribe endpoint."""
+    audio_base64: str
+    language: str = "en"
+
+
+class CreateVoicePromptRequest(BaseModel):
+    """Request model for /create-voice-prompt endpoint."""
+    audio_base64: str
+    transcript: str = ""
+    name: str
+    no_transcript: bool = False
+
+
 # ---------------------------------------------------------------------------
 # Pydantic models for response validation
 # ---------------------------------------------------------------------------

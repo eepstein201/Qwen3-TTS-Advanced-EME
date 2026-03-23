@@ -127,7 +127,16 @@ def handle_list_models(state, server_config):
                 entry["memory_mb"] = mlx_info["memory_mb"]
         models_data[model_type] = entry
 
-    return {"models": models_data, "backend": backend, "model_size": model_size}
+    # Add ASR model info (lazy import — no heavy deps at module scope)
+    from qwen3_tts.core.engine import is_asr_loaded, get_asr_model_info
+    asr_info = get_asr_model_info()
+
+    return {
+        "models": models_data,
+        "asr": asr_info,
+        "backend": backend,
+        "model_size": model_size,
+    }
 
 
 def handle_load_model(state, req):
@@ -343,3 +352,95 @@ def handle_update_startup_config(state, req, config_fn):
 
     logger.info("Startup config updated: %s", ", ".join(changes))
     return {"status": "updated", "changes": changes}
+
+
+# ---------------------------------------------------------------------------
+# ASR endpoint handlers
+# ---------------------------------------------------------------------------
+
+def handle_load_asr(state):
+    """Load the ASR model for transcription.
+
+    Returns status dict. Raises HTTPException on failure.
+    """
+    from qwen3_tts.core.engine import is_asr_loaded, load_asr_model
+
+    if is_asr_loaded():
+        return {"status": "already_loaded"}
+
+    try:
+        t0 = time.time()
+        load_asr_model()
+        elapsed = round(time.time() - t0, 1)
+        logger.info("ASR model loaded in %.1fs", elapsed)
+        return {"status": "loaded", "load_time_sec": elapsed}
+    except ImportError as e:
+        logger.error("ASR backend not available: %s", sanitize_log(e), exc_info=True)
+        _error_response(500, "import_error", _sanitize_error(str(e)), "config")
+    except (RuntimeError, OSError, ValueError) as e:
+        logger.error("Failed to load ASR model: %s", sanitize_log(e), exc_info=True)
+        _error_response(500, "load_failed", _sanitize_error(str(e)), "restart")
+    except Exception as e:
+        logger.error("Unexpected error loading ASR: %s", sanitize_log(e), exc_info=True)
+        _error_response(500, "unknown_error", _sanitize_error(str(e)), "bug")
+
+
+def handle_unload_asr(state):
+    """Unload the ASR model to free memory.
+
+    Returns status dict.
+    """
+    from qwen3_tts.core.engine import unload_asr_model
+
+    unload_asr_model()
+    logger.info("ASR model unloaded.")
+    return {"status": "unloaded"}
+
+
+def handle_transcribe(state, req):
+    """Transcribe audio to text using the ASR model.
+
+    Decodes base64 audio, writes to tempfile, transcribes, cleans up.
+
+    Args:
+        state: app.state
+        req: TranscribeRequest with audio_base64 and language
+
+    Returns:
+        Dict with transcript text.
+    """
+    import base64
+    import tempfile
+
+    from qwen3_tts.core.engine import transcribe_audio
+
+    # Decode audio
+    try:
+        audio_bytes = base64.b64decode(req.audio_base64)
+    except Exception:
+        raise HTTPException(status_code=400, detail="Invalid base64 audio data")
+
+    # Write to tempfile for ASR processing
+    tmp_path = None
+    try:
+        with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as tmp:
+            tmp.write(audio_bytes)
+            tmp_path = tmp.name
+
+        transcript = transcribe_audio(tmp_path, req.language)
+        return {"transcript": transcript}
+    except ImportError as e:
+        logger.error("ASR not available: %s", sanitize_log(e))
+        _error_response(500, "import_error", _sanitize_error(str(e)), "config")
+    except (RuntimeError, OSError) as e:
+        logger.error("Transcription failed: %s", sanitize_log(e))
+        _error_response(500, "transcription_failed", _sanitize_error(str(e)), "retry")
+    except Exception as e:
+        logger.error("Unexpected transcription error: %s", sanitize_log(e))
+        _error_response(500, "unknown_error", _sanitize_error(str(e)), "bug")
+    finally:
+        if tmp_path and os.path.exists(tmp_path):
+            try:
+                os.remove(tmp_path)
+            except OSError:
+                pass

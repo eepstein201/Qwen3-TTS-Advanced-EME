@@ -77,6 +77,8 @@ from qwen3_tts.server.validation import (  # noqa: E402
     UpdateStartupConfigRequest,
     DeletePromptRequest,
     RenamePromptRequest,
+    TranscribeRequest,
+    CreateVoicePromptRequest,
     # Response models
     ErrorResponse,  # noqa: F401 (imported by test code via app module)
     GenerateResponse,
@@ -117,6 +119,9 @@ from qwen3_tts.server.app_models import (  # noqa: E402
     handle_unload_model,
     handle_update_model_config,
     handle_update_startup_config,
+    handle_load_asr,
+    handle_unload_asr,
+    handle_transcribe,
 )
 from qwen3_tts.server.app_prompts import (  # noqa: E402
     handle_list_prompts,
@@ -124,6 +129,7 @@ from qwen3_tts.server.app_prompts import (  # noqa: E402
     handle_rename_prompt,
     handle_preview_prompt,
     handle_prompt_details,
+    handle_create_voice_prompt,
 )
 
 
@@ -366,6 +372,36 @@ async def update_startup_config(request: Request, req: UpdateStartupConfigReques
     return handle_update_startup_config(state, req, _get_app_config)
 
 
+# ---------------------------------------------------------------------------
+# ASR endpoints
+# ---------------------------------------------------------------------------
+
+@app.post("/load-asr")
+@_rate_limit(_model_limit)
+async def load_asr(request: Request, _auth: None = Depends(verify_auth)):
+    """Load the ASR model for transcription."""
+    state = request.app.state
+    reset_activity_timer(state)
+    return handle_load_asr(state)
+
+
+@app.post("/unload-asr")
+async def unload_asr(request: Request, _auth: None = Depends(verify_auth)):
+    """Unload the ASR model to free memory."""
+    state = request.app.state
+    reset_activity_timer(state)
+    return handle_unload_asr(state)
+
+
+@app.post("/transcribe")
+@_rate_limit(_generate_limit)
+async def transcribe(request: Request, req: TranscribeRequest, _auth: None = Depends(verify_auth)):
+    """Transcribe audio to text using ASR."""
+    state = request.app.state
+    reset_activity_timer(state)
+    return handle_transcribe(state, req)
+
+
 @app.get("/prompts")
 async def list_prompts(request: Request, _auth: None = Depends(verify_auth)):
     """List voice prompts with optional pagination (R-24)."""
@@ -404,6 +440,15 @@ async def prompt_details(request: Request, _auth: None = Depends(verify_auth)):
     state = request.app.state
     reset_activity_timer(state)
     return handle_prompt_details(request.query_params.get("name"))
+
+
+@app.post("/create-voice-prompt")
+@_rate_limit(_model_limit)
+async def create_voice_prompt_endpoint(request: Request, req: CreateVoicePromptRequest, _auth: None = Depends(verify_auth)):
+    """Create a voice clone prompt from uploaded audio."""
+    state = request.app.state
+    reset_activity_timer(state)
+    return handle_create_voice_prompt(state, req)
 
 
 @app.post("/cancel-generation")

@@ -35,7 +35,8 @@ def get_model_table_data():
     if not is_server_running(config):
         return [["clone", "server not running", "-", "—"],
                 ["design", "server not running", "-", "—"],
-                ["custom", "server not running", "-", "—"]]
+                ["custom", "server not running", "-", "—"],
+                ["asr", "server not running", "-", "—"]]
 
     try:
         import requests
@@ -45,7 +46,8 @@ def get_model_table_data():
         if resp.status_code != 200:
             return [["clone", "error", "-", "—"],
                     ["design", "error", "-", "—"],
-                    ["custom", "error", "-", "—"]]
+                    ["custom", "error", "-", "—"],
+                    ["asr", "error", "-", "—"]]
 
         data = resp.json()
         models = data.get("models", {})
@@ -64,13 +66,21 @@ def get_model_table_data():
 
             rows.append([model_type, status, memory_str, startup_str])
 
+        # Add ASR row from the 'asr' key in the response
+        asr_info = data.get("asr", {})
+        asr_loaded = asr_info.get("loaded", False)
+        asr_model = asr_info.get("model_name", "")
+        asr_status = f"Loaded ({asr_model})" if asr_loaded else "Not loaded"
+        rows.append(["asr", asr_status, "—", "—"])
+
         return rows
 
     except Exception as e:
         logger.error("Failed to get model table data: %s", e)
         return [["clone", f"error: {e}", "-", "—"],
                 ["design", f"error: {e}", "-", "—"],
-                ["custom", f"error: {e}", "-", "—"]]
+                ["custom", f"error: {e}", "-", "—"],
+                ["asr", f"error: {e}", "-", "—"]]
 
 
 def toggle_model(model_type, action):

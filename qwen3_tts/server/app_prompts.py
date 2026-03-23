@@ -17,7 +17,8 @@ from qwen3_tts.core.config import (
     sanitize_log,
     save_config,
 )
-from qwen3_tts.server.validation import _validate_prompt_name, _strip_extension
+from qwen3_tts.server.app_lifespan import _sanitize_error
+from qwen3_tts.server.validation import _validate_prompt_name, _strip_extension, _error_response
 
 logger = logging.getLogger("tts")
 
@@ -284,3 +285,85 @@ def handle_prompt_details(name_param):
 
     prompts = [_prompt_info(b) for b in sorted(bases)]
     return {"prompts": prompts}
+
+
+def handle_create_voice_prompt(state, req):
+    """Create a voice clone prompt from uploaded audio.
+
+    Decodes base64 audio, loads it for cloning, creates the voice prompt
+    tensor, and saves it to VOICE_PROMPTS_DIR.
+
+    Args:
+        state: app.state (provides loaded models)
+        req: CreateVoicePromptRequest with audio_base64, name, transcript, no_transcript
+
+    Returns:
+        Dict with status and prompt name.
+    """
+    import base64
+    import tempfile
+
+    # Validate prompt name
+    err = _validate_prompt_name(req.name)
+    if err:
+        raise HTTPException(status_code=err[1], detail=err[0]["error"])
+
+    base = _strip_extension(req.name)
+
+    # Verify clone model is loaded
+    if state.models.get("clone") is None:
+        raise HTTPException(
+            status_code=503,
+            detail="Clone model must be loaded to create voice prompts",
+        )
+
+    # Decode audio
+    try:
+        audio_bytes = base64.b64decode(req.audio_base64)
+    except Exception:
+        raise HTTPException(status_code=400, detail="Invalid base64 audio data")
+
+    # Write to tempfile, load audio, create prompt
+    tmp_path = None
+    try:
+        with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as tmp:
+            tmp.write(audio_bytes)
+            tmp_path = tmp.name
+
+        from qwen3_tts.core.engine import load_audio_for_cloning, create_voice_prompt
+
+        ref_audio, ref_sr = load_audio_for_cloning(tmp_path)
+        transcript = "" if req.no_transcript else (req.transcript or "")
+        voice_prompt = create_voice_prompt(
+            state.models["clone"], ref_audio, ref_sr, transcript,
+        )
+
+        # Save the .pt file
+        import torch
+        pt_path = safe_path_join(VOICE_PROMPTS_DIR, f"{base}.pt")
+        torch.save(voice_prompt, pt_path)
+
+        # Clear voice prompt cache so new prompt is visible
+        from qwen3_tts.core.engine import clear_voice_prompt_cache
+        clear_voice_prompt_cache()
+
+        logger.info("Created voice prompt '%s'", sanitize_log(base))
+        return {"status": "created", "name": base}
+
+    except HTTPException:
+        raise
+    except ImportError as e:
+        logger.error("Backend not available for voice creation: %s", sanitize_log(e))
+        _error_response(500, "import_error", _sanitize_error(str(e)), "config")
+    except (RuntimeError, OSError, ValueError) as e:
+        logger.error("Voice prompt creation failed: %s", sanitize_log(e))
+        _error_response(500, "creation_failed", _sanitize_error(str(e)), "retry")
+    except Exception as e:
+        logger.error("Unexpected error creating voice prompt: %s", sanitize_log(e))
+        _error_response(500, "unknown_error", _sanitize_error(str(e)), "bug")
+    finally:
+        if tmp_path and os.path.exists(tmp_path):
+            try:
+                os.remove(tmp_path)
+            except OSError:
+                pass

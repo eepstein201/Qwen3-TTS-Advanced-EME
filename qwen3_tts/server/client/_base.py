@@ -122,10 +122,18 @@ def _build_gen_params(config, temperature, top_k, top_p, repetition_penalty, max
 
 
 def _extract_error_message(resp, default: str = "Unknown error") -> str:
-    """Extract a human-readable error message from an HTTP error response."""
+    """Extract a human-readable error message from an HTTP error response.
+
+    Handles FastAPI's structured error responses where detail can be
+    either a plain string or a nested dict (from _error_response).
+    """
     try:
         data = resp.json()
-        return data.get("error") or data.get("message") or data.get("detail") or default
+        # Handle FastAPI's nested error detail dicts
+        detail = data.get("detail")
+        if isinstance(detail, dict):
+            return detail.get("detail") or detail.get("error") or str(detail)
+        return data.get("error") or data.get("message") or detail or default
     except (ValueError, requests.exceptions.JSONDecodeError):
         return f"Server returned HTTP {resp.status_code}"
 

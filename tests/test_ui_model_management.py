@@ -47,7 +47,7 @@ def test_get_model_table_data_server_not_running():
          patch("qwen3_tts.interface.ui.model_management.is_server_running", return_value=False):
         rows = get_model_table_data()
 
-    assert len(rows) == 3
+    assert len(rows) == 4  # clone, design, custom, asr
     for row in rows:
         assert "server not running" in row[1]
 
@@ -79,11 +79,12 @@ def test_get_model_table_data_server_running():
          patch("requests.get", return_value=mock_resp):
         rows = get_model_table_data()
 
-    assert len(rows) == 3
+    assert len(rows) == 4  # clone, design, custom, asr
     assert rows[0][0] == "clone"
     assert "Loaded" in rows[0][1]
     assert rows[1][0] == "design"
     assert "Not loaded" in rows[1][1]
+    assert rows[3][0] == "asr"
 
 
 @pytest.mark.unit
@@ -101,7 +102,7 @@ def test_get_model_table_data_server_error():
          patch("requests.get", return_value=mock_resp):
         rows = get_model_table_data()
 
-    assert len(rows) == 3
+    assert len(rows) == 4  # clone, design, custom, asr
     assert "error" in rows[0][1]
 
 
@@ -117,7 +118,7 @@ def test_get_model_table_data_connection_error():
          patch("requests.get", side_effect=ConnectionError("refused")):
         rows = get_model_table_data()
 
-    assert len(rows) == 3
+    assert len(rows) == 4  # clone, design, custom, asr
     assert "error" in rows[0][1].lower()
 
 
