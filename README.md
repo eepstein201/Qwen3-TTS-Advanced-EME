@@ -419,7 +419,7 @@ All public functions are re-exported through `engine/__init__.py` for backward c
 
 ### Testing
 
-Run the test suite using the batch runner (1554+ tests across 49+ test files, organized in 6 batches):
+Run the test suite using the batch runner (1900+ tests across 80+ test files, organized in 6 batches):
 ```bash
 python tests/run_batches.py        # Run all batches
 python tests/run_batches.py --batch 1  # Run a specific batch

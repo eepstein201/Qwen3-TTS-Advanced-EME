@@ -56,7 +56,7 @@ This document contains detailed architectural reference extracted from CLAUDE.md
 
 ## Security
 
-- Bearer token auth on all endpoints except `/health`, `/ready`, and `/generation-status`
+- Bearer token auth on all endpoints except `/health`, `/ready`, `/generation-status`, and `/queue-status`
 - Token: `~/.voice_server_token` (0o600 perms), auto-cleaned on shutdown
 - Input validation: text length, batch size, path traversal prevention, symlink resolution, mode/speaker validation
 - Rate limiting via `slowapi` (optional) with X-Forwarded-For IP resolution for reverse proxies
@@ -91,8 +91,8 @@ Platform constants in `qwen3_tts/core/config.py`: `IN_COLAB`, `IS_MACOS`, `IS_LI
 | Cache | Location | Strategy | Invalidation |
 |-------|----------|----------|-------------|
 | Voice prompt | `qwen3_tts/core/engine/voice_prompt.py` | LRU(10) torch .pt / dict for MLX .wav | `clear_voice_prompt_cache()` |
-| ETA | `qwen3_tts/server/app.py` | 30s TTL, avoids .jsonl reads per poll | Auto-expires |
-| Generation result | `qwen3_tts/server/app.py` | 5 entries, SHA256 key (text+mode+params) | Model config change, manual |
+| ETA | `qwen3_tts/server/app_lifespan.py` | 30s TTL, avoids .jsonl reads per poll | Auto-expires |
+| Generation result | `qwen3_tts/server/app_lifespan.py` | 5 entries, SHA256 key (text+mode+params) | Model config change, manual |
 | Audio loader | `qwen3_tts/core/engine/audio_processing.py` | `_AUDIO_LOADER` global, no disk I/O | `set_audio_loader()` only |
 
 ## Thread Safety Guarantees
@@ -105,8 +105,9 @@ All shared mutable state is protected by locks for concurrent access:
 | `_torch_prompt_cache_lock` | `voice_prompt.py` | `_torch_prompt_cache` OrderedDict + hit/miss counters |
 | `_mlx_prompt_cache_lock` | `voice_prompt.py` | `_mlx_prompt_cache` OrderedDict |
 | `_asr_lock` | `asr.py` | `_asr_model_torch`, `_asr_model_mlx` model references |
-| `request_queue_lock` | `app.py` | `request_queue` set for concurrent request tracking |
-| `gen_cache_lock` | `app.py` | `gen_cache` dict for generation result caching |
+| `request_queue_lock` | `app_lifespan.py` | `request_queue` set for concurrent request tracking |
+| `pending_lock` | `app_lifespan.py` | `pending_requests` asyncio lock for request coordination |
+| `gen_cache_lock` | `app_lifespan.py` | `gen_cache` dict for generation result caching |
 
 **Pattern:** All locks use double-checked locking for efficiency:
 ```python
@@ -238,13 +239,13 @@ Comprehensive audit with TDD methodology (14 commits, all tests pass):
 - Thread-safe MPS patch installation with `_mps_patch_lock` (model_loader.py)
 - Thread-safe MLX voice prompt cache with `_mlx_prompt_cache_lock` (voice_prompt.py)
 - Thread-safe ASR model loading for MLX backend with `_asr_lock` (asr.py)
-- Extracted `_resolve_voice_alias()` and `_build_gen_params()` helpers (client.py)
-- Division by zero protection in ETA estimation (app.py)
+- Extracted `_resolve_voice_alias()` and `_build_gen_params()` helpers (server/client/)
+- Division by zero protection in ETA estimation (app_lifespan.py)
 - Specific RuntimeError catching instead of bare except (inference.py)
-- Streaming buffer overflow protection with `MAX_BUFFER_SIZE = 100MB` (client.py)
-- Temp file cleanup on exception in preview_voice_callback (ui.py)
-- Empty chunk filtering in save_streaming_audio (ui.py)
-- Speaker name normalization to lowercase (client.py)
+- Streaming buffer overflow protection with `MAX_BUFFER_SIZE = 100MB` (server/client/)
+- Temp file cleanup on exception in preview_voice_callback (interface/ui/)
+- Empty chunk filtering in save_streaming_audio (interface/ui/)
+- Speaker name normalization to lowercase (server/client/)
 - Consolidated `HF_CACHE` constant to config.py (was duplicated in 3 files)
 - Removed internal symbol exports from engine facade (tests import from submodules)
 

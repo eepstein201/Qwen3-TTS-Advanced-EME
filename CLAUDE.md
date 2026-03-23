@@ -80,13 +80,19 @@ config.json → qwen3_tts.core.config → qwen3_tts.core.engine (dispatch)
 | `qwen3_tts/server/validation.py` | Canonical validation: `_validate_generation_request`, `_VALID_SPEAKER_NAMES` — do not re-define in app.py | No |
 | `qwen3_tts/server/websocket.py` | WebSocket endpoint for bidirectional real-time TTS streaming (`/ws`). Handles auth, cancel, and binary audio chunk delivery. | No |
 | `qwen3_tts/server/client/` | Package with 5 submodules: `_base`, `generator`, `models`, `voices`, `config_fetcher`. `__init__.py` facade re-exports TTSClient and generate. | No |
-| `qwen3_tts/interface/generate.py` | CLI generation, progress display, post-gen menu, voice management (main entry point; `cli/` package handles batch/srt/dialogue) | No (lazy) |
+| `qwen3_tts/interface/generate.py` | CLI generation main entry point (`main()`); delegates to helper modules | No (lazy) |
+| `qwen3_tts/interface/generate_helpers.py` | Voice prompt helpers, audio playback, SSML, file-open utilities | No (lazy) |
+| `qwen3_tts/interface/generate_interactive.py` | Interactive mode, REPL, watch mode, post-gen menu | No (lazy) |
+| `qwen3_tts/interface/generate_server.py` | Server-side generation, local generation fallback, streaming playback | No (lazy) |
 | `qwen3_tts/interface/ui/` | Gradio web UI package: `_facade.py` (launch), `generation.py` (Clone/Design/Custom tabs), `voice_management.py`, `model_management.py`, `shared.py`. Streaming audio with JavaScript reset. | No (HTTP only) |
 | `qwen3_tts/tools/create_voice.py` | Voice clone prompt creation, saves .pt + .wav/.txt dual format | Yes (via engine) |
 | `qwen3_tts/tools/model_cache.py` | HuggingFace cache management (list, size, prune, clear) | No |
 | `qwen3_tts/tools/healthcheck.py` | Installation health checks (deps, config, server) | No |
 | `qwen3_tts/tools/uninstall.py` | Uninstall utilities (models, voices, config, all) | No |
-| `qwen3_tts/cli.py` | Click-based unified CLI with subcommands | No (all lazy) |
+| `qwen3_tts/cli.py` | Click entry point — imports command groups from sibling modules | No (all lazy) |
+| `qwen3_tts/cli_server.py` | Server CLI group: start, stop, status, log, stats | No |
+| `qwen3_tts/cli_voice.py` | Voice CLI group + list group: voice CRUD, list speakers/presets | No |
+| `qwen3_tts/cli_config.py` | Config/uninstall/cache groups, ui/history/doctor commands | No |
 
 ### Design Principles
 
@@ -101,7 +107,10 @@ config.json → qwen3_tts.core.config → qwen3_tts.core.engine (dispatch)
 ├── pyproject.toml              # Package metadata, Click entry points
 ├── qwen3_tts/                  # Main package
 │   ├── __init__.py
-│   ├── cli.py                  # Click-based unified CLI with subcommands
+│   ├── cli.py                  # Click entry point
+│   ├── cli_server.py           # Server CLI group (start, stop, status, log)
+│   ├── cli_voice.py            # Voice CLI group + list group
+│   ├── cli_config.py           # Config/uninstall/cache groups, ui/doctor
 │   ├── core/
 │   │   ├── __init__.py
 │   │   ├── config.py           # Config, constants, errors (no heavy imports)
@@ -130,7 +139,10 @@ config.json → qwen3_tts.core.config → qwen3_tts.core.engine (dispatch)
 │   │       └── config_fetcher.py  # Config and stats retrieval methods
 │   ├── interface/
 │   │   ├── __init__.py
-│   │   ├── generate.py         # CLI generation (main entry point)
+│   │   ├── generate.py         # CLI generation main entry point
+│   │   ├── generate_helpers.py # Voice prompt helpers, audio playback, file-open
+│   │   ├── generate_interactive.py # Interactive mode, REPL, watch mode
+│   │   ├── generate_server.py  # Server-side generation, streaming playback
 │   │   ├── voice_helpers.py    # Voice management helpers
 │   │   ├── wavesurfer_js.py    # WaveSurfer.js integration
 │   │   ├── cli/                # CLI subcommand package (batch, srt, dialogue)
@@ -141,11 +153,15 @@ config.json → qwen3_tts.core.config → qwen3_tts.core.engine (dispatch)
 │       ├── model_cache.py      # Cache management (list, size, prune, clear)
 │       ├── healthcheck.py      # Installation health checks
 │       └── uninstall.py        # Uninstall/cleanup utilities
+├── Makefile                    # Test shortcuts (make test-batch, etc.)
+├── Dockerfile                  # Docker image (torch backend)
+├── Dockerfile.vllm             # Docker image (vLLM backend)
+├── docker-compose.yml          # Docker Compose orchestration
 ├── config.json                 # All settings
 ├── install.sh                  # Cross-platform installer (macOS + Linux)
 ├── colab_notebook.ipynb        # Google Colab notebook
 ├── voice_prompts/              # .pt (torch) + .wav/.txt (MLX) files
-├── tests/                      # Test files, 1554+ tests
+├── tests/                      # Test files, 1900+ tests across 80+ modules
 │   ├── run_batches.py          # Batch test runner
 │   ├── run_full_suite.py       # Full suite runner with --full flag
 │   ├── conftest.py             # Shared fixtures (pytest)
@@ -161,7 +177,7 @@ config.json → qwen3_tts.core.config → qwen3_tts.core.engine (dispatch)
 
 Base: `http://127.0.0.1:5123`
 
-Public (no auth): `/health`, `/ready`, `/generation-status`
+Public (no auth): `/health`, `/ready`, `/generation-status`, `/queue-status`
 
 All other endpoints require `Authorization: Bearer <token>` (token from `~/.voice_server_token`).
 
@@ -182,6 +198,7 @@ All other endpoints require `Authorization: Bearer <token>` (token from `~/.voic
 | `/preview-prompt` | GET | Return .wav audio bytes |
 | `/prompt-details` | GET | Prompt metadata (formats, size, duration) |
 | `/stats` | GET | Memory, cache stats, generation history |
+| `/queue-status` | GET | Request queue length and active status |
 | `/cancel-generation` | POST | Cancel active generation |
 | `/shutdown` | POST | Graceful server shutdown |
 
@@ -210,7 +227,7 @@ source ~/miniforge3/etc/profile.d/conda.sh && conda activate qwen3-tts-mlx
 tts server stop && tts server start
 ```
 
-**Preferred: pytest full suite** (1554+ tests):
+**Preferred: pytest full suite** (1900+ tests):
 ```bash
 python -m pytest tests/ -v --tb=short
 ```
@@ -242,7 +259,7 @@ make test-optional # Batch 5: Optional (pytest-dependent)
 make test-e2e      # Batch 6: E2E Playwright (requires server)
 ```
 
-1554+ tests. No GPU, models, or running server required (except E2E). Tests auto-skip when optional deps are missing.
+1900+ tests across 80+ modules. No GPU, models, or running server required (except E2E). Tests auto-skip when optional deps are missing.
 
 ## Models
 
