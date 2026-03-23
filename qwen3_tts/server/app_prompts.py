@@ -329,6 +329,7 @@ def handle_create_voice_prompt(state, req):
         with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as tmp:
             tmp.write(audio_bytes)
             tmp_path = tmp.name
+        os.chmod(tmp_path, 0o600)
 
         from qwen3_tts.core.engine import load_audio_for_cloning, create_voice_prompt
 

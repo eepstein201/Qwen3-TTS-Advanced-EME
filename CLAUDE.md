@@ -297,5 +297,4 @@ pm2 resurrect                    # Restore saved list
 ```
 
 ## Deep Dive Reference
-
 For security, caching, thread safety, platform support, hardware optimization, upstream dependency monitoring, and code review history, see `docs/00-Foundations/ARCHITECTURE.md`.

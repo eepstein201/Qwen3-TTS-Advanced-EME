@@ -113,7 +113,8 @@ async def websocket_tts_handler(
                 )
             except Exception as e:
                 logger.error("WebSocket generation error: %s", e, exc_info=True)
-                await websocket.send_json({"error": str(e)})
+                from qwen3_tts.server.app_lifespan import _sanitize_error
+                await websocket.send_json({"error": _sanitize_error(str(e))})
 
     except WebSocketDisconnect:
         logger.info("WebSocket client disconnected")

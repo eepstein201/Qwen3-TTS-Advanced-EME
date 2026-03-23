@@ -105,6 +105,70 @@ The silence gap inserted between chunks is currently hardcoded. Make it configur
 - **Default**: 0.0 (current behavior)
 - **Implementation**: Apply in chunk concatenation logic
 
+### R-33: _validate_prompt_name Return Type Annotation
+The annotation says `Optional[tuple]` but the actual return type is `Optional[tuple[dict, int]]`.
+
+- **Location**: `qwen3_tts/server/validation.py:181`
+- **Fix**: Update annotation to `Optional[tuple[dict, int]]`
+
+### R-34: X-Queue-Position Read Without Lock
+`state.pending_requests` length is read to set the `X-Queue-Position` header without holding `pending_lock`.
+
+- **Location**: `qwen3_tts/server/app_generation.py:482`
+- **Fix**: Acquire `pending_lock` before reading, or document the deliberate tradeoff with a comment
+
+### R-35: Streaming chunk_total Not Populated
+`/generate-stream` never updates `chunk_total` in `generation_state`. Callers polling `/generation-status` for progress see `chunk_total=0` throughout streaming.
+
+- **Location**: `qwen3_tts/server/app_generation.py` (streaming path)
+- **Fix**: Update `generation_state["chunk_total"]` when chunk count is known, matching the non-streaming path
+
+### R-36: generate_dialogue Uses list.extend() on NumPy Arrays
+`list.extend()` on numpy arrays iterates scalar-by-scalar, which is very slow for large audio arrays.
+
+- **Location**: `qwen3_tts/server/client/generator.py:446`
+- **Fix**: Replace with `np.concatenate()` for O(n) single-allocation concatenation — matching the pattern used in `_crossfade_chunks` in the engine
+
+## Priority 5 — Future / Upstream-Dependent
+
+### R-29: Unconstrained TranscribeRequest.language Field
+The `language` field in `TranscribeRequest` is an unconstrained string passed directly to whisper's `generate_kwargs`. A malformed value could cause unexpected ASR behavior.
+
+- **Location**: `qwen3_tts/server/validation.py:86`
+- **Fix**: Add `Field(pattern=r'^[a-z]{2,3}$')` or an enum of supported ISO 639-1 codes
+
+### R-30: Unbounded base64 Audio Payload
+`TranscribeRequest.audio_base64` and `CreateVoicePromptRequest.audio_base64` have no `max_length` constraint. Large payloads are buffered entirely into memory before Pydantic validation.
+
+- **Location**: `qwen3_tts/server/validation.py:86, 92`
+- **Fix**: Add a server-level body size limit (uvicorn `--limit-max-requests`, FastAPI `Body(max_length=...)`, or a middleware check)
+
+### R-31: Speaker Validation Case Normalization Gap
+`"RYAN"` fails validation even though `"Ryan"` and `"ryan"` both pass. The lowercase key check runs first but the fallback `_VALID_SPEAKER_NAMES` check uses the raw `req.speaker` value.
+
+- **Location**: `qwen3_tts/server/validation.py:166`
+- **Fix**: Lowercase `req.speaker` before the `_VALID_SPEAKER_NAMES` fallback check
+
+### R-32: cleanup_pid TOCTOU Race
+`os.path.exists()` followed by `os.remove()` in the shutdown path has a race window where the file can be deleted between the two calls.
+
+- **Location**: `qwen3_tts/server/app_lifespan.py:327`
+- **Fix**: Replace with `try: os.remove(TOKEN_FILE) except FileNotFoundError: pass` — the pattern already used elsewhere in the same file
+
+### R-28: Speculative Decoding for Inference Acceleration
+Integrate speculative decoding to achieve 1.5-3x inference speedup by using the 0.6B model as a draft for the 1.7B model. Requires upstream library support.
+
+- **Research:** See [speculative-decoding-research.md](2026-03-23-speculative-decoding-research.md) for full feasibility analysis
+- **Key finding:** EAGLE-3 is not directly applicable (designed for text LLMs, not audio codecs). The most viable path is vanilla speculative decoding with PCG-style acoustic verification.
+- **Upstream prerequisites:**
+  - `qwen_tts` library adds `draft_model` or `speculative_config` parameter to `generate()`
+  - `mlx_audio` exposes hook points in autoregressive loop for draft/verify
+  - HF Transformers adds assisted decoding support for non-CausalLM architectures
+- **Phased approach:**
+  1. Monitor upstream releases (current phase)
+  2. Prototype 0.6B-as-draft with PCG verification when upstream supports it
+  3. Integrate via `config.json` option and model_loader changes
+
 ---
 
 ## Implementation Notes

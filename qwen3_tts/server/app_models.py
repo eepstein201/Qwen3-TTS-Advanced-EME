@@ -128,7 +128,7 @@ def handle_list_models(state, server_config):
         models_data[model_type] = entry
 
     # Add ASR model info (lazy import — no heavy deps at module scope)
-    from qwen3_tts.core.engine import is_asr_loaded, get_asr_model_info
+    from qwen3_tts.core.engine import get_asr_model_info
     asr_info = get_asr_model_info()
 
     return {
@@ -348,7 +348,7 @@ def handle_update_startup_config(state, req, config_fn):
     save_config({**config, "models": models})
 
     # Update server config cache
-    state.server_config["models"] = models
+    state.server_config = {**state.server_config, "models": models}
 
     logger.info("Startup config updated: %s", ", ".join(changes))
     return {"status": "updated", "changes": changes}
@@ -426,6 +426,7 @@ def handle_transcribe(state, req):
         with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as tmp:
             tmp.write(audio_bytes)
             tmp_path = tmp.name
+        os.chmod(tmp_path, 0o600)
 
         transcript = transcribe_audio(tmp_path, req.language)
         return {"transcript": transcript}

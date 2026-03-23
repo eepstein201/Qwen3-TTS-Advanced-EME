@@ -23,11 +23,12 @@ def _start_server_daemon(public=False):
     """
     from qwen3_tts.core.config import write_pid_file
 
+    cmd = [sys.executable, '-m', 'qwen3_tts.server.app']
     if public:
-        os.environ['TTS_SERVER_PUBLIC'] = '1'
+        cmd.append('--public')
 
     proc = subprocess.Popen(
-        [sys.executable, '-m', 'qwen3_tts.server.app'],
+        cmd,
         stdout=subprocess.DEVNULL,
         stderr=subprocess.DEVNULL,
         start_new_session=True,

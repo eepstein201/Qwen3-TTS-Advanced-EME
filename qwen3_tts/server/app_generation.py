@@ -371,7 +371,7 @@ async def handle_generate_stream(request, state, req, security, config_provider)
 
     # Create queue for streaming chunks
     queue: asyncio.Queue = asyncio.Queue()
-    loop = asyncio.get_event_loop()
+    loop = asyncio.get_running_loop()
     stop_event = threading.Event()
     inference_lock = state.inference_lock
 

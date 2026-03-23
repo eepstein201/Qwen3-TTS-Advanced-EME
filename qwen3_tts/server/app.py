@@ -10,6 +10,7 @@ Lifecycle (lifespan, cleanup) lives in app_lifespan.py.
 Generation handlers (/generate, /generate-stream) live in app_generation.py.
 """
 
+import asyncio
 import json
 import logging
 import logging.handlers
@@ -344,7 +345,7 @@ async def load_model_endpoint(request: Request, req: LoadModelRequest, _auth: No
     """Load a model on demand."""
     state = request.app.state
     reset_activity_timer(state)
-    return handle_load_model(state, req)
+    return await asyncio.to_thread(handle_load_model, state, req)
 
 
 @app.post("/unload-model")
@@ -399,7 +400,7 @@ async def transcribe(request: Request, req: TranscribeRequest, _auth: None = Dep
     """Transcribe audio to text using ASR."""
     state = request.app.state
     reset_activity_timer(state)
-    return handle_transcribe(state, req)
+    return await asyncio.to_thread(handle_transcribe, state, req)
 
 
 @app.get("/prompts")
@@ -448,7 +449,7 @@ async def create_voice_prompt_endpoint(request: Request, req: CreateVoicePromptR
     """Create a voice clone prompt from uploaded audio."""
     state = request.app.state
     reset_activity_timer(state)
-    return handle_create_voice_prompt(state, req)
+    return await asyncio.to_thread(handle_create_voice_prompt, state, req)
 
 
 @app.post("/cancel-generation")
