@@ -215,49 +215,6 @@ class TestPrepareStreamingConfig(unittest.TestCase):
 
 
 @unittest.skipUnless(HAS_GRADIO, "requires gradio")
-class TestSaveCompletedAudio(unittest.TestCase):
-
-    def test_empty_base64(self):
-        from qwen3_tts.interface.ui.generation import _save_completed_audio
-        with patch(f"{_MOD}.format_status_display", return_value="<html>"):
-            status, html, hist, df = _save_completed_audio("", "clone", "hi", [])
-        self.assertEqual(status, "Cancelled")
-
-    def test_timeout(self):
-        from qwen3_tts.interface.ui.generation import _save_completed_audio
-        with patch(f"{_MOD}.format_status_display", return_value="<html>"):
-            status, html, hist, df = _save_completed_audio("TIMEOUT", "clone", "hi", [])
-        self.assertIn("Timed out", status)
-
-    def test_error_prefix(self):
-        from qwen3_tts.interface.ui.generation import _save_completed_audio
-        with patch(f"{_MOD}.format_status_display", return_value="<html>"):
-            status, html, hist, df = _save_completed_audio("ERROR:oops", "clone", "hi", [])
-        self.assertIn("oops", status)
-
-    def test_success(self):
-        import base64
-        from qwen3_tts.interface.ui.generation import _save_completed_audio
-        wav_b64 = base64.b64encode(b"RIFF fake wav").decode()
-        with patch(f"{_MOD}.format_status_display", return_value="<html>"), \
-             patch(f"{_MOD}.add_to_history", return_value=[{"path": "/tmp/out.wav"}]), \
-             patch("qwen3_tts.interface.ui.shared.get_history_data", return_value=[]), \
-             patch("builtins.open", MagicMock()), \
-             patch(f"{_MOD}.shutil.copy2"), \
-             patch(f"{_MOD}.load_config", return_value={"output_directory": "/tmp"}), \
-             patch("os.path.expanduser", return_value="/tmp"), \
-             patch("os.makedirs"):
-            status, html, hist, df = _save_completed_audio(wav_b64, "clone", "hi", [])
-        self.assertIn("Generated", status)
-
-    def test_decode_error(self):
-        from qwen3_tts.interface.ui.generation import _save_completed_audio
-        with patch(f"{_MOD}.format_status_display", return_value="<html>"):
-            status, html, hist, df = _save_completed_audio("!!!invalid!!!", "clone", "hi", [])
-        self.assertIn("Error", status)
-
-
-@unittest.skipUnless(HAS_GRADIO, "requires gradio")
 class TestGenerateServerSide(unittest.TestCase):
 
     def test_none_config_preserves_error(self):
@@ -300,26 +257,6 @@ class TestGenerateServerSide(unittest.TestCase):
             result = _generate_server_side("clone", "hi", [], stream_config)
         self.assertIsNone(result[0])
         self.assertIn("Error", result[1])
-
-
-@unittest.skipUnless(HAS_GRADIO, "requires gradio")
-class TestValidateInputs(unittest.TestCase):
-
-    def test_empty_text(self):
-        from qwen3_tts.interface.ui.generation import _validate_inputs
-        valid, msg = _validate_inputs("clone", "")
-        self.assertFalse(valid)
-
-    def test_design_no_description(self):
-        from qwen3_tts.interface.ui.generation import _validate_inputs
-        valid, msg = _validate_inputs("design", "hello", description="")
-        self.assertFalse(valid)
-
-    def test_valid(self):
-        from qwen3_tts.interface.ui.generation import _validate_inputs
-        valid, msg = _validate_inputs("clone", "hello")
-        self.assertTrue(valid)
-        self.assertIsNone(msg)
 
 
 @unittest.skipUnless(HAS_GRADIO, "requires gradio")
@@ -368,14 +305,6 @@ class TestEdgeCases(unittest.TestCase):
             self.assertEqual(status, "Generating...")
         finally:
             _cfg.IN_COLAB = orig
-
-    def test_save_completed_audio_none_history(self):
-        """Line 158: history_list is None."""
-        from qwen3_tts.interface.ui.generation import _save_completed_audio
-        with patch(f"{_MOD}.format_status_display", return_value="<html>"):
-            status, html, hist, df = _save_completed_audio("", "clone", "hi", None)
-        self.assertEqual(status, "Cancelled")
-        self.assertIsInstance(hist, list)
 
     def test_server_side_none_history(self):
         """history_list is None in _generate_server_side."""

@@ -14,6 +14,7 @@ All inference is mocked — no models, GPU, or running server needed.
 Run: pytest tests/test_websocket.py -v --tb=short
 """
 
+import asyncio
 import json
 import struct
 import unittest
@@ -41,6 +42,8 @@ def _setup_app_state(models=None, server_config=None):
     """
     state = app.state
     state.auth_token = _TEST_TOKEN
+    if not hasattr(state, "inference_lock"):
+        state.inference_lock = asyncio.Lock()
     if models is not None:
         state.models = models
     if server_config is not None:

@@ -101,10 +101,10 @@ class TestAutoShutdown(unittest.TestCase):
         state = _make_app_state()
         state.server_config = {"auto_shutdown_minutes": 10}
         with patch(f"{_APP_LIFESPAN}.cleanup_resources") as mock_cleanup, \
-             patch("sys.exit") as mock_exit:
+             patch("os.kill") as mock_kill:
             auto_shutdown(state)
         mock_cleanup.assert_called_once_with(state)
-        mock_exit.assert_called_once_with(0)
+        mock_kill.assert_called_once_with(os.getpid(), __import__("signal").SIGTERM)
 
 
 # ---------------------------------------------------------------------------

@@ -76,16 +76,20 @@ def ensure_server_running(config):
 def build_ui_and_launch(config):
     """Build and launch the Gradio UI in-process."""
     from qwen3_tts.interface.ui import build_ui, _find_available_port
+    from qwen3_tts.interface.ui.shared import get_gradio_launch_kwargs
     from qwen3_tts.core.config import IN_COLAB
     preferred = config.get("ui", {}).get("port", 7860)
     port = _find_available_port(preferred)
     if port is None:
-        print(f"Error: No available port found near {preferred}.")
+        logger.error("No available port found near %d.", preferred)
         return
     share = bool(os.environ.get("TTS_UI_SHARE")) or IN_COLAB
     inbrowser = not bool(os.environ.get("TTS_UI_NO_BROWSER")) and not IN_COLAB
     demo = build_ui()
-    demo.launch(server_port=port, share=share, inbrowser=inbrowser)
+    demo.launch(
+        server_port=port, share=share, inbrowser=inbrowser,
+        **get_gradio_launch_kwargs(config),
+    )
 
 
 def launch_gradio_ui(config):

@@ -453,39 +453,9 @@ class TestPrepareStreamingConfig(unittest.TestCase):
             self.assertIn("not running", status)
 
 
-@skip_if_no_gradio
-class TestSaveCompletedAudio(unittest.TestCase):
-    """Test the audio save function."""
-
-    def test_returns_cancelled_on_empty(self):
-        from qwen3_tts.interface.ui import _save_completed_audio
-        status, _, _, _ = _save_completed_audio("", "clone", "hello", [])
-        self.assertEqual(status, "Cancelled")
-
-    def test_returns_error_on_error_prefix(self):
-        from qwen3_tts.interface.ui import _save_completed_audio
-        status, _, _, _ = _save_completed_audio("ERROR:connection refused", "clone", "hello", [])
-        self.assertIn("connection refused", status)
-
-    def test_saves_valid_base64_wav(self):
-        import base64
-        import tempfile
-        from unittest.mock import patch
-        from qwen3_tts.interface.ui import _save_completed_audio
-
-        # Create a minimal WAV file
-        import struct
-        wav_data = b'RIFF' + struct.pack('<I', 36) + b'WAVE'
-        wav_data += b'fmt ' + struct.pack('<IHHIIHH', 16, 1, 1, 24000, 48000, 2, 16)
-        wav_data += b'data' + struct.pack('<I', 0)
-        b64 = base64.b64encode(wav_data).decode()
-
-        with tempfile.TemporaryDirectory() as tmpdir:
-            with patch('qwen3_tts.interface.ui.generation.os.path.expanduser',
-                       side_effect=lambda p: p.replace("~/Downloads", tmpdir)):
-                status, _, history, _ = _save_completed_audio(b64, "clone", "hello", [])
-                self.assertIn("Generated:", status)
-                self.assertEqual(len(history), 1)
+    # TestSaveCompletedAudio removed: _save_completed_audio was dead code,
+    # removed in the DRY/allowed_paths fix. Server-side generation uses
+    # TTSClient.generate() directly — no JS-based save path exists.
 
 
 if __name__ == "__main__":

@@ -8,7 +8,6 @@ This module contains:
 - Generation tab wiring
 """
 
-import base64
 import logging
 import os
 import shutil
@@ -135,56 +134,6 @@ def _prepare_streaming_config(mode, text, preset, temperature, top_k, top_p,
     return {"server_side": True, "payload": payload}, "Generating..."
 
 
-def _save_completed_audio(base64_wav, mode, text, history_list, stream_config=None):
-    """Save completed base64 audio to file and update history.
-
-    Returns (status_text, status_html, history_list, history_df_data).
-    """
-    import gradio as gr
-    from qwen3_tts.interface.ui.shared import get_history_data
-
-    if history_list is None:
-        history_list = []
-
-    if not base64_wav or base64_wav == '':
-        return "Cancelled", format_status_display(), history_list, gr.update()
-
-    if base64_wav == 'TIMEOUT':
-        return "Error: Timed out waiting for audio", format_status_display(), history_list, gr.update()
-
-    if base64_wav.startswith('ERROR:'):
-        error_msg = base64_wav[6:]
-        return f"Error: {error_msg}", format_status_display(), history_list, gr.update()
-
-    try:
-        # Decode and save audio
-        audio_bytes = base64.b64decode(base64_wav)
-
-        # Save to temp dir first (Gradio always allows tempdir paths)
-        filename = f"voice_ui_{uuid.uuid4().hex[:8]}.wav"
-        temp_path = os.path.join(tempfile.gettempdir(), filename)
-
-        with open(temp_path, "wb") as f:
-            f.write(audio_bytes)
-
-        # Copy to user's output directory for persistent access
-        config = load_config()
-        output_dir = os.path.expanduser(config.get("output_directory", "~/Downloads"))
-        os.makedirs(output_dir, exist_ok=True)
-        persistent_path = os.path.join(output_dir, filename)
-        shutil.copy2(temp_path, persistent_path)
-
-        # History tracks the persistent path; Gradio gets the temp path
-        history_list = add_to_history(history_list, mode, text, persistent_path, 0)
-
-        return (f"Generated: {os.path.basename(persistent_path)}",
-                format_status_display(), history_list, get_history_data(history_list))
-
-    except Exception as e:
-        logger.error("Failed to save audio: %s", e)
-        return f"Error saving audio: {e}", format_status_display(), history_list, gr.update()
-
-
 def _generate_server_side(mode, text, history_list, stream_config):
     """Generate audio server-side via Python TTSClient (no token in browser).
 
@@ -249,20 +198,6 @@ def _generate_server_side(mode, text, history_list, stream_config):
     except Exception as e:
         logger.error("Server-side generation failed: %s", e)
         return None, f"Error: {e}", format_status_display(), history_list, get_history_data(history_list)
-
-
-def _validate_inputs(mode, text, description=None):
-    """Validate generation inputs for the given mode.
-
-    Returns (is_valid, error_message).
-    """
-    if not text or not text.strip():
-        return False, "Please enter text to generate"
-
-    if mode == "design" and (not description or not description.strip()):
-        return False, "Please enter a voice description for design mode"
-
-    return True, None
 
 
 def _build_common_controls():

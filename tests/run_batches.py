@@ -13,6 +13,7 @@ Usage:
 """
 
 import argparse
+import json
 import os
 import subprocess
 import sys
@@ -146,7 +147,55 @@ BATCHES = {
             "tests.test_e2e_playwright",
         ],
         "timeout": 1800,  # 10 tests × up to ~120s generation + model load/unload cycles
+        "setup": "_ensure_models_loaded",
     },
+}
+
+
+def _ensure_models_loaded():
+    """Load all models on the TTS server before E2E tests.
+
+    Reads the auth token from the standard config location and issues
+    load-model requests for clone, design, and custom.  Silently skips
+    if the server is unreachable (the E2E tests will skip/fail on their own).
+    """
+    import urllib.request
+    import urllib.error
+
+    token_path = Path.home() / ".config" / "qwen3-tts" / ".voice_server_token"
+    if not token_path.exists():
+        # Fallback to legacy path
+        token_path = Path.home() / ".voice_server_token"
+    if not token_path.exists():
+        print("  [setup] No auth token found — skipping model preload")
+        return
+
+    token = token_path.read_text().strip()
+    url = "http://127.0.0.1:5123"
+
+    for model in ("clone", "design", "custom"):
+        try:
+            data = json.dumps({"model_type": model}).encode()
+            req = urllib.request.Request(
+                f"{url}/load-model",
+                data=data,
+                headers={
+                    "Content-Type": "application/json",
+                    "Authorization": f"Bearer {token}",
+                },
+                method="POST",
+            )
+            with urllib.request.urlopen(req, timeout=120) as resp:
+                body = json.loads(resp.read())
+                status = body.get("status", "unknown")
+                print(f"  [setup] {model}: {status}")
+        except (urllib.error.URLError, OSError) as exc:
+            print(f"  [setup] {model}: failed ({exc})")
+
+
+# Registry of setup functions referenced by name in batch definitions
+_SETUP_FUNCTIONS = {
+    "_ensure_models_loaded": _ensure_models_loaded,
 }
 
 
@@ -189,6 +238,15 @@ def run_batch(
         print(colorize(f"  {batch_info['description']}", Colors.BLUE))
         print(colorize(f"  Timeout: {timeout}s", Colors.BLUE))
         print(colorize("=" * 60, Colors.BLUE))
+
+    # Run setup function if defined for this batch
+    setup_name = batch_info.get("setup")
+    if setup_name and setup_name in _SETUP_FUNCTIONS:
+        if verbose:
+            print(f"Running setup: {setup_name}")
+        _SETUP_FUNCTIONS[setup_name]()
+        if verbose:
+            print()
 
     # Build unittest command
     cmd = [

@@ -10,6 +10,8 @@ This module contains the main entry points:
 
 import logging
 import os
+import re
+import shutil
 import sys
 import tempfile
 import time
@@ -115,13 +117,53 @@ def _find_available_port(preferred, max_tries=10):
     return None
 
 
+_SAFE_NAME_RE = re.compile(r'^[a-zA-Z0-9_\-]{1,64}$')
+
+
+def _sanitize_voice_name(raw: str) -> tuple:
+    """Validate and sanitize a voice name using allowlist.
+
+    Returns (sanitized_name, error_or_None).
+    """
+    name = raw.strip().replace(" ", "_")
+    if not _SAFE_NAME_RE.match(name):
+        return "", "Voice name may only contain letters, numbers, underscores, and hyphens (1-64 chars)"
+    return name, None
+
+
 def on_history_select(evt: gr.SelectData, history_list):
-    """Handle click on a history row — return file path for WaveSurfer playback."""
-    if history_list and 0 <= evt.index[0] < len(history_list):
-        path = history_list[evt.index[0]].get("path", "")
-        if path and os.path.exists(path):
-            return path
-    return None
+    """Handle click on a history row — return file path for WaveSurfer playback.
+
+    Defense-in-depth: validates path against safe roots and copies to tempdir
+    so Gradio can always serve it (tempdir is always in allowed_paths).
+    """
+    if not (isinstance(history_list, list) and history_list):
+        return None
+    if not (hasattr(evt, 'index') and isinstance(evt.index, (list, tuple))
+            and len(evt.index) >= 1 and 0 <= evt.index[0] < len(history_list)):
+        return None
+    path = history_list[evt.index[0]].get("path", "")
+    if not path:
+        return None
+    resolved = os.path.realpath(path)
+    # Containment check: only serve files from known-safe directories
+    from qwen3_tts.interface.ui.shared import _resolve_output_dir
+    config = load_config()
+    output_dir = _resolve_output_dir(config)
+    safe_roots = {
+        os.path.realpath(tempfile.gettempdir()),
+        os.path.realpath(os.path.expanduser("~/Downloads")),
+        output_dir,
+    }
+    if not any(resolved == r or resolved.startswith(r + os.sep) for r in safe_roots):
+        return None
+    if not os.path.exists(resolved):
+        return None
+    # Copy to temp for Gradio compatibility (tempdir always in allowed_paths)
+    temp_path = os.path.join(tempfile.gettempdir(), os.path.basename(resolved))
+    if not os.path.exists(temp_path):
+        shutil.copy2(resolved, temp_path)
+    return temp_path
 
 
 def _build_clone_tab(status_html, history_df, history_state):
@@ -270,7 +312,9 @@ def _build_design_tab(status_html, history_df, history_state, clone_prompt):
         """Save the most recent Design mode output as a voice prompt."""
         if not voice_name or not voice_name.strip():
             return "Please enter a voice name.", gr.update()
-        voice_name = voice_name.strip().replace(" ", "_").replace("/", "_").replace("\\", "_").replace("..", "")
+        voice_name, err = _sanitize_voice_name(voice_name)
+        if err:
+            return err, gr.update()
         for entry in history_list:
             if entry.get("mode") == "Design" and entry.get("path"):
                 audio_path = entry["path"]
@@ -728,24 +772,16 @@ def main():
         print("the server is running.")
         print("=" * 60 + "\n")
 
+    from qwen3_tts.interface.ui.shared import get_gradio_launch_kwargs
+
     demo = build_ui()
-    server_name = "0.0.0.0" if IN_COLAB else "127.0.0.1"  # nosec B104
     share = args.share or IN_COLAB
     inbrowser = not args.no_browser and not IN_COLAB
-    # Allow Gradio to serve audio files from output and temp directories
-    config = load_config()
-    output_dir = os.path.expanduser(config.get("output_directory", "~/Downloads"))
-    allowed = [output_dir, os.path.expanduser("~/Downloads"), tempfile.gettempdir()]
     demo.launch(
-        server_name=server_name,
         server_port=port,
         share=share,
         inbrowser=inbrowser,
-        theme=gr.themes.Soft(),
-        allowed_paths=allowed,
-        # Hide data-flow components that use elem_classes=["gr-hidden"]
-        # (Gradio 6 removes visible=False components from DOM, breaking JS↔Python chains)
-        css=".gr-hidden { display: none !important; height: 0 !important; overflow: hidden !important; }",
+        **get_gradio_launch_kwargs(config),
     )
 
 

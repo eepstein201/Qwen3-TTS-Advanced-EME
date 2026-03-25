@@ -148,14 +148,24 @@ class TestFindAvailablePort(unittest.TestCase):
 class TestOnHistorySelect(unittest.TestCase):
     """Tests for on_history_select."""
 
-    def test_valid_selection_returns_path(self):
+    def test_valid_selection_returns_temp_path(self):
+        import tempfile, os
         from qwen3_tts.interface.ui._facade import on_history_select
-        evt = MagicMock()
-        evt.index = [0]
-        history = [{"path": "/tmp/test.wav"}]
-        with patch("os.path.exists", return_value=True):
-            result = on_history_select(evt, history)
-        self.assertEqual(result, "/tmp/test.wav")
+        # Create a real temp file so containment and existence checks pass
+        src = os.path.join(tempfile.gettempdir(), "test_on_hist.wav")
+        with open(src, "wb") as f:
+            f.write(b"RIFF" + b"\x00" * 40)
+        try:
+            evt = MagicMock()
+            evt.index = [0]
+            history = [{"path": src}]
+            with patch("qwen3_tts.interface.ui._facade.load_config", return_value={}):
+                result = on_history_select(evt, history)
+            self.assertIsNotNone(result)
+            self.assertTrue(result.startswith(tempfile.gettempdir()))
+        finally:
+            if os.path.exists(src):
+                os.remove(src)
 
     def test_invalid_index_returns_none(self):
         from qwen3_tts.interface.ui._facade import on_history_select
@@ -177,8 +187,10 @@ class TestOnHistorySelect(unittest.TestCase):
         from qwen3_tts.interface.ui._facade import on_history_select
         evt = MagicMock()
         evt.index = [0]
-        history = [{"path": "/nonexistent/file.wav"}]
-        with patch("os.path.exists", return_value=False):
+        # Path is in a safe root (tempdir) but file doesn't exist
+        import tempfile
+        history = [{"path": tempfile.gettempdir() + "/nonexistent_file_xyz.wav"}]
+        with patch("qwen3_tts.interface.ui._facade.load_config", return_value={}):
             result = on_history_select(evt, history)
         self.assertIsNone(result)
 
@@ -289,6 +301,7 @@ class TestMain(unittest.TestCase):
     @patch("qwen3_tts.interface.ui._facade.build_ui")
     @patch("qwen3_tts.interface.ui._facade.TTSClient")
     @patch("qwen3_tts.interface.ui._facade.IN_COLAB", True)
+    @patch("qwen3_tts.core.config.IN_COLAB", True)
     @patch("builtins.print")
     def test_colab_mode_settings(self, _print, mock_client_cls, mock_build, _port, _config):
         from qwen3_tts.interface.ui._facade import main
@@ -303,6 +316,179 @@ class TestMain(unittest.TestCase):
         self.assertEqual(launch_kwargs["server_name"], "0.0.0.0")
         self.assertTrue(launch_kwargs["share"])
         self.assertFalse(launch_kwargs["inbrowser"])
+
+
+class TestGetGradioLaunchKwargs(unittest.TestCase):
+    """Tests for get_gradio_launch_kwargs helper."""
+
+    @patch("qwen3_tts.core.config.IN_COLAB", False)
+    def test_includes_all_required_keys(self):
+        from qwen3_tts.interface.ui.shared import get_gradio_launch_kwargs
+        kwargs = get_gradio_launch_kwargs({})
+        self.assertIn("theme", kwargs)
+        self.assertIn("css", kwargs)
+        self.assertIn("server_name", kwargs)
+        self.assertIn("allowed_paths", kwargs)
+
+    @patch("qwen3_tts.core.config.IN_COLAB", False)
+    def test_includes_tempdir_in_allowed_paths(self):
+        import tempfile
+        from qwen3_tts.interface.ui.shared import get_gradio_launch_kwargs
+        kwargs = get_gradio_launch_kwargs({"output_directory": "~/Downloads"})
+        self.assertIn(tempfile.gettempdir(), kwargs["allowed_paths"])
+
+    @patch("qwen3_tts.core.config.IN_COLAB", False)
+    def test_includes_downloads_in_allowed_paths(self):
+        import os
+        from qwen3_tts.interface.ui.shared import get_gradio_launch_kwargs
+        kwargs = get_gradio_launch_kwargs({})
+        downloads = os.path.realpath(os.path.expanduser("~/Downloads"))
+        self.assertIn(downloads, kwargs["allowed_paths"])
+
+    @patch("qwen3_tts.core.config.IN_COLAB", False)
+    def test_localhost_when_not_colab(self):
+        from qwen3_tts.interface.ui.shared import get_gradio_launch_kwargs
+        kwargs = get_gradio_launch_kwargs({})
+        self.assertEqual(kwargs["server_name"], "127.0.0.1")
+
+    @patch("qwen3_tts.core.config.IN_COLAB", True)
+    def test_all_interfaces_when_colab(self):
+        from qwen3_tts.interface.ui.shared import get_gradio_launch_kwargs
+        kwargs = get_gradio_launch_kwargs({})
+        self.assertEqual(kwargs["server_name"], "0.0.0.0")
+
+    @patch("qwen3_tts.core.config.IN_COLAB", False)
+    def test_css_contains_gr_hidden(self):
+        from qwen3_tts.interface.ui.shared import get_gradio_launch_kwargs
+        kwargs = get_gradio_launch_kwargs({})
+        self.assertIn(".gr-hidden", kwargs["css"])
+
+
+class TestResolveOutputDir(unittest.TestCase):
+    """Tests for _resolve_output_dir helper."""
+
+    def test_default_downloads(self):
+        import os
+        from qwen3_tts.interface.ui.shared import _resolve_output_dir
+        result = _resolve_output_dir({})
+        expected = os.path.realpath(os.path.expanduser("~/Downloads"))
+        self.assertEqual(result, expected)
+
+    def test_custom_output_dir(self):
+        import os
+        from qwen3_tts.interface.ui.shared import _resolve_output_dir
+        result = _resolve_output_dir({"output_directory": "~/Music"})
+        expected = os.path.realpath(os.path.expanduser("~/Music"))
+        self.assertEqual(result, expected)
+
+    def test_traversal_falls_back_to_downloads(self):
+        import os
+        from qwen3_tts.interface.ui.shared import _resolve_output_dir
+        result = _resolve_output_dir({"output_directory": "~/../../etc"})
+        downloads = os.path.realpath(os.path.expanduser("~/Downloads"))
+        self.assertEqual(result, downloads)
+
+    def test_returns_absolute_path(self):
+        import os
+        from qwen3_tts.interface.ui.shared import _resolve_output_dir
+        result = _resolve_output_dir({})
+        self.assertTrue(os.path.isabs(result))
+
+
+class TestOnHistorySelectHardened(unittest.TestCase):
+    """Tests for hardened on_history_select (containment + temp copy)."""
+
+    def test_unsafe_path_returns_none(self):
+        from qwen3_tts.interface.ui._facade import on_history_select
+        evt = MagicMock()
+        evt.index = [0]
+        history = [{"path": "/etc/passwd", "mode": "Clone", "text": "test"}]
+        with patch("os.path.exists", return_value=True), \
+             patch("qwen3_tts.interface.ui._facade.load_config", return_value={}):
+            result = on_history_select(evt, history)
+        self.assertIsNone(result)
+
+    def test_valid_path_returns_temp_copy(self):
+        import tempfile, os
+        from qwen3_tts.interface.ui._facade import on_history_select
+        # Create a real temp file to simulate a Downloads file
+        src = os.path.join(tempfile.gettempdir(), "test_history_select.wav")
+        with open(src, "wb") as f:
+            f.write(b"RIFF" + b"\x00" * 40)
+        try:
+            evt = MagicMock()
+            evt.index = [0]
+            history = [{"path": src}]
+            with patch("qwen3_tts.interface.ui._facade.load_config", return_value={}):
+                result = on_history_select(evt, history)
+            self.assertIsNotNone(result)
+            self.assertTrue(result.startswith(tempfile.gettempdir()))
+        finally:
+            if os.path.exists(src):
+                os.remove(src)
+
+    def test_empty_history_returns_none(self):
+        from qwen3_tts.interface.ui._facade import on_history_select
+        evt = MagicMock()
+        evt.index = [0]
+        result = on_history_select(evt, [])
+        self.assertIsNone(result)
+
+    def test_none_history_returns_none(self):
+        from qwen3_tts.interface.ui._facade import on_history_select
+        evt = MagicMock()
+        evt.index = [0]
+        result = on_history_select(evt, None)
+        self.assertIsNone(result)
+
+
+class TestSanitizeVoiceName(unittest.TestCase):
+    """Tests for _sanitize_voice_name allowlist."""
+
+    def test_valid_name(self):
+        from qwen3_tts.interface.ui._facade import _sanitize_voice_name
+        name, err = _sanitize_voice_name("my_voice_01")
+        self.assertEqual(name, "my_voice_01")
+        self.assertIsNone(err)
+
+    def test_spaces_converted_to_underscores(self):
+        from qwen3_tts.interface.ui._facade import _sanitize_voice_name
+        name, err = _sanitize_voice_name("my voice")
+        self.assertEqual(name, "my_voice")
+        self.assertIsNone(err)
+
+    def test_traversal_rejected(self):
+        from qwen3_tts.interface.ui._facade import _sanitize_voice_name
+        _, err = _sanitize_voice_name("../../etc/passwd")
+        self.assertIsNotNone(err)
+
+    def test_empty_rejected(self):
+        from qwen3_tts.interface.ui._facade import _sanitize_voice_name
+        _, err = _sanitize_voice_name("")
+        self.assertIsNotNone(err)
+
+    def test_too_long_rejected(self):
+        from qwen3_tts.interface.ui._facade import _sanitize_voice_name
+        _, err = _sanitize_voice_name("a" * 65)
+        self.assertIsNotNone(err)
+
+    def test_hyphens_allowed(self):
+        from qwen3_tts.interface.ui._facade import _sanitize_voice_name
+        name, err = _sanitize_voice_name("my-voice")
+        self.assertEqual(name, "my-voice")
+        self.assertIsNone(err)
+
+
+class TestFormatStatusDisplayEscaping(unittest.TestCase):
+    """Tests for HTML escaping in format_status_display."""
+
+    @patch("qwen3_tts.interface.ui.shared.get_server_status")
+    def test_xss_in_status_is_escaped(self, mock_status):
+        from qwen3_tts.interface.ui.shared import format_status_display
+        mock_status.return_value = ("<script>alert(1)</script>", "N/A", "N/A", "N/A")
+        result = format_status_display()
+        self.assertNotIn("<script>", result)
+        self.assertIn("&lt;script&gt;", result)
 
 
 if __name__ == "__main__":

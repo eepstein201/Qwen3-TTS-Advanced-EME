@@ -216,14 +216,16 @@ def format_status_display():
     elif status == "Disconnected":
         status_html = '<span style="color: red; font-weight: bold;">Disconnected</span>'
     else:
-        status_html = f'<span style="color: orange;">{status}</span>'
+        import html as html_mod
+        status_html = f'<span style="color: orange;">{html_mod.escape(status)}</span>'
 
+    import html as html_mod
     return f"""
     <div style="padding: 10px; background: var(--block-background-fill, #f5f5f5); border-radius: 5px; margin-bottom: 15px; border: 1px solid var(--block-border-color, #e0e0e0);">
         <strong>Status:</strong> {status_html} |
-        <strong>Backend:</strong> {backend} |
-        <strong>Memory:</strong> {memory} |
-        <strong>Models:</strong> {models}
+        <strong>Backend:</strong> {html_mod.escape(str(backend))} |
+        <strong>Memory:</strong> {html_mod.escape(str(memory))} |
+        <strong>Models:</strong> {html_mod.escape(str(models))}
     </div>
     """
 
@@ -297,3 +299,34 @@ def get_history_data(history_list):
         ])
 
     return rows
+
+
+def _resolve_output_dir(config: dict) -> str:
+    """Resolve and validate output_directory from config.
+
+    Falls back to ~/Downloads if path resolves outside home directory.
+    """
+    raw = config.get("output_directory", "~/Downloads")
+    resolved = os.path.realpath(os.path.expanduser(raw))
+    home = os.path.realpath(os.path.expanduser("~"))
+    if not (resolved == home or resolved.startswith(home + os.sep)):
+        logger.warning("output_directory %r resolves outside home; falling back to ~/Downloads", raw)
+        resolved = os.path.realpath(os.path.expanduser("~/Downloads"))
+    return resolved
+
+
+def get_gradio_launch_kwargs(config: dict) -> dict:
+    """Shared Gradio launch() kwargs -- single source of truth for all UI entry points."""
+    import tempfile
+    from qwen3_tts.core.config import IN_COLAB
+
+    output_dir = _resolve_output_dir(config)
+    downloads = os.path.realpath(os.path.expanduser("~/Downloads"))
+    allowed = list({output_dir, downloads, tempfile.gettempdir()})
+
+    return {
+        "server_name": "0.0.0.0" if IN_COLAB else "127.0.0.1",  # nosec B104
+        "allowed_paths": allowed,
+        "theme": gr.themes.Soft(),
+        "css": ".gr-hidden { display: none !important; height: 0 !important; overflow: hidden !important; }",
+    }
