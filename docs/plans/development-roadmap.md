@@ -105,17 +105,17 @@ The silence gap inserted between chunks is currently hardcoded. Make it configur
 - **Default**: 0.0 (current behavior)
 - **Implementation**: Apply in chunk concatenation logic
 
-### R-33: _validate_prompt_name Return Type Annotation
+### R-33: _validate_prompt_name Return Type Annotation ✅ Fixed
 The annotation says `Optional[tuple]` but the actual return type is `Optional[tuple[dict, int]]`.
 
 - **Location**: `qwen3_tts/server/validation.py:181`
-- **Fix**: Update annotation to `Optional[tuple[dict, int]]`
+- **Fix**: Updated annotation to `Optional[tuple[dict, int]]` — implemented 2026-03-28
 
-### R-34: X-Queue-Position Read Without Lock
+### R-34: X-Queue-Position Read Without Lock ✅ Fixed (documented tradeoff)
 `state.pending_requests` length is read to set the `X-Queue-Position` header without holding `pending_lock`.
 
 - **Location**: `qwen3_tts/server/app_generation.py:482`
-- **Fix**: Acquire `pending_lock` before reading, or document the deliberate tradeoff with a comment
+- **Fix**: Deliberate tradeoff comment already present — "Approximate: read without lock since response is already committed. Exact position available via /queue-status endpoint." — verified 2026-03-28
 
 ### R-35: Streaming chunk_total Not Populated
 `/generate-stream` never updates `chunk_total` in `generation_state`. Callers polling `/generation-status` for progress see `chunk_total=0` throughout streaming.
@@ -129,17 +129,17 @@ The annotation says `Optional[tuple]` but the actual return type is `Optional[tu
 - **Location**: `qwen3_tts/server/client/generator.py:446`
 - **Fix**: Replaced with `np.concatenate()` for O(n) single-allocation — implemented in Python review remediation
 
-### R-37: Fix _validate_prompt_name Return Type
+### R-37: Fix _validate_prompt_name Return Type ✅ Fixed (same as R-33)
 `_validate_prompt_name` in `validation.py:181` has an inconsistent return type (`Optional[tuple[dict, int]]` but returns `None` or a tuple). Add type annotation and Optional return type.
 
 - **Location**: `qwen3_tts/server/validation.py:181`
-- **Fix**: Add `-> Optional[tuple[dict, int]]` return type annotation
+- **Fix**: `-> Optional[tuple[dict, int]]` annotation added — implemented 2026-03-28 (R-33)
 
-### R-38: Lock eta_cache Read-Modify-Write in app_lifespan.py
+### R-38: Lock eta_cache Read-Modify-Write in app_lifespan.py ✅ Fixed
 `eta_cache` in `app_lifespan.py:61-95` has an unprotected read-modify-write sequence that could race under concurrent requests.
 
 - **Location**: `qwen3_tts/server/app_lifespan.py:61-95`
-- **Fix**: Wrap `eta_cache` update in a `threading.Lock`
+- **Fix**: `threading.Lock()` added alongside `eta_cache`; update block wrapped with `with` — implemented 2026-03-28
 
 ### R-39: Make write_pid_file Atomic via Temp-File + os.replace() ✅ Fixed
 `write_pid_file` in `config.py:472-473` writes the PID file non-atomically; a crash mid-write leaves a partial PID.
@@ -159,11 +159,11 @@ The annotation says `Optional[tuple]` but the actual return type is `Optional[tu
 - **Location**: `qwen3_tts/server/app_prompts.py:93-97`
 - **Fix**: Wrap each `os.remove` in `try/except OSError` and collect failures — implemented 2026-03-28
 
-### R-42: Add json.JSONDecodeError Handling in load_config
+### R-42: Add json.JSONDecodeError Handling in load_config ✅ Fixed
 `load_config` in `config.py:137` does not catch `json.JSONDecodeError`, so a corrupt config.json causes an unhandled exception.
 
 - **Location**: `qwen3_tts/core/config.py:137`
-- **Fix**: Catch `json.JSONDecodeError` with a clear error message
+- **Fix**: Raises `ValueError` with clear message; all call sites updated to also catch `ValueError` — implemented 2026-03-28
 
 ### R-43: Refactor create_voice.main() to Accept Args Directly
 `create_voice.main()` reads from `sys.argv` directly, making it untestable without subprocess calls.
@@ -195,17 +195,17 @@ The annotation says `Optional[tuple]` but the actual return type is `Optional[tu
 - **Location**: `qwen3_tts/core/config.py:41`
 - **Fix**: `VOICE_PROMPTS_DIR = Path(...)` — implemented 2026-03-28 (with caller boundary casts for `str` ops)
 
-### R-48: Remove f-prefix from plain string in cli_config.py
+### R-48: Remove f-prefix from plain string in cli_config.py ✅ Fixed (was already clean)
 `cli_config.py:116` uses an f-string with no interpolation (`f"default_voice_description updated"`).
 
 - **Location**: `qwen3_tts/cli_config.py:116`
-- **Fix**: Remove `f` prefix (ruff F541)
+- **Fix**: ruff F541 check found no violations — already resolved in an earlier session
 
-### R-49: Move Imports to Top of uninstall.py
+### R-49: Move Imports to Top of uninstall.py ✅ Fixed
 `uninstall.py:15,25,26` has non-top-level imports (ruff E402).
 
 - **Location**: `qwen3_tts/tools/uninstall.py:15,25,26`
-- **Fix**: Move imports to top of file
+- **Fix**: Moved imports above `logger = ...` declaration — implemented 2026-03-28
 
 ## Priority 5 — Future / Upstream-Dependent
 
