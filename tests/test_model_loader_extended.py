@@ -12,10 +12,12 @@ Covers:
 
 Run: pytest tests/test_model_loader_extended.py -v
 """
+
 import sys
 
 try:
     import pytest
+
     HAS_PYTEST = True
 except ImportError:
     HAS_PYTEST = False
@@ -23,6 +25,7 @@ except ImportError:
     class _DummyMarkerFunc:
         def __init__(self, name=None):
             self._name = name
+
         def __call__(self, condition, **kwargs):
             return lambda f: f
 
@@ -39,6 +42,7 @@ from unittest.mock import patch, MagicMock
 
 
 # ---- _install_mps_patch ----
+
 
 @pytest.mark.unit
 def test_install_mps_patch_non_macos():
@@ -82,8 +86,10 @@ def test_install_mps_patch_on_macos():
         mock_torch = MagicMock()
         mock_torch.multinomial = MagicMock(name="original_multinomial")
 
-        with patch("qwen3_tts.core.config.IS_MACOS", True), \
-             patch.dict(sys.modules, {"torch": mock_torch}):
+        with (
+            patch("qwen3_tts.core.config.IS_MACOS", True),
+            patch.dict(sys.modules, {"torch": mock_torch}),
+        ):
             model_loader._install_mps_patch()
 
         assert model_loader._mps_patch_installed is True
@@ -94,6 +100,7 @@ def test_install_mps_patch_on_macos():
 
 
 # ---- _resolve_load_kwargs ----
+
 
 @pytest.mark.unit
 def test_resolve_load_kwargs_none_quant():
@@ -120,8 +127,10 @@ def test_resolve_load_kwargs_8bit_no_cuda():
     mock_torch = MagicMock()
     mock_torch.cuda.is_available.return_value = False
 
-    with patch.dict(sys.modules, {"torch": mock_torch}), \
-         pytest.raises(RuntimeError, match="8-bit quantization requires CUDA"):
+    with (
+        patch.dict(sys.modules, {"torch": mock_torch}),
+        pytest.raises(RuntimeError, match="8-bit quantization requires CUDA"),
+    ):
         _resolve_load_kwargs("8bit", "float16", "cpu", "sdpa", "auto")
 
 
@@ -133,9 +142,11 @@ def test_resolve_load_kwargs_4bit_no_linux():
     mock_torch = MagicMock()
     mock_torch.cuda.is_available.return_value = True
 
-    with patch.dict(sys.modules, {"torch": mock_torch}), \
-         patch("sys.platform", "darwin"), \
-         pytest.raises(RuntimeError, match="4-bit quantization requires CUDA on Linux"):
+    with (
+        patch.dict(sys.modules, {"torch": mock_torch}),
+        patch("sys.platform", "darwin"),
+        pytest.raises(RuntimeError, match="4-bit quantization requires CUDA on Linux"),
+    ):
         _resolve_load_kwargs("4bit", "float16", "cuda", "sdpa", "auto")
 
 
@@ -149,9 +160,16 @@ def test_resolve_load_kwargs_auto_8bit_turing():
     mock_torch.cuda.is_available.return_value = True
     mock_torch.cuda.get_device_capability.return_value = (7, 5)
 
-    with patch.dict(sys.modules, {"torch": mock_torch}), \
-         patch("qwen3_tts.core.engine.model_loader.load_config", return_value={"advanced": {}}):
-        result = _resolve_load_kwargs("none", "float16_sentinel", "cuda", "sdpa", "auto")
+    with (
+        patch.dict(sys.modules, {"torch": mock_torch}),
+        patch(
+            "qwen3_tts.core.engine.model_loader.load_config",
+            return_value={"advanced": {}},
+        ),
+    ):
+        result = _resolve_load_kwargs(
+            "none", "float16_sentinel", "cuda", "sdpa", "auto"
+        )
 
     assert result.get("load_in_8bit") is True
 
@@ -167,14 +185,19 @@ def test_resolve_load_kwargs_turing_explicit_none():
     mock_torch.cuda.get_device_capability.return_value = (7, 5)
 
     config = {"advanced": {"torch_quantization": "none"}}
-    with patch.dict(sys.modules, {"torch": mock_torch}), \
-         patch("qwen3_tts.core.engine.model_loader.load_config", return_value=config):
-        result = _resolve_load_kwargs("none", "float16_sentinel", "cuda", "sdpa", "auto")
+    with (
+        patch.dict(sys.modules, {"torch": mock_torch}),
+        patch("qwen3_tts.core.engine.model_loader.load_config", return_value=config),
+    ):
+        result = _resolve_load_kwargs(
+            "none", "float16_sentinel", "cuda", "sdpa", "auto"
+        )
 
     assert "load_in_8bit" not in result
 
 
 # ---- _is_model_cached ----
+
 
 @pytest.mark.unit
 def test_is_model_cached_true():
@@ -199,6 +222,7 @@ def test_is_model_cached_false():
 
 
 # ---- _apply_torch_compile ----
+
 
 @pytest.mark.unit
 def test_apply_torch_compile_success():
@@ -265,6 +289,7 @@ def test_apply_torch_compile_disabled():
 
 # ---- _patch_tokenizer ----
 
+
 @pytest.mark.unit
 def test_patch_tokenizer_success():
     """_patch_tokenizer reloads tokenizer with fix_mistral_regex."""
@@ -291,7 +316,9 @@ def test_patch_tokenizer_unsupported():
     original_tokenizer = mock_model.tokenizer
 
     mock_transformers = MagicMock()
-    mock_transformers.AutoTokenizer.from_pretrained.side_effect = TypeError("unexpected keyword")
+    mock_transformers.AutoTokenizer.from_pretrained.side_effect = TypeError(
+        "unexpected keyword"
+    )
 
     with patch.dict(sys.modules, {"transformers": mock_transformers}):
         result = _patch_tokenizer(mock_model, "repo/model")
@@ -301,6 +328,7 @@ def test_patch_tokenizer_unsupported():
 
 
 # ---- _warmup_model ----
+
 
 @pytest.mark.unit
 def test_warmup_model_design_mlx():
@@ -355,15 +383,21 @@ def test_warmup_model_handles_exception():
 
 # ---- load_model dispatch ----
 
+
 @pytest.mark.unit
 def test_load_model_dispatches_mlx():
     """load_model dispatches to _load_model_mlx when backend is mlx."""
     from qwen3_tts.core.engine.model_loader import load_model
 
     mock_model = MagicMock()
-    with patch("qwen3_tts.core.engine.model_loader.get_backend", return_value="mlx"), \
-         patch("qwen3_tts.core.engine.model_loader._load_model_mlx", return_value=mock_model) as mock_mlx, \
-         patch("qwen3_tts.core.engine.model_loader._warmup_model"):
+    with (
+        patch("qwen3_tts.core.engine.model_loader.get_backend", return_value="mlx"),
+        patch(
+            "qwen3_tts.core.engine.model_loader._load_model_mlx",
+            return_value=mock_model,
+        ) as mock_mlx,
+        patch("qwen3_tts.core.engine.model_loader._warmup_model"),
+    ):
         result = load_model("clone")
 
     mock_mlx.assert_called_once_with("clone")
@@ -376,9 +410,14 @@ def test_load_model_dispatches_torch():
     from qwen3_tts.core.engine.model_loader import load_model
 
     mock_model = MagicMock()
-    with patch("qwen3_tts.core.engine.model_loader.get_backend", return_value="torch"), \
-         patch("qwen3_tts.core.engine.model_loader._load_model_torch", return_value=mock_model) as mock_torch, \
-         patch("qwen3_tts.core.engine.model_loader._warmup_model"):
+    with (
+        patch("qwen3_tts.core.engine.model_loader.get_backend", return_value="torch"),
+        patch(
+            "qwen3_tts.core.engine.model_loader._load_model_torch",
+            return_value=mock_model,
+        ) as mock_torch,
+        patch("qwen3_tts.core.engine.model_loader._warmup_model"),
+    ):
         result = load_model("design")
 
     mock_torch.assert_called_once_with("design")
@@ -386,6 +425,7 @@ def test_load_model_dispatches_torch():
 
 
 # ---- _apply_cuda_optimizations additional coverage ----
+
 
 @pytest.mark.unit
 def test_cuda_optimizations_no_cuda():
@@ -424,6 +464,7 @@ def test_cuda_optimizations_turing():
 
 
 # ---- _retry_model_load ----
+
 
 @pytest.mark.unit
 def test_retry_model_load_immediate_success():
@@ -464,6 +505,7 @@ def test_retry_model_load_raises_after_exhaustion():
 
 # ---- R-18: Turing GPU torch_quantization (already implemented) ----
 
+
 @pytest.mark.unit
 def test_turing_respects_explicit_torch_quantization():
     """Turing GPUs should respect explicit torch_quantization setting (R-18).
@@ -480,14 +522,32 @@ def test_turing_respects_explicit_torch_quantization():
 
     # Test 1: Explicitly set to "none" should NOT get 8-bit override
     mock_config_none = {"advanced": {"torch_quantization": "none"}}
-    with patch.dict(sys.modules, {"torch": mock_torch}), \
-         patch("qwen3_tts.core.engine.model_loader.load_config", return_value=mock_config_none):
-        result_none = _resolve_load_kwargs("none", "float16_sentinel", "cuda", "sdpa", "auto")
-        assert "load_in_8bit" not in result_none, "Should not auto-override when explicitly set to none"
+    with (
+        patch.dict(sys.modules, {"torch": mock_torch}),
+        patch(
+            "qwen3_tts.core.engine.model_loader.load_config",
+            return_value=mock_config_none,
+        ),
+    ):
+        result_none = _resolve_load_kwargs(
+            "none", "float16_sentinel", "cuda", "sdpa", "auto"
+        )
+        assert "load_in_8bit" not in result_none, (
+            "Should not auto-override when explicitly set to none"
+        )
 
     # Test 2: NOT explicitly set (key missing) SHOULD get 8-bit override
     mock_config_missing = {"advanced": {}}  # torch_quantization key missing
-    with patch.dict(sys.modules, {"torch": mock_torch}), \
-         patch("qwen3_tts.core.engine.model_loader.load_config", return_value=mock_config_missing):
-        result_missing = _resolve_load_kwargs("none", "float16_sentinel", "cuda", "sdpa", "auto")
-        assert result_missing.get("load_in_8bit") is True, "Should auto-enable 8-bit when not explicitly set"
+    with (
+        patch.dict(sys.modules, {"torch": mock_torch}),
+        patch(
+            "qwen3_tts.core.engine.model_loader.load_config",
+            return_value=mock_config_missing,
+        ),
+    ):
+        result_missing = _resolve_load_kwargs(
+            "none", "float16_sentinel", "cuda", "sdpa", "auto"
+        )
+        assert result_missing.get("load_in_8bit") is True, (
+            "Should auto-enable 8-bit when not explicitly set"
+        )

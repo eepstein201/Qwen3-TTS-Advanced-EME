@@ -29,6 +29,7 @@ import uvicorn
 try:
     from slowapi import Limiter, _rate_limit_exceeded_handler
     from slowapi.errors import RateLimitExceeded
+
     _HAS_SLOWAPI = True
 except ImportError:
     _HAS_SLOWAPI = False
@@ -138,6 +139,7 @@ from qwen3_tts.server.app_prompts import (  # noqa: E402
 # Real client IP resolution (R-13)
 # ---------------------------------------------------------------------------
 
+
 def _get_real_client_ip(request: Request) -> str:
     """Extract real client IP, checking proxy headers first.
 
@@ -162,6 +164,7 @@ def _get_real_client_ip(request: Request) -> str:
 # ---------------------------------------------------------------------------
 # Auth dependency
 # ---------------------------------------------------------------------------
+
 
 async def verify_auth(request: Request) -> None:
     """Verify Bearer token for protected endpoints."""
@@ -225,15 +228,19 @@ else:
     limiter = None
     _generate_limit = "10/minute"
     _model_limit = "5/minute"
-    logger.warning("slowapi not installed — rate limiting is disabled. Install with: pip install slowapi")
+    logger.warning(
+        "slowapi not installed — rate limiting is disabled. Install with: pip install slowapi"
+    )
 
 
 def _rate_limit(limit_string):
     """Return a slowapi rate limit decorator, or a no-op if slowapi is not installed."""
     if limiter is not None:
         return limiter.limit(limit_string)
+
     def _noop(func):
         return func
+
     return _noop
 
 
@@ -241,8 +248,12 @@ def _rate_limit(limit_string):
 # Public endpoints (no auth)
 # ---------------------------------------------------------------------------
 
-@app.get("/health", response_model=HealthResponse,
-         responses={503: {"model": HealthResponse, "description": "Models still loading"}})
+
+@app.get(
+    "/health",
+    response_model=HealthResponse,
+    responses={503: {"model": HealthResponse, "description": "Models still loading"}},
+)
 async def health(request: Request):
     """Health check endpoint."""
     state = request.app.state
@@ -250,6 +261,7 @@ async def health(request: Request):
 
     if not state.models_loaded.is_set():
         from fastapi.responses import JSONResponse
+
         data = {"status": "loading"}
         # Include model load errors even during loading
         data["model_load_errors"] = {
@@ -310,7 +322,9 @@ async def generation_status(request: Request):
     }
     if gen_state["active"]:
         result["elapsed_sec"] = round(time.time() - gen_state["start_time"], 1)
-        result["eta_sec"] = _estimate_eta(state, gen_state["text_length"], result["elapsed_sec"])
+        result["eta_sec"] = _estimate_eta(
+            state, gen_state["text_length"], result["elapsed_sec"]
+        )
     return result
 
 
@@ -331,6 +345,7 @@ async def queue_status(request: Request):
 # Protected endpoints (require auth)
 # ---------------------------------------------------------------------------
 
+
 @app.get("/stats")
 async def stats(request: Request, _auth: None = Depends(verify_auth)):
     """Get server statistics."""
@@ -349,7 +364,9 @@ async def list_models(request: Request, _auth: None = Depends(verify_auth)):
 
 @app.post("/load-model")
 @_rate_limit(_model_limit)
-async def load_model_endpoint(request: Request, req: LoadModelRequest, _auth: None = Depends(verify_auth)):
+async def load_model_endpoint(
+    request: Request, req: LoadModelRequest, _auth: None = Depends(verify_auth)
+):
     """Load a model on demand."""
     state = request.app.state
     reset_activity_timer(state)
@@ -357,7 +374,9 @@ async def load_model_endpoint(request: Request, req: LoadModelRequest, _auth: No
 
 
 @app.post("/unload-model")
-async def unload_model(request: Request, req: UnloadModelRequest, _auth: None = Depends(verify_auth)):
+async def unload_model(
+    request: Request, req: UnloadModelRequest, _auth: None = Depends(verify_auth)
+):
     """Unload a model to free memory."""
     state = request.app.state
     reset_activity_timer(state)
@@ -366,7 +385,9 @@ async def unload_model(request: Request, req: UnloadModelRequest, _auth: None = 
 
 @app.post("/update-model-config")
 @_rate_limit(_model_limit)
-async def update_model_config(request: Request, req: UpdateModelConfigRequest, _auth: None = Depends(verify_auth)):
+async def update_model_config(
+    request: Request, req: UpdateModelConfigRequest, _auth: None = Depends(verify_auth)
+):
     """Update model size and/or quantization settings."""
     state = request.app.state
     reset_activity_timer(state)
@@ -374,16 +395,23 @@ async def update_model_config(request: Request, req: UpdateModelConfigRequest, _
 
 
 @app.post("/update-startup-config")
-async def update_startup_config(request: Request, req: UpdateStartupConfigRequest, _auth: None = Depends(verify_auth)):
+async def update_startup_config(
+    request: Request,
+    req: UpdateStartupConfigRequest,
+    _auth: None = Depends(verify_auth),
+):
     """Update which models load at startup in config.json."""
     state = request.app.state
     reset_activity_timer(state)
-    return await asyncio.to_thread(handle_update_startup_config, state, req, _get_app_config)
+    return await asyncio.to_thread(
+        handle_update_startup_config, state, req, _get_app_config
+    )
 
 
 # ---------------------------------------------------------------------------
 # ASR endpoints
 # ---------------------------------------------------------------------------
+
 
 @app.post("/load-asr")
 @_rate_limit(_model_limit)
@@ -404,7 +432,9 @@ async def unload_asr(request: Request, _auth: None = Depends(verify_auth)):
 
 @app.post("/transcribe")
 @_rate_limit(_generate_limit)
-async def transcribe(request: Request, req: TranscribeRequest, _auth: None = Depends(verify_auth)):
+async def transcribe(
+    request: Request, req: TranscribeRequest, _auth: None = Depends(verify_auth)
+):
     """Transcribe audio to text using ASR."""
     state = request.app.state
     reset_activity_timer(state)
@@ -420,7 +450,9 @@ async def list_prompts(request: Request, _auth: None = Depends(verify_auth)):
 
 
 @app.post("/delete-prompt")
-async def delete_prompt(request: Request, req: DeletePromptRequest, _auth: None = Depends(verify_auth)):
+async def delete_prompt(
+    request: Request, req: DeletePromptRequest, _auth: None = Depends(verify_auth)
+):
     """Delete a voice prompt and all its format files."""
     state = request.app.state
     reset_activity_timer(state)
@@ -428,7 +460,9 @@ async def delete_prompt(request: Request, req: DeletePromptRequest, _auth: None 
 
 
 @app.post("/rename-prompt")
-async def rename_prompt(request: Request, req: RenamePromptRequest, _auth: None = Depends(verify_auth)):
+async def rename_prompt(
+    request: Request, req: RenamePromptRequest, _auth: None = Depends(verify_auth)
+):
     """Rename a voice prompt (all format files) with rollback on partial failure."""
     state = request.app.state
     reset_activity_timer(state)
@@ -453,7 +487,9 @@ async def prompt_details(request: Request, _auth: None = Depends(verify_auth)):
 
 @app.post("/create-voice-prompt")
 @_rate_limit(_model_limit)
-async def create_voice_prompt_endpoint(request: Request, req: CreateVoicePromptRequest, _auth: None = Depends(verify_auth)):
+async def create_voice_prompt_endpoint(
+    request: Request, req: CreateVoicePromptRequest, _auth: None = Depends(verify_auth)
+):
     """Create a voice clone prompt from uploaded audio."""
     state = request.app.state
     reset_activity_timer(state)
@@ -473,7 +509,7 @@ async def cancel_generation(request: Request, _auth: None = Depends(verify_auth)
         logger.info("Generation cancellation requested")
     return {
         "status": "cancellation_requested",
-        "generation_id": state.generation_state.get("generation_id")
+        "generation_id": state.generation_state.get("generation_id"),
     }
 
 
@@ -481,10 +517,20 @@ async def cancel_generation(request: Request, _auth: None = Depends(verify_auth)
 # Generation endpoints — thin wrappers delegating to app_generation.py
 # ---------------------------------------------------------------------------
 
-@app.post("/generate", response_model=GenerateResponse,
-          responses={200: {"content": {"audio/wav": {"schema": {"type": "string", "format": "binary"}}}}})
+
+@app.post(
+    "/generate",
+    response_model=GenerateResponse,
+    responses={
+        200: {
+            "content": {"audio/wav": {"schema": {"type": "string", "format": "binary"}}}
+        }
+    },
+)
 @_rate_limit(_generate_limit)
-async def generate(request: Request, req: GenerateRequest, _auth: None = Depends(verify_auth)):
+async def generate(
+    request: Request, req: GenerateRequest, _auth: None = Depends(verify_auth)
+):
     """Generate audio from text."""
     state = request.app.state
     reset_activity_timer(state)
@@ -494,7 +540,9 @@ async def generate(request: Request, req: GenerateRequest, _auth: None = Depends
 
 @app.post("/generate-stream")
 @_rate_limit(_generate_limit)
-async def generate_stream(request: Request, req: GenerateRequest, _auth: None = Depends(verify_auth)):
+async def generate_stream(
+    request: Request, req: GenerateRequest, _auth: None = Depends(verify_auth)
+):
     """Stream audio generation — returns chunked audio as it's produced.
 
     Wire format per chunk (little-endian):
@@ -523,12 +571,15 @@ async def generate_stream(request: Request, req: GenerateRequest, _auth: None = 
     state = request.app.state
     reset_activity_timer(state)
     security = state.server_config.get("security", {})
-    return await handle_generate_stream(request, state, req, security, _app_config_provider)
+    return await handle_generate_stream(
+        request, state, req, security, _app_config_provider
+    )
 
 
 # ---------------------------------------------------------------------------
 # WebSocket
 # ---------------------------------------------------------------------------
+
 
 @app.websocket("/ws")
 async def websocket_endpoint(websocket: WebSocket):
@@ -564,6 +615,7 @@ async def shutdown(request: Request, _auth: None = Depends(verify_auth)):
         os.kill(os.getpid(), signal.SIGTERM)
 
     from fastapi import Response
+
     return Response(
         content=json.dumps({"status": "shutting_down"}),
         media_type="application/json",
@@ -575,13 +627,16 @@ async def shutdown(request: Request, _auth: None = Depends(verify_auth)):
 # Main (for running directly)
 # ---------------------------------------------------------------------------
 
+
 def run_server(host="127.0.0.1", port=5123, public=False):
     """Run the FastAPI server."""
     # Configure logging
-    log_fmt = logging.Formatter("%(asctime)s [%(name)s] %(levelname)s: %(message)s",
-                                 datefmt="%Y-%m-%d %H:%M:%S")
+    log_fmt = logging.Formatter(
+        "%(asctime)s [%(name)s] %(levelname)s: %(message)s", datefmt="%Y-%m-%d %H:%M:%S"
+    )
     file_handler = logging.handlers.RotatingFileHandler(
-        LOG_FILE, maxBytes=5 * 1024 * 1024, backupCount=1)
+        LOG_FILE, maxBytes=5 * 1024 * 1024, backupCount=1
+    )
     file_handler.setFormatter(log_fmt)
     stderr_handler = logging.StreamHandler(sys.stderr)
     stderr_handler.setFormatter(log_fmt)
@@ -628,9 +683,13 @@ def run_server(host="127.0.0.1", port=5123, public=False):
 
 if __name__ == "__main__":
     import argparse
+
     parser = argparse.ArgumentParser(description="FastAPI TTS Server")
-    parser.add_argument("--public", action="store_true",
-                        help="Bind to 0.0.0.0 (accessible from network)")
+    parser.add_argument(
+        "--public",
+        action="store_true",
+        help="Bind to 0.0.0.0 (accessible from network)",
+    )
     args = parser.parse_args()
 
     config = load_config()
