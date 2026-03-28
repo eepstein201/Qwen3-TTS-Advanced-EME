@@ -141,23 +141,23 @@ The annotation says `Optional[tuple]` but the actual return type is `Optional[tu
 - **Location**: `qwen3_tts/server/app_lifespan.py:61-95`
 - **Fix**: Wrap `eta_cache` update in a `threading.Lock`
 
-### R-39: Make write_pid_file Atomic via Temp-File + os.replace()
+### R-39: Make write_pid_file Atomic via Temp-File + os.replace() ✅ Fixed
 `write_pid_file` in `config.py:472-473` writes the PID file non-atomically; a crash mid-write leaves a partial PID.
 
 - **Location**: `qwen3_tts/core/config.py:472-473`
-- **Fix**: Write to a temp file, then `os.replace()` for atomic rename
+- **Fix**: Write to a temp file, then `os.replace()` for atomic rename — implemented 2026-03-28
 
-### R-40: Serve realpath in FileResponse for preview_prompt
+### R-40: Serve realpath in FileResponse for preview_prompt ✅ Fixed
 `handle_preview_prompt` resolves the real path for security checks but then passes the original `wav_path` to `FileResponse`. Should serve `real_path`.
 
 - **Location**: `qwen3_tts/server/app_prompts.py:214-222`
-- **Fix**: `FileResponse(real_path, media_type="audio/wav")`
+- **Fix**: `FileResponse(real_path, media_type="audio/wav")` — implemented 2026-03-28
 
-### R-41: Wrap os.remove in try/except with Partial-Failure Reporting in delete_prompt
+### R-41: Wrap os.remove in try/except with Partial-Failure Reporting in delete_prompt ✅ Fixed
 `handle_delete_prompt` calls `os.remove()` without per-file error handling. A partial delete should report which files failed.
 
 - **Location**: `qwen3_tts/server/app_prompts.py:93-97`
-- **Fix**: Wrap each `os.remove` in `try/except OSError` and collect failures
+- **Fix**: Wrap each `os.remove` in `try/except OSError` and collect failures — implemented 2026-03-28
 
 ### R-42: Add json.JSONDecodeError Handling in load_config
 `load_config` in `config.py:137` does not catch `json.JSONDecodeError`, so a corrupt config.json causes an unhandled exception.
@@ -171,29 +171,29 @@ The annotation says `Optional[tuple]` but the actual return type is `Optional[tu
 - **Location**: `qwen3_tts/cli_voice.py:62-68`
 - **Fix**: Accept `args` parameter instead of reading from `sys.argv`
 
-### R-44: Add Cancellation Check in Non-Streaming Batch Loop
+### R-44: Add Cancellation Check in Non-Streaming Batch Loop ✅ Fixed
 `handle_generate` in `app.py:462-464` processes all chunks in a batch loop without checking for cancellation. A cancelled request continues generating.
 
 - **Location**: `qwen3_tts/server/app.py:462-464`
-- **Fix**: Check `generation_state["cancelled"]` inside the loop
+- **Fix**: Check `generation_state["cancelled"]` inside the loop — implemented 2026-03-28
 
-### R-45: Apply sanitize_log to model_name Consistently in app_lifespan.py
+### R-45: Apply sanitize_log to model_name Consistently in app_lifespan.py ✅ Fixed
 `app_lifespan.py:262` logs `model_name` without `sanitize_log`, inconsistent with other log calls.
 
 - **Location**: `qwen3_tts/server/app_lifespan.py:262`
-- **Fix**: `logger.info("...", sanitize_log(model_name))`
+- **Fix**: `logger.info("...", sanitize_log(model_name))` — implemented 2026-03-28
 
-### R-46: Narrow dtype-restore except in inference.py
+### R-46: Narrow dtype-restore except in inference.py ✅ Fixed
 `inference.py:189` uses broad `except Exception` for dtype restore. Should narrow to `except (RuntimeError,)`.
 
 - **Location**: `qwen3_tts/core/engine/inference.py:189`
-- **Fix**: `except (RuntimeError,) as e:`
+- **Fix**: `except (RuntimeError, TypeError) as e:` — implemented 2026-03-28
 
-### R-47: Change VOICE_PROMPTS_DIR to pathlib.Path
+### R-47: Change VOICE_PROMPTS_DIR to pathlib.Path ✅ Fixed
 `config.py:41` defines `VOICE_PROMPTS_DIR` as a string, but `uninstall.py` uses `.exists()` and `.glob()` on it (pathlib methods). Make it a `pathlib.Path`.
 
 - **Location**: `qwen3_tts/core/config.py:41`
-- **Fix**: `VOICE_PROMPTS_DIR = Path(...)`
+- **Fix**: `VOICE_PROMPTS_DIR = Path(...)` — implemented 2026-03-28 (with caller boundary casts for `str` ops)
 
 ### R-48: Remove f-prefix from plain string in cli_config.py
 `cli_config.py:116` uses an f-string with no interpolation (`f"default_voice_description updated"`).
@@ -221,17 +221,17 @@ The `language` field in `TranscribeRequest` is an unconstrained string passed di
 - **Location**: `qwen3_tts/server/validation.py:86, 92`
 - **Fix**: Add a server-level body size limit (uvicorn `--limit-max-requests`, FastAPI `Body(max_length=...)`, or a middleware check)
 
-### R-31: Speaker Validation Case Normalization Gap
+### R-31: Speaker Validation Case Normalization Gap ✅ Fixed
 `"RYAN"` fails validation even though `"Ryan"` and `"ryan"` both pass. The lowercase key check runs first but the fallback `_VALID_SPEAKER_NAMES` check uses the raw `req.speaker` value.
 
 - **Location**: `qwen3_tts/server/validation.py:166`
-- **Fix**: Lowercase `req.speaker` before the `_VALID_SPEAKER_NAMES` fallback check
+- **Fix**: Lowercase `req.speaker` before the `_VALID_SPEAKER_NAMES` fallback check — implemented 2026-03-28
 
-### R-32: cleanup_pid TOCTOU Race
+### R-32: cleanup_pid TOCTOU Race ✅ Fixed
 `os.path.exists()` followed by `os.remove()` in the shutdown path has a race window where the file can be deleted between the two calls.
 
 - **Location**: `qwen3_tts/server/app_lifespan.py:327`
-- **Fix**: Replace with `try: os.remove(TOKEN_FILE) except FileNotFoundError: pass` — the pattern already used elsewhere in the same file
+- **Fix**: Replace with `try: os.remove(TOKEN_FILE) except FileNotFoundError: pass` — implemented 2026-03-28
 
 ### R-28: Speculative Decoding for Inference Acceleration
 Integrate speculative decoding to achieve 1.5-3x inference speedup by using the 0.6B model as a draft for the 1.7B model. Requires upstream library support.
