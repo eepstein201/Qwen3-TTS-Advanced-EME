@@ -117,11 +117,11 @@ The annotation says `Optional[tuple]` but the actual return type is `Optional[tu
 - **Location**: `qwen3_tts/server/app_generation.py:482`
 - **Fix**: Deliberate tradeoff comment already present — "Approximate: read without lock since response is already committed. Exact position available via /queue-status endpoint." — verified 2026-03-28
 
-### R-35: Streaming chunk_total Not Populated
+### R-35: Streaming chunk_total Not Populated ✅ Fixed
 `/generate-stream` never updates `chunk_total` in `generation_state`. Callers polling `/generation-status` for progress see `chunk_total=0` throughout streaming.
 
-- **Location**: `qwen3_tts/server/app_generation.py` (streaming path)
-- **Fix**: Update `generation_state["chunk_total"]` when chunk count is known, matching the non-streaming path
+- **Location**: `qwen3_tts/server/app_generation.py` (streaming path), `qwen3_tts/core/engine/inference.py`
+- **Fix**: Added `progress_callback` parameter to streaming chain; MLX path calls with `chunk_total=0` during streaming then `chunk_total=final_count` at completion; torch path calls with known `chunk_total` upfront — implemented 2026-03-28
 
 ### R-36: generate_dialogue Uses list.extend() on NumPy Arrays ✅ Fixed
 `list.extend()` on numpy arrays iterates scalar-by-scalar, which is very slow for large audio arrays.

@@ -411,12 +411,18 @@ async def handle_generate_stream(request, state, req, security, config_provider)
                 "cancelled": False,
             })
 
+            def _chunk_progress(chunk_idx, chunk_total):
+                """Update generation_state with chunk progress from streaming callback."""
+                state.generation_state.update({
+                    "chunk_index": chunk_idx,
+                    "chunk_total": chunk_total,
+                })
+
             def inference_thread():
                 """Run inference in a thread and push chunks to queue."""
                 try:
                     from qwen3_tts.core.engine import run_inference_streaming
 
-                    chunk_idx = 0
                     for wav_chunk, sr in run_inference_streaming(
                         model=model,
                         text=text,
@@ -429,13 +435,11 @@ async def handle_generate_stream(request, state, req, security, config_provider)
                         instruct=instruct,
                         x_vector_only_mode=x_vector_only_mode,
                         config_provider=config_provider,
+                        progress_callback=_chunk_progress,
                     ):
                         if stop_event.is_set():
-                            logger.info("Generation cancelled after %d chunks", chunk_idx)
+                            logger.info("Generation cancelled by user")
                             break
-
-                        chunk_idx += 1
-                        state.generation_state["chunk_index"] = chunk_idx
 
                         # Length-prefixed format: [sample_rate:4][length:4][audio:length]
                         audio_bytes = wav_chunk.astype("<f4").tobytes()

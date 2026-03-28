@@ -360,7 +360,8 @@ def _run_inference_mlx(model, text, mode, gen_params, language="English",
 def _run_inference_mlx_streaming(model, text, mode, gen_params, language="English",
                                   voice_prompt=None, voice_description=None,
                                   speaker=None, instruct=None,
-                                  x_vector_only_mode=False, config=None):
+                                  x_vector_only_mode=False, config=None,
+                                  progress_callback=None):
     """Run TTS inference using the MLX backend, yielding audio chunks as they generate.
 
     This is a generator that yields (audio_chunk, sample_rate) tuples as they
@@ -378,6 +379,7 @@ def _run_inference_mlx_streaming(model, text, mode, gen_params, language="Englis
         instruct: Style instruction string (custom mode).
         x_vector_only_mode: If True, use empty ref_text for speaker-embedding-only clone.
         config: Pre-loaded config dict (optional, avoids redundant disk read).
+        progress_callback: Optional callable(chunk_index, chunk_total) for progress updates.
 
     Yields:
         (audio_chunk, sample_rate) tuples where audio_chunk is a float32 numpy array.
@@ -442,7 +444,16 @@ def _run_inference_mlx_streaming(model, text, mode, gen_params, language="Englis
         sr = result.sample_rate
         chunk_count += 1
         logger.debug("Streaming chunk %d: %d samples", chunk_count, len(wav))
+
+        # Call progress callback (total unknown until completion for MLX)
+        if progress_callback:
+            progress_callback(chunk_count, 0)  # 0 = unknown total
+
         yield wav, sr
+
+    # After completion, update with final count
+    if progress_callback and chunk_count > 0:
+        progress_callback(chunk_count, chunk_count)
 
     logger.info("Streaming complete: %d chunks, mode=%s [mlx]", chunk_count, mode)
 
@@ -710,7 +721,7 @@ def run_inference_streaming(model, text, mode, gen_params, language="English",
                             voice_prompt=None, voice_description=None,
                             speaker=None, instruct=None,
                             max_chunk_chars=None, x_vector_only_mode=False,
-                            config_provider=None):
+                            config_provider=None, progress_callback=None):
     """Run TTS inference in streaming mode, yielding audio chunks as they generate.
 
     For MLX backend, uses native streaming from model.generate().
@@ -727,6 +738,8 @@ def run_inference_streaming(model, text, mode, gen_params, language="English",
         speaker: Speaker name string (custom mode).
         instruct: Style instruction string (custom mode).
         max_chunk_chars: Max chars per chunk for torch fallback (None = config default).
+        progress_callback: Optional callable(chunk_index, chunk_total) for progress updates.
+                         Called as each chunk is yielded. For MLX, chunk_total=0 until completion.
 
     Yields:
         (audio_chunk, sample_rate) tuples where audio_chunk is float32 numpy array.
@@ -741,6 +754,7 @@ def run_inference_streaming(model, text, mode, gen_params, language="English",
             model, text, mode, gen_params, language,
             voice_prompt, voice_description, speaker, instruct,
             x_vector_only_mode=x_vector_only_mode, config=config,
+            progress_callback=progress_callback,
         )
     else:
         # Torch fallback: chunk the text and yield per-chunk audio
@@ -750,10 +764,15 @@ def run_inference_streaming(model, text, mode, gen_params, language="English",
 
         # Normalize and split into chunks
         chunks = _prepare_text_chunks(text, language, model, max_chunk_chars)
+        chunk_total = len(chunks)  # Total known upfront for torch
 
         for i, chunk in enumerate(chunks):
             preview = chunk[:50] + "..." if len(chunk) > 50 else chunk
-            logger.info("Streaming chunk %d/%d: '%s'", i + 1, len(chunks), preview)
+            logger.info("Streaming chunk %d/%d: '%s'", i + 1, chunk_total, preview)
+
+            # Call progress callback with known total
+            if progress_callback:
+                progress_callback(i + 1, chunk_total)
 
             wav, sr = _run_inference_single(
                 model, chunk, mode, gen_params, language,
