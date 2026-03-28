@@ -162,6 +162,11 @@ async def handle_generate(request, state, req, security, config_provider):
             results = []
 
             for i, text in enumerate(texts):
+                # Check for cancellation before each batch item (R-44)
+                if state.generation_state.get("cancelled"):
+                    logger.info("Batch generation cancelled at item %d/%d", i + 1, len(texts))
+                    break
+
                 # Use pre-lock cache hit if available
                 if i in pre_lock_results:
                     results.append(pre_lock_results[i])

@@ -187,7 +187,7 @@ def _run_inference_torch(model, text, mode, gen_params, language="English",
         if original_dtype is not None:
             try:
                 model.to(original_dtype)
-            except Exception as restore_err:
+            except (RuntimeError, TypeError) as restore_err:
                 logger.warning("Failed to restore model dtype after MPS guard: %s", restore_err)
 
     _cleanup_device_memory()

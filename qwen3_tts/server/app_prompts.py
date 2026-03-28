@@ -88,15 +88,20 @@ def handle_delete_prompt(state, req, config_fn):
 
     base = _strip_extension(name)
 
-    # Find and delete all matching files
+    # Find and delete all matching files with per-file error handling (R-41)
     files_removed = []
+    files_failed = []
     for ext in (".pt", ".wav", ".txt"):
         path = safe_path_join(VOICE_PROMPTS_DIR, f"{base}{ext}")
         if os.path.exists(path):
-            os.remove(path)
-            files_removed.append(f"{base}{ext}")
+            try:
+                os.remove(path)
+                files_removed.append(f"{base}{ext}")
+            except OSError as e:
+                logger.warning("Failed to delete %s: %s", path, e)
+                files_failed.append(f"{base}{ext}")
 
-    if not files_removed:
+    if not files_removed and not files_failed:
         raise HTTPException(status_code=404, detail=f"Voice prompt '{base}' not found")
 
     # If deleted prompt was the default, clear it (immutable — Phase 10c)
@@ -114,7 +119,10 @@ def handle_delete_prompt(state, req, config_fn):
     clear_voice_prompt_cache()
 
     logger.info("Deleted voice prompt '%s': %s", sanitize_log(base), sanitize_log(files_removed))
-    return {"status": "deleted", "name": base, "files_removed": files_removed}
+    result = {"status": "deleted", "name": base, "files_removed": files_removed}
+    if files_failed:
+        result["files_failed"] = files_failed
+    return result
 
 
 def handle_rename_prompt(state, req, config_fn):
@@ -212,14 +220,14 @@ def handle_preview_prompt(name_param):
 
     # Symlink resolution -- prevent path traversal via symlinks (R-20)
     real_path = os.path.realpath(wav_path)
-    real_prompts_dir = os.path.realpath(VOICE_PROMPTS_DIR)
+    real_prompts_dir = os.path.realpath(str(VOICE_PROMPTS_DIR))
     if not real_path.startswith(real_prompts_dir + os.sep):
         raise HTTPException(status_code=403, detail="Access denied: path outside voice prompts directory")
 
-    if not os.path.exists(wav_path):
+    if not os.path.exists(real_path):
         raise HTTPException(status_code=404, detail=f"No .wav file found for prompt '{base}'")
 
-    return FileResponse(wav_path, media_type="audio/wav")
+    return FileResponse(real_path, media_type="audio/wav")
 
 
 def handle_prompt_details(name_param):

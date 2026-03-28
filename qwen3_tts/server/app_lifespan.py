@@ -26,6 +26,7 @@ from qwen3_tts.core.config import (
     get_backend,
     get_eta_cache_ttl,
     cleanup_pid_file,
+    sanitize_log,
 )
 
 # Optional memory monitoring for OOM safeguard
@@ -260,7 +261,7 @@ def _background_load(app_state):
             from qwen3_tts.core.config import get_model_info
             info = get_model_info(model_type)
             model_name = info.get("name", info.get("name_template", model_type))
-            logger.info("Loading %s...", model_name)
+            logger.info("Loading %s...", sanitize_log(model_name))
             t0 = time.time()
             model = load_model(model_type)
             app_state.models[model_type] = model
@@ -324,8 +325,10 @@ def cleanup_pid(app_state):
     if shutdown_timer is not None:
         shutdown_timer.cancel()
     cleanup_pid_file()
-    if os.path.exists(TOKEN_FILE):
+    try:
         os.remove(TOKEN_FILE)
+    except FileNotFoundError:
+        pass
     # Set shutdown event for graceful termination
     shutdown_event = getattr(app_state, "shutdown_event", None)
     if shutdown_event is not None:

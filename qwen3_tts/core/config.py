@@ -38,7 +38,7 @@ IS_LINUX = platform.system() == "Linux"
 
 USER_FILES_DIR = os.path.expanduser("~/Qwen3-TTS_UserFiles")
 CONFIG_PATH = os.path.join(USER_FILES_DIR, "config.json")
-VOICE_PROMPTS_DIR = os.path.join(USER_FILES_DIR, "voice_prompts")
+VOICE_PROMPTS_DIR = pathlib.Path(USER_FILES_DIR) / "voice_prompts"
 HISTORY_FILE = os.path.expanduser("~/.voice_history.jsonl")
 PID_FILE = pathlib.Path(os.path.join(USER_FILES_DIR, ".voice_server.pid"))
 LOG_FILE = pathlib.Path(os.path.join(USER_FILES_DIR, ".voice_server.log"))
@@ -421,8 +421,9 @@ def safe_path_join(base_dir: str, *parts: str) -> str:
     Returns:
         The resolved absolute path (immutable — returns a new string).
     """
-    joined = os.path.realpath(os.path.join(base_dir, *parts))
-    real_base = os.path.realpath(base_dir)
+    base_str = str(base_dir)  # Accept pathlib.Path
+    joined = os.path.realpath(os.path.join(base_str, *parts))
+    real_base = os.path.realpath(base_str)
     if not (joined == real_base or joined.startswith(real_base + os.sep)):
         raise ValueError("Path traversal detected")
     return joined
@@ -469,8 +470,10 @@ def read_pid_file():
 
 
 def write_pid_file(pid):
-    """Write PID to .voice_server.pid."""
-    PID_FILE.write_text(str(pid))
+    """Write PID to .voice_server.pid atomically via temp-file + os.replace()."""
+    tmp = PID_FILE.with_suffix(".pid.tmp")
+    tmp.write_text(str(pid))
+    os.replace(tmp, PID_FILE)
 
 
 def cleanup_pid_file():

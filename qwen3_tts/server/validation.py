@@ -164,7 +164,7 @@ def _validate_generation_request(req: GenerateRequest, security_config: dict) ->
     # Speaker validation for custom mode
     if req.mode == "custom" and req.speaker:
         speaker_key = req.speaker.lower() if isinstance(req.speaker, str) else ""
-        if speaker_key not in CUSTOM_VOICE_SPEAKERS and req.speaker not in _VALID_SPEAKER_NAMES:
+        if speaker_key not in CUSTOM_VOICE_SPEAKERS and speaker_key not in _VALID_SPEAKER_NAMES:
             raise HTTPException(
                 status_code=400,
                 detail=f"Unknown speaker: {req.speaker}. Valid: {', '.join(CUSTOM_VOICE_SPEAKERS.keys())}",
