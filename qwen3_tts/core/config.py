@@ -279,7 +279,7 @@ def get_default_clone_prompt(config=None):
     if config is None:
         try:
             config = load_config()
-        except (json.JSONDecodeError, OSError):
+        except (json.JSONDecodeError, ValueError, OSError):
             config = {}
 
     configured = config.get("default_clone_prompt")
@@ -571,7 +571,7 @@ def get_torch_dtype_name():
     try:
         config = load_config()
         dtype = config.get("advanced", {}).get("dtype", "float32")
-    except (json.JSONDecodeError, OSError):
+    except (json.JSONDecodeError, ValueError, OSError):
         dtype = "float32"
     if dtype not in VALID_DTYPES:
         dtype = "float32"
@@ -599,7 +599,7 @@ def get_backend():
     try:
         config = load_config()
         backend = config.get("advanced", {}).get("backend", _default)
-    except (json.JSONDecodeError, OSError):
+    except (json.JSONDecodeError, ValueError, OSError):
         backend = _default
     if backend not in VALID_BACKENDS:
         backend = _default
@@ -616,7 +616,7 @@ def get_mlx_quantization():
     try:
         config = load_config()
         quant = config.get("advanced", {}).get("mlx_quantization", "8bit")
-    except (json.JSONDecodeError, OSError):
+    except (json.JSONDecodeError, ValueError, OSError):
         quant = "8bit"
     if quant not in VALID_MLX_QUANTIZATIONS:
         quant = "8bit"
@@ -640,7 +640,7 @@ def get_model_size():
     try:
         config = load_config()
         size = config.get("advanced", {}).get("model_size", "1.7B")
-    except (json.JSONDecodeError, OSError):
+    except (json.JSONDecodeError, ValueError, OSError):
         size = "1.7B"
     if size not in VALID_MODEL_SIZES:
         size = "1.7B"
@@ -662,7 +662,7 @@ def get_torch_quantization():
     try:
         config = load_config()
         quant = config.get("advanced", {}).get("torch_quantization", "none")
-    except (json.JSONDecodeError, OSError):
+    except (json.JSONDecodeError, ValueError, OSError):
         quant = "none"
     if quant not in VALID_TORCH_QUANTIZATIONS:
         quant = "none"
@@ -679,7 +679,7 @@ def get_vllm_gpu_util():
     try:
         config = load_config()
         util = config.get("advanced", {}).get("vllm_gpu_memory_utilization", 0.7)
-    except (json.JSONDecodeError, OSError):
+    except (json.JSONDecodeError, ValueError, OSError):
         util = 0.7
     if not isinstance(util, (int, float)) or not (0.0 < util <= 1.0):
         util = 0.7
@@ -695,7 +695,7 @@ def get_vllm_port():
     try:
         config = load_config()
         port = config.get("advanced", {}).get("vllm_port")
-    except (json.JSONDecodeError, OSError):
+    except (json.JSONDecodeError, ValueError, OSError):
         port = None
     if port is not None:
         if not isinstance(port, int) or not (1024 <= port <= 65535):
@@ -729,7 +729,7 @@ def _get_config_value(key_path: list, default, validator=None):
         if validator and not validator(val):
             return default
         return val if val is not None else default
-    except (json.JSONDecodeError, OSError):
+    except (json.JSONDecodeError, ValueError, OSError):
         return default
 
 
@@ -949,7 +949,7 @@ def get_prosody_presets(config=None):
     if config is None:
         try:
             config = load_config()
-        except (json.JSONDecodeError, OSError):
+        except (json.JSONDecodeError, ValueError, OSError):
             config = {}
     user_presets = config.get("prosody_presets", {})
     return {**DEFAULT_PROSODY_PRESETS, **user_presets}
