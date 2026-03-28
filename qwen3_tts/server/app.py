@@ -170,7 +170,15 @@ async def verify_auth(request: Request) -> None:
     token = request.headers.get("Authorization", "").replace("Bearer ", "")
     if not secrets.compare_digest(token, request.app.state.auth_token):
         client_ip = _get_real_client_ip(request)
-        logger.warning("Auth failure from %s on %s %s", sanitize_log(client_ip), request.method, request.url.path)
+        # Determine failure reason for audit logging (R-26)
+        failure_reason = "missing_token" if not token else "invalid_token"
+        logger.warning(
+            "Auth failure: %s from %s on %s %s",
+            failure_reason,
+            sanitize_log(client_ip),
+            request.method,
+            request.url.path,
+        )
         raise HTTPException(status_code=401, detail="Unauthorized")
 
 

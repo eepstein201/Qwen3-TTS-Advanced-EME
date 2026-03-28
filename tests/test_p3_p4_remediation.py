@@ -522,11 +522,15 @@ class TestAuditLogging(unittest.TestCase):
     """Verify auth failures are logged with client IP."""
 
     def test_auth_failure_logs_warning(self):
-        """verify_auth should log client IP on failure."""
+        """verify_auth should log client IP and failure reason on failure (R-26)."""
         from qwen3_tts.server.app import verify_auth
         source = inspect.getsource(verify_auth)
         self.assertIn("logger.warning", source)
         self.assertIn("Auth failure", source)
+        # R-26: Enhanced audit logging includes failure reason
+        self.assertIn("failure_reason", source)
+        self.assertIn("missing_token", source)
+        self.assertIn("invalid_token", source)
 
     def test_auth_uses_real_client_ip(self):
         """verify_auth should use _get_real_client_ip for audit logging."""

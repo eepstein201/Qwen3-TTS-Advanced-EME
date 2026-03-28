@@ -24,11 +24,11 @@ The current `engine.py` is very large (~1800 lines). Split into logical modules:
 - **Location**: `qwen3_tts/core/engine/` package (6 submodules)
 - **Fix**: Refactored to `model_loader.py`, `inference.py`, `audio_processing.py`, `voice_prompt.py`, `text_processing.py`, `asr.py` with facade pattern — already done
 
-### R-16: Model Warm-up Pass
+### R-16: Model Warm-up Pass ✅ Fixed
 Add a warm-up inference pass after model loading to ensure all kernels are compiled and memory is allocated before the first real request.
 
-- **Benefit**: More consistent latency for first generation
-- **Implementation**: Run a short dummy inference after model load completes
+- **Location**: `qwen3_tts/core/engine/model_loader.py:335-367`
+- **Fix**: `_warmup_model()` already implemented for design models; clone/custom models correctly skipped because they require voice prompts — verified 2026-03-28
 
 ### R-17: Temperature Consistency (Torch vs MLX) ✅ Fixed
 The default temperature differs between backends (0.7 for torch, 0.9 for MLX). Standardize to use the same default from config.
@@ -36,17 +36,17 @@ The default temperature differs between backends (0.7 for torch, 0.9 for MLX). S
 - **Location**: `_run_inference_mlx` (hardcoded 0.9) should read from gen_params like torch does
 - **Fix**: MLX path now reads from `gen_params` via `_get_mlx_gen_params()` consistently with torch — verified 2026-03-28
 
-### R-18: Respect Explicit torch_quantization on Turing GPUs
+### R-18: Respect Explicit torch_quantization on Turing GPUs ✅ Fixed
 Currently, the CUDA optimization code overrides `torch_quantization` to "8-bit" on Turing GPUs (T4) even if user explicitly sets a different value.
 
-- **Location**: `qwen3_tts/core/config.py` in `get_optimal_torch_quant()`
-- **Fix**: Only apply override if config value is None/auto, not if explicitly set
+- **Location**: `qwen3_tts/core/engine/model_loader.py:186-198` (Turing override logic)
+- **Fix**: Already implemented — override only applies when config key missing, not when explicitly set — verified 2026-03-28
 
-### R-19: Thread-Safe request_queue
+### R-19: Thread-Safe request_queue ✅ Fixed
 The `state.request_queue` is a plain `set()` with no locking. Add thread-safe protection.
 
-- **Current**: `app.state.request_queue = set()`
-- **Fix**: Use `threading.Semaphore` or wrap access with lock
+- **Location**: `qwen3_tts/server/app_lifespan.py:181-182`
+- **Fix**: `threading.Lock()` (`request_queue_lock`) already implemented with proper `with` usage — verified 2026-03-28
 
 ### R-20: Symlink Resolution in /preview-prompt ✅ Fixed
 The `/preview-prompt` endpoint should resolve symlinks in the voice prompt path to prevent potential security issues.
@@ -87,12 +87,11 @@ The `/generate-stream` endpoint returns raw float32 chunks, but this format is n
 - **Location**: `CLAUDE.md` after Server API table
 - **Fix**: Added wire format spec with Python and JavaScript consumption examples — implemented 2026-03-28
 
-### R-26: Audit Logging for Auth Failures
+### R-26: Audit Logging for Auth Failures ✅ Fixed
 Add audit logging for authentication failures to detect potential brute-force attacks.
 
-- **Log level**: WARNING
-- **Include**: IP address, timestamp, failure reason (rate-limited vs invalid token)
-- **Retention**: Configurable via `security.audit_log_retention_days`
+- **Location**: `qwen3_tts/server/app.py:166-189`
+- **Fix**: Enhanced `verify_auth()` to log failure reason (missing_token, invalid_token) — implemented 2026-03-28
 
 ### R-27: Configurable Silence Gap
 The silence gap inserted between chunks is currently hardcoded. Make it configurable.

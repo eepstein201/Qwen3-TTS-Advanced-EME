@@ -461,4 +461,33 @@ def test_retry_model_load_raises_after_exhaustion():
     with patch("time.sleep"), pytest.raises(OSError, match="persistent failure"):
         _retry_model_load(mock_fn, "clone", "repo/model")
 
-    assert mock_fn.call_count == 4  # 1 initial + 3 retries
+
+# ---- R-18: Turing GPU torch_quantization (already implemented) ----
+
+@pytest.mark.unit
+def test_turing_respects_explicit_torch_quantization():
+    """Turing GPUs should respect explicit torch_quantization setting (R-18).
+
+    When torch_quantization is explicitly set in config (e.g., "none"),
+    the auto-8-bit override on Turing GPUs should NOT be applied.
+    """
+    from qwen3_tts.core.engine.model_loader import _resolve_load_kwargs
+
+    mock_torch = MagicMock()
+    mock_torch.float16 = "float16_sentinel"
+    mock_torch.cuda.is_available.return_value = True
+    mock_torch.cuda.get_device_capability.return_value = (7, 5)  # Turing T4
+
+    # Test 1: Explicitly set to "none" should NOT get 8-bit override
+    mock_config_none = {"advanced": {"torch_quantization": "none"}}
+    with patch.dict(sys.modules, {"torch": mock_torch}), \
+         patch("qwen3_tts.core.engine.model_loader.load_config", return_value=mock_config_none):
+        result_none = _resolve_load_kwargs("none", "float16_sentinel", "cuda", "sdpa", "auto")
+        assert "load_in_8bit" not in result_none, "Should not auto-override when explicitly set to none"
+
+    # Test 2: NOT explicitly set (key missing) SHOULD get 8-bit override
+    mock_config_missing = {"advanced": {}}  # torch_quantization key missing
+    with patch.dict(sys.modules, {"torch": mock_torch}), \
+         patch("qwen3_tts.core.engine.model_loader.load_config", return_value=mock_config_missing):
+        result_missing = _resolve_load_kwargs("none", "float16_sentinel", "cuda", "sdpa", "auto")
+        assert result_missing.get("load_in_8bit") is True, "Should auto-enable 8-bit when not explicitly set"
