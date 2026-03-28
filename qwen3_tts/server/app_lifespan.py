@@ -63,31 +63,32 @@ def _estimate_eta(app_state, text_length: int, elapsed_sec: float) -> Optional[f
     """Estimate remaining seconds from history data."""
     now = time.time()
 
-    # Refresh cache if stale
-    if now - app_state.eta_cache["last_updated"] > get_eta_cache_ttl():
-        try:
-            if not os.path.exists(HISTORY_FILE):
-                app_state.eta_cache["median_rate"] = None
-            else:
-                with open(HISTORY_FILE, "r") as f:
-                    lines = deque(f, maxlen=20)
-                rates = []
-                for line in lines:
-                    entry = json.loads(line)
-                    dur = entry.get("duration_sec")
-                    tl = entry.get("text_length")
-                    if dur and tl and dur > 0:
-                        rates.append(tl / dur)
-                if rates:
-                    rates.sort()
-                    app_state.eta_cache["median_rate"] = rates[len(rates) // 2]
-                else:
+    # Refresh cache if stale — lock to prevent concurrent read-modify-write races
+    with app_state.eta_cache_lock:
+        if now - app_state.eta_cache["last_updated"] > get_eta_cache_ttl():
+            try:
+                if not os.path.exists(HISTORY_FILE):
                     app_state.eta_cache["median_rate"] = None
-        except (json.JSONDecodeError, OSError, KeyError, ValueError):
-            app_state.eta_cache["median_rate"] = None
-        app_state.eta_cache["last_updated"] = now
+                else:
+                    with open(HISTORY_FILE, "r") as f:
+                        lines = deque(f, maxlen=20)
+                    rates = []
+                    for line in lines:
+                        entry = json.loads(line)
+                        dur = entry.get("duration_sec")
+                        tl = entry.get("text_length")
+                        if dur and tl and dur > 0:
+                            rates.append(tl / dur)
+                    if rates:
+                        rates.sort()
+                        app_state.eta_cache["median_rate"] = rates[len(rates) // 2]
+                    else:
+                        app_state.eta_cache["median_rate"] = None
+            except (json.JSONDecodeError, OSError, KeyError, ValueError):
+                app_state.eta_cache["median_rate"] = None
+            app_state.eta_cache["last_updated"] = now
 
-    median_rate = app_state.eta_cache["median_rate"]
+        median_rate = app_state.eta_cache["median_rate"]
     if median_rate is None or median_rate <= 0:
         return None
 
@@ -191,6 +192,7 @@ async def lifespan(app):
 
     # ETA cache
     app.state.eta_cache = {"median_rate": None, "last_updated": 0}
+    app.state.eta_cache_lock = threading.Lock()
 
     # Model load error tracking
     app.state.model_load_errors = {"clone": None, "design": None, "custom": None}

@@ -13,6 +13,7 @@ No GPU, models, or running server required. Tests use FastAPI TestClient.
 
 Run: pytest tests/test_fastapi_server.py -v
 """
+import threading
 import time
 from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
@@ -191,7 +192,8 @@ def test_estimate_eta_zero_median_rate():
     """_estimate_eta returns None when median_rate is 0."""
     from qwen3_tts.server.app import _estimate_eta
     state = SimpleNamespace(
-        eta_cache={"median_rate": 0.0, "last_updated": time.time() + 9999}
+        eta_cache={"median_rate": 0.0, "last_updated": time.time() + 9999},
+        eta_cache_lock=threading.Lock(),
     )
     result = _estimate_eta(state, text_length=100, elapsed_sec=5.0)
     assert result is None
@@ -203,7 +205,8 @@ def test_estimate_eta_none_median_rate():
     """_estimate_eta returns None when median_rate is None."""
     from qwen3_tts.server.app import _estimate_eta
     state = SimpleNamespace(
-        eta_cache={"median_rate": None, "last_updated": time.time() + 9999}
+        eta_cache={"median_rate": None, "last_updated": time.time() + 9999},
+        eta_cache_lock=threading.Lock(),
     )
     result = _estimate_eta(state, text_length=100, elapsed_sec=5.0)
     assert result is None
@@ -215,7 +218,8 @@ def test_estimate_eta_positive_rate():
     """_estimate_eta returns remaining seconds with valid rate."""
     from qwen3_tts.server.app import _estimate_eta
     state = SimpleNamespace(
-        eta_cache={"median_rate": 10.0, "last_updated": time.time() + 9999}
+        eta_cache={"median_rate": 10.0, "last_updated": time.time() + 9999},
+        eta_cache_lock=threading.Lock(),
     )
     # text_length=100, rate=10 chars/sec → estimated_total=10s, elapsed=2s → remaining=8s
     result = _estimate_eta(state, text_length=100, elapsed_sec=2.0)
