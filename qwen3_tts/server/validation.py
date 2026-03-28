@@ -178,7 +178,7 @@ def _validate_generation_request(req: GenerateRequest, security_config: dict) ->
         )
 
 
-def _validate_prompt_name(name: str) -> Optional[tuple]:
+def _validate_prompt_name(name: str) -> Optional[tuple[dict, int]]:
     """Validate prompt name — returns error tuple or None."""
     if not name or not name.strip():
         return {"error": "Missing prompt name", "recovery": "config"}, 400
