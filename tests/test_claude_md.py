@@ -1,13 +1,23 @@
-import unittest
+"""Guard tests: CLAUDE.md progressive-disclosure budget and companion doc."""
+import os
 
 
-class TestClaudeMD(unittest.TestCase):
-    def test_claude_md_under_300_lines(self):
-        with open("CLAUDE.md") as f:
-            lines = f.readlines()
-        self.assertLessEqual(len(lines), 300,
-            f"CLAUDE.md is {len(lines)} lines; must be ≤300 for progressive disclosure")
+def test_claude_md_under_300_lines():
+    """CLAUDE.md must be <=300 lines for progressive disclosure (R-15 / Phase 1.1).
+
+    Deep-dive content belongs in docs/00-Foundations/ARCHITECTURE.md.
+    """
+    with open("CLAUDE.md") as f:
+        lines = f.readlines()
+    assert len(lines) <= 300, (
+        f"CLAUDE.md is {len(lines)} lines; must be <=300. "
+        "Move deep-dive content to docs/00-Foundations/ARCHITECTURE.md."
+    )
 
 
-if __name__ == "__main__":
-    unittest.main()
+def test_architecture_md_exists():
+    """ARCHITECTURE.md must exist as the deep-dive companion to CLAUDE.md."""
+    assert os.path.exists("docs/00-Foundations/ARCHITECTURE.md"), (
+        "docs/00-Foundations/ARCHITECTURE.md missing — "
+        "this is where deep-dive content from CLAUDE.md should live."
+    )
