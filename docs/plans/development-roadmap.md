@@ -4,13 +4,23 @@ This document outlines future improvements identified during the multi-agent cod
 
 ## Priority 3 — Medium Priority
 
-### R-13: Rate Limiting
+### R-13: Rate Limiting ✅ Fixed
 Implement API rate limiting to prevent abuse and ensure fair resource allocation.
 
-- **Tool**: `slowapi` (recommended) or similar
-- **Scope**: Per-IP and per-token rate limits
-- **Configurable limits**: Via config.json
-- **Endpoints to protect**: `/generate`, `/generate-stream`, `/load-model`, `/update-model-config`
+- **Location**: `qwen3_tts/server/app.py:139-189` (rate limit key functions)
+- **Location**: `qwen3_tts/server/app.py:256-283` (multiple limiters, decorator)
+- **Location**: `qwen3_tts/core/config.py:60-91` (config validation)
+- **Location**: `tests/test_rate_limiting.py` (comprehensive test suite)
+- **Fix:** Enhanced rate limiting with per-IP, per-token, and hybrid strategies — implemented 2026-03-28
+- **Features:**
+  - Per-IP rate limiting (handles reverse proxies)
+  - Per-token rate limiting (SHA-256 hash-based, prevents token leakage)
+  - Hybrid strategy (both IP and token limits)
+  - Configurable limits via config.json
+  - All R-13 endpoints protected (13 endpoints total)
+  - Comprehensive test suite with AI regression patterns (15 tests)
+  - User documentation and troubleshooting guide
+  - slowapi now required dependency (simplified architecture)
 
 ### R-14: Crossfade Between Chunks ✅ Fixed
 When text is split into chunks and generated separately, add smooth crossfading between segments to reduce audible artifacts at chunk boundaries.
@@ -75,11 +85,13 @@ Add optional LUFS (loudness) normalization to audio post-processing for broadcas
 - **Config**: `generation.lufs_target` (e.g., -16.0 for EBU R128)
 - **Default**: Disabled (current behavior)
 
-### R-24: Pagination for /prompts
+### R-24: Pagination for /prompts ✅ Fixed
 The `/prompts` endpoint returns all voice prompts at once. Add pagination for large prompt collections.
 
+- **Location**: `qwen3_tts/server/app_prompts.py:55-71` (handle_list_prompts)
+- **Fix**: Pagination with offset/limit query params already implemented — verified 2026-03-28
 - **Query params**: `?offset=0&limit=50`
-- **Response**: Include total count and pagination metadata
+- **Response**: Includes total count, offset, and limit metadata
 
 ### R-25: Document Streaming Wire Format ✅ Fixed
 The `/generate-stream` endpoint returns raw float32 chunks, but this format is not documented.
@@ -160,11 +172,13 @@ The annotation says `Optional[tuple]` but the actual return type is `Optional[tu
 - **Location**: `qwen3_tts/core/config.py:137`
 - **Fix**: Raises `ValueError` with clear message; all call sites updated to also catch `ValueError` — implemented 2026-03-28
 
-### R-43: Refactor create_voice.main() to Accept Args Directly
-`create_voice.main()` reads from `sys.argv` directly, making it untestable without subprocess calls.
+### R-43: Refactor create_voice.main() to Accept Args Directly (PARTIAL)
+`create_voice.main()` uses argparse (standard pattern) but still reads from `sys.argv` via `parser.parse_args()`. Can be made more directly testable by accepting `args` parameter.
 
-- **Location**: `qwen3_tts/cli_voice.py:62-68`
-- **Fix**: Accept `args` parameter instead of reading from `sys.argv`
+- **Location**: `qwen3_tts/tools/create_voice.py:218-240`
+- **Current**: Uses `argparse.ArgumentParser()` with `parser.parse_args()` (reads sys.argv by default)
+- **Improvement**: Accept optional `args` parameter for easier testing without subprocess/mocking
+- **Note**: Core logic already separated into `create_and_save_voice_prompt()` function (testable)
 
 ### R-44: Add Cancellation Check in Non-Streaming Batch Loop ✅ Fixed
 `handle_generate` in `app.py:462-464` processes all chunks in a batch loop without checking for cancellation. A cancelled request continues generating.
