@@ -413,6 +413,7 @@ async def load_model_endpoint(
 
 
 @app.post("/unload-model")
+@_rate_limit(_model_limit, strategy="hybrid")
 async def unload_model(
     request: Request, req: UnloadModelRequest, _auth: None = Depends(verify_auth)
 ):
@@ -434,6 +435,7 @@ async def update_model_config(
 
 
 @app.post("/update-startup-config")
+@_rate_limit("2/minute", strategy="hybrid")
 async def update_startup_config(
     request: Request,
     req: UpdateStartupConfigRequest,
@@ -462,6 +464,7 @@ async def load_asr(request: Request, _auth: None = Depends(verify_auth)):
 
 
 @app.post("/unload-asr")
+@_rate_limit(_model_limit, strategy="hybrid")
 async def unload_asr(request: Request, _auth: None = Depends(verify_auth)):
     """Unload the ASR model to free memory."""
     state = request.app.state
@@ -489,6 +492,7 @@ async def list_prompts(request: Request, _auth: None = Depends(verify_auth)):
 
 
 @app.post("/delete-prompt")
+@_rate_limit("10/minute", strategy="hybrid")
 async def delete_prompt(
     request: Request, req: DeletePromptRequest, _auth: None = Depends(verify_auth)
 ):
@@ -499,6 +503,7 @@ async def delete_prompt(
 
 
 @app.post("/rename-prompt")
+@_rate_limit("10/minute", strategy="hybrid")
 async def rename_prompt(
     request: Request, req: RenamePromptRequest, _auth: None = Depends(verify_auth)
 ):
