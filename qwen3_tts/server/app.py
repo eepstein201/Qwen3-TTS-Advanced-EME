@@ -26,14 +26,9 @@ from fastapi import FastAPI, Request, HTTPException, Depends, WebSocket
 from fastapi.middleware.cors import CORSMiddleware
 import uvicorn
 
-# Optional rate limiting (R-13)
-try:
-    from slowapi import Limiter, _rate_limit_exceeded_handler
-    from slowapi.errors import RateLimitExceeded
-
-    _HAS_SLOWAPI = True
-except ImportError:
-    _HAS_SLOWAPI = False
+# Rate limiting (R-13)
+from slowapi import Limiter, _rate_limit_exceeded_handler
+from slowapi.errors import RateLimitExceeded
 
 logger = logging.getLogger("tts")
 
@@ -249,37 +244,24 @@ async def security_headers(request: Request, call_next):
     return response
 
 
-# Rate limiting (R-13) — optional, requires slowapi
-if _HAS_SLOWAPI:
-    _rate_config = load_config().get("security", {}).get("rate_limits", {})
-    _generate_limit = _rate_config.get("generate", "10/minute")
-    _model_limit = _rate_config.get("model_ops", "5/minute")
-    _transcribe_limit = _rate_config.get("transcribe", "10/minute")
-    _prompt_ops_limit = _rate_config.get("prompt_ops", "10/minute")
-    _config_ops_limit = _rate_config.get("config_ops", "2/minute")
+# Rate limiting (R-13)
+_rate_config = load_config().get("security", {}).get("rate_limits", {})
+_generate_limit = _rate_config.get("generate", "10/minute")
+_model_limit = _rate_config.get("model_ops", "5/minute")
+_transcribe_limit = _rate_config.get("transcribe", "10/minute")
+_prompt_ops_limit = _rate_config.get("prompt_ops", "10/minute")
+_config_ops_limit = _rate_config.get("config_ops", "2/minute")
 
-    # Create separate limiters for different strategies
-    limiter_hybrid = Limiter(key_func=_get_rate_limit_key)
-    limiter_ip = Limiter(key_func=_get_ip_key)
-    limiter_token = Limiter(key_func=_get_token_key)
+# Create separate limiters for different strategies
+limiter_hybrid = Limiter(key_func=_get_rate_limit_key)
+limiter_ip = Limiter(key_func=_get_ip_key)
+limiter_token = Limiter(key_func=_get_token_key)
 
-    app.state.limiter_hybrid = limiter_hybrid
-    app.state.limiter_ip = limiter_ip
-    app.state.limiter_token = limiter_token
+app.state.limiter_hybrid = limiter_hybrid
+app.state.limiter_ip = limiter_ip
+app.state.limiter_token = limiter_token
 
-    app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
-else:
-    limiter_hybrid = None
-    limiter_ip = None
-    limiter_token = None
-    _generate_limit = "10/minute"
-    _model_limit = "5/minute"
-    _transcribe_limit = "10/minute"
-    _prompt_ops_limit = "10/minute"
-    _config_ops_limit = "2/minute"
-    logger.warning(
-        "slowapi not installed — rate limiting is disabled. Install with: pip install slowapi"
-    )
+app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 
 
 def _rate_limit(limit_string, strategy="hybrid"):
@@ -290,7 +272,7 @@ def _rate_limit(limit_string, strategy="hybrid"):
         strategy: "hybrid" (both IP+token), "ip" (IP only), "token" (token only)
 
     Returns:
-        Decorator function or no-op if slowapi not installed.
+        Decorator function.
     """
     limiter_map = {
         "hybrid": limiter_hybrid,
@@ -298,13 +280,7 @@ def _rate_limit(limit_string, strategy="hybrid"):
         "token": limiter_token,
     }
     selected_limiter = limiter_map.get(strategy)
-
-    if selected_limiter is not None:
-        return selected_limiter.limit(limit_string)
-
-    def _noop(func):
-        return func
-    return _noop
+    return selected_limiter.limit(limit_string)
 
 
 # ---------------------------------------------------------------------------
