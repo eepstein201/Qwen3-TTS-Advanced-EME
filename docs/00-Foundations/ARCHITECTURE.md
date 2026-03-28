@@ -273,3 +273,95 @@ Generation button was broken: JS streaming completed but Gradio Status textbox s
 - JS-only `.then()` steps now include `fn=lambda x: x` passthrough alongside `js=...` to keep the chain alive
 - CSS passed via `demo.launch(css=...)` (Gradio 6 moved `css` from `Blocks()` to `launch()`)
 - E2E Playwright tests: fixed `unittest.SkipTest` being swallowed by `except Exception: pass`
+
+## Streaming Wire Format (R-25)
+
+The `/generate-stream` endpoint returns audio chunks in a binary format with length-prefixed headers.
+
+### Binary Format
+
+**Structure:** `[sample_rate:4][length:4][audio:length]` repeated for each chunk
+
+| Field | Size | Type | Description |
+|-------|------|------|-------------|
+| sample_rate | 4 bytes | uint32 LE | Audio sample rate (e.g., 24000) |
+| length | 4 bytes | uint32 LE | Number of bytes in the audio data |
+| audio | variable | float32 LE | PCM audio samples (little-endian) |
+
+### Python Example
+
+```python
+import struct
+import requests
+import numpy as np
+
+response = requests.post(
+    "http://127.0.0.1:5123/generate-stream",
+    headers={"Authorization": f"Bearer {token}"},
+    json={"text": "Hello world", "mode": "design"},
+    stream=True,
+)
+
+all_audio = []
+
+for chunk in response.iter_content(chunk_size=8192):
+    data = chunk
+    while len(data) >= 8:  # Need at least header
+        sr, length = struct.unpack("<II", data[:8])
+        audio_bytes = data[8:8+length]
+        data = data[8+length:]
+        
+        # Convert to numpy float32 array
+        wav = np.frombuffer(audio_bytes, dtype="<f4")
+        all_audio.append(wav)
+
+# Combine all chunks
+full_audio = np.concatenate(all_audio)
+```
+
+### JavaScript Example
+
+```javascript
+const response = await fetch('http://127.0.0.1:5123/generate-stream', {
+  method: 'POST',
+  headers: {
+    'Authorization': `Bearer ${token}`,
+    'Content-Type': 'application/json',
+  },
+  body: JSON.stringify({ text: 'Hello world', mode: 'design' }),
+});
+
+const reader = response.body.getReader();
+const audioChunks = [];
+
+while (true) {
+  const { done, value } = await reader.read();
+  if (done) break;
+
+  let offset = 0;
+  const data = new Uint8Array(value);
+
+  while (offset + 8 <= data.length) {
+    // Read header: sample_rate (4 bytes) + length (4 bytes)
+    const srView = new DataView(data.buffer, offset, 4);
+    const lenView = new DataView(data.buffer, offset + 4, 4);
+    const sr = srView.getUint32(0, true);  // little-endian
+    const length = lenView.getUint32(0, true);
+
+    // Read audio data
+    const audioBytes = data.slice(offset + 8, offset + 8 + length);
+    audioChunks.push(audioBytes);
+
+    offset += 8 + length;
+  }
+}
+
+// Combine all chunks
+const totalLength = audioChunks.reduce((sum, chunk) => sum + chunk.length, 0);
+const combined = new Uint8Array(totalLength);
+let position = 0;
+for (const chunk of audioChunks) {
+  combined.set(chunk, position);
+  position += chunk.length;
+}
+```

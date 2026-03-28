@@ -34,11 +34,11 @@ Add a warm-up inference pass after model loading to ensure all kernels are compi
 - **Benefit**: More consistent latency for first generation
 - **Implementation**: Run a short dummy inference after model load completes
 
-### R-17: Temperature Consistency (Torch vs MLX)
+### R-17: Temperature Consistency (Torch vs MLX) ✅ Fixed
 The default temperature differs between backends (0.7 for torch, 0.9 for MLX). Standardize to use the same default from config.
 
 - **Location**: `_run_inference_mlx` (hardcoded 0.9) should read from gen_params like torch does
-- **Fix**: Remove hardcoded `temperature=0.9` default
+- **Fix**: MLX path now reads from `gen_params` via `_get_mlx_gen_params()` consistently with torch — verified 2026-03-28
 
 ### R-18: Respect Explicit torch_quantization on Turing GPUs
 Currently, the CUDA optimization code overrides `torch_quantization` to "8-bit" on Turing GPUs (T4) even if user explicitly sets a different value.
@@ -52,25 +52,25 @@ The `state.request_queue` is a plain `set()` with no locking. Add thread-safe pr
 - **Current**: `app.state.request_queue = set()`
 - **Fix**: Use `threading.Semaphore` or wrap access with lock
 
-### R-20: Symlink Resolution in /preview-prompt
+### R-20: Symlink Resolution in /preview-prompt ✅ Fixed
 The `/preview-prompt` endpoint should resolve symlinks in the voice prompt path to prevent potential security issues.
 
-- **Location**: `qwen3_tts/server/app.py` `/preview-prompt` endpoint
-- **Fix**: Use `os.path.realpath()` before returning audio
+- **Location**: `qwen3_tts/server/app_prompts.py:221-225`
+- **Fix**: Uses `os.path.realpath()` with security check — already implemented (covered by R-40)
 
 ## Priority 4 — Low Priority
 
-### R-21: Cache pysbd.Segmenter per Language
+### R-21: Cache pysbd.Segmenter per Language ✅ Fixed
 The sentence segmentation parser is created on each chunk. Cache it per language to reduce overhead.
 
-- **Location**: Text chunking code in `engine.py`
-- **Implementation**: `dict` mapping language code → cached Segmenter instance
+- **Location**: `qwen3_tts/core/engine/text_processing.py:18,341-343`
+- **Fix**: `_SEGMENTER_CACHE = {}` dict with language-code caching — already implemented
 
-### R-22: Cache num2words Import
+### R-22: Cache num2words Import ✅ Fixed
 The num2words import happens inside the text normalization function. Lazy-load and cache the import.
 
-- **Location**: `_normalize_text()` in `engine.py`
-- **Implementation**: Module-level `_NUM2WORDS = None` cache
+- **Location**: `qwen3_tts/core/engine/text_processing.py:16,233-241`
+- **Fix**: Module-level `_n2w_cached` lazy import with `_n2w_loaded` flag — already implemented
 
 ### R-23: LUFS Normalization Option
 Add optional LUFS (loudness) normalization to audio post-processing for broadcast-quality output.
@@ -85,11 +85,11 @@ The `/prompts` endpoint returns all voice prompts at once. Add pagination for la
 - **Query params**: `?offset=0&limit=50`
 - **Response**: Include total count and pagination metadata
 
-### R-25: Document Streaming Wire Format
+### R-25: Document Streaming Wire Format ✅ Fixed
 The `/generate-stream` endpoint returns raw float32 chunks, but this format is not documented.
 
-- **Action**: Add documentation explaining the binary format
-- **Include**: Sample code for consuming the stream in Python and JavaScript
+- **Location**: `CLAUDE.md` after Server API table
+- **Fix**: Added wire format spec with Python and JavaScript consumption examples — implemented 2026-03-28
 
 ### R-26: Audit Logging for Auth Failures
 Add audit logging for authentication failures to detect potential brute-force attacks.

@@ -206,6 +206,8 @@ All other endpoints require `Authorization: Bearer <token>` (token from `~/.voic
 | `/cancel-generation` | POST | Cancel active generation |
 | `/shutdown` | POST | Graceful server shutdown |
 
+**Streaming format:** `/generate-stream` returns length-prefixed binary chunks. See `docs/00-Foundations/ARCHITECTURE.md` for wire format spec.
+
 ## Key Settings
 
 | Key | Options | Default |
@@ -265,36 +267,7 @@ make test-e2e      # Batch 6: E2E Playwright (requires server)
 
 1970+ tests across 83 modules. No GPU, models, or running server required (except E2E). Tests auto-skip when optional deps are missing.
 
-## Models
-
-**PyTorch** (cached in `~/.cache/huggingface/hub/`):
-- `Qwen/Qwen3-TTS-12Hz-{size}-Base` — Clone mode
-- `Qwen/Qwen3-TTS-12Hz-{size}-VoiceDesign` — Design mode
-- `Qwen/Qwen3-TTS-12Hz-{size}-CustomVoice` — Custom mode
-- Sizes: `1.7B` (~3.5GB), `0.6B` (~2GB)
-
-**MLX** (quantized):
-- `mlx-community/Qwen3-TTS-12Hz-{size}-Base-{quant}`
-- `mlx-community/Qwen3-TTS-12Hz-{size}-VoiceDesign-{quant}`
-- `mlx-community/Qwen3-TTS-12Hz-{size}-CustomVoice-{quant}`
-- Quantizations: `4bit`, `8bit` (default), `bf16`
-
-## PM2 Services
-
-| Port | Name | Type |
-|------|------|------|
-| 5123 | tts-server-5123 | FastAPI (Python) |
-
-**Terminal Commands:**
-```bash
-pm2 start ecosystem.config.cjs   # First time
-pm2 start all                    # After first time
-pm2 stop all / pm2 restart all
-pm2 start tts-server-5123 / pm2 stop tts-server-5123
-pm2 logs / pm2 status / pm2 monit
-pm2 save                         # Save process list
-pm2 resurrect                    # Restore saved list
-```
+**Models & PM2:** See `docs/00-Foundations/ARCHITECTURE.md` for HuggingFace model IDs and PM2 service commands.
 
 ## Deep Dive Reference
 For security, caching, thread safety, platform support, hardware optimization, upstream dependency monitoring, and code review history, see `docs/00-Foundations/ARCHITECTURE.md`.
