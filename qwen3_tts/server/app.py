@@ -161,6 +161,40 @@ def _get_real_client_ip(request: Request) -> str:
     return direct_host
 
 
+def _get_rate_limit_key(request: Request) -> str:
+    """Hybrid rate limit key: combine IP and token for strictest limits.
+
+    This ensures both per-IP AND per-token limits are enforced simultaneously.
+    """
+    client_ip = _get_real_client_ip(request)
+    token = request.headers.get("Authorization", "").replace("Bearer ", "")
+    # Hash token to avoid leaking sensitive data in rate limit keys
+    import hashlib
+    token_hash = hashlib.sha256(token.encode()).hexdigest()[:16] if token else "anonymous"
+    return f"{client_ip}:{token_hash}"
+
+
+def _get_ip_key(request: Request) -> str:
+    """IP-only rate limit key (current behavior).
+
+    Rate limits based on client IP address only.
+    """
+    return _get_real_client_ip(request)
+
+
+def _get_token_key(request: Request) -> str:
+    """Token-only rate limit key.
+
+    Rate limits based on authentication token only.
+    Useful for shared IP environments (NAT, corporate proxies).
+    """
+    token = request.headers.get("Authorization", "").replace("Bearer ", "")
+    if not token:
+        return "anonymous"
+    import hashlib
+    return hashlib.sha256(token.encode()).hexdigest()[:16]
+
+
 # ---------------------------------------------------------------------------
 # Auth dependency
 # ---------------------------------------------------------------------------
@@ -221,26 +255,56 @@ if _HAS_SLOWAPI:
     _rate_config = load_config().get("security", {}).get("rate_limits", {})
     _generate_limit = _rate_config.get("generate", "10/minute")
     _model_limit = _rate_config.get("model_ops", "5/minute")
-    limiter = Limiter(key_func=_get_real_client_ip)
-    app.state.limiter = limiter
+    _transcribe_limit = _rate_config.get("transcribe", "10/minute")
+    _prompt_ops_limit = _rate_config.get("prompt_ops", "10/minute")
+    _config_ops_limit = _rate_config.get("config_ops", "2/minute")
+
+    # Create separate limiters for different strategies
+    limiter_hybrid = Limiter(key_func=_get_rate_limit_key)
+    limiter_ip = Limiter(key_func=_get_ip_key)
+    limiter_token = Limiter(key_func=_get_token_key)
+
+    app.state.limiter_hybrid = limiter_hybrid
+    app.state.limiter_ip = limiter_ip
+    app.state.limiter_token = limiter_token
+
     app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 else:
-    limiter = None
+    limiter_hybrid = None
+    limiter_ip = None
+    limiter_token = None
     _generate_limit = "10/minute"
     _model_limit = "5/minute"
+    _transcribe_limit = "10/minute"
+    _prompt_ops_limit = "10/minute"
+    _config_ops_limit = "2/minute"
     logger.warning(
         "slowapi not installed — rate limiting is disabled. Install with: pip install slowapi"
     )
 
 
-def _rate_limit(limit_string):
-    """Return a slowapi rate limit decorator, or a no-op if slowapi is not installed."""
-    if limiter is not None:
-        return limiter.limit(limit_string)
+def _rate_limit(limit_string, strategy="hybrid"):
+    """Return a slowapi rate limit decorator with specified strategy.
+
+    Args:
+        limit_string: Rate limit string (e.g., "10/minute")
+        strategy: "hybrid" (both IP+token), "ip" (IP only), "token" (token only)
+
+    Returns:
+        Decorator function or no-op if slowapi not installed.
+    """
+    limiter_map = {
+        "hybrid": limiter_hybrid,
+        "ip": limiter_ip,
+        "token": limiter_token,
+    }
+    selected_limiter = limiter_map.get(strategy)
+
+    if selected_limiter is not None:
+        return selected_limiter.limit(limit_string)
 
     def _noop(func):
         return func
-
     return _noop
 
 
