@@ -304,6 +304,86 @@ tts config edit                          # Interactive voice description editor
 
 ---
 
+## Rate Limiting
+
+The server supports configurable rate limiting to prevent abuse and ensure fair resource allocation. Rate limiting uses **slowapi** with support for multiple strategies: per-IP, per-token, and hybrid (both).
+
+### Installation
+
+Rate limiting requires `slowapi`:
+
+```bash
+pip install slowapi
+```
+
+**Note:** slowapi is now a required dependency (not optional).
+
+### Configuration
+
+Rate limits are configured in `config.json` under `security.rate_limits`:
+
+```json
+{
+  "security": {
+    "rate_limits": {
+      "generate": "20/minute",
+      "model_ops": "3/minute",
+      "transcribe": "15/minute",
+      "prompt_ops": "10/minute",
+      "config_ops": "1/minute"
+    }
+  }
+}
+```
+
+### Rate Limit Strategies
+
+- **Hybrid** (default): Enforces both per-IP and per-token limits simultaneously
+- **Per-IP**: Rate limits based on client IP address only
+- **Per-Token**: Rate limits based on authentication token only
+
+### Protected Endpoints
+
+| Endpoint | Limit | Strategy |
+|----------|-------|----------|
+| `/generate`, `/generate-stream` | 20/minute | Hybrid |
+| `/load-model`, `/unload-model` | 3/minute | Hybrid |
+| `/update-model-config` | 3/minute | Hybrid |
+| `/load-asr`, `/unload-asr` | 3/minute | Hybrid |
+| `/transcribe` | 15/minute | Hybrid |
+| `/create-voice-prompt` | 3/minute | Hybrid |
+| `/delete-prompt`, `/rename-prompt` | 10/minute | Hybrid |
+| `/update-startup-config` | 1/minute | Hybrid |
+
+### Error Responses
+
+When rate limits are exceeded, the server returns HTTP 429:
+
+```json
+{
+  "detail": "Rate limit exceeded"
+}
+```
+
+### Testing Rate Limits
+
+Test rate limiting with curl:
+
+```bash
+# Set auth token
+export TOKEN="your-auth-token"
+
+# Send repeated requests (should hit 429 after limit)
+for i in {1..25}; do
+  curl -X POST http://localhost:5123/generate \
+    -H "Authorization: Bearer $TOKEN" \
+    -H "Content-Type: application/json" \
+    -d '{"text": "test"}'
+done
+```
+
+---
+
 ## Utility Commands
 
 ### Health Check
