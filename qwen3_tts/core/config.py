@@ -57,6 +57,49 @@ _config_lock = threading.Lock()
 _config_cache = {"data": None, "mtime": 0}
 
 
+def _validate_rate_limit_string(limit_str):
+    """Validate rate limit string format (e.g., '10/minute', '5/hour').
+
+    Args:
+        limit_str: String to validate
+
+    Returns:
+        True if valid format, False otherwise
+    """
+    if not isinstance(limit_str, str):
+        return False
+    parts = limit_str.split("/")
+    if len(parts) != 2:
+        return False
+    try:
+        count = int(parts[0])
+        if count <= 0:
+            return False
+    except ValueError:
+        return False
+    unit = parts[1].lower()
+    return unit in ("second", "minute", "hour", "day")
+
+
+def _get_default_rate_limit(endpoint_type):
+    """Get default rate limit for endpoint type.
+
+    Args:
+        endpoint_type: Type of endpoint ('generate', 'model_ops', etc.)
+
+    Returns:
+        Default rate limit string
+    """
+    defaults = {
+        "generate": "20/minute",
+        "model_ops": "3/minute",
+        "transcribe": "15/minute",
+        "prompt_ops": "10/minute",
+        "config_ops": "1/minute",
+    }
+    return defaults.get(endpoint_type, "10/minute")
+
+
 def validate_config(config):
     """Validate config structure and values, returning corrected copy.
 
@@ -104,6 +147,30 @@ def validate_config(config):
     sec = config.get("security")
     if isinstance(sec, dict):
         corrected_sec = dict(sec)
+
+        # Validate rate_limits section
+        rate_limits = sec.get("rate_limits")
+        if isinstance(rate_limits, dict):
+            corrected_limits = {}
+            for key, value in rate_limits.items():
+                if isinstance(value, str) and _validate_rate_limit_string(value):
+                    corrected_limits[key] = value
+                else:
+                    corrected_limits[key] = _get_default_rate_limit(key)
+                    issues.append(f"corrected rate_limits.{key} from {value!r} to {corrected_limits[key]!r}")
+            corrected_sec["rate_limits"] = corrected_limits
+        else:
+            # Add default rate_limits if missing
+            corrected_sec["rate_limits"] = {
+                "generate": "20/minute",
+                "model_ops": "3/minute",
+                "transcribe": "15/minute",
+                "prompt_ops": "10/minute",
+                "config_ops": "1/minute",
+            }
+            issues.append("added default security.rate_limits section")
+
+        # Existing security validations
         mtl = sec.get("max_text_length")
         if mtl is not None and (not isinstance(mtl, int) or mtl <= 0):
             corrected_sec["max_text_length"] = 10000
