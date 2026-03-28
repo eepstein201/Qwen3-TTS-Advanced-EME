@@ -12,21 +12,17 @@ Implement API rate limiting to prevent abuse and ensure fair resource allocation
 - **Configurable limits**: Via config.json
 - **Endpoints to protect**: `/generate`, `/generate-stream`, `/load-model`, `/update-model-config`
 
-### R-14: Crossfade Between Chunks
+### R-14: Crossfade Between Chunks ✅ Fixed
 When text is split into chunks and generated separately, add smooth crossfading between segments to reduce audible artifacts at chunk boundaries.
 
-- **Location**: `qwen3_tts/core/engine.py` post-processing
-- **Duration**: Configurable crossfade duration (default 50ms)
-- **Implementation**: Overlap and mix audio at chunk boundaries
+- **Location**: `qwen3_tts/core/engine/inference.py:465-510` (`_crossfade_chunks`)
+- **Fix**: Raised-cosine (Hann) window crossfade implemented — already exists
 
-### R-15: Split engine.py into Modules
+### R-15: Split engine.py into Modules ✅ Fixed
 The current `engine.py` is very large (~1800 lines). Split into logical modules:
 
-- `engine/model_loader.py` — Model loading logic (torch/mlx)
-- `engine/inference.py` — Core inference functions
-- `engine/audio_processing.py` — Audio utilities (trim, normalize, validate)
-- `engine/voice_prompt.py` — Voice prompt loading and caching
-- `engine/text_processing.py` — Text normalization and chunking
+- **Location**: `qwen3_tts/core/engine/` package (6 submodules)
+- **Fix**: Refactored to `model_loader.py`, `inference.py`, `audio_processing.py`, `voice_prompt.py`, `text_processing.py`, `asr.py` with facade pattern — already done
 
 ### R-16: Model Warm-up Pass
 Add a warm-up inference pass after model loading to ensure all kernels are compiled and memory is allocated before the first real request.
