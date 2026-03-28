@@ -11,6 +11,7 @@ Generation handlers (/generate, /generate-stream) live in app_generation.py.
 """
 
 import asyncio
+import hashlib
 import json
 import logging
 import logging.handlers
@@ -169,7 +170,6 @@ def _get_rate_limit_key(request: Request) -> str:
     client_ip = _get_real_client_ip(request)
     token = request.headers.get("Authorization", "").replace("Bearer ", "")
     # Hash token to avoid leaking sensitive data in rate limit keys
-    import hashlib
     token_hash = hashlib.sha256(token.encode()).hexdigest()[:16] if token else "anonymous"
     return f"{client_ip}:{token_hash}"
 
@@ -191,7 +191,6 @@ def _get_token_key(request: Request) -> str:
     token = request.headers.get("Authorization", "").replace("Bearer ", "")
     if not token:
         return "anonymous"
-    import hashlib
     return hashlib.sha256(token.encode()).hexdigest()[:16]
 
 
