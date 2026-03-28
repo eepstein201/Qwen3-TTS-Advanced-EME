@@ -134,8 +134,14 @@ def load_config():
         if _config_cache["data"] is not None and current_mtime == _config_cache["mtime"]:
             return copy.deepcopy(_config_cache["data"])
 
-        with open(CONFIG_PATH, "r") as f:
-            data = json.load(f)
+        try:
+            with open(CONFIG_PATH, "r") as f:
+                data = json.load(f)
+        except json.JSONDecodeError as e:
+            raise ValueError(
+                f"config.json is corrupt or invalid JSON: {e}\n"
+                f"Run 'tts config' to reset, or fix {CONFIG_PATH} manually."
+            ) from e
         _config_cache["mtime"] = current_mtime
         data, _ = validate_config(data)
 

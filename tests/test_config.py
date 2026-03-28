@@ -308,6 +308,26 @@ class TestConfigFunctions(unittest.TestCase):
             self.assertEqual(dtype, "float16")
             self.assertTrue(load_8bit)
 
+    def test_load_config_corrupt_json_raises_valueerror(self):
+        """load_config must raise ValueError with clear message on corrupt JSON (R-42)."""
+        from qwen3_tts.core import config as cfg
+        import pathlib
+        original_path = cfg.CONFIG_PATH
+        original_cache = dict(cfg._config_cache)
+        try:
+            with tempfile.NamedTemporaryFile(mode="w", suffix=".json", delete=False) as f:
+                f.write("{not valid json")
+                bad_path = f.name
+            cfg.CONFIG_PATH = pathlib.Path(bad_path)
+            cfg._config_cache["data"] = None
+            cfg._config_cache["mtime"] = 0
+            with pytest.raises(ValueError, match="corrupt or invalid JSON"):
+                cfg.load_config()
+        finally:
+            cfg.CONFIG_PATH = original_path
+            cfg._config_cache.update(original_cache)
+            os.unlink(bad_path)
+
 
 @pytest.mark.unit
 class TestHFConsolidatedConstant(unittest.TestCase):
