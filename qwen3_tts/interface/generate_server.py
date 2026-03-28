@@ -81,7 +81,7 @@ def build_ui_and_launch(config):
     preferred = config.get("ui", {}).get("port", 7860)
     port = _find_available_port(preferred)
     if port is None:
-        logger.error("No available port found near %d.", preferred)
+        print(f"No available port found near {preferred}.")
         return
     share = bool(os.environ.get("TTS_UI_SHARE")) or IN_COLAB
     inbrowser = not bool(os.environ.get("TTS_UI_NO_BROWSER")) and not IN_COLAB

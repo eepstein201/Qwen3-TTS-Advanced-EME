@@ -347,9 +347,9 @@ class TestLaunchGradioUI(unittest.TestCase):
         from qwen3_tts.interface.generate_server import build_ui_and_launch
         with patch("qwen3_tts.interface.ui._find_available_port", return_value=None), \
              patch("qwen3_tts.interface.ui.build_ui"), \
-             patch("qwen3_tts.interface.generate_server.logger") as mock_logger:
+             patch("builtins.print") as mock_print:
             build_ui_and_launch({"ui": {"port": 7860}})
-        output = " ".join(str(c) for c in mock_logger.error.call_args_list)
+        output = " ".join(str(c) for c in mock_print.call_args_list)
         self.assertIn("No available port", output)
 
     def test_build_ui_and_launch_success(self):
