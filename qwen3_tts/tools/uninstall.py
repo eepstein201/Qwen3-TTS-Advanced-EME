@@ -10,8 +10,6 @@ import os
 import shutil
 import sys
 
-logger = logging.getLogger("tts.uninstall")
-
 from qwen3_tts.core.config import (
     USER_FILES_DIR,
     VOICE_PROMPTS_DIR,
@@ -24,6 +22,8 @@ from qwen3_tts.core.config import (
 )
 from qwen3_tts.tools.model_cache import _MLX_MODEL_PREFIXES, _TORCH_MODEL_PREFIXES
 from qwen3_tts.tools._shared import _format_size, print_header, print_success, print_warning, print_info
+
+logger = logging.getLogger("tts.uninstall")
 
 
 def _get_models_size() -> int:
