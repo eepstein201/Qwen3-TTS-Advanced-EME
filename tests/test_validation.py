@@ -238,6 +238,66 @@ class TestGenCacheKey:
         assert all(c in "0123456789abcdef" for c in key)
 
 
+class TestTranscribeRequestValidation:
+    """Tests for TranscribeRequest field validation (R-29, R-30)."""
+
+    @pytest.mark.parametrize("lang", ["en", "zh", "eng", "en-US", "zh-Hans"], ids=[
+        "two-letter", "two-letter-zh", "three-letter", "with-region", "with-script",
+    ])
+    def test_language_accepts_valid(self, lang):
+        """TranscribeRequest accepts valid BCP-47 language codes."""
+        from qwen3_tts.server.validation import TranscribeRequest
+        req = TranscribeRequest(audio_base64="abc", language=lang)
+        assert req.language == lang
+
+    @pytest.mark.parametrize("lang", [
+        "not_a_lang_code!!",
+        "toolongcode",
+        "EN",
+        "e",
+        "123",
+    ], ids=["special-chars", "too-long", "uppercase", "too-short", "digits"])
+    def test_language_rejects_invalid(self, lang):
+        """TranscribeRequest rejects non-BCP-47 language codes."""
+        from pydantic import ValidationError
+        from qwen3_tts.server.validation import TranscribeRequest
+        with pytest.raises(ValidationError):
+            TranscribeRequest(audio_base64="abc", language=lang)
+
+    def test_audio_base64_rejects_oversized_payload(self):
+        """TranscribeRequest rejects base64 strings over 50MB."""
+        from pydantic import ValidationError
+        from qwen3_tts.server.validation import TranscribeRequest
+        oversized = "A" * (51 * 1024 * 1024)
+        with pytest.raises(ValidationError):
+            TranscribeRequest(audio_base64=oversized, language="en")
+
+    def test_audio_base64_accepts_normal_payload(self):
+        """TranscribeRequest accepts normally-sized base64 audio."""
+        from qwen3_tts.server.validation import TranscribeRequest
+        # ~1KB base64 — well within limit
+        req = TranscribeRequest(audio_base64="A" * 1024, language="en")
+        assert len(req.audio_base64) == 1024
+
+
+class TestCreateVoicePromptRequestValidation:
+    """Tests for CreateVoicePromptRequest field validation (R-30)."""
+
+    def test_audio_base64_rejects_oversized_payload(self):
+        """CreateVoicePromptRequest rejects base64 strings over 50MB."""
+        from pydantic import ValidationError
+        from qwen3_tts.server.validation import CreateVoicePromptRequest
+        oversized = "A" * (51 * 1024 * 1024)
+        with pytest.raises(ValidationError):
+            CreateVoicePromptRequest(audio_base64=oversized, name="test")
+
+    def test_audio_base64_accepts_normal_payload(self):
+        """CreateVoicePromptRequest accepts normally-sized base64 audio."""
+        from qwen3_tts.server.validation import CreateVoicePromptRequest
+        req = CreateVoicePromptRequest(audio_base64="A" * 1024, name="test_voice")
+        assert req.name == "test_voice"
+
+
 class TestErrorResponse:
     """Tests for _error_response helper."""
 

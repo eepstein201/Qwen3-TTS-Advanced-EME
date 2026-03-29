@@ -18,6 +18,7 @@ from qwen3_tts.core.config import CUSTOM_VOICE_SPEAKERS, VOICE_PROMPTS_DIR
 
 
 MAX_PROMPT_NAME_LEN = 255  # max length for voice prompt names
+MAX_AUDIO_BASE64_BYTES = 50 * 1024 * 1024  # 50MB base64 ≈ 37.5MB raw audio
 
 # Pre-computed valid speaker names (keys + display names)
 _VALID_SPEAKER_NAMES = frozenset(CUSTOM_VOICE_SPEAKERS.keys()) | frozenset(
@@ -85,13 +86,13 @@ class RenamePromptRequest(BaseModel):
 
 class TranscribeRequest(BaseModel):
     """Request model for /transcribe endpoint."""
-    audio_base64: str
-    language: str = "en"
+    audio_base64: str = Field(max_length=MAX_AUDIO_BASE64_BYTES)
+    language: str = Field(default="en", pattern=r'^[a-z]{2,3}(-[A-Za-z]{2,4})?$')
 
 
 class CreateVoicePromptRequest(BaseModel):
     """Request model for /create-voice-prompt endpoint."""
-    audio_base64: str
+    audio_base64: str = Field(max_length=MAX_AUDIO_BASE64_BYTES)
     transcript: str = ""
     name: str
     no_transcript: bool = False
