@@ -12,9 +12,13 @@ import logging
 import os
 import shutil
 import tempfile
+import threading
 import uuid
 
 import gradio as gr
+
+# Thread-safe lock for history state updates (prevents race condition in concurrent generations)
+_history_lock = threading.Lock()
 
 from qwen3_tts.core.config import (
     get_server_url,
@@ -145,8 +149,15 @@ def _generate_server_side(mode, text, history_list, stream_config):
     from qwen3_tts.interface.ui.shared import get_history_data, add_to_history
     import gradio as gr
 
+    # Ensure history_list is always a valid list (defensive against Gradio state issues)
     if history_list is None:
         history_list = []
+    elif not isinstance(history_list, list):
+        logger.warning(f"history_list is not a list: {type(history_list)}, resetting to []")
+        history_list = []
+    else:
+        # Make a copy to avoid shared state issues in concurrent requests
+        history_list = list(history_list)
 
     # stream_config is None when validation failed — preserve the error
     if stream_config is None:
@@ -187,17 +198,25 @@ def _generate_server_side(mode, text, history_list, stream_config):
         shutil.copy2(temp_path, persistent_path)
 
         # History tracks persistent path; Gradio gets temp path
-        history_list = add_to_history(history_list, mode, text, persistent_path, 0)
+        # Use lock to prevent concurrent modification issues
+        with _history_lock:
+            history_list = add_to_history(history_list, mode, text, persistent_path, 0)
+            # Make a copy for return to avoid external mutation
+            history_list_copy = list(history_list)
+            history_df_data = get_history_data(history_list_copy)
         return (
             temp_path,
             f"Generated: {os.path.basename(persistent_path)}",
             format_status_display(),
-            history_list,
-            get_history_data(history_list),
+            history_list_copy,
+            history_df_data,
         )
     except Exception as e:
         logger.error("Server-side generation failed: %s", e)
-        return None, f"Error: {e}", format_status_display(), history_list, get_history_data(history_list)
+        # Ensure we always return a valid list even on error
+        safe_history_list = list(history_list) if isinstance(history_list, list) else []
+        safe_history_df = get_history_data(safe_history_list)
+        return None, f"Error: {e}", format_status_display(), safe_history_list, safe_history_df
 
 
 def _build_common_controls():
