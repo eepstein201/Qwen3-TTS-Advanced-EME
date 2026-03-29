@@ -101,6 +101,7 @@ All shared mutable state is protected by locks for concurrent access:
 
 | Lock | Location | Protects |
 |------|----------|----------|
+| `_history_lock` | `interface/ui/generation.py` | `history_list` shared state across Gradio tabs during concurrent generation |
 | `_mps_patch_lock` | `model_loader.py` | `_mps_patch_installed` flag during patch installation |
 | `_torch_prompt_cache_lock` | `voice_prompt.py` | `_torch_prompt_cache` OrderedDict + hit/miss counters |
 | `_mlx_prompt_cache_lock` | `voice_prompt.py` | `_mlx_prompt_cache` OrderedDict |
@@ -108,6 +109,7 @@ All shared mutable state is protected by locks for concurrent access:
 | `request_queue_lock` | `app_lifespan.py` | `request_queue` set for concurrent request tracking |
 | `pending_lock` | `app_lifespan.py` | `pending_requests` asyncio lock for request coordination |
 | `gen_cache_lock` | `app_lifespan.py` | `gen_cache` dict for generation result caching |
+| `eta_cache_lock` | `app_lifespan.py` | `eta_cache` dict for ETA read-modify-write operations |
 
 **Pattern:** All locks use double-checked locking for efficiency:
 ```python

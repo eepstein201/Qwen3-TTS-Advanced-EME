@@ -216,6 +216,18 @@ The annotation says `Optional[tuple]` but the actual return type is `Optional[tu
 - **Location**: `qwen3_tts/tools/uninstall.py:15,25,26`
 - **Fix**: Moved imports above `logger = ...` declaration — implemented 2026-03-28
 
+### R-50: Concurrent Generation Race Condition ✅ Fixed
+`list index out of range` error occurred during simultaneous generation requests from multiple browser tabs.
+
+- **Location**: `qwen3_tts/interface/ui/generation.py`
+- **Root cause**: Gradio's `history_state` shared across all tabs without thread-safe concurrent access protection
+- **Fix**: Added `threading.Lock()`, defensive type checking, list copying on input/output, lock-protected operations — implemented 2026-03-29
+- **Tests**: E2E concurrent generation test passes (2 tabs clicking Generate simultaneously)
+`uninstall.py:15,25,26` has non-top-level imports (ruff E402).
+
+- **Location**: `qwen3_tts/tools/uninstall.py:15,25,26`
+- **Fix**: Moved imports above `logger = ...` declaration — implemented 2026-03-28
+
 ## Priority 5 — Future / Upstream-Dependent
 
 ### R-29: Unconstrained TranscribeRequest.language Field
