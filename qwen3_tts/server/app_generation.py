@@ -214,23 +214,34 @@ async def handle_generate(request, state, req, security, config_provider):
                         "chunk_total": chunk_total,
                     })
 
-                # Run inference (offloaded to thread pool to avoid blocking event loop)
-                wav, sr = await asyncio.to_thread(
-                    run_inference,
-                    model=model,
-                    text=text,
-                    mode=mode,
-                    gen_params=gen_params,
-                    language=language,
-                    voice_prompt=voice_prompt,
-                    voice_description=voice_description,
-                    speaker=speaker,
-                    instruct=instruct,
-                    max_chunk_chars=max_chunk_chars,
-                    progress_callback=_chunk_progress,
-                    x_vector_only_mode=x_vector_only_mode,
-                    config_provider=config_provider,
-                )
+                # Run inference: vLLM adapter takes priority when available
+                vllm_adapter = getattr(request.app.state, "vllm_adapter", None)
+                if vllm_adapter is not None:
+                    wav, sr = await vllm_adapter.generate(
+                        text=text,
+                        mode=mode,
+                        prompt_audio=voice_prompt,
+                        voice_description=voice_description,
+                        speaker=speaker,
+                        **gen_params,
+                    )
+                else:
+                    wav, sr = await asyncio.to_thread(
+                        run_inference,
+                        model=model,
+                        text=text,
+                        mode=mode,
+                        gen_params=gen_params,
+                        language=language,
+                        voice_prompt=voice_prompt,
+                        voice_description=voice_description,
+                        speaker=speaker,
+                        instruct=instruct,
+                        max_chunk_chars=max_chunk_chars,
+                        progress_callback=_chunk_progress,
+                        x_vector_only_mode=x_vector_only_mode,
+                        config_provider=config_provider,
+                    )
 
                 # Encode audio to base64 WAV in memory
                 buf = io.BytesIO()

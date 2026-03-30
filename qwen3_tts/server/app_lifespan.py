@@ -158,6 +158,26 @@ def auto_shutdown(app_state):
 # Lifespan
 # ---------------------------------------------------------------------------
 
+async def _maybe_start_vllm_adapter(state) -> None:
+    """Start VLLMAdapter and attach to state when backend is vllm."""
+    if get_backend() != "vllm":
+        return
+    from qwen3_tts.core.engine_vllm import VLLMAdapter
+    adapter = VLLMAdapter()
+    await adapter.start()
+    state.vllm_adapter = adapter
+    logger.info("VLLMAdapter started and attached to app state")
+
+
+async def _maybe_stop_vllm_adapter(state) -> None:
+    """Stop VLLMAdapter on shutdown if it was started."""
+    adapter = getattr(state, "vllm_adapter", None)
+    if adapter is not None:
+        adapter.stop()
+        state.vllm_adapter = None
+        logger.info("VLLMAdapter stopped")
+
+
 @asynccontextmanager
 async def lifespan(app):
     """FastAPI lifespan — startup and shutdown."""
@@ -200,6 +220,9 @@ async def lifespan(app):
     # Auto-shutdown timer
     app.state.shutdown_timer = None
 
+    # vLLM adapter (None unless backend="vllm")
+    app.state.vllm_adapter = None
+
     # Graceful shutdown event
     app.state.shutdown_event = asyncio.Event()
 
@@ -225,10 +248,14 @@ async def lifespan(app):
     loader = threading.Thread(target=_background_load, args=(app.state,), daemon=True)
     loader.start()
 
+    # Start vLLM adapter if backend="vllm"
+    await _maybe_start_vllm_adapter(app.state)
+
     yield
 
     # Shutdown
     logger.info("FastAPI server shutting down...")
+    await _maybe_stop_vllm_adapter(app.state)
     cleanup_resources(app.state)
 
     # Clean up token file
