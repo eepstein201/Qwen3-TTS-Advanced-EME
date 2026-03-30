@@ -13,5 +13,10 @@
     "mlx_quantization": "8bit",
     "backend": "mlx"
   },
-  "language": "English"
+  "language": "English",
+  "generation": {
+    "silence_gap_seconds": 0.0,
+    "max_chunk_chars": 500,
+    "lufs_normalize": false
+  }
 }

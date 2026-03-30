@@ -704,8 +704,10 @@ def _run_inference_single(model, text, mode, gen_params, language="English",
                     _metal_retry_depth=_metal_retry_depth + 1,
                     x_vector_only_mode=x_vector_only_mode,
                 )
-                # Concatenate with short silence
-                silence = np.zeros(int(sr * 0.1), dtype=np.float32)
+                # Concatenate with short silence (use config gap, min 50ms)
+                _retry_cfg = _DEFAULT_CONFIG_LOADER.load()
+                _gap_s = _retry_cfg.get("generation", {}).get("silence_gap_seconds", 0.1)
+                silence = np.zeros(int(sr * max(_gap_s, 0.05)), dtype=np.float32)
                 return np.concatenate([wav1, silence, wav2]), sr
             raise
 
