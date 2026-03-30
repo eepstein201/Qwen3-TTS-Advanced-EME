@@ -765,5 +765,46 @@ class TestMainEntryPoint(unittest.TestCase):
         self.assertEqual(args_passed[2], "interactive_name")
 
 
+# ---------------------------------------------------------------------------
+# R-43: main() argv testability
+# ---------------------------------------------------------------------------
+
+class TestCreateVoiceMainArgv:
+    """R-43: main() must accept optional argv param (pytest-style)."""
+
+    def test_main_accepts_argv_param(self):
+        """main() signature must declare an argv keyword argument."""
+        import inspect
+        from qwen3_tts.tools.create_voice import main
+
+        sig = inspect.signature(main)
+        assert "argv" in sig.parameters, "main() must accept argv parameter"
+
+    def test_main_returns_nonzero_on_missing_audio(self, tmp_path):
+        """main(argv=...) returns non-zero when audio file does not exist."""
+        from qwen3_tts.tools.create_voice import main
+
+        fake_path = str(tmp_path / "nonexistent.wav")
+        result = main(argv=[fake_path, "-n", "test", "--no-test", "--no-transcript"])
+        assert result != 0
+
+    def test_main_uses_argv_not_sys_argv(self, monkeypatch):
+        """main() parses argv param and ignores sys.argv."""
+        from qwen3_tts.tools.create_voice import main
+
+        # Poison sys.argv — if main reads it, argparse will fail on unknown flag
+        monkeypatch.setattr("sys.argv", ["create_voice", "--bogus-flag-99"])
+        result = main(argv=["nonexistent.wav", "-n", "test", "--no-test", "--no-transcript"])
+        # Fails on missing file, NOT on argparse error from sys.argv
+        assert result != 0
+
+    def test_main_returns_zero_type(self):
+        """main is callable and its return type is int on error paths."""
+        from qwen3_tts.tools.create_voice import main
+
+        result = main(argv=["nonexistent_file.wav", "-n", "x", "--no-transcript"])
+        assert isinstance(result, int)
+
+
 if __name__ == "__main__":
     unittest.main()

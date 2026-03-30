@@ -215,7 +215,7 @@ def _resolve_transcript(args, audio_path: str) -> str:
     return transcript
 
 
-def main():
+def main(argv=None):
     parser = argparse.ArgumentParser(
         description="Create a custom voice clone prompt from reference audio",
         epilog="""Examples:
@@ -237,28 +237,35 @@ def main():
                         help="Auto-transcribe reference audio using MLX ASR (MLX backend only)")
     parser.add_argument("--no-transcript", action="store_true",
                         help="Create voice with empty transcript (x-vector only mode, lower fidelity)")
-    args = parser.parse_args()
+    args = parser.parse_args(argv)
 
-    audio_path = _resolve_audio_path(args)
-    transcript = _resolve_transcript(args, audio_path)
+    try:
+        audio_path = _resolve_audio_path(args)
+        transcript = _resolve_transcript(args, audio_path)
 
-    if args.name:
-        prompt_name = args.name
-    else:
-        prompt_name = input("\nName for this voice (e.g., 'john_doe'): ").strip() or "custom_voice"
+        if args.name:
+            prompt_name = args.name
+        else:
+            prompt_name = input("\nName for this voice (e.g., 'john_doe'): ").strip() or "custom_voice"
 
-    use_mlx_only = args.mlx_only
-    if not use_mlx_only and not args.force_torch and get_backend() == "mlx":
-        use_mlx_only = True
-        print("Note: MLX backend active - using MLX-only mode (skip .pt creation)")
-        print("      Use --force-torch to create .pt files for torch compatibility")
+        use_mlx_only = args.mlx_only
+        if not use_mlx_only and not args.force_torch and get_backend() == "mlx":
+            use_mlx_only = True
+            print("Note: MLX backend active - using MLX-only mode (skip .pt creation)")
+            print("      Use --force-torch to create .pt files for torch compatibility")
 
-    create_and_save_voice_prompt(
-        audio_path, transcript, prompt_name,
-        test_generation=not args.no_test and not use_mlx_only,
-        mlx_only=use_mlx_only,
-    )
+        create_and_save_voice_prompt(
+            audio_path, transcript, prompt_name,
+            test_generation=not args.no_test and not use_mlx_only,
+            mlx_only=use_mlx_only,
+        )
+        return 0
+    except SystemExit as e:
+        return e.code if e.code is not None else 1
+    except Exception as e:
+        print(f"Error: {e}")
+        return 1
 
 
 if __name__ == "__main__":
-    main()
+    sys.exit(main())
