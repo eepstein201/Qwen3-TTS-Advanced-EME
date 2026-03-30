@@ -16,6 +16,7 @@ from qwen3_tts.core.config import (
     load_config,
     sanitize_log,
 )
+from qwen3_tts.core.engine.audio_processing import process_audio, LUFS_TARGET
 from qwen3_tts.core.engine.text_processing import _normalize_text, _split_text
 
 logger = logging.getLogger("tts.engine")
@@ -604,11 +605,15 @@ def run_inference(model, text, mode, gen_params, language="English",
         # Single chunk — no overhead
         if progress_callback:
             progress_callback(0, 1)
-        return _run_inference_single(
+        wav, sr = _run_inference_single(
             model, chunks[0], mode, gen_params, language,
             voice_prompt, voice_description, speaker, instruct,
             x_vector_only_mode=x_vector_only_mode,
         )
+        config = (config_provider or _DEFAULT_CONFIG_LOADER).load()
+        if config.get("generation", {}).get("lufs_normalize", False):
+            wav, sr = process_audio(wav, sr, lufs_target=LUFS_TARGET)
+        return wav, sr
 
     # Multi-chunk: generate each, combine with crossfade or silence gap
     logger.info("Splitting text (%d chars) into %d chunks (max %d chars each)",
@@ -642,6 +647,9 @@ def run_inference(model, text, mode, gen_params, language="English",
         result = _crossfade_chunks(all_audio, sample_rate, crossfade_ms=0, silence_gap_s=silence_gap)
     else:
         result = _crossfade_chunks(all_audio, sample_rate, crossfade_ms=50)
+
+    if config.get("generation", {}).get("lufs_normalize", False):
+        result, sample_rate = process_audio(result, sample_rate, lufs_target=LUFS_TARGET)
 
     logger.info("Combined %d chunks into %.1fs audio", len(chunks), len(result) / sample_rate)
     return result, sample_rate
