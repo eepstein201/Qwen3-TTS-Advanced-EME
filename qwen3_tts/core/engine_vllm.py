@@ -57,6 +57,8 @@ class VLLMAdapter:
         gpu_memory_utilization: float = 0.7,
         port: Optional[int] = None,
         log_file: Optional[str] = None,
+        max_model_len: int = 4096,
+        dtype: str = "bfloat16",
     ):
         """Initialize the vLLM adapter.
 
@@ -65,11 +67,15 @@ class VLLMAdapter:
             gpu_memory_utilization: Fraction of GPU memory to use (0.0-1.0)
             port: Port for vLLM server (None = auto-find open port)
             log_file: Path to log file for vLLM output (None = use default)
+            max_model_len: Maximum model context length
+            dtype: Model dtype (bfloat16 recommended for modern GPUs)
         """
         self.model_name = model_name
         self.gpu_memory_utilization = gpu_memory_utilization
         self.port = port
         self.log_file = log_file or self._get_default_log_file()
+        self.max_model_len = max_model_len
+        self.dtype = dtype
 
         self._process: Optional[subprocess.Popen] = None
         self._client: Optional[httpx.AsyncClient] = None
@@ -148,6 +154,13 @@ class VLLMAdapter:
             "--port",
             str(self.port),
             "--disable-log-requests",
+            "--limit-mm-per-prompt",
+            "audio=1",
+            "--enable-chunked-prefill",
+            "--dtype",
+            self.dtype,
+            "--max-model-len",
+            str(self.max_model_len),
         ]
 
         logger.info("Starting vLLM subprocess: %s", " ".join(cmd))

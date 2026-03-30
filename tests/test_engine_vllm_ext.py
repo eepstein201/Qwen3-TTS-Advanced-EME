@@ -721,5 +721,63 @@ class TestGenerateStreamHTTP(unittest.TestCase):
 
 
 
+class TestVLLMStartCmdParams(unittest.TestCase):
+    """HIGH-1/MED-2: _start() command must include multimodal and perf params."""
+
+    def _get_start_cmd(self, **adapter_kwargs):
+        """Instantiate adapter, call _start(), return the cmd list."""
+        with patch(f"{_MOD}.VLLMAdapter._get_default_log_file", return_value="/tmp/test_vllm.log"):
+            from qwen3_tts.core.engine_vllm import VLLMAdapter
+            adapter = VLLMAdapter(port=9999, log_file="/tmp/test_vllm.log", **adapter_kwargs)
+
+        mock_proc = MagicMock()
+        with patch("subprocess.Popen", return_value=mock_proc) as mock_popen, \
+             patch("builtins.open", MagicMock()):
+            adapter._start()
+        return mock_popen.call_args[0][0]
+
+    def test_cmd_includes_limit_mm_per_prompt_audio_1(self):
+        """_start() cmd must include --limit-mm-per-prompt audio=1."""
+        cmd = self._get_start_cmd()
+        self.assertIn("--limit-mm-per-prompt", cmd)
+        idx = cmd.index("--limit-mm-per-prompt")
+        self.assertEqual(cmd[idx + 1], "audio=1")
+
+    def test_cmd_includes_chunked_prefill(self):
+        """_start() cmd must include --enable-chunked-prefill."""
+        cmd = self._get_start_cmd()
+        self.assertIn("--enable-chunked-prefill", cmd)
+
+    def test_cmd_includes_dtype_bfloat16_default(self):
+        """_start() cmd must include --dtype bfloat16 by default."""
+        cmd = self._get_start_cmd()
+        self.assertIn("--dtype", cmd)
+        idx = cmd.index("--dtype")
+        self.assertEqual(cmd[idx + 1], "bfloat16")
+
+    def test_cmd_includes_max_model_len(self):
+        """_start() cmd must include --max-model-len."""
+        cmd = self._get_start_cmd()
+        self.assertIn("--max-model-len", cmd)
+
+    def test_dtype_is_configurable(self):
+        """dtype kwarg to __init__ is used in the launch command."""
+        cmd = self._get_start_cmd(dtype="float16")
+        idx = cmd.index("--dtype")
+        self.assertEqual(cmd[idx + 1], "float16")
+
+    def test_max_model_len_is_configurable(self):
+        """max_model_len kwarg to __init__ is used in the launch command."""
+        cmd = self._get_start_cmd(max_model_len=8192)
+        idx = cmd.index("--max-model-len")
+        self.assertEqual(cmd[idx + 1], "8192")
+
+    def test_existing_params_still_present(self):
+        """All pre-existing params remain in the command."""
+        cmd = self._get_start_cmd()
+        for flag in ("--model", "--gpu-memory-utilization", "--port", "--disable-log-requests"):
+            self.assertIn(flag, cmd)
+
+
 if __name__ == "__main__":
     unittest.main()
