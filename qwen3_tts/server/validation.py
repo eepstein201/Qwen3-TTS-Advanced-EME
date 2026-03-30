@@ -114,6 +114,7 @@ class GenerateResult(BaseModel):
     index: int
     audio_base64: Optional[str] = None
     sample_rate: int
+    peaks: Optional[List[float]] = None
 
 
 class GenerateResponse(BaseModel):
