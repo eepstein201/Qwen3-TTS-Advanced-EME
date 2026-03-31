@@ -179,6 +179,27 @@ def initialize_app_state_for_xdist():
         _restore_app_state(app, original_state)
 
 
+@pytest.fixture(autouse=True)
+def reset_rate_limiters():
+    """Reset slowapi rate limiter state before each test.
+
+    Without this, rate limit counters accumulate across tests within a suite
+    run, causing later tests to receive unexpected 429 responses.
+    """
+    if not HAS_FASTAPI:
+        yield
+        return
+
+    from qwen3_tts.server.app import app
+
+    for attr in ("limiter", "limiter_hybrid", "limiter_ip", "limiter_token"):
+        limiter = getattr(app.state, attr, None)
+        if limiter is not None and hasattr(limiter, "reset"):
+            limiter.reset()
+
+    yield
+
+
 @pytest.fixture
 def tmp_config():
     """Create a temporary config file for isolated testing.

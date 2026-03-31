@@ -98,7 +98,16 @@ class TestConfigValidation(unittest.TestCase):
         config = {
             "advanced": {"backend": "mlx", "model_size": "1.7B"},
             "generation": {"temperature": 0.7},
-            "security": {"max_text_length": 10000},
+            "security": {
+                "max_text_length": 10000,
+                "rate_limits": {
+                    "generate": "20/minute",
+                    "model_ops": "3/minute",
+                    "transcribe": "15/minute",
+                    "prompt_ops": "10/minute",
+                    "config_ops": "1/minute",
+                },
+            },
         }
         _, issues = validate_config(config)
         self.assertEqual(issues, [])

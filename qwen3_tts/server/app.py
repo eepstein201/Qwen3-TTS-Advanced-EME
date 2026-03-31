@@ -29,6 +29,7 @@ import uvicorn
 # Rate limiting (R-13)
 from slowapi import Limiter, _rate_limit_exceeded_handler
 from slowapi.errors import RateLimitExceeded
+_HAS_SLOWAPI = True
 
 logger = logging.getLogger("tts")
 
@@ -257,6 +258,7 @@ limiter_hybrid = Limiter(key_func=_get_rate_limit_key)
 limiter_ip = Limiter(key_func=_get_ip_key)
 limiter_token = Limiter(key_func=_get_token_key)
 
+app.state.limiter = limiter_hybrid  # slowapi's default handler expects this name
 app.state.limiter_hybrid = limiter_hybrid
 app.state.limiter_ip = limiter_ip
 app.state.limiter_token = limiter_token
