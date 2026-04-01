@@ -13,6 +13,7 @@ import os
 import shutil
 import tempfile
 import threading
+import time
 import uuid
 
 import gradio as gr
@@ -30,6 +31,7 @@ from qwen3_tts.core.config import (
 from qwen3_tts.interface.ui.shared import (
     add_to_history,
     format_status_display,
+    save_generation_metadata,
 )
 from qwen3_tts.interface.voice_helpers import (  # noqa: F401 (re-exported via ui/__init__.py)
     get_prosody_choices,
@@ -196,6 +198,23 @@ def _generate_server_side(mode, text, history_list, stream_config):
         os.makedirs(output_dir, exist_ok=True)
         persistent_path = os.path.join(output_dir, filename)
         shutil.copy2(temp_path, persistent_path)
+
+        # Save metadata JSON sidecar for persistent history + seed reuse
+        generation_metadata = {
+            "timestamp": time.time(),
+            "mode": payload.get("mode", mode),
+            "text": payload.get("text", ""),
+            "seed": payload.get("seed"),
+            "temperature": payload.get("temperature"),
+            "top_k": payload.get("top_k"),
+            "top_p": payload.get("top_p"),
+            "repetition_penalty": payload.get("repetition_penalty"),
+            "prompt_file": payload.get("prompt_file"),
+            "voice_description": payload.get("voice_description"),
+            "speaker": payload.get("speaker"),
+            "output_file": os.path.basename(persistent_path),
+        }
+        save_generation_metadata(persistent_path, generation_metadata)
 
         # History tracks persistent path; Gradio gets temp path
         # Use lock to prevent concurrent modification issues

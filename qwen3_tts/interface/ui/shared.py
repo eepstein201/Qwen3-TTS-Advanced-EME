@@ -315,6 +315,59 @@ def _resolve_output_dir(config: dict) -> str:
     return resolved
 
 
+def save_generation_metadata(wav_path: str, metadata: dict) -> None:
+    """Save generation metadata as JSON sidecar alongside a .wav file.
+
+    Args:
+        wav_path: Path to the .wav file.
+        metadata: Dict of generation params (not mutated).
+    """
+    import json as json_mod
+    json_path = wav_path.replace(".wav", ".json")
+    with open(json_path, "w") as f:
+        json_mod.dump(metadata, f, indent=2)
+
+
+def load_history_from_disk(output_dir: str) -> list:
+    """Load generation history from JSON sidecar files in output directory.
+
+    Scan for voice_ui_*.json files, pair with .wav files, return
+    newest-first list capped at MAX_HISTORY_SIZE.
+    """
+    import glob
+    import json as json_mod
+
+    json_files = glob.glob(os.path.join(output_dir, "voice_ui_*.json"))
+    entries: list = []
+    for jf in json_files:
+        wav_path = jf.replace(".json", ".wav")
+        if not os.path.exists(wav_path):
+            continue
+        try:
+            with open(jf) as f:
+                data = json_mod.load(f)
+            text = data.get("text", "")
+            entries.append({
+                "timestamp": data.get("timestamp", 0),
+                "mode": (data.get("mode") or "?").capitalize(),
+                "text": text[:40] + "..." if len(text) > 40 else text,
+                "path": wav_path,
+                "chunks": data.get("chunks", 0),
+                "seed": data.get("seed"),
+                "temperature": data.get("temperature"),
+                "top_k": data.get("top_k"),
+                "top_p": data.get("top_p"),
+                "repetition_penalty": data.get("repetition_penalty"),
+                "prompt_file": data.get("prompt_file"),
+                "voice_description": data.get("voice_description"),
+                "speaker": data.get("speaker"),
+            })
+        except (ValueError, OSError, KeyError):
+            continue
+    entries.sort(key=lambda e: e["timestamp"], reverse=True)
+    return entries[:MAX_HISTORY_SIZE]
+
+
 def get_gradio_launch_kwargs(config: dict) -> dict:
     """Shared Gradio launch() kwargs -- single source of truth for all UI entry points."""
     import tempfile
