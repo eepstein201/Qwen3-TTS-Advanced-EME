@@ -66,7 +66,6 @@ class TestWireGenerationTabIntegration(unittest.TestCase):
             text_info=self.mock_info,
             inputs_list=[self.mock_text],
             status_html=self.mock_html,
-            history_df=self.mock_df,
             config_handler=mock_handler,
             history_state=self.mock_history_state,
             audio_url_converter=self.mock_audio_url_converter,
@@ -95,7 +94,6 @@ class TestWireGenerationTabIntegration(unittest.TestCase):
             text_info=self.mock_info,
             inputs_list=[self.mock_text],
             status_html=self.mock_html,
-            history_df=self.mock_df,
             config_handler=mock_handler,
             history_state=self.mock_history_state,
             audio_url_converter=self.mock_audio_url_converter,
@@ -128,7 +126,6 @@ class TestWireGenerationTabIntegration(unittest.TestCase):
             text_info=self.mock_info,
             inputs_list=[self.mock_text],
             status_html=self.mock_html,
-            history_df=self.mock_df,
             config_handler=mock_handler,
             history_state=self.mock_history_state,
             audio_url_converter=self.mock_audio_url_converter,
@@ -205,7 +202,7 @@ class TestGenerateColabFallback(unittest.TestCase):
                 mock_client.generate.side_effect = fake_generate
 
                 config = {"server_side": True, "payload": {"text": "hello", "mode": "clone"}}
-                audio_path, status, _, hist, _ = _generate_server_side(
+                audio_path, status, _, hist = _generate_server_side(
                     "clone", "hello", [], config)
                 self.assertIn("Generated:", status)
                 self.assertIsNotNone(audio_path)
@@ -215,7 +212,7 @@ class TestGenerateColabFallback(unittest.TestCase):
     @skip_if_no_gradio
     def test_none_config_preserves_error(self):
         from qwen3_tts.interface.ui import _generate_server_side
-        audio_path, status, _, _, _ = _generate_server_side(
+        audio_path, status, _, _ = _generate_server_side(
             "clone", "hello", [], None)
         self.assertIsNone(audio_path)
 
@@ -224,7 +221,7 @@ class TestGenerateColabFallback(unittest.TestCase):
         from qwen3_tts.interface.ui import _generate_server_side
         # Non-server_side config means user cancelled
         config = {"payload": {}}
-        audio_path, status, _, _, _ = _generate_server_side(
+        audio_path, status, _, _ = _generate_server_side(
             "clone", "hello", [], config)
         self.assertIsNone(audio_path)
         self.assertEqual(status, "Cancelled")
@@ -239,7 +236,7 @@ class TestGenerateColabFallback(unittest.TestCase):
             mock_client.generate.side_effect = RuntimeError("connection refused")
 
             config = {"server_side": True, "payload": {"text": "hello", "mode": "clone"}}
-            audio_path, status, _, _, _ = _generate_server_side(
+            audio_path, status, _, _ = _generate_server_side(
                 "clone", "hello", [], config)
             self.assertIsNone(audio_path)
             self.assertIn("connection refused", status)

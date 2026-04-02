@@ -146,9 +146,9 @@ def _generate_server_side(mode, text, history_list, stream_config):
     Auth token stays in the Python process — never sent to the browser JS layer.
 
     Returns:
-        tuple: (audio_path_or_none, status_text, status_html, history_list, history_df_data)
+        tuple: (audio_path_or_none, status_text, status_html, history_list)
     """
-    from qwen3_tts.interface.ui.shared import get_history_data, add_to_history
+    from qwen3_tts.interface.ui.shared import add_to_history
     import gradio as gr
 
     # Ensure history_list is always a valid list (defensive against Gradio state issues)
@@ -163,10 +163,10 @@ def _generate_server_side(mode, text, history_list, stream_config):
 
     # stream_config is None when validation failed — preserve the error
     if stream_config is None:
-        return None, gr.update(), format_status_display(), history_list, gr.update()
+        return None, gr.update(), format_status_display(), history_list
 
     if not isinstance(stream_config, dict) or not stream_config.get("server_side"):
-        return None, "Cancelled", format_status_display(), history_list, gr.update()
+        return None, "Cancelled", format_status_display(), history_list
 
     try:
         from qwen3_tts.server.client import TTSClient
@@ -225,20 +225,17 @@ def _generate_server_side(mode, text, history_list, stream_config):
             )
             # Make a copy for return to avoid external mutation
             history_list_copy = list(history_list)
-            history_df_data = get_history_data(history_list_copy)
         return (
             temp_path,
             f"Generated: {os.path.basename(persistent_path)}",
             format_status_display(),
             history_list_copy,
-            history_df_data,
         )
     except Exception as e:
         logger.error("Server-side generation failed: %s", e)
         # Ensure we always return a valid list even on error
         safe_history_list = list(history_list) if isinstance(history_list, list) else []
-        safe_history_df = get_history_data(safe_history_list)
-        return None, f"Error: {e}", format_status_display(), safe_history_list, safe_history_df
+        return None, f"Error: {e}", format_status_display(), safe_history_list
 
 
 def _build_common_controls():
@@ -303,7 +300,7 @@ def _build_generate_buttons_and_output(tab_id):
 
 def _wire_generation_tab(mode, btn, cancel_btn, status, stream_config, result_data,
                          mode_hidden, text_hidden, model_indicator,
-                         text, text_info, inputs_list, status_html, history_df,
+                         text, text_info, inputs_list, status_html,
                          config_handler, api_name=None, history_state=None,
                          audio_url_converter=None):
     """Wire up the generation flow: Python validates → JS streams → Python saves/fallback.
@@ -322,11 +319,14 @@ def _wire_generation_tab(mode, btn, cancel_btn, status, stream_config, result_da
         text_info: The text info textbox component.
         inputs_list: List of input components for the config_handler.
         status_html: The status HTML component.
-        history_df: The history dataframe component.
         config_handler: Function returning (config_dict, status_text).
         api_name: Optional API name for the endpoint.
         history_state: Optional history state component.
         audio_url_converter: Hidden gr.Audio for server-side file URL conversion.
+
+    Returns:
+        The final event chain object so callers can append further .then() steps
+        (e.g. to update a history dataframe rendered below the tabs).
     """
     from qwen3_tts.interface.ui.model_management import get_model_status_html
     from qwen3_tts.interface.wavesurfer_js import (
@@ -346,7 +346,7 @@ def _wire_generation_tab(mode, btn, cancel_btn, status, stream_config, result_da
 
     # Generation flow: Python validates → Python generates server-side → JS loads audio
     # Auth token stays in the Python process and never reaches the browser.
-    btn.click(**click_kwargs).then(
+    chain = btn.click(**click_kwargs).then(
         # Capture the text input for the generation step
         fn=lambda t: t,
         inputs=[text],
@@ -355,7 +355,7 @@ def _wire_generation_tab(mode, btn, cancel_btn, status, stream_config, result_da
         # Step 2: Generate audio server-side via TTSClient (no JS streaming)
         fn=_generate_server_side,
         inputs=[mode_hidden, text_hidden, history_state, stream_config],
-        outputs=[audio_url_converter, status, status_html, history_state, history_df],
+        outputs=[audio_url_converter, status, status_html, history_state],
     ).then(
         # Step 3: Load saved file into tab's WaveSurfer player via hidden gr.Audio URL
         # NOTE: fn=passthrough required for Gradio 6 .then() chain continuity
@@ -381,3 +381,5 @@ def _wire_generation_tab(mode, btn, cancel_btn, status, stream_config, result_da
     )
 
     text.change(fn=update_text_info, inputs=text, outputs=text_info)
+
+    return chain

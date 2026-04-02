@@ -348,7 +348,10 @@ class TestHistoryFunctions(unittest.TestCase):
         self.assertEqual(len(rows), 1)
         self.assertEqual(rows[0][1], "Clone")
         self.assertEqual(rows[0][2], "Hello")
-        self.assertEqual(rows[0][3], 2)
+        # Column 3 is Seed (added in Task 2); no seed → "-"
+        self.assertEqual(rows[0][3], "-")
+        # Column 4 is Chunks
+        self.assertEqual(rows[0][4], 2)
 
 
 if __name__ == "__main__":

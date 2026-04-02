@@ -166,10 +166,12 @@ def on_history_select(evt: gr.SelectData, history_list):
     return temp_path
 
 
-def _build_clone_tab(status_html, history_df, history_state):
+def _build_clone_tab(status_html, history_state):
     """Build Clone Mode tab components and wiring.
 
-    Returns (clone_prompt, clone_model_indicator) for cross-tab references.
+    Returns (clone_prompt, clone_model_indicator, clone_chain) for cross-tab references.
+    clone_chain is the final event chain object; callers may append .then() steps to it
+    (e.g. to update a history dataframe rendered outside this tab).
     """
     gr.Markdown(
         "Use a voice prompt file to clone a specific voice. "
@@ -206,7 +208,7 @@ def _build_clone_tab(status_html, history_df, history_state):
             "clone", text, preset, temp, top_k, top_p, rep, seed,
             prompt_file=prompt, no_transcript=no_transcript)
 
-    _wire_generation_tab(
+    clone_chain = _wire_generation_tab(
         "clone", clone_btns["btn"], clone_btns["cancel_btn"],
         clone_btns["status"], clone_btns["stream_config"],
         clone_btns["result_data"], clone_btns["mode_hidden"],
@@ -216,18 +218,20 @@ def _build_clone_tab(status_html, history_df, history_state):
                      clone_ctrls["temp"], clone_ctrls["top_k"], clone_ctrls["top_p"],
                      clone_ctrls["rep"], clone_ctrls["seed"],
                      clone_no_transcript],
-        status_html=status_html, history_df=history_df,
+        status_html=status_html,
         config_handler=clone_config_handler, api_name="generate_clone",
         history_state=history_state,
         audio_url_converter=clone_btns["audio_url_converter"],
     )
-    return clone_prompt, clone_model_indicator
+    return clone_prompt, clone_model_indicator, clone_chain
 
 
-def _build_design_tab(status_html, history_df, history_state, clone_prompt):
+def _build_design_tab(status_html, history_state, clone_prompt):
     """Build Design Mode tab components and wiring.
 
-    Returns design_model_indicator for cross-tab references.
+    Returns (design_model_indicator, design_chain) for cross-tab references.
+    design_chain is the final event chain object; callers may append .then() steps to it
+    (e.g. to update a history dataframe rendered outside this tab).
     """
     gr.Markdown("Generate a voice from a text description.")
     design_model_indicator = gr.HTML(value=get_model_status_html("design"))
@@ -285,7 +289,7 @@ def _build_design_tab(status_html, history_df, history_state, clone_prompt):
             "design", text, preset, temp, top_k, top_p, rep, seed,
             description=desc)
 
-    _wire_generation_tab(
+    design_chain = _wire_generation_tab(
         "design", design_btns["btn"], design_btns["cancel_btn"],
         design_btns["status"], design_btns["stream_config"],
         design_btns["result_data"], design_btns["mode_hidden"],
@@ -294,7 +298,7 @@ def _build_design_tab(status_html, history_df, history_state, clone_prompt):
         inputs_list=[design_text, design_desc, design_preset,
                      design_ctrls["temp"], design_ctrls["top_k"], design_ctrls["top_p"],
                      design_ctrls["rep"], design_ctrls["seed"]],
-        status_html=status_html, history_df=history_df,
+        status_html=status_html,
         config_handler=design_config_handler,
         history_state=history_state,
         audio_url_converter=design_btns["audio_url_converter"],
@@ -337,13 +341,15 @@ def _build_design_tab(status_html, history_df, history_state, clone_prompt):
         fn=save_design_as_prompt, inputs=[design_save_name, history_state],
         outputs=[design_save_status, clone_prompt],
     )
-    return design_model_indicator
+    return design_model_indicator, design_chain
 
 
-def _build_custom_tab(status_html, history_df, history_state):
+def _build_custom_tab(status_html, history_state):
     """Build Custom Mode tab components and wiring.
 
-    Returns custom_model_indicator for cross-tab references.
+    Returns (custom_model_indicator, custom_chain) for cross-tab references.
+    custom_chain is the final event chain object; callers may append .then() steps to it
+    (e.g. to update a history dataframe rendered outside this tab).
     """
     gr.Markdown("Use premium pre-trained speakers.")
     custom_model_indicator = gr.HTML(value=get_model_status_html("custom"))
@@ -373,7 +379,7 @@ def _build_custom_tab(status_html, history_df, history_state):
             "custom", text, preset, temp, top_k, top_p, rep, seed,
             speaker=speaker, instruct=instruct)
 
-    _wire_generation_tab(
+    custom_chain = _wire_generation_tab(
         "custom", custom_btns["btn"], custom_btns["cancel_btn"],
         custom_btns["status"], custom_btns["stream_config"],
         custom_btns["result_data"], custom_btns["mode_hidden"],
@@ -382,13 +388,13 @@ def _build_custom_tab(status_html, history_df, history_state):
         inputs_list=[custom_text, custom_speaker, custom_instruct, custom_preset,
                      custom_ctrls["temp"], custom_ctrls["top_k"], custom_ctrls["top_p"],
                      custom_ctrls["rep"], custom_ctrls["seed"]],
-        status_html=status_html, history_df=history_df,
+        status_html=status_html,
         config_handler=custom_config_handler,
         history_state=history_state,
         audio_url_converter=custom_btns["audio_url_converter"],
     )
     custom_prosody.change(fn=apply_prosody_preset, inputs=[custom_prosody, custom_instruct], outputs=custom_instruct)
-    return custom_model_indicator
+    return custom_model_indicator, custom_chain
 
 
 def _build_create_voice_tab(clone_prompt):
@@ -612,6 +618,26 @@ def _build_manage_models_tab(status_html, clone_model_indicator,
     )
 
 
+def _load_initial_history():
+    """Load persistent history from disk on UI startup.
+
+    Returns:
+        tuple: (clone_status_html, design_status_html, custom_status_html,
+                history_list, history_df_data)
+    """
+    from qwen3_tts.interface.ui.shared import load_history_from_disk, get_history_data
+    config = load_config()
+    output_dir = os.path.expanduser(config.get("output_directory", "~/Downloads"))
+    history = load_history_from_disk(output_dir)
+    return (
+        get_model_status_html("clone"),
+        get_model_status_html("design"),
+        get_model_status_html("custom"),
+        history,
+        get_history_data(history),
+    )
+
+
 def build_ui():
     """Build the Gradio interface."""
 
@@ -662,33 +688,17 @@ def build_ui():
         # Per-session history state (shared across tabs)
         history_state = gr.State([])
 
-        # History (defined before tabs for wiring, renders here)
-        with gr.Accordion("Recent Generations", open=True):
-            history_df = gr.Dataframe(
-                headers=["Time", "Mode", "Text Preview", "Seed", "Chunks"],
-                value=[], interactive=False, wrap=True,
-            )
-            gr.HTML(value=get_player_html("history"))
-            history_audio_url = gr.Audio(elem_classes=["gr-hidden"])
-
-        history_df.select(
-            fn=on_history_select, inputs=[history_state], outputs=[history_audio_url],
-        ).then(
-            fn=lambda x: x, js=get_load_into_player_js("history"),
-            inputs=[history_audio_url], outputs=[history_audio_url],
-        )
-
         # Tabs for different modes
         with gr.Tabs():
             with gr.Tab("Clone Mode") as clone_tab:
-                clone_prompt, clone_model_indicator = _build_clone_tab(
-                    status_html, history_df, history_state)
+                clone_prompt, clone_model_indicator, clone_chain = _build_clone_tab(
+                    status_html, history_state)
             with gr.Tab("Design Mode") as design_tab:
-                design_model_indicator = _build_design_tab(
-                    status_html, history_df, history_state, clone_prompt)
+                design_model_indicator, design_chain = _build_design_tab(
+                    status_html, history_state, clone_prompt)
             with gr.Tab("Custom Mode") as custom_tab:
-                custom_model_indicator = _build_custom_tab(
-                    status_html, history_df, history_state)
+                custom_model_indicator, custom_chain = _build_custom_tab(
+                    status_html, history_state)
 
             clone_tab.select(fn=lambda: get_model_status_html("clone"), outputs=clone_model_indicator)
             design_tab.select(fn=lambda: get_model_status_html("design"), outputs=design_model_indicator)
@@ -703,14 +713,33 @@ def build_ui():
                     status_html, clone_model_indicator,
                     design_model_indicator, custom_model_indicator)
 
+        # History panel below tabs (renders after tabs in the page layout)
+        gr.Markdown("### Recent Generations")
+        history_df = gr.Dataframe(
+            headers=["Time", "Mode", "Text Preview", "Seed", "Chunks"],
+            value=[], interactive=False, wrap=True,
+        )
+        gr.HTML(value=get_player_html("history"))
+        history_audio_url = gr.Audio(elem_classes=["gr-hidden"])
+
+        history_df.select(
+            fn=on_history_select, inputs=[history_state], outputs=[history_audio_url],
+        ).then(
+            fn=lambda x: x, js=get_load_into_player_js("history"),
+            inputs=[history_audio_url], outputs=[history_audio_url],
+        )
+
+        # Wire history_df updates from each tab's generation chain
+        from qwen3_tts.interface.ui.shared import get_history_data
+        clone_chain.then(fn=get_history_data, inputs=[history_state], outputs=[history_df])
+        design_chain.then(fn=get_history_data, inputs=[history_state], outputs=[history_df])
+        custom_chain.then(fn=get_history_data, inputs=[history_state], outputs=[history_df])
+
         demo.load(
-            fn=lambda: (
-                get_model_status_html("clone"),
-                get_model_status_html("design"),
-                get_model_status_html("custom")
-            ),
+            fn=_load_initial_history,
             js=get_script_reexecutor_fn(),
-            outputs=[clone_model_indicator, design_model_indicator, custom_model_indicator]
+            outputs=[clone_model_indicator, design_model_indicator, custom_model_indicator,
+                     history_state, history_df],
         )
 
         gr.Markdown("""

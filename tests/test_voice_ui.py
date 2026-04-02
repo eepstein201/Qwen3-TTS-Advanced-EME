@@ -60,8 +60,8 @@ class TestUIHistoryFunctions(unittest.TestCase):
         self.assertIsInstance(data, list)
         self.assertEqual(len(data), 1)
         self.assertIsInstance(data[0], list)
-        # Should be [time, mode, text, chunks]
-        self.assertEqual(len(data[0]), 4)
+        # Should be [time, mode, text, seed, chunks] — Seed column added in Task 2
+        self.assertEqual(len(data[0]), 5)
 
     def test_history_text_truncation(self):
         """Long text is truncated in history entries."""
