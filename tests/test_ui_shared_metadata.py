@@ -73,3 +73,33 @@ def test_load_history_from_disk_skips_orphan_json(tmp_path):
     (tmp_path / "voice_ui_orphan.json").write_text(json.dumps(meta))
     history = load_history_from_disk(str(tmp_path))
     assert len(history) == 0
+
+
+from qwen3_tts.interface.ui.shared import add_to_history, get_history_data
+
+
+def test_add_to_history_includes_seed():
+    history = add_to_history([], "clone", "Hello", "/tmp/test.wav", 1, seed=42)
+    assert history[0]["seed"] == 42
+
+
+def test_add_to_history_seed_none_when_omitted():
+    history = add_to_history([], "clone", "Hello", "/tmp/test.wav", 1)
+    assert history[0]["seed"] is None
+
+
+def test_get_history_data_includes_seed_column():
+    import time
+    history = [{"timestamp": time.time(), "mode": "Clone", "text": "Hi",
+                "path": "/tmp/x.wav", "chunks": 1, "seed": 42}]
+    rows = get_history_data(history)
+    assert len(rows[0]) == 5  # Time, Mode, Text, Seed, Chunks
+    assert rows[0][3] == "42"
+
+
+def test_get_history_data_seed_none_displays_dash():
+    import time
+    history = [{"timestamp": time.time(), "mode": "Clone", "text": "Hi",
+                "path": "/tmp/x.wav", "chunks": 1, "seed": None}]
+    rows = get_history_data(history)
+    assert rows[0][3] == "-"

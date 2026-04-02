@@ -251,7 +251,7 @@ def get_presets():
     return ["(none)"] + list(config.get("presets", {}).keys())
 
 
-def add_to_history(history_list, mode, text, output_path, duration_chunks):
+def add_to_history(history_list, mode, text, output_path, duration_chunks, seed=None):
     """Add a generation to history.
 
     Args:
@@ -260,6 +260,7 @@ def add_to_history(history_list, mode, text, output_path, duration_chunks):
         text: Generated text. Truncated to 40 chars + "..." if longer.
         output_path: Path to the output audio file.
         duration_chunks: Number of audio chunks (int).
+        seed: Optional integer seed used for generation.
 
     Returns:
         New list with the entry prepended, capped at MAX_HISTORY_SIZE.
@@ -271,6 +272,7 @@ def add_to_history(history_list, mode, text, output_path, duration_chunks):
         "text": text[:40] + "..." if len(text) > 40 else text,
         "path": output_path,
         "chunks": duration_chunks if isinstance(duration_chunks, int) else 0,
+        "seed": seed,
     }
     new_list = [entry] + list(history_list)
     return new_list[:MAX_HISTORY_SIZE]
@@ -280,7 +282,7 @@ def get_history_data(history_list):
     """Convert history list to list-of-lists format.
 
     Returns:
-        List of [time, mode, text, chunks] rows.
+        List of [time, mode, text, seed, chunks] rows.
     """
     import datetime
 
@@ -291,10 +293,13 @@ def get_history_data(history_list):
     for entry in history_list:
         ts = entry.get("timestamp", 0)
         time_str = datetime.datetime.fromtimestamp(ts).strftime("%H:%M:%S") if ts else ""
+        seed_val = entry.get("seed")
+        seed_str = str(seed_val) if seed_val is not None else "-"
         rows.append([
             time_str,
             entry.get("mode", "?"),
             entry.get("text", ""),
+            seed_str,
             entry.get("chunks", 0),
         ])
 

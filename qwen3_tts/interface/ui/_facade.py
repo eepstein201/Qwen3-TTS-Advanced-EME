@@ -665,7 +665,7 @@ def build_ui():
         # History (defined before tabs for wiring, renders here)
         with gr.Accordion("Recent Generations", open=True):
             history_df = gr.Dataframe(
-                headers=["Time", "Mode", "Text Preview", "Chunks"],
+                headers=["Time", "Mode", "Text Preview", "Seed", "Chunks"],
                 value=[], interactive=False, wrap=True,
             )
             gr.HTML(value=get_player_html("history"))

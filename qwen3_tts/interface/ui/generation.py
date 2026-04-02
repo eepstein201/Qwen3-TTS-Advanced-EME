@@ -219,7 +219,10 @@ def _generate_server_side(mode, text, history_list, stream_config):
         # History tracks persistent path; Gradio gets temp path
         # Use lock to prevent concurrent modification issues
         with _history_lock:
-            history_list = add_to_history(history_list, mode, text, persistent_path, 0)
+            history_list = add_to_history(
+                history_list, mode, text, persistent_path, 0,
+                seed=payload.get("seed"),
+            )
             # Make a copy for return to avoid external mutation
             history_list_copy = list(history_list)
             history_df_data = get_history_data(history_list_copy)
