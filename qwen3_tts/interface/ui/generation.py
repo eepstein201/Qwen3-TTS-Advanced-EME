@@ -26,6 +26,7 @@ from qwen3_tts.core.config import (
     is_server_running,
     auth_headers,
     load_config,
+    get_generation_presets,
     get_prosody_presets,
 )
 from qwen3_tts.interface.ui.shared import (
@@ -110,9 +111,9 @@ def _prepare_streaming_config(mode, text, preset, temperature, top_k, top_p,
         except ValueError:
             pass
 
-    # Apply preset if specified
+    # Apply preset if specified (defaults merged with user-defined)
     if preset and preset != "(none)":
-        presets = config.get("presets", {})
+        presets = get_generation_presets(config)
         if preset in presets:
             gen_params.update(presets[preset])
 

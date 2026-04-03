@@ -16,6 +16,7 @@ import gradio as gr
 from qwen3_tts.core.config import (
     CUSTOM_VOICE_SPEAKERS,
     get_backend,
+    get_generation_presets,
     get_model_size,
     get_mlx_quantization,
     get_server_url,
@@ -246,9 +247,9 @@ def get_voice_prompts():
 
 
 def get_presets():
-    """Get list of available generation presets."""
+    """Get list of available generation presets (defaults + user-defined)."""
     config = load_config()
-    return ["(none)"] + list(config.get("presets", {}).keys())
+    return ["(none)"] + list(get_generation_presets(config).keys())
 
 
 def add_to_history(history_list, mode, text, output_path, duration_chunks, seed=None):

@@ -435,11 +435,16 @@ class TestGetPresets(unittest.TestCase):
         self.assertEqual(result.index("(none)"), 0)
 
     @patch("qwen3_tts.interface.ui.shared.load_config")
-    def test_empty_presets_still_has_none(self, mock_config):
+    def test_empty_user_presets_still_returns_defaults(self, mock_config):
         mock_config.return_value = {"presets": {}}
         from qwen3_tts.interface.ui.shared import get_presets
+        from qwen3_tts.core.config import DEFAULT_GENERATION_PRESETS
         result = get_presets()
-        self.assertEqual(result, ["(none)"])
+        self.assertIn("(none)", result)
+        self.assertEqual(result[0], "(none)")
+        # Default presets appear even with empty user config
+        for name in DEFAULT_GENERATION_PRESETS:
+            self.assertIn(name, result)
 
 
 if __name__ == "__main__":
