@@ -226,10 +226,11 @@ def _build_clone_tab(status_html, history_state):
     clone_btns = _build_generate_buttons_and_output("clone")
 
     def clone_config_handler(text, prompt, preset, temp, top_k, top_p, rep, seed,
-                             no_transcript):
+                             no_transcript, seed_lock):
         return _prepare_streaming_config(
             "clone", text, preset, temp, top_k, top_p, rep, seed,
-            prompt_file=prompt, no_transcript=no_transcript)
+            prompt_file=prompt, no_transcript=no_transcript,
+            seed_lock_chunks=seed_lock)
 
     clone_chain = _wire_generation_tab(
         "clone", clone_btns["btn"], clone_btns["cancel_btn"],
@@ -240,7 +241,7 @@ def _build_clone_tab(status_html, history_state):
         inputs_list=[clone_text, clone_prompt, clone_preset,
                      clone_ctrls["temp"], clone_ctrls["top_k"], clone_ctrls["top_p"],
                      clone_ctrls["rep"], clone_ctrls["seed"],
-                     clone_no_transcript],
+                     clone_no_transcript, clone_ctrls["seed_lock"]],
         status_html=status_html,
         config_handler=clone_config_handler, api_name="generate_clone",
         history_state=history_state,
@@ -307,10 +308,11 @@ def _build_design_tab(status_html, history_state, clone_prompt):
         design_save_btn = gr.Button("Save as Voice Prompt", size="sm", variant="secondary")
         design_save_status = gr.Textbox(label="", show_label=False, interactive=False, max_lines=1, container=False)
 
-    def design_config_handler(text, desc, preset, temp, top_k, top_p, rep, seed):
+    def design_config_handler(text, desc, preset, temp, top_k, top_p, rep, seed,
+                              seed_lock):
         return _prepare_streaming_config(
             "design", text, preset, temp, top_k, top_p, rep, seed,
-            description=desc)
+            description=desc, seed_lock_chunks=seed_lock)
 
     design_chain = _wire_generation_tab(
         "design", design_btns["btn"], design_btns["cancel_btn"],
@@ -320,7 +322,8 @@ def _build_design_tab(status_html, history_state, clone_prompt):
         design_text, design_text_info,
         inputs_list=[design_text, design_desc, design_preset,
                      design_ctrls["temp"], design_ctrls["top_k"], design_ctrls["top_p"],
-                     design_ctrls["rep"], design_ctrls["seed"]],
+                     design_ctrls["rep"], design_ctrls["seed"],
+                     design_ctrls["seed_lock"]],
         status_html=status_html,
         config_handler=design_config_handler,
         history_state=history_state,
@@ -397,10 +400,11 @@ def _build_custom_tab(status_html, history_state):
 
     custom_btns = _build_generate_buttons_and_output("custom")
 
-    def custom_config_handler(text, speaker, instruct, preset, temp, top_k, top_p, rep, seed):
+    def custom_config_handler(text, speaker, instruct, preset, temp, top_k, top_p, rep, seed,
+                              seed_lock):
         return _prepare_streaming_config(
             "custom", text, preset, temp, top_k, top_p, rep, seed,
-            speaker=speaker, instruct=instruct)
+            speaker=speaker, instruct=instruct, seed_lock_chunks=seed_lock)
 
     custom_chain = _wire_generation_tab(
         "custom", custom_btns["btn"], custom_btns["cancel_btn"],
@@ -410,7 +414,8 @@ def _build_custom_tab(status_html, history_state):
         custom_text, custom_text_info,
         inputs_list=[custom_text, custom_speaker, custom_instruct, custom_preset,
                      custom_ctrls["temp"], custom_ctrls["top_k"], custom_ctrls["top_p"],
-                     custom_ctrls["rep"], custom_ctrls["seed"]],
+                     custom_ctrls["rep"], custom_ctrls["seed"],
+                     custom_ctrls["seed_lock"]],
         status_html=status_html,
         config_handler=custom_config_handler,
         history_state=history_state,

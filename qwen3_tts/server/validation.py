@@ -48,6 +48,7 @@ class GenerateRequest(BaseModel):
     seed: Optional[int] = None
     max_chunk_chars: Optional[int] = None
     x_vector_only_mode: bool = False
+    seed_lock_chunks: bool = False
 
 
 class LoadModelRequest(BaseModel):

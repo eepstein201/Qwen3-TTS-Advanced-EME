@@ -66,7 +66,8 @@ def cancel_streaming_generation():
 def _prepare_streaming_config(mode, text, preset, temperature, top_k, top_p,
                               repetition_penalty, seed, prompt_file=None,
                               description=None, speaker=None, instruct=None,
-                              prosody_preset=None, no_transcript=False):
+                              prosody_preset=None, no_transcript=False,
+                              seed_lock_chunks=False):
     """Prepare streaming configuration for the given mode.
 
     Returns (config_dict_or_None, status_text) tuple.
@@ -120,6 +121,7 @@ def _prepare_streaming_config(mode, text, preset, temperature, top_k, top_p,
         "mode": mode,
         "text": text,
         "language": config.get("language", "English"),
+        "seed_lock_chunks": seed_lock_chunks,
         **gen_params,
     }
 
@@ -190,6 +192,7 @@ def _generate_server_side(mode, text, history_list, stream_config):
             seed=payload.get("seed"),
             preset=payload.get("preset"),
             x_vector_only_mode=payload.get("x_vector_only_mode", False),
+            seed_lock_chunks=payload.get("seed_lock_chunks", False),
         )
 
         # Copy to user's output directory for persistent access
@@ -251,10 +254,14 @@ def _build_common_controls():
         top_p = gr.Slider(0.1, 1.0, value=0.95, step=0.01, label="Top-P")
         rep = gr.Slider(1.0, 2.0, value=1.05, step=0.01, label="Repetition Penalty")
         seed = gr.Textbox(label="Seed (empty for random)", value="")
+        seed_lock = gr.Checkbox(
+            label="Lock voice across chunks", value=False,
+            info="Re-seed before each chunk for consistent voice timbre in long texts"
+        )
 
     return {
         "temp": temp, "top_k": top_k, "top_p": top_p,
-        "rep": rep, "seed": seed,
+        "rep": rep, "seed": seed, "seed_lock": seed_lock,
     }
 
 

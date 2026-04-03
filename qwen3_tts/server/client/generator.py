@@ -54,6 +54,7 @@ class GeneratorMixin:
         trim_silence=False,
         x_vector_only_mode=False,
         max_new_tokens=None,
+        seed_lock_chunks=False,
     ):
         """Generate speech from text via the server.
 
@@ -141,7 +142,8 @@ class GeneratorMixin:
 
         # Generate audio via server
         wav, sr = self._generate_via_server(text, mode, prompt, description, speaker, instruct, gen_params,
-                                            x_vector_only_mode=x_vector_only_mode)
+                                            x_vector_only_mode=x_vector_only_mode,
+                                            seed_lock_chunks=seed_lock_chunks)
 
         # Apply audio processing (lazy import — only if needed)
         needs_processing = trim_silence or normalize or (speed and speed != 1.0) or (pitch and pitch != 0)
@@ -156,13 +158,14 @@ class GeneratorMixin:
         return output
 
     def _generate_via_server(self, text, mode, prompt, description, speaker, instruct, gen_params,
-                             x_vector_only_mode=False):
+                             x_vector_only_mode=False, seed_lock_chunks=False):
         """Generate audio via the TTS server."""
         payload = self._add_mode_params(
             {
                 "texts": [text],
                 "mode": mode,
                 "language": self.config.get("language", "English"),
+                "seed_lock_chunks": seed_lock_chunks,
                 **gen_params,
             },
             mode, prompt=prompt, description=description,

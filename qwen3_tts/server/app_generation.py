@@ -241,6 +241,7 @@ async def handle_generate(request, state, req, security, config_provider):
                         progress_callback=_chunk_progress,
                         x_vector_only_mode=x_vector_only_mode,
                         config_provider=config_provider,
+                        seed_lock_chunks=req.seed_lock_chunks,
                     )
 
                 # Encode audio to base64 WAV in memory

@@ -566,6 +566,27 @@ def _prepare_text_chunks(text: str, language: str, model, max_chunk_chars: int) 
 
 
 # ---------------------------------------------------------------------------
+# Seed helpers
+# ---------------------------------------------------------------------------
+
+def _set_seed_for_backend(seed):
+    """Set the random seed for the active backend (torch or mlx).
+
+    No-op when seed is None. Intended for seed-locking across chunks so that
+    each chunk gets identical initial random state for voice consistency.
+    """
+    if seed is None:
+        return
+    backend = get_backend()
+    if backend == "mlx":
+        import mlx.core as mx
+        mx.random.seed(seed)
+    else:
+        import torch
+        torch.manual_seed(seed)
+
+
+# ---------------------------------------------------------------------------
 # Public dispatch API
 # ---------------------------------------------------------------------------
 
@@ -573,7 +594,8 @@ def run_inference(model, text, mode, gen_params, language="English",
                   voice_prompt=None, voice_description=None,
                   speaker=None, instruct=None,
                   max_chunk_chars=None, progress_callback=None,
-                  x_vector_only_mode=False, config_provider=None):
+                  x_vector_only_mode=False, config_provider=None,
+                  seed_lock_chunks=False):
     """Run TTS inference, dispatching to the configured backend.
 
     For long texts, automatically splits into chunks at sentence boundaries
@@ -622,9 +644,15 @@ def run_inference(model, text, mode, gen_params, language="English",
     all_audio = []
     sample_rate = None
 
+    seed = gen_params.get("seed") if seed_lock_chunks else None
+
     for i, chunk in enumerate(chunks):
         if progress_callback:
             progress_callback(i, len(chunks))
+
+        # Re-seed before each chunk for voice consistency across chunks
+        if seed is not None:
+            _set_seed_for_backend(seed)
 
         preview = chunk[:50] + "..." if len(chunk) > 50 else chunk
         logger.info("Chunk %d/%d: '%s' (%d chars)", i + 1, len(chunks), sanitize_log(preview), len(chunk))
