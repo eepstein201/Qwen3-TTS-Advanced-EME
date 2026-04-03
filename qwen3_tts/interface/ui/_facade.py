@@ -131,6 +131,29 @@ def _sanitize_voice_name(raw: str) -> tuple:
     return name, None
 
 
+def extract_seed_from_history(evt: gr.SelectData, history_list):
+    """Extract seed value from clicked history row for reuse.
+
+    Returns the seed as a string (for Textbox), or "" if unavailable.
+    """
+    if not (isinstance(history_list, list) and history_list):
+        return ""
+    if not (hasattr(evt, 'index') and isinstance(evt.index, (list, tuple))
+            and len(evt.index) >= 1 and 0 <= evt.index[0] < len(history_list)):
+        return ""
+    seed = history_list[evt.index[0]].get("seed")
+    return str(seed) if seed is not None else ""
+
+
+def _broadcast_seed_to_tabs(evt: gr.SelectData, history_list):
+    """Extract seed from clicked history row and broadcast to all tab seed fields.
+
+    Returns a 3-tuple (clone_seed, design_seed, custom_seed) — all the same value.
+    """
+    seed_str = extract_seed_from_history(evt, history_list)
+    return seed_str, seed_str, seed_str
+
+
 def on_history_select(evt: gr.SelectData, history_list):
     """Handle click on a history row — return file path for WaveSurfer playback.
 
@@ -169,7 +192,7 @@ def on_history_select(evt: gr.SelectData, history_list):
 def _build_clone_tab(status_html, history_state):
     """Build Clone Mode tab components and wiring.
 
-    Returns (clone_prompt, clone_model_indicator, clone_chain) for cross-tab references.
+    Returns (clone_prompt, clone_model_indicator, clone_chain, clone_seed) for cross-tab references.
     clone_chain is the final event chain object; callers may append .then() steps to it
     (e.g. to update a history dataframe rendered outside this tab).
     """
@@ -223,13 +246,13 @@ def _build_clone_tab(status_html, history_state):
         history_state=history_state,
         audio_url_converter=clone_btns["audio_url_converter"],
     )
-    return clone_prompt, clone_model_indicator, clone_chain
+    return clone_prompt, clone_model_indicator, clone_chain, clone_ctrls["seed"]
 
 
 def _build_design_tab(status_html, history_state, clone_prompt):
     """Build Design Mode tab components and wiring.
 
-    Returns (design_model_indicator, design_chain) for cross-tab references.
+    Returns (design_model_indicator, design_chain, design_seed) for cross-tab references.
     design_chain is the final event chain object; callers may append .then() steps to it
     (e.g. to update a history dataframe rendered outside this tab).
     """
@@ -341,13 +364,13 @@ def _build_design_tab(status_html, history_state, clone_prompt):
         fn=save_design_as_prompt, inputs=[design_save_name, history_state],
         outputs=[design_save_status, clone_prompt],
     )
-    return design_model_indicator, design_chain
+    return design_model_indicator, design_chain, design_ctrls["seed"]
 
 
 def _build_custom_tab(status_html, history_state):
     """Build Custom Mode tab components and wiring.
 
-    Returns (custom_model_indicator, custom_chain) for cross-tab references.
+    Returns (custom_model_indicator, custom_chain, custom_seed) for cross-tab references.
     custom_chain is the final event chain object; callers may append .then() steps to it
     (e.g. to update a history dataframe rendered outside this tab).
     """
@@ -394,7 +417,7 @@ def _build_custom_tab(status_html, history_state):
         audio_url_converter=custom_btns["audio_url_converter"],
     )
     custom_prosody.change(fn=apply_prosody_preset, inputs=[custom_prosody, custom_instruct], outputs=custom_instruct)
-    return custom_model_indicator, custom_chain
+    return custom_model_indicator, custom_chain, custom_ctrls["seed"]
 
 
 def _build_create_voice_tab(clone_prompt):
@@ -691,13 +714,13 @@ def build_ui():
         # Tabs for different modes
         with gr.Tabs():
             with gr.Tab("Clone Mode") as clone_tab:
-                clone_prompt, clone_model_indicator, clone_chain = _build_clone_tab(
+                clone_prompt, clone_model_indicator, clone_chain, clone_seed = _build_clone_tab(
                     status_html, history_state)
             with gr.Tab("Design Mode") as design_tab:
-                design_model_indicator, design_chain = _build_design_tab(
+                design_model_indicator, design_chain, design_seed = _build_design_tab(
                     status_html, history_state, clone_prompt)
             with gr.Tab("Custom Mode") as custom_tab:
-                custom_model_indicator, custom_chain = _build_custom_tab(
+                custom_model_indicator, custom_chain, custom_seed = _build_custom_tab(
                     status_html, history_state)
 
             clone_tab.select(fn=lambda: get_model_status_html("clone"), outputs=clone_model_indicator)
@@ -727,6 +750,9 @@ def build_ui():
         ).then(
             fn=lambda x: x, js=get_load_into_player_js("history"),
             inputs=[history_audio_url], outputs=[history_audio_url],
+        ).then(
+            fn=_broadcast_seed_to_tabs, inputs=[history_state],
+            outputs=[clone_seed, design_seed, custom_seed],
         )
 
         # Wire history_df updates from each tab's generation chain

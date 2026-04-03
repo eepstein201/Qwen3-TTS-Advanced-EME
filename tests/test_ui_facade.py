@@ -479,6 +479,82 @@ class TestSanitizeVoiceName(unittest.TestCase):
         self.assertIsNone(err)
 
 
+class TestExtractSeedFromHistory(unittest.TestCase):
+    """Tests for extract_seed_from_history — populates seed field on row click."""
+
+    def test_valid_seed_returns_string(self):
+        from qwen3_tts.interface.ui._facade import extract_seed_from_history
+        evt = MagicMock()
+        evt.index = [0]
+        history = [{"seed": 42, "path": "/tmp/test.wav"}]
+        result = extract_seed_from_history(evt, history)
+        self.assertEqual(result, "42")
+
+    def test_none_seed_returns_empty(self):
+        from qwen3_tts.interface.ui._facade import extract_seed_from_history
+        evt = MagicMock()
+        evt.index = [0]
+        history = [{"seed": None, "path": "/tmp/test.wav"}]
+        result = extract_seed_from_history(evt, history)
+        self.assertEqual(result, "")
+
+    def test_missing_seed_key_returns_empty(self):
+        from qwen3_tts.interface.ui._facade import extract_seed_from_history
+        evt = MagicMock()
+        evt.index = [0]
+        history = [{"path": "/tmp/test.wav"}]
+        result = extract_seed_from_history(evt, history)
+        self.assertEqual(result, "")
+
+    def test_invalid_index_returns_empty(self):
+        from qwen3_tts.interface.ui._facade import extract_seed_from_history
+        evt = MagicMock()
+        evt.index = [5]
+        history = [{"seed": 42}]
+        result = extract_seed_from_history(evt, history)
+        self.assertEqual(result, "")
+
+    def test_empty_history_returns_empty(self):
+        from qwen3_tts.interface.ui._facade import extract_seed_from_history
+        evt = MagicMock()
+        evt.index = [0]
+        result = extract_seed_from_history(evt, [])
+        self.assertEqual(result, "")
+
+    def test_none_history_returns_empty(self):
+        from qwen3_tts.interface.ui._facade import extract_seed_from_history
+        evt = MagicMock()
+        evt.index = [0]
+        result = extract_seed_from_history(evt, None)
+        self.assertEqual(result, "")
+
+    def test_no_index_attr_returns_empty(self):
+        from qwen3_tts.interface.ui._facade import extract_seed_from_history
+        evt = MagicMock(spec=[])  # no .index attribute
+        result = extract_seed_from_history(evt, [{"seed": 42}])
+        self.assertEqual(result, "")
+
+
+class TestBroadcastSeedToTabs(unittest.TestCase):
+    """Tests for _broadcast_seed_to_tabs — returns 3-tuple for all tab seed fields."""
+
+    def test_broadcasts_seed_to_three_outputs(self):
+        from qwen3_tts.interface.ui._facade import _broadcast_seed_to_tabs
+        evt = MagicMock()
+        evt.index = [0]
+        history = [{"seed": 12345}]
+        result = _broadcast_seed_to_tabs(evt, history)
+        self.assertEqual(result, ("12345", "12345", "12345"))
+
+    def test_broadcasts_empty_when_no_seed(self):
+        from qwen3_tts.interface.ui._facade import _broadcast_seed_to_tabs
+        evt = MagicMock()
+        evt.index = [0]
+        history = [{"path": "/tmp/test.wav"}]
+        result = _broadcast_seed_to_tabs(evt, history)
+        self.assertEqual(result, ("", "", ""))
+
+
 class TestFormatStatusDisplayEscaping(unittest.TestCase):
     """Tests for HTML escaping in format_status_display."""
 
