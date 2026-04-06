@@ -38,3 +38,11 @@ class ConfigFetcherMixin:
         """Get server health info including loaded models and backend."""
         resp = self._session.get(f"{self.server_url}/health", timeout=5)
         return resp.json()
+
+    @_require_server
+    def shutdown(self):
+        """Request graceful server shutdown."""
+        resp = self._session.post(
+            f"{self.server_url}/shutdown", timeout=5, headers=auth_headers()
+        )
+        return resp.json()

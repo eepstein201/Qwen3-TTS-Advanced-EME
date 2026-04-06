@@ -318,7 +318,7 @@ async def handle_update_model_config(state, req, config_fn):
         "status": "config_updated",
         "changes": changes,
         "models_unloaded": True,
-        "note": "New model will be loaded on next generation",
+        "note": "All models unloaded. Reload required before generation.",
     }
 
 

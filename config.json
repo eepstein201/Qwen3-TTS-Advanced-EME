@@ -11,7 +11,8 @@
   "advanced": {
     "model_size": "1.7B",
     "mlx_quantization": "8bit",
-    "backend": "mlx"
+    "backend": "mlx",
+    "audio_loader": "librosa"
   },
   "language": "English",
   "generation": {

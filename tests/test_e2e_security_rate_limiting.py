@@ -30,6 +30,32 @@ AUTH_TOKEN_PATHS = [
 ]
 
 
+def _wait_for_rate_limit_reset(timeout: int = 70) -> None:
+    """Block until /generate is no longer rate-limited, up to timeout seconds."""
+    url = f"{SERVER_URL}/generate"
+    token = _get_auth_token()
+    headers = {"Content-Type": "application/json", "Authorization": f"Bearer {token}"}
+    body = json.dumps({"text": "rate-limit-probe", "mode": "custom"}).encode()
+    req = urllib.request.Request(url, data=body, headers=headers, method="POST")
+    try:
+        urllib.request.urlopen(req, timeout=10)
+        # Not rate limited — window is fresh, proceed
+    except urllib.error.HTTPError as e:
+        if e.code == 429:
+            retry_after = int(e.headers.get("Retry-After", 65))
+            time.sleep(min(retry_after + 1, timeout))
+        # Any other error (400, 503) means not rate-limited — proceed
+    except Exception:
+        pass  # Network error — proceed
+
+
+@pytest.fixture(scope="module", autouse=True)
+def ensure_fresh_rate_limit(check_server):
+    """Ensure the rate limit window is fresh before this module's tests run."""
+    _wait_for_rate_limit_reset()
+    yield
+
+
 def _get_auth_token():
     """Read the server auth token from known locations."""
     for path in AUTH_TOKEN_PATHS:
@@ -225,9 +251,9 @@ class TestE2ERateLimitingEnforcement:
 
         # If we got 429, verify the format
         if status == 429:
-            assert "detail" in data, "429 response should contain 'detail' field"
+            assert "error" in data, "429 response should contain 'error' field"
             # Rate limit responses typically include retry info
-            assert isinstance(data["detail"], str), \
+            assert isinstance(data["error"], str), \
                 "Error detail should be a string"
         # else: Not rate limited - that's OK for this test
 
