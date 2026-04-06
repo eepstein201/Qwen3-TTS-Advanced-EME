@@ -18,6 +18,7 @@ Run: pytest tests/test_e2e_security_validation.py -v
 
 import os
 import json
+import time
 import urllib.request
 import urllib.error
 
@@ -28,6 +29,39 @@ AUTH_TOKEN_PATHS = [
     "~/.config/qwen3-tts/.voice_server_token",
     "~/.voice_server_token",
 ]
+
+
+def _wait_for_rate_limit_reset(timeout: int = 70) -> None:
+    """Block until /generate is no longer rate-limited, up to timeout seconds."""
+    url = f"{SERVER_URL}/generate"
+    token = _get_auth_token()
+    headers = {"Content-Type": "application/json", "Authorization": f"Bearer {token}"}
+    body = json.dumps({"text": "rate-limit-probe", "mode": "custom"}).encode()
+    req = urllib.request.Request(url, data=body, headers=headers, method="POST")
+    try:
+        urllib.request.urlopen(req, timeout=10)
+        # Not rate limited — window is fresh, proceed
+    except urllib.error.HTTPError as e:
+        if e.code == 429:
+            retry_after = int(e.headers.get("Retry-After", 65))
+            time.sleep(min(retry_after + 1, timeout))
+        # Any other error (400, 503) means not rate-limited — proceed
+    except Exception:
+        pass  # Network error — proceed
+
+
+def _assert_rejected(status: int, expected_codes: list, context: str) -> None:
+    """Assert request was rejected with an expected code; skip if rate-limited."""
+    if status == 429:
+        pytest.skip(f"Rate limit exceeded before '{context}' could be verified")
+    assert status in expected_codes, f"{context}, got {status}"
+
+
+@pytest.fixture(scope="module", autouse=True)
+def ensure_fresh_rate_limit(check_server):
+    """Ensure the rate limit window is fresh before this module's tests run."""
+    _wait_for_rate_limit_reset()
+    yield
 
 
 def _get_auth_token():
@@ -42,6 +76,17 @@ def _get_auth_token():
         except FileNotFoundError:
             continue
     return ""
+
+
+@pytest.fixture(scope="session", autouse=True)
+def check_server():
+    """Skip all tests if server is not running."""
+    if not _is_server_running():
+        pytest.skip("TTS server not running on port 5123. Start with: tts server start")
+
+    token = _get_auth_token()
+    if not token:
+        pytest.skip("No auth token found. Token should be at ~/.config/qwen3-tts/.voice_server_token")
 
 
 def _is_server_running():
@@ -141,8 +186,7 @@ class TestE2EInputValidationSecurity:
             )
 
             # Should reject with 400, 422, or 500
-            assert status in [400, 422, 500], \
-                f"Whitespace-only text should be rejected, got {status}"
+            _assert_rejected(status, [400, 422, 500], "Whitespace text")
 
     def test_03_invalid_mode_returns_400(self):
         """REGRESSION: Invalid mode should return validation error.
@@ -164,8 +208,7 @@ class TestE2EInputValidationSecurity:
             )
 
             # Should reject with 400, 422, 500, or return 503 if mode not supported
-            assert status in [400, 422, 500, 503], \
-                f"Invalid mode '{mode}' should be rejected, got {status}"
+            _assert_rejected(status, [400, 422, 500, 503], f"Invalid mode '{mode}'")
 
     def test_04_missing_required_fields(self):
         """REGRESSION: Requests missing required fields should be rejected.
@@ -180,8 +223,7 @@ class TestE2EInputValidationSecurity:
         )
 
         # Should reject with 400, 422, or 500
-        assert status in [400, 422, 500], \
-            f"Missing 'text' field should be rejected, got {status}"
+        _assert_rejected(status, [400, 422, 500], "Missing 'text' field")
 
     def test_05_missing_mode_field(self):
         """REGRESSION: Requests missing mode should use default or reject.
@@ -197,8 +239,7 @@ class TestE2EInputValidationSecurity:
 
         # Should either accept (with default mode) or reject with 400/422/500
         # 200/202 = accepted with default, 400/422/500 = rejected
-        assert status in [200, 202, 400, 422, 500, 503], \
-            f"Missing 'mode' should be handled, got {status}"
+        _assert_rejected(status, [200, 202, 400, 422, 500, 503], "Missing 'mode' field")
 
     def test_06_very_long_text_rejected(self):
         """REGRESSION: Excessively long text should be rejected.
@@ -216,7 +257,9 @@ class TestE2EInputValidationSecurity:
 
         # Should reject with 400/422/422/500 for text too long
         # Or accept if the limit is higher
-        if status not in [200, 202]:
+        if status == 429:
+            pytest.skip("Rate limit exceeded before 'very long text' could be verified")
+        elif status not in [200, 202]:
             assert status in [400, 422, 413, 500], \
                 f"Very long text should be rejected, got {status}"
 
@@ -299,7 +342,9 @@ class TestE2EInjectionPrevention:
 
             # Should be rejected or safely handled
             # 400/422/500/503 are all acceptable safe responses
-            if status not in [200, 202]:
+            if status == 429:
+                pytest.skip(f"Rate limit exceeded before 'XSS in {field}' could be verified")
+            elif status not in [200, 202]:
                 assert status in [400, 422, 500, 503], \
                     f"XSS in {field} should be rejected, got {status}"
 
@@ -325,7 +370,9 @@ class TestE2EInjectionPrevention:
 
             # Should be rejected or safely treated as text
             # Should NOT return 200 with file contents
-            if status == 200:
+            if status == 429:
+                pytest.skip("Rate limit exceeded before 'path traversal' could be verified")
+            elif status == 200:
                 # If accepted, it should be treated as text to speak,
                 # not as a file path to read
                 pass  # Accept - treated as literal text
@@ -477,5 +524,4 @@ class TestE2EDataTypeValidation:
             status, _ = _make_request("/generate", data=payload, method="POST")
 
             # Should reject with 400, 422, or 500 (server error)
-            assert status in [400, 422, 500], \
-                f"Non-string text should be rejected, got {status} for {type(payload['text']).__name__}"
+            _assert_rejected(status, [400, 422, 500], f"Non-string text ({type(payload['text']).__name__})")

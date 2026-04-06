@@ -29,6 +29,39 @@ AUTH_TOKEN_PATHS = [
 ]
 
 
+def _wait_for_rate_limit_reset(timeout: int = 70) -> None:
+    """Block until /generate is no longer rate-limited, up to timeout seconds."""
+    url = f"{SERVER_URL}/generate"
+    token = _get_auth_token()
+    headers = {"Content-Type": "application/json", "Authorization": f"Bearer {token}"}
+    body = json.dumps({"text": "rate-limit-probe", "mode": "custom"}).encode()
+    req = urllib.request.Request(url, data=body, headers=headers, method="POST")
+    try:
+        urllib.request.urlopen(req, timeout=10)
+        # Not rate limited — window is fresh, proceed
+    except urllib.error.HTTPError as e:
+        if e.code == 429:
+            retry_after = int(e.headers.get("Retry-After", 65))
+            time.sleep(min(retry_after + 1, timeout))
+        # Any other error (400, 503) means not rate-limited — proceed
+    except Exception:
+        pass  # Network error — proceed
+
+
+def _assert_rejected(status: int, expected_codes: list, context: str) -> None:
+    """Assert request was rejected with an expected code; skip if rate-limited."""
+    if status == 429:
+        pytest.skip(f"Rate limit exceeded before '{context}' could be verified")
+    assert status in expected_codes, f"{context}, got {status}"
+
+
+@pytest.fixture(scope="module", autouse=True)
+def ensure_fresh_rate_limit(check_server):
+    """Ensure the rate limit window is fresh before this module's tests run."""
+    _wait_for_rate_limit_reset()
+    yield
+
+
 def _get_auth_token():
     """Read the server auth token from known locations."""
     for path in AUTH_TOKEN_PATHS:
@@ -41,6 +74,17 @@ def _get_auth_token():
         except FileNotFoundError:
             continue
     return ""
+
+
+@pytest.fixture(scope="session", autouse=True)
+def check_server():
+    """Skip all tests if server is not running."""
+    if not _is_server_running():
+        pytest.skip("TTS server not running on port 5123. Start with: tts server start")
+
+    token = _get_auth_token()
+    if not token:
+        pytest.skip("No auth token found. Token should be at ~/.config/qwen3-tts/.voice_server_token")
 
 
 def _is_server_running():
@@ -93,13 +137,6 @@ def _make_request(endpoint, data=None, method="GET", token=None):
         return e.code, error_data
     except Exception as e:
         return 0, {"error": str(e)}
-
-
-@pytest.fixture(scope="session", autouse=True)
-def check_server():
-    """Skip all tests if server is not running."""
-    if not _is_server_running():
-        pytest.skip("TTS server not running on port 5123. Start with: tts server start")
 
 
 class TestE2EStressTesting:
@@ -233,8 +270,7 @@ class TestE2EGracefulDegradation:
                 token=token
             )
             # Should be rejected (400, 422) even under repeated requests
-            assert status in [400, 422, 500], \
-                f"Invalid request {i} should be rejected, got {status}"
+            _assert_rejected(status, [400, 422, 500], f"Invalid request {i}")
 
     def test_02_concurrent_invalid_requests_handled(self):
         """REGRESSION: Server should handle concurrent invalid requests gracefully.
