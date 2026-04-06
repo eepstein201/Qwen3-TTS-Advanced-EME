@@ -145,29 +145,24 @@ def extract_seed_from_history(evt: gr.SelectData, history_list):
     return str(seed) if seed is not None else ""
 
 
-def _broadcast_seed_to_tabs(evt: gr.SelectData, history_list):
-    """Extract seed from clicked history row and broadcast to all tab seed fields.
-
-    Returns a 3-tuple (clone_seed, design_seed, custom_seed) — all the same value.
-    """
-    seed_str = extract_seed_from_history(evt, history_list)
-    return seed_str, seed_str, seed_str
-
-
 def on_history_select(evt: gr.SelectData, history_list):
-    """Handle click on a history row — return file path for WaveSurfer playback.
+    """Handle click on a history row — return (audio_path, seed, seed, seed).
+
+    Emits four outputs in one call: the audio file path for WaveSurfer playback
+    plus the seed value broadcast to all three tab seed textboxes.
 
     Defense-in-depth: validates path against safe roots and copies to tempdir
     so Gradio can always serve it (tempdir is always in allowed_paths).
     """
+    seed_str = extract_seed_from_history(evt, history_list)
     if not (isinstance(history_list, list) and history_list):
-        return None
+        return None, seed_str, seed_str, seed_str
     if not (hasattr(evt, 'index') and isinstance(evt.index, (list, tuple))
             and len(evt.index) >= 1 and 0 <= evt.index[0] < len(history_list)):
-        return None
+        return None, seed_str, seed_str, seed_str
     path = history_list[evt.index[0]].get("path", "")
     if not path:
-        return None
+        return None, seed_str, seed_str, seed_str
     resolved = os.path.realpath(path)
     # Containment check: only serve files from known-safe directories
     from qwen3_tts.interface.ui.shared import _resolve_output_dir
@@ -179,14 +174,14 @@ def on_history_select(evt: gr.SelectData, history_list):
         output_dir,
     }
     if not any(resolved == r or resolved.startswith(r + os.sep) for r in safe_roots):
-        return None
+        return None, seed_str, seed_str, seed_str
     if not os.path.exists(resolved):
-        return None
+        return None, seed_str, seed_str, seed_str
     # Copy to temp for Gradio compatibility (tempdir always in allowed_paths)
     temp_path = os.path.join(tempfile.gettempdir(), os.path.basename(resolved))
     if not os.path.exists(temp_path):
         shutil.copy2(resolved, temp_path)
-    return temp_path
+    return temp_path, seed_str, seed_str, seed_str
 
 
 def _build_clone_tab(status_html, history_state):
@@ -751,13 +746,12 @@ def build_ui():
         history_audio_url = gr.Audio(elem_classes=["gr-hidden"])
 
         history_df.select(
-            fn=on_history_select, inputs=[history_state], outputs=[history_audio_url],
+            fn=on_history_select,
+            inputs=[history_state],
+            outputs=[history_audio_url, clone_seed, design_seed, custom_seed],
         ).then(
             fn=lambda x: x, js=get_load_into_player_js("history"),
             inputs=[history_audio_url], outputs=[history_audio_url],
-        ).then(
-            fn=_broadcast_seed_to_tabs, inputs=[history_state],
-            outputs=[clone_seed, design_seed, custom_seed],
         )
 
         # Wire history_df updates from each tab's generation chain
