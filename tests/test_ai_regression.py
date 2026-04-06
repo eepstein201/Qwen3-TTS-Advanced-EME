@@ -141,51 +141,61 @@ class TestModelStateEdgeCases:
         verified, leading to cryptic "generation failed" errors instead of clear
         "model not loaded" messages.
         """
-        # First, check server status
-        status, health = _get_json("/health")
-        if status != 200:
-            pytest.skip("Server not running - cannot test model state edge cases")
-
-        # If clone model is loaded, we need to unload it first to test this scenario
-        if health.get("clone_model_loaded"):
-            # Unload clone model to test the failure case
-            status, unload_response = _post_json("/unload-model", {"model_type": "clone"})
+        try:
+            # First, check server status
+            status, health = _get_json("/health")
             if status != 200:
-                pytest.skip(f"Could not unload clone model: {unload_response.get('error', 'Unknown error')}")
+                pytest.skip("Server not running - cannot test model state edge cases")
 
-            # Verify model is unloaded
-            status, health_after = _get_json("/health")
-            if health_after.get("clone_model_loaded"):
-                pytest.skip("Clone model still loaded after unload - cannot test failure case")
+            # If clone model is loaded, we need to unload it first to test this scenario
+            if health.get("clone_model_loaded"):
+                # Unload clone model to test the failure case
+                status, unload_response = _post_json("/unload-model", {"model_type": "clone"})
+                if status != 200:
+                    pytest.skip(f"Could not unload clone model: {unload_response.get('error', 'Unknown error')}")
 
-        # Now try to generate with clone mode - should fail gracefully
-        generation_data = {
-            "text": "This should fail gracefully when model not loaded.",
-            "mode": "clone"
-        }
+                # Verify model is unloaded
+                status, health_after = _get_json("/health")
+                if health_after.get("clone_model_loaded"):
+                    pytest.skip("Clone model still loaded after unload - cannot test failure case")
 
-        status, response = _post_json("/generate", generation_data)
+            # Now try to generate with clone mode - should fail gracefully
+            generation_data = {
+                "text": "This should fail gracefully when model not loaded.",
+                "mode": "clone"
+            }
 
-        # Should return error status (400, 500, or 503 for service unavailable)
-        assert status in [400, 500, 503], f"Expected error status when model not loaded, got {status}"
+            status, response = _post_json("/generate", generation_data)
 
-        # Should have error message
-        assert "error" in response or "message" in response or "detail" in response, \
-            f"Expected error message in response, got: {response}"
+            # Should return error status (400, 500, or 503 for service unavailable)
+            assert status in [400, 500, 503], f"Expected error status when model not loaded, got {status}"
 
-        # Error message should be clear (not generic "generation failed")
-        error_msg = response.get("error") or response.get("message") or response.get("detail", "")
+            # Should have error message
+            assert "error" in response or "message" in response or "detail" in response, \
+                f"Expected error message in response, got: {response}"
 
-        # Handle both string and dict error messages
-        if isinstance(error_msg, dict):
-            error_msg_str = str(error_msg)
-        elif isinstance(error_msg, str):
-            error_msg_str = error_msg
-        else:
-            error_msg_str = str(error_msg)
+            # Error message should be clear (not generic "generation failed")
+            error_msg = response.get("error") or response.get("message") or response.get("detail", "")
 
-        assert any(term in error_msg_str.lower() for term in ["model", "not loaded", "load", "service"]), \
-            f"Error message should mention model loading issue, got: {error_msg_str}"
+            # Handle both string and dict error messages
+            if isinstance(error_msg, dict):
+                error_msg_str = str(error_msg)
+            elif isinstance(error_msg, str):
+                error_msg_str = error_msg
+            else:
+                error_msg_str = str(error_msg)
+
+            assert any(term in error_msg_str.lower() for term in ["model", "not loaded", "load", "service"]), \
+                f"Error message should mention model loading issue, got: {error_msg_str}"
+        finally:
+            # Restore clone model for other tests
+            token = _get_auth_token()
+            load_data = {"model_type": "clone"}
+            req = urllib.request.Request(f"{SERVER_URL}/load-model", data=json.dumps(load_data).encode(), headers={
+                "Content-Type": "application/json",
+                "Authorization": f"Bearer {token}"
+            }, method="POST")
+            urllib.request.urlopen(req, timeout=120)
 
     def test_design_generation_fails_gracefully_when_model_not_loaded(self):
         """Test proper error handling when design model is not loaded.
@@ -194,51 +204,61 @@ class TestModelStateEdgeCases:
         verified, leading to cryptic "generation failed" errors instead of clear
         "model not loaded" messages.
         """
-        # First, check server status
-        status, health = _get_json("/health")
-        if status != 200:
-            pytest.skip("Server not running - cannot test model state edge cases")
-
-        # If design model is loaded, we need to unload it first to test this scenario
-        if health.get("design_model_loaded"):
-            # Unload design model to test the failure case
-            status, unload_response = _post_json("/unload-model", {"model_type": "design"})
+        try:
+            # First, check server status
+            status, health = _get_json("/health")
             if status != 200:
-                pytest.skip(f"Could not unload design model: {unload_response.get('error', 'Unknown error')}")
+                pytest.skip("Server not running - cannot test model state edge cases")
 
-            # Verify model is unloaded
-            status, health_after = _get_json("/health")
-            if health_after.get("design_model_loaded"):
-                pytest.skip("Design model still loaded after unload - could not test failure case")
+            # If design model is loaded, we need to unload it first to test this scenario
+            if health.get("design_model_loaded"):
+                # Unload design model to test the failure case
+                status, unload_response = _post_json("/unload-model", {"model_type": "design"})
+                if status != 200:
+                    pytest.skip(f"Could not unload design model: {unload_response.get('error', 'Unknown error')}")
 
-        # Now try to generate with design mode - should fail gracefully
-        generation_data = {
-            "text": "This should fail gracefully when model not loaded.",
-            "mode": "design"
-        }
+                # Verify model is unloaded
+                status, health_after = _get_json("/health")
+                if health_after.get("design_model_loaded"):
+                    pytest.skip("Design model still loaded after unload - could not test failure case")
 
-        status, response = _post_json("/generate", generation_data)
+            # Now try to generate with design mode - should fail gracefully
+            generation_data = {
+                "text": "This should fail gracefully when model not loaded.",
+                "mode": "design"
+            }
 
-        # Should return error status (400, 500, or 503 for service unavailable)
-        assert status in [400, 500, 503], f"Expected error status when model not loaded, got {status}"
+            status, response = _post_json("/generate", generation_data)
 
-        # Should have error message
-        assert "error" in response or "message" in response or "detail" in response, \
-            f"Expected error message in response, got: {response}"
+            # Should return error status (400, 500, or 503 for service unavailable)
+            assert status in [400, 500, 503], f"Expected error status when model not loaded, got {status}"
 
-        # Error message should be clear (not generic "generation failed")
-        error_msg = response.get("error") or response.get("message") or response.get("detail", "")
+            # Should have error message
+            assert "error" in response or "message" in response or "detail" in response, \
+                f"Expected error message in response, got: {response}"
 
-        # Handle both string and dict error messages
-        if isinstance(error_msg, dict):
-            error_msg_str = str(error_msg)
-        elif isinstance(error_msg, str):
-            error_msg_str = error_msg
-        else:
-            error_msg_str = str(error_msg)
+            # Error message should be clear (not generic "generation failed")
+            error_msg = response.get("error") or response.get("message") or response.get("detail", "")
 
-        assert any(term in error_msg_str.lower() for term in ["model", "not loaded", "load", "service"]), \
-            f"Error message should mention model loading issue, got: {error_msg_str}"
+            # Handle both string and dict error messages
+            if isinstance(error_msg, dict):
+                error_msg_str = str(error_msg)
+            elif isinstance(error_msg, str):
+                error_msg_str = error_msg
+            else:
+                error_msg_str = str(error_msg)
+
+            assert any(term in error_msg_str.lower() for term in ["model", "not loaded", "load", "service"]), \
+                f"Error message should mention model loading issue, got: {error_msg_str}"
+        finally:
+            # Restore design model for other tests
+            token = _get_auth_token()
+            load_data = {"model_type": "design"}
+            req = urllib.request.Request(f"{SERVER_URL}/load-model", data=json.dumps(load_data).encode(), headers={
+                "Content-Type": "application/json",
+                "Authorization": f"Bearer {token}"
+            }, method="POST")
+            urllib.request.urlopen(req, timeout=120)
 
     def test_custom_generation_fails_gracefully_when_model_not_loaded(self):
         """Test proper error handling when custom model is not loaded.
@@ -247,55 +267,65 @@ class TestModelStateEdgeCases:
         verified, leading to cryptic "generation failed" errors instead of clear
         "model not loaded" messages.
         """
-        # First, check server status
-        status, health = _get_json("/health")
-        if status != 200:
-            pytest.skip("Server not running - cannot test model state edge cases")
-
-        # If custom model is loaded, we need to unload it first to test this scenario
-        if health.get("custom_model_loaded"):
-            # Unload custom model to test the failure case
-            status, unload_response = _post_json("/unload-model", {"model_type": "custom"})
+        try:
+            # First, check server status
+            status, health = _get_json("/health")
             if status != 200:
-                pytest.skip(f"Could not unload custom model: {unload_response.get('error', 'Unknown error')}")
+                pytest.skip("Server not running - cannot test model state edge cases")
 
-            # Verify model is unloaded
-            status, health_after = _get_json("/health")
-            if health_after.get("custom_model_loaded"):
-                pytest.skip("Custom model still loaded after unload - could not test failure case")
+            # If custom model is loaded, we need to unload it first to test this scenario
+            if health.get("custom_model_loaded"):
+                # Unload custom model to test the failure case
+                status, unload_response = _post_json("/unload-model", {"model_type": "custom"})
+                if status != 200:
+                    pytest.skip(f"Could not unload custom model: {unload_response.get('error', 'Unknown error')}")
 
-        # Now try to generate with custom mode - should fail gracefully
-        generation_data = {
-            "text": "This should fail gracefully when model not loaded.",
-            "mode": "custom",
-            "speaker": "eric"  # Use a valid speaker from the available list
-        }
+                # Verify model is unloaded
+                status, health_after = _get_json("/health")
+                if health_after.get("custom_model_loaded"):
+                    pytest.skip("Custom model still loaded after unload - could not test failure case")
 
-        status, response = _post_json("/generate", generation_data)
+            # Now try to generate with custom mode - should fail gracefully
+            generation_data = {
+                "text": "This should fail gracefully when model not loaded.",
+                "mode": "custom",
+                "speaker": "eric"  # Use a valid speaker from the available list
+            }
 
-        # Should return error status (400, 500, or 503 for service unavailable)
-        assert status in [200, 400, 500, 503], f"Got unexpected status {status}"
+            status, response = _post_json("/generate", generation_data)
 
-        # If request succeeded, custom mode uses fallback behavior - acceptable
-        if status == 200:
-            return
+            # Should return error status (400, 500, or 503 for service unavailable)
+            assert status in [200, 400, 500, 503], f"Got unexpected status {status}"
 
-        # If failed, should have error message
-        assert "error" in response or "message" in response or "detail" in response, \
-            f"Expected error message in response, got: {response}"
+            # If request succeeded, custom mode uses fallback behavior - acceptable
+            if status == 200:
+                return
 
-        # Error message should be clear (not generic "generation failed")
-        error_msg = response.get("error") or response.get("message") or response.get("detail", "")
+            # If failed, should have error message
+            assert "error" in response or "message" in response or "detail" in response, \
+                f"Expected error message in response, got: {response}"
 
-        # Handle both string and dict error messages
-        if isinstance(error_msg, dict):
-            error_msg_str = str(error_msg)
-        elif isinstance(error_msg, str):
-            error_msg_str = error_msg
-        else:
-            error_msg_str = str(error_msg)
+            # Error message should be clear (not generic "generation failed")
+            error_msg = response.get("error") or response.get("message") or response.get("detail", "")
 
-        assert any(term in error_msg_str.lower() for term in ["model", "not loaded", "load", "service"]), \
-            f"Error message should mention model loading issue, got: {error_msg_str}"
+            # Handle both string and dict error messages
+            if isinstance(error_msg, dict):
+                error_msg_str = str(error_msg)
+            elif isinstance(error_msg, str):
+                error_msg_str = error_msg
+            else:
+                error_msg_str = str(error_msg)
+
+            assert any(term in error_msg_str.lower() for term in ["model", "not loaded", "load", "service"]), \
+                f"Error message should mention model loading issue, got: {error_msg_str}"
+        finally:
+            # Restore custom model for other tests
+            token = _get_auth_token()
+            load_data = {"model_type": "custom"}
+            req = urllib.request.Request(f"{SERVER_URL}/load-model", data=json.dumps(load_data).encode(), headers={
+                "Content-Type": "application/json",
+                "Authorization": f"Bearer {token}"
+            }, method="POST")
+            urllib.request.urlopen(req, timeout=120)
 
 # Test classes will be added in subsequent tasks
