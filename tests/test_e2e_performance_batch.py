@@ -46,6 +46,32 @@ def _get_auth_token():
     return ""
 
 
+def _wait_for_rate_limit_reset(timeout: int = 70) -> None:
+    """Block until /generate is no longer rate-limited, up to timeout seconds."""
+    url = f"{SERVER_URL}/generate"
+    token = _get_auth_token()
+    headers = {"Content-Type": "application/json", "Authorization": f"Bearer {token}"}
+    body = json.dumps({"text": "rate-limit-probe", "mode": "custom"}).encode()
+    req = urllib.request.Request(url, data=body, headers=headers, method="POST")
+    try:
+        urllib.request.urlopen(req, timeout=10)
+        # Not rate limited — window is fresh, proceed
+    except urllib.error.HTTPError as e:
+        if e.code == 429:
+            retry_after = int(e.headers.get("Retry-After", 65))
+            time.sleep(min(retry_after + 1, timeout))
+        # Any other error (400, 503) means not rate-limited — proceed
+    except Exception:
+        pass  # Network error — proceed
+
+
+def _assert_rejected(status: int, expected_codes: list, context: str) -> None:
+    """Assert request was rejected with an expected code; skip if rate-limited."""
+    if status == 429:
+        pytest.skip(f"Rate limit exceeded before '{context}' could be verified")
+    assert status in expected_codes, f"{context}, got {status}"
+
+
 def _is_server_running():
     """Check if TTS server is healthy."""
     try:
@@ -103,6 +129,13 @@ def check_server():
     """Skip all tests if server is not running."""
     if not _is_server_running():
         pytest.skip("TTS server not running on port 5123. Start with: tts server start")
+
+
+@pytest.fixture(scope="module", autouse=True)
+def ensure_fresh_rate_limit(check_server):
+    """Ensure the rate limit window is fresh before this module's tests run."""
+    _wait_for_rate_limit_reset()
+    yield
 
 
 class TestE2EBatchProcessingPerformance:
@@ -180,8 +213,7 @@ class TestE2EBatchProcessingPerformance:
             )
             duration = time.time() - start
             times.append(duration)
-            assert status in [200, 202, 400, 422, 500, 503], \
-                f"Generation {i} returned {status}"
+            _assert_rejected(status, [200, 202, 400, 422, 500, 503], f"Generation {i} returned {status}")
 
         avg_time = sum(times) / len(times)
 

@@ -415,6 +415,35 @@ class TestE2EPlaywright(unittest.TestCase):
         if not _is_server_running():
             raise unittest.SkipTest("TTS server not running on port 5123")
 
+        # Ensure clone model is loaded for E2E tests
+        try:
+            import json
+            resp = urllib.request.urlopen(f"{SERVER_URL}/health", timeout=5)  # nosec B310
+            health = json.loads(resp.read())
+
+            if not health.get("clone_model_loaded"):
+                # Load clone model if not loaded
+                token = _get_auth_token()
+                url = f"{SERVER_URL}/load-model"
+                headers = {"Content-Type": "application/json", "Authorization": f"Bearer {token}"}
+                body = json.dumps({"model_type": "clone"}).encode()
+                req = urllib.request.Request(url, data=body, headers=headers, method="POST")
+
+                resp = urllib.request.urlopen(req, timeout=120)  # nosec B310
+                if resp.status != 200:
+                    raise unittest.SkipTest("Failed to load clone model for E2E tests")
+
+                # Wait for model to be ready
+                for _ in range(30):  # Wait up to 15 seconds
+                    time.sleep(0.5)
+                    resp = urllib.request.urlopen(f"{SERVER_URL}/health", timeout=5)  # nosec B310
+                    health = json.loads(resp.read())
+                    if health.get("clone_model_loaded"):
+                        break
+        except Exception as e:
+            # Proceed with tests, they will fail appropriately if model not loaded
+            pass
+
         # Kill any stale Gradio UI on our port to prevent tests connecting to old code
         import socket
         with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:

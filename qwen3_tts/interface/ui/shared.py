@@ -10,6 +10,7 @@ This module contains:
 
 import logging
 import os
+import time
 
 import gradio as gr
 
@@ -121,31 +122,72 @@ def get_current_model_settings():
 
 
 def apply_model_settings(model_size, mlx_quantization):
-    """Apply model settings to server."""
+    """Apply model settings to server, reloading previously loaded models."""
     if not is_server_running(load_config()):
         return "Server not running", format_status_display()
 
     try:
         import requests
         url = get_server_url(load_config())
-        payload = {
-            "model_size": model_size,
-        }
+        headers = auth_headers()
+
+        # Step 1: Remember which models are loaded
+        models_loaded = []
+        try:
+            resp = requests.get(f"{url}/models", timeout=5, headers=headers)
+            if resp.status_code == 200:
+                data = resp.json()
+                for model_type in ("clone", "design", "custom"):
+                    if data.get("models", {}).get(model_type, {}).get("loaded"):
+                        models_loaded.append(model_type)
+        except Exception:
+            pass  # Proceed without reload if we can't determine state
+
+        # Step 2: Apply config change (unloads all models)
+        payload = {"model_size": model_size}
         backend = get_backend()
         if backend == "mlx" and mlx_quantization:
             payload["mlx_quantization"] = mlx_quantization
 
         resp = requests.post(
-            f"{url}/update-model-config",
-            json=payload,
-            timeout=10,
-            headers=auth_headers(),
+            f"{url}/update-model-config", json=payload, timeout=10, headers=headers,
         )
-        if resp.status_code == 200:
-            return "Settings applied (takes effect on next generation)", format_status_display()
-        else:
+        if resp.status_code != 200:
             error = resp.json().get("error", "Unknown error")
             return f"Failed: {error}", format_status_display()
+
+        # Step 3: Reload previously loaded models with new settings
+        if models_loaded:
+            reloaded = []
+            for model_type in models_loaded:
+                try:
+                    r = requests.post(
+                        f"{url}/load-model",
+                        json={"model_type": model_type},
+                        timeout=120,
+                        headers=headers,
+                    )
+                    if r.status_code == 200:
+                        reloaded.append(model_type)
+                        # Wait for model to be actually loaded (check /health endpoint)
+                        for _ in range(60):  # Wait up to 30 seconds
+                            time.sleep(0.5)
+                            health_resp = requests.get(f"{url}/health", timeout=5, headers=headers)
+                            if health_resp.status_code == 200:
+                                health_data = health_resp.json()
+                                model_key = f"{model_type}_model_loaded"
+                                if health_data.get(model_key):
+                                    break
+                except Exception:
+                    pass  # Proceed without reload if we can't determine state
+            if reloaded:
+                return (
+                    f"Settings applied. Reloaded: {', '.join(reloaded)}",
+                    format_status_display(),
+                )
+            return "Settings applied. Models unloaded (reload failed)", format_status_display()
+
+        return "Settings applied (models were not loaded)", format_status_display()
     except Exception as e:
         return f"Error: {e}", format_status_display()
 
