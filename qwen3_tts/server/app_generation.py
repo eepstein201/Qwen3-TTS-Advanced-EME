@@ -129,6 +129,11 @@ async def handle_generate(request, state, req, security, config_provider):
         import soundfile as sf
         from qwen3_tts.core.engine import load_voice_prompt, run_inference
 
+        # Clear any stale cancellation flag from a prior request. Without this,
+        # a cancel from a previous request would immediately abort this new one
+        # on the first loop iteration, returning an empty results array.
+        state.generation_state["cancelled"] = False
+
         # Pre-lock cache check
         pre_lock_cache_keys = {}
         pre_lock_results = {}
