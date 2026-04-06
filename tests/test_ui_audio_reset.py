@@ -135,7 +135,10 @@ class TestWireGenerationTabIntegration(unittest.TestCase):
 
 
 class TestOnHistorySelect(unittest.TestCase):
-    """Test history row selection handler."""
+    """Test history row selection handler.
+
+    on_history_select returns a 4-tuple (audio, seed, seed, seed).
+    """
 
     @skip_if_no_gradio
     def test_valid_index_returns_path(self):
@@ -148,34 +151,37 @@ class TestOnHistorySelect(unittest.TestCase):
             evt = Mock()
             evt.index = [0]
             history = [{"path": tmp_path}]
-            result = on_history_select(evt, history)
-            self.assertEqual(result, tmp_path)
+            audio, *_ = on_history_select(evt, history)
+            # Hardened handler copies to tempdir; assert basename matches
+            self.assertIsNotNone(audio)
+            self.assertEqual(os.path.basename(audio), os.path.basename(tmp_path))
         finally:
-            os.unlink(tmp_path)
+            if os.path.exists(tmp_path):
+                os.unlink(tmp_path)
 
     @skip_if_no_gradio
     def test_invalid_index_returns_none(self):
         from qwen3_tts.interface.ui import on_history_select
         evt = Mock()
         evt.index = [5]
-        result = on_history_select(evt, [{"path": "/tmp/test.wav"}])
-        self.assertIsNone(result)
+        audio, *_ = on_history_select(evt, [{"path": "/tmp/test.wav"}])
+        self.assertIsNone(audio)
 
     @skip_if_no_gradio
     def test_missing_file_returns_none(self):
         from qwen3_tts.interface.ui import on_history_select
         evt = Mock()
         evt.index = [0]
-        result = on_history_select(evt, [{"path": "/nonexistent/file.wav"}])
-        self.assertIsNone(result)
+        audio, *_ = on_history_select(evt, [{"path": "/nonexistent/file.wav"}])
+        self.assertIsNone(audio)
 
     @skip_if_no_gradio
     def test_empty_history_returns_none(self):
         from qwen3_tts.interface.ui import on_history_select
         evt = Mock()
         evt.index = [0]
-        result = on_history_select(evt, [])
-        self.assertIsNone(result)
+        audio, *_ = on_history_select(evt, [])
+        self.assertIsNone(audio)
 
 
 class TestGenerateColabFallback(unittest.TestCase):

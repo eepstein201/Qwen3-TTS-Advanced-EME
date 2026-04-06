@@ -778,6 +778,229 @@ class TestE2EPlaywright(unittest.TestCase):
         if design_row:
             self.assertNotIn("Loaded", design_row[0][1], "Should be unloaded")
 
+    # ------------------------------------------------------------------
+    # History panel layout and seed-reuse interaction tests (11-13)
+    # ------------------------------------------------------------------
+
+    def _open_advanced_settings(self):
+        """Expand Advanced Settings accordion in the current visible tab."""
+        panel = self.gp._get_visible_tab_panel()
+        btn = panel.locator("button").filter(has_text="Advanced Settings").first
+        if btn.count() == 0:
+            return
+        try:
+            if btn.get_attribute("aria-expanded") != "true":
+                btn.click()
+                self.page.wait_for_timeout(500)
+        except Exception:
+            btn.click()
+            self.page.wait_for_timeout(500)
+
+    def _fill_seed_field(self, value):
+        """Set the Seed (empty for random) textbox in the current visible tab.
+
+        The seed is a gr.Textbox — may render as <textarea> or <input type="text">.
+        Uses triple-click + fill + Tab to commit via Gradio's Svelte binding.
+        Advanced Settings must be open before calling.
+        """
+        panel = self.gp._get_visible_tab_panel()
+        # Label is "Seed (empty for random)" — filter matches any label containing "Seed"
+        seed_container = panel.locator("label").filter(has_text="Seed").locator("..").first
+        inp = seed_container.locator("textarea, input").first
+        if inp.count() > 0:
+            inp.click(click_count=3)  # select all existing text
+            inp.fill(str(value))
+            inp.press("Tab")  # commit value via blur/change event
+            self.page.wait_for_timeout(300)
+
+    def _read_seed_field(self):
+        """Read the Seed textbox value in the current visible tab.
+
+        Advanced Settings must be open before calling.
+        """
+        panel = self.gp._get_visible_tab_panel()
+        seed_container = panel.locator("label").filter(has_text="Seed").locator("..").first
+        inp = seed_container.locator("textarea, input").first
+        if inp.count() > 0:
+            return inp.input_value()
+        return None
+
+    def test_11_history_panel_below_tabs(self):
+        """History panel renders below the main tabs in DOM order (no model required)."""
+        # History table must exist outside any tab panel
+        history_exists = self.page.evaluate("""() => {
+            var tables = document.querySelectorAll('table');
+            for (var i = 0; i < tables.length; i++) {
+                if (!tables[i].closest('[role="tabpanel"]')) return true;
+            }
+            return false;
+        }""")
+        self.assertTrue(
+            history_exists,
+            "History dataframe not found outside tab panels — should render below tabs",
+        )
+
+        # History table must follow the tablist in document order (DOCUMENT_POSITION_FOLLOWING = 4)
+        follows_tabs = self.page.evaluate("""() => {
+            var tablist = document.querySelector('[role="tablist"]');
+            var historyTable = null;
+            var tables = document.querySelectorAll('table');
+            for (var i = 0; i < tables.length; i++) {
+                if (!tables[i].closest('[role="tabpanel"]')) {
+                    historyTable = tables[i];
+                    break;
+                }
+            }
+            if (!tablist || !historyTable) return false;
+            return !!(tablist.compareDocumentPosition(historyTable) & 4);
+        }""")
+        self.assertTrue(
+            follows_tabs,
+            "History dataframe should appear after (below) the tab list in DOM order",
+        )
+
+    def test_12_json_sidecar_and_history_columns(self):
+        """Generating audio writes a .json sidecar and history shows 5 columns with seed."""
+        import glob as _glob
+        import time as _time
+
+        self.gp.click_tab("Clone Mode")
+        self.gp.fill_textbox("Text Input", "Sidecar metadata test.")
+        self._open_advanced_settings()
+        self._fill_seed_field(42)
+        self.gp.click_button("Generate")
+
+        self.gp.wait_for_status_contains(
+            ["Generated:", "Error"], timeout=GEN_TIMEOUT_MS
+        )
+        status = self.gp.get_status_text()
+        self.assertIn("Generated:", status, f"Generation failed: {status}")
+
+        # Derive JSON sidecar path from status "Generated: <basename.wav>"
+        # Status contains only the basename; prepend the config output directory.
+        basename = status.replace("Generated:", "").strip().split("\n")[0].strip()
+        output_dir = os.path.expanduser("~/Downloads")  # default; matches generation.py
+        self.page.wait_for_timeout(1000)
+        if basename and os.path.splitext(basename)[1] in (".wav", ".mp3", ".flac"):
+            json_path = os.path.join(output_dir, os.path.splitext(basename)[0] + ".json")
+            self.assertTrue(
+                os.path.exists(json_path),
+                f"JSON sidecar not found: {json_path}",
+            )
+        else:
+            # Fallback: any .json written to output_dir in the last 60s
+            cutoff = _time.time() - 60
+            found = [
+                f for f in _glob.glob(os.path.join(output_dir, "*.json"))
+                if os.path.getmtime(f) > cutoff
+            ]
+            self.assertGreater(
+                len(found), 0,
+                f"No recent .json sidecar found in {output_dir}",
+            )
+
+        # History table (outside tab panels) must have exactly 5 columns
+        col_count = self.page.evaluate("""() => {
+            var tables = document.querySelectorAll('table');
+            for (var i = 0; i < tables.length; i++) {
+                if (!tables[i].closest('[role="tabpanel"]')) {
+                    var header = tables[i].querySelector('thead tr');
+                    if (header) return header.querySelectorAll('th').length;
+                    var row = tables[i].querySelector('tbody tr');
+                    if (row) return row.querySelectorAll('td').length;
+                }
+            }
+            return 0;
+        }""")
+        self.assertEqual(
+            col_count, 5,
+            f"History table should have 5 columns (text, voice, seed, duration, file), got {col_count}",
+        )
+
+        # History table must have a "Seed" column header.
+        # Gradio 4.x appends a sort icon (⋮) to header cells, so use includes() not ===.
+        seed_header_found = self.page.evaluate("""() => {
+            var tables = document.querySelectorAll('table');
+            for (var i = 0; i < tables.length; i++) {
+                if (!tables[i].closest('[role="tabpanel"]')) {
+                    var cells = tables[i].querySelectorAll('th, td');
+                    for (var j = 0; j < cells.length; j++) {
+                        var text = cells[j].textContent.trim();
+                        if (text === 'Seed' || text.startsWith('Seed')) return true;
+                    }
+                }
+            }
+            return false;
+        }""")
+        self.assertTrue(seed_header_found, "Seed column not found in history table")
+
+    def test_13_history_row_populates_seed_in_all_tabs(self):
+        """Clicking a history row broadcasts its seed to the seed field in all three tabs."""
+        # Generate with a specific seed so history contains a non-empty seed value
+        self.gp.click_tab("Clone Mode")
+        self.gp.fill_textbox("Text Input", "Seed broadcast row click test.")
+        self._open_advanced_settings()
+        self._fill_seed_field(42)  # Use 42 as a traceable seed
+        self.gp.click_button("Generate")
+        self.gp.wait_for_status_contains(
+            ["Generated:", "Error"], timeout=GEN_TIMEOUT_MS
+        )
+        status = self.gp.get_status_text()
+        self.assertIn("Generated:", status, f"Generation failed: {status}")
+
+        # Wait for the history table to update (generation chain has .then() for history)
+        self.page.wait_for_timeout(3000)
+
+        # Read the actual seed stored in the history row (column index 3: Time, Mode, Text, Seed, Chunks)
+        seed_in_history = self.page.evaluate("""() => {
+            var tables = document.querySelectorAll('table');
+            for (var i = 0; i < tables.length; i++) {
+                if (!tables[i].closest('[role="tabpanel"]')) {
+                    var rows = tables[i].querySelectorAll('tbody tr');
+                    if (rows.length > 0) {
+                        var cells = rows[0].querySelectorAll('td');
+                        return cells.length > 3 ? cells[3].textContent.trim() : null;
+                    }
+                }
+            }
+            return null;
+        }""")
+        self.assertIsNotNone(seed_in_history, "No history row found after generation")
+
+        # Click the seed cell in the first history row to trigger
+        # on_history_select, which emits (audio_path, seed, seed, seed) into
+        # the hidden audio component and all three tab seed textboxes.
+        self._click_history_cell(row=0, col=3)
+
+        # Wait for the handler + JS player .then() to complete
+        self.page.wait_for_timeout(3000)
+
+        # Verify seed was broadcast to all three tabs
+        for tab_name in ("Clone Mode", "Design Mode", "Custom Mode"):
+            self.gp.click_tab(tab_name)
+            self._open_advanced_settings()
+            seed_val = self._read_seed_field()
+            self.assertEqual(
+                seed_val, seed_in_history,
+                f"{tab_name}: seed field should be '{seed_in_history}', got '{seed_val}'",
+            )
+
+    def _click_history_cell(self, row=0, col=0):
+        """Trigger selection on a cell in the history Dataframe.
+
+        Gradio 6's Dataframe uses onmousedown (not onclick) on cells with
+        data-row/data-col attributes. The cell content is wrapped in an
+        Upload <button class="disable_click"> parent, so force=True is
+        required to bypass Playwright's element-intercept check.
+        Matches Gradio's own E2E test pattern (js/spa/test/dataframe_events).
+        """
+        cell = self.page.locator(
+            f'[data-row="{row}"][data-col="{col}"]'
+        ).first
+        cell.scroll_into_view_if_needed()
+        cell.click(force=True)
+        self.page.wait_for_timeout(1000)
+
 
 if __name__ == "__main__":
     unittest.main()

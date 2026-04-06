@@ -146,7 +146,12 @@ class TestFindAvailablePort(unittest.TestCase):
 
 
 class TestOnHistorySelect(unittest.TestCase):
-    """Tests for on_history_select."""
+    """Tests for on_history_select.
+
+    on_history_select returns a 4-tuple: (audio_path, clone_seed, design_seed,
+    custom_seed). Tests here assert on the audio_path (first element); the
+    seed-broadcast behavior is covered by TestOnHistorySelectSeedBroadcast.
+    """
 
     def test_valid_selection_returns_temp_path(self):
         import tempfile, os
@@ -160,9 +165,9 @@ class TestOnHistorySelect(unittest.TestCase):
             evt.index = [0]
             history = [{"path": src}]
             with patch("qwen3_tts.interface.ui._facade.load_config", return_value={}):
-                result = on_history_select(evt, history)
-            self.assertIsNotNone(result)
-            self.assertTrue(result.startswith(tempfile.gettempdir()))
+                audio, *_ = on_history_select(evt, history)
+            self.assertIsNotNone(audio)
+            self.assertTrue(audio.startswith(tempfile.gettempdir()))
         finally:
             if os.path.exists(src):
                 os.remove(src)
@@ -172,16 +177,16 @@ class TestOnHistorySelect(unittest.TestCase):
         evt = MagicMock()
         evt.index = [5]
         history = [{"path": "/tmp/test.wav"}]
-        result = on_history_select(evt, history)
-        self.assertIsNone(result)
+        audio, *_ = on_history_select(evt, history)
+        self.assertIsNone(audio)
 
     def test_missing_path_returns_none(self):
         from qwen3_tts.interface.ui._facade import on_history_select
         evt = MagicMock()
         evt.index = [0]
         history = [{"mode": "clone"}]
-        result = on_history_select(evt, history)
-        self.assertIsNone(result)
+        audio, *_ = on_history_select(evt, history)
+        self.assertIsNone(audio)
 
     def test_nonexistent_file_returns_none(self):
         from qwen3_tts.interface.ui._facade import on_history_select
@@ -191,15 +196,15 @@ class TestOnHistorySelect(unittest.TestCase):
         import tempfile
         history = [{"path": tempfile.gettempdir() + "/nonexistent_file_xyz.wav"}]
         with patch("qwen3_tts.interface.ui._facade.load_config", return_value={}):
-            result = on_history_select(evt, history)
-        self.assertIsNone(result)
+            audio, *_ = on_history_select(evt, history)
+        self.assertIsNone(audio)
 
     def test_empty_history_returns_none(self):
         from qwen3_tts.interface.ui._facade import on_history_select
         evt = MagicMock()
         evt.index = [0]
-        result = on_history_select(evt, [])
-        self.assertIsNone(result)
+        audio, *_ = on_history_select(evt, [])
+        self.assertIsNone(audio)
 
 
 @unittest.skipUnless(HAS_GRADIO, "requires gradio")
@@ -396,7 +401,11 @@ class TestResolveOutputDir(unittest.TestCase):
 
 
 class TestOnHistorySelectHardened(unittest.TestCase):
-    """Tests for hardened on_history_select (containment + temp copy)."""
+    """Tests for hardened on_history_select (containment + temp copy).
+
+    on_history_select returns a 4-tuple (audio, seed, seed, seed); tests here
+    destructure the tuple and assert on the audio element.
+    """
 
     def test_unsafe_path_returns_none(self):
         from qwen3_tts.interface.ui._facade import on_history_select
@@ -405,8 +414,8 @@ class TestOnHistorySelectHardened(unittest.TestCase):
         history = [{"path": "/etc/passwd", "mode": "Clone", "text": "test"}]
         with patch("os.path.exists", return_value=True), \
              patch("qwen3_tts.interface.ui._facade.load_config", return_value={}):
-            result = on_history_select(evt, history)
-        self.assertIsNone(result)
+            audio, *_ = on_history_select(evt, history)
+        self.assertIsNone(audio)
 
     def test_valid_path_returns_temp_copy(self):
         import tempfile, os
@@ -420,9 +429,9 @@ class TestOnHistorySelectHardened(unittest.TestCase):
             evt.index = [0]
             history = [{"path": src}]
             with patch("qwen3_tts.interface.ui._facade.load_config", return_value={}):
-                result = on_history_select(evt, history)
-            self.assertIsNotNone(result)
-            self.assertTrue(result.startswith(tempfile.gettempdir()))
+                audio, *_ = on_history_select(evt, history)
+            self.assertIsNotNone(audio)
+            self.assertTrue(audio.startswith(tempfile.gettempdir()))
         finally:
             if os.path.exists(src):
                 os.remove(src)
@@ -431,15 +440,15 @@ class TestOnHistorySelectHardened(unittest.TestCase):
         from qwen3_tts.interface.ui._facade import on_history_select
         evt = MagicMock()
         evt.index = [0]
-        result = on_history_select(evt, [])
-        self.assertIsNone(result)
+        audio, *_ = on_history_select(evt, [])
+        self.assertIsNone(audio)
 
     def test_none_history_returns_none(self):
         from qwen3_tts.interface.ui._facade import on_history_select
         evt = MagicMock()
         evt.index = [0]
-        result = on_history_select(evt, None)
-        self.assertIsNone(result)
+        audio, *_ = on_history_select(evt, None)
+        self.assertIsNone(audio)
 
 
 class TestSanitizeVoiceName(unittest.TestCase):
@@ -535,24 +544,33 @@ class TestExtractSeedFromHistory(unittest.TestCase):
         self.assertEqual(result, "")
 
 
-class TestBroadcastSeedToTabs(unittest.TestCase):
-    """Tests for _broadcast_seed_to_tabs — returns 3-tuple for all tab seed fields."""
+class TestOnHistorySelectSeedBroadcast(unittest.TestCase):
+    """Tests that on_history_select emits seed to all three tab outputs.
+
+    on_history_select returns a 4-tuple: (audio_path, clone_seed, design_seed, custom_seed).
+    The last three are identical — broadcast to every tab's seed textbox.
+    """
 
     def test_broadcasts_seed_to_three_outputs(self):
-        from qwen3_tts.interface.ui._facade import _broadcast_seed_to_tabs
+        from qwen3_tts.interface.ui._facade import on_history_select
         evt = MagicMock()
         evt.index = [0]
-        history = [{"seed": 12345}]
-        result = _broadcast_seed_to_tabs(evt, history)
-        self.assertEqual(result, ("12345", "12345", "12345"))
+        # Use a path outside safe_roots so audio returns None but seed still broadcasts
+        history = [{"seed": 12345, "path": "/etc/passwd"}]
+        result = on_history_select(evt, history)
+        self.assertEqual(len(result), 4)
+        _audio, c, d, cu = result
+        self.assertEqual((c, d, cu), ("12345", "12345", "12345"))
 
     def test_broadcasts_empty_when_no_seed(self):
-        from qwen3_tts.interface.ui._facade import _broadcast_seed_to_tabs
+        from qwen3_tts.interface.ui._facade import on_history_select
         evt = MagicMock()
         evt.index = [0]
         history = [{"path": "/tmp/test.wav"}]
-        result = _broadcast_seed_to_tabs(evt, history)
-        self.assertEqual(result, ("", "", ""))
+        result = on_history_select(evt, history)
+        self.assertEqual(len(result), 4)
+        _audio, c, d, cu = result
+        self.assertEqual((c, d, cu), ("", "", ""))
 
 
 class TestFormatStatusDisplayEscaping(unittest.TestCase):
