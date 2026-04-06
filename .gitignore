@@ -7,6 +7,7 @@ __pycache__/
 # Logs and temp files
 *.log
 *.log.old
+.voice_server.log*
 .voice_server.pid
 .voice_server_test.pid
 review_chunk.md
