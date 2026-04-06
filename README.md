@@ -18,7 +18,8 @@ Clone any voice from an audio sample, design voices from text descriptions, or c
 8. [Interfaces (CLI, UI, Python)](#interfaces)
 9. [Configuration](#configuration)
 10. [Troubleshooting & FAQ](#troubleshooting--faq)
-11. [Developer & Architecture](#developer--architecture)
+11. [Documentation](#documentation)
+12. [Developer & Architecture](#developer--architecture)
 
 ---
 
@@ -477,6 +478,59 @@ with httpx.stream("POST", url, json=payload, headers=headers) as r:
 * **CUDA Out of Memory:** The server locks concurrent requests to prevent this. If it happens on boot, run `tts server stop` to clear VRAM, then switch to the lighter model: `tts config` -> `0.6B`. If using vLLM, lower the `vllm_gpu_memory_utilization` to `0.5`.
 * **Subprocess/vLLM won't die:** The FastAPI server traps `SIGTERM` and kills the process group. If you force-killed the terminal (`kill -9`), find the PID with `nvidia-smi` and kill it manually.
 * **Bad Audio Quality:** Lower the temperature (`--temperature 0.5`) or use `--preset consistent`. Ensure your reference audio has absolutely zero background noise.
+
+---
+
+## Documentation
+
+For detailed documentation on specific aspects of Qwen3-TTS, see the following auto-generated reference guides:
+
+### [Command Reference](docs/COMMANDS.md)
+Complete CLI command reference for all `tts` commands, including:
+- Installation and setup commands
+- Core CLI commands (generate, server, UI)
+- Voice management commands
+- Configuration commands
+- Advanced commands (batch, SRT, dialogue, REPL)
+- Cache management commands
+- Testing commands
+- Code quality commands
+
+### [Configuration Reference](docs/CONFIG.md)
+Complete environment variable and `config.json` reference, including:
+- Environment variables (HF_HOME, ANTHROPIC_API_KEY, etc.)
+- Models section (clone, design, custom configuration)
+- Advanced section (backend, model size, quantization, audio loader)
+- Generation settings (silence gaps, chunking, LUFS normalization)
+- Rate limiting configuration
+- Server settings (host, port, auto-shutdown)
+- Prompt enhancer (AI voice description)
+- Generation presets and prosody presets
+- Cache and UI settings
+
+### [Contributing Guide](docs/CONTRIBUTING.md)
+Development environment setup and testing procedures, including:
+- Prerequisites (Python, Conda, Git)
+- Installation steps (MLX and Torch backends)
+- Available scripts and development tools
+- Project structure overview
+- Testing procedures (1970+ tests across 6 batches)
+- Code style enforcement (black, ruff, mypy)
+- Development workflow (feature branches, commits, PRs)
+- Troubleshooting common issues
+
+### [Operations Runbook](docs/RUNBOOK.md)
+Deployment and operational procedures, including:
+- Local development setup
+- Server deployment (PM2, health checks)
+- Model management (load/unload, status checks)
+- Backup and recovery procedures
+- Monitoring and alerting
+- Troubleshooting common issues
+- Maintenance tasks (weekly, monthly, quarterly)
+- Upgrade procedures
+- Security considerations
+- Performance tuning
 
 ---
 
