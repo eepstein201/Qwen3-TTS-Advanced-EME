@@ -111,14 +111,27 @@ async def websocket_tts_handler(
                     data=data,
                     stop_event=stop_event,
                 )
+            except (ValueError, KeyError, json.JSONDecodeError) as e:
+                # Client validation errors - bad request data
+                logger.error("WebSocket generation request error: %s", e, exc_info=True)
+                await websocket.send_json({"error": f"Invalid request: {str(e)}"})
+            except (ConnectionError, OSError) as e:
+                # Network/connection issues
+                logger.error("WebSocket connection error: %s", e, exc_info=True)
+                await websocket.send_json({"error": "Connection error"})
             except Exception as e:
+                # Unexpected errors during generation
                 logger.error("WebSocket generation error: %s", e, exc_info=True)
                 from qwen3_tts.server.app_lifespan import _sanitize_error
                 await websocket.send_json({"error": _sanitize_error(str(e))})
 
     except WebSocketDisconnect:
         logger.info("WebSocket client disconnected")
+    except (asyncio.TimeoutError, RuntimeError) as e:
+        # Async/await and runtime errors in WebSocket lifecycle
+        logger.error("WebSocket lifecycle error: %s", e, exc_info=True)
     except Exception as e:
+        # Unexpected errors in WebSocket handler
         logger.error("WebSocket handler error: %s", e, exc_info=True)
     finally:
         stop_event.set()
@@ -209,8 +222,12 @@ async def _stream_generation(
                 header = struct.pack("<II", sr, len(audio_bytes))
                 loop.call_soon_threadsafe(queue.put_nowait, header + audio_bytes)
 
-        except Exception as e:
+        except (RuntimeError, ValueError, AttributeError, OSError) as e:
+            # Model inference, audio processing, or file operation errors
             logger.error("WebSocket inference thread error: %s", e, exc_info=True)
+        except Exception as e:
+            # Unexpected errors in inference thread
+            logger.error("WebSocket inference thread unexpected error: %s", e, exc_info=True)
         finally:
             loop.call_soon_threadsafe(queue.put_nowait, None)
 
