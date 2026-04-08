@@ -57,7 +57,7 @@ _config_lock = threading.Lock()
 _config_cache = {"data": None, "mtime": 0}
 
 
-def _validate_rate_limit_string(limit_str):
+def _validate_rate_limit_string(limit_str: str) -> bool:
     """Validate rate limit string format (e.g., '10/minute', '5/hour').
 
     Args:
@@ -81,7 +81,7 @@ def _validate_rate_limit_string(limit_str):
     return unit in ("second", "minute", "hour", "day")
 
 
-def _get_default_rate_limit(endpoint_type):
+def _get_default_rate_limit(endpoint_type: str) -> str:
     """Get default rate limit for endpoint type.
 
     Args:
@@ -100,7 +100,7 @@ def _get_default_rate_limit(endpoint_type):
     return defaults.get(endpoint_type, "10/minute")
 
 
-def validate_config(config):
+def validate_config(config: dict) -> tuple[dict, list[str]]:
     """Validate config structure and values, returning corrected copy.
 
     Invalid values are replaced with safe defaults. Returns a new config dict
@@ -182,7 +182,7 @@ def validate_config(config):
     return result, issues
 
 
-def load_config():
+def load_config() -> dict:
     """Load configuration from config.json with mtime-based caching.
 
     Returns a cached copy if config.json has not been modified since the last read.
@@ -223,7 +223,7 @@ def load_config():
         return copy.deepcopy(data)
 
 
-def save_config(config):
+def save_config(config: dict) -> None:
     """Save configuration to config.json and invalidate the cache.
     Thread-safe: uses lock to prevent concurrent reads/writes.
     """
@@ -234,7 +234,7 @@ def save_config(config):
         _config_cache["mtime"] = 0
 
 
-def get_default_config(current_config=None):
+def get_default_config(current_config: dict | None = None) -> dict:
     """Return a default config dict, preserving backend/model_size from current_config.
 
     Args:
@@ -336,7 +336,7 @@ class DefaultConfigLoader:
         return load_config()
 
 
-def get_default_clone_prompt(config=None):
+def get_default_clone_prompt(config: dict | None = None) -> str | None:
     """Return the default clone prompt filename.
 
     Reads from config's "default_clone_prompt" key. If missing or the file
@@ -378,14 +378,14 @@ def get_default_clone_prompt(config=None):
     return None
 
 
-def set_default_clone_prompt(prompt_name, config=None):
+def set_default_clone_prompt(prompt_name: str, config: dict | None = None) -> None:
     """Set the default clone prompt in config.json."""
     if config is None:
         config = load_config()
     save_config({**config, "default_clone_prompt": prompt_name})
 
 
-def get_device():
+def get_device() -> str:
     """Return the PyTorch device string for this platform.
 
     No torch import — uses environment/platform detection only.
@@ -401,7 +401,7 @@ def get_device():
     return "cpu"
 
 
-def get_cuda_capability():
+def get_cuda_capability() -> tuple[int, int] | None:
     """Return CUDA compute capability as (major, minor) or None if no CUDA."""
     try:
         import torch
@@ -412,7 +412,7 @@ def get_cuda_capability():
     return None
 
 
-def _has_flash_attn():
+def _has_flash_attn() -> bool:
     """Check if flash_attn package is importable."""
     try:
         import flash_attn  # noqa: F401
@@ -421,7 +421,7 @@ def _has_flash_attn():
         return False
 
 
-def get_optimal_attn_config():
+def get_optimal_attn_config() -> tuple[str, str, bool]:
     """Return (attn_implementation, torch_dtype_name, load_in_8bit) based on GPU.
 
     Turing (T4, CC 7.5): sdpa, float16, True (8-bit via bitsandbytes)
@@ -461,7 +461,7 @@ def _validate_server_url(url: str) -> str:
     return url
 
 
-def get_server_url(config):
+def get_server_url(config: dict) -> str:
     """Return the server base URL from a config dict."""
     server = config.get("server", {})
     host = server.get("host", "127.0.0.1")
@@ -502,7 +502,7 @@ def safe_path_join(base_dir: str, *parts: str) -> str:
     return joined
 
 
-def is_server_running(config_or_url=None):
+def is_server_running(config_or_url: dict | str | None = None) -> bool:
     """Check whether the TTS server is reachable.
 
     Args:
@@ -532,7 +532,7 @@ def is_server_running(config_or_url=None):
 # ---------------------------------------------------------------------------
 
 
-def read_pid_file():
+def read_pid_file() -> int | None:
     """Read PID from .voice_server.pid. Returns None if missing/invalid."""
     if not PID_FILE.exists():
         return None
@@ -542,14 +542,14 @@ def read_pid_file():
         return None
 
 
-def write_pid_file(pid):
+def write_pid_file(pid: int) -> None:
     """Write PID to .voice_server.pid atomically via temp-file + os.replace()."""
     tmp = PID_FILE.with_suffix(".pid.tmp")
     tmp.write_text(str(pid))
     os.replace(tmp, PID_FILE)
 
 
-def cleanup_pid_file():
+def cleanup_pid_file() -> None:
     """Remove .voice_server.pid if it exists. Idempotent."""
     try:
         PID_FILE.unlink(missing_ok=True)
@@ -557,7 +557,7 @@ def cleanup_pid_file():
         pass
 
 
-def find_pid_by_port(port):
+def find_pid_by_port(port: int) -> int | None:
     """Discover PID of process listening on a TCP port via lsof.
     Works on macOS and Linux. Returns int PID or None.
     """
@@ -578,7 +578,7 @@ def find_pid_by_port(port):
     return None
 
 
-def is_pid_alive(pid):
+def is_pid_alive(pid: int) -> bool:
     """Check if process exists via os.kill(pid, 0). Cross-platform."""
     try:
         os.kill(pid, 0)
@@ -591,7 +591,7 @@ def is_pid_alive(pid):
         return False
 
 
-def detect_server_state(config=None):
+def detect_server_state(config: dict | None = None) -> dict:
     """Unified server state combining health check + PID file + process liveness.
 
     Returns dict with keys:
@@ -628,7 +628,7 @@ VALID_TORCH_QUANTIZATIONS = ("none", "8bit", "4bit")
 VALID_MODEL_SIZES = ("1.7B", "0.6B")
 
 
-def get_torch_dtype_name():
+def get_torch_dtype_name() -> str:
     """Read the configured dtype from config.json (advanced.dtype).
 
     Returns:
@@ -645,7 +645,7 @@ def get_torch_dtype_name():
     return dtype
 
 
-def get_backend():
+def get_backend() -> str:
     """Read the configured backend from config.json (advanced.backend).
 
     The TTS_BACKEND environment variable overrides the config file,
@@ -673,7 +673,7 @@ def get_backend():
     return backend
 
 
-def get_mlx_quantization():
+def get_mlx_quantization() -> str:
     """Read the configured MLX quantization from config.json (advanced.mlx_quantization).
 
     Returns:
@@ -690,7 +690,7 @@ def get_mlx_quantization():
     return quant
 
 
-def get_model_size():
+def get_model_size() -> str:
     """Read the configured model size from config.json (advanced.model_size).
 
     The TTS_MODEL_SIZE environment variable overrides the config file,
@@ -714,7 +714,7 @@ def get_model_size():
     return size
 
 
-def get_torch_quantization():
+def get_torch_quantization() -> str:
     """Read the configured torch quantization from config.json (advanced.torch_quantization).
 
     Returns:
@@ -736,7 +736,7 @@ def get_torch_quantization():
     return quant
 
 
-def get_vllm_gpu_util():
+def get_vllm_gpu_util() -> float:
     """Read the configured vLLM GPU memory utilization from config.json.
 
     Returns:
@@ -753,7 +753,7 @@ def get_vllm_gpu_util():
     return float(util)
 
 
-def get_vllm_port():
+def get_vllm_port() -> int | None:
     """Read the configured vLLM port from config.json.
 
     Returns:
@@ -775,7 +775,7 @@ def get_vllm_port():
 # Cache configuration
 # ---------------------------------------------------------------------------
 
-def _get_config_value(key_path: list, default, validator=None):
+def _get_config_value(key_path: list, default: Any, validator: Any | None = None) -> Any:
     """Get a nested config value with fallback.
 
     Args:
@@ -800,7 +800,7 @@ def _get_config_value(key_path: list, default, validator=None):
         return default
 
 
-def get_voice_prompt_cache_max():
+def get_voice_prompt_cache_max() -> int:
     """Read the configured voice prompt cache max size from config.json.
 
     Returns:
@@ -814,7 +814,7 @@ def get_voice_prompt_cache_max():
     )
 
 
-def get_generation_cache_max():
+def get_generation_cache_max() -> int:
     """Read the configured generation cache max size from config.json.
 
     Returns:
@@ -828,7 +828,7 @@ def get_generation_cache_max():
     )
 
 
-def get_eta_cache_ttl():
+def get_eta_cache_ttl() -> int:
     """Read the configured ETA cache TTL from config.json.
 
     Returns:
