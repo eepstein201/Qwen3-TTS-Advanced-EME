@@ -10,6 +10,8 @@ import shutil
 import sys
 from datetime import datetime, timedelta
 
+import click
+
 from qwen3_tts.core.config import HF_CACHE
 from qwen3_tts.tools._shared import _format_size
 
@@ -164,16 +166,16 @@ def list_models_cmd() -> None:
     models = list_models()
 
     if not models:
-        print("  No TTS models found in cache.")
+        click.echo("  No TTS models found in cache.")
         return
 
-    print()
-    print(f"  Found {len(models)} cached TTS model(s):")
-    print()
+    click.echo()
+    click.echo(f"  Found {len(models)} cached TTS model(s):")
+    click.echo()
 
     # Table header
-    print(f"  {'Model Type':<12} {'Size':<8} {'Backend':<6} {'Last Accessed':<20} {'Size on Disk':>12}")
-    print(f"  {'-'*12:<12} {'-'*8:<8} {'-'*6:<6} {'-'*20:<20} {'-'*12:>12}")
+    click.echo(f"  {'Model Type':<12} {'Size':<8} {'Backend':<6} {'Last Accessed':<20} {'Size on Disk':>12}")
+    click.echo(f"  {'-'*12:<12} {'-'*8:<8} {'-'*6:<6} {'-'*20:<20} {'-'*12:>12}")
 
     for model in models:
         model_type = model["model_type"] or "unknown"
@@ -186,10 +188,10 @@ def list_models_cmd() -> None:
 
         type_str = f"{model_type} ({model_size})"
 
-        print(f"  {type_str:<12} {size_formatted:<8} {backend:<6} {last_access:<20} {size_formatted:>12}")
+        click.echo(f"  {type_str:<12} {size_formatted:<8} {backend:<6} {last_access:<20} {size_formatted:>12}")
 
-    print()
-    print(f"  Total: {_format_size(get_total_size())}")
+    click.echo()
+    click.echo(f"  Total: {_format_size(get_total_size())}")
 
 
 def get_size_cmd() -> None:
@@ -197,29 +199,29 @@ def get_size_cmd() -> None:
     models = list_models()
 
     if not models:
-        print("  No TTS models found in cache.")
+        click.echo("  No TTS models found in cache.")
         return
 
     total_size = get_total_size()
 
-    print()
-    print("  TTS Model Cache Size:")
-    print()
+    click.echo()
+    click.echo("  TTS Model Cache Size:")
+    click.echo()
 
     # Group by backend
     torch_size = sum(m["size_bytes"] for m in models if m["backend"] == "torch")
     mlx_size = sum(m["size_bytes"] for m in models if m["backend"] == "mlx")
 
-    print(f"    PyTorch models: {_format_size(torch_size)}")
-    print(f"    MLX models:     {_format_size(mlx_size)}")
-    print(f"    Total:          {_format_size(total_size)}")
-    print()
+    click.echo(f"    PyTorch models: {_format_size(torch_size)}")
+    click.echo(f"    MLX models:     {_format_size(mlx_size)}")
+    click.echo(f"    Total:          {_format_size(total_size)}")
+    click.echo()
 
     # Count by model type
     torch_count = sum(1 for m in models if m["backend"] == "torch")
     mlx_count = sum(1 for m in models if m["backend"] == "mlx")
-    print(f"  Model count: {torch_count} PyTorch, {mlx_count} MLX")
-    print()
+    click.echo(f"  Model count: {torch_count} PyTorch, {mlx_count} MLX")
+    click.echo()
 
 
 def prune_models_cmd(days: int = 30, dry_run: bool = False) -> None:
@@ -235,30 +237,30 @@ def prune_models_cmd(days: int = 30, dry_run: bool = False) -> None:
     to_prune = [m for m in models if m["last_access"] < cutoff]
 
     if not to_prune:
-        print(f"  No models found unused for {days}+ days.")
+        click.echo(f"  No models found unused for {days}+ days.")
         return
 
-    print()
-    print(f"  Models to prune (not accessed in {days}+ days):")
-    print("  WARNING: Modern filesystems (macOS APFS, Linux relatime) often do not track")
-    print("  accurate file access times. Models listed below may have been used recently.")
-    print()
+    click.echo()
+    click.echo(f"  Models to prune (not accessed in {days}+ days):")
+    click.echo("  WARNING: Modern filesystems (macOS APFS, Linux relatime) often do not track")
+    click.echo("  accurate file access times. Models listed below may have been used recently.")
+    click.echo()
 
     total_size = 0
     for model in to_prune:
-        print(f"    - {model['name']}")
+        click.echo(f"    - {model['name']}")
         total_size += model["size_bytes"]
 
-    print(f"  Total size to free: {_format_size(total_size)}")
-    print()
+    click.echo(f"  Total size to free: {_format_size(total_size)}")
+    click.echo()
 
     if dry_run:
-        print("  Dry run mode: no models were deleted.")
+        click.echo("  Dry run mode: no models were deleted.")
         return
 
     response = input(f"  Delete {len(to_prune)} model(s)? [y/N]: ").strip().lower()
     if response != "y":
-        print("  Cancelled.")
+        click.echo("  Cancelled.")
         return
 
     deleted = 0
@@ -267,12 +269,12 @@ def prune_models_cmd(days: int = 30, dry_run: bool = False) -> None:
         try:
             shutil.rmtree(model_path)
             deleted += 1
-            print(f"    ✓ Removed: {model['name']}")
+            click.echo(f"    ✓ Removed: {model['name']}")
         except OSError as e:
-            print(f"    ✗ Failed to remove {model['name']}: {e}")
+            click.echo(f"    ✗ Failed to remove {model['name']}: {e}")
 
-    print()
-    print(f"  Deleted {deleted} model(s), freed {_format_size(total_size)}")
+    click.echo()
+    click.echo(f"  Deleted {deleted} model(s), freed {_format_size(total_size)}")
 
 
 def clear_cache_cmd(force: bool = False) -> None:
@@ -284,20 +286,20 @@ def clear_cache_cmd(force: bool = False) -> None:
     models = list_models()
 
     if not models:
-        print("  No TTS models found in cache.")
+        click.echo("  No TTS models found in cache.")
         return
 
     total_size = get_total_size()
 
-    print()
-    print(f"  This will delete all {len(models)} cached TTS model(s).")
-    print(f"  Total size: {_format_size(total_size)}")
-    print()
+    click.echo()
+    click.echo(f"  This will delete all {len(models)} cached TTS model(s).")
+    click.echo(f"  Total size: {_format_size(total_size)}")
+    click.echo()
 
     if not force:
         response = input("  Are you sure? [y/N]: ").strip().lower()
         if response != "y":
-            print("  Cancelled.")
+            click.echo("  Cancelled.")
             return
 
     deleted = 0
@@ -307,10 +309,10 @@ def clear_cache_cmd(force: bool = False) -> None:
             shutil.rmtree(model_path)
             deleted += 1
         except OSError as e:
-            print(f"    ✗ Failed to remove {model['name']}: {e}")
+            click.echo(f"    ✗ Failed to remove {model['name']}: {e}")
 
-    print()
-    print(f"  Deleted {deleted} model(s), freed {_format_size(total_size)}")
+    click.echo()
+    click.echo(f"  Deleted {deleted} model(s), freed {_format_size(total_size)}")
 
 
 def main():
