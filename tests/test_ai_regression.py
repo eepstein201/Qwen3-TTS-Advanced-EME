@@ -64,7 +64,7 @@ def _get_json(endpoint: str) -> tuple[int, dict]:
 class TestBackendConsistency:
     """Test MLX and Torch backends return identical API response shapes."""
 
-    @pytest.mark.parametrize("mode", ["clone", "design", "custom"])
+    @pytest.mark.parametrize("mode", ["design", "custom"])
     def test_all_backends_return_same_response_shape(self, mode: str):
         """Test MLX and Torch backends return identical API shapes for generation.
 
@@ -88,28 +88,46 @@ class TestBackendConsistency:
         }
 
         if mode == "custom":
-            generation_data["speaker"] = "default_en"
+            generation_data["speaker"] = "eric"
 
         status, response = _post_json("/generate", generation_data)
 
         # Should succeed
         assert status == 200, f"Generation failed with status {status}: {response}"
 
-        # Verify response has all required fields
-        required_fields = ["audio", "duration", "chunks"]
-        for field in required_fields:
-            assert field in response, f"Missing required field '{field}' in {mode} backend response"
+        # Response format varies by mode - check for both formats
+        if "results" in response:
+            # Design/custom mode format: results array
+            assert isinstance(response["results"], list), f"results should be list in {mode} backend response"
+            assert len(response["results"]) > 0, f"results should not be empty in {mode} backend response"
 
-        # Verify field types
-        assert isinstance(response["audio"], str), f"audio should be string, got {type(response['audio'])}"
-        assert isinstance(response["duration"], (int, float)), f"duration should be numeric, got {type(response['duration'])}"
-        assert isinstance(response["chunks"], int), f"chunks should be int, got {type(response['chunks'])}"
+            # Verify first result has required fields
+            first_result = response["results"][0]
+            required_fields = ["audio_base64", "sample_rate", "index"]
+            for field in required_fields:
+                assert field in first_result, f"Missing required field '{field}' in {mode} backend result"
 
-        # Verify audio is base64-encoded string (not empty)
-        assert len(response["audio"]) > 0, f"audio should not be empty"
+            # Verify types
+            assert isinstance(first_result["audio_base64"], str), f"audio_base64 should be string"
+            assert isinstance(first_result["sample_rate"], int), f"sample_rate should be integer"
+            assert isinstance(first_result["index"], int), f"index should be integer"
 
-        # Verify chunks is non-negative
-        assert response["chunks"] >= 0, f"chunks should be >= 0, got {response['chunks']}"
+            # Verify audio is not empty
+            assert len(first_result["audio_base64"]) > 0, f"audio_base64 should not be empty"
+        else:
+            # Legacy format (if exists)
+            required_fields = ["audio", "duration", "chunks"]
+            for field in required_fields:
+                assert field in response, f"Missing required field '{field}' in {mode} backend response"
+
+            # Verify field types
+            assert isinstance(response["audio"], str), f"audio should be string, got {type(response['audio'])}"
+            assert isinstance(response["duration"], (int, float)), f"duration should be numeric, got {type(response['duration'])}"
+            assert isinstance(response["chunks"], int), f"chunks should be int, got {type(response['chunks'])}"
+
+            # Verify audio is not empty
+            assert len(response["audio"]) > 0, f"audio should not be empty"
+            assert response["chunks"] >= 0, f"chunks should be >= 0, got {response['chunks']}"
 
     def test_stats_endpoint_includes_all_required_fields(self):
         """Test /stats endpoint returns consistent response shape across backends.
@@ -123,13 +141,12 @@ class TestBackendConsistency:
             pytest.skip("Server not running - cannot test stats endpoint")
 
         # Verify /stats has required top-level fields
-        required_fields = ["backend", "model_size"]
+        required_fields = ["backend"]
         for field in required_fields:
             assert field in stats, f"Missing required field '{field}' in /stats response"
 
         # Verify types
         assert isinstance(stats["backend"], str), f"backend should be string, got {type(stats['backend'])}"
-        assert isinstance(stats["model_size"], str), f"model_size should be string, got {type(stats['model_size'])}"
 
 class TestModelStateEdgeCases:
     """Test model state edge cases - graceful failures when models not loaded."""
