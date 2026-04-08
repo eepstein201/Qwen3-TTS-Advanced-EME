@@ -236,7 +236,7 @@ app.add_middleware(
 
 
 @app.middleware("http")
-async def security_headers(request: Request, call_next):
+async def security_headers(request: Request, call_next) -> dict:
     """Add security response headers to all responses."""
     response = await call_next(request)
     response.headers["X-Content-Type-Options"] = "nosniff"
@@ -266,7 +266,7 @@ app.state.limiter_token = limiter_token
 app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 
 
-def _rate_limit(limit_string, strategy="hybrid"):
+def _rate_limit(limit_string: str, strategy: str = "hybrid") -> callable:
     """Return a slowapi rate limit decorator with specified strategy.
 
     Args:
@@ -295,7 +295,7 @@ def _rate_limit(limit_string, strategy="hybrid"):
     response_model=HealthResponse,
     responses={503: {"model": HealthResponse, "description": "Models still loading"}},
 )
-async def health(request: Request):
+async def health(request: Request) -> dict:
     """Health check endpoint."""
     state = request.app.state
     reset_activity_timer(state)
@@ -332,7 +332,7 @@ async def health(request: Request):
 
 
 @app.get("/ready")
-async def ready(request: Request):
+async def ready(request: Request) -> dict:
     """Readiness probe endpoint for Kubernetes-style deployments.
 
     Returns 503 while models are loading, 200 when ready.
@@ -349,7 +349,7 @@ async def ready(request: Request):
 
 
 @app.get("/generation-status")
-async def generation_status(request: Request):
+async def generation_status(request: Request) -> dict:
     """Get current generation status (public — sensitive fields stripped)."""
     state = request.app.state
     gen_state = state.generation_state
@@ -370,7 +370,7 @@ async def generation_status(request: Request):
 
 
 @app.get("/queue-status")
-async def queue_status(request: Request):
+async def queue_status(request: Request) -> dict:
     """Get generation queue status (public — sensitive fields stripped)."""
     state = request.app.state
     async with state.pending_lock:
@@ -388,7 +388,7 @@ async def queue_status(request: Request):
 
 
 @app.get("/stats")
-async def stats(request: Request, _auth: None = Depends(verify_auth)):
+async def stats(request: Request, _auth: None = Depends(verify_auth)) -> dict:
     """Get server statistics."""
     state = request.app.state
     reset_activity_timer(state)
@@ -396,7 +396,7 @@ async def stats(request: Request, _auth: None = Depends(verify_auth)):
 
 
 @app.get("/models")
-async def list_models(request: Request, _auth: None = Depends(verify_auth)):
+async def list_models(request: Request, _auth: None = Depends(verify_auth)) -> dict:
     """List model status."""
     state = request.app.state
     reset_activity_timer(state)
@@ -543,7 +543,7 @@ async def create_voice_prompt_endpoint(
 
 
 @app.post("/cancel-generation")
-async def cancel_generation(request: Request, _auth: None = Depends(verify_auth)):
+async def cancel_generation(request: Request, _auth: None = Depends(verify_auth)) -> dict:
     """Cancel the current streaming generation."""
     state = request.app.state
     reset_activity_timer(state)
@@ -639,7 +639,7 @@ async def websocket_endpoint(websocket: WebSocket):
 
 
 @app.post("/shutdown")
-async def shutdown(request: Request, _auth: None = Depends(verify_auth)):
+async def shutdown(request: Request, _auth: None = Depends(verify_auth)) -> dict:
     """Graceful shutdown via BackgroundTask + SIGTERM for reliable termination."""
     from starlette.background import BackgroundTask
 
@@ -674,7 +674,7 @@ async def shutdown(request: Request, _auth: None = Depends(verify_auth)):
 # ---------------------------------------------------------------------------
 
 
-def run_server(host="127.0.0.1", port=5123, public=False):
+def run_server(host: str = "127.0.0.1", port: int = 5123, public: bool = False) -> None:
     """Run the FastAPI server."""
     # Configure logging
     log_fmt = logging.Formatter(
