@@ -328,4 +328,188 @@ class TestModelStateEdgeCases:
             }, method="POST")
             urllib.request.urlopen(req, timeout=120)
 
-# Test classes will be added in subsequent tasks
+def _get_headers() -> dict:
+    """Get authenticated headers for API requests."""
+    token = _get_auth_token()
+    return {
+        "Content-Type": "application/json",
+        "Authorization": f"Bearer {token}"
+    }
+
+class TestAPIResponseContracts:
+    """Test that API responses adhere to expected contracts (all required fields present)."""
+
+    @pytest.fixture(scope="class", autouse=True)
+    def ensure_server_running(self):
+        """Verify server is running before API contract tests."""
+        deadline = time.time() + 30
+        while time.time() < deadline:
+            try:
+                resp = urllib.request.urlopen(f"{SERVER_URL}/health", timeout=2)
+                if resp.status == 200:
+                    return
+            except Exception:
+                pass
+            time.sleep(1)
+        pytest.skip("Server not available")
+
+    def test_stats_endpoint_includes_all_required_fields(self):
+        """Prevent regression where new stats fields are missed.
+
+        This catches the #2 AI regression pattern: adding a field to the response
+        construction but forgetting to add it to the SELECT clause or omitting it
+        from one path (sandbox vs production, MLX vs Torch).
+        """
+        headers = _get_headers()
+
+        req = urllib.request.Request(
+            f"{SERVER_URL}/stats",
+            headers=headers,
+            method="GET"
+        )
+        resp = urllib.request.urlopen(req, timeout=10)
+        stats = json.loads(resp.read())
+
+        # Define required fields that must always be present
+        required_fields = {
+            "status",
+            "backend",
+            "clone_model_loaded",
+            "design_model_loaded",
+            "custom_model_loaded"
+        }
+
+        for field in required_fields:
+            assert field in stats, f"Missing required field: {field}"
+
+        # Verify backend field is valid
+        assert stats["backend"] in ["mlx", "torch", "vllm"], \
+            f"backend should be valid value, got {stats['backend']}"
+
+        # Verify model status fields are boolean
+        for model_type in ["clone", "design", "custom"]:
+            field_name = f"{model_type}_model_loaded"
+            assert isinstance(stats[field_name], bool), \
+                f"{field_name} should be boolean, got {type(stats[field_name])}"
+
+    def test_models_endpoint_includes_all_required_fields(self):
+        """Test /models endpoint response contract."""
+        headers = _get_headers()
+
+        req = urllib.request.Request(
+            f"{SERVER_URL}/models",
+            headers=headers,
+            method="GET"
+        )
+        resp = urllib.request.urlopen(req, timeout=10)
+        models_data = json.loads(resp.read())
+
+        # Verify response structure
+        assert isinstance(models_data, dict)
+
+        # Models are nested under "models" key
+        assert "models" in models_data, "Missing 'models' key in /models response"
+        assert isinstance(models_data["models"], dict)
+
+        # Check for each expected model type under "models"
+        for model_type in ["clone", "design", "custom"]:
+            assert model_type in models_data["models"], f"Missing model type: {model_type}"
+            model_info = models_data["models"][model_type]
+
+            # Verify model info has required fields
+            required_model_fields = ["loaded", "memory_mb"]
+            for field in required_model_fields:
+                assert field in model_info, \
+                    f"Model {model_type} missing field: {field}"
+
+    def test_health_endpoint_includes_all_required_fields(self):
+        """Test /health endpoint response contract."""
+        resp = urllib.request.urlopen(f"{SERVER_URL}/health", timeout=5)
+        health = json.loads(resp.read())
+
+        # Check model status fields
+        for model_type in ["clone", "design", "custom"]:
+            model_key = f"{model_type}_model_loaded"
+            assert model_key in health, f"Health missing {model_key} field"
+            assert isinstance(health[model_key], bool), \
+                f"{model_key} should be boolean, got {type(health[model_key])}"
+
+        # Check server status
+        assert "server_status" in health or "status" in health, \
+            "Health response should have status field"
+
+    def test_generate_endpoint_response_contract(self):
+        """Test /generate endpoint returns expected response structure."""
+        headers = _get_headers()
+
+        # First ensure clone model is loaded
+        try:
+            resp = urllib.request.urlopen(f"{SERVER_URL}/health", timeout=5)
+            health = json.loads(resp.read())
+
+            if not health.get("clone_model_loaded"):
+                # Load clone model
+                load_data = {"model_type": "clone"}
+                req = urllib.request.Request(
+                    f"{SERVER_URL}/load-model",
+                    data=json.dumps(load_data).encode(),
+                    headers=headers,
+                    method="POST"
+                )
+                urllib.request.urlopen(req, timeout=120)
+
+                # Wait for model to be ready
+                deadline = time.time() + 60
+                while time.time() < deadline:
+                    time.sleep(1)
+                    resp = urllib.request.urlopen(f"{SERVER_URL}/health", timeout=5)
+                    health = json.loads(resp.read())
+                    if health.get("clone_model_loaded"):
+                        break
+        except Exception:
+            pytest.skip("Could not ensure clone model is loaded")
+
+        # Check if there are any voice prompts available for clone mode
+        try:
+            req = urllib.request.Request(f"{SERVER_URL}/prompts", headers=headers, method="GET")
+            resp = urllib.request.urlopen(req, timeout=10)
+            prompts_data = json.loads(resp.read())
+            available_prompts = prompts_data.get("prompts", [])
+
+            if not available_prompts:
+                pytest.skip("No voice prompts available for clone mode test")
+
+            # Use the first available prompt
+            prompt_file = available_prompts[0]
+        except Exception:
+            pytest.skip("Could not get voice prompts list")
+
+        # Test generate response structure with clone mode (requires prompt_file)
+        gen_data = {"text": "Contract test", "mode": "clone", "prompt_file": prompt_file}
+        req = urllib.request.Request(
+            f"{SERVER_URL}/generate",
+            data=json.dumps(gen_data).encode(),
+            headers=headers,
+            method="POST"
+        )
+        resp = urllib.request.urlopen(req, timeout=120)
+        result = json.loads(resp.read())
+
+        # Verify response has expected structure
+        assert "results" in result, "Generate response missing 'results' field"
+        assert isinstance(result["results"], list), "results should be a list"
+        assert len(result["results"]) > 0, "results should not be empty"
+
+        # Verify first result has required fields
+        first_result = result["results"][0]
+        required_fields = ["audio_base64", "sample_rate", "index"]
+        for field in required_fields:
+            assert field in first_result, f"Generate result missing field: {field}"
+
+        # Verify data types
+        assert isinstance(first_result["audio_base64"], str), "audio_base64 should be base64 string"
+        assert isinstance(first_result["sample_rate"], int), "sample_rate should be integer"
+        assert isinstance(first_result["index"], int), "index should be integer"
+
+        # Verify audio is not empty
+        assert len(first_result["audio_base64"]) > 0, "audio_base64 should not be empty"
