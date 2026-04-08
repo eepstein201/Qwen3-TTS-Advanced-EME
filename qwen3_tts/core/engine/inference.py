@@ -38,7 +38,28 @@ _MODE_STRATEGIES_TORCH = {
 }
 
 
-def register_backend(name: str, strategy_fn):
+from typing import Callable, Any, Iterator
+
+logger = logging.getLogger("tts.engine")
+
+_DEFAULT_CONFIG_LOADER = DefaultConfigLoader()
+
+# ---------------------------------------------------------------------------
+# Strategy registries for OCP-compliant dispatch
+# ---------------------------------------------------------------------------
+
+# Backend strategies: maps backend name -> inference function
+_INFERENCE_STRATEGIES = {}
+
+# Mode strategies for torch backend: maps mode name -> model method name
+_MODE_STRATEGIES_TORCH = {
+    "clone": "generate_voice_clone",
+    "design": "generate_voice_design",
+    "custom": "generate_custom_voice",
+}
+
+
+def register_backend(name: str, strategy_fn: Callable) -> None:
     """Register a new inference backend strategy.
 
     This enables extending the system with new backends without modifying
@@ -53,7 +74,7 @@ def register_backend(name: str, strategy_fn):
     logger.debug("Registered inference backend: %s", name)
 
 
-def _get_backend_strategy(backend: str):
+def _get_backend_strategy(backend: str) -> Callable:
     """Get the strategy function for a backend.
 
     Args:
@@ -77,7 +98,7 @@ def _get_backend_strategy(backend: str):
 # Torch backend — inference helpers (H6)
 # ---------------------------------------------------------------------------
 
-def _apply_mps_float32_guard(model, mode: str):
+def _apply_mps_float32_guard(model: Any, mode: str) -> Any | None:
     """Override model to float32 for clone mode on MPS if needed.
 
     Returns the original dtype (to restore later), or None if no override was needed.
@@ -99,20 +120,9 @@ def _apply_mps_float32_guard(model, mode: str):
     return original_dtype
 
 
-def _build_torch_params(gen_params: dict) -> dict:
-    """Extract standard generation parameters from gen_params dict."""
-    return {
-        "temperature": gen_params.get("temperature", 0.7),
-        "top_k": gen_params.get("top_k", 50),
-        "top_p": gen_params.get("top_p", 0.95),
-        "repetition_penalty": gen_params.get("repetition_penalty", 1.05),
-        "max_new_tokens": gen_params.get("max_new_tokens", 2048),
-    }
-
-
-def _dispatch_torch_mode(model, text: str, mode: str, language: str, params: dict,
-                         voice_prompt, voice_description, speaker, instruct,
-                         x_vector_only_mode: bool):
+def _dispatch_torch_mode(model: Any, text: str, mode: str, language: str, params: dict,
+                         voice_prompt: Any, voice_description: str | None, speaker: str | None,
+                         instruct: str | None, x_vector_only_mode: bool) -> tuple:
     """Call the appropriate model method for the given mode. Returns (wavs, sr)."""
     import torch
     with torch.inference_mode():
@@ -131,7 +141,7 @@ def _dispatch_torch_mode(model, text: str, mode: str, language: str, params: dic
             )
 
 
-def _cleanup_device_memory():
+def _cleanup_device_memory() -> None:
     """Release MPS or CUDA cached memory after inference and log usage."""
     import torch
     if torch.backends.mps.is_available():
@@ -154,10 +164,10 @@ def _cleanup_device_memory():
 # Torch backend — inference
 # ---------------------------------------------------------------------------
 
-def _run_inference_torch(model, text, mode, gen_params, language="English",
-                         voice_prompt=None, voice_description=None,
-                         speaker=None, instruct=None,
-                         x_vector_only_mode=False):
+def _run_inference_torch(model: Any, text: str, mode: str, gen_params: dict, language: str = "English",
+                         voice_prompt: Any = None, voice_description: str | None = None,
+                         speaker: str | None = None, instruct: str | None = None,
+                         x_vector_only_mode: bool = False) -> tuple:
     """Run TTS inference using the PyTorch/MPS backend."""
     import torch
 
@@ -198,7 +208,7 @@ def _run_inference_torch(model, text, mode, gen_params, language="English",
     return wav, sr
 
 
-def _validate_audio(wav, sample_rate, mode="unknown"):
+def _validate_audio(wav: Any, sample_rate: int, mode: str = "unknown") -> Any:
     """Check generated audio for common quality issues.
 
     Logs warnings for issues found, never blocks. Returns the audio
@@ -251,10 +261,10 @@ def _get_mlx_gen_params(gen_params: dict, config: dict) -> dict:
     }
 
 
-def _run_inference_mlx(model, text, mode, gen_params, language="English",
-                       voice_prompt=None, voice_description=None,
-                       speaker=None, instruct=None,
-                       x_vector_only_mode=False):
+def _run_inference_mlx(model: Any, text: str, mode: str, gen_params: dict, language: str = "English",
+                       voice_prompt: Any = None, voice_description: str | None = None,
+                       speaker: str | None = None, instruct: str | None = None,
+                       x_vector_only_mode: bool = False) -> tuple:
     """Run TTS inference using the MLX backend.
 
     Returns (wav_array, sample_rate) where wav_array is a float32 numpy array,
@@ -358,11 +368,11 @@ def _run_inference_mlx(model, text, mode, gen_params, language="English",
     return wav, sr
 
 
-def _run_inference_mlx_streaming(model, text, mode, gen_params, language="English",
-                                  voice_prompt=None, voice_description=None,
-                                  speaker=None, instruct=None,
-                                  x_vector_only_mode=False, config=None,
-                                  progress_callback=None):
+def _run_inference_mlx_streaming(model: Any, text: str, mode: str, gen_params: dict, language: str = "English",
+                                  voice_prompt: Any = None, voice_description: str | None = None,
+                                  speaker: str | None = None, instruct: str | None = None,
+                                  x_vector_only_mode: bool = False, config: dict | None = None,
+                                  progress_callback: Any = None) -> Iterator[tuple]:
     """Run TTS inference using the MLX backend, yielding audio chunks as they generate.
 
     This is a generator that yields (audio_chunk, sample_rate) tuples as they
@@ -463,7 +473,7 @@ def _run_inference_mlx_streaming(model, text, mode, gen_params, language="Englis
 # Chunk combination (crossfade / silence gap)
 # ---------------------------------------------------------------------------
 
-def _crossfade_chunks(chunks, sample_rate, crossfade_ms=50, silence_gap_s=None):
+def _crossfade_chunks(chunks: list, sample_rate: int, crossfade_ms: int = 50, silence_gap_s: float | None = None) -> Any:
     """Combine audio chunks with crossfade or silence gap.
 
     Uses a raised-cosine (Hann) window for smooth transitions between chunks,
@@ -515,7 +525,7 @@ def _crossfade_chunks(chunks, sample_rate, crossfade_ms=50, silence_gap_s=None):
 # Config helpers
 # ---------------------------------------------------------------------------
 
-def _get_max_chunk_chars():
+def _get_max_chunk_chars() -> int:
     """Read max_chunk_chars from config, defaulting to 500."""
     try:
         config = load_config()
@@ -525,7 +535,7 @@ def _get_max_chunk_chars():
         return 500
 
 
-def _get_max_chunk_tokens():
+def _get_max_chunk_tokens() -> int:
     """Read max_chunk_tokens from config, defaulting to 200."""
     try:
         config = load_config()
@@ -569,7 +579,7 @@ def _prepare_text_chunks(text: str, language: str, model, max_chunk_chars: int) 
 # Seed helpers
 # ---------------------------------------------------------------------------
 
-def _set_seed_for_backend(seed):
+def _set_seed_for_backend(seed: int | None) -> None:
     """Set the random seed for the active backend (torch or mlx).
 
     No-op when seed is None. Intended for seed-locking across chunks so that
@@ -590,12 +600,12 @@ def _set_seed_for_backend(seed):
 # Public dispatch API
 # ---------------------------------------------------------------------------
 
-def run_inference(model, text, mode, gen_params, language="English",
-                  voice_prompt=None, voice_description=None,
-                  speaker=None, instruct=None,
-                  max_chunk_chars=None, progress_callback=None,
-                  x_vector_only_mode=False, config_provider=None,
-                  seed_lock_chunks=False):
+def run_inference(model: Any, text: str, mode: str, gen_params: dict, language: str = "English",
+                  voice_prompt: Any = None, voice_description: str | None = None,
+                  speaker: str | None = None, instruct: str | None = None,
+                  max_chunk_chars: int | None = None, progress_callback: Any = None,
+                  x_vector_only_mode: bool = False, config_provider: Any = None,
+                  seed_lock_chunks: bool = False) -> tuple:
     """Run TTS inference, dispatching to the configured backend.
 
     For long texts, automatically splits into chunks at sentence boundaries
@@ -683,10 +693,10 @@ def run_inference(model, text, mode, gen_params, language="English",
     return result, sample_rate
 
 
-def _run_inference_single(model, text, mode, gen_params, language="English",
-                          voice_prompt=None, voice_description=None,
-                          speaker=None, instruct=None,
-                          _metal_retry_depth=0, x_vector_only_mode=False):
+def _run_inference_single(model: Any, text: str, mode: str, gen_params: dict, language: str = "English",
+                          voice_prompt: Any = None, voice_description: str | None = None,
+                          speaker: str | None = None, instruct: str | None = None,
+                          _metal_retry_depth: int = 0, x_vector_only_mode: bool = False) -> tuple:
     """Run TTS inference for a single text chunk.
 
     For MLX backend, includes Metal crash recovery: on certain Metal kernel
@@ -755,11 +765,11 @@ def _run_inference_single(model, text, mode, gen_params, language="English",
     )
 
 
-def run_inference_streaming(model, text, mode, gen_params, language="English",
-                            voice_prompt=None, voice_description=None,
-                            speaker=None, instruct=None,
-                            max_chunk_chars=None, x_vector_only_mode=False,
-                            config_provider=None, progress_callback=None):
+def run_inference_streaming(model: Any, text: str, mode: str, gen_params: dict, language: str = "English",
+                            voice_prompt: Any = None, voice_description: str | None = None,
+                            speaker: str | None = None, instruct: str | None = None,
+                            max_chunk_chars: int | None = None, x_vector_only_mode: bool = False,
+                            config_provider: Any = None, progress_callback: Any = None) -> Iterator[tuple]:
     """Run TTS inference in streaming mode, yielding audio chunks as they generate.
 
     For MLX backend, uses native streaming from model.generate().
@@ -820,7 +830,7 @@ def run_inference_streaming(model, text, mode, gen_params, language="English",
             yield wav, sr
 
 
-def create_voice_prompt(model, ref_audio, ref_sr, transcript):
+def create_voice_prompt(model: Any, ref_audio: Any, ref_sr: int, transcript: str) -> Any:
     """Create a reusable voice-clone prompt from reference audio.
 
     Args:
