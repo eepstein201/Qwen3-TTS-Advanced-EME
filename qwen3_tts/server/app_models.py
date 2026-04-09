@@ -43,6 +43,7 @@ def handle_stats(state, server_config):
     stats_data = {
         "status": "ok",
         "backend": backend,
+        "model_size": get_model_size(),
         "clone_model_loaded": state.models.get("clone") is not None,
         "design_model_loaded": state.models.get("design") is not None,
         "custom_model_loaded": state.models.get("custom") is not None,

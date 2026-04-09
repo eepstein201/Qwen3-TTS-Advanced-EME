@@ -164,6 +164,19 @@ def _cleanup_device_memory() -> None:
 # Torch backend — inference
 # ---------------------------------------------------------------------------
 
+def _build_torch_params(gen_params: dict) -> dict:
+    """Merge caller gen_params with config defaults for torch backend."""
+    config = load_config()
+    config_gen = config.get("generation", {})
+    return {
+        "temperature": gen_params.get("temperature", config_gen.get("temperature", 0.7)),
+        "top_k": gen_params.get("top_k", config_gen.get("top_k", 50)),
+        "top_p": gen_params.get("top_p", config_gen.get("top_p", 0.95)),
+        "repetition_penalty": gen_params.get("repetition_penalty", config_gen.get("repetition_penalty", 1.05)),
+        "max_new_tokens": gen_params.get("max_new_tokens", config_gen.get("max_new_tokens", 2048)),
+    }
+
+
 def _run_inference_torch(model: Any, text: str, mode: str, gen_params: dict, language: str = "English",
                          voice_prompt: Any = None, voice_description: str | None = None,
                          speaker: str | None = None, instruct: str | None = None,
