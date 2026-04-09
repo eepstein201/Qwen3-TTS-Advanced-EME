@@ -25,6 +25,38 @@ def _get_auth_token():
     except FileNotFoundError:
         pytest.skip("Server auth token not found - server not running?")
 
+def _get_available_custom_speakers() -> list:
+    """Get list of available custom speakers from config.json.
+
+    Returns list of speaker names, or empty list if config not found.
+    """
+    config_paths = [
+        os.path.expanduser("~/.config/qwen3-tts/config.json"),
+        "config.json",  # Fallback to local config.json
+    ]
+
+    for config_path in config_paths:
+        try:
+            with open(config_path) as f:
+                config = json.load(f)
+                speakers = config.get("custom_voices", {}).get("speakers", [])
+                if speakers:
+                    return list(speakers.keys())
+        except (FileNotFoundError, json.JSONDecodeError):
+            continue
+
+    return []
+
+def _get_available_voice_prompts() -> list:
+    """Get list of available voice prompts from the server.
+
+    Returns list of prompt names, or empty list if server not running or no prompts.
+    """
+    status, prompts_data = _get_json("/prompts")
+    if status != 200:
+        return []
+    return prompts_data.get("prompts", [])
+
 def _post_json(endpoint: str, data: dict) -> tuple[int, dict]:
     """POST JSON to server endpoint, return (status_code, response_json)."""
     token = _get_auth_token()
@@ -87,29 +119,42 @@ class TestBackendConsistency:
             "mode": mode
         }
 
-        if mode == "custom":
-            generation_data["speaker"] = "default_en"
+        if mode == "clone":
+            # Dynamically select from available voice prompts
+            available_prompts = _get_available_voice_prompts()
+            if not available_prompts:
+                pytest.skip("No voice prompts configured - skipping clone backend consistency test")
+            generation_data["prompt_file"] = available_prompts[0]
+        elif mode == "custom":
+            # Dynamically select from available speakers
+            available_speakers = _get_available_custom_speakers()
+            if not available_speakers:
+                pytest.skip("No custom speakers configured - skipping custom backend consistency test")
+            generation_data["speaker"] = available_speakers[0]
 
         status, response = _post_json("/generate", generation_data)
 
         # Should succeed
         assert status == 200, f"Generation failed with status {status}: {response}"
 
-        # Verify response has all required fields
-        required_fields = ["audio", "duration", "chunks"]
+        # Verify response has expected structure
+        assert "results" in response, f"Missing 'results' field in {mode} backend response"
+        assert isinstance(response["results"], list), f"results should be a list, got {type(response['results'])}"
+        assert len(response["results"]) > 0, f"results should not be empty"
+
+        # Verify first result has required fields
+        first_result = response["results"][0]
+        required_fields = ["audio_base64", "sample_rate", "index"]
         for field in required_fields:
-            assert field in response, f"Missing required field '{field}' in {mode} backend response"
+            assert field in first_result, f"Missing required field '{field}' in {mode} backend result"
 
         # Verify field types
-        assert isinstance(response["audio"], str), f"audio should be string, got {type(response['audio'])}"
-        assert isinstance(response["duration"], (int, float)), f"duration should be numeric, got {type(response['duration'])}"
-        assert isinstance(response["chunks"], int), f"chunks should be int, got {type(response['chunks'])}"
+        assert isinstance(first_result["audio_base64"], str), f"audio_base64 should be string, got {type(first_result['audio_base64'])}"
+        assert isinstance(first_result["sample_rate"], int), f"sample_rate should be int, got {type(first_result['sample_rate'])}"
+        assert isinstance(first_result["index"], int), f"index should be int, got {type(first_result['index'])}"
 
         # Verify audio is base64-encoded string (not empty)
-        assert len(response["audio"]) > 0, f"audio should not be empty"
-
-        # Verify chunks is non-negative
-        assert response["chunks"] >= 0, f"chunks should be >= 0, got {response['chunks']}"
+        assert len(first_result["audio_base64"]) > 0, f"audio_base64 should not be empty"
 
     def test_stats_endpoint_includes_all_required_fields(self):
         """Test /stats endpoint returns consistent response shape across backends.
@@ -286,10 +331,14 @@ class TestModelStateEdgeCases:
                     pytest.skip("Custom model still loaded after unload - could not test failure case")
 
             # Now try to generate with custom mode - should fail gracefully
+            available_speakers = _get_available_custom_speakers()
+            if not available_speakers:
+                pytest.skip("No custom speakers configured - skipping custom model state edge case test")
+
             generation_data = {
                 "text": "This should fail gracefully when model not loaded.",
                 "mode": "custom",
-                "speaker": "eric"  # Use a valid speaker from the available list
+                "speaker": available_speakers[0]  # Use first available speaker dynamically
             }
 
             status, response = _post_json("/generate", generation_data)
