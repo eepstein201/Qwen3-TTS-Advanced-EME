@@ -200,6 +200,7 @@ class TestGenerateColabFallback(unittest.TestCase):
                  patch('qwen3_tts.interface.ui.generation.os.path.expanduser',
                        side_effect=lambda p: p.replace("~/Downloads", tmpdir)):
                 mock_client = MagicMock()
+                mock_client.last_chunk_count = 1
                 mock_cls.return_value = mock_client
 
                 def fake_generate(**kwargs):

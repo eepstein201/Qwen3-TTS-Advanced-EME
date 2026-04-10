@@ -78,6 +78,7 @@ def _setup_fastapi_app_state(app, server_config=None):
     app.state.gen_cache_lock = threading.Lock()
     app.state.inference_lock = asyncio.Lock()
     app.state.eta_cache = {"median_rate": None, "last_updated": 0}
+    app.state.eta_cache_lock = threading.Lock()
     app.state.model_load_errors = {"clone": None, "design": None, "custom": None}
     app.state.shutdown_timer = None
     if server_config:

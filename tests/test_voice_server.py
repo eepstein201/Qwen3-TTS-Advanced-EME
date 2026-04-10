@@ -618,6 +618,16 @@ class TestUpdateStartupConfigEndpoint(unittest.TestCase):
         from qwen3_tts.server.app import app
         app.state.auth_token = "test_token"  # nosec B105
 
+    def setUp(self):
+        # Reset rate limiters before each test — under python -m unittest the
+        # pytest autouse fixture (conftest.reset_rate_limiters) never fires, so
+        # counters accumulate and endpoints return 429 after a few calls.
+        from qwen3_tts.server.app import app
+        for attr in ("limiter", "limiter_hybrid", "limiter_ip", "limiter_token"):
+            limiter = getattr(app.state, attr, None)
+            if limiter is not None and hasattr(limiter, "reset"):
+                limiter.reset()
+
     def test_startup_config_requires_auth(self):
         """POST /update-startup-config requires authentication."""
         resp = self.client.post("/update-startup-config", json={"clone": True})

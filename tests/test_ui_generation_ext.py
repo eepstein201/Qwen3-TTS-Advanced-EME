@@ -232,6 +232,7 @@ class TestGenerateServerSide(unittest.TestCase):
     def test_server_side_success(self):
         from qwen3_tts.interface.ui.generation import _generate_server_side
         mock_client = MagicMock()
+        mock_client.last_chunk_count = 3
         stream_config = {"server_side": True, "payload": {
             "text": "hi", "mode": "clone", "temperature": 0.7,
         }}
@@ -240,6 +241,7 @@ class TestGenerateServerSide(unittest.TestCase):
              patch(f"{_MOD}.add_to_history", return_value=[{"path": "/tmp/out.wav"}]), \
              patch("qwen3_tts.interface.ui.shared.get_history_data", return_value=[]), \
              patch(f"{_MOD}.shutil.copy2"), \
+             patch(f"{_MOD}.save_generation_metadata"), \
              patch(f"{_MOD}.load_config", return_value={"output_directory": "/tmp"}), \
              patch("os.path.expanduser", return_value="/tmp"), \
              patch("os.makedirs"):
