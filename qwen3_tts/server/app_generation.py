@@ -278,7 +278,13 @@ async def handle_generate(request, state, req, security, config_provider):
 
                 from qwen3_tts.core.engine.audio_processing import calculate_waveform_peaks
                 peaks = calculate_waveform_peaks(wav, num_peaks=500)
-                results.append({"index": i, "audio_base64": b64_audio, "sample_rate": sr, "peaks": peaks})
+                results.append({
+                    "index": i,
+                    "audio_base64": b64_audio,
+                    "sample_rate": sr,
+                    "peaks": peaks,
+                    "chunks": state.generation_state.get("chunk_total", 0),
+                })
 
             # Content negotiation: return binary WAV if Accept header contains audio/wav
             accept = request.headers.get("accept", "application/json")
