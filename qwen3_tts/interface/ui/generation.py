@@ -195,6 +195,7 @@ def _generate_server_side(mode, text, history_list, stream_config):
             x_vector_only_mode=payload.get("x_vector_only_mode", False),
             seed_lock_chunks=payload.get("seed_lock_chunks", False),
         )
+        chunks = getattr(client, "last_chunk_count", 0)
 
         # Copy to user's output directory for persistent access
         config = load_config()
@@ -209,6 +210,7 @@ def _generate_server_side(mode, text, history_list, stream_config):
             "mode": payload.get("mode", mode),
             "text": payload.get("text", ""),
             "seed": payload.get("seed"),
+            "chunks": chunks,
             "temperature": payload.get("temperature"),
             "top_k": payload.get("top_k"),
             "top_p": payload.get("top_p"),
@@ -224,7 +226,7 @@ def _generate_server_side(mode, text, history_list, stream_config):
         # Use lock to prevent concurrent modification issues
         with _history_lock:
             history_list = add_to_history(
-                history_list, mode, text, persistent_path, 0,
+                history_list, mode, text, persistent_path, chunks,
                 seed=payload.get("seed"),
             )
             # Make a copy for return to avoid external mutation
