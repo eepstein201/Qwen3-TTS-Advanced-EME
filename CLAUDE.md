@@ -95,12 +95,12 @@ config.json → qwen3_tts.core.config → qwen3_tts.core.engine (dispatch)
 | `qwen3_tts/core/protocols.py` | Abstract protocols for engine components. `FileConfigProvider` and `DefaultPromptManager` removed (dead code). | No |
 | `qwen3_tts/server/app.py` | FastAPI server: auth, endpoint wrappers, CORS, rate limiting. Thin wrappers delegate to handler modules. | No (lazy via engine) |
 | `qwen3_tts/server/app_lifespan.py` | Server lifecycle: lifespan context, background model loading, cleanup, auto-shutdown, ETA, memory checking, error sanitization | No |
-| `qwen3_tts/server/app_generation.py` | Generation endpoint handlers: `/generate`, `/generate-stream` | No (lazy) |
+| `qwen3_tts/server/app_generation.py` | Generation endpoint handlers: `/generate`, `/generate-stream`. `/generate` response includes `"chunks"` count per result. | No (lazy) |
 | `qwen3_tts/server/app_models.py` | Model/stats endpoint handlers: `/stats`, `/models`, `/load-model`, `/unload-model`, `/update-model-config`, `/update-startup-config`, `/load-asr`, `/unload-asr`, `/transcribe` | No |
 | `qwen3_tts/server/app_prompts.py` | Prompt endpoint handlers: `/prompts`, `/delete-prompt`, `/rename-prompt`, `/preview-prompt`, `/prompt-details`, `/create-voice-prompt` | No |
 | `qwen3_tts/server/validation.py` | Canonical validation: `_validate_generation_request`, `_VALID_SPEAKER_NAMES` — do not re-define in app.py | No |
 | `qwen3_tts/server/websocket.py` | WebSocket endpoint for bidirectional real-time TTS streaming (`/ws`). Handles auth, cancel, and binary audio chunk delivery. | No |
-| `qwen3_tts/server/client/` | Package with 5 submodules: `_base`, `generator`, `models`, `voices`, `config_fetcher`. `__init__.py` facade re-exports TTSClient and generate. | No |
+| `qwen3_tts/server/client/` | Package with 5 submodules: `_base`, `generator`, `models`, `voices`, `config_fetcher`. `__init__.py` facade re-exports TTSClient and generate. After `generate()`, `client.last_chunk_count` holds the chunk count for the last generation. | No |
 | `qwen3_tts/interface/generate.py` | CLI generation main entry point (`main()`); delegates to helper modules | No (lazy) |
 | `qwen3_tts/interface/generate_helpers.py` | Voice prompt helpers, audio playback, SSML, file-open utilities | No (lazy) |
 | `qwen3_tts/interface/generate_interactive.py` | Interactive mode, REPL, watch mode, post-gen menu | No (lazy) |
@@ -200,7 +200,7 @@ Base: `http://127.0.0.1:5123`
 
 Public (no auth): `/health`, `/ready`, `/generation-status`, `/queue-status`
 
-All other endpoints require `Authorization: Bearer <token>` (token from `~/.voice_server_token`).
+All other endpoints require `Authorization: Bearer <token>` (token from `~/.config/qwen3-tts/.voice_server_token`, legacy fallback: `~/.voice_server_token`).
 
 | Endpoint | Method | Purpose |
 |----------|--------|---------|
@@ -286,7 +286,7 @@ make test-optional # Batch 5: Optional (pytest-dependent)
 make test-e2e      # Batch 6: E2E Playwright (requires server)
 ```
 
-1970+ tests across 83 modules. No GPU, models, or running server required (except E2E). Tests auto-skip when optional deps are missing.
+2143+ tests across 83 modules. No GPU, models, or running server required (except E2E). Tests auto-skip when optional deps are missing.
 
 **Models & PM2:** See `docs/00-Foundations/ARCHITECTURE.md` for HuggingFace model IDs and PM2 service commands.
 

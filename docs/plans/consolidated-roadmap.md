@@ -1,7 +1,7 @@
 # Qwen3-TTS Consolidated Development Roadmap
 
 > **Status:** All P0/P1/P2 items complete. Open work starts at Priority 2 (Performance).
-> **Last Updated:** 2026-03-29
+> **Last Updated:** 2026-04-10
 
 ---
 
@@ -25,6 +25,11 @@
 | HIGH-3 | WebSocket bidirectional audio streaming (`websocket.py`) | ✅ |
 | R-13 | Rate limiting (15 tests passing) | ✅ |
 | R-50 | Thread-safe concurrent generation (`_history_lock`) | ✅ |
+| R-51 | History panel chunk count always showed 0 — `/generate` now returns `"chunks"` per result; client stores `last_chunk_count`; UI passes actual count to `add_to_history` and metadata JSON | ✅ |
+| QC-1 | Type hints added to `core/config.py`, `server/app.py`, `core/engine/inference.py` | ✅ |
+| QC-2 | `print()` → `click.echo()` in `tools/model_cache.py` | ✅ |
+| QC-3 | Specific exception types in `server/websocket.py` (replaces broad `except Exception`) | ✅ |
+| QC-4 | `_build_torch_params()` helper extracted in `inference.py`; `model_size` added to `/stats` response | ✅ |
 
 ---
 

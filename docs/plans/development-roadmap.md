@@ -129,6 +129,7 @@ The annotation says `Optional[tuple]` but the actual return type is `Optional[tu
 
 - **Location**: `qwen3_tts/server/app_generation.py` (streaming path), `qwen3_tts/core/engine/inference.py`
 - **Fix**: Added `progress_callback` parameter to streaming chain; MLX path calls with `chunk_total=0` during streaming then `chunk_total=final_count` at completion; torch path calls with known `chunk_total` upfront — implemented 2026-03-28
+- **Follow-up R-35b** ✅ Fixed: `/generate` (non-streaming) endpoint also omitted `chunks` from its response, so the Gradio UI history panel always displayed 0. Fixed by adding `"chunks": state.generation_state.get("chunk_total", 0)` to each result dict in `app_generation.py`; client stores `last_chunk_count` attribute; UI reads it via `getattr(client, "last_chunk_count", 0)` and passes to `add_to_history()` and the JSON metadata sidecar — implemented 2026-04-10
 
 ### R-36: generate_dialogue Uses list.extend() on NumPy Arrays ✅ Fixed
 `list.extend()` on numpy arrays iterates scalar-by-scalar, which is very slow for large audio arrays.
