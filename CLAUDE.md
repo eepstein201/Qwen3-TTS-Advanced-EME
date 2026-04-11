@@ -290,5 +290,24 @@ make test-e2e      # Batch 6: E2E Playwright (requires server)
 
 **Models & PM2:** See `docs/00-Foundations/ARCHITECTURE.md` for HuggingFace model IDs and PM2 service commands.
 
+## PM2 Services
+
+| Port | Name | Type |
+|------|------|------|
+| 5123 | tts-server-5123 | FastAPI (conda: qwen3-tts-mlx) |
+
+**Terminal Commands:**
+```bash
+pm2 start ecosystem.config.cjs   # First time
+pm2 start all                    # After first time
+pm2 stop all / pm2 restart all
+pm2 start tts-server-5123 / pm2 stop tts-server-5123
+pm2 logs / pm2 status / pm2 monit
+pm2 save                         # Save process list
+pm2 resurrect                    # Restore saved list
+```
+
+**Claude Commands:** /pm2-all, /pm2-all-stop, /pm2-all-restart, /pm2-5123, /pm2-5123-stop, /pm2-5123-restart, /pm2-logs, /pm2-status
+
 ## Deep Dive Reference
 For security, caching, thread safety, platform support, hardware optimization, upstream dependency monitoring, and code review history, see `docs/00-Foundations/ARCHITECTURE.md`.

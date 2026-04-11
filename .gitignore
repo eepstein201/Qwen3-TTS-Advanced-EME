@@ -56,3 +56,6 @@ Thumbs.db
 # Auto Claude data directory
 .auto-claude/
 .worktrees/
+
+.gemini/
+gha-creds-*.json
