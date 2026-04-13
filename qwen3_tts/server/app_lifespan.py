@@ -258,10 +258,15 @@ async def lifespan(app):
     await _maybe_stop_vllm_adapter(app.state)
     cleanup_resources(app.state)
 
-    # Clean up token file
+    # Clean up token file — only if it contains OUR token.
+    # A competing instance (e.g. PM2 crash loop) that failed to bind
+    # must not delete the token written by the real server.
     try:
-        os.unlink(TOKEN_FILE)
-    except FileNotFoundError:
+        with open(TOKEN_FILE, "r") as f:
+            on_disk = f.read().strip()
+        if on_disk == app.state.auth_token:
+            os.unlink(TOKEN_FILE)
+    except (FileNotFoundError, OSError):
         pass
 
 
