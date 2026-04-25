@@ -360,8 +360,11 @@ def cleanup_pid(app_state):
         shutdown_timer.cancel()
     cleanup_pid_file()
     try:
-        os.remove(TOKEN_FILE)
-    except FileNotFoundError:
+        with open(TOKEN_FILE, "r") as f:
+            on_disk = f.read().strip()
+        if on_disk == getattr(app_state, "auth_token", None):
+            os.unlink(TOKEN_FILE)
+    except (FileNotFoundError, OSError):
         pass
     # Set shutdown event for graceful termination
     shutdown_event = getattr(app_state, "shutdown_event", None)

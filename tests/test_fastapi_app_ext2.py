@@ -114,21 +114,23 @@ class TestAutoShutdown(unittest.TestCase):
 class TestCleanupPid(unittest.TestCase):
 
     def test_cleanup_pid_full_flow(self):
+        from unittest.mock import mock_open
         from qwen3_tts.server.app import cleanup_pid
         state = _make_app_state()
+        state.auth_token = "my_test_token_abc"
         timer = MagicMock()
         state.shutdown_timer = timer
         state.shutdown_event = MagicMock()
         with patch(f"{_APP_LIFESPAN}.cleanup_pid_file") as mock_cpf, \
              patch(f"{_APP_LIFESPAN}.cleanup_resources") as mock_cr, \
              patch(f"{_APP_LIFESPAN}.TOKEN_FILE", "/tmp/fake_token_xyz"), \
-             patch("os.path.exists", return_value=True), \
-             patch("os.remove") as mock_rm, \
+             patch("builtins.open", mock_open(read_data="my_test_token_abc")), \
+             patch("os.unlink") as mock_unlink, \
              patch("sys.exit") as mock_exit:
             cleanup_pid(state)
         timer.cancel.assert_called_once()
         mock_cpf.assert_called_once()
-        mock_rm.assert_called_once_with("/tmp/fake_token_xyz")
+        mock_unlink.assert_called_once_with("/tmp/fake_token_xyz")
         state.shutdown_event.set.assert_called_once()
         mock_cr.assert_called_once_with(state)
         mock_exit.assert_called_once_with(0)

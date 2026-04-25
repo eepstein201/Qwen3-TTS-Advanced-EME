@@ -623,7 +623,7 @@ def detect_server_state(config: dict | None = None) -> dict:
 
 VALID_DTYPES = ("float32", "float16", "bfloat16")
 VALID_BACKENDS = ("torch", "mlx", "vllm")
-VALID_MLX_QUANTIZATIONS = ("4bit", "8bit", "bf16")
+VALID_MLX_QUANTIZATIONS = ("4bit", "5bit", "6bit", "8bit", "bf16")
 VALID_TORCH_QUANTIZATIONS = ("none", "8bit", "4bit")
 VALID_MODEL_SIZES = ("1.7B", "0.6B")
 
@@ -677,7 +677,7 @@ def get_mlx_quantization() -> str:
     """Read the configured MLX quantization from config.json (advanced.mlx_quantization).
 
     Returns:
-        A string: "4bit", "8bit", or "bf16".
+        A string: "4bit", "5bit", "6bit", "8bit", or "bf16".
         Defaults to "8bit" if not set or invalid.
     """
     try:

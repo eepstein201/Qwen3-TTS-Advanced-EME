@@ -19,25 +19,6 @@ from qwen3_tts.core.config import (
 from qwen3_tts.core.engine.audio_processing import process_audio, LUFS_TARGET
 from qwen3_tts.core.engine.text_processing import _normalize_text, _split_text
 
-logger = logging.getLogger("tts.engine")
-
-_DEFAULT_CONFIG_LOADER = DefaultConfigLoader()
-
-# ---------------------------------------------------------------------------
-# Strategy registries for OCP-compliant dispatch
-# ---------------------------------------------------------------------------
-
-# Backend strategies: maps backend name -> inference function
-_INFERENCE_STRATEGIES = {}
-
-# Mode strategies for torch backend: maps mode name -> model method name
-_MODE_STRATEGIES_TORCH = {
-    "clone": "generate_voice_clone",
-    "design": "generate_voice_design",
-    "custom": "generate_custom_voice",
-}
-
-
 from typing import Callable, Any, Iterator
 
 logger = logging.getLogger("tts.engine")

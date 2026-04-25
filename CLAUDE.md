@@ -124,75 +124,18 @@ config.json → qwen3_tts.core.config → qwen3_tts.core.engine (dispatch)
 ## File Layout
 
 ```
-~/Qwen3-TTS_UserFiles/
-├── pyproject.toml              # Package metadata, Click entry points
-├── qwen3_tts/                  # Main package
-│   ├── __init__.py
-│   ├── cli.py                  # Click entry point
-│   ├── cli_server.py           # Server CLI group (start, stop, status, log)
-│   ├── cli_voice.py            # Voice CLI group + list group
-│   ├── cli_config.py           # Config/uninstall/cache groups, ui/doctor
-│   ├── core/
-│   │   ├── __init__.py
-│   │   ├── config.py           # Config, constants, errors (no heavy imports)
-│   │   └── engine/             # Engine package (strict DAG, facade pattern)
-│   │       ├── __init__.py     # Facade — re-exports all public names
-│   │       ├── text_processing.py  # Normalization, chunking
-│   │       ├── audio_processing.py # Audio I/O, effects, LUFS
-│   │       ├── voice_prompt.py     # Prompt loading, caching
-│   │       ├── model_loader.py     # Torch/MLX model loading
-│   │       ├── inference.py        # Stateless generation dispatch
-│   │       └── asr.py              # Speech recognition
-│   ├── server/
-│   │   ├── __init__.py
-│   │   ├── app.py              # FastAPI server — thin endpoint wrappers (port 5123)
-│   │   ├── app_lifespan.py     # Lifecycle: lifespan, cleanup, auto-shutdown, ETA
-│   │   ├── app_generation.py   # Handler: /generate, /generate-stream
-│   │   ├── app_models.py       # Handler: /stats, /models, /load-model, config endpoints
-│   │   ├── app_prompts.py      # Handler: /prompts, /delete-prompt, /rename-prompt, etc.
-│   │   ├── websocket.py        # WebSocket endpoint for bidirectional audio streaming
-│   │   └── client/             # HTTP client package
-│   │       ├── __init__.py     # Facade — re-exports TTSClient and generate
-│   │       ├── _base.py        # Base class, helpers, constants
-│   │       ├── generator.py    # Audio generation methods
-│   │       ├── models.py       # Model management methods
-│   │       ├── voices.py       # Voice prompt management methods
-│   │       └── config_fetcher.py  # Config and stats retrieval methods
-│   ├── interface/
-│   │   ├── __init__.py
-│   │   ├── generate.py         # CLI generation main entry point
-│   │   ├── generate_helpers.py # Voice prompt helpers, audio playback, file-open
-│   │   ├── generate_interactive.py # Interactive mode, REPL, watch mode
-│   │   ├── generate_server.py  # Server-side generation, streaming playback
-│   │   ├── voice_helpers.py    # Voice management helpers
-│   │   ├── wavesurfer_js.py    # WaveSurfer.js integration
-│   │   ├── cli/                # CLI subcommand package (batch, srt, dialogue)
-│   │   └── ui/                 # Gradio web UI package (facade, generation, voice/model mgmt)
-│   └── tools/
-│       ├── __init__.py
-│       ├── create_voice.py     # Voice clone creation
-│       ├── model_cache.py      # Cache management (list, size, prune, clear)
-│       ├── healthcheck.py      # Installation health checks
-│       └── uninstall.py        # Uninstall/cleanup utilities
-├── Makefile                    # Test shortcuts (make test-batch, etc.)
-├── Dockerfile                  # Docker image (torch backend)
-├── Dockerfile.vllm             # Docker image (vLLM backend)
-├── docker-compose.yml          # Docker Compose orchestration
-├── config.json                 # All settings
-├── install.sh                  # Cross-platform installer (macOS + Linux)
-├── colab_notebook.ipynb        # Google Colab notebook
-├── voice_prompts/              # .pt (torch) + .wav/.txt (MLX) files
-├── tests/                      # Test files, 1970+ tests across 83 modules
-│   ├── run_batches.py          # Batch test runner
-│   ├── run_full_suite.py       # Full suite runner with --full flag
-│   ├── conftest.py             # Shared fixtures (pytest)
-│   └── test_*.py               # Test modules
-├── docs/
-│   ├── 00-Foundations/         # Deep-dive architecture docs
-│   └── plans/                  # Roadmaps and implementation plans
-├── .voice_server.pid           # Runtime PID file
-└── .voice_server.log           # Runtime log file
+qwen3_tts/
+├── core/config.py, engine/{text_processing,audio_processing,voice_prompt,model_loader,inference,asr}.py
+├── server/app.py, app_lifespan.py, app_generation.py, app_models.py, app_prompts.py, websocket.py, validation.py, client/
+├── interface/generate.py, generate_helpers.py, generate_interactive.py, generate_server.py, ui/, cli/
+└── tools/create_voice.py, model_cache.py, healthcheck.py, uninstall.py
 ```
+
+Top-level: `pyproject.toml`, `config.json`, `install.sh`, `ecosystem.config.cjs`, `voice_prompts/`, `tests/`, `docs/`
+
+Runtime: `.voice_server.pid`, `.voice_server.log`
+
+See `docs/00-Foundations/ARCHITECTURE.md` for full annotated file tree.
 
 ## Server API
 
@@ -235,7 +178,7 @@ All other endpoints require `Authorization: Bearer <token>` (token from `~/.conf
 |-----|---------|---------|
 | `advanced.backend` | `"mlx"`, `"torch"`, `"vllm"` | `"mlx"` (Apple Silicon), `"torch"` (elsewhere) |
 | `advanced.model_size` | `"1.7B"`, `"0.6B"` | `"1.7B"` |
-| `advanced.mlx_quantization` | `"4bit"`, `"8bit"`, `"bf16"` | `"8bit"` |
+| `advanced.mlx_quantization` | `"4bit"`, `"5bit"`, `"6bit"`, `"8bit"`, `"bf16"` | `"8bit"` |
 | `advanced.torch_quantization` | `"none"`, `"8bit"`, `"4bit"` | `"none"` |
 | `advanced.audio_loader` | `"torchaudio"`, `"librosa"` | `"torchaudio"` |
 | `generation.max_chunk_chars` | `0`-`10000` | `500` (0 disables chunking) |
@@ -287,6 +230,13 @@ make test-e2e      # Batch 6: E2E Playwright (requires server)
 ```
 
 2143+ tests across 83 modules. No GPU, models, or running server required (except E2E). Tests auto-skip when optional deps are missing.
+
+**Server restart rule:** Stop the server before starting to pick up code changes:
+```bash
+tts server stop && tts server start
+```
+
+**Log level:** Controlled by `TTS_LOG_LEVEL` env var (default `INFO`). Set `TTS_LOG_LEVEL=DEBUG` for verbose output.
 
 **Models & PM2:** See `docs/00-Foundations/ARCHITECTURE.md` for HuggingFace model IDs and PM2 service commands.
 

@@ -20,7 +20,7 @@ torch = [
     "torch>=2.0",
     "torchaudio>=2.0",
     "qwen-tts",
-    "transformers==4.57.3",
+    "transformers>=4.57.3",
 ]
 
 # MLX backend (Apple Silicon only)
@@ -42,7 +42,7 @@ server = [
 
 # Gradio web UI
 ui = [
-    "gradio>=4.20.0",
+    "gradio>=5.0.0",
 ]
 
 # Audio processing extras
