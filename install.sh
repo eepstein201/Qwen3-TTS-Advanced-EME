@@ -678,13 +678,17 @@ customize_settings() {
         echo -e "${BOLD}MLX Quantization${NC}"
         echo "  1. 8bit — Good balance of quality and size (recommended)"
         echo "  2. 4bit — Smallest, fastest, slightly lower quality"
-        echo "  3. bf16 — Full precision, highest quality, largest size"
+        echo "  3. 5bit — Slightly higher quality than 4bit"
+        echo "  4. 6bit — Closer to 8bit quality, smaller than 8bit"
+        echo "  5. bf16 — Full precision, highest quality, largest size"
         read -p "Select [1]: " QUANT_CHOICE
         QUANT_CHOICE=${QUANT_CHOICE:-1}
 
         case "$QUANT_CHOICE" in
             2) SELECTED_QUANT="4bit" ;;
-            3) SELECTED_QUANT="bf16" ;;
+            3) SELECTED_QUANT="5bit" ;;
+            4) SELECTED_QUANT="6bit" ;;
+            5) SELECTED_QUANT="bf16" ;;
             *) SELECTED_QUANT="8bit" ;;
         esac
     fi

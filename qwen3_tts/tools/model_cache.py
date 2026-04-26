@@ -97,15 +97,12 @@ def _get_model_info(model_dir: pathlib.Path) -> dict:
                 break
     elif name.startswith("models--mlx-community--"):
         backend = "mlx"
-        # Parse quantization from name (4bit, 8bit, bf16)
-        if "-4bit-" in name:
-            quant = "4bit"
-        elif "-bf16-" in name:
-            quant = "bf16"
-        elif "-8bit-" in name:
-            quant = "8bit"
-        else:
-            quant = "unknown"
+        from qwen3_tts.core.config import VALID_MLX_QUANTIZATIONS
+        quant = "unknown"
+        for candidate in VALID_MLX_QUANTIZATIONS:
+            if f"-{candidate}-" in name or name.endswith(f"-{candidate}"):
+                quant = candidate
+                break
 
         for alias, info in _MODEL_ALIASES.items():
             if alias in name:

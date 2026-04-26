@@ -74,7 +74,7 @@ class ModelManagerMixin:
 
         Args:
             model_size: "1.7B" or "0.6B" (optional).
-            mlx_quantization: "4bit", "8bit", or "bf16" (optional).
+            mlx_quantization: "4bit", "5bit", "6bit", "8bit", or "bf16" (optional).
 
         Returns:
             Response dict with "status", "changes", "models_unloaded" keys.
