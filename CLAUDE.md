@@ -229,7 +229,7 @@ make test-optional # Batch 5: Optional (pytest-dependent)
 make test-e2e      # Batch 6: E2E Playwright (requires server)
 ```
 
-2143+ tests across 83 modules. No GPU, models, or running server required (except E2E). Tests auto-skip when optional deps are missing.
+2163+ tests across 108 modules. No GPU, models, or running server required (except E2E). Tests auto-skip when optional deps are missing.
 
 **Server restart rule:** Stop the server before starting to pick up code changes:
 ```bash
