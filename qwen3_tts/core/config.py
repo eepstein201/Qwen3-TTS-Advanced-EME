@@ -285,6 +285,9 @@ def get_default_config(current_config: dict | None = None) -> dict:
             "max_new_tokens": 2048,
             "compile_model": True,
             "max_chunk_tokens": 200,
+            "lufs_normalize": False,
+            "lufs_target": -16.0,
+            "silence_gap_seconds": 0.0,
         },
         "presets": {
             "consistent": {"temperature": 0.5, "top_k": 30, "seed": 42},

@@ -539,6 +539,20 @@ def _get_max_chunk_tokens() -> int:
         return 200
 
 
+def _maybe_apply_lufs(audio, sample_rate, config=None):
+    """Apply LUFS normalization if generation.lufs_normalize is True.
+
+    Reads target loudness from generation.lufs_target (default LUFS_TARGET = -16.0).
+    Returns (audio, sample_rate) tuple regardless of whether normalization was applied.
+    """
+    cfg = config if config is not None else load_config()
+    gen = cfg.get("generation", {})
+    if not gen.get("lufs_normalize", False):
+        return audio, sample_rate
+    target = gen.get("lufs_target", LUFS_TARGET)
+    return process_audio(audio, sample_rate, lufs_target=target)
+
+
 def _prepare_text_chunks(text: str, language: str, model, max_chunk_chars: int) -> list[str]:
     """Normalize and chunk text for inference.
 
@@ -637,8 +651,7 @@ def run_inference(model: Any, text: str, mode: str, gen_params: dict, language: 
             x_vector_only_mode=x_vector_only_mode,
         )
         config = (config_provider or _DEFAULT_CONFIG_LOADER).load()
-        if config.get("generation", {}).get("lufs_normalize", False):
-            wav, sr = process_audio(wav, sr, lufs_target=LUFS_TARGET)
+        wav, sr = _maybe_apply_lufs(wav, sr, config=config)
         return wav, sr
 
     # Multi-chunk: generate each, combine with crossfade or silence gap
@@ -680,8 +693,7 @@ def run_inference(model: Any, text: str, mode: str, gen_params: dict, language: 
     else:
         result = _crossfade_chunks(all_audio, sample_rate, crossfade_ms=50)
 
-    if config.get("generation", {}).get("lufs_normalize", False):
-        result, sample_rate = process_audio(result, sample_rate, lufs_target=LUFS_TARGET)
+    result, sample_rate = _maybe_apply_lufs(result, sample_rate, config=config)
 
     logger.info("Combined %d chunks into %.1fs audio", len(chunks), len(result) / sample_rate)
     return result, sample_rate
