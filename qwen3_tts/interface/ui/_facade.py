@@ -693,7 +693,7 @@ def build_ui():
                 mlx_quant_dropdown = gr.Dropdown(
                     label="MLX Quantization", choices=list(VALID_MLX_QUANTIZATIONS),
                     value=current_quant,
-                    info="4bit: smallest | 8bit: balanced | bf16: highest quality",
+                    info="4bit/5bit/6bit: progressively higher quality, more memory | 8bit: balanced (default) | bf16: highest quality, largest",
                     visible=(current_backend == "mlx")
                 )
             with gr.Row():
@@ -772,7 +772,7 @@ def build_ui():
         **Tips:**
         - Start the TTS server first: `tts server start`
         - Models auto-load on first use — no need to pre-load all three
-        - Use **Model Settings** above to switch between model sizes (0.6B/1.7B) and quantizations (4bit/8bit/bf16)
+        - Use **Model Settings** above to switch between model sizes (0.6B/1.7B) and MLX quantizations (4bit/5bit/6bit/8bit/bf16)
         - Clone mode uses a voice prompt (.pt for PyTorch, .wav+.txt for MLX)
         - Design mode creates voices from text descriptions
         - Custom mode uses premium pre-trained speakers

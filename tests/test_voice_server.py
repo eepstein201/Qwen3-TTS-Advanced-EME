@@ -716,5 +716,23 @@ class TestModelsEndpointEnhanced(unittest.TestCase):
         self.assertIn("model_load_times", data)
 
 
+class TestUpdateModelConfigAcceptsAll5MlxQuants:
+    """Server /update-model-config must accept all VALID_MLX_QUANTIZATIONS values."""
+
+    def test_5bit_accepted(self):
+        from qwen3_tts.server import app_models
+        from qwen3_tts.core.config import VALID_MLX_QUANTIZATIONS
+        assert "5bit" in VALID_MLX_QUANTIZATIONS
+        # The handler must not have a stale local tuple
+        import inspect
+        src = inspect.getsource(app_models.handle_update_model_config)
+        assert '("4bit", "8bit", "bf16")' not in src, (
+            "app_models.py still has the stale 3-element valid_quants tuple"
+        )
+        assert "VALID_MLX_QUANTIZATIONS" in src, (
+            "app_models.py should read from the canonical VALID_MLX_QUANTIZATIONS"
+        )
+
+
 if __name__ == "__main__":
     unittest.main()
