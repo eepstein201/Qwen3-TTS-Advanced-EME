@@ -64,6 +64,7 @@
 | **R-29** | `TranscribeRequest.language` pattern constraint (validation) | Low | Low | `validation.py` |
 | **R-30** | Unbounded base64 payload size limit | Low | Low | `app.py` or `validation.py` |
 | **R-43** | `create_voice.main()` testability (dependency injection) | Low | Low | `tools/create_voice.py` |
+| **FOLLOWUP-1** | Decide whether `config.json` defaults should set `design.load_at_startup` and `custom.load_at_startup` to `true` (currently `false` and `{}` in the checked-in config; my local working tree has them on, ~7.5GB at startup vs ~2.5GB) | Low | Low | `config.json` |
 
 ---
 
