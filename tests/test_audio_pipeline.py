@@ -74,3 +74,57 @@ class TestLUFSNormalizationToggle:
                 gen_params={"temperature": 0.7, "top_k": 50, "top_p": 0.95, "repetition_penalty": 1.05},
             )
             mock_pa.assert_not_called()
+
+
+class TestLufsTargetConfigurable:
+    """R-23: lufs_target is read from generation.lufs_target (default -16.0)."""
+
+    def test_custom_lufs_target_propagates(self):
+        from unittest.mock import patch
+        import numpy as np
+        captured = {}
+
+        def fake_process_audio(audio, sr, **kwargs):
+            captured.update(kwargs)
+            return audio, sr
+
+        with patch(
+            "qwen3_tts.core.engine.inference.process_audio",
+            side_effect=fake_process_audio,
+        ), patch(
+            "qwen3_tts.core.engine.inference.load_config",
+            return_value={
+                "generation": {
+                    "lufs_normalize": True,
+                    "lufs_target": -19.0,
+                    "silence_gap_seconds": 0.0,
+                }
+            },
+        ):
+            from qwen3_tts.core.engine.inference import _maybe_apply_lufs
+            wav = np.zeros(1000, dtype=np.float32)
+            _maybe_apply_lufs(wav, 24000)
+
+        assert captured.get("lufs_target") == -19.0
+
+    def test_default_lufs_target_is_minus_16(self):
+        from unittest.mock import patch
+        import numpy as np
+        captured = {}
+
+        def fake_process_audio(audio, sr, **kwargs):
+            captured.update(kwargs)
+            return audio, sr
+
+        with patch(
+            "qwen3_tts.core.engine.inference.process_audio",
+            side_effect=fake_process_audio,
+        ), patch(
+            "qwen3_tts.core.engine.inference.load_config",
+            return_value={"generation": {"lufs_normalize": True}},
+        ):
+            from qwen3_tts.core.engine.inference import _maybe_apply_lufs
+            wav = np.zeros(1000, dtype=np.float32)
+            _maybe_apply_lufs(wav, 24000)
+
+        assert captured.get("lufs_target") == -16.0
