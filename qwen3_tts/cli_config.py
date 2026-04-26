@@ -9,6 +9,8 @@ import sys
 
 import click
 
+from qwen3_tts.core.config import VALID_MLX_QUANTIZATIONS as _VALID_MLX_Q
+
 
 # ---------------------------------------------------------------------------
 # config group
@@ -36,7 +38,7 @@ def show():
 @config.command()
 @click.option('--backend', type=click.Choice(['mlx', 'torch', 'vllm']), help='Set backend (mlx/torch/vllm)')
 @click.option('--model-size', type=click.Choice(['1.7B', '0.6B']), help='Set model size')
-@click.option('--mlx-quantization', type=click.Choice(['4bit', '8bit', 'bf16']), help='Set MLX quantization')
+@click.option('--mlx-quantization', type=click.Choice(list(_VALID_MLX_Q)), help='Set MLX quantization (4bit/5bit/6bit/8bit/bf16)')
 @click.option('--torch-quantization', type=click.Choice(['none', '4bit', '8bit']), help='Set Torch quantization')
 @click.option('--language', help='Set default language')
 @click.option('--output-dir', help='Set output directory for generated audio')

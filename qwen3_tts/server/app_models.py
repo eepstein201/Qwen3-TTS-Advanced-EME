@@ -13,6 +13,7 @@ from fastapi import HTTPException
 from qwen3_tts.core.config import (
     MODEL_INFO,
     MLX_MODEL_INFO,
+    VALID_MLX_QUANTIZATIONS,
     get_backend,
     get_model_size,
     get_mlx_quantization,
@@ -262,7 +263,7 @@ async def handle_update_model_config(state, req, config_fn):
         )
 
     valid_sizes = ("1.7B", "0.6B")
-    valid_quants = ("4bit", "8bit", "bf16")
+    valid_quants = VALID_MLX_QUANTIZATIONS
 
     if new_size and new_size not in valid_sizes:
         raise HTTPException(
