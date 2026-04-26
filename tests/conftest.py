@@ -166,6 +166,14 @@ def initialize_app_state_for_xdist():
         yield
         return
 
+    # Skip if app.state was already initialized externally — e.g. by a unittest
+    # TestCase's setUpClass calling _make_test_client. Clobbering would replace
+    # auth_token with "xdist_test_token" and reset the models_loaded Event,
+    # breaking auth and readiness checks for those tests.
+    if hasattr(app.state, 'auth_token'):
+        yield
+        return
+
     original_state = _save_app_state(app)
 
     try:
