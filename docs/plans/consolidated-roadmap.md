@@ -1,7 +1,7 @@
 # Qwen3-TTS Consolidated Development Roadmap
 
 > **Status:** All P0/P1/P2 items complete. Open work starts at Priority 2 (Performance).
-> **Last Updated:** 2026-04-10
+> **Last Updated:** 2026-04-26
 
 ---
 
@@ -30,6 +30,12 @@
 | QC-2 | `print()` → `click.echo()` in `tools/model_cache.py` | ✅ |
 | QC-3 | Specific exception types in `server/websocket.py` (replaces broad `except Exception`) | ✅ |
 | QC-4 | `_build_torch_params()` helper extracted in `inference.py`; `model_size` added to `/stats` response | ✅ |
+| QC-5 | Remove duplicate module-level definitions in `inference.py` (logger, strategies defined twice) | ✅ |
+| QC-6 | `GenerateResult` Pydantic model includes `chunks` field — FastAPI no longer strips it from response | ✅ |
+| QC-7 | Token-ownership guard in `cleanup_pid()` / lifespan / shutdown — only delete token file if on-disk matches `app_state.auth_token` | ✅ |
+| QC-8 | `TTS_LOG_LEVEL` env var replaces hardcoded `logging.DEBUG` in `run_server()` | ✅ |
+| QC-9 | 5bit/6bit added to `VALID_MLX_QUANTIZATIONS`; `transformers` pin relaxed to `>=4.57.3`; `gradio` minimum bumped to `>=5.0.0` | ✅ |
+| QC-10 | xdist autouse fixture skips re-init when `app.state.auth_token` is already set, preventing it from clobbering unittest setUpClass state | ✅ |
 
 ---
 
@@ -93,7 +99,7 @@
 
 - [ ] HIGH-1/MED-2 vLLM params validated in Docker environment
 - [ ] HIGH-2 FastAPI decoupled — event loop no longer blocked during generation
-- [ ] Full test suite passes (1970+ tests)
+- [ ] Full test suite passes (2163+ tests)
 - [ ] R-29/R-30 validation gaps closed
 
 ---
