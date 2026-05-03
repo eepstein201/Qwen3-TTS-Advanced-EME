@@ -264,7 +264,7 @@ def format_status_display():
 
     import html as html_mod
     return f"""
-    <div style="padding: 10px; background: var(--block-background-fill, #f5f5f5); border-radius: 5px; margin-bottom: 15px; border: 1px solid var(--block-border-color, #e0e0e0);">
+    <div role="status" aria-live="polite" style="padding: 10px; background: var(--block-background-fill, #f5f5f5); border-radius: 5px; margin-bottom: 15px; border: 1px solid var(--block-border-color, #e0e0e0);">
         <strong>Status:</strong> {status_html} |
         <strong>Backend:</strong> {html_mod.escape(str(backend))} |
         <strong>Memory:</strong> {html_mod.escape(str(memory))} |
