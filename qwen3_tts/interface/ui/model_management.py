@@ -60,7 +60,7 @@ def get_model_table_data():
             memory = info.get("memory_mb", 0)
             load_at_startup = startup_config.get(model_type, {}).get("load_at_startup", False)
 
-            status = "✅ Loaded" if loaded else "Not loaded"
+            status = "Loaded" if loaded else "Not loaded"
             memory_str = f"{memory:.0f}MB" if memory else "—"
             startup_str = "Yes" if load_at_startup else "No"
 
@@ -196,16 +196,22 @@ def update_startup_defaults(clone_startup, design_startup, custom_startup):
 def get_model_status_html(model_type):
     """Get HTML status indicator for a specific model.
 
+    Reflects live /models state (not stale config). When the server reports
+    `loading: True` the UI shows a "Loading" badge so it doesn't claim a model
+    is "Loaded" mid-download (Phase 0 bug #4).
+
     Args:
         model_type: 'clone', 'design', or 'custom'
 
     Returns:
-        HTML string with status indicator
+        HTML string with accessible status badge (SVG + text + aria-label).
     """
+    from qwen3_tts.interface.ui.components import status_badge
+
     config = load_config()
 
     if not is_server_running(config):
-        return '<span style="color: gray;">Server not running</span>'
+        return status_badge("Server not running", severity="warning")
 
     try:
         import requests
@@ -213,22 +219,23 @@ def get_model_status_html(model_type):
         resp = requests.get(f"{url}/models", timeout=5, headers=auth_headers())
 
         if resp.status_code != 200:
-            return '<span style="color: red;">Error</span>'
+            return status_badge("Error", severity="error")
 
         data = resp.json()
-        models = data.get("models", {})
-        info = models.get(model_type, {})
+        info = data.get("models", {}).get(model_type, {}) or {}
         loaded = info.get("loaded", False)
+        loading = info.get("loading", False)
         memory = info.get("memory_mb", 0)
 
         if loaded:
-            return f'<span style="color: green;">✓ Loaded ({memory:.0f}MB)</span>'
-        else:
-            return '<span style="color: gray;">Not loaded</span>'
+            return status_badge(f"Loaded ({memory:.0f}MB)", severity="success")
+        if loading:
+            return status_badge(f"Loading {model_type}...", severity="loading")
+        return status_badge("Not loaded", severity="info")
 
     except Exception as e:
         logger.error("Failed to get model status: %s", e)
-        return '<span style="color: red;">Error</span>'
+        return status_badge("Error", severity="error")
 
 
 def get_audio_loader_setting():
