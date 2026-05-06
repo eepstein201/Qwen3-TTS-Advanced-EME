@@ -39,9 +39,24 @@ SPEAKER_CHOICES = [
 
 
 def enhance_description_with_ai(description):
-    """Enhance a brief voice description using an LLM API."""
+    """Enhance a brief voice description using an LLM API.
+
+    Phase 1b: surfaces a `gr.Info` toast and constructs an inline
+    ProgressIndicator while the LLM call is in flight, so the user knows
+    something is happening during the round-trip (~2-5s).
+    """
+    from qwen3_tts.interface.ui.components import ProgressIndicator
+
     if not description or not description.strip():
         raise gr.Error("Please enter a description to enhance")
+
+    # Visible toast + structured progress object (the indicator HTML is also
+    # available for any inline gr.HTML that wires into this handler).
+    progress = ProgressIndicator(mode="indeterminate", message="Enhancing description…")
+    try:
+        gr.Info(progress.message)
+    except Exception:
+        pass  # gr.Info raises in non-event contexts (e.g. unit tests); ignore
 
     config = load_config()
     enhancer_config = config.get("prompt_enhancer", {})

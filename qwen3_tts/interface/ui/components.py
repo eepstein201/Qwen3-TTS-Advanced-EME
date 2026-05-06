@@ -2,10 +2,13 @@
 """Shared UI components for the Gradio interface.
 
 Phase 1a: StatusBanner + a11y helpers.
+Phase 1b: ProgressIndicator + poll_model_load_progress.
 
 Public API:
     StatusBanner         - global accessible status surface
+    ProgressIndicator    - bounded/indeterminate progressbar with WCAG aria
     poll_model_loading_state(model_type) - live /models state, not stale config
+    poll_model_load_progress(model_type) - structured progress dict for UI
     status_badge(message, severity) - inline badge for table cells
     severity_icon(name) - inline SVG by name
 """
@@ -227,3 +230,146 @@ def poll_model_loading_state(model_type: str, timeout: float = 5.0) -> str:
     if info.get("loading"):
         return "loading"
     return "not_loaded"
+
+
+# ---------------------------------------------------------------------------
+# ProgressIndicator (Phase 1b) - WCAG progressbar, bounded or indeterminate
+# ---------------------------------------------------------------------------
+
+ProgressMode = Literal["bounded", "indeterminate"]
+
+
+class ProgressIndicator:
+    """Accessible progressbar for long operations (model load, ASR, AI enhance).
+
+    Two modes:
+      - "bounded": known percent (0-100). Renders aria-valuenow + visible "X%".
+      - "indeterminate": unknown duration. Renders aria-busy=true + spinner.
+
+    Output is HTML — feed into a gr.HTML component or splice into status text.
+    Thread-safe in the same sense as StatusBanner: instances are cheap and
+    typically constructed per render rather than shared.
+    """
+
+    def __init__(
+        self,
+        percent: int | float | None = None,
+        eta_s: float | None = None,
+        message: str | None = None,
+        mode: ProgressMode = "bounded",
+    ) -> None:
+        self.mode = mode if mode in ("bounded", "indeterminate") else "bounded"
+        self.message = message or ""
+        self.eta_s = eta_s
+        if percent is None:
+            self.percent = 0
+        else:
+            try:
+                p = int(round(float(percent)))
+            except (TypeError, ValueError):
+                p = 0
+            # Clamp to valid aria-valuenow range
+            self.percent = max(0, min(100, p))
+
+    def render(self) -> str:
+        """Return HTML for the progressbar."""
+        safe_msg = html_mod.escape(self.message)
+        spinner = severity_icon("spinner")
+
+        if self.mode == "indeterminate":
+            return (
+                '<div role="progressbar" aria-busy="true" '
+                f'aria-label="{safe_msg or "Working"}" '
+                'style="display:flex;align-items:center;padding:6px 10px;'
+                'border-radius:6px;background:var(--block-background-fill,#f8f8f8);'
+                'border:1px solid var(--block-border-color,#e0e0e0);'
+                'color:#1a4480;font-weight:500;">'
+                f'{spinner}<span>{safe_msg}</span></div>'
+            )
+
+        # Bounded mode
+        eta_part = ""
+        if self.eta_s is not None:
+            try:
+                secs = max(0, int(round(float(self.eta_s))))
+                eta_part = f" · ~{secs}s"
+            except (TypeError, ValueError):
+                eta_part = ""
+        label_text = f"{self.percent}%{eta_part}"
+        if self.message:
+            label_text = f"{safe_msg} — {label_text}"
+
+        bar_width = self.percent  # already clamped
+        # Visual bar (purely decorative; aria-valuenow is the source of truth).
+        return (
+            '<div role="progressbar" '
+            f'aria-valuenow="{self.percent}" aria-valuemin="0" aria-valuemax="100" '
+            f'aria-label="{html_mod.escape(label_text)}" '
+            'style="padding:6px 10px;border-radius:6px;'
+            'background:var(--block-background-fill,#f8f8f8);'
+            'border:1px solid var(--block-border-color,#e0e0e0);'
+            'color:#1a4480;font-weight:500;">'
+            f'<div style="display:flex;justify-content:space-between;'
+            f'margin-bottom:4px;font-size:0.875rem;"><span>{label_text}</span></div>'
+            '<div style="height:6px;border-radius:3px;background:#e0e0e0;'
+            'overflow:hidden;">'
+            f'<div style="height:100%;width:{bar_width}%;background:#1a4480;'
+            'transition:width 200ms ease-out;"></div></div></div>'
+        )
+
+
+# ---------------------------------------------------------------------------
+# poll_model_load_progress (Phase 1b) - structured progress dict for UI
+# ---------------------------------------------------------------------------
+
+def poll_model_load_progress(model_type: str, timeout: float = 5.0) -> dict:
+    """Return structured progress for a model load.
+
+    Returns dict with:
+        state:     "loading" | "loaded" | "not_loaded" | "unknown"
+        memory_mb: int (from /models entry; 0 if unknown)
+        eta_s:     float | None (from prior load_time_sec; None if no history)
+
+    Caller uses this to drive a ProgressIndicator. The eta_s is a coarse
+    heuristic — the prior measured load duration. It does not reflect remaining
+    time in the current load (the server has no way to know).
+    """
+    default = {"state": "unknown", "memory_mb": 0, "eta_s": None}
+
+    try:
+        config = load_config()
+    except (FileNotFoundError, OSError, ValueError) as exc:
+        logger.debug("poll_model_load_progress: load_config failed: %s", exc)
+        return default
+
+    if not is_server_running(config):
+        return default
+
+    try:
+        import requests
+        url = get_server_url(config)
+        resp = requests.get(f"{url}/models", timeout=timeout, headers=auth_headers())
+    except Exception as exc:
+        logger.debug("poll_model_load_progress: request failed: %s", exc)
+        return default
+
+    if resp.status_code != 200:
+        return default
+
+    try:
+        info = resp.json().get("models", {}).get(model_type, {}) or {}
+    except ValueError:
+        return default
+
+    if info.get("loaded"):
+        state = "loaded"
+    elif info.get("loading"):
+        state = "loading"
+    else:
+        state = "not_loaded"
+
+    memory_mb = int(info.get("memory_mb") or 0)
+    load_time_sec = info.get("load_time_sec")
+    eta_s = float(load_time_sec) if load_time_sec is not None else None
+
+    return {"state": state, "memory_mb": memory_mb, "eta_s": eta_s}

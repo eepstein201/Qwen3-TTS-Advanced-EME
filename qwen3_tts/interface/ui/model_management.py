@@ -19,6 +19,10 @@ from qwen3_tts.core.config import (
     load_config,
     save_config,
 )
+from qwen3_tts.interface.ui.components import (
+    ProgressIndicator,
+    poll_model_load_progress,
+)
 from qwen3_tts.interface.ui.shared import format_status_display
 
 logger = logging.getLogger("tts.ui")
@@ -84,19 +88,38 @@ def get_model_table_data():
 
 
 def toggle_model(model_type, action):
-    """Load or unload a model.
+    """Load or unload a model — yields a ProgressIndicator before the
+    blocking HTTP call so the UI never goes silent during long loads.
 
     Args:
         model_type: 'clone', 'design', or 'custom'
         action: 'load' or 'unload'
 
-    Returns:
-        Tuple of (status_message, model_table, status_html)
+    Yields:
+        Tuples of (status_message, model_table, status_html). First yield is
+        the in-flight progress indicator; final yield is the result. UI uses
+        poll_model_load_progress under the hood (via /models loading:bool).
     """
     config = load_config()
 
     if not is_server_running(config):
-        return "Server not running", get_model_table_data(), format_status_display()
+        yield "Server not running", get_model_table_data(), format_status_display()
+        return
+
+    # Surface immediate progress so the UI doesn't appear frozen during the
+    # synchronous /load-model call (which blocks until the model is ready).
+    if action == "load":
+        # Seed an indeterminate-mode progress; the next /models poll will
+        # produce a real percent via poll_model_load_progress when wired into
+        # _facade.py's polling loop.
+        progress = poll_model_load_progress(model_type)
+        eta_s = progress.get("eta_s")
+        progress_html = ProgressIndicator(
+            mode="indeterminate",
+            message=f"{action.capitalize()}ing {model_type}…"
+            + (f" (~{int(eta_s)}s expected)" if eta_s else ""),
+        ).render()
+        yield progress_html, get_model_table_data(), format_status_display()
 
     try:
         import requests
@@ -117,29 +140,47 @@ def toggle_model(model_type, action):
         if resp.status_code == 200:
             result = resp.json()
             status = result.get("status", "done")
-            return f"Model {model_type}: {status}", get_model_table_data(), format_status_display()
+            yield (
+                f"Model {model_type}: {status}",
+                get_model_table_data(),
+                format_status_display(),
+            )
         else:
             error = resp.json().get("error", "Unknown error")
-            return f"Failed: {error}", get_model_table_data(), format_status_display()
+            yield (
+                f"Failed: {error}",
+                get_model_table_data(),
+                format_status_display(),
+            )
 
     except Exception as e:
         logger.error("Model toggle failed: %s", e)
-        return f"Error: {e}", get_model_table_data(), format_status_display()
+        yield f"Error: {e}", get_model_table_data(), format_status_display()
 
 
 def toggle_asr(action):
-    """Load or unload the ASR model.
+    """Load or unload the ASR model — yields indeterminate ProgressIndicator
+    before the blocking call (ASR has no per-percent signal).
 
     Args:
         action: 'load' or 'unload'
 
-    Returns:
-        Tuple of (status_message, status_html)
+    Yields:
+        Tuples of (status_message, status_html). First yield is the
+        ProgressIndicator HTML; final yield is the result.
     """
     config = load_config()
 
     if not is_server_running(config):
-        return "Server not running", format_status_display()
+        yield "Server not running", format_status_display()
+        return
+
+    if action == "load":
+        progress_html = ProgressIndicator(
+            mode="indeterminate",
+            message="Loading ASR model…",
+        ).render()
+        yield progress_html, format_status_display()
 
     try:
         import requests
@@ -159,14 +200,14 @@ def toggle_asr(action):
         if resp.status_code == 200:
             result = resp.json()
             status = result.get("status", "done")
-            return f"ASR: {status}", format_status_display()
+            yield f"ASR: {status}", format_status_display()
         else:
             error = resp.json().get("error", "Unknown error")
-            return f"Failed: {error}", format_status_display()
+            yield f"Failed: {error}", format_status_display()
 
     except Exception as e:
         logger.error("ASR toggle failed: %s", e)
-        return f"Error: {e}", format_status_display()
+        yield f"Error: {e}", format_status_display()
 
 
 def update_startup_defaults(clone_startup, design_startup, custom_startup):
