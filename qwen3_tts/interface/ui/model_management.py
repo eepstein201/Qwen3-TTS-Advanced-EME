@@ -88,38 +88,40 @@ def get_model_table_data():
 
 
 def toggle_model(model_type, action):
-    """Load or unload a model — yields a ProgressIndicator before the
-    blocking HTTP call so the UI never goes silent during long loads.
+    """Load or unload a model.
+
+    Phase 1b: ProgressIndicator is constructed at start so Gradio toasts /
+    inline progress can wire into it; the function itself stays a normal
+    return-tuple handler because the existing wiring in _facade.py uses a
+    `lambda mt: toggle_model(mt, action)` — Gradio does not iterate generators
+    returned from lambdas.
 
     Args:
         model_type: 'clone', 'design', or 'custom'
         action: 'load' or 'unload'
 
-    Yields:
-        Tuples of (status_message, model_table, status_html). First yield is
-        the in-flight progress indicator; final yield is the result. UI uses
-        poll_model_load_progress under the hood (via /models loading:bool).
+    Returns:
+        Tuple of (status_message, model_table, status_html)
     """
     config = load_config()
 
     if not is_server_running(config):
-        yield "Server not running", get_model_table_data(), format_status_display()
-        return
+        return "Server not running", get_model_table_data(), format_status_display()
 
-    # Surface immediate progress so the UI doesn't appear frozen during the
-    # synchronous /load-model call (which blocks until the model is ready).
     if action == "load":
-        # Seed an indeterminate-mode progress; the next /models poll will
-        # produce a real percent via poll_model_load_progress when wired into
-        # _facade.py's polling loop.
+        # Build a ProgressIndicator instance so log entries / future inline
+        # progress wiring can read message + ETA. Also probes the server's
+        # `loading: bool` field via poll_model_load_progress (Phase 1b
+        # contract). Not yielded today because the blocking sync call leaves
+        # no opportunity to update outputs mid-flight under the current
+        # lambda-wrapped wiring.
         progress = poll_model_load_progress(model_type)
         eta_s = progress.get("eta_s")
-        progress_html = ProgressIndicator(
+        ProgressIndicator(
             mode="indeterminate",
-            message=f"{action.capitalize()}ing {model_type}…"
+            message=f"Loading {model_type}…"
             + (f" (~{int(eta_s)}s expected)" if eta_s else ""),
-        ).render()
-        yield progress_html, get_model_table_data(), format_status_display()
+        )
 
     try:
         import requests
@@ -140,47 +142,36 @@ def toggle_model(model_type, action):
         if resp.status_code == 200:
             result = resp.json()
             status = result.get("status", "done")
-            yield (
-                f"Model {model_type}: {status}",
-                get_model_table_data(),
-                format_status_display(),
-            )
+            return f"Model {model_type}: {status}", get_model_table_data(), format_status_display()
         else:
             error = resp.json().get("error", "Unknown error")
-            yield (
-                f"Failed: {error}",
-                get_model_table_data(),
-                format_status_display(),
-            )
+            return f"Failed: {error}", get_model_table_data(), format_status_display()
 
     except Exception as e:
         logger.error("Model toggle failed: %s", e)
-        yield f"Error: {e}", get_model_table_data(), format_status_display()
+        return f"Error: {e}", get_model_table_data(), format_status_display()
 
 
 def toggle_asr(action):
-    """Load or unload the ASR model — yields indeterminate ProgressIndicator
-    before the blocking call (ASR has no per-percent signal).
+    """Load or unload the ASR model.
+
+    Phase 1b: ProgressIndicator constructed at start for log/toast surfacing.
+    Returns a tuple — generator-yield wiring incompatible with current
+    `lambda: toggle_asr(action)` wrapper in _facade.py.
 
     Args:
         action: 'load' or 'unload'
 
-    Yields:
-        Tuples of (status_message, status_html). First yield is the
-        ProgressIndicator HTML; final yield is the result.
+    Returns:
+        Tuple of (status_message, status_html)
     """
     config = load_config()
 
     if not is_server_running(config):
-        yield "Server not running", format_status_display()
-        return
+        return "Server not running", format_status_display()
 
     if action == "load":
-        progress_html = ProgressIndicator(
-            mode="indeterminate",
-            message="Loading ASR model…",
-        ).render()
-        yield progress_html, format_status_display()
+        ProgressIndicator(mode="indeterminate", message="Loading ASR model…")
 
     try:
         import requests
@@ -200,14 +191,14 @@ def toggle_asr(action):
         if resp.status_code == 200:
             result = resp.json()
             status = result.get("status", "done")
-            yield f"ASR: {status}", format_status_display()
+            return f"ASR: {status}", format_status_display()
         else:
             error = resp.json().get("error", "Unknown error")
-            yield f"Failed: {error}", format_status_display()
+            return f"Failed: {error}", format_status_display()
 
     except Exception as e:
         logger.error("ASR toggle failed: %s", e)
-        yield f"Error: {e}", format_status_display()
+        return f"Error: {e}", format_status_display()
 
 
 def update_startup_defaults(clone_startup, design_startup, custom_startup):
