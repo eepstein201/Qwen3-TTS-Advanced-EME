@@ -217,6 +217,10 @@ async def lifespan(app):
     # Model load error tracking
     app.state.model_load_errors = {"clone": None, "design": None, "custom": None}
 
+    # Per-model loading flag — flipped True while load_model is in flight, False after.
+    # UI polls /models to surface this as a live progress indicator (Phase 1b).
+    app.state.models_loading = {"clone": False, "design": False, "custom": False}
+
     # Auto-shutdown timer
     app.state.shutdown_timer = None
 
@@ -291,6 +295,9 @@ def _background_load(app_state):
         logger.info("Loading %d model(s): %s", len(models_to_load), ", ".join(models_to_load))
 
     for model_type in models_to_load:
+        loading_map = getattr(app_state, "models_loading", None)
+        if loading_map is not None:
+            loading_map[model_type] = True
         try:
             from qwen3_tts.core.config import get_model_info
             info = get_model_info(model_type)
@@ -306,6 +313,9 @@ def _background_load(app_state):
             logger.error("Failed to load %s model: %s", model_type, error_msg, exc_info=True)
             # Sanitize before storing — /health is a public endpoint
             app_state.model_load_errors[model_type] = _sanitize_error(error_msg)
+        finally:
+            if loading_map is not None:
+                loading_map[model_type] = False
 
     # MLX prompt migration for torch backend
     if get_backend() == "torch":
