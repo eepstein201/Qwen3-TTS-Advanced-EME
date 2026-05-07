@@ -16,9 +16,9 @@ class TestServerRequest(unittest.TestCase):
         fn = self._import()
         resp = fn("GET", "/health")
         self.assertEqual(resp.status_code, 200)
-        # URL passed must include the validated base
-        call_args = mock_req.call_args
-        self.assertIn("http://127.0.0.1:5123/health", call_args[0] + tuple(call_args.kwargs.values()))
+        # URL passed must be the validated base + path (positional arg index 1)
+        actual_url = mock_req.call_args[0][1]   # positional: (method, url, ...)
+        self.assertEqual(actual_url, "http://127.0.0.1:5123/health")
 
     @patch("qwen3_tts.core.http_client.load_config")
     def test_02_disallowed_host_raises(self, mock_load):
@@ -68,6 +68,28 @@ class TestServerRequest(unittest.TestCase):
         fn = self._import()
         with self.assertRaises(_requests.ConnectionError):
             fn("GET", "/health")
+
+
+    @patch("qwen3_tts.core.http_client.load_config")
+    def test_08_path_with_query_string_raises(self, mock_load):
+        mock_load.return_value = {"server": {"host": "127.0.0.1", "port": 5123}}
+        fn = self._import()
+        with self.assertRaises(ValueError):
+            fn("GET", "/health?token=leak")
+
+    @patch("qwen3_tts.core.http_client.load_config")
+    def test_09_path_with_fragment_raises(self, mock_load):
+        mock_load.return_value = {"server": {"host": "127.0.0.1", "port": 5123}}
+        fn = self._import()
+        with self.assertRaises(ValueError):
+            fn("GET", "/health#inject")
+
+    @patch("qwen3_tts.core.http_client.load_config")
+    def test_10_invalid_method_raises(self, mock_load):
+        mock_load.return_value = {"server": {"host": "127.0.0.1", "port": 5123}}
+        fn = self._import()
+        with self.assertRaises(ValueError):
+            fn("BADMETHOD", "/health")
 
 
 if __name__ == "__main__":

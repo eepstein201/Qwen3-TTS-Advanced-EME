@@ -18,22 +18,35 @@ from qwen3_tts.core.config import (
 
 __all__ = ["server_request"]
 
+_ALLOWED_METHODS = frozenset({"GET", "POST", "PUT", "DELETE", "PATCH", "HEAD", "OPTIONS"})
 
-def server_request(method, path, *, timeout=10, json=None, headers=None):
+
+def server_request(
+    method: str,
+    path: str,
+    *,
+    timeout: int | float = 10,
+    json: object = None,
+    headers: dict[str, str] | None = None,
+) -> "requests.Response":
     """Issue an HTTP request to the local TTS server, re-validating inline.
 
     Args:
-        method: HTTP method (GET/POST/etc.). Passed straight to ``requests``.
-        path: Server-relative path; MUST start with ``/`` and not contain ``://``.
+        method: HTTP method (GET/POST/etc.); must be in the allowed-methods allowlist.
+        path: Server-relative path; MUST start with ``/`` and not contain ``://``,
+            ``?``, or ``#``.
         timeout: Request timeout in seconds.
         json: Optional JSON payload.
         headers: Optional headers — merged on top of :func:`auth_headers`.
 
     Raises:
-        ValueError: If ``path`` is not a server-relative path, or if the
-            configured server host is not in the allowlist.
+        ValueError: If ``method`` is not in the allowed allowlist, if ``path`` is
+            not a server-relative path, or if the configured server host is not
+            in the allowlist.
     """
-    if not isinstance(path, str) or not path.startswith("/") or "://" in path:
+    if not isinstance(method, str) or method.upper() not in _ALLOWED_METHODS:
+        raise ValueError(f"Invalid HTTP method: {method!r}")
+    if not isinstance(path, str) or not path.startswith("/") or "://" in path or "?" in path or "#" in path:
         raise ValueError(f"Invalid server path: {path!r}")
     base = _validate_server_url(get_server_url(load_config()))
     final_headers = {**auth_headers(), **(headers or {})}
