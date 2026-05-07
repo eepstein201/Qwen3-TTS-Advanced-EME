@@ -52,6 +52,7 @@ from qwen3_tts.interface.ui.shared import (
     get_voice_prompts,
     get_presets,
 )
+from qwen3_tts.interface.ui.components import confirm_step
 from qwen3_tts.interface.ui.generation import (
     _prepare_streaming_config,
     _build_common_controls,
@@ -219,6 +220,7 @@ def _build_clone_tab(status_html, history_state):
             )
 
     clone_btns = _build_generate_buttons_and_output("clone")
+    gen_guard_state = gr.State({"generating": False, "armed": False, "ts": 0.0})
 
     def clone_config_handler(text, prompt, preset, temp, top_k, top_p, rep, seed,
                              no_transcript, seed_lock):
@@ -241,6 +243,7 @@ def _build_clone_tab(status_html, history_state):
         config_handler=clone_config_handler, api_name="generate_clone",
         history_state=history_state,
         audio_url_converter=clone_btns["audio_url_converter"],
+        gen_guard_state=gen_guard_state,
     )
     return clone_prompt, clone_model_indicator, clone_chain, clone_ctrls["seed"]
 
@@ -295,6 +298,7 @@ def _build_design_tab(status_html, history_state, clone_prompt):
             design_ctrls = _build_common_controls()
 
     design_btns = _build_generate_buttons_and_output("design")
+    gen_guard_state = gr.State({"generating": False, "armed": False, "ts": 0.0})
 
     # Save as Voice Prompt (Design-then-Clone pipeline)
     with gr.Accordion("Save as Voice Prompt", open=False):
@@ -323,6 +327,7 @@ def _build_design_tab(status_html, history_state, clone_prompt):
         config_handler=design_config_handler,
         history_state=history_state,
         audio_url_converter=design_btns["audio_url_converter"],
+        gen_guard_state=gen_guard_state,
     )
 
     design_prosody.change(fn=apply_prosody_preset, inputs=[design_prosody, design_desc], outputs=design_desc)
@@ -394,6 +399,7 @@ def _build_custom_tab(status_html, history_state):
             custom_ctrls = _build_common_controls()
 
     custom_btns = _build_generate_buttons_and_output("custom")
+    gen_guard_state = gr.State({"generating": False, "armed": False, "ts": 0.0})
 
     def custom_config_handler(text, speaker, instruct, preset, temp, top_k, top_p, rep, seed,
                               seed_lock):
@@ -415,6 +421,7 @@ def _build_custom_tab(status_html, history_state):
         config_handler=custom_config_handler,
         history_state=history_state,
         audio_url_converter=custom_btns["audio_url_converter"],
+        gen_guard_state=gen_guard_state,
     )
     custom_prosody.change(fn=apply_prosody_preset, inputs=[custom_prosody, custom_instruct], outputs=custom_instruct)
     return custom_model_indicator, custom_chain, custom_ctrls["seed"]
@@ -501,6 +508,7 @@ def _build_manage_voices_tab(clone_prompt):
             with gr.Row():
                 manage_rename_btn = gr.Button("Rename", size="sm", variant="secondary", interactive=False)
                 manage_delete_btn = gr.Button("Delete", size="sm", variant="stop", interactive=False)
+            delete_confirm_state = gr.State({"armed": False, "ts": 0.0})
             manage_status = gr.Textbox(
                 label="", show_label=False, interactive=False,
                 max_lines=2, container=False
@@ -532,9 +540,19 @@ def _build_manage_voices_tab(clone_prompt):
         fn=rename_voice, inputs=[manage_selected, manage_new_name],
         outputs=[manage_status, manage_table, clone_prompt]
     )
+    def on_delete_click(state, selected):
+        new_state, btn_update, confirmed = confirm_step(
+            state, "Confirm Delete? (click again)", "Delete"
+        )
+        if not confirmed:
+            return new_state, btn_update, "Click again within 5s to confirm deletion.", gr.update(), gr.update()
+        status, table, prompt = delete_voice(selected)
+        return new_state, btn_update, status, table, prompt
+
     manage_delete_btn.click(
-        fn=delete_voice, inputs=[manage_selected],
-        outputs=[manage_status, manage_table, clone_prompt],
+        fn=on_delete_click,
+        inputs=[delete_confirm_state, manage_selected],
+        outputs=[delete_confirm_state, manage_delete_btn, manage_status, manage_table, clone_prompt],
     )
 
 
@@ -564,6 +582,7 @@ def _build_manage_models_tab(status_html, clone_model_indicator,
             with gr.Row():
                 model_load_btn = gr.Button("Load", size="sm", variant="primary")
                 model_unload_btn = gr.Button("Unload", size="sm", variant="stop")
+            unload_confirm_state = gr.State({"armed": False, "ts": 0.0})
             model_manage_status = gr.Textbox(
                 label="", show_label=False, interactive=False,
                 max_lines=2, container=False
@@ -613,10 +632,19 @@ def _build_manage_models_tab(status_html, clone_model_indicator,
         outputs=[clone_model_indicator, design_model_indicator, custom_model_indicator]
     )
 
+    def on_unload_click(state, mt):
+        new_state, btn_update, confirmed = confirm_step(
+            state, "Confirm Unload? (click again)", "Unload"
+        )
+        if not confirmed:
+            return new_state, btn_update, "Click again within 5s to confirm unload.", gr.update(), gr.update()
+        status, table, status_h = toggle_model(mt, "unload")
+        return new_state, btn_update, status, table, status_h
+
     model_unload_btn.click(
-        fn=lambda mt: toggle_model(mt, "unload"),
-        inputs=[model_type_select],
-        outputs=[model_manage_status, model_table, status_html]
+        fn=on_unload_click,
+        inputs=[unload_confirm_state, model_type_select],
+        outputs=[unload_confirm_state, model_unload_btn, model_manage_status, model_table, status_html],
     ).then(
         fn=lambda mt: (
             get_model_status_html("clone") if mt == "clone" else gr.update(),

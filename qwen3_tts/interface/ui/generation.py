@@ -42,6 +42,36 @@ from qwen3_tts.interface.voice_helpers import (  # noqa: F401 (re-exported via u
 logger = logging.getLogger("tts.ui")
 
 
+def generate_guard_check(gen_guard_state: dict | None) -> tuple:
+    """Pre-generate guard: detects in-flight generation and applies two-step confirm.
+
+    Returns (new_state, status_text, is_blocked).
+    - is_blocked=False: proceed — generation is allowed to start.
+    - is_blocked=True:  do NOT proceed — generation was blocked (state was armed).
+
+    Wire before the config handler step in _wire_generation_tab.
+    """
+    from qwen3_tts.interface.ui.components import confirm_step
+
+    if not isinstance(gen_guard_state, dict):
+        gen_guard_state = {}
+
+    if not gen_guard_state.get("generating", False):
+        new_state = {**gen_guard_state, "generating": True, "armed": False, "ts": 0.0}
+        return new_state, "", False
+
+    new_state, _, confirmed = confirm_step(
+        gen_guard_state,
+        arm_label="Cancel & restart? (click again)",
+        original_label="Generate",
+    )
+    if not confirmed:
+        return {**new_state, "generating": True}, "Generation in progress. Click again to cancel and restart.", True
+
+    cancel_streaming_generation()
+    return {**new_state, "generating": False}, "Cancelling current generation...", False
+
+
 def cancel_streaming_generation():
     """Cancel any ongoing streaming generation."""
     config = load_config()
@@ -312,7 +342,7 @@ def _wire_generation_tab(mode, btn, cancel_btn, status, stream_config, result_da
                          mode_hidden, text_hidden, model_indicator,
                          text, text_info, inputs_list, status_html,
                          config_handler, api_name=None, history_state=None,
-                         audio_url_converter=None):
+                         audio_url_converter=None, gen_guard_state=None):
     """Wire up the generation flow: Python validates → JS streams → Python saves/fallback.
 
     Args:
@@ -345,12 +375,29 @@ def _wire_generation_tab(mode, btn, cancel_btn, status, stream_config, result_da
     )
     from qwen3_tts.interface.ui.shared import update_text_info
 
-    # Step 1: Python validates inputs, returns generation config JSON
-    click_kwargs = {
-        "fn": config_handler,
-        "inputs": inputs_list,
-        "outputs": [stream_config, status],
-    }
+    # Step 1: Python validates inputs, returns generation config JSON.
+    # If gen_guard_state is wired, a guard check precedes config_handler and
+    # sets stream_config=None when generation is already in flight (blocks
+    # _generate_server_side from firing).
+    if gen_guard_state is not None:
+        def _guarded_config(guard_state, *config_inputs):
+            new_guard_state, guard_status, blocked = generate_guard_check(guard_state)
+            if blocked:
+                return new_guard_state, None, guard_status
+            cfg, cfg_status = config_handler(*config_inputs)
+            return new_guard_state, cfg, cfg_status
+
+        click_kwargs = {
+            "fn": _guarded_config,
+            "inputs": [gen_guard_state, *inputs_list],
+            "outputs": [gen_guard_state, stream_config, status],
+        }
+    else:
+        click_kwargs = {
+            "fn": config_handler,
+            "inputs": inputs_list,
+            "outputs": [stream_config, status],
+        }
     if api_name:
         click_kwargs["api_name"] = api_name
 
@@ -377,6 +424,14 @@ def _wire_generation_tab(mode, btn, cancel_btn, status, stream_config, result_da
         fn=lambda: get_model_status_html(mode),
         outputs=model_indicator,
     )
+
+    # Reset generating flag after the chain completes (including errors).
+    if gen_guard_state is not None:
+        chain = chain.then(
+            fn=lambda s: {**s, "generating": False} if isinstance(s, dict) else {"generating": False},
+            inputs=[gen_guard_state],
+            outputs=[gen_guard_state],
+        )
 
     # Cancel button — Python cancels server-side, then JS stops local player
     cancel_btn.click(

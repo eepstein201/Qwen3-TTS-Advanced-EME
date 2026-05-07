@@ -7,6 +7,7 @@ Phase 1b: ProgressIndicator + poll_model_load_progress.
 Public API:
     StatusBanner         - global accessible status surface
     ProgressIndicator    - bounded/indeterminate progressbar with WCAG aria
+    confirm_step(state, arm_label, original_label) - two-step confirm helper
     poll_model_loading_state(model_type) - live /models state, not stale config
     poll_model_load_progress(model_type) - structured progress dict for UI
     status_badge(message, severity) - inline badge for table cells
@@ -321,6 +322,47 @@ class ProgressIndicator:
 # ---------------------------------------------------------------------------
 # poll_model_load_progress (Phase 1b) - structured progress dict for UI
 # ---------------------------------------------------------------------------
+
+# ---------------------------------------------------------------------------
+# confirm_step (Phase 1c) - two-step confirm for destructive actions
+# ---------------------------------------------------------------------------
+
+def confirm_step(
+    confirm_state: dict | None,
+    arm_label: str,
+    original_label: str,
+    timeout_s: float = 5.0,
+) -> tuple:
+    """Two-step confirm helper for destructive actions.
+
+    First call (unarmed or expired): arms the button — returns is_confirmed=False.
+    Second call within timeout_s: executes — returns is_confirmed=True.
+
+    Returns (new_state, btn_update, is_confirmed).
+
+    Wire as:
+        btn.click(fn=handler, inputs=[confirm_state, ...], outputs=[confirm_state, btn, ...])
+
+    where handler calls confirm_step and acts on is_confirmed.
+    """
+    import time
+
+    import gradio as gr
+
+    if not isinstance(confirm_state, dict):
+        confirm_state = {}
+
+    now = time.time()
+    armed = confirm_state.get("armed", False)
+    ts = confirm_state.get("ts", 0.0)
+
+    if not armed or (now - ts) > timeout_s:
+        new_state = {"armed": True, "ts": now}
+        return new_state, gr.update(value=arm_label), False
+    else:
+        new_state = {"armed": False, "ts": 0.0}
+        return new_state, gr.update(value=original_label), True
+
 
 def poll_model_load_progress(model_type: str, timeout: float = 5.0) -> dict:
     """Return structured progress for a model load.
