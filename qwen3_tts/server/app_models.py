@@ -110,13 +110,19 @@ def handle_list_models(state, server_config):
     size_mlx_info = MLX_MODEL_INFO.get(model_size, MLX_MODEL_INFO["1.7B"])
 
     models_data = {}
+    loading_map = getattr(state, "models_loading", None) or {}
     for model_type, info in size_model_info.items():
         loaded = state.models.get(model_type) is not None
         models_cfg = server_config.get("models", {})
         load_at_startup = models_cfg.get(model_type, {}).get("load_at_startup", False)
+        # `loading` is mutually exclusive with `loaded`: a model that is fully
+        # loaded cannot also be in flight. UI polls this to drive Phase 1b
+        # progress indicators (poll_model_loading_state in components.py).
+        loading = bool(loading_map.get(model_type, False)) and not loaded
 
         entry = {
             "loaded": loaded,
+            "loading": loading,
             "description": info["description"],
             "memory_mb": info["memory_mb"],
             "repo_id": info["name"],
@@ -161,6 +167,11 @@ def handle_load_model(state, req):
     if state.models.get(model_type) is not None:
         return {"status": "already_loaded", "model": model_type}
 
+    # Mark loading=True so /models polling reflects in-flight state.
+    loading_map = getattr(state, "models_loading", None)
+    if loading_map is not None:
+        loading_map[model_type] = True
+
     # Load the model
     try:
         from qwen3_tts.core.engine import load_model
@@ -191,6 +202,9 @@ def handle_load_model(state, req):
         state.model_load_errors[model_type] = str(e)
         _error_response(500, "unknown_error", _sanitize_error(str(e)), "bug")
         return
+    finally:
+        if loading_map is not None:
+            loading_map[model_type] = False
 
     return {"status": "loaded", "model": model_type}
 

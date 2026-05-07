@@ -39,9 +39,24 @@ SPEAKER_CHOICES = [
 
 
 def enhance_description_with_ai(description):
-    """Enhance a brief voice description using an LLM API."""
+    """Enhance a brief voice description using an LLM API.
+
+    Phase 1b: surfaces a `gr.Info` toast and constructs an inline
+    ProgressIndicator while the LLM call is in flight, so the user knows
+    something is happening during the round-trip (~2-5s).
+    """
+    from qwen3_tts.interface.ui.components import ProgressIndicator
+
     if not description or not description.strip():
         raise gr.Error("Please enter a description to enhance")
+
+    # Visible toast + structured progress object (the indicator HTML is also
+    # available for any inline gr.HTML that wires into this handler).
+    progress = ProgressIndicator(mode="indeterminate", message="Enhancing description…")
+    try:
+        gr.Info(progress.message)
+    except Exception:
+        pass  # gr.Info raises in non-event contexts (e.g. unit tests); ignore
 
     config = load_config()
     enhancer_config = config.get("prompt_enhancer", {})
@@ -264,7 +279,7 @@ def format_status_display():
 
     import html as html_mod
     return f"""
-    <div style="padding: 10px; background: var(--block-background-fill, #f5f5f5); border-radius: 5px; margin-bottom: 15px; border: 1px solid var(--block-border-color, #e0e0e0);">
+    <div role="status" aria-live="polite" style="padding: 10px; background: var(--block-background-fill, #f5f5f5); border-radius: 5px; margin-bottom: 15px; border: 1px solid var(--block-border-color, #e0e0e0);">
         <strong>Status:</strong> {status_html} |
         <strong>Backend:</strong> {html_mod.escape(str(backend))} |
         <strong>Memory:</strong> {html_mod.escape(str(memory))} |
