@@ -109,7 +109,7 @@ class TestUICancelFunction(unittest.TestCase):
         mock_response.status_code = 200
 
         with patch("qwen3_tts.interface.ui.generation.is_server_running", return_value=True), \
-             patch("requests.post", return_value=mock_response):
+             patch("qwen3_tts.core.http_client.server_request", return_value=mock_response):
             result = cancel_streaming_generation()
 
         # First element is status text

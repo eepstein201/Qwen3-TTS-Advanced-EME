@@ -15,7 +15,6 @@ import logging
 from qwen3_tts.core.config import (
     get_server_url,
     is_server_running,
-    auth_headers,
     load_config,
     save_config,
 )
@@ -43,9 +42,8 @@ def get_model_table_data():
                 ["asr", "server not running", "-", "—"]]
 
     try:
-        import requests
-        url = get_server_url(config)
-        resp = requests.get(f"{url}/models", timeout=5, headers=auth_headers())
+        from qwen3_tts.core.http_client import server_request
+        resp = server_request("GET", "/models", timeout=5)
 
         if resp.status_code != 200:
             return [["clone", "error", "-", "—"],
@@ -124,19 +122,17 @@ def toggle_model(model_type, action):
         )
 
     try:
-        import requests
-        url = get_server_url(config)
+        from qwen3_tts.core.http_client import server_request
 
         if action == "load":
-            endpoint = f"{url}/load-model"
+            path = "/load-model"
         else:
-            endpoint = f"{url}/unload-model"
+            path = "/unload-model"
 
-        resp = requests.post(
-            endpoint,
+        resp = server_request(
+            "POST", path,
             json={"model_type": model_type},
             timeout=120,
-            headers=auth_headers(),
         )
 
         if resp.status_code == 200:
@@ -174,19 +170,14 @@ def toggle_asr(action):
         ProgressIndicator(mode="indeterminate", message="Loading ASR model…")
 
     try:
-        import requests
-        url = get_server_url(config)
+        from qwen3_tts.core.http_client import server_request
 
         if action == "load":
-            endpoint = f"{url}/load-asr"
+            path = "/load-asr"
         else:
-            endpoint = f"{url}/unload-asr"
+            path = "/unload-asr"
 
-        resp = requests.post(
-            endpoint,
-            timeout=60,
-            headers=auth_headers(),
-        )
+        resp = server_request("POST", path, timeout=60)
 
         if resp.status_code == 200:
             result = resp.json()
@@ -246,9 +237,8 @@ def get_model_status_html(model_type):
         return status_badge("Server not running", severity="warning")
 
     try:
-        import requests
-        url = get_server_url(config)
-        resp = requests.get(f"{url}/models", timeout=5, headers=auth_headers())
+        from qwen3_tts.core.http_client import server_request
+        resp = server_request("GET", "/models", timeout=5)
 
         if resp.status_code != 200:
             return status_badge("Error", severity="error")

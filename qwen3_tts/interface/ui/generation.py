@@ -24,7 +24,6 @@ _history_lock = threading.Lock()
 from qwen3_tts.core.config import (
     get_server_url,
     is_server_running,
-    auth_headers,
     load_config,
     get_generation_presets,
     get_prosody_presets,
@@ -79,12 +78,10 @@ def cancel_streaming_generation():
         return "Server not running", format_status_display()
 
     try:
-        import requests
-        url = get_server_url(config)
-        resp = requests.post(
-            f"{url}/cancel-generation",
+        from qwen3_tts.core.http_client import server_request
+        resp = server_request(
+            "POST", "/cancel-generation",
             timeout=5,
-            headers=auth_headers(),
         )
         if resp.status_code == 200:
             return "Generation cancelled", format_status_display()

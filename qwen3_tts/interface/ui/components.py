@@ -22,7 +22,6 @@ import threading
 from typing import Literal
 
 from qwen3_tts.core.config import (
-    auth_headers,
     get_server_url,
     is_server_running,
     load_config,
@@ -211,9 +210,8 @@ def poll_model_loading_state(model_type: str, timeout: float = 5.0) -> str:
         return "unknown"
 
     try:
-        import requests
-        url = get_server_url(config)
-        resp = requests.get(f"{url}/models", timeout=timeout, headers=auth_headers())
+        from qwen3_tts.core.http_client import server_request
+        resp = server_request("GET", "/models", timeout=timeout)
     except Exception as exc:
         logger.debug("poll_model_loading_state: request failed: %s", exc)
         return "unknown"
@@ -388,9 +386,8 @@ def poll_model_load_progress(model_type: str, timeout: float = 5.0) -> dict:
         return default
 
     try:
-        import requests
-        url = get_server_url(config)
-        resp = requests.get(f"{url}/models", timeout=timeout, headers=auth_headers())
+        from qwen3_tts.core.http_client import server_request
+        resp = server_request("GET", "/models", timeout=timeout)
     except Exception as exc:
         logger.debug("poll_model_load_progress: request failed: %s", exc)
         return default

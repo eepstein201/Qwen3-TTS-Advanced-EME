@@ -15,7 +15,7 @@ import shutil
 import subprocess  # nosec B404
 import sys
 
-from qwen3_tts.core.config import VOICE_PROMPTS_DIR, USER_FILES_DIR, get_backend, safe_path_join
+from qwen3_tts.core.config import VOICE_PROMPTS_DIR, USER_FILES_DIR, get_backend, safe_path_join, validate_voice_name
 
 
 def create_and_save_voice_prompt(audio_path, transcript, prompt_name,
@@ -55,6 +55,7 @@ def create_and_save_voice_prompt(audio_path, transcript, prompt_name,
     if not prompt_name.endswith('.pt'):
         prompt_name += '.pt'
     base_name = prompt_name[:-3]
+    validate_voice_name(base_name)
 
     # --- Save MLX-compatible files (.wav + .txt) ---
     mlx_wav_path = safe_path_join(VOICE_PROMPTS_DIR, f"{base_name}.wav")
@@ -106,7 +107,7 @@ def create_and_save_voice_prompt(audio_path, transcript, prompt_name,
             voice_prompt=voice_prompt,
         )
 
-        test_output = os.path.join(USER_FILES_DIR, f"test_{base_name}.wav")
+        test_output = safe_path_join(USER_FILES_DIR, f"test_{base_name}.wav")
         sf.write(test_output, wav, sr)
         print(f"Test audio saved to: {test_output}")
         from qwen3_tts.core.config import IS_MACOS, IS_LINUX

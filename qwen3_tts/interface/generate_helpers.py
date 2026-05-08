@@ -9,6 +9,7 @@ import json
 import logging
 import os
 import re
+import shutil
 import subprocess  # nosec B404
 import sys
 
@@ -141,14 +142,22 @@ def play_audio(file_path):
         logger.warning("Audio file not found for playback")
         return
     if IS_MACOS:
-        cmd = ["afplay", file_path]
+        player = shutil.which("afplay")
     elif IS_LINUX:
-        cmd = ["ffplay", "-nodisp", "-autoexit", file_path]
+        player = shutil.which("ffplay")
     else:
         logger.warning("Audio playback not supported on this platform")
         return
+    if not player:
+        logger.warning("Audio player not found — playback unavailable")
+        return
+    # player is an absolute path from shutil.which; arg-list form prevents shell expansion  # nosec B603
+    if IS_LINUX:
+        cmd = [player, "-nodisp", "-autoexit", file_path]
+    else:
+        cmd = [player, file_path]
     try:
-        subprocess.run(cmd, check=True)  # nosec B603  # CodeQL: cmd is a validated hardcoded list [py/command-line-injection]
+        subprocess.run(cmd, check=True)  # nosec B603
     except subprocess.CalledProcessError:
         logger.warning("Failed to play audio")
     except FileNotFoundError:

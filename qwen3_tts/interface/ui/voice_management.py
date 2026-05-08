@@ -20,9 +20,9 @@ from qwen3_tts.core.config import (
     set_default_clone_prompt,
     get_server_url,
     is_server_running,
-    auth_headers,
     load_config,
     safe_path_join,
+    validate_voice_name,
 )
 from qwen3_tts.interface.voice_helpers import (
     strip_extension,
@@ -66,6 +66,10 @@ def create_voice_prompt(audio_path, transcript, voice_name, no_transcript=False,
 
     # Build output path
     base_name = strip_extension(voice_name)
+    try:
+        validate_voice_name(base_name)
+    except ValueError as exc:
+        raise gr.Error(str(exc))
     if backend == "mlx":
         # MLX needs .wav + .txt pair
         wav_path = safe_path_join(VOICE_PROMPTS_DIR, f"{base_name}.wav")
@@ -121,11 +125,11 @@ def create_voice_prompt(audio_path, transcript, voice_name, no_transcript=False,
                 "no_transcript": no_transcript,
             }
 
-            resp = requests.post(
-                f"{url}/create-voice-prompt",
+            from qwen3_tts.core.http_client import server_request
+            resp = server_request(
+                "POST", "/create-voice-prompt",
                 json=payload,
                 timeout=60,
-                headers=auth_headers(),
             )
 
             if resp.status_code != 200:
@@ -187,11 +191,11 @@ def auto_transcribe_audio(audio_path):
             "audio_base64": base64.b64encode(audio_bytes).decode(),
         }
 
-        resp = requests.post(
-            f"{url}/transcribe",
+        from qwen3_tts.core.http_client import server_request
+        resp = server_request(
+            "POST", "/transcribe",
             json=payload,
             timeout=60,
-            headers=auth_headers(),
         )
 
         if resp.status_code != 200:
@@ -251,14 +255,12 @@ def preview_voice(name):
 
     tmp_path = None
     try:
-        import requests
-        url = get_server_url(config)
+        from qwen3_tts.core.http_client import server_request
 
-        resp = requests.get(
-            f"{url}/preview-prompt",
+        resp = server_request(
+            "GET", "/preview-prompt",
             params={"name": name},
             timeout=60,
-            headers=auth_headers(),
         )
 
         if resp.status_code != 200:
@@ -316,14 +318,12 @@ def rename_voice(old_name, new_name):
         raise gr.Error("Server must be running for rename")
 
     try:
-        import requests
-        url = get_server_url(config)
+        from qwen3_tts.core.http_client import server_request
 
-        resp = requests.post(
-            f"{url}/rename-prompt",
+        resp = server_request(
+            "POST", "/rename-prompt",
             json={"old_name": old_name, "new_name": new_name},
             timeout=10,
-            headers=auth_headers(),
         )
 
         if resp.status_code != 200:
@@ -359,14 +359,12 @@ def delete_voice(name):
         raise gr.Error("Server must be running for delete")
 
     try:
-        import requests
-        url = get_server_url(config)
+        from qwen3_tts.core.http_client import server_request
 
-        resp = requests.post(
-            f"{url}/delete-prompt",
+        resp = server_request(
+            "POST", "/delete-prompt",
             json={"name": name},
             timeout=10,
-            headers=auth_headers(),
         )
 
         if resp.status_code != 200:

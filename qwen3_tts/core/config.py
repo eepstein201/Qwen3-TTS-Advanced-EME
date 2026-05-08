@@ -15,6 +15,7 @@ import logging
 import os
 import pathlib
 import platform
+import re
 import subprocess
 import sys
 import threading
@@ -505,6 +506,22 @@ def safe_path_join(base_dir: str, *parts: str) -> str:
     return joined
 
 
+_VOICE_NAME_RE = re.compile(r"^[^/\\\x00]+$")
+
+
+def validate_voice_name(name: str) -> str:
+    """Validate a voice prompt name, rejecting path traversal and metacharacters.
+
+    Raises ValueError for empty, too-long, or dangerous names.
+    Returns the name unchanged if valid.
+    """
+    if not isinstance(name, str) or not name.strip():
+        raise ValueError("voice name must be non-empty")
+    if len(name) > 128 or ".." in name or not _VOICE_NAME_RE.fullmatch(name):
+        raise ValueError(f"invalid voice name: {name!r}")
+    return name
+
+
 def is_server_running(config_or_url: dict | str | None = None) -> bool:
     """Check whether the TTS server is reachable.
 
@@ -515,7 +532,7 @@ def is_server_running(config_or_url: dict | str | None = None) -> bool:
         config_or_url = load_config()
 
     if isinstance(config_or_url, str):
-        url = config_or_url
+        url = _validate_server_url(config_or_url)
     else:
         url = get_server_url(config_or_url)
 
@@ -524,7 +541,8 @@ def is_server_running(config_or_url: dict | str | None = None) -> bool:
     except ImportError:
         return False
     try:
-        resp = requests.get(f"{url}/health", timeout=2)
+        validated_url = _validate_server_url(url)
+        resp = requests.get(f"{validated_url}/health", timeout=2)
         return resp.status_code in (200, 503)
     except (requests.RequestException, OSError):
         return False
