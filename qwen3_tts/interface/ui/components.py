@@ -362,6 +362,70 @@ def confirm_step(
         return new_state, gr.update(value=original_label), True
 
 
+class ConfirmButton:
+    """Two-step confirmation button for destructive actions.
+
+    Wraps confirm_step() logic with a clean API for Gradio wiring.
+
+    Usage:
+        confirm_btn = ConfirmButton(
+            arm_label="Confirm Delete? (click again)",
+            original_label="Delete Voice",
+            timeout_s=5.0,
+            status_message="Please confirm within 5 seconds"
+        )
+
+        # In Gradio click handler:
+        new_state, btn_update, status_update, confirmed = confirm_btn.click(state)
+        if not confirmed:
+            return new_state, btn_update, status_update, gr.update()
+        return execute_destructive_action(...)
+
+    Args:
+        arm_label: Button text when armed (first click)
+        original_label: Original button text (unarmed state)
+        timeout_s: Seconds before auto-reset (default 5.0)
+        status_message: Status text to show on first click
+
+    Returns:
+        Tuple of (state_dict, btn_update, status_update, is_confirmed)
+    """
+
+    def __init__(
+        self,
+        arm_label: str,
+        original_label: str,
+        timeout_s: float = 5.0,
+        status_message: str = "Please confirm within 5 seconds",
+    ):
+        self.arm_label = arm_label
+        self.original_label = original_label
+        self.timeout_s = timeout_s
+        self.status_message = status_message
+
+    def click(self, confirm_state: dict | None) -> tuple:
+        """Handle button click in Gradio event chain.
+
+        Args:
+            confirm_state: Current confirmation state dict (or None)
+
+        Returns:
+            (new_state, btn_update, status_update, is_confirmed)
+        """
+        import gradio as gr
+
+        new_state, btn_update, confirmed = confirm_step(
+            confirm_state,
+            arm_label=self.arm_label,
+            original_label=self.original_label,
+            timeout_s=self.timeout_s,
+        )
+
+        status_update = gr.update(value=self.status_message) if not confirmed else gr.update()
+
+        return new_state, btn_update, status_update, confirmed
+
+
 def poll_model_load_progress(model_type: str, timeout: float = 5.0) -> dict:
     """Return structured progress for a model load.
 

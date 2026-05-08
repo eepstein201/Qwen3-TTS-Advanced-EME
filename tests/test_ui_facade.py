@@ -585,5 +585,121 @@ class TestFormatStatusDisplayEscaping(unittest.TestCase):
         self.assertIn("&lt;script&gt;", result)
 
 
+@unittest.skipUnless(HAS_GRADIO, "requires gradio")
+class TestConfirmStep(unittest.TestCase):
+    """Tests for confirm_step two-step confirmation pattern."""
+
+    def test_first_click_arms_button(self):
+        """First click returns confirmed=False and updates button label."""
+        from qwen3_tts.interface.ui.components import confirm_step
+        state, btn_update, confirmed = confirm_step(
+            None, "Confirm Delete? (click again)", "Delete"
+        )
+        self.assertFalse(confirmed)
+        self.assertTrue(state.get("armed", False))
+        self.assertIsNotNone(btn_update)
+
+    def test_second_click_confirms_within_timeout(self):
+        """Second click within timeout returns confirmed=True."""
+        from qwen3_tts.interface.ui.components import confirm_step
+        # First click - arm
+        state, _, confirmed = confirm_step(
+            None, "Confirm Delete? (click again)", "Delete"
+        )
+        self.assertFalse(confirmed)
+        # Second click - confirm
+        state, btn_update, confirmed = confirm_step(
+            state, "Confirm Delete? (click again)", "Delete"
+        )
+        self.assertTrue(confirmed)
+        self.assertFalse(state.get("armed", True))
+
+    def test_timeout_requires_rearming(self):
+        """Click after timeout re-arms the button (requires two clicks again)."""
+        import time
+        from qwen3_tts.interface.ui.components import confirm_step
+        # First click - arm
+        state, _, _ = confirm_step(
+            None, "Confirm Delete? (click again)", "Delete", timeout_s=0.1
+        )
+        self.assertTrue(state.get("armed", False))
+        # Wait for timeout
+        time.sleep(0.15)
+        # Click after timeout - should re-arm, not confirm
+        state, btn_update, confirmed = confirm_step(
+            state, "Confirm Delete? (click again)", "Delete", timeout_s=0.1
+        )
+        self.assertFalse(confirmed)  # Not confirmed
+        self.assertTrue(state.get("armed", False))  # Re-armed
+        # Need another click to actually confirm
+        state, _, confirmed = confirm_step(
+            state, "Confirm Delete? (click again)", "Delete", timeout_s=0.1
+        )
+        self.assertTrue(confirmed)  # Now confirmed
+
+    def test_timeout_prevents_confirmation(self):
+        """Cannot confirm after timeout expires."""
+        import time
+        from qwen3_tts.interface.ui.components import confirm_step
+        # First click - arm
+        state, _, _ = confirm_step(
+            None, "Confirm Delete? (click again)", "Delete", timeout_s=0.1
+        )
+        # Wait for timeout
+        time.sleep(0.15)
+        # Try to confirm - should fail
+        state, _, confirmed = confirm_step(
+            state, "Confirm Delete? (click again)", "Delete", timeout_s=0.1
+        )
+        self.assertFalse(confirmed)
+
+
+@unittest.skipUnless(HAS_GRADIO, "requires gradio")
+class TestConfirmButton(unittest.TestCase):
+    """Tests for ConfirmButton wrapper class."""
+
+    def test_click_returns_four_tuple(self):
+        """ConfirmButton.click returns (state, btn, status, confirmed)."""
+        from qwen3_tts.interface.ui.components import ConfirmButton
+        btn = ConfirmButton(
+            arm_label="Confirm Delete? (click again)",
+            original_label="Delete",
+            timeout_s=5.0,
+            status_message="Please confirm within 5 seconds"
+        )
+        result = btn.click(None)
+        self.assertEqual(len(result), 4)
+        state, btn_update, status_update, confirmed = result
+        self.assertIsInstance(state, dict)
+        self.assertFalse(confirmed)
+
+    def test_first_click_shows_status_message(self):
+        """First click shows status message."""
+        from qwen3_tts.interface.ui.components import ConfirmButton
+        btn = ConfirmButton(
+            arm_label="Confirm Delete? (click again)",
+            original_label="Delete",
+            status_message="Please confirm within 5 seconds"
+        )
+        state, btn_update, status_update, confirmed = btn.click(None)
+        self.assertFalse(confirmed)
+        self.assertIsNotNone(status_update)
+
+    def test_second_click_clears_status(self):
+        """Second click clears status message."""
+        from qwen3_tts.interface.ui.components import ConfirmButton
+        btn = ConfirmButton(
+            arm_label="Confirm Delete? (click again)",
+            original_label="Delete",
+            status_message="Please confirm within 5 seconds"
+        )
+        # First click
+        state, _, _, confirmed = btn.click(None)
+        self.assertFalse(confirmed)
+        # Second click
+        state, btn_update, status_update, confirmed = btn.click(state)
+        self.assertTrue(confirmed)
+
+
 if __name__ == "__main__":
     unittest.main()
