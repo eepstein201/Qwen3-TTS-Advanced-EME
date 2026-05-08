@@ -29,7 +29,6 @@ from qwen3_tts.core.config import (  # noqa: E402
     save_config,
     get_server_url,
     is_server_running,
-    auth_headers,
     get_backend,
     get_torch_dtype_name,
     get_mlx_quantization,

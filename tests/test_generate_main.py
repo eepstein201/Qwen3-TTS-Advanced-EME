@@ -319,7 +319,7 @@ class TestHandleListModels(unittest.TestCase):
     @patch("qwen3_tts.interface.generate.MODEL_INFO", _MOCK_MODEL_INFO)
     @patch("qwen3_tts.interface.generate.is_server_running", return_value=True)
     @patch("qwen3_tts.interface.generate.get_server_url", return_value="http://127.0.0.1:5123")
-    @patch("qwen3_tts.interface.generate.auth_headers", return_value={})
+    @patch("qwen3_tts.core.config.auth_headers", return_value={})
     @patch("builtins.print")
     def test_server_running_with_models(self, mock_print, _auth, _url, _running):
         from qwen3_tts.interface.generate import _handle_list_models
@@ -348,7 +348,7 @@ class TestHandleStats(unittest.TestCase):
 
     @patch("qwen3_tts.interface.generate.is_server_running", return_value=True)
     @patch("qwen3_tts.interface.generate.get_server_url", return_value="http://127.0.0.1:5123")
-    @patch("qwen3_tts.interface.generate.auth_headers", return_value={})
+    @patch("qwen3_tts.core.config.auth_headers", return_value={})
     @patch("builtins.print")
     def test_server_running_success(self, mock_print, _auth, _url, _running):
         from qwen3_tts.interface.generate import _handle_stats
@@ -361,7 +361,7 @@ class TestHandleStats(unittest.TestCase):
 
     @patch("qwen3_tts.interface.generate.is_server_running", return_value=True)
     @patch("qwen3_tts.interface.generate.get_server_url", return_value="http://127.0.0.1:5123")
-    @patch("qwen3_tts.interface.generate.auth_headers", return_value={})
+    @patch("qwen3_tts.core.config.auth_headers", return_value={})
     @patch("builtins.print")
     def test_server_error_response(self, mock_print, _auth, _url, _running):
         from qwen3_tts.interface.generate import _handle_stats
