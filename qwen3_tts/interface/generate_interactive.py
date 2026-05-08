@@ -542,7 +542,7 @@ def run_repl(config, use_server):
         # Generate speech
         text = user_input
         output_dir = os.path.expanduser(config.get("output_directory", "~/Downloads"))
-        output_path = os.path.join(output_dir, f"repl_{state['counter']}.wav")
+        output_path = safe_path_join(output_dir, f"repl_{state['counter']}.wav")
 
         try:
             if use_server:
