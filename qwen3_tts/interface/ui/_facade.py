@@ -26,6 +26,7 @@ from qwen3_tts.core.config import (
     get_default_clone_prompt,
     get_backend,
     load_config,
+    validate_voice_name,
 )
 from qwen3_tts.interface.voice_helpers import (
     get_prosody_choices,
@@ -340,6 +341,10 @@ def _build_design_tab(status_html, history_state, clone_prompt):
         voice_name, err = _sanitize_voice_name(voice_name)
         if err:
             return err, gr.update()
+        try:
+            validate_voice_name(voice_name)
+        except ValueError as exc:
+            return str(exc), gr.update()
         for entry in history_list:
             if entry.get("mode") == "Design" and entry.get("path"):
                 audio_path = entry["path"]

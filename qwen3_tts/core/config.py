@@ -15,6 +15,7 @@ import logging
 import os
 import pathlib
 import platform
+import re
 import subprocess
 import sys
 import threading
@@ -503,6 +504,22 @@ def safe_path_join(base_dir: str, *parts: str) -> str:
     if not (joined == real_base or joined.startswith(real_base + os.sep)):
         raise ValueError("Path traversal detected")
     return joined
+
+
+_VOICE_NAME_RE = re.compile(r"^[^/\\\x00]+$")
+
+
+def validate_voice_name(name: str) -> str:
+    """Validate a voice prompt name, rejecting path traversal and metacharacters.
+
+    Raises ValueError for empty, too-long, or dangerous names.
+    Returns the name unchanged if valid.
+    """
+    if not isinstance(name, str) or not name.strip():
+        raise ValueError("voice name must be non-empty")
+    if len(name) > 128 or ".." in name or not _VOICE_NAME_RE.fullmatch(name):
+        raise ValueError(f"invalid voice name: {name!r}")
+    return name
 
 
 def is_server_running(config_or_url: dict | str | None = None) -> bool:
