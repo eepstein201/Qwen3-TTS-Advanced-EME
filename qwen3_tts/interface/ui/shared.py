@@ -22,7 +22,6 @@ from qwen3_tts.core.config import (
     get_mlx_quantization,
     get_server_url,
     is_server_running,
-    auth_headers,
     load_config,
 )
 
@@ -117,9 +116,8 @@ def get_current_model_settings():
 
     if is_server_running(load_config()):
         try:
-            import requests
-            url = get_server_url(load_config())
-            resp = requests.get(f"{url}/models", timeout=5, headers=auth_headers())
+            from qwen3_tts.core.http_client import server_request
+            resp = server_request("GET", "/models", timeout=5)
             if resp.status_code == 200:
                 data = resp.json()
                 # Get settings from server if available
@@ -142,14 +140,12 @@ def apply_model_settings(model_size, mlx_quantization):
         return "Server not running", format_status_display()
 
     try:
-        import requests
-        url = get_server_url(load_config())
-        headers = auth_headers()
+        from qwen3_tts.core.http_client import server_request
 
         # Step 1: Remember which models are loaded
         models_loaded = []
         try:
-            resp = requests.get(f"{url}/models", timeout=5, headers=headers)
+            resp = server_request("GET", "/models", timeout=5)
             if resp.status_code == 200:
                 data = resp.json()
                 for model_type in ("clone", "design", "custom"):
@@ -164,9 +160,7 @@ def apply_model_settings(model_size, mlx_quantization):
         if backend == "mlx" and mlx_quantization:
             payload["mlx_quantization"] = mlx_quantization
 
-        resp = requests.post(
-            f"{url}/update-model-config", json=payload, timeout=10, headers=headers,
-        )
+        resp = server_request("POST", "/update-model-config", json=payload, timeout=10)
         if resp.status_code != 200:
             error = resp.json().get("error", "Unknown error")
             return f"Failed: {error}", format_status_display()
@@ -176,18 +170,17 @@ def apply_model_settings(model_size, mlx_quantization):
             reloaded = []
             for model_type in models_loaded:
                 try:
-                    r = requests.post(
-                        f"{url}/load-model",
+                    r = server_request(
+                        "POST", "/load-model",
                         json={"model_type": model_type},
                         timeout=120,
-                        headers=headers,
                     )
                     if r.status_code == 200:
                         reloaded.append(model_type)
                         # Wait for model to be actually loaded (check /health endpoint)
                         for _ in range(60):  # Wait up to 30 seconds
                             time.sleep(0.5)
-                            health_resp = requests.get(f"{url}/health", timeout=5, headers=headers)
+                            health_resp = server_request("GET", "/health", timeout=5)
                             if health_resp.status_code == 200:
                                 health_data = health_resp.json()
                                 model_key = f"{model_type}_model_loaded"

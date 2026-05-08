@@ -27,7 +27,9 @@ def server_request(
     *,
     timeout: int | float = 10,
     json: object = None,
+    params: dict[str, str] | None = None,
     headers: dict[str, str] | None = None,
+    stream: bool = False,
 ) -> "requests.Response":
     """Issue an HTTP request to the local TTS server, re-validating inline.
 
@@ -37,7 +39,9 @@ def server_request(
             ``?``, or ``#``.
         timeout: Request timeout in seconds.
         json: Optional JSON payload.
+        params: Optional query-string parameters (dict).
         headers: Optional headers — merged on top of :func:`auth_headers`.
+        stream: If True, stream the response body (required for chunk-by-chunk reads).
 
     Raises:
         ValueError: If ``method`` is not in the allowed allowlist, if ``path`` is
@@ -54,6 +58,8 @@ def server_request(
         method,
         f"{base}{path}",
         json=json,
+        params=params,
         headers=final_headers,
         timeout=timeout,
+        stream=stream,
     )

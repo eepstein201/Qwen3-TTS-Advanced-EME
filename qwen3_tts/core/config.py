@@ -515,7 +515,7 @@ def is_server_running(config_or_url: dict | str | None = None) -> bool:
         config_or_url = load_config()
 
     if isinstance(config_or_url, str):
-        url = config_or_url
+        url = _validate_server_url(config_or_url)
     else:
         url = get_server_url(config_or_url)
 
@@ -524,7 +524,8 @@ def is_server_running(config_or_url: dict | str | None = None) -> bool:
     except ImportError:
         return False
     try:
-        resp = requests.get(f"{url}/health", timeout=2)
+        validated_url = _validate_server_url(url)
+        resp = requests.get(f"{validated_url}/health", timeout=2)
         return resp.status_code in (200, 503)
     except (requests.RequestException, OSError):
         return False

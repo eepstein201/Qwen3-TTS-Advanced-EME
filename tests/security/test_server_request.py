@@ -91,6 +91,15 @@ class TestServerRequest(unittest.TestCase):
         with self.assertRaises(ValueError):
             fn("BADMETHOD", "/health")
 
+    @patch("qwen3_tts.core.http_client.requests.request")
+    @patch("qwen3_tts.core.http_client.load_config")
+    def test_11_stream_flag_forwarded(self, mock_load, mock_req):
+        mock_load.return_value = {"server": {"host": "127.0.0.1", "port": 5123}}
+        mock_req.return_value = MagicMock(status_code=200)
+        fn = self._import()
+        fn("GET", "/generate-stream", stream=True)
+        self.assertTrue(mock_req.call_args.kwargs.get("stream"))
+
 
 if __name__ == "__main__":
     unittest.main()

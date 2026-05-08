@@ -319,14 +319,14 @@ class TestHandleListModels(unittest.TestCase):
     @patch("qwen3_tts.interface.generate.MODEL_INFO", _MOCK_MODEL_INFO)
     @patch("qwen3_tts.interface.generate.is_server_running", return_value=True)
     @patch("qwen3_tts.interface.generate.get_server_url", return_value="http://127.0.0.1:5123")
-    @patch("qwen3_tts.interface.generate.auth_headers", return_value={})
+    @patch("qwen3_tts.core.config.auth_headers", return_value={})
     @patch("builtins.print")
     def test_server_running_with_models(self, mock_print, _auth, _url, _running):
         from qwen3_tts.interface.generate import _handle_list_models
         mock_resp = MagicMock()
         mock_resp.status_code = 200
         mock_resp.json.return_value = {"models": {"clone": {"loaded": True}}}
-        with patch("requests.get", return_value=mock_resp):
+        with patch("qwen3_tts.core.http_client.server_request", return_value=mock_resp):
             args = argparse.Namespace(backend=None)
             result = _handle_list_models(args, {})
         self.assertFalse(result)
@@ -348,26 +348,26 @@ class TestHandleStats(unittest.TestCase):
 
     @patch("qwen3_tts.interface.generate.is_server_running", return_value=True)
     @patch("qwen3_tts.interface.generate.get_server_url", return_value="http://127.0.0.1:5123")
-    @patch("qwen3_tts.interface.generate.auth_headers", return_value={})
+    @patch("qwen3_tts.core.config.auth_headers", return_value={})
     @patch("builtins.print")
     def test_server_running_success(self, mock_print, _auth, _url, _running):
         from qwen3_tts.interface.generate import _handle_stats
         mock_resp = MagicMock()
         mock_resp.status_code = 200
         mock_resp.json.return_value = {"generations": 5, "uptime": "1h"}
-        with patch("requests.get", return_value=mock_resp):
+        with patch("qwen3_tts.core.http_client.server_request", return_value=mock_resp):
             result = _handle_stats({})
         self.assertFalse(result)
 
     @patch("qwen3_tts.interface.generate.is_server_running", return_value=True)
     @patch("qwen3_tts.interface.generate.get_server_url", return_value="http://127.0.0.1:5123")
-    @patch("qwen3_tts.interface.generate.auth_headers", return_value={})
+    @patch("qwen3_tts.core.config.auth_headers", return_value={})
     @patch("builtins.print")
     def test_server_error_response(self, mock_print, _auth, _url, _running):
         from qwen3_tts.interface.generate import _handle_stats
         mock_resp = MagicMock()
         mock_resp.status_code = 500
-        with patch("requests.get", return_value=mock_resp):
+        with patch("qwen3_tts.core.http_client.server_request", return_value=mock_resp):
             result = _handle_stats({})
         self.assertFalse(result)
         output = " ".join(str(c) for c in mock_print.call_args_list)

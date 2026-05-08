@@ -12,12 +12,11 @@ class TestProgressPollerInit(unittest.TestCase):
     """Tests for _ProgressPoller constructor and lifecycle."""
 
     def test_constructor_sets_attributes(self):
-        """Constructor stores server_url, batch_total, and initializes state."""
+        """Constructor stores batch_total and initializes state."""
         from qwen3_tts.interface.generate_interactive import _ProgressPoller
 
-        poller = _ProgressPoller("http://localhost:5123", batch_total=3)
+        poller = _ProgressPoller(batch_total=3)
 
-        self.assertEqual(poller.server_url, "http://localhost:5123")
         self.assertEqual(poller.batch_total, 3)
         self.assertIsNone(poller._thread)
         self.assertFalse(poller._stop.is_set())
@@ -36,7 +35,7 @@ class TestProgressPollerInit(unittest.TestCase):
         mock_thread = MagicMock()
         mock_thread_cls.return_value = mock_thread
 
-        poller = _ProgressPoller("http://localhost:5123")
+        poller = _ProgressPoller()
         poller.start()
 
         mock_thread_cls.assert_called_once_with(target=poller._run, daemon=True)
@@ -46,7 +45,7 @@ class TestProgressPollerInit(unittest.TestCase):
         """stop() sets the stop event and joins the thread."""
         from qwen3_tts.interface.generate_interactive import _ProgressPoller
 
-        poller = _ProgressPoller("http://localhost:5123")
+        poller = _ProgressPoller()
         mock_thread = MagicMock()
         poller._thread = mock_thread
         poller._rich_progress = None

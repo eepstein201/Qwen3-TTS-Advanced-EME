@@ -108,9 +108,7 @@ class TestVoiceInfo(unittest.TestCase):
         mock_resp.json.return_value = {"name": "my_voice", "formats": [".wav", ".txt"]}
         with patch(f"{_CFG}.load_config", return_value={}), \
              patch(f"{_CFG}.is_server_running", return_value=True), \
-             patch(f"{_CFG}.get_server_url", return_value="http://127.0.0.1:5123"), \
-             patch(f"{_CFG}.auth_headers", return_value={}), \
-             patch("requests.get", return_value=mock_resp):
+             patch("qwen3_tts.core.http_client.server_request", return_value=mock_resp):
             result = runner.invoke(cli, ["voice", "info", "my_voice"])
         self.assertEqual(result.exit_code, 0)
         self.assertIn("my_voice", result.output)
@@ -302,9 +300,7 @@ class TestStats(unittest.TestCase):
         mock_resp.json.return_value = {"uptime": 100}
         with patch(f"{_CFG}.load_config", return_value={}), \
              patch(f"{_CFG}.is_server_running", return_value=True), \
-             patch(f"{_CFG}.get_server_url", return_value="http://127.0.0.1:5123"), \
-             patch(f"{_CFG}.auth_headers", return_value={}), \
-             patch("requests.get", return_value=mock_resp):
+             patch("qwen3_tts.core.http_client.server_request", return_value=mock_resp):
             result = runner.invoke(cli, ["stats"])
         self.assertEqual(result.exit_code, 0)
         self.assertIn("uptime", result.output)

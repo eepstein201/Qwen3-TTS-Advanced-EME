@@ -532,14 +532,13 @@ class TestValidatePromptNameCallers(unittest.TestCase):
     @patch("qwen3_tts.interface.ui.voice_management.is_server_running", return_value=True)
     @patch("qwen3_tts.interface.ui.voice_management.load_config", return_value={})
     @patch("qwen3_tts.interface.ui.voice_management.get_server_url", return_value="http://127.0.0.1:5123")
-    @patch("qwen3_tts.interface.ui.voice_management.auth_headers", return_value={})
     def test_rename_voice_valid_name_does_not_crash(self, *mocks):
         """Valid new name (returns None) must not raise TypeError from unpacking."""
         from qwen3_tts.interface.ui.voice_management import rename_voice
         mock_resp = MagicMock()
         mock_resp.status_code = 200
         mock_resp.json.return_value = {}
-        with patch("requests.post", return_value=mock_resp):
+        with patch("qwen3_tts.core.http_client.server_request", return_value=mock_resp):
             try:
                 rename_voice("old", "new_name")
             except TypeError as e:
@@ -583,13 +582,12 @@ class TestPreviewVoiceExtension(unittest.TestCase):
     @patch("qwen3_tts.interface.ui.voice_management.is_server_running", return_value=True)
     @patch("qwen3_tts.interface.ui.voice_management.load_config", return_value={})
     @patch("qwen3_tts.interface.ui.voice_management.get_server_url", return_value="http://127.0.0.1:5123")
-    @patch("qwen3_tts.interface.ui.voice_management.auth_headers", return_value={})
-    def test_does_not_force_pt_extension(self, mock_auth, mock_url, mock_cfg, mock_running):
+    def test_does_not_force_pt_extension(self, mock_url, mock_cfg, mock_running):
         """Name sent to server should not have .pt forced onto it."""
         mock_resp = MagicMock()
         mock_resp.status_code = 200
         mock_resp.content = b"RIFF" + b"\x00" * 100
-        with patch("requests.get", return_value=mock_resp) as mock_get:
+        with patch("qwen3_tts.core.http_client.server_request", return_value=mock_resp) as mock_get:
             from qwen3_tts.interface.ui.voice_management import preview_voice
             preview_voice("my_voice")
             # Check the name param sent to server

@@ -69,20 +69,17 @@ class TestCLIDaemonization(unittest.TestCase):
 
     def test_server_stop_sends_shutdown_request(self):
         """Stopping server should send HTTP shutdown request."""
-        from qwen3_tts.core.config import load_config, get_server_url, auth_headers
-        import requests
+        from qwen3_tts.core.config import load_config
 
         config = load_config()
         # Only test if server is not running (don't affect running server)
         if 'TTS_TEST_RUNNING_SERVER' not in os.environ:
-            # Mock the request to avoid actually stopping a server
-            with patch('requests.post') as mock_post:
-                mock_post.return_value.status_code = 200
-                # Simulate stop request
-                url = get_server_url(config)
-                headers = auth_headers()
-                requests.post(f"{url}/shutdown", headers=headers, timeout=5)
-                mock_post.assert_called_once()
+            # Mock server_request to avoid actually stopping a server
+            with patch('qwen3_tts.core.http_client.server_request') as mock_sr:
+                mock_sr.return_value.status_code = 200
+                from qwen3_tts.core.http_client import server_request
+                server_request("POST", "/shutdown", timeout=5)
+                mock_sr.assert_called_once()
 
     def test_server_foreground_flag(self):
         """Server should accept --foreground flag for Colab."""
@@ -383,7 +380,7 @@ class TestCLIStopRewrite(unittest.TestCase):
              patch('qwen3_tts.core.config.read_pid_file', return_value=None), \
              patch('qwen3_tts.core.config.is_pid_alive', return_value=False), \
              patch('qwen3_tts.core.config.find_pid_by_port', return_value=None), \
-             patch('requests.post', return_value=mock_resp):
+             patch('qwen3_tts.core.http_client.server_request', return_value=mock_resp):
             runner = CliRunner()
             result = runner.invoke(server, ['stop'])
             self.assertIn("401", result.output)
@@ -401,7 +398,7 @@ class TestCLIStopRewrite(unittest.TestCase):
              patch('qwen3_tts.core.config.read_pid_file', return_value=None), \
              patch('qwen3_tts.core.config.find_pid_by_port', return_value=99999), \
              patch('qwen3_tts.core.config.is_pid_alive', return_value=False), \
-             patch('requests.post', return_value=mock_resp):
+             patch('qwen3_tts.core.http_client.server_request', return_value=mock_resp):
             runner = CliRunner()
             result = runner.invoke(server, ['stop'])
             self.assertIn("Discovered server PID", result.output)
@@ -419,7 +416,7 @@ class TestCLIStopRewrite(unittest.TestCase):
              patch('qwen3_tts.core.config.read_pid_file', return_value=None), \
              patch('qwen3_tts.core.config.find_pid_by_port', return_value=None), \
              patch('qwen3_tts.core.config.is_pid_alive', return_value=False), \
-             patch('requests.post', return_value=mock_resp):
+             patch('qwen3_tts.core.http_client.server_request', return_value=mock_resp):
             runner = CliRunner()
             result = runner.invoke(server, ['stop'])
             self.assertNotEqual(result.exit_code, 0)

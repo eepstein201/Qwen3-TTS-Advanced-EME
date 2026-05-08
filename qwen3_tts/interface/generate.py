@@ -29,7 +29,6 @@ from qwen3_tts.core.config import (  # noqa: E402
     save_config,
     get_server_url,
     is_server_running,
-    auth_headers,
     get_backend,
     get_torch_dtype_name,
     get_mlx_quantization,
@@ -366,8 +365,8 @@ def _handle_list_models(args, config):
     server_status = {}
     if is_server_running(config):
         try:
-            url = get_server_url(config)
-            resp = requests.get(f"{url}/models", timeout=5, headers=auth_headers())
+            from qwen3_tts.core.http_client import server_request
+            resp = server_request("GET", "/models", timeout=5)
             if resp.status_code == 200:
                 server_status = resp.json().get("models", {})
         except Exception:  # nosec B110
@@ -403,10 +402,9 @@ def _handle_list_models(args, config):
 
 def _handle_stats(config):
     """Display server statistics."""
-    import requests  # lazy
     if is_server_running(config):
-        url = get_server_url(config)
-        resp = requests.get(f"{url}/stats", timeout=5, headers=auth_headers())
+        from qwen3_tts.core.http_client import server_request
+        resp = server_request("GET", "/stats", timeout=5)
         if resp.status_code == 200:
             stats = resp.json()
             print("TTS Server Statistics:")
