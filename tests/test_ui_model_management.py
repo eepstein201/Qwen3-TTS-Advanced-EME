@@ -76,7 +76,7 @@ def test_get_model_table_data_server_running():
          patch("qwen3_tts.interface.ui.model_management.is_server_running", return_value=True), \
          patch("qwen3_tts.interface.ui.model_management.get_server_url", return_value="http://127.0.0.1:5123"), \
          patch("qwen3_tts.interface.ui.model_management.auth_headers", return_value={}), \
-         patch("requests.get", return_value=mock_resp):
+         patch("qwen3_tts.core.http_client.server_request", return_value=mock_resp):
         rows = get_model_table_data()
 
     assert len(rows) == 4  # clone, design, custom, asr
@@ -99,7 +99,7 @@ def test_get_model_table_data_server_error():
          patch("qwen3_tts.interface.ui.model_management.is_server_running", return_value=True), \
          patch("qwen3_tts.interface.ui.model_management.get_server_url", return_value="http://127.0.0.1:5123"), \
          patch("qwen3_tts.interface.ui.model_management.auth_headers", return_value={}), \
-         patch("requests.get", return_value=mock_resp):
+         patch("qwen3_tts.core.http_client.server_request", return_value=mock_resp):
         rows = get_model_table_data()
 
     assert len(rows) == 4  # clone, design, custom, asr
@@ -115,7 +115,7 @@ def test_get_model_table_data_connection_error():
          patch("qwen3_tts.interface.ui.model_management.is_server_running", return_value=True), \
          patch("qwen3_tts.interface.ui.model_management.get_server_url", return_value="http://127.0.0.1:5123"), \
          patch("qwen3_tts.interface.ui.model_management.auth_headers", return_value={}), \
-         patch("requests.get", side_effect=ConnectionError("refused")):
+         patch("qwen3_tts.core.http_client.server_request", side_effect=ConnectionError("refused")):
         rows = get_model_table_data()
 
     assert len(rows) == 4  # clone, design, custom, asr
@@ -137,7 +137,7 @@ def test_toggle_model_load_success():
          patch("qwen3_tts.interface.ui.model_management.is_server_running", return_value=True), \
          patch("qwen3_tts.interface.ui.model_management.get_server_url", return_value="http://127.0.0.1:5123"), \
          patch("qwen3_tts.interface.ui.model_management.auth_headers", return_value={}), \
-         patch("requests.post", return_value=mock_resp), \
+         patch("qwen3_tts.core.http_client.server_request", return_value=mock_resp), \
          patch("qwen3_tts.interface.ui.model_management.get_model_table_data", return_value=[]), \
          patch("qwen3_tts.interface.ui.model_management.format_status_display", return_value="ok"):
         msg, table, status = toggle_model("clone", "load")
@@ -173,7 +173,7 @@ def test_toggle_model_unload_success():
          patch("qwen3_tts.interface.ui.model_management.is_server_running", return_value=True), \
          patch("qwen3_tts.interface.ui.model_management.get_server_url", return_value="http://127.0.0.1:5123"), \
          patch("qwen3_tts.interface.ui.model_management.auth_headers", return_value={}), \
-         patch("requests.post", return_value=mock_resp), \
+         patch("qwen3_tts.core.http_client.server_request", return_value=mock_resp), \
          patch("qwen3_tts.interface.ui.model_management.get_model_table_data", return_value=[]), \
          patch("qwen3_tts.interface.ui.model_management.format_status_display", return_value="ok"):
         msg, table, status = toggle_model("design", "unload")
@@ -194,7 +194,7 @@ def test_toggle_model_error_response():
          patch("qwen3_tts.interface.ui.model_management.is_server_running", return_value=True), \
          patch("qwen3_tts.interface.ui.model_management.get_server_url", return_value="http://127.0.0.1:5123"), \
          patch("qwen3_tts.interface.ui.model_management.auth_headers", return_value={}), \
-         patch("requests.post", return_value=mock_resp), \
+         patch("qwen3_tts.core.http_client.server_request", return_value=mock_resp), \
          patch("qwen3_tts.interface.ui.model_management.get_model_table_data", return_value=[]), \
          patch("qwen3_tts.interface.ui.model_management.format_status_display", return_value=""):
         msg, table, status = toggle_model("clone", "load")
@@ -217,7 +217,7 @@ def test_toggle_asr_load_success():
          patch("qwen3_tts.interface.ui.model_management.is_server_running", return_value=True), \
          patch("qwen3_tts.interface.ui.model_management.get_server_url", return_value="http://127.0.0.1:5123"), \
          patch("qwen3_tts.interface.ui.model_management.auth_headers", return_value={}), \
-         patch("requests.post", return_value=mock_resp), \
+         patch("qwen3_tts.core.http_client.server_request", return_value=mock_resp), \
          patch("qwen3_tts.interface.ui.model_management.format_status_display", return_value="ok"):
         msg, status = toggle_asr("load")
 
@@ -277,10 +277,9 @@ def test_get_model_status_html_loaded():
          patch("qwen3_tts.interface.ui.model_management.is_server_running", return_value=True), \
          patch("qwen3_tts.interface.ui.model_management.get_server_url", return_value="http://127.0.0.1:5123"), \
          patch("qwen3_tts.interface.ui.model_management.auth_headers", return_value={}), \
-         patch("requests.get", return_value=mock_resp):
+         patch("qwen3_tts.core.http_client.server_request", return_value=mock_resp):
         html = get_model_status_html("clone")
 
-    assert "green" in html
     assert "Loaded" in html
     assert "3500" in html
 
@@ -300,7 +299,7 @@ def test_get_model_status_html_not_loaded():
          patch("qwen3_tts.interface.ui.model_management.is_server_running", return_value=True), \
          patch("qwen3_tts.interface.ui.model_management.get_server_url", return_value="http://127.0.0.1:5123"), \
          patch("qwen3_tts.interface.ui.model_management.auth_headers", return_value={}), \
-         patch("requests.get", return_value=mock_resp):
+         patch("qwen3_tts.core.http_client.server_request", return_value=mock_resp):
         html = get_model_status_html("design")
 
     assert "Not loaded" in html

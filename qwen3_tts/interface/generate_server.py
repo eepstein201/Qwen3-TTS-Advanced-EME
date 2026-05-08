@@ -105,10 +105,9 @@ def launch_gradio_ui(config):
 
 def load_model_on_server(config, model_type):
     """Request the server to load a model on demand."""
-    import requests  # lazy
-    url = get_server_url(config)
+    from qwen3_tts.core.http_client import server_request
     print(f"Loading {model_type} model on server (this may take 30-60 seconds)...")
-    resp = requests.post(f"{url}/load-model", json={"model_type": model_type}, timeout=120, headers=auth_headers())
+    resp = server_request("POST", "/load-model", json={"model_type": model_type}, timeout=120)
     if resp.status_code == 200:
         result = resp.json()
         if result.get("status") == "loaded":
@@ -130,7 +129,8 @@ def generate_via_server(texts, mode, config, gen_params,
                         speaker=None, instruct=None, auto_load_model=True,
                         max_chunk_chars=None, x_vector_only_mode=False):
     """Generate audio via the TTS server."""
-    import requests  # lazy
+    import requests  # lazy (used for exception types only)
+    from qwen3_tts.core.http_client import server_request
     from qwen3_tts.interface.generate_interactive import _ProgressPoller
     url = get_server_url(config)
 
@@ -148,7 +148,7 @@ def generate_via_server(texts, mode, config, gen_params,
     progress.start()
 
     try:
-        resp = requests.post(f"{url}/generate", json=payload, timeout=600, headers=auth_headers())
+        resp = server_request("POST", "/generate", json=payload, timeout=600)
     finally:
         progress.stop()
 
@@ -173,7 +173,7 @@ def generate_via_server(texts, mode, config, gen_params,
                         progress = _ProgressPoller(url, batch_total=len(texts))
                         progress.start()
                         try:
-                            resp = requests.post(f"{url}/generate", json=payload, timeout=600, headers=auth_headers())
+                            resp = server_request("POST", "/generate", json=payload, timeout=600)
                         finally:
                             progress.stop()
                     else:
@@ -233,11 +233,10 @@ def generate_streaming(text, mode, config, gen_params, output_path,
     print("Streaming generation...")
 
     try:
-        resp = requests.post(
-            f"{url}/generate-stream",
+        from qwen3_tts.core.http_client import server_request
+        resp = server_request(
+            "POST", "/generate-stream",
             json=payload,
-            headers=auth_headers(),
-            stream=True,
             timeout=600,
         )
 

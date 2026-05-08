@@ -180,7 +180,7 @@ class TestModelTableASRRow(unittest.TestCase):
             import importlib
             import qwen3_tts.interface.ui.model_management as mm
             # Directly mock the requests.get call inside the function
-            with patch("requests.get", return_value=mock_resp):
+            with patch("qwen3_tts.core.http_client.server_request", return_value=mock_resp):
                 rows = mm.get_model_table_data()
 
         # Should have 4 rows: clone, design, custom, asr

@@ -183,7 +183,7 @@ class TestReturnValueCounts(unittest.TestCase):
         mock_resp = MagicMock()
         mock_resp.status_code = 200
         mock_resp.json.return_value = {}
-        with patch("requests.post", return_value=mock_resp):
+        with patch("qwen3_tts.core.http_client.server_request", return_value=mock_resp):
             from qwen3_tts.interface.ui.voice_management import rename_voice
             result = rename_voice("old", "new_name")
             self.assertEqual(len(result), 3, f"Expected 3 return values, got {len(result)}")
@@ -198,7 +198,7 @@ class TestReturnValueCounts(unittest.TestCase):
         mock_resp = MagicMock()
         mock_resp.status_code = 200
         mock_resp.json.return_value = {}
-        with patch("requests.post", return_value=mock_resp):
+        with patch("qwen3_tts.core.http_client.server_request", return_value=mock_resp):
             from qwen3_tts.interface.ui.voice_management import delete_voice
             result = delete_voice("voice1")
             self.assertEqual(len(result), 3, f"Expected 3 return values, got {len(result)}")

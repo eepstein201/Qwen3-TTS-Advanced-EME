@@ -159,7 +159,7 @@ class TestPollModelLoadProgress(unittest.TestCase):
              patch("qwen3_tts.interface.ui.components.load_config", return_value={}), \
              patch("qwen3_tts.interface.ui.components.get_server_url", return_value="http://x"), \
              patch("qwen3_tts.interface.ui.components.auth_headers", return_value={}), \
-             patch("requests.get") as mock_get:
+             patch("qwen3_tts.core.http_client.server_request") as mock_get:
             mock_get.return_value = MagicMock(
                 status_code=200,
                 json=lambda: self._mock_models_response(loaded=False, loading=True),
@@ -178,7 +178,7 @@ class TestPollModelLoadProgress(unittest.TestCase):
              patch("qwen3_tts.interface.ui.components.load_config", return_value={}), \
              patch("qwen3_tts.interface.ui.components.get_server_url", return_value="http://x"), \
              patch("qwen3_tts.interface.ui.components.auth_headers", return_value={}), \
-             patch("requests.get") as mock_get:
+             patch("qwen3_tts.core.http_client.server_request") as mock_get:
             mock_get.return_value = MagicMock(
                 status_code=200,
                 json=lambda: self._mock_models_response(loaded=False, loading=True),
@@ -194,7 +194,7 @@ class TestPollModelLoadProgress(unittest.TestCase):
              patch("qwen3_tts.interface.ui.components.load_config", return_value={}), \
              patch("qwen3_tts.interface.ui.components.get_server_url", return_value="http://x"), \
              patch("qwen3_tts.interface.ui.components.auth_headers", return_value={}), \
-             patch("requests.get") as mock_get:
+             patch("qwen3_tts.core.http_client.server_request") as mock_get:
             mock_get.return_value = MagicMock(
                 status_code=200,
                 json=lambda: self._mock_models_response(

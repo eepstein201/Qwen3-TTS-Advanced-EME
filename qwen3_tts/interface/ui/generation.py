@@ -49,12 +49,10 @@ def cancel_streaming_generation():
         return "Server not running", format_status_display()
 
     try:
-        import requests
-        url = get_server_url(config)
-        resp = requests.post(
-            f"{url}/cancel-generation",
+        from qwen3_tts.core.http_client import server_request
+        resp = server_request(
+            "POST", "/cancel-generation",
             timeout=5,
-            headers=auth_headers(),
         )
         if resp.status_code == 200:
             return "Generation cancelled", format_status_display()

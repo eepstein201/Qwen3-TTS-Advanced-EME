@@ -36,12 +36,21 @@ def _scan_file(path: Path) -> list[tuple[int, str]]:
     return hits
 
 
+_SCAN_EXCEPTIONS = frozenset({
+    # http_client.py — owns the choke-point itself (no f-string usage there anyway)
+    "http_client.py",
+    # config.py — Rule B exception: cannot import http_client (circular import).
+    # is_server_running() applies _validate_server_url() inline before the
+    # requests.get call, which satisfies the trust-boundary requirement.
+    "config.py",
+})
+
+
 def _collect_all_hits() -> dict[str, list[tuple[int, str]]]:
     """Scan all production .py files; return path→hits mapping (non-empty only)."""
     results: dict[str, list[tuple[int, str]]] = {}
     for py_file in sorted(PROD_ROOT.rglob("*.py")):
-        # Skip http_client.py — it owns the choke-point (no f-string usage)
-        if py_file.name == "http_client.py":
+        if py_file.name in _SCAN_EXCEPTIONS:
             continue
         hits = _scan_file(py_file)
         if hits:

@@ -142,7 +142,8 @@ def preview_voice_prompt(prompt_name, config):
             "temperature": 0.7,
         }
         print(f"Generating preview for '{prompt_name}'...")
-        resp = requests.post(f"{url}/generate", json=payload, timeout=60, headers=auth_headers())
+        from qwen3_tts.core.http_client import server_request
+        resp = server_request("POST", "/generate", json=payload, timeout=60)
         if resp.status_code == 200:
             result = resp.json()["results"][0]
             print("Playing preview...")
@@ -217,7 +218,7 @@ class _ProgressPoller:
 
     def _run_rich(self):
         """Run with Rich progress bar."""
-        import requests  # lazy
+        from qwen3_tts.core.http_client import server_request
         from rich.progress import Progress, SpinnerColumn, TextColumn, BarColumn, TimeElapsedColumn, TimeRemainingColumn
         from rich.console import Console
 
@@ -240,7 +241,7 @@ class _ProgressPoller:
 
             while not self._stop.is_set():
                 try:
-                    resp = requests.get(f"{self.server_url}/generation-status", timeout=2)
+                    resp = server_request("GET", "/generation-status", timeout=2)
                     if resp.status_code == 200:
                         state = resp.json()
                         if state.get("active"):
@@ -269,11 +270,11 @@ class _ProgressPoller:
 
     def _run_fallback(self):
         """Run with print-based progress (original implementation)."""
-        import requests  # lazy
+        from qwen3_tts.core.http_client import server_request
         tick = 0
         while not self._stop.is_set():
             try:
-                resp = requests.get(f"{self.server_url}/generation-status", timeout=2)
+                resp = server_request("GET", "/generation-status", timeout=2)
                 if resp.status_code == 200:
                     state = resp.json()
                     if state.get("active"):

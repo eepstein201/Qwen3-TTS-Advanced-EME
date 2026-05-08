@@ -134,7 +134,7 @@ class TestGetCurrentModelSettings(unittest.TestCase):
              patch(f"{_MOD}.load_config", return_value={}), \
              patch(f"{_MOD}.get_server_url", return_value="http://127.0.0.1:5123"), \
              patch(f"{_MOD}.auth_headers", return_value={}), \
-             patch("requests.get", return_value=mock_resp):
+             patch("qwen3_tts.core.http_client.server_request", return_value=mock_resp):
             result = get_current_model_settings()
         self.assertEqual(result, ("0.6B", "4bit", "mlx"))
 
@@ -147,7 +147,7 @@ class TestGetCurrentModelSettings(unittest.TestCase):
              patch(f"{_MOD}.load_config", return_value={}), \
              patch(f"{_MOD}.get_server_url", return_value="http://127.0.0.1:5123"), \
              patch(f"{_MOD}.auth_headers", return_value={}), \
-             patch("requests.get", side_effect=Exception("timeout")):
+             patch("qwen3_tts.core.http_client.server_request", side_effect=Exception("timeout")):
             result = get_current_model_settings()
         self.assertEqual(result, ("1.7B", "8bit", "torch"))
 
@@ -173,7 +173,7 @@ class TestApplyModelSettings(unittest.TestCase):
              patch(f"{_MOD}.get_backend", return_value="mlx"), \
              patch(f"{_MOD}.auth_headers", return_value={}), \
              patch(f"{_MOD}.format_status_display", return_value="<html>"), \
-             patch("requests.post", return_value=mock_resp):
+             patch("qwen3_tts.core.http_client.server_request", return_value=mock_resp):
             msg, html = apply_model_settings("0.6B", "4bit")
         self.assertIn("applied", msg)
 
@@ -188,7 +188,7 @@ class TestApplyModelSettings(unittest.TestCase):
              patch(f"{_MOD}.get_backend", return_value="mlx"), \
              patch(f"{_MOD}.auth_headers", return_value={}), \
              patch(f"{_MOD}.format_status_display", return_value="<html>"), \
-             patch("requests.post", return_value=mock_resp):
+             patch("qwen3_tts.core.http_client.server_request", return_value=mock_resp):
             msg, html = apply_model_settings("0.6B", "4bit")
         self.assertIn("Failed", msg)
 

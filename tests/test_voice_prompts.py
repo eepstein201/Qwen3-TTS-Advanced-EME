@@ -539,7 +539,7 @@ class TestValidatePromptNameCallers(unittest.TestCase):
         mock_resp = MagicMock()
         mock_resp.status_code = 200
         mock_resp.json.return_value = {}
-        with patch("requests.post", return_value=mock_resp):
+        with patch("qwen3_tts.core.http_client.server_request", return_value=mock_resp):
             try:
                 rename_voice("old", "new_name")
             except TypeError as e:
@@ -589,7 +589,7 @@ class TestPreviewVoiceExtension(unittest.TestCase):
         mock_resp = MagicMock()
         mock_resp.status_code = 200
         mock_resp.content = b"RIFF" + b"\x00" * 100
-        with patch("requests.get", return_value=mock_resp) as mock_get:
+        with patch("qwen3_tts.core.http_client.server_request", return_value=mock_resp) as mock_get:
             from qwen3_tts.interface.ui.voice_management import preview_voice
             preview_voice("my_voice")
             # Check the name param sent to server

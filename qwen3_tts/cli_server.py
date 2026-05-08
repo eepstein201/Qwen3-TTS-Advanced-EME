@@ -115,13 +115,9 @@ def stop():
     shutdown_accepted = False
     if state["health_ok"]:
         try:
-            url = get_server_url(config)
-        except ValueError as exc:
-            click.echo(f"Invalid server configuration: {exc}")
-            sys.exit(1)
-        try:
+            from qwen3_tts.core.http_client import server_request
             import requests
-            resp = requests.post(f"{url}/shutdown", headers=auth_headers(), timeout=5)
+            resp = server_request("POST", "/shutdown", timeout=5)
             if resp.status_code == 200:
                 shutdown_accepted = True
                 click.echo("TTS Server shutdown signal sent.")
@@ -183,7 +179,8 @@ def stop():
 @server.command()
 def status():
     """Show server health, loaded models, and memory usage."""
-    from qwen3_tts.core.config import load_config, get_server_url, is_server_running, auth_headers
+    from qwen3_tts.core.config import load_config, get_server_url, is_server_running
+    from qwen3_tts.core.http_client import server_request
     import requests
 
     config = load_config()
@@ -197,19 +194,19 @@ def status():
         click.echo(f"Invalid server configuration: {exc}")
         sys.exit(1)
     try:
-        resp = requests.get(f"{url}/health", timeout=5)
+        resp = server_request("GET", "/health", timeout=5)
         health = resp.json()
         click.echo(f"Server: running ({url})")
         click.echo(f"Backend: {health.get('backend', 'unknown')}")
 
-        resp = requests.get(f"{url}/models", headers=auth_headers(), timeout=5)
+        resp = server_request("GET", "/models", timeout=5)
         models = resp.json().get("models", {})
         click.echo("\nModels:")
         for name, info in models.items():
             status_str = "loaded" if info.get("loaded") else "not loaded"
             click.echo(f"  {name}: {status_str}")
 
-        resp = requests.get(f"{url}/stats", headers=auth_headers(), timeout=5)
+        resp = server_request("GET", "/stats", timeout=5)
         stats = resp.json()
         mem_key = next((k for k in stats if 'memory' in k.lower() and 'mb' in k.lower()), None)
         if mem_key:
@@ -256,20 +253,15 @@ def log():
 
 def stats_command():
     """Show server statistics."""
-    from qwen3_tts.core.config import load_config, get_server_url, is_server_running, auth_headers
+    from qwen3_tts.core.config import load_config, is_server_running
+    from qwen3_tts.core.http_client import server_request
     import json
-    import requests
 
     config = load_config()
     if not is_server_running(config):
         click.echo("Server not running. Start with: tts server start")
         sys.exit(1)
-    try:
-        url = get_server_url(config)
-    except ValueError as exc:
-        click.echo(f"Invalid server configuration: {exc}")
-        sys.exit(1)
-    resp = requests.get(f"{url}/stats", headers=auth_headers(), timeout=10)
+    resp = server_request("GET", "/stats", timeout=10)
     if resp.status_code == 200:
         click.echo(json.dumps(resp.json(), indent=2))
     else:

@@ -42,7 +42,7 @@ class TestCancelStreamingGeneration(unittest.TestCase):
              patch(f"{_MOD}.is_server_running", return_value=True), \
              patch(f"{_MOD}.get_server_url", return_value="http://127.0.0.1:5123"), \
              patch(f"{_MOD}.auth_headers", return_value={}), \
-             patch("requests.post", return_value=mock_resp), \
+             patch("qwen3_tts.core.http_client.server_request", return_value=mock_resp), \
              patch(f"{_MOD}.format_status_display", return_value="<html>"):
             msg, html = cancel_streaming_generation()
         self.assertIn("cancelled", msg)
@@ -56,7 +56,7 @@ class TestCancelStreamingGeneration(unittest.TestCase):
              patch(f"{_MOD}.is_server_running", return_value=True), \
              patch(f"{_MOD}.get_server_url", return_value="http://127.0.0.1:5123"), \
              patch(f"{_MOD}.auth_headers", return_value={}), \
-             patch("requests.post", return_value=mock_resp), \
+             patch("qwen3_tts.core.http_client.server_request", return_value=mock_resp), \
              patch(f"{_MOD}.format_status_display", return_value="<html>"):
             msg, html = cancel_streaming_generation()
         self.assertIn("failed", msg)

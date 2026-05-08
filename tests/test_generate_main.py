@@ -326,7 +326,7 @@ class TestHandleListModels(unittest.TestCase):
         mock_resp = MagicMock()
         mock_resp.status_code = 200
         mock_resp.json.return_value = {"models": {"clone": {"loaded": True}}}
-        with patch("requests.get", return_value=mock_resp):
+        with patch("qwen3_tts.core.http_client.server_request", return_value=mock_resp):
             args = argparse.Namespace(backend=None)
             result = _handle_list_models(args, {})
         self.assertFalse(result)
@@ -355,7 +355,7 @@ class TestHandleStats(unittest.TestCase):
         mock_resp = MagicMock()
         mock_resp.status_code = 200
         mock_resp.json.return_value = {"generations": 5, "uptime": "1h"}
-        with patch("requests.get", return_value=mock_resp):
+        with patch("qwen3_tts.core.http_client.server_request", return_value=mock_resp):
             result = _handle_stats({})
         self.assertFalse(result)
 
@@ -367,7 +367,7 @@ class TestHandleStats(unittest.TestCase):
         from qwen3_tts.interface.generate import _handle_stats
         mock_resp = MagicMock()
         mock_resp.status_code = 500
-        with patch("requests.get", return_value=mock_resp):
+        with patch("qwen3_tts.core.http_client.server_request", return_value=mock_resp):
             result = _handle_stats({})
         self.assertFalse(result)
         output = " ".join(str(c) for c in mock_print.call_args_list)
