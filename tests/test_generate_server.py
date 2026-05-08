@@ -124,25 +124,22 @@ class TestLoadModelOnServer(unittest.TestCase):
         resp.json.return_value = json_data
         return resp
 
-    @patch(f"{_MOD}.auth_headers", return_value={"Authorization": "Bearer tok"})
     @patch(f"{_MOD}.get_server_url", return_value="http://127.0.0.1:5123")
-    def test_success_loaded(self, _url, _auth):
+    def test_success_loaded(self, _url):
         """Return True when server responds with status=loaded."""
         resp = self._mock_response(200, {"status": "loaded"})
         with patch("qwen3_tts.core.http_client.server_request", return_value=resp):
             self.assertTrue(load_model_on_server(_CONFIG, "clone"))
 
-    @patch(f"{_MOD}.auth_headers", return_value={"Authorization": "Bearer tok"})
     @patch(f"{_MOD}.get_server_url", return_value="http://127.0.0.1:5123")
-    def test_already_loaded(self, _url, _auth):
+    def test_already_loaded(self, _url):
         """Return True when server responds with status=already_loaded."""
         resp = self._mock_response(200, {"status": "already_loaded"})
         with patch("qwen3_tts.core.http_client.server_request", return_value=resp):
             self.assertTrue(load_model_on_server(_CONFIG, "design"))
 
-    @patch(f"{_MOD}.auth_headers", return_value={"Authorization": "Bearer tok"})
     @patch(f"{_MOD}.get_server_url", return_value="http://127.0.0.1:5123")
-    def test_failure_returns_false(self, _url, _auth):
+    def test_failure_returns_false(self, _url):
         """Return False when server responds with non-200 status."""
         resp = self._mock_response(500, {"error": "out of memory"})
         with patch("qwen3_tts.core.http_client.server_request", return_value=resp):
@@ -169,7 +166,6 @@ class TestGenerateViaServer(unittest.TestCase):
         poller = MagicMock()
         return {
             "url": patch(f"{_MOD}.get_server_url", return_value="http://127.0.0.1:5123"),
-            "auth": patch(f"{_MOD}.auth_headers", return_value={}),
             "payload": patch(f"{_MOD}._build_generation_payload", return_value={}),
             "poller": patch(
                 "qwen3_tts.interface.generate_interactive._ProgressPoller",
@@ -181,7 +177,7 @@ class TestGenerateViaServer(unittest.TestCase):
         """Return results list on HTTP 200."""
         resp = self._mock_response(200, {"results": [{"audio": "base64data"}]})
         patches = self._base_patches()
-        with patches["url"], patches["auth"], patches["payload"], patches["poller"], \
+        with patches["url"], patches["payload"], patches["poller"], \
              patch("qwen3_tts.core.http_client.server_request", return_value=resp):
             results = generate_via_server(
                 ["Hello"], "clone", _CONFIG, {},
@@ -198,7 +194,7 @@ class TestGenerateViaServer(unittest.TestCase):
         })
         resp_200 = self._mock_response(200, {"results": [{"audio": "ok"}]})
         patches = self._base_patches()
-        with patches["url"], patches["auth"], patches["payload"], patches["poller"], \
+        with patches["url"], patches["payload"], patches["poller"], \
              patch("qwen3_tts.core.http_client.server_request", side_effect=[resp_503, resp_200]), \
              patch("builtins.input", return_value="y"), \
              patch(f"{_MOD}.load_model_on_server", return_value=True):
@@ -213,7 +209,7 @@ class TestGenerateViaServer(unittest.TestCase):
             "recovery": "restart",
         })
         patches = self._base_patches()
-        with patches["url"], patches["auth"], patches["payload"], patches["poller"], \
+        with patches["url"], patches["payload"], patches["poller"], \
              patch("qwen3_tts.core.http_client.server_request", return_value=resp):
             with self.assertRaises(Exception) as ctx:
                 generate_via_server(["Hello"], "clone", _CONFIG, {})
@@ -227,7 +223,7 @@ class TestGenerateViaServer(unittest.TestCase):
         resp.status_code = 503
         resp.json.side_effect = req_mod.exceptions.JSONDecodeError("", "", 0)
         patches = self._base_patches()
-        with patches["url"], patches["auth"], patches["payload"], patches["poller"], \
+        with patches["url"], patches["payload"], patches["poller"], \
              patch("qwen3_tts.core.http_client.server_request", return_value=resp):
             with self.assertRaises(Exception) as ctx:
                 generate_via_server(["Hello"], "clone", _CONFIG, {})
@@ -375,7 +371,6 @@ class TestGenerateStreaming(unittest.TestCase):
     def _base_patches(self):
         return {
             "url": patch(f"{_MOD}.get_server_url", return_value="http://127.0.0.1:5123"),
-            "auth": patch(f"{_MOD}.auth_headers", return_value={}),
             "payload": patch(f"{_MOD}._build_generation_payload", return_value={}),
             "play": patch(f"{_MOD}.play_audio"),
         }
@@ -396,7 +391,7 @@ class TestGenerateStreaming(unittest.TestCase):
         mock_resp.iter_content.return_value = [raw]
 
         patches = self._base_patches()
-        with patches["url"], patches["auth"], patches["payload"], patches["play"], \
+        with patches["url"], patches["payload"], patches["play"], \
              patch("qwen3_tts.core.http_client.server_request", return_value=mock_resp), \
              patch("soundfile.write") as mock_sf, \
              patch("builtins.print"):
@@ -418,7 +413,7 @@ class TestGenerateStreaming(unittest.TestCase):
         mock_resp.json.return_value = {"error": "OOM"}
 
         patches = self._base_patches()
-        with patches["url"], patches["auth"], patches["payload"], patches["play"], \
+        with patches["url"], patches["payload"], patches["play"], \
              patch("qwen3_tts.core.http_client.server_request", return_value=mock_resp), \
              patch("builtins.print"):
             with self.assertRaises(Exception) as ctx:
@@ -433,7 +428,7 @@ class TestGenerateStreaming(unittest.TestCase):
         mock_resp.iter_content.return_value = []
 
         patches = self._base_patches()
-        with patches["url"], patches["auth"], patches["payload"], patches["play"], \
+        with patches["url"], patches["payload"], patches["play"], \
              patch("qwen3_tts.core.http_client.server_request", return_value=mock_resp), \
              patch("builtins.print"):
             result = generate_streaming("Hello", "clone", _CONFIG, {}, "/tmp/out.wav")
@@ -444,7 +439,7 @@ class TestGenerateStreaming(unittest.TestCase):
         import requests as req_mod
         from qwen3_tts.interface.generate_server import generate_streaming
         patches = self._base_patches()
-        with patches["url"], patches["auth"], patches["payload"], patches["play"], \
+        with patches["url"], patches["payload"], patches["play"], \
              patch("qwen3_tts.core.http_client.server_request", side_effect=req_mod.exceptions.ConnectionError("refused")), \
              patch("builtins.print"):
             with self.assertRaises(Exception) as ctx:
@@ -704,7 +699,6 @@ class TestGenerateViaServerExtended(unittest.TestCase):
         poller = MagicMock()
         return {
             "url": patch(f"{_MOD}.get_server_url", return_value="http://127.0.0.1:5123"),
-            "auth": patch(f"{_MOD}.auth_headers", return_value={}),
             "payload": patch(f"{_MOD}._build_generation_payload", return_value={}),
             "poller": patch(
                 "qwen3_tts.interface.generate_interactive._ProgressPoller",
@@ -720,7 +714,7 @@ class TestGenerateViaServerExtended(unittest.TestCase):
             "description": "Clone mode",
         })
         patches = self._base_patches()
-        with patches["url"], patches["auth"], patches["payload"], patches["poller"], \
+        with patches["url"], patches["payload"], patches["poller"], \
              patch("qwen3_tts.core.http_client.server_request", return_value=resp_503), \
              patch("builtins.input", return_value="n"), \
              patch("builtins.print"):
@@ -736,7 +730,7 @@ class TestGenerateViaServerExtended(unittest.TestCase):
             "description": "Clone",
         })
         patches = self._base_patches()
-        with patches["url"], patches["auth"], patches["payload"], patches["poller"], \
+        with patches["url"], patches["payload"], patches["poller"], \
              patch("qwen3_tts.core.http_client.server_request", return_value=resp_503), \
              patch("builtins.input", return_value="y"), \
              patch(f"{_MOD}.load_model_on_server", return_value=False), \
@@ -753,7 +747,7 @@ class TestGenerateViaServerExtended(unittest.TestCase):
             "recovery": "config",
         })
         patches = self._base_patches()
-        with patches["url"], patches["auth"], patches["payload"], patches["poller"], \
+        with patches["url"], patches["payload"], patches["poller"], \
              patch("qwen3_tts.core.http_client.server_request", return_value=resp):
             with self.assertRaises(Exception) as ctx:
                 generate_via_server(["Hi"], "clone", _CONFIG, {})
@@ -767,7 +761,7 @@ class TestGenerateViaServerExtended(unittest.TestCase):
             "recovery": "retry",
         })
         patches = self._base_patches()
-        with patches["url"], patches["auth"], patches["payload"], patches["poller"], \
+        with patches["url"], patches["payload"], patches["poller"], \
              patch("qwen3_tts.core.http_client.server_request", return_value=resp):
             with self.assertRaises(Exception) as ctx:
                 generate_via_server(["Hi"], "clone", _CONFIG, {})
@@ -780,7 +774,7 @@ class TestGenerateViaServerExtended(unittest.TestCase):
         resp.status_code = 502
         resp.json.side_effect = req_mod.exceptions.JSONDecodeError("", "", 0)
         patches = self._base_patches()
-        with patches["url"], patches["auth"], patches["payload"], patches["poller"], \
+        with patches["url"], patches["payload"], patches["poller"], \
              patch("qwen3_tts.core.http_client.server_request", return_value=resp):
             with self.assertRaises(Exception) as ctx:
                 generate_via_server(["Hi"], "clone", _CONFIG, {})

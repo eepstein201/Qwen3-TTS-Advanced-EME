@@ -171,7 +171,6 @@ def test_poll_model_loading_state_returns_loading():
          patch("qwen3_tts.interface.ui.components.is_server_running", return_value=True), \
          patch("qwen3_tts.interface.ui.components.get_server_url",
                return_value="http://127.0.0.1:5123"), \
-         patch("qwen3_tts.interface.ui.components.auth_headers", return_value={}), \
          patch("qwen3_tts.core.http_client.server_request", return_value=mock_resp):
         state = poll_model_loading_state("clone")
 
@@ -195,7 +194,6 @@ def test_poll_model_loading_state_returns_loaded():
          patch("qwen3_tts.interface.ui.components.is_server_running", return_value=True), \
          patch("qwen3_tts.interface.ui.components.get_server_url",
                return_value="http://127.0.0.1:5123"), \
-         patch("qwen3_tts.interface.ui.components.auth_headers", return_value={}), \
          patch("qwen3_tts.core.http_client.server_request", return_value=mock_resp):
         state = poll_model_loading_state("clone")
 
@@ -219,7 +217,6 @@ def test_poll_model_loading_state_returns_not_loaded():
          patch("qwen3_tts.interface.ui.components.is_server_running", return_value=True), \
          patch("qwen3_tts.interface.ui.components.get_server_url",
                return_value="http://127.0.0.1:5123"), \
-         patch("qwen3_tts.interface.ui.components.auth_headers", return_value={}), \
          patch("qwen3_tts.core.http_client.server_request", return_value=mock_resp):
         state = poll_model_loading_state("clone")
 
@@ -247,7 +244,6 @@ def test_poll_model_loading_state_connection_error():
          patch("qwen3_tts.interface.ui.components.is_server_running", return_value=True), \
          patch("qwen3_tts.interface.ui.components.get_server_url",
                return_value="http://127.0.0.1:5123"), \
-         patch("qwen3_tts.interface.ui.components.auth_headers", return_value={}), \
          patch("qwen3_tts.core.http_client.server_request", side_effect=ConnectionError("refused")):
         state = poll_model_loading_state("clone")
 
@@ -302,7 +298,6 @@ def test_get_model_status_html_no_emoji_loaded():
          patch("qwen3_tts.interface.ui.model_management.is_server_running", return_value=True), \
          patch("qwen3_tts.interface.ui.model_management.get_server_url",
                return_value="http://127.0.0.1:5123"), \
-         patch("qwen3_tts.interface.ui.model_management.auth_headers", return_value={}), \
          patch("qwen3_tts.core.http_client.server_request", return_value=mock_resp):
         html = get_model_status_html("clone")
 
@@ -327,7 +322,6 @@ def test_get_model_status_html_shows_loading_state():
          patch("qwen3_tts.interface.ui.model_management.is_server_running", return_value=True), \
          patch("qwen3_tts.interface.ui.model_management.get_server_url",
                return_value="http://127.0.0.1:5123"), \
-         patch("qwen3_tts.interface.ui.model_management.auth_headers", return_value={}), \
          patch("qwen3_tts.core.http_client.server_request", return_value=mock_resp):
         html = get_model_status_html("clone")
 
@@ -349,7 +343,6 @@ def test_get_model_status_html_no_emoji_not_loaded():
          patch("qwen3_tts.interface.ui.model_management.is_server_running", return_value=True), \
          patch("qwen3_tts.interface.ui.model_management.get_server_url",
                return_value="http://127.0.0.1:5123"), \
-         patch("qwen3_tts.interface.ui.model_management.auth_headers", return_value={}), \
          patch("qwen3_tts.core.http_client.server_request", return_value=mock_resp):
         html = get_model_status_html("design")
 
@@ -373,7 +366,6 @@ def test_get_model_status_html_has_aria_label():
          patch("qwen3_tts.interface.ui.model_management.is_server_running", return_value=True), \
          patch("qwen3_tts.interface.ui.model_management.get_server_url",
                return_value="http://127.0.0.1:5123"), \
-         patch("qwen3_tts.interface.ui.model_management.auth_headers", return_value={}), \
          patch("qwen3_tts.core.http_client.server_request", return_value=mock_resp):
         html = get_model_status_html("clone")
 
@@ -402,7 +394,6 @@ def test_get_model_status_html_reflects_models_endpoint_not_config():
          patch("qwen3_tts.interface.ui.model_management.is_server_running", return_value=True), \
          patch("qwen3_tts.interface.ui.model_management.get_server_url",
                return_value="http://127.0.0.1:5123"), \
-         patch("qwen3_tts.interface.ui.model_management.auth_headers", return_value={}), \
          patch("qwen3_tts.core.http_client.server_request", return_value=mock_resp):
         html = get_model_status_html("clone")
 

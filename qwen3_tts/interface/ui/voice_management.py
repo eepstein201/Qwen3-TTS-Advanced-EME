@@ -20,7 +20,6 @@ from qwen3_tts.core.config import (
     set_default_clone_prompt,
     get_server_url,
     is_server_running,
-    auth_headers,
     load_config,
     safe_path_join,
 )

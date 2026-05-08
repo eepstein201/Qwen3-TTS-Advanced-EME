@@ -19,7 +19,6 @@ from qwen3_tts.core.config import (  # noqa: E402
     get_backend,
     get_server_url,
     is_server_running,
-    auth_headers,
     safe_path_join,
 )
 from qwen3_tts.interface.generate_helpers import (  # noqa: E402
@@ -132,7 +131,6 @@ def generate_via_server(texts, mode, config, gen_params,
     import requests  # lazy (used for exception types only)
     from qwen3_tts.core.http_client import server_request
     from qwen3_tts.interface.generate_interactive import _ProgressPoller
-    url = get_server_url(config)
 
     payload = _build_generation_payload(
         mode, config, gen_params,
@@ -144,7 +142,7 @@ def generate_via_server(texts, mode, config, gen_params,
     payload["texts"] = texts
 
     # Start progress polling
-    progress = _ProgressPoller(url, batch_total=len(texts))
+    progress = _ProgressPoller(batch_total=len(texts))
     progress.start()
 
     try:
@@ -170,7 +168,7 @@ def generate_via_server(texts, mode, config, gen_params,
                 choice = input(f"Would you like to load the '{model_type}' model now? [Y/n]: ").strip().lower()
                 if choice != 'n':
                     if load_model_on_server(config, model_type):
-                        progress = _ProgressPoller(url, batch_total=len(texts))
+                        progress = _ProgressPoller(batch_total=len(texts))
                         progress.start()
                         try:
                             resp = server_request("POST", "/generate", json=payload, timeout=600)
@@ -220,8 +218,6 @@ def generate_streaming(text, mode, config, gen_params, output_path,
     import numpy as np
     import soundfile as sf
 
-    url = get_server_url(config)
-
     payload = _build_generation_payload(
         mode, config, gen_params,
         prompt_file=prompt_file, voice_description=voice_description,
@@ -238,6 +234,7 @@ def generate_streaming(text, mode, config, gen_params, output_path,
             "POST", "/generate-stream",
             json=payload,
             timeout=600,
+            stream=True,
         )
 
         if resp.status_code != 200:

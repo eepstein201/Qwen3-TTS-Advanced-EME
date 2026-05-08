@@ -21,7 +21,6 @@ import threading
 from typing import Literal
 
 from qwen3_tts.core.config import (
-    auth_headers,
     get_server_url,
     is_server_running,
     load_config,

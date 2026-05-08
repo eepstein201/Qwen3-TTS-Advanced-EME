@@ -17,7 +17,6 @@ from qwen3_tts.core.config import (  # noqa: E402
     VOICE_PROMPTS_DIR,
     get_server_url,
     is_server_running,
-    auth_headers,
     get_default_clone_prompt,
     safe_path_join,
 )
@@ -185,8 +184,7 @@ class _ProgressPoller:
     except ImportError:
         HAS_RICH = False
 
-    def __init__(self, server_url, batch_total=1):
-        self.server_url = server_url
+    def __init__(self, batch_total=1):
         self.batch_total = batch_total
         self._stop = threading.Event()
         self._thread = None

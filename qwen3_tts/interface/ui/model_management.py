@@ -15,7 +15,6 @@ import logging
 from qwen3_tts.core.config import (
     get_server_url,
     is_server_running,
-    auth_headers,
     load_config,
     save_config,
 )

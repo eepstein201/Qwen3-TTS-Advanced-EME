@@ -22,7 +22,6 @@ from qwen3_tts.core.config import (
     get_mlx_quantization,
     get_server_url,
     is_server_running,
-    auth_headers,
     load_config,
 )
 

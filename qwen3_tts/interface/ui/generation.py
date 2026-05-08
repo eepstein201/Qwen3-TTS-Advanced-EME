@@ -24,7 +24,6 @@ _history_lock = threading.Lock()
 from qwen3_tts.core.config import (
     get_server_url,
     is_server_running,
-    auth_headers,
     load_config,
     get_generation_presets,
     get_prosody_presets,

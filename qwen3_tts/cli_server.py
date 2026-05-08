@@ -93,7 +93,7 @@ def stop():
     """Stop the TTS server."""
     import signal
     from qwen3_tts.core.config import (
-        load_config, get_server_url, auth_headers,
+        load_config, get_server_url,
         detect_server_state, cleanup_pid_file, is_server_running, is_pid_alive,
         find_pid_by_port,
     )

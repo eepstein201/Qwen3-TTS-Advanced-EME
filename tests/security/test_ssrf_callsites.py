@@ -43,6 +43,12 @@ _SCAN_EXCEPTIONS = frozenset({
     # is_server_running() applies _validate_server_url() inline before the
     # requests.get call, which satisfies the trust-boundary requirement.
     "config.py",
+    # server/client/ — uses requests.Session (not bare requests.get/post) routed
+    # through TTSClient which validates the URL via the server_url property
+    # (calls get_server_url() → _validate_server_url() internally). This
+    # architectural pattern is intentionally out of scope for this PR's
+    # pattern scan. Refactoring server/client/ to use server_request would
+    # require session-level changes tracked separately.
 })
 
 

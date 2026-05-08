@@ -150,7 +150,7 @@ class TestProgressPollerRun(unittest.TestCase):
 
     def test_run_dispatches_to_fallback_without_rich(self):
         from qwen3_tts.interface.generate_interactive import _ProgressPoller
-        poller = _ProgressPoller("http://localhost:5123")
+        poller = _ProgressPoller()
         poller._stop.set()  # Stop immediately
 
         with patch.object(type(poller), "HAS_RICH", False):
@@ -160,7 +160,7 @@ class TestProgressPollerRun(unittest.TestCase):
 
     def test_run_dispatches_to_rich_when_available(self):
         from qwen3_tts.interface.generate_interactive import _ProgressPoller
-        poller = _ProgressPoller("http://localhost:5123")
+        poller = _ProgressPoller()
         poller._stop.set()
 
         with patch.object(type(poller), "HAS_RICH", True):
@@ -171,7 +171,7 @@ class TestProgressPollerRun(unittest.TestCase):
     def test_fallback_handles_request_error(self):
         """_run_fallback gracefully handles request exceptions."""
         from qwen3_tts.interface.generate_interactive import _ProgressPoller
-        poller = _ProgressPoller("http://localhost:5123")
+        poller = _ProgressPoller()
 
         call_count = [0]
         orig_wait = poller._stop.wait
@@ -392,9 +392,8 @@ class TestPreviewJsonDecodeError(unittest.TestCase):
     @patch("qwen3_tts.interface.generate_interactive.voice_prompt_exists", return_value=True)
     @patch("qwen3_tts.interface.generate_interactive.is_server_running", return_value=True)
     @patch("qwen3_tts.interface.generate_interactive.get_server_url", return_value="http://127.0.0.1:5123")
-    @patch("qwen3_tts.interface.generate_interactive.auth_headers", return_value={})
     @patch("builtins.print")
-    def test_json_decode_error_on_error_response(self, mock_print, _auth, _url, _running, _exists):
+    def test_json_decode_error_on_error_response(self, mock_print, _url, _running, _exists):
         from qwen3_tts.interface.generate_interactive import preview_voice_prompt
         mock_resp = MagicMock()
         mock_resp.status_code = 502
@@ -419,7 +418,7 @@ class TestProgressPollerRichPath(unittest.TestCase):
     def test_stop_with_rich_progress(self):
         """Line 204: stop() calls _rich_progress.stop() when available."""
         from qwen3_tts.interface.generate_interactive import _ProgressPoller
-        poller = _ProgressPoller("http://localhost:5123")
+        poller = _ProgressPoller()
         poller._thread = MagicMock()
         poller._rich_progress = MagicMock()
         with patch.object(type(poller), "HAS_RICH", True):
@@ -429,7 +428,7 @@ class TestProgressPollerRichPath(unittest.TestCase):
     def _make_poller_one_iter(self, batch_total=1):
         """Helper: create a poller that stops after one iteration."""
         from qwen3_tts.interface.generate_interactive import _ProgressPoller
-        poller = _ProgressPoller("http://localhost:5123", batch_total=batch_total)
+        poller = _ProgressPoller(batch_total=batch_total)
         call_count = [0]
         orig_wait = poller._stop.wait
 
@@ -480,7 +479,7 @@ class TestProgressPollerFallbackDisplay(unittest.TestCase):
     def test_fallback_active_no_batch_with_eta(self):
         """Lines 300-302: single generation with ETA."""
         from qwen3_tts.interface.generate_interactive import _ProgressPoller
-        poller = _ProgressPoller("http://localhost:5123", batch_total=1)
+        poller = _ProgressPoller(batch_total=1)
 
         call_count = [0]
         orig_wait = poller._stop.wait
@@ -508,7 +507,7 @@ class TestProgressPollerFallbackDisplay(unittest.TestCase):
     def test_fallback_active_no_batch_no_eta(self):
         """Lines 303-304: single generation without ETA."""
         from qwen3_tts.interface.generate_interactive import _ProgressPoller
-        poller = _ProgressPoller("http://localhost:5123", batch_total=1)
+        poller = _ProgressPoller(batch_total=1)
 
         call_count = [0]
         orig_wait = poller._stop.wait
@@ -536,7 +535,7 @@ class TestProgressPollerFallbackDisplay(unittest.TestCase):
     def test_fallback_batch_mode_with_eta(self):
         """Lines 290-297: batch mode with ETA and progress bar."""
         from qwen3_tts.interface.generate_interactive import _ProgressPoller
-        poller = _ProgressPoller("http://localhost:5123", batch_total=3)
+        poller = _ProgressPoller(batch_total=3)
 
         call_count = [0]
         orig_wait = poller._stop.wait
@@ -564,7 +563,7 @@ class TestProgressPollerFallbackDisplay(unittest.TestCase):
     def test_fallback_batch_mode_no_eta(self):
         """Lines 298-299: batch mode without ETA."""
         from qwen3_tts.interface.generate_interactive import _ProgressPoller
-        poller = _ProgressPoller("http://localhost:5123", batch_total=3)
+        poller = _ProgressPoller(batch_total=3)
 
         call_count = [0]
         orig_wait = poller._stop.wait
