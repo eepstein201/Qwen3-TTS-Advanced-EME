@@ -1,0 +1,260 @@
+- generic [ref=e21]:
+  - main [ref=e22]:
+    - generic [ref=e23]:
+      - heading "Qwen3-TTS Web Interface" [level=1] [ref=e28]
+      - status [ref=e152]:
+        - strong [ref=e153]: "Status:"
+        - text: Connected |
+        - strong [ref=e154]: "Backend:"
+        - text: MLX (8bit, 1.7B) |
+        - strong [ref=e155]: "Memory:"
+        - text: 8178.2MB |
+        - strong [ref=e156]: "Models:"
+        - text: Clone, Design, Custom
+      - generic [ref=e33]:
+        - button "Refresh Status" [ref=e34] [cursor=pointer]
+        - button "Stop Server" [ref=e35] [cursor=pointer]
+      - button "Model Settings ▼" [ref=e37] [cursor=pointer]:
+        - generic [ref=e38]: Model Settings
+        - generic [ref=e39]: ▼
+      - generic [ref=e40]:
+        - generic [ref=e41]:
+          - generic [ref=e42]:
+            - button [ref=e43] [cursor=pointer]: Clone Mode
+            - button [ref=e44] [cursor=pointer]: Design Mode
+            - button [ref=e45] [cursor=pointer]: Custom Mode
+            - button [ref=e46] [cursor=pointer]: Create Voice
+            - button [ref=e47] [cursor=pointer]: Manage Voices
+            - button [ref=e48] [cursor=pointer]: Manage Models
+          - tablist [ref=e49]:
+            - tab "Clone Mode" [ref=e50] [cursor=pointer]
+            - tab "Design Mode" [ref=e51] [cursor=pointer]
+            - tab "Custom Mode" [ref=e52] [cursor=pointer]
+            - tab "Create Voice" [ref=e53] [cursor=pointer]
+            - tab "Manage Voices" [ref=e54] [cursor=pointer]
+            - tab "Manage Models" [active] [selected] [ref=e55] [cursor=pointer]
+        - tabpanel [ref=e245]:
+          - generic [ref=e246]:
+            - paragraph [ref=e251]: Load/unload models, configure startup defaults, and audio loader.
+            - generic [ref=e252]:
+              - generic [ref=e253]:
+                - grid [ref=e257]:
+                  - table [ref=e258]:
+                    - rowgroup [ref=e259]:
+                      - row [ref=e260]:
+                        - columnheader [ref=e261]:
+                          - button [ref=e264] [cursor=pointer]:
+                            - button [ref=e265]: Model
+                        - columnheader [ref=e266]:
+                          - button [ref=e269] [cursor=pointer]:
+                            - button [ref=e270]: Status
+                        - columnheader [ref=e271]:
+                          - button [ref=e274] [cursor=pointer]:
+                            - button [ref=e275]: Memory
+                        - columnheader [ref=e276]:
+                          - button [ref=e279] [cursor=pointer]:
+                            - button [ref=e280]: Startup
+                    - rowgroup [ref=e281]:
+                      - row [ref=e282]:
+                        - cell [ref=e283]:
+                          - button [ref=e285]: design
+                        - cell [ref=e286]:
+                          - button [ref=e288]: Not loaded
+                        - cell [ref=e289]:
+                          - button [ref=e291]: 2500MB
+                        - cell [ref=e292]:
+                          - button [ref=e294]: "Yes"
+                  - button "Drop CSV or TSV files here to import data into dataframe" [ref=e295]:
+                    - table [ref=e299]:
+                      - rowgroup [ref=e300]:
+                        - row "Model Status Memory Startup" [ref=e301]:
+                          - columnheader "Model" [ref=e302]:
+                            - button "Model" [ref=e305] [cursor=pointer]:
+                              - button "Model" [ref=e306]
+                          - columnheader "Status" [ref=e307]:
+                            - button "Status" [ref=e310] [cursor=pointer]:
+                              - button "Status" [ref=e311]
+                          - columnheader "Memory" [ref=e312]:
+                            - button "Memory" [ref=e315] [cursor=pointer]:
+                              - button "Memory" [ref=e316]
+                          - columnheader "Startup" [ref=e317]:
+                            - button "Startup" [ref=e320] [cursor=pointer]:
+                              - button "Startup" [ref=e321]
+                        - iframe [ref=e322]:
+                          
+                      - rowgroup [ref=e323]:
+                        - row "clone Loaded 2500MB Yes" [ref=e324]:
+                          - cell "clone" [ref=e325]:
+                            - button "clone" [ref=e327]
+                          - cell "Loaded" [ref=e328]:
+                            - button "Loaded" [ref=e330]
+                          - cell "2500MB" [ref=e331]:
+                            - button "2500MB" [ref=e333]
+                          - cell "Yes" [ref=e334]:
+                            - button "Yes" [ref=e336]
+                        - row "design Loaded 2500MB Yes" [ref=e337]:
+                          - cell "design" [ref=e338]:
+                            - button "design" [ref=e340]
+                          - cell "Loaded" [ref=e341]:
+                            - button "Loaded" [ref=e343]
+                          - cell "2500MB" [ref=e344]:
+                            - button "2500MB" [ref=e346]
+                          - cell "Yes" [ref=e347]:
+                            - button "Yes" [ref=e349]
+                        - row "custom Loaded 2500MB Yes" [ref=e350]:
+                          - cell "custom" [ref=e351]:
+                            - button "custom" [ref=e353]
+                          - cell "Loaded" [ref=e354]:
+                            - button "Loaded" [ref=e356]
+                          - cell "2500MB" [ref=e357]:
+                            - button "2500MB" [ref=e359]
+                          - cell "Yes" [ref=e360]:
+                            - button "Yes" [ref=e362]
+                        - row "asr Not loaded — —" [ref=e363]:
+                          - cell "asr" [ref=e364]:
+                            - button "asr" [ref=e366]
+                          - cell "Not loaded" [ref=e367]:
+                            - button "Not loaded" [ref=e369]
+                          - cell "—" [ref=e370]:
+                            - button "—" [ref=e372]
+                          - cell "—" [ref=e373]:
+                            - button "—" [ref=e375]
+                      - rowgroup
+                - button "Refresh" [ref=e376] [cursor=pointer]
+              - generic [ref=e377]:
+                - heading "Load / Unload" [level=3] [ref=e382]
+                - generic [ref=e386]:
+                  - generic [ref=e387]: Model
+                  - generic [ref=e390]:
+                    - listbox "Model" [ref=e391]: clone
+                    - generic:
+                      - img
+                - generic [ref=e392]:
+                  - button "Load" [ref=e393] [cursor=pointer]
+                  - button "Unload" [ref=e394] [cursor=pointer]
+                - generic [ref=e396]:
+                  - generic [ref=e397]: Textbox
+                  - textbox "Textbox" [disabled] [ref=e399]:
+                    - /placeholder: ""
+                - heading "ASR (Whisper)" [level=3] [ref=e404]
+                - generic [ref=e405]:
+                  - button "Load ASR" [ref=e406] [cursor=pointer]
+                  - button "Unload ASR" [ref=e407] [cursor=pointer]
+                - heading "Startup Defaults" [level=3] [ref=e412]
+                - generic [ref=e413]:
+                  - generic [ref=e415] [cursor=pointer]:
+                    - checkbox "Clone/Create at startup" [checked] [ref=e416]
+                    - generic [ref=e417]: Clone/Create at startup
+                  - generic [ref=e419] [cursor=pointer]:
+                    - checkbox "Design at startup" [ref=e420]
+                    - generic [ref=e421]: Design at startup
+                  - generic [ref=e423] [cursor=pointer]:
+                    - checkbox "Custom at startup" [ref=e424]
+                    - generic [ref=e425]: Custom at startup
+                - button "Save Startup Config" [ref=e426] [cursor=pointer]
+                - generic [ref=e428]:
+                  - generic [ref=e429]: Textbox
+                  - textbox "Textbox" [disabled] [ref=e431]:
+                    - /placeholder: ""
+                - heading "Audio Loader" [level=3] [ref=e436]
+                - generic [ref=e439]:
+                  - generic [ref=e440]: Audio Loader
+                  - paragraph [ref=e443]: "torchaudio: faster C++ | librosa: broader format support"
+                  - generic [ref=e446]:
+                    - listbox "Audio Loader" [ref=e447]: librosa
+                    - generic:
+                      - img
+                - button "Save Audio Loader" [ref=e448] [cursor=pointer]
+                - generic [ref=e450]:
+                  - generic [ref=e451]: Textbox
+                  - textbox "Textbox" [disabled] [ref=e453]:
+                    - /placeholder: ""
+      - heading "Recent Generations" [level=3] [ref=e121]
+      - grid [ref=e174]:
+        - table [ref=e175]:
+          - rowgroup [ref=e176]:
+            - row [ref=e177]:
+              - columnheader [ref=e178]:
+                - button [ref=e181] [cursor=pointer]:
+                  - button [ref=e182]: Time
+              - columnheader [ref=e183]:
+                - button [ref=e186] [cursor=pointer]:
+                  - button [ref=e187]: Mode
+              - columnheader [ref=e188]:
+                - button [ref=e191] [cursor=pointer]:
+                  - button [ref=e192]: Text Preview
+              - columnheader [ref=e193]:
+                - button [ref=e196] [cursor=pointer]:
+                  - button [ref=e197]: Seed
+              - columnheader [ref=e198]:
+                - button [ref=e201] [cursor=pointer]:
+                  - button [ref=e202]: Chunks
+        - button "Drop CSV or TSV files here to import data into dataframe" [ref=e203]:
+          - table [ref=e207]:
+            - rowgroup [ref=e208]:
+              - row "Time Mode Text Preview Seed Chunks" [ref=e209]:
+                - columnheader "Time" [ref=e210]:
+                  - button "Time" [ref=e213] [cursor=pointer]:
+                    - button "Time" [ref=e214]
+                - columnheader "Mode" [ref=e215]:
+                  - button "Mode" [ref=e218] [cursor=pointer]:
+                    - button "Mode" [ref=e219]
+                - columnheader "Text Preview" [ref=e220]:
+                  - button "Text Preview" [ref=e223] [cursor=pointer]:
+                    - button "Text Preview" [ref=e224]
+                - columnheader "Seed" [ref=e225]:
+                  - button "Seed" [ref=e228] [cursor=pointer]:
+                    - button "Seed" [ref=e229]
+                - columnheader "Chunks" [ref=e230]:
+                  - button "Chunks" [ref=e233] [cursor=pointer]:
+                    - button "Chunks" [ref=e234]
+              - iframe [ref=e235]:
+                
+            - rowgroup
+            - rowgroup
+      - generic [ref=e239]:
+        - button "Play or pause audio" [disabled] [ref=e240]: Play / Pause
+        - button "Download audio" [disabled] [ref=e241]: Download
+        - slider "Volume" [ref=e242]: "1"
+        - combobox "Playback speed" [ref=e243]:
+          - option "0.5x"
+          - option "0.75x"
+          - option "1x" [selected]
+          - option "1.25x"
+          - option "1.5x"
+          - option "2x"
+        - generic [ref=e244]: 0:00 / 0:00
+        - status
+      - generic [ref=e127]:
+        - separator [ref=e128]
+        - paragraph [ref=e129]:
+          - strong [ref=e130]: "Tips:"
+        - list [ref=e131]:
+          - listitem [ref=e132]:
+            - text: "Start the TTS server first:"
+            - code [ref=e133]: tts server start
+          - listitem [ref=e134]: Models auto-load on first use — no need to pre-load all three
+          - listitem [ref=e135]:
+            - text: Use
+            - strong [ref=e136]: Model Settings
+            - text: above to switch between model sizes (0.6B/1.7B) and MLX quantizations (4bit/5bit/6bit/8bit/bf16)
+          - listitem [ref=e137]: Clone mode uses a voice prompt (.pt for PyTorch, .wav+.txt for MLX)
+          - listitem [ref=e138]: Design mode creates voices from text descriptions
+          - listitem [ref=e139]: Custom mode uses premium pre-trained speakers
+          - listitem [ref=e140]:
+            - text: Run
+            - code [ref=e141]: tts config
+            - text: to optimize settings for your hardware
+  - contentinfo "Gradio footer navigation" [ref=e142]:
+    - button "Use via API logo" [ref=e143] [cursor=pointer]:
+      - text: Use via API
+      - img "logo" [ref=e144]
+    - generic [ref=e145]: ·
+    - link "Built with Gradio logo" [ref=e146] [cursor=pointer]:
+      - /url: https://gradio.app
+      - text: Built with Gradio
+      - img "logo" [ref=e147]
+    - generic [ref=e148]: ·
+    - button "Settings Settings" [ref=e149] [cursor=pointer]:
+      - text: Settings
+      - img "Settings" [ref=e150]

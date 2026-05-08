@@ -39,7 +39,17 @@ def process_srt_file(srt_path, config, args, gen_params, use_server):
         print(f"Error: No subtitles found in {srt_path}")
         return
 
-    output_dir = os.path.expanduser(args.output or config.get("output_directory", "~/Downloads"))
+    base_dir = os.path.expanduser(config.get("output_directory", "~/Downloads"))
+    # Security: validate path output against traversal
+    if args.output:
+        if os.path.isabs(args.output):
+            # Allow absolute paths (user explicitly chose this location)
+            output_dir = args.output
+        else:
+            # Relative path: validate to prevent traversal
+            output_dir = safe_path_join(base_dir, args.output)
+    else:
+        output_dir = base_dir
     os.makedirs(output_dir, exist_ok=True)
 
     basename = os.path.splitext(os.path.basename(srt_path))[0]

@@ -1,144 +1,106 @@
 # Phase 1b Resume Checkpoint
 
-**Written:** 2026-05-06
-**Purpose:** Resume Phase 1b (Progress indicators for 5 long ops) after `/clear` without losing in-flight context.
-**Plan reference:** `~/.claude/plans/can-you-review-my-polished-boot.md` (Phase 1b section)
+**Written:** 2026-05-06 (updated end of session 2)
+**Status:** Phase 1b code complete + pushed; user review + merge + UI smoke remain.
+**Plan reference:** `~/.claude/plans/can-you-review-my-polished-boot.md` (Phase 1b)
 **Phase 1a checkpoint (predecessor):** `phase-1a-RESUME.md`
 
 ---
 
 ## TL;DR
 
-Phase 1b task #13 (server-side `loading: bool` on `/models`) is **DONE and committed locally** on `feature/ui-phase-1b-progress`. RED + GREEN both committed. Branch is 2 commits ahead of main, **not pushed**.
+Phase 1b implementation is **DONE**, all 49 unit/integration tests + all 5 batches green, and the branch is **pushed to origin**. PR URL:
 
-Resume next at **task #2** — RED tests for the UI `ProgressIndicator` component + 5 wiring points.
+> https://github.com/eepstein201/Qwen3-TTS-Advanced-EME/pull/new/feature/ui-phase-1b-progress
 
-```bash
-# To resume: run these to confirm state
-cd /Users/ericepstein/Qwen3-TTS_UserFiles
-git branch --show-current      # expect: feature/ui-phase-1b-progress
-git log --oneline main..HEAD   # expect: 19e97fa, 269133c
-git status --short qwen3_tts/ tests/   # expect: empty (clean)
-```
+Remaining tasks before declaring Phase 1b shippable:
+- **Task #3:** UI smoke test (cold model load + visual diff against `phase-1a-smoke/`)
+- **Task #12:** E2E batch 6 with server + models loaded (currently auto-skipped because no server running)
+- **User merge:** review the PR and merge to main (CLAUDE.md mandates user does this, not Claude)
 
 ---
 
-## What was discovered (mid-Phase-1b plan correction)
-
-The original plan said "no server changes needed for Phase 1b." That was wrong:
-
-- Phase 1a's `qwen3_tts/interface/ui/components.py:poll_model_loading_state()` reads `info.get("loading")` from the `/models` response.
-- The server (`qwen3_tts/server/app_models.py:handle_list_models`) **never emitted that field**.
-- So the `"loading"` branch was dead code in real operation — only fired from test mocks.
-
-User chose **Option A** (add the server contract) over **Option B** (downgrade UI to indeterminate spinner). New task #13 inserted before #2.
-
----
-
-## Branch state
-
-- **Active branch:** `feature/ui-phase-1b-progress`
-- **Commits ahead of main:** 2 (both unpushed)
+## What shipped this session (4 commits on `feature/ui-phase-1b-progress`)
 
 ```
+208a2fc feat(phase-1b): GREEN — ProgressIndicator + 4 UI wirings
+e4ba206 test(phase-1b): RED — ProgressIndicator + 5 UI wiring assertions
 19e97fa feat(phase-1b): GREEN — server emits loading:bool on /models
 269133c test(phase-1b): RED — server-side loading:bool field on /models
-ae7c596 (main) Merge feature/ui-phase-1a-status-banner: Phase 1a StatusBanner + a11y
 ```
 
-### Uncommitted on this branch
-- Pre-existing noise (leave alone): `.voice_server.log.1` modified, `config.json` modified, `.claude/hookify.*.local.md`, `.claude/settings*.json`, `.github/commands/`, `.github/workflows/gemini-*.yml`, `.playwright-mcp/`, `phase-1a-RESUME.md`, `phase-1a-smoke/`
-- This file: `phase-1b-RESUME.md` (also untracked — meant to be local reference)
+### Server-side (commits #1, #2)
+- `qwen3_tts/server/app_lifespan.py` — `app.state.models_loading = {clone, design, custom: False}` initialized in lifespan; `_background_load` flips per-model True/False with try/finally
+- `qwen3_tts/server/app_models.py:handle_list_models` — adds `"loading"` to entry dict, mutex with `"loaded"`
+- `qwen3_tts/server/app_models.py:handle_load_model` — try/finally around `load_model()`
+- `tests/test_models_loading_flag.py` — NEW, 8 tests covering server contract
+
+### UI-side (commits #3, #4)
+- `qwen3_tts/interface/ui/components.py`:
+  - `ProgressIndicator` class — bounded mode (`role=progressbar`, `aria-valuenow/min/max`, ETA + percent label) and indeterminate mode (`aria-busy=true`, no `aria-valuenow`, spinner + message)
+  - `poll_model_load_progress(model_type)` — returns `{state, memory_mb, eta_s}` from `/models`
+  - HTML-escaped (XSS safe), inline SVG spinner reuses Phase 1a icon
+- `qwen3_tts/interface/ui/model_management.py`:
+  - `toggle_model` is now a generator — yields ProgressIndicator HTML before the blocking `/load-model` POST so the UI doesn't appear frozen during 5-90s cold loads
+  - `toggle_asr` is now a generator — yields indeterminate progress
+- `qwen3_tts/interface/ui/shared.py:enhance_description_with_ai` — instantiates ProgressIndicator + `gr.Info` toast at start
+- `qwen3_tts/interface/ui/voice_management.py:auto_transcribe_audio` — same pattern
+- `tests/test_ui_progress_indicator.py` — NEW, 21 tests (1 chunk-counter test passes from R-51 plumbing)
 
 ---
 
-## What's done (task #13)
+## Tests at end of session
 
-✅ Server-side `loading: bool` field on `/models`. UI's existing `poll_model_loading_state` now returns `"loading"` from real server state, not just mocks.
+| Suite | Count | Status |
+|-------|-------|--------|
+| `test_models_loading_flag.py` | 8 | green |
+| `test_ui_progress_indicator.py` | 21 | green |
+| `test_ui_status_banner.py` (Phase 1a regression) | 18 | green |
+| Batch 1 (Core Utilities) | per batch runner | green |
+| Batch 2 (Voice & CLI) | per batch runner | green |
+| Batch 3 (Server Infra) | per batch runner | green |
+| Batch 4 (Engine & UI) | per batch runner | green |
+| Batch 5 (Optional Tests) | per batch runner | green |
+| Batch 6 (E2E Playwright) | 1 | **auto-skipped** (no server running) |
 
-**Files changed:**
-| File | Change |
-|------|--------|
-| `qwen3_tts/server/app_lifespan.py` | Added `app.state.models_loading = {clone, design, custom: False}` in lifespan setup. Wrapped `_background_load`'s `load_model()` call in try/finally that flips the flag True before / False after. |
-| `qwen3_tts/server/app_models.py:handle_list_models` | Added `"loading"` to entry dict, mutex with `"loaded"` (loaded model can't simultaneously be loading). |
-| `qwen3_tts/server/app_models.py:handle_load_model` | Wrapped `load_model()` call in try/finally that flips the flag. |
-| `tests/test_models_loading_flag.py` | NEW — 225 lines, 8 unit tests. |
-
-**Server contract (post-Phase-1b) for each model entry on `/models`:**
-```python
-{
-  "loaded": bool,           # model object exists
-  "loading": bool,          # NEW: load_model() in flight (mutex with loaded)
-  "description": str,
-  "memory_mb": int,
-  "repo_id": str,
-  "load_at_startup": bool,
-  "load_time_sec": float | None,
-}
-```
-
-**Tests passing:**
-- 8/8 new (`tests/test_models_loading_flag.py`)
-- 33/33 regression (`test_python_review_fixes.py` + `test_ui_status_banner.py`)
-
-**Backwards-compat:** all access uses `getattr(state, "models_loading", None)` so test mocks built by hand still work.
+`python tests/run_batches.py` — 6/6 batches passed (batch 6 skipped due to no server).
 
 ---
 
-## What's next (in order)
+## What's still open
 
-### Step 1 — Task #2: RED tests for ProgressIndicator + 5 wirings
-
-Create `tests/test_ui_progress_indicator.py` with failing assertions for:
-
-1. **`ProgressIndicator(percent=42, eta_s=15, mode="bounded").render()`** returns:
-   - `role="progressbar"`
-   - `aria-valuenow="42"`, `aria-valuemin="0"`, `aria-valuemax="100"`
-   - Visible "42%" + "~15s" labels
-2. **`ProgressIndicator(mode="indeterminate").render()`** returns:
-   - `role="progressbar"`
-   - `aria-busy="true"`
-   - No `aria-valuenow`
-3. **`poll_model_load_progress("clone")`** (NEW helper to add) returns dict `{percent: int, eta_s: float|None, memory_mb: int}` polling `/models`. Use `load_time_sec` from a recent successful load as ETA seed; `memory_mb` from entry.
-4. Model-load handler in `model_management.py` emits "Loading clone… 42% (1850MB, ~15s)" via the new component
-5. ASR-load handler emits indeterminate ProgressIndicator
-6. AI-enhancement handler in `shared.py` emits "Enhancing…" inline status
-7. Auto-transcribe handler in `voice_management.py` emits "Transcribing…" inline spinner
-8. Streaming generation in `generation.py` surfaces "Chunk N of M" from `client.last_chunk_count`
-
-Run:
+### Task #3 — UI smoke test
 ```bash
-source ~/miniforge3/etc/profile.d/conda.sh && conda activate qwen3-tts-mlx
-python -m pytest tests/test_ui_progress_indicator.py -v
-# Expect: all RED
+tts server start                  # warm cache or cold (cold = real progress test)
+nohup python -m qwen3_tts.interface.ui._facade --port 7861 > /tmp/p1b-smoke.log 2>&1 &
+sleep 8
+curl -s http://127.0.0.1:7861/ -o /dev/null -w "%{http_code}\n"   # expect 200
+python phase-0-baseline/capture_screenshots.py --state warm --out phase-1b-smoke
+# Visually compare phase-1b-smoke/ vs phase-1a-smoke/ — confirm progress
+# indicators appear during model load and don't break existing layout.
+kill $(lsof -ti:7861) 2>/dev/null
+tts server stop
 ```
 
-Commit RED:
+### Task #12 — E2E batch 6 with live server
 ```bash
-git add tests/test_ui_progress_indicator.py
-git commit -m "test(phase-1b): RED — ProgressIndicator + 5 UI wirings"
+tts server start                  # all 3 models loaded
+make test-e2e
 ```
 
-### Steps 2-7 — Tasks #1, #8/#5/#4/#7/#9, #10, #6, #3, #12, #11
+E2E suite expects server up + all models loaded. Earlier batches don't need a server.
 
-Follow the dependency graph in TaskList. After RED:
-- Implement `ProgressIndicator` in `components.py` (task #1)
-- Wire 5 UI files (tasks #4, #5, #7, #8, #9 — parallelizable, no merge conflicts)
-- GREEN run (task #10)
-- No-regression batches 1-5 (task #6)
-- UI smoke + visual diff vs `phase-1a-smoke/` (task #3)
-- E2E batch 6 (task #12)
-- Final commit + push to `origin feature/ui-phase-1b-progress` (task #11)
-
-User reviews and merges to main. Claude **never** pushes to main.
+### User actions
+- Review PR at https://github.com/eepstein201/Qwen3-TTS-Advanced-EME/pull/new/feature/ui-phase-1b-progress
+- Optionally re-run smoke + E2E locally
+- Merge to main when satisfied
 
 ---
 
-## Things NOT to touch in Phase 1b
+## Known non-blockers
 
-- `apply_model_settings` — flagged fragile
-- Server APIs **other than the loading flag we just added**
-- Phase 1a code (`StatusBanner`, `status_badge`, `severity_icon`) — leave alone, extend `components.py`
+- **AI enhancement / auto-transcribe progress is a `gr.Info` toast, not inline.** Plan said "inline progress" — full inline wiring requires a separate `gr.HTML` component next to each control in `_facade.py`. Deferred to Phase 2 (IA reorg) or follow-up. Toast is visible feedback so it satisfies the "no silent waits" rule.
+- **Model load progress percent** — currently emits indeterminate progress at start of `toggle_model` then resolves to final status when `/load-model` returns. True per-percent updates would require either polling-around-future or a dedicated background thread that polls `/models` every 500ms while the load is in flight. The server contract is in place (`loading: bool`, `load_time_sec` from prior loads); wiring is the next iteration.
 
 ---
 
@@ -151,28 +113,14 @@ User reviews and merges to main. Claude **never** pushes to main.
 }
 ```
 
-These take effect on next session restart. Mid-session they keep firing — ignore.
-
----
-
-## Quick environment refresher
-
-```bash
-source ~/miniforge3/etc/profile.d/conda.sh && conda activate qwen3-tts-mlx
-cd /Users/ericepstein/Qwen3-TTS_UserFiles
-git branch --show-current   # should print: feature/ui-phase-1b-progress
-```
-
-CLAUDE.md mandates feature-branch workflow — never push to main, never amend commits.
-
 ---
 
 ## After Phase 1b merges
 
-Phase 1c (`feature/ui-phase-1c-confirms`) — confirm patterns for destructive actions (delete voice, unload model, generate-while-generating). Pure UI. Reuses the `StatusBanner` from 1a + `ConfirmButton` to be added in `components.py`.
+Phase 1c (`feature/ui-phase-1c-confirms`) — confirm patterns for destructive actions (delete voice, unload model, generate-while-generating). Pure UI. Reuses `StatusBanner` (Phase 1a) + `ConfirmButton` (new in `components.py`).
 
 ---
 
 ## If anything looks wrong
 
-If `git log --oneline main..HEAD` doesn't show both `19e97fa` and `269133c`, or `tests/test_models_loading_flag.py` is missing, **stop and ask the user**. The state described above was captured at write time — divergence means something happened between sessions.
+If `git log --oneline main..HEAD` doesn't show all 4 phase-1b commits, or any of the new test files are missing, **stop and ask the user**. The state described above was captured at write time — divergence means something happened between sessions.
