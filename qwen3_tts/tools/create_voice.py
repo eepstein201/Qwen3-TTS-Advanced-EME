@@ -106,7 +106,7 @@ def create_and_save_voice_prompt(audio_path, transcript, prompt_name,
             voice_prompt=voice_prompt,
         )
 
-        test_output = os.path.join(USER_FILES_DIR, f"test_{base_name}.wav")
+        test_output = safe_path_join(USER_FILES_DIR, f"test_{base_name}.wav")
         sf.write(test_output, wav, sr)
         print(f"Test audio saved to: {test_output}")
         from qwen3_tts.core.config import IS_MACOS, IS_LINUX
