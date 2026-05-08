@@ -271,27 +271,29 @@ class TestPlayAudio(unittest.TestCase):
     """Tests for play_audio — platform-aware audio playback."""
 
     @mock.patch("os.path.isfile", return_value=True)
+    @mock.patch("shutil.which", return_value="/usr/bin/afplay")
     @mock.patch("qwen3_tts.interface.generate_helpers.subprocess.run")
     @mock.patch("qwen3_tts.core.config.IS_MACOS", True)
     @mock.patch("qwen3_tts.core.config.IS_LINUX", False)
     @mock.patch("qwen3_tts.core.config.IN_COLAB", False)
-    def test_macos_uses_afplay(self, mock_run, _mock_isfile):
-        """macOS invokes afplay."""
+    def test_macos_uses_afplay(self, mock_run, _mock_which, _mock_isfile):
+        """macOS invokes afplay via absolute path from shutil.which."""
         from qwen3_tts.interface.generate_helpers import play_audio
         play_audio("/tmp/audio.wav")
-        self.assertEqual(mock_run.call_args[0][0][0], "afplay")
+        self.assertIn("afplay", mock_run.call_args[0][0][0])
 
     @mock.patch("os.path.isfile", return_value=True)
+    @mock.patch("shutil.which", return_value="/usr/bin/ffplay")
     @mock.patch("qwen3_tts.interface.generate_helpers.subprocess.run")
     @mock.patch("qwen3_tts.core.config.IS_MACOS", False)
     @mock.patch("qwen3_tts.core.config.IS_LINUX", True)
     @mock.patch("qwen3_tts.core.config.IN_COLAB", False)
-    def test_linux_uses_ffplay(self, mock_run, _mock_isfile):
-        """Linux invokes ffplay with -nodisp -autoexit."""
+    def test_linux_uses_ffplay(self, mock_run, _mock_which, _mock_isfile):
+        """Linux invokes ffplay (absolute path) with -nodisp -autoexit."""
         from qwen3_tts.interface.generate_helpers import play_audio
         play_audio("/tmp/audio.wav")
         cmd = mock_run.call_args[0][0]
-        self.assertEqual(cmd[0], "ffplay")
+        self.assertIn("ffplay", cmd[0])
         self.assertIn("-nodisp", cmd)
 
     @mock.patch("qwen3_tts.core.config.IN_COLAB", True)
