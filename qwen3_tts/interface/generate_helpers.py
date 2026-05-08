@@ -137,6 +137,19 @@ def play_audio(file_path):
     if IN_COLAB:
         logger.info("Audio generated (playback skipped in headless mode)")
         return
+    # Security: validate against path traversal before checking file existence
+    if not isinstance(file_path, str):
+        logger.warning("Invalid file path (not a string)")
+        return
+    # Reject path traversal attempts (but allow legitimate absolute paths)
+    if ".." in file_path:
+        logger.warning("Path traversal detected - rejecting unsafe file path")
+        return
+    # Validate file extension to expected audio formats
+    valid_extensions = (".wav", ".mp3", ".flac", ".ogg", ".m4a")
+    if not any(file_path.lower().endswith(ext) for ext in valid_extensions):
+        logger.warning(f"Invalid audio file format - expected {valid_extensions}")
+        return
     # Validate file exists before playback
     if not os.path.isfile(file_path):
         logger.warning("Audio file not found for playback")
