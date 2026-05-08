@@ -225,8 +225,25 @@ def _generate_server_side(mode, text, history_list, stream_config):
         chunks = getattr(client, "last_chunk_count", 0)
 
         # Copy to user's output directory for persistent access
+        from qwen3_tts.core.config import safe_path_join
+
         config = load_config()
-        output_dir = os.path.expanduser(config.get("output_directory", "~/Downloads"))
+        # Security: validate output_directory against traversal
+        output_raw = config.get("output_directory", "~/Downloads")
+        output_expanded = os.path.expanduser(output_raw)
+        if os.path.isabs(output_expanded):
+            if ".." in output_expanded:
+                raise ValueError(f"Path traversal detected in output_directory config: {output_raw}")
+            output_dir = output_expanded
+        else:
+            output_dir = safe_path_join(os.getcwd(), output_expanded)
+
+        # Verify output_dir is under home directory
+        home = os.path.realpath(os.path.expanduser("~"))
+        resolved = os.path.realpath(output_dir)
+        if not (resolved == home or resolved.startswith(home + os.sep)):
+            raise ValueError(f"output_directory must be under home directory: {output_raw}")
+
         os.makedirs(output_dir, exist_ok=True)
         persistent_path = os.path.join(output_dir, filename)
         shutil.copy2(temp_path, persistent_path)

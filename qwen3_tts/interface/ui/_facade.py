@@ -353,13 +353,31 @@ def _build_design_tab(status_html, history_state, clone_prompt):
         for entry in history_list:
             if entry.get("mode") == "Design" and entry.get("path"):
                 audio_path = entry["path"]
-                if os.path.exists(audio_path):
+                # Security: validate audio_path from history before using
+                from qwen3_tts.core.config import safe_path_join
+                import pathlib
+
+                audio_expanded = os.path.expanduser(audio_path)
+                if os.path.isabs(audio_expanded):
+                    if ".." in audio_expanded:
+                        return f"Path traversal detected in history path: {audio_path}", gr.update()
+                    safe_audio_path = audio_expanded
+                else:
+                    safe_audio_path = safe_path_join(os.getcwd(), audio_expanded)
+
+                # Verify path is under home directory
+                home = os.path.realpath(os.path.expanduser("~"))
+                resolved = os.path.realpath(safe_audio_path)
+                if not (resolved == home or resolved.startswith(home + os.sep)):
+                    return f"History path must be under home directory: {audio_path}", gr.update()
+
+                if os.path.exists(safe_audio_path):
                     try:
                         from qwen3_tts.tools.create_voice import create_and_save_voice_prompt
                         backend = get_backend()
                         mlx_only = (backend == "mlx") or IN_COLAB
                         create_and_save_voice_prompt(
-                            audio_path, "", voice_name,
+                            safe_audio_path, "", voice_name,
                             test_generation=False, mlx_only=mlx_only,
                         )
                         prompts = get_voice_prompts()

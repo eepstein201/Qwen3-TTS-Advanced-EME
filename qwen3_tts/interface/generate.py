@@ -585,7 +585,18 @@ def _handle_dry_run(args, config, gen_params, use_server, max_chunk_chars):
 
     texts = []
     if args.batch:
-        batch_path = os.path.expanduser(args.batch)
+        from qwen3_tts.core.config import safe_path_join
+
+        # Security: validate batch_path against traversal
+        batch_raw = args.batch
+        batch_expanded = os.path.expanduser(batch_raw)
+        if os.path.isabs(batch_expanded):
+            if ".." in batch_expanded:
+                raise ValueError(f"Path traversal detected in batch path: {batch_raw}")
+            batch_path = batch_expanded
+        else:
+            batch_path = safe_path_join(os.getcwd(), batch_expanded)
+
         with open(batch_path, "r") as f:
             texts = json.load(f)
     elif args.text:
