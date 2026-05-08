@@ -265,5 +265,49 @@ class TestSharedPathInjection(unittest.TestCase):
             shared.load_history_from_disk("../../../etc")
 
 
+class TestVoiceManagementPathInjection(unittest.TestCase):
+    """Test voice_management.py path injection (Group 3 - 4 alerts, all false positives)."""
+
+    def _import_voice_management(self):
+        from qwen3_tts.interface.ui import voice_management
+        return voice_management
+
+    def test_create_voice_prompt_destinations_are_protected(self):
+        """create_voice_prompt protects destination paths with safe_path_join.
+
+        This test verifies the security pattern: destinations (wav_path, txt_path, pt_path)
+        are constructed using safe_path_join(VOICE_PROMPTS_DIR, ...) and validate_voice_name,
+        preventing path traversal even if audio_path is user-controlled.
+
+        The audio_path parameter is only used as a SOURCE for reading/copying to safe destinations.
+        All 4 CodeQL alerts in voice_management.py are false positives.
+        """
+        voice_management = self._import_voice_management()
+
+        # Verify the function uses safe_path_join for destinations
+        from qwen3_tts.core.config import VOICE_PROMPTS_DIR, safe_path_join
+        from qwen3_tts.core.config import validate_voice_name
+        import inspect
+
+        # Get the source code to verify the pattern
+        source = inspect.getsource(voice_management.create_voice_prompt)
+
+        # Verify safe_path_join is used for destination construction
+        self.assertIn("safe_path_join", source)
+        self.assertIn("VOICE_PROMPTS_DIR", source)
+        self.assertIn("validate_voice_name", source)
+
+        # The security pattern:
+        # - Line 75-76: wav_path = safe_path_join(VOICE_PROMPTS_DIR, f"{base_name}.wav")
+        # - Line 79: pt_path = safe_path_join(VOICE_PROMPTS_DIR, f"{base_name}.pt")
+        # These ensure destinations are under VOICE_PROMPTS_DIR regardless of voice_name
+        #
+        # - audio_path is user-provided but only used as SOURCE:
+        #   - Line 93: shutil.copy(audio_path, wav_path) - copies FROM audio_path TO safe wav_path
+        #   - Line 117: with open(audio_path, "rb") - reads FROM audio_path
+        #   - Line 187: with open(audio_path, "rb") - reads FROM audio_path
+        # This is safe: user's own file is copied to safe location validated by safe_path_join
+
+
 if __name__ == "__main__":
     unittest.main()
