@@ -22,6 +22,7 @@ from qwen3_tts.core.config import (
     is_server_running,
     load_config,
     safe_path_join,
+    validate_voice_name,
 )
 from qwen3_tts.interface.voice_helpers import (
     strip_extension,
@@ -65,6 +66,10 @@ def create_voice_prompt(audio_path, transcript, voice_name, no_transcript=False,
 
     # Build output path
     base_name = strip_extension(voice_name)
+    try:
+        validate_voice_name(base_name)
+    except ValueError as exc:
+        raise gr.Error(str(exc))
     if backend == "mlx":
         # MLX needs .wav + .txt pair
         wav_path = safe_path_join(VOICE_PROMPTS_DIR, f"{base_name}.wav")
