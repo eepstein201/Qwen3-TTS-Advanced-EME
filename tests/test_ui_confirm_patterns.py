@@ -11,6 +11,7 @@ Coverage:
 
 import time
 import unittest
+from unittest.mock import patch
 
 
 class TestConfirmStep(unittest.TestCase):
@@ -82,9 +83,13 @@ class TestConfirmStep(unittest.TestCase):
     def test_09_custom_timeout_respected(self):
         """Custom timeout_s=0 means armed state always expires immediately."""
         confirm_step = self._import()
-        state = {"armed": True, "ts": time.time()}
-        # timeout_s=0 → even a just-armed click is expired
-        _, _, confirmed = confirm_step(state, "Confirm?", "Delete", timeout_s=0)
+        # Use a fixed timestamp to avoid timing dependency
+        fixed_time = 1234567890.0
+        state = {"armed": True, "ts": fixed_time}
+        # Mock time.time() to return fixed_time + 0.1 to simulate slight delay
+        with patch("time.time", return_value=fixed_time + 0.1):
+            # timeout_s=0 → even a just-armed click is expired
+            _, _, confirmed = confirm_step(state, "Confirm?", "Delete", timeout_s=0)
         self.assertFalse(confirmed)
 
 
