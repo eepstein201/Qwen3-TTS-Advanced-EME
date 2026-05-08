@@ -168,9 +168,9 @@ class TestCreateVoiceTestOutputTraversal(unittest.TestCase):
                 )
 
             self.assertIn(
-                "traversal",
+                "invalid",
                 str(ctx.exception).lower(),
-                "ValueError raised but message doesn't mention traversal",
+                "ValueError raised but message doesn't mention invalid input",
             )
 
     def test_absolute_prompt_name_raises_value_error(self):
@@ -204,9 +204,9 @@ class TestCreateVoiceTestOutputTraversal(unittest.TestCase):
                 )
 
             self.assertIn(
-                "traversal",
+                "invalid",
                 str(ctx.exception).lower(),
-                "ValueError raised but message doesn't mention traversal",
+                "ValueError raised but message doesn't mention invalid input",
             )
 
 
