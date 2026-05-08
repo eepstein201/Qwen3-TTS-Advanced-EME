@@ -127,6 +127,8 @@ def create_and_save_voice_prompt(audio_path, transcript, prompt_name,
 
 def _resolve_audio_path(args) -> str:
     """Resolve the reference audio path from args or interactive input."""
+    from qwen3_tts.core.config import safe_path_join
+
     if not args.audio:
         print("\n=== Create Custom Voice Clone ===\n")
         audio_path = input("Path to reference audio file: ").strip()
@@ -136,14 +138,28 @@ def _resolve_audio_path(args) -> str:
     else:
         audio_path = args.audio
 
-    audio_path = os.path.expanduser(audio_path)
-    if not os.path.isfile(audio_path):
-        downloads_path = os.path.expanduser(f"~/Downloads/{audio_path}")
+    # Security: validate audio_path against traversal
+    expanded = os.path.expanduser(audio_path)
+    if os.path.isabs(expanded):
+        # Absolute paths: reject if they contain traversal sequences
+        if ".." in expanded:
+            raise ValueError(f"Path traversal detected in audio path: {audio_path}")
+        safe_path = expanded
+    else:
+        # Relative paths: validate against current directory
+        safe_path = safe_path_join(os.getcwd(), expanded)
+
+    if not os.path.isfile(safe_path):
+        # Security: validate downloads fallback path against traversal
+        downloads_dir = os.path.expanduser("~/Downloads")
+        if ".." in audio_path or "/" in audio_path:
+            raise ValueError(f"Path traversal detected in audio filename: {audio_path}")
+        downloads_path = safe_path_join(downloads_dir, os.path.basename(audio_path))
         if os.path.isfile(downloads_path):
             return downloads_path
         print(f"Error: Audio file not found: {audio_path}")
         sys.exit(1)
-    return audio_path
+    return safe_path
 
 
 def _transcribe_with_asr(audio_path: str) -> str | None:
@@ -205,8 +221,18 @@ def _resolve_transcript(args, audio_path: str) -> str:
         print("(You can paste the text directly or provide a path to a .txt file)")
         transcript = input("Transcript: ").strip()
         transcript_path = os.path.expanduser(transcript)
-        if os.path.isfile(transcript_path):
-            with open(transcript_path, "r") as f:
+
+        # Security: validate transcript_path against traversal before file operations
+        if os.path.isabs(transcript_path):
+            if ".." in transcript_path:
+                raise ValueError(f"Path traversal detected in transcript path: {transcript}")
+            safe_transcript_path = transcript_path
+        else:
+            from qwen3_tts.core.config import safe_path_join
+            safe_transcript_path = safe_path_join(os.getcwd(), transcript_path)
+
+        if os.path.isfile(safe_transcript_path):
+            with open(safe_transcript_path, "r") as f:
                 transcript = f.read().strip()
             print(f"Loaded transcript from file ({len(transcript)} chars)")
 
