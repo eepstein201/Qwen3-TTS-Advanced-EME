@@ -100,7 +100,7 @@ class TestAutoIncrementFilenameInjection(unittest.TestCase):
     """Test generate_helpers.py auto_increment_filename."""
 
     def test_auto_increment_rejects_traversal_in_path(self):
-        """auto_increment_filename with traversal in path returns safe version."""
+        """auto_increment_filename with traversal path '../escape/output.wav' raises ValueError."""
         from qwen3_tts.interface.generate_helpers import auto_increment_filename
 
         # Create a temp directory to work in
@@ -109,10 +109,10 @@ class TestAutoIncrementFilenameInjection(unittest.TestCase):
             # Create the file so auto-increment triggers
             open(base_path, 'w').close()
 
-            # This should NOT escape the tmpdir via traversal
-            result = auto_increment_filename(os.path.join(tmpdir, "../escape/output.wav"))
-            # Result should still be under tmpdir or raise ValueError
-            self.assertTrue(result.startswith(tmpdir) or ValueError)
+            # This should raise ValueError due to path traversal attempt
+            with self.assertRaises(ValueError) as ctx:
+                auto_increment_filename(os.path.join(tmpdir, "../escape/output.wav"))
+            self.assertIn("traversal", str(ctx.exception).lower())
 
 
 class TestCreateVoicePathInjection(unittest.TestCase):
@@ -125,6 +125,69 @@ class TestCreateVoicePathInjection(unittest.TestCase):
         with self.assertRaises(ValueError) as ctx:
             validate_voice_name("../../../etc/passwd")
         self.assertIn("invalid", str(ctx.exception).lower())
+
+
+class TestGenerateHelpersPathInjection(unittest.TestCase):
+    """Test generate_helpers.py path injection vulnerabilities (Group 1 - 9 alerts)."""
+
+    def _import_generate_helpers(self):
+        from qwen3_tts.interface import generate_helpers
+        return generate_helpers
+
+    def test_get_text_rejects_traversal_expanded_path(self):
+        """get_text with traversal path '../../../etc/passwd' raises ValueError."""
+        generate_helpers = self._import_generate_helpers()
+        with tempfile.NamedTemporaryFile(mode='w', suffix='.txt', delete=False) as f:
+            f.write("safe content")
+            safe_path = f.name
+
+        try:
+            # This should work - safe path
+            result = generate_helpers.get_text(safe_path)
+            self.assertEqual(result, "safe content")
+        finally:
+            os.unlink(safe_path)
+
+        # This should raise - traversal attempt
+        with self.assertRaises(ValueError):
+            generate_helpers.get_text("../../../etc/passwd")
+
+    def test_get_text_rejects_traversal_downloads_path(self):
+        """get_text with '../escape in filename triggers ValueError."""
+        generate_helpers = self._import_generate_helpers()
+        # The weak guard (".." not in text_or_file) should catch this
+        with self.assertRaises(ValueError):
+            generate_helpers.get_text("../escape.txt")
+
+    def test_auto_increment_filename_rejects_traversal(self):
+        """auto_increment_filename with traversal path '../escape.wav' raises ValueError."""
+        generate_helpers = self._import_generate_helpers()
+        # Create temp directory to work in
+        with tempfile.TemporaryDirectory() as tmpdir:
+            # This should work - safe path
+            safe_path = os.path.join(tmpdir, "output.wav")
+            result = generate_helpers.auto_increment_filename(safe_path)
+            self.assertEqual(result, safe_path)
+
+            # This should raise - traversal attempt
+            with self.assertRaises(ValueError):
+                generate_helpers.auto_increment_filename(os.path.join(tmpdir, "../escape/output.wav"))
+
+    def test_parse_srt_rejects_traversal_path(self):
+        """parse_srt with traversal path '../../../malicious.srt' raises ValueError."""
+        generate_helpers = self._import_generate_helpers()
+        # This should raise - traversal attempt
+        with self.assertRaises(ValueError):
+            generate_helpers.parse_srt("../../../etc/passwd")
+
+    def test_save_base64_result_rejects_traversal_path(self):
+        """_save_base64_result with traversal output path raises ValueError."""
+        generate_helpers = self._import_generate_helpers()
+        mock_result = {"audio_base64": "dGVzdCBiYXNlNjQgYXVkaW8"}  # "test base64 audio"
+
+        # This should raise - traversal attempt
+        with self.assertRaises(ValueError):
+            generate_helpers._save_base64_result(mock_result, "../../../etc/passwd.wav")
 
 
 if __name__ == "__main__":

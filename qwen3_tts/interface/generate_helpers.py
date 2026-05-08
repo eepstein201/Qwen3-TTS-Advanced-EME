@@ -63,12 +63,23 @@ def list_voice_prompts():
 def get_text(text_or_file):
     """Get text from argument - either direct text or file path."""
     expanded = os.path.expanduser(text_or_file)
-    if os.path.isfile(expanded):
-        with open(expanded, "r") as f:
+    # Security: validate expanded path against traversal
+    if os.path.isabs(expanded):
+        # Allow absolute paths (user explicitly chose this location)
+        safe_path = expanded
+    else:
+        # Relative path: validate to prevent traversal
+        safe_path = safe_path_join(os.getcwd(), expanded)
+
+    if os.path.isfile(safe_path):
+        with open(safe_path, "r") as f:
             return f.read().strip()
+
     # Path traversal guard: only look up bare filenames in ~/Downloads
     if ".." not in text_or_file and "/" not in text_or_file:
-        downloads_path = os.path.expanduser(f"~/Downloads/{text_or_file}")
+        downloads_dir = os.path.expanduser("~/Downloads")
+        # Security: validate downloads path against traversal
+        downloads_path = safe_path_join(downloads_dir, text_or_file)
         if os.path.isfile(downloads_path):
             with open(downloads_path, "r") as f:
                 return f.read().strip()
@@ -111,10 +122,20 @@ def auto_increment_filename(path):
 
     output.wav -> output_2.wav -> output_3.wav
     """
-    if not os.path.exists(path):
-        return path
+    # Security: validate path against traversal before processing
+    if os.path.isabs(path):
+        # Absolute paths: reject if they contain traversal sequences
+        if ".." in path:
+            raise ValueError(f"Path traversal detected in absolute path: {path}")
+        safe_path = path
+    else:
+        # Relative path: validate to prevent traversal
+        safe_path = safe_path_join(os.getcwd(), path)
 
-    base, ext = os.path.splitext(path)
+    if not os.path.exists(safe_path):
+        return safe_path
+
+    base, ext = os.path.splitext(safe_path)
     # Check if base already ends with _N
     match = re.match(r'^(.+)_(\d+)$', base)
     if match:
@@ -374,7 +395,15 @@ def process_ssml_text(text, args):
 
 def parse_srt(srt_path):
     """Parse an SRT subtitle file."""
-    with open(srt_path, "r", encoding="utf-8") as f:
+    # Security: validate srt_path against traversal
+    if os.path.isabs(srt_path):
+        # Allow absolute paths (user explicitly chose this location)
+        safe_path = srt_path
+    else:
+        # Relative path: validate to prevent traversal
+        safe_path = safe_path_join(os.getcwd(), srt_path)
+
+    with open(safe_path, "r", encoding="utf-8") as f:
         content = f.read()
 
     pattern = r"(\d+)\s*\n(\d{2}:\d{2}:\d{2},\d{3})\s*-->\s*(\d{2}:\d{2}:\d{2},\d{3})\s*\n(.*?)(?=\n\n|\Z)"
@@ -461,9 +490,17 @@ def _decode_base64_result(result):
 
 def _save_base64_result(result, output_path):
     """Save base64 audio from server response directly to a WAV file."""
+    # Security: validate output_path against traversal
+    if os.path.isabs(output_path):
+        # Allow absolute paths (user explicitly chose this location)
+        safe_path = output_path
+    else:
+        # Relative path: validate to prevent traversal
+        safe_path = safe_path_join(os.getcwd(), output_path)
+
     import base64
     audio_bytes = base64.b64decode(result["audio_base64"])
-    with open(output_path, "wb") as f:
+    with open(safe_path, "wb") as f:
         f.write(audio_bytes)
 
 
