@@ -89,28 +89,30 @@ def test_play_audio_colab_skips():
 
 @pytest.mark.unit
 def test_play_audio_macos():
-    """play_audio calls afplay on macOS."""
+    """play_audio calls afplay (absolute path) on macOS."""
     from qwen3_tts.interface.generate_helpers import play_audio
 
     with _set_platform(macos=True), \
          patch("subprocess.run") as mock_run, \
-         patch("os.path.isfile", return_value=True):
+         patch("os.path.isfile", return_value=True), \
+         patch("shutil.which", return_value="/usr/bin/afplay"):
         play_audio("/tmp/test.wav")
     mock_run.assert_called_once()
-    assert mock_run.call_args[0][0] == ["afplay", "/tmp/test.wav"]
+    assert mock_run.call_args[0][0] == ["/usr/bin/afplay", "/tmp/test.wav"]
 
 
 @pytest.mark.unit
 def test_play_audio_linux():
-    """play_audio calls ffplay on Linux."""
+    """play_audio calls ffplay (absolute path) on Linux."""
     from qwen3_tts.interface.generate_helpers import play_audio
 
     with _set_platform(linux=True), \
          patch("subprocess.run") as mock_run, \
-         patch("os.path.isfile", return_value=True):
+         patch("os.path.isfile", return_value=True), \
+         patch("shutil.which", return_value="/usr/bin/ffplay"):
         play_audio("/tmp/test.wav")
     mock_run.assert_called_once()
-    assert "ffplay" in mock_run.call_args[0][0]
+    assert "/usr/bin/ffplay" in mock_run.call_args[0][0][0]
 
 
 # ---- open_file in Colab ----
