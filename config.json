@@ -6,7 +6,9 @@
     "design": {
       "load_at_startup": false
     },
-    "custom": {}
+    "custom": {
+      "load_at_startup": false
+    }
   },
   "advanced": {
     "model_size": "1.7B",
