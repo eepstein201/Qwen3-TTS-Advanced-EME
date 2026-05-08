@@ -218,5 +218,52 @@ class TestGenerateHelpersPathInjection(unittest.TestCase):
             generate_helpers._save_base64_result(mock_result, "../../../etc/passwd.wav")
 
 
+class TestSharedPathInjection(unittest.TestCase):
+    """Test shared.py path injection vulnerabilities (Group 3 - 6 alerts)."""
+
+    def _import_shared(self):
+        from qwen3_tts.interface.ui import shared
+        return shared
+
+    def test_save_generation_metadata_rejects_traversal_wav_path(self):
+        """save_generation_metadata with traversal wav_path '../../../escape.wav' raises ValueError."""
+        shared = self._import_shared()
+        metadata = {"text": "test", "mode": "clone"}
+
+        # This should raise - traversal attempt in wav_path
+        with self.assertRaises(ValueError):
+            shared.save_generation_metadata("../../../escape.wav", metadata)
+
+    def test_save_generation_metadata_rejects_absolute_escape(self):
+        """save_generation_metadata with absolute path escaping home raises ValueError."""
+        shared = self._import_shared()
+        metadata = {"text": "test", "mode": "clone"}
+
+        # This should raise - absolute path outside home directory
+        with self.assertRaises(ValueError):
+            shared.save_generation_metadata("/etc/passwd.wav", metadata)
+
+    def test_load_history_from_disk_with_safe_output_dir(self):
+        """load_history_from_disk with safe output_dir under home works."""
+        shared = self._import_shared()
+        import tempfile
+
+        # Create temp directory under home (required by security fix)
+        home = os.path.expanduser("~")
+        with tempfile.TemporaryDirectory(dir=home) as tmpdir:
+            # Create temp directory under home (should work)
+            entries = shared.load_history_from_disk(tmpdir)
+            self.assertIsInstance(entries, list)
+            self.assertEqual(entries, [])  # No JSON files in empty dir
+
+    def test_load_history_from_disk_rejects_traversal_output_dir(self):
+        """load_history_from_disk with traversal output_dir '../../../etc' raises ValueError."""
+        shared = self._import_shared()
+
+        # This should raise - traversal attempt in output_dir
+        with self.assertRaises(ValueError):
+            shared.load_history_from_disk("../../../etc")
+
+
 if __name__ == "__main__":
     unittest.main()
