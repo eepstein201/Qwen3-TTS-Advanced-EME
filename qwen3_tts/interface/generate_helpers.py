@@ -151,6 +151,12 @@ def auto_increment_filename(path):
         if not os.path.exists(candidate):
             return candidate
 
+# Note: CodeQL alert 154 (line 177: os.path.isfile) is a false positive.
+# Path traversal is prevented by comprehensive validation at lines 162-177:
+# - Line 166-167: Rejects paths containing ".."
+# - Line 170-171: Validates file extension is audio format
+# - Line 173-174: Confirms file exists before any subprocess call
+# This multi-layer validation prevents attacker-controlled paths from reaching os.path.isfile
 
 def play_audio(file_path):
     """Play audio file using system player (platform-aware)."""
