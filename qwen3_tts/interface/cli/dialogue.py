@@ -79,17 +79,37 @@ def process_dialogue(dialogue_path, config, args, gen_params, use_server):
         print("Error: No dialogue lines found in file")
         return
 
-    base_dir = os.path.expanduser(config.get("output_directory", "~/Downloads"))
-    # Security: validate path output against traversal
+    from qwen3_tts.core.config import safe_path_join
+
+    # Security: validate output directory against path traversal
+    base_raw = config.get("output_directory", "~/Downloads")
+    base_expanded = os.path.expanduser(base_raw)
+    if os.path.isabs(base_expanded):
+        if ".." in base_expanded:
+            raise ValueError(f"Path traversal detected in output_directory config: {base_raw}")
+        base_dir = base_expanded
+    else:
+        base_dir = safe_path_join(os.getcwd(), base_expanded)
+
+    # Security: validate args.output against path traversal
     if args.output:
-        if os.path.isabs(args.output):
-            # Allow absolute paths (user explicitly chose this location)
-            output_dir = args.output
+        output_raw = args.output
+        output_expanded = os.path.expanduser(output_raw)
+        if os.path.isabs(output_expanded):
+            if ".." in output_expanded:
+                raise ValueError(f"Path traversal detected in output path: {output_raw}")
+            output_dir = output_expanded
         else:
-            # Relative path: validate to prevent traversal
-            output_dir = safe_path_join(base_dir, args.output)
+            output_dir = safe_path_join(os.getcwd(), output_expanded)
+
+        # Verify output_dir is under home directory (user data should be in home)
+        home = os.path.realpath(os.path.expanduser("~"))
+        resolved = os.path.realpath(output_dir)
+        if not (resolved == home or resolved.startswith(home + os.sep)):
+            raise ValueError(f"output path must be under home directory: {output_raw}")
     else:
         output_dir = base_dir
+
     os.makedirs(output_dir, exist_ok=True)
 
     basename = os.path.splitext(os.path.basename(dialogue_path))[0]

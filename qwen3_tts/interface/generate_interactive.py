@@ -587,14 +587,38 @@ def run_watch_mode(watch_dir, config, args, gen_params, use_server):
     from watchdog.observers import Observer
     from watchdog.events import FileSystemEventHandler
     from qwen3_tts.interface.generate_server import generate_local, generate_via_server
+    from qwen3_tts.core.config import safe_path_join
 
-    watch_dir = os.path.expanduser(watch_dir)
-    if not os.path.isdir(watch_dir):
-        print(f"Error: Directory not found: {watch_dir}")
+    # Security: validate watch_dir against traversal
+    expanded = os.path.expanduser(watch_dir)
+    if os.path.isabs(expanded):
+        if ".." in expanded:
+            raise ValueError(f"Path traversal detected in watch_dir: {watch_dir}")
+        safe_watch_dir = expanded
+    else:
+        safe_watch_dir = safe_path_join(os.getcwd(), expanded)
+
+    if not os.path.isdir(safe_watch_dir):
+        print(f"Error: Directory not found: {safe_watch_dir}")
         return
 
-    output_dir = os.path.expanduser(args.output or config.get("output_directory", "~/Downloads"))
-    os.makedirs(output_dir, exist_ok=True)
+    # Security: validate output_dir against traversal
+    output_raw = args.output or config.get("output_directory", "~/Downloads")
+    expanded = os.path.expanduser(output_raw)
+    if os.path.isabs(expanded):
+        if ".." in expanded:
+            raise ValueError(f"Path traversal detected in output_dir: {output_raw}")
+        safe_output_dir = expanded
+    else:
+        safe_output_dir = safe_path_join(os.getcwd(), expanded)
+
+    # Verify output_dir is under home directory
+    home = os.path.realpath(os.path.expanduser("~"))
+    resolved = os.path.realpath(safe_output_dir)
+    if not (resolved == home or resolved.startswith(home + os.sep)):
+        raise ValueError(f"output_dir must be under home directory: {output_raw}")
+
+    os.makedirs(safe_output_dir, exist_ok=True)
 
     mode = args.mode or "clone"
     prompt_file = args.prompt or get_default_clone_prompt(config)

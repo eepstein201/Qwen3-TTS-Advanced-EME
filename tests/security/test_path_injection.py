@@ -309,5 +309,42 @@ class TestVoiceManagementPathInjection(unittest.TestCase):
         # This is safe: user's own file is copied to safe location validated by safe_path_join
 
 
+class TestGenerateInteractivePathInjection(unittest.TestCase):
+    """Test generate_interactive.py path injection (Group 4 - 2 alerts)."""
+
+    def _import_generate_interactive(self):
+        from qwen3_tts.interface import generate_interactive
+        return generate_interactive
+
+    def test_run_watch_mode_validates_watch_dir(self):
+        """run_watch_mode should validate watch_dir parameter (line 592)."""
+        generate_interactive = self._import_generate_interactive()
+        import inspect
+
+        # Verify the function validates watch_dir with safe_path_join
+        source = inspect.getsource(generate_interactive.run_watch_mode)
+
+        # Check for security validation patterns
+        self.assertIn("safe_path_join", source)
+        self.assertIn("Path traversal detected", source)
+        # Verify os.path.isdir is called on safe_watch_dir, not raw watch_dir
+        self.assertIn("os.path.isdir(safe_watch_dir)", source)
+
+    def test_run_watch_mode_validates_output_dir(self):
+        """run_watch_mode should validate output_dir parameter (line 597)."""
+        generate_interactive = self._import_generate_interactive()
+        import inspect
+
+        # Verify the function validates output_dir with safe_path_join
+        source = inspect.getsource(generate_interactive.run_watch_mode)
+
+        # Check for security validation patterns
+        self.assertIn("safe_path_join", source)
+        self.assertIn("Path traversal detected", source)
+        self.assertIn("output_dir must be under home directory", source)
+        # Verify os.makedirs is called on safe_output_dir, not raw output_dir
+        self.assertIn("os.makedirs(safe_output_dir", source)
+
+
 if __name__ == "__main__":
     unittest.main()
