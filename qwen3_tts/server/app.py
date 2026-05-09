@@ -20,40 +20,40 @@ import secrets
 import signal
 import sys
 import time
-from typing import Optional
 
-from fastapi import FastAPI, Request, HTTPException, Depends, WebSocket
-from fastapi.middleware.cors import CORSMiddleware
 import uvicorn
+from fastapi import Depends, FastAPI, HTTPException, Request, WebSocket
+from fastapi.middleware.cors import CORSMiddleware
 
 # Rate limiting (R-13)
 from slowapi import Limiter, _rate_limit_exceeded_handler
 from slowapi.errors import RateLimitExceeded
+
 _HAS_SLOWAPI = True
 
 logger = logging.getLogger("tts")
 
 from qwen3_tts.core.config import (  # noqa: E402
-    TOKEN_FILE,
-    LOG_FILE,
     IN_COLAB,
+    LOG_FILE,
+    TOKEN_FILE,
     ConfigLoader,
     DefaultConfigLoader,
-    load_config,
+    cleanup_pid_file,
     get_backend,
-    get_torch_dtype_name,
     get_mlx_quantization,
     get_model_size,
-    cleanup_pid_file,
+    get_torch_dtype_name,
+    load_config,
     sanitize_log,
 )
 
 # Config loader — can be replaced in tests for config injection
 _DEFAULT_CONFIG_LOADER = DefaultConfigLoader()
-_app_config_provider: Optional[ConfigLoader] = None
+_app_config_provider: ConfigLoader | None = None
 
 
-def set_app_config_provider(provider: Optional[ConfigLoader]) -> None:
+def set_app_config_provider(provider: ConfigLoader | None) -> None:
     """Set a custom config loader for testing or custom deployments."""
     global _app_config_provider
     _app_config_provider = provider
@@ -64,73 +64,71 @@ def _get_app_config() -> dict:
     return (_app_config_provider or _DEFAULT_CONFIG_LOADER).load()
 
 
-from qwen3_tts.server.websocket import websocket_tts_handler  # noqa: E402
-
-# Import validation module (models and helpers)
-from qwen3_tts.server.validation import (  # noqa: E402
-    # Request models
-    GenerateRequest,
-    LoadModelRequest,
-    UnloadModelRequest,
-    UpdateModelConfigRequest,
-    UpdateStartupConfigRequest,
-    DeletePromptRequest,
-    RenamePromptRequest,
-    TranscribeRequest,
-    CreateVoicePromptRequest,
-    # Response models
-    ErrorResponse,  # noqa: F401 (imported by test code via app module)
-    GenerateResponse,
-    GenerateResult,  # noqa: F401 (imported by test code via app module)
-    HealthResponse,
-    # Validation helpers
-    _validate_generation_request,  # noqa: F401 (re-exported for test backward compat)
-    _gen_cache_key,  # noqa: F401 (re-exported for test backward compat)
-    _error_response,  # noqa: F401 (re-exported for test backward compat)
-)
-
-# Import lifecycle/infrastructure from app_lifespan
-from qwen3_tts.server.app_lifespan import (  # noqa: E402
-    MAX_ERROR_MSG_LEN,  # noqa: F401 (re-exported)
-    _sanitize_error,  # noqa: F401 (re-exported for test backward compat)
-    _estimate_eta,
-    _check_memory_available,  # noqa: F401 (re-exported for test backward compat)
-    _get_queue_size,  # noqa: F401 (re-exported for test backward compat)
-    reset_activity_timer,
-    auto_shutdown,  # noqa: F401 (re-exported for test backward compat)
-    lifespan,
-    _background_load,  # noqa: F401 (re-exported for test backward compat)
-    cleanup_resources,
-    cleanup_pid,  # noqa: F401 (re-exported for test backward compat)
-)
-
 # Import generation handlers
 from qwen3_tts.server.app_generation import (  # noqa: E402
     handle_generate,
     handle_generate_stream,
 )
 
+# Import lifecycle/infrastructure from app_lifespan
+from qwen3_tts.server.app_lifespan import (  # noqa: E402
+    MAX_ERROR_MSG_LEN,  # noqa: F401 (re-exported)
+    _background_load,  # noqa: F401 (re-exported for test backward compat)
+    _check_memory_available,  # noqa: F401 (re-exported for test backward compat)
+    _estimate_eta,
+    _get_queue_size,  # noqa: F401 (re-exported for test backward compat)
+    _sanitize_error,  # noqa: F401 (re-exported for test backward compat)
+    auto_shutdown,  # noqa: F401 (re-exported for test backward compat)
+    cleanup_pid,  # noqa: F401 (re-exported for test backward compat)
+    cleanup_resources,
+    lifespan,
+    reset_activity_timer,
+)
+
 # Import model/stats and prompt handlers
 from qwen3_tts.server.app_models import (  # noqa: E402
-    handle_stats,
     handle_list_models,
+    handle_load_asr,
     handle_load_model,
+    handle_stats,
+    handle_transcribe,
+    handle_unload_asr,
     handle_unload_model,
     handle_update_model_config,
     handle_update_startup_config,
-    handle_load_asr,
-    handle_unload_asr,
-    handle_transcribe,
 )
 from qwen3_tts.server.app_prompts import (  # noqa: E402
-    handle_list_prompts,
+    handle_create_voice_prompt,
     handle_delete_prompt,
-    handle_rename_prompt,
+    handle_list_prompts,
     handle_preview_prompt,
     handle_prompt_details,
-    handle_create_voice_prompt,
+    handle_rename_prompt,
 )
 
+# Import validation module (models and helpers)
+from qwen3_tts.server.validation import (  # noqa: E402
+    CreateVoicePromptRequest,
+    DeletePromptRequest,
+    # Response models
+    ErrorResponse,  # noqa: F401 (imported by test code via app module)
+    # Request models
+    GenerateRequest,
+    GenerateResponse,
+    GenerateResult,  # noqa: F401 (imported by test code via app module)
+    HealthResponse,
+    LoadModelRequest,
+    RenamePromptRequest,
+    TranscribeRequest,
+    UnloadModelRequest,
+    UpdateModelConfigRequest,
+    UpdateStartupConfigRequest,
+    _error_response,  # noqa: F401 (re-exported for test backward compat)
+    _gen_cache_key,  # noqa: F401 (re-exported for test backward compat)
+    # Validation helpers
+    _validate_generation_request,  # noqa: F401 (re-exported for test backward compat)
+)
+from qwen3_tts.server.websocket import websocket_tts_handler  # noqa: E402
 
 # ---------------------------------------------------------------------------
 # Real client IP resolution (R-13)
@@ -166,7 +164,9 @@ def _get_rate_limit_key(request: Request) -> str:
     client_ip = _get_real_client_ip(request)
     token = request.headers.get("Authorization", "").replace("Bearer ", "")
     # Hash token to avoid leaking sensitive data in rate limit keys
-    token_hash = hashlib.sha256(token.encode()).hexdigest()[:16] if token else "anonymous"
+    token_hash = (
+        hashlib.sha256(token.encode()).hexdigest()[:16] if token else "anonymous"
+    )
     return f"{client_ip}:{token_hash}"
 
 
@@ -543,7 +543,9 @@ async def create_voice_prompt_endpoint(
 
 
 @app.post("/cancel-generation")
-async def cancel_generation(request: Request, _auth: None = Depends(verify_auth)) -> dict:
+async def cancel_generation(
+    request: Request, _auth: None = Depends(verify_auth)
+) -> dict:
     """Cancel the current streaming generation."""
     state = request.app.state
     reset_activity_timer(state)
@@ -653,7 +655,7 @@ async def shutdown(request: Request, _auth: None = Depends(verify_auth)) -> dict
         """Run cleanup then SIGTERM self — matches _signal_handler pattern."""
         cleanup_pid_file()
         try:
-            with open(TOKEN_FILE, "r") as f:
+            with open(TOKEN_FILE) as f:
                 on_disk = f.read().strip()
             if on_disk == state.auth_token:
                 os.remove(TOKEN_FILE)

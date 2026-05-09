@@ -6,16 +6,15 @@ This module contains:
 - Helper functions for prompt name validation
 - Error response helpers
 """
+
 import hashlib
 import re
 from pathlib import Path
-from typing import Optional, List
 
 from fastapi import HTTPException
 from pydantic import BaseModel, Field
 
 from qwen3_tts.core.config import CUSTOM_VOICE_SPEAKERS, VOICE_PROMPTS_DIR
-
 
 MAX_PROMPT_NAME_LEN = 255  # max length for voice prompt names
 MAX_AUDIO_BASE64_BYTES = 50 * 1024 * 1024  # 50MB base64 ≈ 37.5MB raw audio
@@ -30,69 +29,79 @@ _VALID_SPEAKER_NAMES = frozenset(CUSTOM_VOICE_SPEAKERS.keys()) | frozenset(
 # Pydantic models for request validation
 # ---------------------------------------------------------------------------
 
+
 class GenerateRequest(BaseModel):
     """Request model for /generate and /generate-stream endpoints."""
-    text: Optional[str] = None
-    texts: Optional[List[str]] = None
+
+    text: str | None = None
+    texts: list[str] | None = None
     mode: str = "clone"
-    prompt_file: Optional[str] = None
+    prompt_file: str | None = None
     voice_description: str = ""
     language: str = "English"
-    speaker: Optional[str] = None
+    speaker: str | None = None
     instruct: str = ""
     temperature: float = Field(default=0.7, ge=0.0, le=2.0)
     top_k: int = Field(default=50, ge=1, le=1000)
     top_p: float = Field(default=0.95, ge=0.0, le=1.0)
     repetition_penalty: float = Field(default=1.05, ge=0.5, le=2.0)
     max_new_tokens: int = Field(default=2048, ge=1, le=8192)
-    seed: Optional[int] = None
-    max_chunk_chars: Optional[int] = None
+    seed: int | None = None
+    max_chunk_chars: int | None = None
     x_vector_only_mode: bool = False
     seed_lock_chunks: bool = False
 
 
 class LoadModelRequest(BaseModel):
     """Request model for /load-model endpoint."""
+
     model_type: str
 
 
 class UnloadModelRequest(BaseModel):
     """Request model for /unload-model endpoint."""
+
     model_type: str
 
 
 class UpdateModelConfigRequest(BaseModel):
     """Request model for /update-model-config endpoint."""
-    model_size: Optional[str] = None
-    mlx_quantization: Optional[str] = None
+
+    model_size: str | None = None
+    mlx_quantization: str | None = None
 
 
 class UpdateStartupConfigRequest(BaseModel):
     """Request model for /update-startup-config endpoint."""
-    clone: Optional[bool] = None
-    design: Optional[bool] = None
-    custom: Optional[bool] = None
+
+    clone: bool | None = None
+    design: bool | None = None
+    custom: bool | None = None
 
 
 class DeletePromptRequest(BaseModel):
     """Request model for /delete-prompt endpoint."""
+
     name: str
 
 
 class RenamePromptRequest(BaseModel):
     """Request model for /rename-prompt endpoint."""
+
     old_name: str
     new_name: str
 
 
 class TranscribeRequest(BaseModel):
     """Request model for /transcribe endpoint."""
+
     audio_base64: str = Field(max_length=MAX_AUDIO_BASE64_BYTES)
-    language: str = Field(default="en", pattern=r'^[a-z]{2,3}(-[A-Za-z]{2,4})?$')
+    language: str = Field(default="en", pattern=r"^[a-z]{2,3}(-[A-Za-z]{2,4})?$")
 
 
 class CreateVoicePromptRequest(BaseModel):
     """Request model for /create-voice-prompt endpoint."""
+
     audio_base64: str = Field(max_length=MAX_AUDIO_BASE64_BYTES)
     transcript: str = ""
     name: str
@@ -103,8 +112,10 @@ class CreateVoicePromptRequest(BaseModel):
 # Pydantic models for response validation
 # ---------------------------------------------------------------------------
 
+
 class ErrorResponse(BaseModel):
     """Standard error response model."""
+
     error: str
     detail: str = ""
     recovery: str = "retry"
@@ -112,35 +123,39 @@ class ErrorResponse(BaseModel):
 
 class GenerateResult(BaseModel):
     """Single generation result."""
+
     index: int
-    audio_base64: Optional[str] = None
+    audio_base64: str | None = None
     sample_rate: int
-    peaks: Optional[List[float]] = None
-    chunks: Optional[int] = None
+    peaks: list[float] | None = None
+    chunks: int | None = None
 
 
 class GenerateResponse(BaseModel):
     """Response model for /generate endpoint."""
-    results: List[GenerateResult]
+
+    results: list[GenerateResult]
 
 
 class HealthResponse(BaseModel):
     """Response model for /health endpoint."""
+
     status: str
-    backend: Optional[str] = None
-    model_size: Optional[str] = None
-    clone_model_loaded: Optional[bool] = None
-    design_model_loaded: Optional[bool] = None
-    custom_model_loaded: Optional[bool] = None
-    model_load_times: Optional[dict] = None
-    model_load_errors: Optional[dict] = None
-    mlx_quantization: Optional[str] = None
-    dtype: Optional[str] = None
+    backend: str | None = None
+    model_size: str | None = None
+    clone_model_loaded: bool | None = None
+    design_model_loaded: bool | None = None
+    custom_model_loaded: bool | None = None
+    model_load_times: dict | None = None
+    model_load_errors: dict | None = None
+    mlx_quantization: str | None = None
+    dtype: str | None = None
 
 
 # ---------------------------------------------------------------------------
 # Validation functions
 # ---------------------------------------------------------------------------
+
 
 def _validate_generation_request(req: GenerateRequest, security_config: dict) -> None:
     """Shared validation for /generate and /generate-stream.
@@ -168,7 +183,10 @@ def _validate_generation_request(req: GenerateRequest, security_config: dict) ->
     # Speaker validation for custom mode
     if req.mode == "custom" and req.speaker:
         speaker_key = req.speaker.lower() if isinstance(req.speaker, str) else ""
-        if speaker_key not in CUSTOM_VOICE_SPEAKERS and speaker_key not in _VALID_SPEAKER_NAMES:
+        if (
+            speaker_key not in CUSTOM_VOICE_SPEAKERS
+            and speaker_key not in _VALID_SPEAKER_NAMES
+        ):
             raise HTTPException(
                 status_code=400,
                 detail=f"Unknown speaker: {req.speaker}. Valid: {', '.join(CUSTOM_VOICE_SPEAKERS.keys())}",
@@ -182,15 +200,18 @@ def _validate_generation_request(req: GenerateRequest, security_config: dict) ->
         )
 
 
-def _validate_prompt_name(name: str) -> Optional[tuple[dict, int]]:
+def _validate_prompt_name(name: str) -> tuple[dict, int] | None:
     """Validate prompt name — returns error tuple or None."""
     if not name or not name.strip():
         return {"error": "Missing prompt name", "recovery": "config"}, 400
     name = name.strip()
     if len(name) > MAX_PROMPT_NAME_LEN:
         return {"error": "Prompt name too long", "recovery": "config"}, 400
-    if not re.match(r'^[a-zA-Z0-9_\-\.]+$', name):
-        return {"error": "Invalid prompt name: only alphanumeric, dash, underscore, dot allowed", "recovery": "config"}, 400
+    if not re.match(r"^[a-zA-Z0-9_\-\.]+$", name):
+        return {
+            "error": "Invalid prompt name: only alphanumeric, dash, underscore, dot allowed",
+            "recovery": "config",
+        }, 400
     if ".." in name:
         return {"error": "Invalid prompt name", "recovery": "config"}, 400
     return None
@@ -201,13 +222,20 @@ def _strip_extension(name: str) -> str:
     base = name
     for ext in (".pt", ".wav", ".txt"):
         if base.endswith(ext):
-            base = base[:-len(ext)]
+            base = base[: -len(ext)]
             break
     return base
 
 
-def _gen_cache_key(text: str, mode: str, gen_params: dict, prompt_file: str = None,
-                   voice_description: str = None, speaker: str = None, instruct: str = None) -> str:
+def _gen_cache_key(
+    text: str,
+    mode: str,
+    gen_params: dict,
+    prompt_file: str = None,
+    voice_description: str = None,
+    speaker: str = None,
+    instruct: str = None,
+) -> str:
     """Generate a hash key for generation cache lookup."""
     key_parts = [text, mode, str(sorted(gen_params.items()))]
     if prompt_file:
@@ -222,7 +250,9 @@ def _gen_cache_key(text: str, mode: str, gen_params: dict, prompt_file: str = No
     return hashlib.sha256(raw.encode(), usedforsecurity=False).hexdigest()[:16]
 
 
-def _error_response(status_code: int, error: str, detail: str = "", recovery: str = "retry") -> None:
+def _error_response(
+    status_code: int, error: str, detail: str = "", recovery: str = "retry"
+) -> None:
     """Raise HTTPException with standardized error format.
 
     Args:

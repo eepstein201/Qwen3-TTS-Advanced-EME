@@ -9,10 +9,10 @@ import sys
 
 import click
 
-
 # ---------------------------------------------------------------------------
 # voice group
 # ---------------------------------------------------------------------------
+
 
 @click.group()
 def voice():
@@ -20,11 +20,12 @@ def voice():
     pass
 
 
-@voice.command('list')
+@voice.command("list")
 def voice_list():
     """List available voice prompts."""
-    from qwen3_tts.interface.generate import list_voice_prompts
     from qwen3_tts.core.config import get_default_clone_prompt
+    from qwen3_tts.interface.generate import list_voice_prompts
+
     prompts = list_voice_prompts()
     if not prompts:
         click.echo("No voice prompts found.")
@@ -37,70 +38,77 @@ def voice_list():
 
 
 @voice.command()
-@click.argument('audio', required=False)
-@click.option('-n', '--name', help='Name for the voice prompt')
-@click.option('-t', '--transcript', help='Transcript text')
-@click.option('--mlx-only', is_flag=True, help='Save only MLX format (no torch needed)')
-@click.option('--no-transcript', is_flag=True, help='Skip transcript (use speaker embedding only)')
-@click.option('--auto-transcribe', is_flag=True, help='Auto-transcribe with ASR')
+@click.argument("audio", required=False)
+@click.option("-n", "--name", help="Name for the voice prompt")
+@click.option("-t", "--transcript", help="Transcript text")
+@click.option("--mlx-only", is_flag=True, help="Save only MLX format (no torch needed)")
+@click.option(
+    "--no-transcript", is_flag=True, help="Skip transcript (use speaker embedding only)"
+)
+@click.option("--auto-transcribe", is_flag=True, help="Auto-transcribe with ASR")
 def create(audio, name, transcript, mlx_only, no_transcript, auto_transcribe):
     """Create a voice clone from reference audio."""
     argv = []
     if audio:
         argv.append(audio)
     if name:
-        argv.extend(['-n', name])
+        argv.extend(["-n", name])
     if transcript:
-        argv.extend(['-t', transcript])
+        argv.extend(["-t", transcript])
     if mlx_only:
-        argv.append('--mlx-only')
+        argv.append("--mlx-only")
     if no_transcript:
-        argv.append('--no-transcript')
+        argv.append("--no-transcript")
     if auto_transcribe:
-        argv.append('--auto-transcribe')
+        argv.append("--auto-transcribe")
 
     old_argv = sys.argv
-    sys.argv = ['tts-voice-create'] + argv
+    sys.argv = ["tts-voice-create"] + argv
     try:
         from qwen3_tts.tools.create_voice import main as _create_main
+
         _create_main()
     finally:
         sys.argv = old_argv
 
 
 @voice.command()
-@click.argument('name')
+@click.argument("name")
 def delete(name):
     """Delete a voice prompt."""
     from qwen3_tts.interface.generate import delete_voice_prompt
+
     delete_voice_prompt(name)
 
 
 @voice.command()
-@click.argument('old_name')
-@click.argument('new_name')
+@click.argument("old_name")
+@click.argument("new_name")
 def rename(old_name, new_name):
     """Rename a voice prompt."""
     from qwen3_tts.interface.generate import rename_voice_prompt
+
     rename_voice_prompt(old_name, new_name)
 
 
 @voice.command()
-@click.argument('name')
+@click.argument("name")
 def preview(name):
     """Play a voice prompt sample."""
     from qwen3_tts.core.config import load_config
     from qwen3_tts.interface.generate import preview_voice_prompt
+
     preview_voice_prompt(name, load_config())
 
 
 @voice.command()
-@click.argument('name')
+@click.argument("name")
 def info(name):
     """Show voice prompt metadata."""
-    from qwen3_tts.core.config import load_config, is_server_running
-    from qwen3_tts.core.http_client import server_request
     import json
+
+    from qwen3_tts.core.config import is_server_running, load_config
+    from qwen3_tts.core.http_client import server_request
 
     config = load_config()
     if not is_server_running(config):
@@ -118,7 +126,8 @@ def info(name):
 # list group
 # ---------------------------------------------------------------------------
 
-@click.group('list')
+
+@click.group("list")
 def list_group():
     """List resources (speakers, presets, aliases, etc.)."""
     pass
@@ -128,6 +137,7 @@ def list_group():
 def speakers():
     """List premium CustomVoice speakers."""
     from qwen3_tts.core.config import CUSTOM_VOICE_SPEAKERS
+
     click.echo("Premium CustomVoice speakers:")
     for key, info in CUSTOM_VOICE_SPEAKERS.items():
         click.echo(f"  {key:12s} ({info['lang']}) - {info['desc']}")
@@ -137,6 +147,7 @@ def speakers():
 def presets():
     """List generation presets from config."""
     from qwen3_tts.core.config import load_config
+
     config = load_config()
     preset_dict = config.get("presets", {})
     if not preset_dict:
@@ -152,6 +163,7 @@ def presets():
 def aliases():
     """List voice aliases from config."""
     from qwen3_tts.core.config import load_config
+
     config = load_config()
     alias_dict = config.get("aliases", {})
     if not alias_dict:
@@ -173,6 +185,7 @@ def aliases():
 def prosody():
     """List prosody presets."""
     from qwen3_tts.core.config import get_prosody_presets
+
     presets = get_prosody_presets()
     if not presets:
         click.echo("No prosody presets configured.")
@@ -185,12 +198,16 @@ def prosody():
 @list_group.command()
 def models():
     """List TTS models and their load status."""
+    import requests
+
     from qwen3_tts.core.config import (
-        load_config, is_server_running,
-        get_backend, MODEL_INFO, get_model_size
+        MODEL_INFO,
+        get_backend,
+        get_model_size,
+        is_server_running,
+        load_config,
     )
     from qwen3_tts.core.http_client import server_request
-    import requests
 
     config = load_config()
     backend = get_backend()
@@ -207,7 +224,13 @@ def models():
                 mem = model_info.get("memory_mb")
                 mem_str = f" ({mem}MB)" if mem else ""
                 click.echo(f"  {name}: {status_str}{mem_str}")
-        except (requests.ConnectionError, requests.Timeout, requests.RequestException, ValueError, KeyError):
+        except (
+            requests.ConnectionError,
+            requests.Timeout,
+            requests.RequestException,
+            ValueError,
+            KeyError,
+        ):
             click.echo("\nCould not reach server for live status.")
     else:
         click.echo("\nServer not running — showing configured models:")
@@ -220,9 +243,14 @@ def models():
 def backends():
     """List available backends and current setting."""
     from qwen3_tts.core.config import (
-        get_backend, VALID_BACKENDS, get_mlx_quantization,
-        get_torch_dtype_name, get_mlx_model_name, MODEL_INFO
+        MODEL_INFO,
+        VALID_BACKENDS,
+        get_backend,
+        get_mlx_model_name,
+        get_mlx_quantization,
+        get_torch_dtype_name,
     )
+
     current = get_backend()
     click.echo(f"Available backends: {', '.join(VALID_BACKENDS)}")
     click.echo(f"Current backend:    {current}")

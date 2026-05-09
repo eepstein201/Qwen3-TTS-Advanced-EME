@@ -11,14 +11,14 @@ import time
 from fastapi import HTTPException
 
 from qwen3_tts.core.config import (
-    MODEL_INFO,
     MLX_MODEL_INFO,
+    MODEL_INFO,
     VALID_MLX_QUANTIZATIONS,
     get_backend,
-    get_model_size,
-    get_mlx_quantization,
-    get_torch_dtype_name,
     get_mlx_model_name,
+    get_mlx_quantization,
+    get_model_size,
+    get_torch_dtype_name,
     sanitize_log,
     save_config,
 )
@@ -38,6 +38,7 @@ def handle_stats(state, server_config):
     auto_shutdown_minutes = server_config.get("auto_shutdown_minutes", 0)
 
     from qwen3_tts.core.engine import voice_prompt_cache_info
+
     cache_info = voice_prompt_cache_info()
 
     backend = get_backend()
@@ -51,7 +52,9 @@ def handle_stats(state, server_config):
         "voice_prompts_cached": cache_info.currsize,
         "voice_prompts_cache_hits": cache_info.hits,
         "idle_seconds": idle_seconds,
-        "auto_shutdown_minutes": auto_shutdown_minutes if auto_shutdown_minutes > 0 else "disabled",
+        "auto_shutdown_minutes": auto_shutdown_minutes
+        if auto_shutdown_minutes > 0
+        else "disabled",
         "generation_queue_size": _get_queue_size(state),
     }
     if backend == "mlx":
@@ -62,10 +65,13 @@ def handle_stats(state, server_config):
     # GPU memory stats (lazy torch import)
     try:
         import torch
+
         if torch.backends.mps.is_available():
             try:
                 allocated = torch.mps.current_allocated_memory()
-                stats_data["mps_memory_allocated_mb"] = round(allocated / (1024 * 1024), 2)
+                stats_data["mps_memory_allocated_mb"] = round(
+                    allocated / (1024 * 1024), 2
+                )
             except (AttributeError, RuntimeError):
                 stats_data["mps_memory_allocated_mb"] = "unavailable"
 
@@ -73,8 +79,12 @@ def handle_stats(state, server_config):
             try:
                 allocated = torch.cuda.memory_allocated()
                 reserved = torch.cuda.memory_reserved()
-                stats_data["cuda_memory_allocated_mb"] = round(allocated / (1024 * 1024), 2)
-                stats_data["cuda_memory_reserved_mb"] = round(reserved / (1024 * 1024), 2)
+                stats_data["cuda_memory_allocated_mb"] = round(
+                    allocated / (1024 * 1024), 2
+                )
+                stats_data["cuda_memory_reserved_mb"] = round(
+                    reserved / (1024 * 1024), 2
+                )
             except (AttributeError, RuntimeError):
                 pass
     except ImportError:
@@ -84,6 +94,7 @@ def handle_stats(state, server_config):
     if backend == "mlx":
         try:
             import mlx.core as mx
+
             try:
                 active_mem = mx.get_active_memory()
                 peak_mem = mx.get_peak_memory()
@@ -138,6 +149,7 @@ def handle_list_models(state, server_config):
 
     # Add ASR model info (lazy import — no heavy deps at module scope)
     from qwen3_tts.core.engine import get_asr_model_info
+
     asr_info = get_asr_model_info()
 
     return {
@@ -174,8 +186,8 @@ def handle_load_model(state, req):
 
     # Load the model
     try:
-        from qwen3_tts.core.engine import load_model
         from qwen3_tts.core.config import get_model_info
+        from qwen3_tts.core.engine import load_model
 
         info = get_model_info(model_type)
         model_name = info.get("name", info.get("name_template", model_type))
@@ -184,21 +196,40 @@ def handle_load_model(state, req):
         model = load_model(model_type)
         state.models[model_type] = model
         state.model_load_times[model_type] = round(time.time() - t0, 1)
-        logger.info("Loaded %s model successfully in %.1fs.", sanitize_log(model_type), state.model_load_times[model_type])
+        logger.info(
+            "Loaded %s model successfully in %.1fs.",
+            sanitize_log(model_type),
+            state.model_load_times[model_type],
+        )
         # Clear any previous load error for this model
         state.model_load_errors[model_type] = None
     except ImportError as e:
-        logger.error("Backend not available for model loading %s: %s", sanitize_log(model_type), sanitize_log(e), exc_info=True)
+        logger.error(
+            "Backend not available for model loading %s: %s",
+            sanitize_log(model_type),
+            sanitize_log(e),
+            exc_info=True,
+        )
         state.model_load_errors[model_type] = str(e)
         _error_response(500, "import_error", _sanitize_error(str(e)), "config")
         return  # explicit guard — _error_response raises, but this ensures no fall-through
     except (RuntimeError, OSError, ValueError) as e:
-        logger.error("Failed to load model %s: %s", sanitize_log(model_type), sanitize_log(e), exc_info=True)
+        logger.error(
+            "Failed to load model %s: %s",
+            sanitize_log(model_type),
+            sanitize_log(e),
+            exc_info=True,
+        )
         state.model_load_errors[model_type] = str(e)
         _error_response(500, "load_failed", _sanitize_error(str(e)), "restart")
         return
     except Exception as e:
-        logger.error("Unexpected error loading model %s: %s", sanitize_log(model_type), sanitize_log(e), exc_info=True)
+        logger.error(
+            "Unexpected error loading model %s: %s",
+            sanitize_log(model_type),
+            sanitize_log(e),
+            exc_info=True,
+        )
         state.model_load_errors[model_type] = str(e)
         _error_response(500, "unknown_error", _sanitize_error(str(e)), "bug")
         return
@@ -225,7 +256,10 @@ def handle_unload_model(state, req):
         )
 
     # Check if generation is active for this mode
-    if state.generation_state["active"] and state.generation_state["mode"] == model_type:
+    if (
+        state.generation_state["active"]
+        and state.generation_state["mode"] == model_type
+    ):
         raise HTTPException(
             status_code=409,
             detail=f"Cannot unload {model_type} model while generation is active",
@@ -237,6 +271,7 @@ def handle_unload_model(state, req):
     state.models[model_type] = None
 
     from qwen3_tts.core.engine import unload_model_cleanup
+
     unload_model_cleanup()
 
     # Invalidate generation cache
@@ -324,11 +359,15 @@ async def handle_update_model_config(state, req, config_fn):
     if new_loader:
         try:
             from qwen3_tts.core.engine import set_audio_loader
+
             set_audio_loader(new_loader)
         except (ValueError, ImportError):
             pass
 
-    logger.info("Model config updated: %s. Models unloaded. Generation cache cleared.", sanitize_log(", ".join(changes)))
+    logger.info(
+        "Model config updated: %s. Models unloaded. Generation cache cleared.",
+        sanitize_log(", ".join(changes)),
+    )
 
     return {
         "status": "config_updated",
@@ -359,7 +398,10 @@ def handle_update_startup_config(state, req, config_fn):
         val = getattr(req, model_type, None)
         if val is not None:
             val_bool = bool(val)
-            models[model_type] = {**models.get(model_type, {}), "load_at_startup": val_bool}
+            models[model_type] = {
+                **models.get(model_type, {}),
+                "load_at_startup": val_bool,
+            }
             changes.append(f"{model_type}={'on' if val_bool else 'off'}")
 
     if not changes:
@@ -377,6 +419,7 @@ def handle_update_startup_config(state, req, config_fn):
 # ---------------------------------------------------------------------------
 # ASR endpoint handlers
 # ---------------------------------------------------------------------------
+
 
 def handle_load_asr(state):
     """Load the ASR model for transcription.

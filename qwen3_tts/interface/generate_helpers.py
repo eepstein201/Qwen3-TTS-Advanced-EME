@@ -16,17 +16,17 @@ import sys
 logger = logging.getLogger("tts.cli")
 
 from qwen3_tts.core.config import (  # noqa: E402
-    VOICE_PROMPTS_DIR,
     HISTORY_FILE,
+    VOICE_PROMPTS_DIR,
     get_backend,
     safe_path_join,
     sanitize_log,
 )
 
-
 # ---------------------------------------------------------------------------
 # Text helpers
 # ---------------------------------------------------------------------------
+
 
 def voice_prompt_exists(prompt_file):
     """Check if a voice prompt exists for the current backend.
@@ -53,10 +53,10 @@ def list_voice_prompts():
         files = os.listdir(VOICE_PROMPTS_DIR)
     except OSError:
         return []
-    pt_prompts = {f for f in files if f.endswith('.pt')}
+    pt_prompts = {f for f in files if f.endswith(".pt")}
     # Include MLX prompts: .wav files that have a matching .txt
-    txt_bases = {f[:-4] for f in files if f.endswith('.txt')}
-    mlx_prompts = {f for f in files if f.endswith('.wav') and f[:-4] in txt_bases}
+    txt_bases = {f[:-4] for f in files if f.endswith(".txt")}
+    mlx_prompts = {f for f in files if f.endswith(".wav") and f[:-4] in txt_bases}
     return sorted(pt_prompts | mlx_prompts)
 
 
@@ -72,7 +72,7 @@ def get_text(text_or_file):
         safe_path = safe_path_join(os.getcwd(), expanded)
 
     if os.path.isfile(safe_path):
-        with open(safe_path, "r") as f:
+        with open(safe_path) as f:
             return f.read().strip()
 
     # Path traversal guard: only look up bare filenames in ~/Downloads
@@ -81,14 +81,15 @@ def get_text(text_or_file):
         # Security: validate downloads path against traversal
         downloads_path = safe_path_join(downloads_dir, text_or_file)
         if os.path.isfile(downloads_path):
-            with open(downloads_path, "r") as f:
+            with open(downloads_path) as f:
                 return f.read().strip()
     return text_or_file
 
 
 def get_clipboard_text():
     """Get text from system clipboard (platform-aware)."""
-    from qwen3_tts.core.config import IS_MACOS, IS_LINUX, IN_COLAB
+    from qwen3_tts.core.config import IN_COLAB, IS_LINUX, IS_MACOS
+
     if IN_COLAB:
         print("Error: Clipboard not available in Colab environment")
         sys.exit(1)
@@ -137,7 +138,7 @@ def auto_increment_filename(path):
 
     base, ext = os.path.splitext(safe_path)
     # Check if base already ends with _N
-    match = re.match(r'^(.+)_(\d+)$', base)
+    match = re.match(r"^(.+)_(\d+)$", base)
     if match:
         base_stem = match.group(1)
         n = int(match.group(2))
@@ -151,6 +152,7 @@ def auto_increment_filename(path):
         if not os.path.exists(candidate):
             return candidate
 
+
 # Note: CodeQL alert 154 (line 177: os.path.isfile) is a false positive.
 # Path traversal is prevented by comprehensive validation at lines 162-177:
 # - Line 166-167: Rejects paths containing ".."
@@ -158,9 +160,11 @@ def auto_increment_filename(path):
 # - Line 173-174: Confirms file exists before any subprocess call
 # This multi-layer validation prevents attacker-controlled paths from reaching os.path.isfile
 
+
 def play_audio(file_path):
     """Play audio file using system player (platform-aware)."""
-    from qwen3_tts.core.config import IS_MACOS, IS_LINUX, IN_COLAB
+    from qwen3_tts.core.config import IN_COLAB, IS_LINUX, IS_MACOS
+
     if IN_COLAB:
         logger.info("Audio generated (playback skipped in headless mode)")
         return
@@ -201,12 +205,15 @@ def play_audio(file_path):
     except subprocess.CalledProcessError:
         logger.warning("Failed to play audio")
     except FileNotFoundError:
-        logger.warning("%s not found — audio playback unavailable", sanitize_log(cmd[0]))
+        logger.warning(
+            "%s not found — audio playback unavailable", sanitize_log(cmd[0])
+        )
 
 
 def open_file(path):
     """Open a file with the system default handler (platform-aware)."""
-    from qwen3_tts.core.config import IS_MACOS, IS_LINUX, IN_COLAB
+    from qwen3_tts.core.config import IN_COLAB, IS_LINUX, IS_MACOS
+
     if IN_COLAB:
         print(f"File saved: {path}")
         return
@@ -223,9 +230,11 @@ def open_file(path):
 # History
 # ---------------------------------------------------------------------------
 
+
 def log_generation(text, mode, voice_param, output_path, gen_params, duration_sec=None):
     """Log generation to history file."""
     import datetime
+
     entry = {
         "timestamp": datetime.datetime.now().isoformat(),
         "text": text[:200] + "..." if len(text) > 200 else text,
@@ -248,7 +257,7 @@ def show_history(count=10):
         print("No generation history found.")
         return
 
-    with open(HISTORY_FILE, "r") as f:
+    with open(HISTORY_FILE) as f:
         lines = f.readlines()
 
     if not lines:
@@ -269,7 +278,7 @@ def show_history(count=10):
         output = os.path.basename(entry.get("output", "?"))
 
         print(f"  {ts}  [{mode}] {voice}")
-        print(f"    \"{text_preview}\"")
+        print(f'    "{text_preview}"')
         print(f"    -> {output}")
         print()
 
@@ -277,6 +286,7 @@ def show_history(count=10):
 # ---------------------------------------------------------------------------
 # Voice alias
 # ---------------------------------------------------------------------------
+
 
 def get_voice_alias(alias_name, config):
     """Resolve a voice alias from config."""
@@ -289,6 +299,7 @@ def get_voice_alias(alias_name, config):
 # ---------------------------------------------------------------------------
 # SSML parsing
 # ---------------------------------------------------------------------------
+
 
 def parse_ssml(text):
     """Parse SSML markup and return processed text with metadata.
@@ -306,7 +317,7 @@ def parse_ssml(text):
     if len(text) > 50000:
         return text, metadata
 
-    if not re.search(r'<[a-z][a-z0-9-]*(?:\s[^>]{0,500})?>', text, re.IGNORECASE):
+    if not re.search(r"<[a-z][a-z0-9-]*(?:\s[^>]{0,500})?>", text, re.IGNORECASE):
         return text, metadata
 
     metadata["has_ssml"] = True
@@ -315,41 +326,65 @@ def parse_ssml(text):
     # <break> tags
     def replace_break(match):
         time_str = match.group(1)
-        if 'ms' in time_str:
-            ms = int(time_str.replace('ms', ''))
+        if "ms" in time_str:
+            ms = int(time_str.replace("ms", ""))
             if ms >= 1000:
-                return '... '
+                return "... "
             elif ms >= 500:
-                return '.. '
+                return ".. "
             else:
-                return '. '
-        elif 's' in time_str:
-            seconds = float(time_str.replace('s', ''))
+                return ". "
+        elif "s" in time_str:
+            seconds = float(time_str.replace("s", ""))
             if seconds >= 2:
-                return '.... '
+                return ".... "
             elif seconds >= 1:
-                return '... '
+                return "... "
             else:
-                return '.. '
-        return '. '
+                return ".. "
+        return ". "
 
-    processed = re.sub(r'<break\s+time=["\']([^"\']+)["\']\s*/>', replace_break, processed, flags=re.IGNORECASE)
+    processed = re.sub(
+        r'<break\s+time=["\']([^"\']+)["\']\s*/>',
+        replace_break,
+        processed,
+        flags=re.IGNORECASE,
+    )
 
     # <sub> tags
-    processed = re.sub(r'<sub\s+alias=["\']([^"\']+)["\']>([^<]*)</sub>', r'\1', processed, flags=re.IGNORECASE)
+    processed = re.sub(
+        r'<sub\s+alias=["\']([^"\']+)["\']>([^<]*)</sub>',
+        r"\1",
+        processed,
+        flags=re.IGNORECASE,
+    )
 
     # <say-as interpret-as="characters">
     def spell_out(match):
         chars = match.group(1)
-        return ' '.join(chars.upper())
+        return " ".join(chars.upper())
 
-    processed = re.sub(r'<say-as\s+interpret-as=["\']characters["\']>([^<]*)</say-as>', spell_out, processed, flags=re.IGNORECASE)
+    processed = re.sub(
+        r'<say-as\s+interpret-as=["\']characters["\']>([^<]*)</say-as>',
+        spell_out,
+        processed,
+        flags=re.IGNORECASE,
+    )
 
     # <emphasis>
-    processed = re.sub(r'<emphasis(?:\s+level=["\'][^"\']+["\'])?>([^<]*)</emphasis>', r'\1', processed, flags=re.IGNORECASE)
+    processed = re.sub(
+        r'<emphasis(?:\s+level=["\'][^"\']+["\'])?>([^<]*)</emphasis>',
+        r"\1",
+        processed,
+        flags=re.IGNORECASE,
+    )
 
     # <prosody>
-    prosody_match = re.search(r'<prosody\s+([^>]{1,200})>([^<]{0,5000})</prosody>', processed, flags=re.IGNORECASE)
+    prosody_match = re.search(
+        r"<prosody\s+([^>]{1,200})>([^<]{0,5000})</prosody>",
+        processed,
+        flags=re.IGNORECASE,
+    )
     if prosody_match:
         attrs = prosody_match.group(1)
         rate_match = re.search(r'rate=["\']([^"\']+)["\']', attrs)
@@ -357,27 +392,32 @@ def parse_ssml(text):
 
         if rate_match:
             rate = rate_match.group(1).lower()
-            if rate in ('slow', 'x-slow'):
+            if rate in ("slow", "x-slow"):
                 metadata["prosody"] = metadata.get("prosody") or {}
                 metadata["prosody"]["speed"] = 0.8
-            elif rate in ('fast', 'x-fast'):
+            elif rate in ("fast", "x-fast"):
                 metadata["prosody"] = metadata.get("prosody") or {}
                 metadata["prosody"]["speed"] = 1.2
 
         if pitch_match:
             pitch = pitch_match.group(1).lower()
-            if pitch in ('low', 'x-low'):
+            if pitch in ("low", "x-low"):
                 metadata["prosody"] = metadata.get("prosody") or {}
                 metadata["prosody"]["pitch"] = -2
-            elif pitch in ('high', 'x-high'):
+            elif pitch in ("high", "x-high"):
                 metadata["prosody"] = metadata.get("prosody") or {}
                 metadata["prosody"]["pitch"] = 2
 
-    processed = re.sub(r'<prosody\s+[^>]{1,200}>([^<]{0,5000})</prosody>', r'\1', processed, flags=re.IGNORECASE)
+    processed = re.sub(
+        r"<prosody\s+[^>]{1,200}>([^<]{0,5000})</prosody>",
+        r"\1",
+        processed,
+        flags=re.IGNORECASE,
+    )
 
     # Remove remaining XML tags
-    processed = re.sub(r'<[^>]{1,500}>', '', processed)
-    processed = re.sub(r'\s+', ' ', processed).strip()
+    processed = re.sub(r"<[^>]{1,500}>", "", processed)
+    processed = re.sub(r"\s+", " ", processed).strip()
 
     return processed, metadata
 
@@ -399,6 +439,7 @@ def process_ssml_text(text, args):
 # SRT parsing
 # ---------------------------------------------------------------------------
 
+
 def parse_srt(srt_path):
     """Parse an SRT subtitle file."""
     # Security: validate srt_path against traversal
@@ -409,7 +450,7 @@ def parse_srt(srt_path):
         # Relative path: validate to prevent traversal
         safe_path = safe_path_join(os.getcwd(), srt_path)
 
-    with open(safe_path, "r", encoding="utf-8") as f:
+    with open(safe_path, encoding="utf-8") as f:
         content = f.read()
 
     pattern = r"(\d+)\s*\n(\d{2}:\d{2}:\d{2},\d{3})\s*-->\s*(\d{2}:\d{2}:\d{2},\d{3})\s*\n(.*?)(?=\n\n|\Z)"
@@ -437,18 +478,26 @@ def srt_time_to_ms(time_str):
 # Audio processing helper (delegates to engine for heavy ops)
 # ---------------------------------------------------------------------------
 
+
 def process_audio_args(audio, sample_rate, args):
     """Apply audio processing based on argparse args.
 
     Lazily imports qwen3_tts.core.engine only when processing is actually needed.
     """
-    needs = args.trim_silence or args.normalize or (args.speed and args.speed != 1.0) or (args.pitch and args.pitch != 0)
+    needs = (
+        args.trim_silence
+        or args.normalize
+        or (args.speed and args.speed != 1.0)
+        or (args.pitch and args.pitch != 0)
+    )
     if not needs:
         return audio
 
     from qwen3_tts.core.engine import process_audio
+
     return process_audio(
-        audio, sample_rate,
+        audio,
+        sample_rate,
         trim=args.trim_silence,
         normalize=args.normalize,
         speed=args.speed if args.speed and args.speed != 1.0 else None,
@@ -460,10 +509,18 @@ def process_audio_args(audio, sample_rate, args):
 # Generation payload helpers
 # ---------------------------------------------------------------------------
 
-def _build_generation_payload(mode, config, gen_params, prompt_file=None,
-                              voice_description=None, speaker=None,
-                              instruct=None, x_vector_only_mode=False,
-                              max_chunk_chars=None):
+
+def _build_generation_payload(
+    mode,
+    config,
+    gen_params,
+    prompt_file=None,
+    voice_description=None,
+    speaker=None,
+    instruct=None,
+    x_vector_only_mode=False,
+    max_chunk_chars=None,
+):
     """Build request payload for /generate or /generate-stream."""
     payload = {
         "mode": mode,
@@ -488,7 +545,9 @@ def _decode_base64_result(result):
     """Decode base64 audio from server response to numpy array + sample rate."""
     import base64
     import io
+
     import soundfile as sf
+
     audio_bytes = base64.b64decode(result["audio_base64"])
     wav, sr = sf.read(io.BytesIO(audio_bytes))
     return wav, sr
@@ -505,6 +564,7 @@ def _save_base64_result(result, output_path):
         safe_path = safe_path_join(os.getcwd(), output_path)
 
     import base64
+
     audio_bytes = base64.b64decode(result["audio_base64"])
     with open(safe_path, "wb") as f:
         f.write(audio_bytes)
@@ -513,6 +573,7 @@ def _save_base64_result(result, output_path):
 # ---------------------------------------------------------------------------
 # Generation parameters
 # ---------------------------------------------------------------------------
+
 
 def get_generation_params(args, config):
     """Get generation parameters from args, preset, or config defaults."""

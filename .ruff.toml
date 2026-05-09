@@ -1,0 +1,26 @@
+# Ruff configuration for Qwen3-TTS project
+# https://docs.astral.sh/ruff/settings/
+
+[lint]
+select = [
+    "E",     # pycodestyle errors
+    "F",     # pyflakes
+    "I",     # isort
+    "N",     # pep8-naming
+    "W",     # pycodestyle warnings
+    "UP",    # pyupgrade
+]
+ignore = [
+    "E501",  # Line too long (we have long docstrings and inline functions)
+]
+
+[format]
+quote-style = "double"
+indent-style = "space"
+line-ending = "auto"
+
+[lint.per-file-ignores]
+"qwen3_tts/interface/ui/_facade.py" = ["E501"]  # Long inline functions
+"qwen3_tts/interface/ui/generation.py" = ["E501"]  # Long event chains
+"qwen3_tts/interface/ui/voice_management.py" = ["E501"]  # Long event chains
+"qwen3_tts/interface/ui/model_management.py" = ["E501"]  # Long event chains

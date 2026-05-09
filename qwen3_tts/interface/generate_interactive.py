@@ -15,9 +15,8 @@ logger = logging.getLogger("tts.cli")
 
 from qwen3_tts.core.config import (  # noqa: E402
     VOICE_PROMPTS_DIR,
-    get_server_url,
-    is_server_running,
     get_default_clone_prompt,
+    is_server_running,
     safe_path_join,
 )
 from qwen3_tts.interface.generate_helpers import (  # noqa: E402
@@ -31,10 +30,10 @@ from qwen3_tts.interface.generate_helpers import (  # noqa: E402
     voice_prompt_exists,
 )
 
-
 # ---------------------------------------------------------------------------
 # Voice prompt management
 # ---------------------------------------------------------------------------
+
 
 def delete_voice_prompt(prompt_name):
     """Delete a voice prompt file (supports .pt, .wav+.txt formats)."""
@@ -44,9 +43,9 @@ def delete_voice_prompt(prompt_name):
 
     # Strip known extensions to get the base name
     base = prompt_name
-    for ext in ('.pt', '.wav', '.txt'):
+    for ext in (".pt", ".wav", ".txt"):
         if base.endswith(ext):
-            base = base[:-len(ext)]
+            base = base[: -len(ext)]
             break
 
     # Find all format files that exist
@@ -60,8 +59,12 @@ def delete_voice_prompt(prompt_name):
         return False
 
     filenames = ", ".join(os.path.basename(p) for p in to_delete)
-    confirm = input(f"Delete '{base}' ({filenames})? This cannot be undone. [y/N]: ").strip().lower()
-    if confirm != 'y':
+    confirm = (
+        input(f"Delete '{base}' ({filenames})? This cannot be undone. [y/N]: ")
+        .strip()
+        .lower()
+    )
+    if confirm != "y":
         print("Cancelled.")
         return False
 
@@ -81,15 +84,15 @@ def rename_voice_prompt(old_name, new_name):
     # Strip known extensions to get base names
     old_base = old_name
     new_base = new_name
-    for ext in ('.pt', '.wav', '.txt'):
+    for ext in (".pt", ".wav", ".txt"):
         if old_base.endswith(ext):
-            old_base = old_base[:-len(ext)]
+            old_base = old_base[: -len(ext)]
         if new_base.endswith(ext):
-            new_base = new_base[:-len(ext)]
+            new_base = new_base[: -len(ext)]
 
     # Find all format files that exist for old name
     rename_pairs = []
-    for ext in ('.pt', '.wav', '.txt'):
+    for ext in (".pt", ".wav", ".txt"):
         old_path = safe_path_join(VOICE_PROMPTS_DIR, f"{old_base}{ext}")
         new_path = safe_path_join(VOICE_PROMPTS_DIR, f"{new_base}{ext}")
         if os.path.exists(old_path):
@@ -124,15 +127,15 @@ def rename_voice_prompt(old_name, new_name):
 def preview_voice_prompt(prompt_name, config):
     """Preview a voice prompt by generating a short sample."""
     import requests  # lazy
-    if not prompt_name.endswith('.pt'):
-        prompt_name += '.pt'
+
+    if not prompt_name.endswith(".pt"):
+        prompt_name += ".pt"
 
     if not voice_prompt_exists(prompt_name):
         print(f"Error: Voice prompt not found: {prompt_name}")
         return False
 
     if is_server_running(config):
-        url = get_server_url(config)
         payload = {
             "texts": ["This is a preview of the voice prompt."],
             "mode": "clone",
@@ -142,11 +145,13 @@ def preview_voice_prompt(prompt_name, config):
         }
         print(f"Generating preview for '{prompt_name}'...")
         from qwen3_tts.core.http_client import server_request
+
         resp = server_request("POST", "/generate", json=payload, timeout=60)
         if resp.status_code == 200:
             result = resp.json()["results"][0]
             print("Playing preview...")
             import tempfile
+
             tmp = tempfile.NamedTemporaryFile(suffix=".wav", delete=False)
             _save_base64_result(result, tmp.name)
             play_audio(tmp.name)
@@ -154,19 +159,22 @@ def preview_voice_prompt(prompt_name, config):
             return True
         else:
             try:
-                error_msg = resp.json().get('error', 'Unknown error')
+                error_msg = resp.json().get("error", "Unknown error")
             except (ValueError, requests.exceptions.JSONDecodeError):
                 error_msg = f"Server returned HTTP {resp.status_code}"
             print(f"Error: {error_msg}")
             return False
     else:
-        print("Error: TTS server must be running for preview. Start with 'tts server start'.")
+        print(
+            "Error: TTS server must be running for preview. Start with 'tts server start'."
+        )
         return False
 
 
 # ---------------------------------------------------------------------------
 # Progress poller
 # ---------------------------------------------------------------------------
+
 
 class _ProgressPoller:
     """Background thread that polls /generation-status and displays progress.
@@ -178,8 +186,16 @@ class _ProgressPoller:
 
     # Try to import Rich
     try:
-        from rich.progress import Progress, SpinnerColumn, TextColumn, BarColumn, TimeElapsedColumn, TimeRemainingColumn
         from rich.console import Console
+        from rich.progress import (
+            BarColumn,
+            Progress,
+            SpinnerColumn,
+            TextColumn,
+            TimeElapsedColumn,
+            TimeRemainingColumn,
+        )
+
         HAS_RICH = True
     except ImportError:
         HAS_RICH = False
@@ -216,9 +232,17 @@ class _ProgressPoller:
 
     def _run_rich(self):
         """Run with Rich progress bar."""
-        from qwen3_tts.core.http_client import server_request
-        from rich.progress import Progress, SpinnerColumn, TextColumn, BarColumn, TimeElapsedColumn, TimeRemainingColumn
         from rich.console import Console
+        from rich.progress import (
+            BarColumn,
+            Progress,
+            SpinnerColumn,
+            TextColumn,
+            TimeElapsedColumn,
+            TimeRemainingColumn,
+        )
+
+        from qwen3_tts.core.http_client import server_request
 
         console = Console(stderr=True)
 
@@ -252,14 +276,23 @@ class _ProgressPoller:
                             if chunk_total > 1:
                                 chunk_idx = state.get("chunk_index", 0) + 1
                                 chunk_suffix = f" [chunk {chunk_idx}/{chunk_total}]"
-                                progress.update(task_id, description=f"Generating...{chunk_suffix}")
+                                progress.update(
+                                    task_id, description=f"Generating...{chunk_suffix}"
+                                )
 
                             if self.batch_total > 1:
                                 idx = state.get("batch_index", 0) + 1
-                                progress.update(task_id, description=f"[{idx}/{self.batch_total}] Generating...{chunk_suffix}")
+                                progress.update(
+                                    task_id,
+                                    description=f"[{idx}/{self.batch_total}] Generating...{chunk_suffix}",
+                                )
                                 if eta is not None:
                                     total_est = elapsed + eta
-                                    pct = min(95, int(elapsed / total_est * 100)) if total_est > 0 else 0
+                                    pct = (
+                                        min(95, int(elapsed / total_est * 100))
+                                        if total_est > 0
+                                        else 0
+                                    )
                                     progress.update(task_id, completed=pct)
                 except Exception as e:
                     logger.debug("Progress poller (_run_rich) error: %s", e)
@@ -269,6 +302,7 @@ class _ProgressPoller:
     def _run_fallback(self):
         """Run with print-based progress (original implementation)."""
         from qwen3_tts.core.http_client import server_request
+
         tick = 0
         while not self._stop.is_set():
             try:
@@ -291,7 +325,11 @@ class _ProgressPoller:
                             idx = state.get("batch_index", 0) + 1
                             if eta is not None:
                                 total_est = elapsed + eta
-                                pct = min(95, int(elapsed / total_est * 100)) if total_est > 0 else 0
+                                pct = (
+                                    min(95, int(elapsed / total_est * 100))
+                                    if total_est > 0
+                                    else 0
+                                )
                                 bar_filled = pct // 5
                                 bar = "=" * bar_filled + ">" + " " * (19 - bar_filled)
                                 line = f"\r{spinner} [{idx}/{self.batch_total}] Generating... {elapsed:.0f}s / ~{elapsed + eta:.0f}s [{bar}] {pct}%{chunk_suffix}"
@@ -316,15 +354,18 @@ class _ProgressPoller:
 # Interactive mode
 # ---------------------------------------------------------------------------
 
+
 def interactive_mode(use_server, config, gen_params):
     """Run in interactive mode with prompts."""
     import soundfile as sf
+
     from qwen3_tts.interface.generate_helpers import get_text
     from qwen3_tts.interface.generate_server import (
         generate_local,
         generate_via_server,
         launch_gradio_ui,
     )
+
     print("\n=== Qwen3-TTS Generator ===\n")
 
     print("How would you like to generate speech?")
@@ -342,7 +383,9 @@ def interactive_mode(use_server, config, gen_params):
         print("Error: No text provided")
         sys.exit(1)
     text = get_text(text_input)
-    print(f"\nText to synthesize ({len(text)} chars):\n{text[:200]}{'...' if len(text) > 200 else ''}\n")
+    print(
+        f"\nText to synthesize ({len(text)} chars):\n{text[:200]}{'...' if len(text) > 200 else ''}\n"
+    )
 
     print("Voice mode:")
     print("  1. Default (VoiceDesign with description)")
@@ -357,7 +400,9 @@ def interactive_mode(use_server, config, gen_params):
 
         print("\nAvailable voice prompts:")
         for i, p in enumerate(prompts, 1):
-            default_marker = " (default)" if p == config.get("default_clone_prompt") else ""
+            default_marker = (
+                " (default)" if p == config.get("default_clone_prompt") else ""
+            )
             print(f"  {i}. {p}{default_marker}")
 
         choice = input(f"Select [1-{len(prompts)}]: ").strip()
@@ -374,7 +419,7 @@ def interactive_mode(use_server, config, gen_params):
         voice_param = config.get("default_voice_description", "")
         print(f"\nCurrent voice description: {voice_param}")
         custom = input("Use this description? [Y/n]: ").strip().lower()
-        if custom == 'n':
+        if custom == "n":
             voice_param = input("Enter new description: ").strip()
 
     output_name = input("\nOutput filename (saved to ~/Downloads/): ").strip()
@@ -382,8 +427,8 @@ def interactive_mode(use_server, config, gen_params):
         output_name = "tts_output.wav"
     # Strip directory separators to prevent path traversal
     output_name = os.path.basename(output_name)
-    if not output_name.endswith('.wav'):
-        output_name += '.wav'
+    if not output_name.endswith(".wav"):
+        output_name += ".wav"
 
     output_dir = os.path.expanduser(config.get("output_directory", "~/Downloads"))
     output_path = safe_path_join(output_dir, output_name)
@@ -394,13 +439,20 @@ def interactive_mode(use_server, config, gen_params):
     if use_server:
         print("Using TTS server...")
         if mode == "clone":
-            results = generate_via_server([text], mode, config, gen_params, prompt_file=voice_param)
+            results = generate_via_server(
+                [text], mode, config, gen_params, prompt_file=voice_param
+            )
         else:
-            results = generate_via_server([text], mode, config, gen_params, voice_description=voice_param)
+            results = generate_via_server(
+                [text], mode, config, gen_params, voice_description=voice_param
+            )
         _save_base64_result(results[0], output_path)
     else:
         wav, sr = generate_local(
-            text, mode, gen_params, language,
+            text,
+            mode,
+            gen_params,
+            language,
             prompt_file=voice_param if mode == "clone" else None,
             voice_description=voice_param if mode == "design" else None,
         )
@@ -415,10 +467,13 @@ def interactive_mode(use_server, config, gen_params):
 # REPL mode
 # ---------------------------------------------------------------------------
 
+
 def run_repl(config, use_server):
     """Run interactive REPL mode for rapid TTS iteration."""
     import soundfile as sf
+
     from qwen3_tts.interface.generate_server import generate_local, generate_via_server
+
     print("\n=== TTS REPL Mode ===")
     print("Commands:")
     print("  Type text to generate speech")
@@ -472,7 +527,9 @@ def run_repl(config, use_server):
                             state["prompt"] = alias["prompt"]
                         if "preset" in alias:
                             state["preset"] = alias["preset"]
-                            preset_params = config.get("presets", {}).get(alias["preset"], {})
+                            preset_params = config.get("presets", {}).get(
+                                alias["preset"], {}
+                            )
                             gen_params = {**base_gen_params, **preset_params}
                         print(f"Switched to voice alias: {arg}")
                     else:
@@ -547,13 +604,18 @@ def run_repl(config, use_server):
         try:
             if use_server:
                 results = generate_via_server(
-                    [text], state["mode"], config, gen_params,
-                    prompt_file=state["prompt"]
+                    [text],
+                    state["mode"],
+                    config,
+                    gen_params,
+                    prompt_file=state["prompt"],
                 )
                 wav, sr = _decode_base64_result(results[0])
             else:
                 wav, sr = generate_local(
-                    text, state["mode"], gen_params,
+                    text,
+                    state["mode"],
+                    gen_params,
                     config.get("language", "English"),
                     prompt_file=state["prompt"],
                 )
@@ -561,9 +623,11 @@ def run_repl(config, use_server):
             # Apply audio processing
             if state["speed"] and state["speed"] != 1.0:
                 from qwen3_tts.core.engine import adjust_speed
+
                 wav = adjust_speed(wav, sr, state["speed"])
             if state["pitch"] and state["pitch"] != 0:
                 from qwen3_tts.core.engine import adjust_pitch
+
                 wav = adjust_pitch(wav, sr, state["pitch"])
 
             sf.write(output_path, wav, sr)
@@ -582,12 +646,14 @@ def run_repl(config, use_server):
 # Watch mode
 # ---------------------------------------------------------------------------
 
+
 def run_watch_mode(watch_dir, config, args, gen_params, use_server):
     """Watch a directory for new .txt files and generate TTS."""
-    from watchdog.observers import Observer
     from watchdog.events import FileSystemEventHandler
-    from qwen3_tts.interface.generate_server import generate_local, generate_via_server
+    from watchdog.observers import Observer
+
     from qwen3_tts.core.config import safe_path_join
+    from qwen3_tts.interface.generate_server import generate_local, generate_via_server
 
     # Security: validate watch_dir against traversal
     expanded = os.path.expanduser(watch_dir)
@@ -629,6 +695,7 @@ def run_watch_mode(watch_dir, config, args, gen_params, use_server):
     class TTSHandler(FileSystemEventHandler):
         def on_created(self, event):
             import soundfile as sf
+
             if event.is_directory or not event.src_path.endswith(".txt"):
                 return
             if event.src_path in processed_files:
@@ -637,7 +704,7 @@ def run_watch_mode(watch_dir, config, args, gen_params, use_server):
             time.sleep(0.5)
 
             try:
-                with open(event.src_path, "r") as f:
+                with open(event.src_path) as f:
                     text = f.read().strip()
 
                 if not text:
@@ -645,20 +712,27 @@ def run_watch_mode(watch_dir, config, args, gen_params, use_server):
 
                 processed_files.add(event.src_path)
                 basename = os.path.splitext(os.path.basename(event.src_path))[0]
-                output_path = safe_path_join(output_dir, f"{basename}.wav")
+                output_path = safe_path_join(safe_output_dir, f"{basename}.wav")
 
                 print(f"\nProcessing: {event.src_path}")
 
                 if use_server:
                     results = generate_via_server(
-                        [text], mode, config, gen_params,
+                        [text],
+                        mode,
+                        config,
+                        gen_params,
                         prompt_file=prompt_file if mode == "clone" else None,
-                        voice_description=voice_description if mode == "design" else None,
+                        voice_description=voice_description
+                        if mode == "design"
+                        else None,
                     )
                     wav, sr = _decode_base64_result(results[0])
                 else:
                     wav, sr = generate_local(
-                        text, mode, gen_params,
+                        text,
+                        mode,
+                        gen_params,
                         config.get("language", "English"),
                         prompt_file=prompt_file,
                         voice_description=voice_description,
@@ -677,7 +751,7 @@ def run_watch_mode(watch_dir, config, args, gen_params, use_server):
 
     print("\n=== Watch Mode ===")
     print(f"Watching: {watch_dir}")
-    print(f"Output to: {output_dir}")
+    print(f"Output to: {safe_output_dir}")
     print("Drop .txt files into the watch directory to generate TTS.")
     print("Press Ctrl+C to stop.\n")
 

@@ -33,14 +33,21 @@ Usage:
 """
 
 from qwen3_tts.server.client._base import _ClientBase
+from qwen3_tts.server.client.config_fetcher import ConfigFetcherMixin
 from qwen3_tts.server.client.generator import GeneratorMixin
 from qwen3_tts.server.client.models import ModelManagerMixin
 from qwen3_tts.server.client.voices import VoiceManagerMixin
-from qwen3_tts.server.client.config_fetcher import ConfigFetcherMixin
 
 
-class TTSClient(GeneratorMixin, ModelManagerMixin, VoiceManagerMixin, ConfigFetcherMixin, _ClientBase):
+class TTSClient(
+    GeneratorMixin,
+    ModelManagerMixin,
+    VoiceManagerMixin,
+    ConfigFetcherMixin,
+    _ClientBase,
+):
     """HTTP-only client for Qwen3-TTS generation."""
+
     pass
 
 

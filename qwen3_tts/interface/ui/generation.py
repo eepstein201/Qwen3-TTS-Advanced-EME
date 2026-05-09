@@ -21,21 +21,20 @@ import gradio as gr
 # Thread-safe lock for history state updates (prevents race condition in concurrent generations)
 _history_lock = threading.Lock()
 
-from qwen3_tts.core.config import (
-    get_server_url,
-    is_server_running,
-    load_config,
+from qwen3_tts.core.config import (  # noqa: E402 (intentional lazy import after lock initialization)
     get_generation_presets,
     get_prosody_presets,
+    is_server_running,
+    load_config,
 )
-from qwen3_tts.interface.ui.shared import (
+from qwen3_tts.interface.ui.shared import (  # noqa: E402 (intentional lazy import after lock initialization)
     add_to_history,
     format_status_display,
     save_generation_metadata,
 )
-from qwen3_tts.interface.voice_helpers import (  # noqa: F401 (re-exported via ui/__init__.py)
-    get_prosody_choices,
+from qwen3_tts.interface.voice_helpers import (  # noqa: E402, F401 (intentional lazy import, re-exported via ui/__init__.py)
     apply_prosody_preset,
+    get_prosody_choices,
 )
 
 logger = logging.getLogger("tts.ui")
@@ -65,7 +64,11 @@ def generate_guard_check(gen_guard_state: dict | None) -> tuple:
         original_label="Generate",
     )
     if not confirmed:
-        return {**new_state, "generating": True}, "Generation in progress. Click again to cancel and restart.", True
+        return (
+            {**new_state, "generating": True},
+            "Generation in progress. Click again to cancel and restart.",
+            True,
+        )
 
     cancel_streaming_generation()
     return {**new_state, "generating": False}, "Cancelling current generation...", False
@@ -79,23 +82,40 @@ def cancel_streaming_generation():
 
     try:
         from qwen3_tts.core.http_client import server_request
+
         resp = server_request(
-            "POST", "/cancel-generation",
+            "POST",
+            "/cancel-generation",
             timeout=5,
         )
         if resp.status_code == 200:
             return "Generation cancelled", format_status_display()
         else:
-            return f"Cancel failed: {resp.json().get('error', 'Unknown')}", format_status_display()
+            return (
+                f"Cancel failed: {resp.json().get('error', 'Unknown')}",
+                format_status_display(),
+            )
     except Exception as e:
         return f"Error: {e}", format_status_display()
 
 
-def _prepare_streaming_config(mode, text, preset, temperature, top_k, top_p,
-                              repetition_penalty, seed, prompt_file=None,
-                              description=None, speaker=None, instruct=None,
-                              prosody_preset=None, no_transcript=False,
-                              seed_lock_chunks=False):
+def _prepare_streaming_config(
+    mode,
+    text,
+    preset,
+    temperature,
+    top_k,
+    top_p,
+    repetition_penalty,
+    seed,
+    prompt_file=None,
+    description=None,
+    speaker=None,
+    instruct=None,
+    prosody_preset=None,
+    no_transcript=False,
+    seed_lock_chunks=False,
+):
     """Prepare streaming configuration for the given mode.
 
     Returns (config_dict_or_None, status_text) tuple.
@@ -178,14 +198,15 @@ def _generate_server_side(mode, text, history_list, stream_config):
     Returns:
         tuple: (audio_path_or_none, status_text, status_html, history_list)
     """
-    from qwen3_tts.interface.ui.shared import add_to_history
     import gradio as gr
 
     # Ensure history_list is always a valid list (defensive against Gradio state issues)
     if history_list is None:
         history_list = []
     elif not isinstance(history_list, list):
-        logger.warning(f"history_list is not a list: {type(history_list)}, resetting to []")
+        logger.warning(
+            f"history_list is not a list: {type(history_list)}, resetting to []"
+        )
         history_list = []
     else:
         # Make a copy to avoid shared state issues in concurrent requests
@@ -200,6 +221,7 @@ def _generate_server_side(mode, text, history_list, stream_config):
 
     try:
         from qwen3_tts.server.client import TTSClient
+
         payload = stream_config.get("payload", {})
         filename = f"voice_ui_{uuid.uuid4().hex[:8]}.wav"
         # Save to temp dir (Gradio always allows tempdir paths)
@@ -233,7 +255,9 @@ def _generate_server_side(mode, text, history_list, stream_config):
         output_expanded = os.path.expanduser(output_raw)
         if os.path.isabs(output_expanded):
             if ".." in output_expanded:
-                raise ValueError(f"Path traversal detected in output_directory config: {output_raw}")
+                raise ValueError(
+                    f"Path traversal detected in output_directory config: {output_raw}"
+                )
             output_dir = output_expanded
         else:
             output_dir = safe_path_join(os.getcwd(), output_expanded)
@@ -242,7 +266,9 @@ def _generate_server_side(mode, text, history_list, stream_config):
         home = os.path.realpath(os.path.expanduser("~"))
         resolved = os.path.realpath(output_dir)
         if not (resolved == home or resolved.startswith(home + os.sep)):
-            raise ValueError(f"output_directory must be under home directory: {output_raw}")
+            raise ValueError(
+                f"output_directory must be under home directory: {output_raw}"
+            )
 
         os.makedirs(output_dir, exist_ok=True)
         persistent_path = os.path.join(output_dir, filename)
@@ -270,7 +296,11 @@ def _generate_server_side(mode, text, history_list, stream_config):
         # Use lock to prevent concurrent modification issues
         with _history_lock:
             history_list = add_to_history(
-                history_list, mode, text, persistent_path, chunks,
+                history_list,
+                mode,
+                text,
+                persistent_path,
+                chunks,
                 seed=payload.get("seed"),
             )
             # Make a copy for return to avoid external mutation
@@ -302,13 +332,18 @@ def _build_common_controls():
         rep = gr.Slider(1.0, 2.0, value=1.05, step=0.01, label="Repetition Penalty")
         seed = gr.Textbox(label="Seed (empty for random)", value="")
         seed_lock = gr.Checkbox(
-            label="Lock voice across chunks", value=False,
-            info="Re-seed before each chunk for consistent voice timbre in long texts"
+            label="Lock voice across chunks",
+            value=False,
+            info="Re-seed before each chunk for consistent voice timbre in long texts",
         )
 
     return {
-        "temp": temp, "top_k": top_k, "top_p": top_p,
-        "rep": rep, "seed": seed, "seed_lock": seed_lock,
+        "temp": temp,
+        "top_k": top_k,
+        "top_p": top_p,
+        "rep": rep,
+        "seed": seed,
+        "seed_lock": seed_lock,
     }
 
 
@@ -340,23 +375,43 @@ def _build_generate_buttons_and_output(tab_id):
     status = gr.Textbox(label="Status", interactive=False)
     # Hidden components for JS<->Python data flow
     stream_config = gr.JSON(elem_classes=["gr-hidden"])
-    result_data = gr.Textbox(elem_classes=["gr-hidden"], elem_id=f"{tab_id}-result-data")
+    result_data = gr.Textbox(
+        elem_classes=["gr-hidden"], elem_id=f"{tab_id}-result-data"
+    )
     mode_hidden = gr.Textbox(value=tab_id, elem_classes=["gr-hidden"])
     text_hidden = gr.Textbox(elem_classes=["gr-hidden"])
     return {
-        "btn": btn, "cancel_btn": cancel_btn,
+        "btn": btn,
+        "cancel_btn": cancel_btn,
         "audio_url_converter": audio_url_converter,
         "stream_config": stream_config,
-        "result_data": result_data, "mode_hidden": mode_hidden,
-        "text_hidden": text_hidden, "status": status,
+        "result_data": result_data,
+        "mode_hidden": mode_hidden,
+        "text_hidden": text_hidden,
+        "status": status,
     }
 
 
-def _wire_generation_tab(mode, btn, cancel_btn, status, stream_config, result_data,
-                         mode_hidden, text_hidden, model_indicator,
-                         text, text_info, inputs_list, status_html,
-                         config_handler, api_name=None, history_state=None,
-                         audio_url_converter=None, gen_guard_state=None):
+def _wire_generation_tab(
+    mode,
+    btn,
+    cancel_btn,
+    status,
+    stream_config,
+    result_data,
+    mode_hidden,
+    text_hidden,
+    model_indicator,
+    text,
+    text_info,
+    inputs_list,
+    status_html,
+    config_handler,
+    api_name=None,
+    history_state=None,
+    audio_url_converter=None,
+    gen_guard_state=None,
+):
     """Wire up the generation flow: Python validates → JS streams → Python saves/fallback.
 
     Args:
@@ -383,17 +438,18 @@ def _wire_generation_tab(mode, btn, cancel_btn, status, stream_config, result_da
         (e.g. to update a history dataframe rendered below the tabs).
     """
     from qwen3_tts.interface.ui.model_management import get_model_status_html
+    from qwen3_tts.interface.ui.shared import update_text_info
     from qwen3_tts.interface.wavesurfer_js import (
         get_cancel_js,
         get_load_into_player_js,
     )
-    from qwen3_tts.interface.ui.shared import update_text_info
 
     # Step 1: Python validates inputs, returns generation config JSON.
     # If gen_guard_state is wired, a guard check precedes config_handler and
     # sets stream_config=None when generation is already in flight (blocks
     # _generate_server_side from firing).
     if gen_guard_state is not None:
+
         def _guarded_config(guard_state, *config_inputs):
             new_guard_state, guard_status, blocked = generate_guard_check(guard_state)
             if blocked:
@@ -417,32 +473,42 @@ def _wire_generation_tab(mode, btn, cancel_btn, status, stream_config, result_da
 
     # Generation flow: Python validates → Python generates server-side → JS loads audio
     # Auth token stays in the Python process and never reaches the browser.
-    chain = btn.click(**click_kwargs).then(
-        # Capture the text input for the generation step
-        fn=lambda t: t,
-        inputs=[text],
-        outputs=[text_hidden],
-    ).then(
-        # Step 2: Generate audio server-side via TTSClient (no JS streaming)
-        fn=_generate_server_side,
-        inputs=[mode_hidden, text_hidden, history_state, stream_config],
-        outputs=[audio_url_converter, status, status_html, history_state],
-    ).then(
-        # Step 3: Load saved file into tab's WaveSurfer player via hidden gr.Audio URL
-        # NOTE: fn=passthrough required for Gradio 6 .then() chain continuity
-        fn=lambda x: x,
-        js=get_load_into_player_js(mode),
-        inputs=[audio_url_converter],
-        outputs=[audio_url_converter],
-    ).then(
-        fn=lambda: get_model_status_html(mode),
-        outputs=model_indicator,
+    chain = (
+        btn.click(**click_kwargs)
+        .then(
+            # Capture the text input for the generation step
+            fn=lambda t: t,
+            inputs=[text],
+            outputs=[text_hidden],
+        )
+        .then(
+            # Step 2: Generate audio server-side via TTSClient (no JS streaming)
+            fn=_generate_server_side,
+            inputs=[mode_hidden, text_hidden, history_state, stream_config],
+            outputs=[audio_url_converter, status, status_html, history_state],
+        )
+        .then(
+            # Step 3: Load saved file into tab's WaveSurfer player via hidden gr.Audio URL
+            # NOTE: fn=passthrough required for Gradio 6 .then() chain continuity
+            fn=lambda x: x,
+            js=get_load_into_player_js(mode),
+            inputs=[audio_url_converter],
+            outputs=[audio_url_converter],
+        )
+        .then(
+            fn=lambda: get_model_status_html(mode),
+            outputs=model_indicator,
+        )
     )
 
     # Reset generating flag after the chain completes (including errors).
     if gen_guard_state is not None:
         chain = chain.then(
-            fn=lambda s: {**s, "generating": False} if isinstance(s, dict) else {"generating": False},
+            fn=lambda s: (
+                {**s, "generating": False}
+                if isinstance(s, dict)
+                else {"generating": False}
+            ),
             inputs=[gen_guard_state],
             outputs=[gen_guard_state],
         )

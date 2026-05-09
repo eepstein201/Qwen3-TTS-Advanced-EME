@@ -7,8 +7,8 @@ and update_startup_config().
 This module NEVER imports torch or qwen3_tts.core.engine at module scope.
 """
 
-from qwen3_tts.server.client._base import _require_server, _extract_error_message
-from qwen3_tts.core.config import auth_headers, ModelError
+from qwen3_tts.core.config import ModelError, auth_headers
+from qwen3_tts.server.client._base import _extract_error_message, _require_server
 
 
 class ModelManagerMixin:

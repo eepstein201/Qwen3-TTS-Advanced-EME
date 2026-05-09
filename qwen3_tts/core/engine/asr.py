@@ -24,11 +24,14 @@ def _ensure_asr_torch_loaded():
         if _asr_model_torch is not None:
             return
         import time
+
         logger.info("Loading torch ASR model...")
         t0 = time.time()
         try:
             from transformers import pipeline as hf_pipeline
+
             from qwen3_tts.core.config import get_device
+
             device_name = get_device()
             if device_name == "cuda":
                 device = 0
@@ -52,6 +55,7 @@ def _ensure_asr_torch_loaded():
 
 def preload_asr_model():
     """Preload ASR model in a background thread. Non-blocking, non-fatal."""
+
     def _load():
         try:
             backend = get_backend()
@@ -73,6 +77,7 @@ def load_asr_model():
                 return True
             try:
                 from mlx_audio.stt import load_model as load_stt_model
+
                 _asr_model_mlx = load_stt_model("mlx-community/whisper-large-v3-turbo")
                 logger.info("Loaded MLX ASR model")
                 return True
@@ -95,7 +100,11 @@ def _transcribe_mlx(audio_path, language="en"):
     try:
         result = _asr_model_mlx.generate(audio_path, language=language)
         transcript = result.text.strip() if result.text else ""
-        logger.info("Transcription complete: %d chars in %.1fs", len(transcript), time.time() - t0)
+        logger.info(
+            "Transcription complete: %d chars in %.1fs",
+            len(transcript),
+            time.time() - t0,
+        )
         return transcript
     except Exception as e:
         raise RuntimeError(f"Transcription failed: {e}")
@@ -104,6 +113,7 @@ def _transcribe_mlx(audio_path, language="en"):
 def _transcribe_torch(audio_path, language="en"):
     """Transcribe using transformers Whisper pipeline (CUDA/CPU)."""
     import time
+
     _ensure_asr_torch_loaded()
 
     logger.info("Transcribing (torch): %s", sanitize_log(audio_path))
@@ -114,7 +124,11 @@ def _transcribe_torch(audio_path, language="en"):
             kwargs["generate_kwargs"] = {"language": language}
         result = _asr_model_torch(audio_path, **kwargs)
         transcript = result["text"].strip() if result.get("text") else ""
-        logger.info("Transcription complete: %d chars in %.1fs", len(transcript), time.time() - t0)
+        logger.info(
+            "Transcription complete: %d chars in %.1fs",
+            len(transcript),
+            time.time() - t0,
+        )
         return transcript
     except Exception as e:
         raise RuntimeError(f"Transcription failed: {e}")
@@ -155,11 +169,13 @@ def unload_asr_model():
         logger.info("Unloaded torch ASR model")
         try:
             import torch
+
             if torch.cuda.is_available():
                 torch.cuda.empty_cache()
         except ImportError:
             pass
     import gc
+
     gc.collect()
 
 
@@ -172,12 +188,14 @@ def is_asr_available():
     if get_backend() == "mlx":
         try:
             from mlx_audio.stt import load_model  # noqa: F401
+
             return True
         except ImportError:
             return False
     else:
         try:
             from transformers import pipeline  # noqa: F401
+
             return True
         except ImportError:
             return False
@@ -208,14 +226,16 @@ def get_asr_model_info():
 def unload_model_cleanup():
     """Backend-specific memory cleanup after setting a model to None."""
     import gc
+
     gc.collect()
     backend = get_backend()
     if backend == "torch":
         try:
             import torch
+
             if torch.cuda.is_available():
                 torch.cuda.empty_cache()
-            elif hasattr(torch, 'mps') and torch.backends.mps.is_available():
+            elif hasattr(torch, "mps") and torch.backends.mps.is_available():
                 torch.mps.empty_cache()
         except ImportError:
             pass

@@ -17,7 +17,6 @@ from qwen3_tts.core.config import (  # noqa: E402
     CONFIG_PATH,
     VOICE_PROMPTS_DIR,
     get_backend,
-    get_server_url,
     is_server_running,
     safe_path_join,
 )
@@ -31,10 +30,10 @@ from qwen3_tts.interface.generate_helpers import (  # noqa: E402
     voice_prompt_exists,
 )
 
-
 # ---------------------------------------------------------------------------
 # Server helpers
 # ---------------------------------------------------------------------------
+
 
 def ensure_server_running(config):
     """Ensure the TTS server is running, starting it if necessary."""
@@ -42,9 +41,12 @@ def ensure_server_running(config):
         return True
 
     print("TTS Server is not running.")
-    print("Starting server (this may take 30-180 seconds on first run to download models)...")
+    print(
+        "Starting server (this may take 30-180 seconds on first run to download models)..."
+    )
 
     import shutil
+
     tts_cmd = shutil.which("tts")
     if tts_cmd:
         result = subprocess.run([tts_cmd, "server", "start"], capture_output=False)  # nosec B603
@@ -52,10 +54,12 @@ def ensure_server_running(config):
 
     # Fallback: start server directly as a module
     from qwen3_tts.core.config import LOG_FILE
+
     with open(LOG_FILE, "w") as log:
         subprocess.Popen(  # nosec B603
             [sys.executable, "-m", "qwen3_tts.server.app"],
-            stdout=log, stderr=log,
+            stdout=log,
+            stderr=log,
             start_new_session=True,
         )
 
@@ -74,9 +78,10 @@ def ensure_server_running(config):
 
 def build_ui_and_launch(config):
     """Build and launch the Gradio UI in-process."""
-    from qwen3_tts.interface.ui import build_ui, _find_available_port
-    from qwen3_tts.interface.ui.shared import get_gradio_launch_kwargs
     from qwen3_tts.core.config import IN_COLAB
+    from qwen3_tts.interface.ui import _find_available_port, build_ui
+    from qwen3_tts.interface.ui.shared import get_gradio_launch_kwargs
+
     preferred = config.get("ui", {}).get("port", 7860)
     port = _find_available_port(preferred)
     if port is None:
@@ -86,7 +91,9 @@ def build_ui_and_launch(config):
     inbrowser = not bool(os.environ.get("TTS_UI_NO_BROWSER")) and not IN_COLAB
     demo = build_ui()
     demo.launch(
-        server_port=port, share=share, inbrowser=inbrowser,
+        server_port=port,
+        share=share,
+        inbrowser=inbrowser,
         **get_gradio_launch_kwargs(config),
     )
 
@@ -105,8 +112,11 @@ def launch_gradio_ui(config):
 def load_model_on_server(config, model_type):
     """Request the server to load a model on demand."""
     from qwen3_tts.core.http_client import server_request
+
     print(f"Loading {model_type} model on server (this may take 30-60 seconds)...")
-    resp = server_request("POST", "/load-model", json={"model_type": model_type}, timeout=120)
+    resp = server_request(
+        "POST", "/load-model", json={"model_type": model_type}, timeout=120
+    )
     if resp.status_code == 200:
         result = resp.json()
         if result.get("status") == "loaded":
@@ -123,19 +133,34 @@ def load_model_on_server(config, model_type):
 # Generation functions
 # ---------------------------------------------------------------------------
 
-def generate_via_server(texts, mode, config, gen_params,
-                        prompt_file=None, voice_description=None,
-                        speaker=None, instruct=None, auto_load_model=True,
-                        max_chunk_chars=None, x_vector_only_mode=False):
+
+def generate_via_server(
+    texts,
+    mode,
+    config,
+    gen_params,
+    prompt_file=None,
+    voice_description=None,
+    speaker=None,
+    instruct=None,
+    auto_load_model=True,
+    max_chunk_chars=None,
+    x_vector_only_mode=False,
+):
     """Generate audio via the TTS server."""
     import requests  # lazy (used for exception types only)
+
     from qwen3_tts.core.http_client import server_request
     from qwen3_tts.interface.generate_interactive import _ProgressPoller
 
     payload = _build_generation_payload(
-        mode, config, gen_params,
-        prompt_file=prompt_file, voice_description=voice_description,
-        speaker=speaker, instruct=instruct,
+        mode,
+        config,
+        gen_params,
+        prompt_file=prompt_file,
+        voice_description=voice_description,
+        speaker=speaker,
+        instruct=instruct,
         x_vector_only_mode=x_vector_only_mode,
         max_chunk_chars=max_chunk_chars,
     )
@@ -165,26 +190,36 @@ def generate_via_server(texts, mode, config, gen_params,
             print()
 
             if auto_load_model:
-                choice = input(f"Would you like to load the '{model_type}' model now? [Y/n]: ").strip().lower()
-                if choice != 'n':
+                choice = (
+                    input(
+                        f"Would you like to load the '{model_type}' model now? [Y/n]: "
+                    )
+                    .strip()
+                    .lower()
+                )
+                if choice != "n":
                     if load_model_on_server(config, model_type):
                         progress = _ProgressPoller(batch_total=len(texts))
                         progress.start()
                         try:
-                            resp = server_request("POST", "/generate", json=payload, timeout=600)
+                            resp = server_request(
+                                "POST", "/generate", json=payload, timeout=600
+                            )
                         finally:
                             progress.stop()
                     else:
                         raise Exception(f"Failed to load {model_type} model")
                 else:
-                    raise Exception(f"Model '{model_type}' not loaded. Enable in config.json or load with server.")
+                    raise Exception(
+                        f"Model '{model_type}' not loaded. Enable in config.json or load with server."
+                    )
 
     if resp.status_code != 200:
         try:
             error_data = resp.json()
-            error_msg = error_data.get('error', 'Unknown error')
-            detail = error_data.get('detail', '')
-            recovery = error_data.get('recovery', '')
+            error_msg = error_data.get("error", "Unknown error")
+            detail = error_data.get("detail", "")
+            recovery = error_data.get("recovery", "")
         except (ValueError, requests.exceptions.JSONDecodeError):
             error_msg = f"Server returned HTTP {resp.status_code} (non-JSON response)"
             detail = ""
@@ -204,24 +239,38 @@ def generate_via_server(texts, mode, config, gen_params,
     return resp.json()["results"]
 
 
-def generate_streaming(text, mode, config, gen_params, output_path,
-                       prompt_file=None, voice_description=None,
-                       speaker=None, instruct=None, x_vector_only_mode=False):
+def generate_streaming(
+    text,
+    mode,
+    config,
+    gen_params,
+    output_path,
+    prompt_file=None,
+    voice_description=None,
+    speaker=None,
+    instruct=None,
+    x_vector_only_mode=False,
+):
     """Generate and stream audio playback in real-time (MLX backend).
 
     Streams from server and plays audio chunks as they arrive.
     Also saves the complete audio to output_path.
     """
-    import requests  # lazy
     import struct
     import tempfile
+
     import numpy as np
+    import requests  # lazy
     import soundfile as sf
 
     payload = _build_generation_payload(
-        mode, config, gen_params,
-        prompt_file=prompt_file, voice_description=voice_description,
-        speaker=speaker, instruct=instruct,
+        mode,
+        config,
+        gen_params,
+        prompt_file=prompt_file,
+        voice_description=voice_description,
+        speaker=speaker,
+        instruct=instruct,
         x_vector_only_mode=x_vector_only_mode,
     )
     payload["text"] = text
@@ -230,8 +279,10 @@ def generate_streaming(text, mode, config, gen_params, output_path,
 
     try:
         from qwen3_tts.core.http_client import server_request
+
         resp = server_request(
-            "POST", "/generate-stream",
+            "POST",
+            "/generate-stream",
             json=payload,
             timeout=600,
             stream=True,
@@ -305,11 +356,20 @@ def generate_streaming(text, mode, config, gen_params, output_path,
 # Local generation (lazy import of qwen3_tts.core.engine)
 # ---------------------------------------------------------------------------
 
-def generate_local(text, mode, gen_params, language="English",
-                   prompt_file=None, voice_description=None,
-                   speaker=None, instruct=None, max_chunk_chars=None):
+
+def generate_local(
+    text,
+    mode,
+    gen_params,
+    language="English",
+    prompt_file=None,
+    voice_description=None,
+    speaker=None,
+    instruct=None,
+    max_chunk_chars=None,
+):
     """Generate speech locally using qwen3_tts.core.engine (imports torch on first call)."""
-    from qwen3_tts.core.engine import load_model, run_inference, load_voice_prompt
+    from qwen3_tts.core.engine import load_model, load_voice_prompt, run_inference
 
     print(f"Loading {mode} model locally...")
     model = load_model(mode)
@@ -325,9 +385,13 @@ def generate_local(text, mode, gen_params, language="English",
                 base = prompt_file[:-3] if prompt_file.endswith(".pt") else prompt_file
                 print(f"Error: MLX voice prompt not found for '{base}'.")
                 print(f"  Need: voice_prompts/{base}.wav + voice_prompts/{base}.txt")
-                print(f"  Create with: tts voice create <audio> -t <transcript> -n {base} --mlx-only")
+                print(
+                    f"  Create with: tts voice create <audio> -t <transcript> -n {base} --mlx-only"
+                )
             else:
-                print(f"Error: Voice prompt not found: {safe_path_join(VOICE_PROMPTS_DIR, prompt_file)}")
+                print(
+                    f"Error: Voice prompt not found: {safe_path_join(VOICE_PROMPTS_DIR, prompt_file)}"
+                )
             sys.exit(1)
         print(f"Loading voice prompt: {prompt_file}")
         voice_prompt = load_voice_prompt(prompt_file)
@@ -360,6 +424,7 @@ def generate_local(text, mode, gen_params, language="English",
 # Single generation execution
 # ---------------------------------------------------------------------------
 
+
 def _voice_param_for_log(mode, prompt_file, voice_description, speaker_name, instruct):
     """Build the voice_param string for log_generation()."""
     if mode == "clone":
@@ -369,45 +434,102 @@ def _voice_param_for_log(mode, prompt_file, voice_description, speaker_name, ins
     return f"{speaker_name}" + (f" ({instruct})" if instruct else "")
 
 
-def _run_single_generation(text, args, config, gen_params, use_server, max_chunk_chars,
-                           output_path, mode, language, prompt_file, voice_description,
-                           speaker_name, *, instruct=""):
+def _run_single_generation(
+    text,
+    args,
+    config,
+    gen_params,
+    use_server,
+    max_chunk_chars,
+    output_path,
+    mode,
+    language,
+    prompt_file,
+    voice_description,
+    speaker_name,
+    *,
+    instruct="",
+):
     """Execute a single text generation (streaming, server, or local) and save output."""
     import soundfile as sf  # lazy
+
     gen_start = time.time()
 
     if getattr(args, "stream", False) and use_server:
         print("Using TTS server (streaming mode)...")
         if mode == "clone":
-            generate_streaming(text, mode, config, gen_params, output_path,
-                               prompt_file=prompt_file,
-                               x_vector_only_mode=getattr(args, 'no_transcript', False))
+            generate_streaming(
+                text,
+                mode,
+                config,
+                gen_params,
+                output_path,
+                prompt_file=prompt_file,
+                x_vector_only_mode=getattr(args, "no_transcript", False),
+            )
         elif mode == "design":
-            generate_streaming(text, mode, config, gen_params, output_path,
-                               voice_description=voice_description)
+            generate_streaming(
+                text,
+                mode,
+                config,
+                gen_params,
+                output_path,
+                voice_description=voice_description,
+            )
         else:
-            generate_streaming(text, mode, config, gen_params, output_path,
-                               speaker=speaker_name, instruct=instruct)
+            generate_streaming(
+                text,
+                mode,
+                config,
+                gen_params,
+                output_path,
+                speaker=speaker_name,
+                instruct=instruct,
+            )
         gen_duration = time.time() - gen_start
         print(f"Streaming complete ({gen_duration:.1f}s)")
-        voice_param = _voice_param_for_log(mode, prompt_file, voice_description, speaker_name, instruct)
-        log_generation(text, mode, voice_param, output_path, gen_params, duration_sec=gen_duration)
+        voice_param = _voice_param_for_log(
+            mode, prompt_file, voice_description, speaker_name, instruct
+        )
+        log_generation(
+            text, mode, voice_param, output_path, gen_params, duration_sec=gen_duration
+        )
         return use_server
 
     if use_server:
         print("Using TTS server...")
         if mode == "clone":
-            results = generate_via_server([text], mode, config, gen_params, prompt_file=prompt_file,
-                                          max_chunk_chars=max_chunk_chars,
-                                          x_vector_only_mode=getattr(args, 'no_transcript', False))
+            results = generate_via_server(
+                [text],
+                mode,
+                config,
+                gen_params,
+                prompt_file=prompt_file,
+                max_chunk_chars=max_chunk_chars,
+                x_vector_only_mode=getattr(args, "no_transcript", False),
+            )
         elif mode == "design":
-            results = generate_via_server([text], mode, config, gen_params, voice_description=voice_description,
-                                          max_chunk_chars=max_chunk_chars)
+            results = generate_via_server(
+                [text],
+                mode,
+                config,
+                gen_params,
+                voice_description=voice_description,
+                max_chunk_chars=max_chunk_chars,
+            )
         else:
-            results = generate_via_server([text], mode, config, gen_params,
-                                          speaker=speaker_name, instruct=instruct,
-                                          max_chunk_chars=max_chunk_chars)
-        needs_processing = args.trim_silence or args.normalize or args.speed or args.pitch
+            results = generate_via_server(
+                [text],
+                mode,
+                config,
+                gen_params,
+                speaker=speaker_name,
+                instruct=instruct,
+                max_chunk_chars=max_chunk_chars,
+            )
+        needs_processing = (
+            args.trim_silence or args.normalize or args.speed or args.pitch
+        )
         if needs_processing:
             wav, sr = _decode_base64_result(results[0])
             wav = process_audio_args(wav, sr, args)
@@ -416,29 +538,50 @@ def _run_single_generation(text, args, config, gen_params, use_server, max_chunk
             _save_base64_result(results[0], output_path)
     else:
         if mode == "custom":
-            wav, sr = generate_local(text, mode, gen_params, language,
-                                     speaker=speaker_name, instruct=instruct,
-                                     max_chunk_chars=max_chunk_chars)
+            wav, sr = generate_local(
+                text,
+                mode,
+                gen_params,
+                language,
+                speaker=speaker_name,
+                instruct=instruct,
+                max_chunk_chars=max_chunk_chars,
+            )
         elif mode == "design":
-            wav, sr = generate_local(text, mode, gen_params, language,
-                                     voice_description=voice_description,
-                                     max_chunk_chars=max_chunk_chars)
+            wav, sr = generate_local(
+                text,
+                mode,
+                gen_params,
+                language,
+                voice_description=voice_description,
+                max_chunk_chars=max_chunk_chars,
+            )
         else:
-            wav, sr = generate_local(text, mode, gen_params, language,
-                                     prompt_file=prompt_file,
-                                     max_chunk_chars=max_chunk_chars)
+            wav, sr = generate_local(
+                text,
+                mode,
+                gen_params,
+                language,
+                prompt_file=prompt_file,
+                max_chunk_chars=max_chunk_chars,
+            )
         wav = process_audio_args(wav, sr, args)
         sf.write(output_path, wav, sr)
 
     gen_duration = time.time() - gen_start
     print(f"Saved to: {output_path} ({gen_duration:.1f}s)")
-    voice_param = _voice_param_for_log(mode, prompt_file, voice_description, speaker_name, instruct)
-    log_generation(text, mode, voice_param, output_path, gen_params, duration_sec=gen_duration)
+    voice_param = _voice_param_for_log(
+        mode, prompt_file, voice_description, speaker_name, instruct
+    )
+    log_generation(
+        text, mode, voice_param, output_path, gen_params, duration_sec=gen_duration
+    )
 
     if args.play:
         play_audio(output_path)
     elif not args.no_open:
         from qwen3_tts.interface.generate_helpers import open_file
+
         open_file(output_path)
 
     return use_server

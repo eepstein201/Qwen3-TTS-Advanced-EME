@@ -18,7 +18,11 @@ from qwen3_tts.core.config import (
     save_config,
 )
 from qwen3_tts.server.app_lifespan import _sanitize_error
-from qwen3_tts.server.validation import _validate_prompt_name, _strip_extension, _error_response
+from qwen3_tts.server.validation import (
+    _error_response,
+    _strip_extension,
+    _validate_prompt_name,
+)
 
 logger = logging.getLogger("tts")
 
@@ -41,13 +45,13 @@ def handle_list_prompts(state, backend, query_params):
 
     if backend == "mlx":
         # MLX uses .wav+.txt pairs
-        wav_files = {f[:-4] for f in all_files if f.endswith('.wav')}
-        txt_files = {f[:-4] for f in all_files if f.endswith('.txt')}
+        wav_files = {f[:-4] for f in all_files if f.endswith(".wav")}
+        txt_files = {f[:-4] for f in all_files if f.endswith(".txt")}
         names = sorted(wav_files & txt_files)
         prompts = [f"{n}.wav" for n in names]
     else:
         # Torch uses .pt files only (not .wav files)
-        pt_names = {f[:-3] for f in all_files if f.endswith('.pt')}
+        pt_names = {f[:-3] for f in all_files if f.endswith(".pt")}
         prompts = sorted(f"{n}.pt" for n in pt_names)
 
     total = len(prompts)
@@ -64,7 +68,7 @@ def handle_list_prompts(state, backend, query_params):
 
     if offset > 0 or limit > 0:
         if limit > 0:
-            prompts = prompts[offset:offset + limit]
+            prompts = prompts[offset : offset + limit]
         else:
             prompts = prompts[offset:]
 
@@ -116,9 +120,12 @@ def handle_delete_prompt(state, req, config_fn):
 
     # Clear voice prompt cache
     from qwen3_tts.core.engine import clear_voice_prompt_cache
+
     clear_voice_prompt_cache()
 
-    logger.info("Deleted voice prompt '%s': %s", sanitize_log(base), sanitize_log(files_removed))
+    logger.info(
+        "Deleted voice prompt '%s': %s", sanitize_log(base), sanitize_log(files_removed)
+    )
     result = {"status": "deleted", "name": base, "files_removed": files_removed}
     if files_failed:
         result["files_failed"] = files_failed
@@ -149,7 +156,9 @@ def handle_rename_prompt(state, req, config_fn):
     # Collision check
     for ext in (".pt", ".wav", ".txt"):
         if os.path.exists(safe_path_join(VOICE_PROMPTS_DIR, f"{new_base}{ext}")):
-            raise HTTPException(status_code=409, detail=f"Voice prompt '{new_base}' already exists")
+            raise HTTPException(
+                status_code=409, detail=f"Voice prompt '{new_base}' already exists"
+            )
 
     # Check that at least one old file exists
     old_exists = any(
@@ -157,7 +166,9 @@ def handle_rename_prompt(state, req, config_fn):
         for ext in (".pt", ".wav", ".txt")
     )
     if not old_exists:
-        raise HTTPException(status_code=404, detail=f"Voice prompt '{old_base}' not found")
+        raise HTTPException(
+            status_code=404, detail=f"Voice prompt '{old_base}' not found"
+        )
 
     # Rename with rollback on partial failure
     renamed = []
@@ -175,8 +186,16 @@ def handle_rename_prompt(state, req, config_fn):
                 os.rename(current, rollback_to)
             except OSError:
                 pass
-        logger.error("Rename failed %s -> %s: %s", sanitize_log(req.old_name), sanitize_log(req.new_name), sanitize_log(e), exc_info=True)
-        raise HTTPException(status_code=500, detail="Rename failed. Check server logs for details.")
+        logger.error(
+            "Rename failed %s -> %s: %s",
+            sanitize_log(req.old_name),
+            sanitize_log(req.new_name),
+            sanitize_log(e),
+            exc_info=True,
+        )
+        raise HTTPException(
+            status_code=500, detail="Rename failed. Check server logs for details."
+        )
 
     # Update default if the renamed prompt was the default (immutable — Phase 10d)
     try:
@@ -193,11 +212,22 @@ def handle_rename_prompt(state, req, config_fn):
 
     # Clear voice prompt cache
     from qwen3_tts.core.engine import clear_voice_prompt_cache
+
     clear_voice_prompt_cache()
 
     files_renamed = [os.path.basename(new) for new, _ in renamed]
-    logger.info("Renamed voice prompt '%s' -> '%s': %s", sanitize_log(old_base), sanitize_log(new_base), sanitize_log(files_renamed))
-    return {"status": "renamed", "old_name": old_base, "new_name": new_base, "files_renamed": files_renamed}
+    logger.info(
+        "Renamed voice prompt '%s' -> '%s': %s",
+        sanitize_log(old_base),
+        sanitize_log(new_base),
+        sanitize_log(files_renamed),
+    )
+    return {
+        "status": "renamed",
+        "old_name": old_base,
+        "new_name": new_base,
+        "files_renamed": files_renamed,
+    }
 
 
 def handle_preview_prompt(name_param):
@@ -222,10 +252,15 @@ def handle_preview_prompt(name_param):
     real_path = os.path.realpath(wav_path)
     real_prompts_dir = os.path.realpath(str(VOICE_PROMPTS_DIR))
     if not real_path.startswith(real_prompts_dir + os.sep):
-        raise HTTPException(status_code=403, detail="Access denied: path outside voice prompts directory")
+        raise HTTPException(
+            status_code=403,
+            detail="Access denied: path outside voice prompts directory",
+        )
 
     if not os.path.exists(real_path):
-        raise HTTPException(status_code=404, detail=f"No .wav file found for prompt '{base}'")
+        raise HTTPException(
+            status_code=404, detail=f"No .wav file found for prompt '{base}'"
+        )
 
     return FileResponse(real_path, media_type="audio/wav")
 
@@ -274,7 +309,9 @@ def handle_prompt_details(name_param):
         base = _strip_extension(name_param)
         info = _prompt_info(base)
         if not info["formats"]:
-            raise HTTPException(status_code=404, detail=f"Voice prompt '{base}' not found")
+            raise HTTPException(
+                status_code=404, detail=f"Voice prompt '{base}' not found"
+            )
         return info
 
     # All prompts
@@ -288,7 +325,7 @@ def handle_prompt_details(name_param):
     for f in all_files:
         for ext in (".pt", ".wav", ".txt"):
             if f.endswith(ext):
-                bases.add(f[:-len(ext)])
+                bases.add(f[: -len(ext)])
                 break
 
     prompts = [_prompt_info(b) for b in sorted(bases)]
@@ -339,21 +376,26 @@ def handle_create_voice_prompt(state, req):
             tmp_path = tmp.name
         os.chmod(tmp_path, 0o600)
 
-        from qwen3_tts.core.engine import load_audio_for_cloning, create_voice_prompt
+        from qwen3_tts.core.engine import create_voice_prompt, load_audio_for_cloning
 
         ref_audio, ref_sr = load_audio_for_cloning(tmp_path)
         transcript = "" if req.no_transcript else (req.transcript or "")
         voice_prompt = create_voice_prompt(
-            state.models["clone"], ref_audio, ref_sr, transcript,
+            state.models["clone"],
+            ref_audio,
+            ref_sr,
+            transcript,
         )
 
         # Save the .pt file
         import torch
+
         pt_path = safe_path_join(VOICE_PROMPTS_DIR, f"{base}.pt")
         torch.save(voice_prompt, pt_path)
 
         # Clear voice prompt cache so new prompt is visible
         from qwen3_tts.core.engine import clear_voice_prompt_cache
+
         clear_voice_prompt_cache()
 
         logger.info("Created voice prompt '%s'", sanitize_log(base))

@@ -7,6 +7,8 @@ model_loader, voice_prompt, and config.
 
 import logging
 import time
+from collections.abc import Callable, Iterator
+from typing import Any
 
 from qwen3_tts.core.config import (
     CONFIG_PATH,
@@ -16,10 +18,8 @@ from qwen3_tts.core.config import (
     load_config,
     sanitize_log,
 )
-from qwen3_tts.core.engine.audio_processing import process_audio, LUFS_TARGET
+from qwen3_tts.core.engine.audio_processing import LUFS_TARGET, process_audio
 from qwen3_tts.core.engine.text_processing import _normalize_text, _split_text
-
-from typing import Callable, Any, Iterator
 
 logger = logging.getLogger("tts.engine")
 
@@ -79,12 +79,14 @@ def _get_backend_strategy(backend: str) -> Callable:
 # Torch backend — inference helpers (H6)
 # ---------------------------------------------------------------------------
 
+
 def _apply_mps_float32_guard(model: Any, mode: str) -> Any | None:
     """Override model to float32 for clone mode on MPS if needed.
 
     Returns the original dtype (to restore later), or None if no override was needed.
     """
     import torch
+
     if mode != "clone" or not torch.backends.mps.is_available():
         return None
     dtype_name = get_torch_dtype_name()
@@ -94,37 +96,58 @@ def _apply_mps_float32_guard(model: Any, mode: str) -> Any | None:
         "Clone mode on MPS requires float32 (configured: %s). "
         "Overriding to float32 for this generation. "
         "Set advanced.dtype to 'float32' in %s to silence this warning.",
-        sanitize_log(dtype_name), CONFIG_PATH,
+        sanitize_log(dtype_name),
+        CONFIG_PATH,
     )
     original_dtype = next(model.parameters()).dtype
     model.float()
     return original_dtype
 
 
-def _dispatch_torch_mode(model: Any, text: str, mode: str, language: str, params: dict,
-                         voice_prompt: Any, voice_description: str | None, speaker: str | None,
-                         instruct: str | None, x_vector_only_mode: bool) -> tuple:
+def _dispatch_torch_mode(
+    model: Any,
+    text: str,
+    mode: str,
+    language: str,
+    params: dict,
+    voice_prompt: Any,
+    voice_description: str | None,
+    speaker: str | None,
+    instruct: str | None,
+    x_vector_only_mode: bool,
+) -> tuple:
     """Call the appropriate model method for the given mode. Returns (wavs, sr)."""
     import torch
+
     with torch.inference_mode():
         if mode == "clone":
-            clone_kwargs = dict(text=text, language=language, voice_clone_prompt=voice_prompt, **params)
+            clone_kwargs = dict(
+                text=text, language=language, voice_clone_prompt=voice_prompt, **params
+            )
             if x_vector_only_mode:
                 clone_kwargs["x_vector_only_mode"] = True
             return model.generate_voice_clone(**clone_kwargs)
         elif mode == "custom":
             return model.generate_custom_voice(
-                text=text, speaker=speaker, instruct=instruct or "", language=language, **params,
+                text=text,
+                speaker=speaker,
+                instruct=instruct or "",
+                language=language,
+                **params,
             )
         else:  # design
             return model.generate_voice_design(
-                text=text, instruct=voice_description or "", language=language, **params,
+                text=text,
+                instruct=voice_description or "",
+                language=language,
+                **params,
             )
 
 
 def _cleanup_device_memory() -> None:
     """Release MPS or CUDA cached memory after inference and log usage."""
     import torch
+
     if torch.backends.mps.is_available():
         try:
             torch.mps.empty_cache()
@@ -145,23 +168,38 @@ def _cleanup_device_memory() -> None:
 # Torch backend — inference
 # ---------------------------------------------------------------------------
 
+
 def _build_torch_params(gen_params: dict) -> dict:
     """Merge caller gen_params with config defaults for torch backend."""
     config = load_config()
     config_gen = config.get("generation", {})
     return {
-        "temperature": gen_params.get("temperature", config_gen.get("temperature", 0.7)),
+        "temperature": gen_params.get(
+            "temperature", config_gen.get("temperature", 0.7)
+        ),
         "top_k": gen_params.get("top_k", config_gen.get("top_k", 50)),
         "top_p": gen_params.get("top_p", config_gen.get("top_p", 0.95)),
-        "repetition_penalty": gen_params.get("repetition_penalty", config_gen.get("repetition_penalty", 1.05)),
-        "max_new_tokens": gen_params.get("max_new_tokens", config_gen.get("max_new_tokens", 2048)),
+        "repetition_penalty": gen_params.get(
+            "repetition_penalty", config_gen.get("repetition_penalty", 1.05)
+        ),
+        "max_new_tokens": gen_params.get(
+            "max_new_tokens", config_gen.get("max_new_tokens", 2048)
+        ),
     }
 
 
-def _run_inference_torch(model: Any, text: str, mode: str, gen_params: dict, language: str = "English",
-                         voice_prompt: Any = None, voice_description: str | None = None,
-                         speaker: str | None = None, instruct: str | None = None,
-                         x_vector_only_mode: bool = False) -> tuple:
+def _run_inference_torch(
+    model: Any,
+    text: str,
+    mode: str,
+    gen_params: dict,
+    language: str = "English",
+    voice_prompt: Any = None,
+    voice_description: str | None = None,
+    speaker: str | None = None,
+    instruct: str | None = None,
+    x_vector_only_mode: bool = False,
+) -> tuple:
     """Run TTS inference using the PyTorch/MPS backend."""
     import torch
 
@@ -175,8 +213,16 @@ def _run_inference_torch(model: Any, text: str, mode: str, gen_params: dict, lan
 
     try:
         wavs, sr = _dispatch_torch_mode(
-            model, text, mode, language, params,
-            voice_prompt, voice_description, speaker, instruct, x_vector_only_mode,
+            model,
+            text,
+            mode,
+            language,
+            params,
+            voice_prompt,
+            voice_description,
+            speaker,
+            instruct,
+            x_vector_only_mode,
         )
     except RuntimeError as e:
         if "inf" in str(e) or "nan" in str(e):
@@ -185,7 +231,8 @@ def _run_inference_torch(model: Any, text: str, mode: str, gen_params: dict, lan
                 logger.error(
                     "Generation produced NaN/Inf with dtype=%s. "
                     "Switch to float32 in %s under advanced.dtype for stability.",
-                    sanitize_log(dtype_name), CONFIG_PATH,
+                    sanitize_log(dtype_name),
+                    CONFIG_PATH,
                 )
         raise
     finally:
@@ -193,11 +240,18 @@ def _run_inference_torch(model: Any, text: str, mode: str, gen_params: dict, lan
             try:
                 model.to(original_dtype)
             except (RuntimeError, TypeError) as restore_err:
-                logger.warning("Failed to restore model dtype after MPS guard: %s", restore_err)
+                logger.warning(
+                    "Failed to restore model dtype after MPS guard: %s", restore_err
+                )
 
     _cleanup_device_memory()
 
-    logger.info("Inference complete: %d chars, %.1fs, mode=%s [torch]", len(text), time.time() - t0, mode)
+    logger.info(
+        "Inference complete: %d chars, %.1fs, mode=%s [torch]",
+        len(text),
+        time.time() - t0,
+        mode,
+    )
     wav = _validate_audio(wavs[0], sr, mode=mode)
     return wav, sr
 
@@ -217,19 +271,24 @@ def _validate_audio(wav: Any, sample_rate: int, mode: str = "unknown") -> Any:
         Validated/corrected audio array
     """
     import numpy as np  # lazy — heavy import
+
     if wav is None or len(wav) == 0:
         logger.warning("Generated audio is empty (mode=%s)", mode)
         return wav
 
     # NaN check
     if np.any(np.isnan(wav)):
-        logger.warning("Generated audio contains NaN values (mode=%s), replacing with zeros", mode)
+        logger.warning(
+            "Generated audio contains NaN values (mode=%s), replacing with zeros", mode
+        )
         wav = np.nan_to_num(wav, nan=0.0)
 
     # Clipping check
     peak = np.max(np.abs(wav))
     if peak > 1.0:
-        logger.warning("Generated audio is clipping (peak=%.2f, mode=%s), normalizing", peak, mode)
+        logger.warning(
+            "Generated audio is clipping (peak=%.2f, mode=%s), normalizing", peak, mode
+        )
         wav = wav / peak
 
     # All-silence check
@@ -243,22 +302,37 @@ def _validate_audio(wav: Any, sample_rate: int, mode: str = "unknown") -> Any:
 # MLX backend — inference
 # ---------------------------------------------------------------------------
 
+
 def _get_mlx_gen_params(gen_params: dict, config: dict) -> dict:
     """Merge caller gen_params with config defaults for MLX backend."""
     config_gen = config.get("generation", {})
     return {
-        "temperature": gen_params.get("temperature", config_gen.get("temperature", 0.7)),
+        "temperature": gen_params.get(
+            "temperature", config_gen.get("temperature", 0.7)
+        ),
         "top_k": gen_params.get("top_k", config_gen.get("top_k", 50)),
         "top_p": gen_params.get("top_p", config_gen.get("top_p", 0.95)),
-        "repetition_penalty": gen_params.get("repetition_penalty", config_gen.get("repetition_penalty", 1.05)),
-        "max_new_tokens": gen_params.get("max_new_tokens", config_gen.get("max_new_tokens", 2048)),
+        "repetition_penalty": gen_params.get(
+            "repetition_penalty", config_gen.get("repetition_penalty", 1.05)
+        ),
+        "max_new_tokens": gen_params.get(
+            "max_new_tokens", config_gen.get("max_new_tokens", 2048)
+        ),
     }
 
 
-def _run_inference_mlx(model: Any, text: str, mode: str, gen_params: dict, language: str = "English",
-                       voice_prompt: Any = None, voice_description: str | None = None,
-                       speaker: str | None = None, instruct: str | None = None,
-                       x_vector_only_mode: bool = False) -> tuple:
+def _run_inference_mlx(
+    model: Any,
+    text: str,
+    mode: str,
+    gen_params: dict,
+    language: str = "English",
+    voice_prompt: Any = None,
+    voice_description: str | None = None,
+    speaker: str | None = None,
+    instruct: str | None = None,
+    x_vector_only_mode: bool = False,
+) -> tuple:
     """Run TTS inference using the MLX backend.
 
     Returns (wav_array, sample_rate) where wav_array is a float32 numpy array,
@@ -301,41 +375,47 @@ def _run_inference_mlx(model: Any, text: str, mode: str, gen_params: dict, langu
                 "to generate MLX-compatible files (.wav + .txt)."
             )
 
-        results = list(model.generate(
-            text=text,
-            ref_audio=ref_audio_path,
-            ref_text=ref_text,
-            language=language,
-            **params,
-        ))
+        results = list(
+            model.generate(
+                text=text,
+                ref_audio=ref_audio_path,
+                ref_text=ref_text,
+                language=language,
+                **params,
+            )
+        )
 
     elif mode == "custom":
         # MLX generate_custom_voice doesn't accept max_new_tokens
         custom_params = {k: v for k, v in params.items() if k != "max_new_tokens"}
-        results = list(model.generate_custom_voice(
-            text=text,
-            speaker=speaker or "Ryan",
-            language=language,
-            instruct=instruct or "",
-            **custom_params,
-        ))
+        results = list(
+            model.generate_custom_voice(
+                text=text,
+                speaker=speaker or "Ryan",
+                language=language,
+                instruct=instruct or "",
+                **custom_params,
+            )
+        )
 
     else:  # design
         # MLX generate_voice_design doesn't accept max_new_tokens
         design_params = {k: v for k, v in params.items() if k != "max_new_tokens"}
-        results = list(model.generate_voice_design(
-            text=text,
-            instruct=voice_description or "",
-            language=language,
-            **design_params,
-        ))
+        results = list(
+            model.generate_voice_design(
+                text=text,
+                instruct=voice_description or "",
+                language=language,
+                **design_params,
+            )
+        )
 
     if not results:
         raise RuntimeError("MLX generation returned no results")
 
     # Collect audio from all segments and concatenate
-    import numpy as np  # lazy — heavy import
     import mlx.core as mx
+    import numpy as np  # lazy — heavy import
 
     audio_segments = [r.audio for r in results]
     if len(audio_segments) == 1:
@@ -355,18 +435,29 @@ def _run_inference_mlx(model: Any, text: str, mode: str, gen_params: dict, langu
     elapsed = time.time() - t0
     logger.info(
         "Inference complete: %d chars, %.1fs, mode=%s [mlx]",
-        len(text), elapsed, mode,
+        len(text),
+        elapsed,
+        mode,
     )
 
     wav = _validate_audio(wav, sr, mode=mode)
     return wav, sr
 
 
-def _run_inference_mlx_streaming(model: Any, text: str, mode: str, gen_params: dict, language: str = "English",
-                                  voice_prompt: Any = None, voice_description: str | None = None,
-                                  speaker: str | None = None, instruct: str | None = None,
-                                  x_vector_only_mode: bool = False, config: dict | None = None,
-                                  progress_callback: Any = None) -> Iterator[tuple]:
+def _run_inference_mlx_streaming(
+    model: Any,
+    text: str,
+    mode: str,
+    gen_params: dict,
+    language: str = "English",
+    voice_prompt: Any = None,
+    voice_description: str | None = None,
+    speaker: str | None = None,
+    instruct: str | None = None,
+    x_vector_only_mode: bool = False,
+    config: dict | None = None,
+    progress_callback: Any = None,
+) -> Iterator[tuple]:
     """Run TTS inference using the MLX backend, yielding audio chunks as they generate.
 
     This is a generator that yields (audio_chunk, sample_rate) tuples as they
@@ -391,6 +482,7 @@ def _run_inference_mlx_streaming(model: Any, text: str, mode: str, gen_params: d
     """
 
     import numpy as np  # lazy — heavy import
+
     # Read defaults from config so MLX matches torch behavior (R-17)
     if config is None:
         config = load_config()
@@ -467,7 +559,13 @@ def _run_inference_mlx_streaming(model: Any, text: str, mode: str, gen_params: d
 # Chunk combination (crossfade / silence gap)
 # ---------------------------------------------------------------------------
 
-def _crossfade_chunks(chunks: list, sample_rate: int, crossfade_ms: int = 50, silence_gap_s: float | None = None) -> Any:
+
+def _crossfade_chunks(
+    chunks: list,
+    sample_rate: int,
+    crossfade_ms: int = 50,
+    silence_gap_s: float | None = None,
+) -> Any:
     """Combine audio chunks with crossfade or silence gap.
 
     Uses a raised-cosine (Hann) window for smooth transitions between chunks,
@@ -483,6 +581,7 @@ def _crossfade_chunks(chunks: list, sample_rate: int, crossfade_ms: int = 50, si
         Combined float32 numpy array.
     """
     import numpy as np  # lazy — heavy import
+
     if len(chunks) == 0:
         return np.array([], dtype=np.float32)
     if len(chunks) == 1:
@@ -519,6 +618,7 @@ def _crossfade_chunks(chunks: list, sample_rate: int, crossfade_ms: int = 50, si
 # Config helpers
 # ---------------------------------------------------------------------------
 
+
 def _get_max_chunk_chars() -> int:
     """Read max_chunk_chars from config, defaulting to 500."""
     try:
@@ -553,7 +653,9 @@ def _maybe_apply_lufs(audio, sample_rate, config=None):
     return process_audio(audio, sample_rate, lufs_target=target)
 
 
-def _prepare_text_chunks(text: str, language: str, model, max_chunk_chars: int) -> list[str]:
+def _prepare_text_chunks(
+    text: str, language: str, model, max_chunk_chars: int
+) -> list[str]:
     """Normalize and chunk text for inference.
 
     Args:
@@ -573,9 +675,11 @@ def _prepare_text_chunks(text: str, language: str, model, max_chunk_chars: int) 
         token_count = len(tokenizer.encode(text, add_special_tokens=False))
         if token_count > max_tokens:
             return _split_text(
-                text, max_chars=max_chunk_chars,
-                language=language, tokenizer=tokenizer,
-                max_tokens=max_tokens
+                text,
+                max_chars=max_chunk_chars,
+                language=language,
+                tokenizer=tokenizer,
+                max_tokens=max_tokens,
             )
         return [text]
     elif max_chunk_chars > 0 and len(text) > max_chunk_chars:
@@ -586,6 +690,7 @@ def _prepare_text_chunks(text: str, language: str, model, max_chunk_chars: int) 
 # ---------------------------------------------------------------------------
 # Seed helpers
 # ---------------------------------------------------------------------------
+
 
 def _set_seed_for_backend(seed: int | None) -> None:
     """Set the random seed for the active backend (torch or mlx).
@@ -598,9 +703,11 @@ def _set_seed_for_backend(seed: int | None) -> None:
     backend = get_backend()
     if backend == "mlx":
         import mlx.core as mx
+
         mx.random.seed(seed)
     else:
         import torch
+
         torch.manual_seed(seed)
 
 
@@ -608,12 +715,23 @@ def _set_seed_for_backend(seed: int | None) -> None:
 # Public dispatch API
 # ---------------------------------------------------------------------------
 
-def run_inference(model: Any, text: str, mode: str, gen_params: dict, language: str = "English",
-                  voice_prompt: Any = None, voice_description: str | None = None,
-                  speaker: str | None = None, instruct: str | None = None,
-                  max_chunk_chars: int | None = None, progress_callback: Any = None,
-                  x_vector_only_mode: bool = False, config_provider: Any = None,
-                  seed_lock_chunks: bool = False) -> tuple:
+
+def run_inference(
+    model: Any,
+    text: str,
+    mode: str,
+    gen_params: dict,
+    language: str = "English",
+    voice_prompt: Any = None,
+    voice_description: str | None = None,
+    speaker: str | None = None,
+    instruct: str | None = None,
+    max_chunk_chars: int | None = None,
+    progress_callback: Any = None,
+    x_vector_only_mode: bool = False,
+    config_provider: Any = None,
+    seed_lock_chunks: bool = False,
+) -> tuple:
     """Run TTS inference, dispatching to the configured backend.
 
     For long texts, automatically splits into chunks at sentence boundaries
@@ -646,8 +764,15 @@ def run_inference(model: Any, text: str, mode: str, gen_params: dict, language: 
         if progress_callback:
             progress_callback(0, 1)
         wav, sr = _run_inference_single(
-            model, chunks[0], mode, gen_params, language,
-            voice_prompt, voice_description, speaker, instruct,
+            model,
+            chunks[0],
+            mode,
+            gen_params,
+            language,
+            voice_prompt,
+            voice_description,
+            speaker,
+            instruct,
             x_vector_only_mode=x_vector_only_mode,
         )
         config = (config_provider or _DEFAULT_CONFIG_LOADER).load()
@@ -655,8 +780,12 @@ def run_inference(model: Any, text: str, mode: str, gen_params: dict, language: 
         return wav, sr
 
     # Multi-chunk: generate each, combine with crossfade or silence gap
-    logger.info("Splitting text (%d chars) into %d chunks (max %d chars each)",
-                len(text), len(chunks), max_chunk_chars)
+    logger.info(
+        "Splitting text (%d chars) into %d chunks (max %d chars each)",
+        len(text),
+        len(chunks),
+        max_chunk_chars,
+    )
 
     all_audio = []
     sample_rate = None
@@ -672,11 +801,24 @@ def run_inference(model: Any, text: str, mode: str, gen_params: dict, language: 
             _set_seed_for_backend(seed)
 
         preview = chunk[:50] + "..." if len(chunk) > 50 else chunk
-        logger.info("Chunk %d/%d: '%s' (%d chars)", i + 1, len(chunks), sanitize_log(preview), len(chunk))
+        logger.info(
+            "Chunk %d/%d: '%s' (%d chars)",
+            i + 1,
+            len(chunks),
+            sanitize_log(preview),
+            len(chunk),
+        )
 
         wav, sr = _run_inference_single(
-            model, chunk, mode, gen_params, language,
-            voice_prompt, voice_description, speaker, instruct,
+            model,
+            chunk,
+            mode,
+            gen_params,
+            language,
+            voice_prompt,
+            voice_description,
+            speaker,
+            instruct,
             x_vector_only_mode=x_vector_only_mode,
         )
 
@@ -689,20 +831,33 @@ def run_inference(model: Any, text: str, mode: str, gen_params: dict, language: 
     config = (config_provider or _DEFAULT_CONFIG_LOADER).load()
     silence_gap = config.get("generation", {}).get("silence_gap_seconds", 0.0)
     if silence_gap > 0:
-        result = _crossfade_chunks(all_audio, sample_rate, crossfade_ms=0, silence_gap_s=silence_gap)
+        result = _crossfade_chunks(
+            all_audio, sample_rate, crossfade_ms=0, silence_gap_s=silence_gap
+        )
     else:
         result = _crossfade_chunks(all_audio, sample_rate, crossfade_ms=50)
 
     result, sample_rate = _maybe_apply_lufs(result, sample_rate, config=config)
 
-    logger.info("Combined %d chunks into %.1fs audio", len(chunks), len(result) / sample_rate)
+    logger.info(
+        "Combined %d chunks into %.1fs audio", len(chunks), len(result) / sample_rate
+    )
     return result, sample_rate
 
 
-def _run_inference_single(model: Any, text: str, mode: str, gen_params: dict, language: str = "English",
-                          voice_prompt: Any = None, voice_description: str | None = None,
-                          speaker: str | None = None, instruct: str | None = None,
-                          _metal_retry_depth: int = 0, x_vector_only_mode: bool = False) -> tuple:
+def _run_inference_single(
+    model: Any,
+    text: str,
+    mode: str,
+    gen_params: dict,
+    language: str = "English",
+    voice_prompt: Any = None,
+    voice_description: str | None = None,
+    speaker: str | None = None,
+    instruct: str | None = None,
+    _metal_retry_depth: int = 0,
+    x_vector_only_mode: bool = False,
+) -> tuple:
     """Run TTS inference for a single text chunk.
 
     For MLX backend, includes Metal crash recovery: on certain Metal kernel
@@ -711,6 +866,7 @@ def _run_inference_single(model: Any, text: str, mode: str, gen_params: dict, la
     Dispatches to the appropriate backend strategy via the registry.
     """
     import numpy as np  # lazy — heavy import (used in Metal retry concatenation)
+
     backend = get_backend()
 
     # Get strategy from registry (OCP: extensible without modification)
@@ -720,8 +876,15 @@ def _run_inference_single(model: Any, text: str, mode: str, gen_params: dict, la
     if backend == "mlx":
         try:
             return strategy(
-                model, text, mode, gen_params, language,
-                voice_prompt, voice_description, speaker, instruct,
+                model,
+                text,
+                mode,
+                gen_params,
+                language,
+                voice_prompt,
+                voice_description,
+                speaker,
+                instruct,
                 x_vector_only_mode=x_vector_only_mode,
             )
         except RuntimeError as e:
@@ -734,7 +897,8 @@ def _run_inference_single(model: Any, text: str, mode: str, gen_params: dict, la
             if is_metal_crash and _metal_retry_depth < 2 and len(text) > 100:
                 logger.warning(
                     "Metal kernel issue detected (depth %d), retrying with smaller sub-chunks: %s",
-                    _metal_retry_depth, str(e)[:100],
+                    _metal_retry_depth,
+                    str(e)[:100],
                 )
                 # Split the chunk in half and process each sub-chunk
                 mid = len(text) // 2
@@ -745,37 +909,70 @@ def _run_inference_single(model: Any, text: str, mode: str, gen_params: dict, la
                 chunk1, chunk2 = text[:split_idx].strip(), text[split_idx:].strip()
 
                 wav1, sr = _run_inference_single(
-                    model, chunk1, mode, gen_params, language,
-                    voice_prompt, voice_description, speaker, instruct,
+                    model,
+                    chunk1,
+                    mode,
+                    gen_params,
+                    language,
+                    voice_prompt,
+                    voice_description,
+                    speaker,
+                    instruct,
                     _metal_retry_depth=_metal_retry_depth + 1,
                     x_vector_only_mode=x_vector_only_mode,
                 )
                 wav2, _ = _run_inference_single(
-                    model, chunk2, mode, gen_params, language,
-                    voice_prompt, voice_description, speaker, instruct,
+                    model,
+                    chunk2,
+                    mode,
+                    gen_params,
+                    language,
+                    voice_prompt,
+                    voice_description,
+                    speaker,
+                    instruct,
                     _metal_retry_depth=_metal_retry_depth + 1,
                     x_vector_only_mode=x_vector_only_mode,
                 )
                 # Concatenate with short silence (use config gap, min 50ms)
                 _retry_cfg = _DEFAULT_CONFIG_LOADER.load()
-                _gap_s = _retry_cfg.get("generation", {}).get("silence_gap_seconds", 0.1)
+                _gap_s = _retry_cfg.get("generation", {}).get(
+                    "silence_gap_seconds", 0.1
+                )
                 silence = np.zeros(int(sr * max(_gap_s, 0.05)), dtype=np.float32)
                 return np.concatenate([wav1, silence, wav2]), sr
             raise
 
     # Default: use strategy from registry
     return strategy(
-        model, text, mode, gen_params, language,
-        voice_prompt, voice_description, speaker, instruct,
+        model,
+        text,
+        mode,
+        gen_params,
+        language,
+        voice_prompt,
+        voice_description,
+        speaker,
+        instruct,
         x_vector_only_mode=x_vector_only_mode,
     )
 
 
-def run_inference_streaming(model: Any, text: str, mode: str, gen_params: dict, language: str = "English",
-                            voice_prompt: Any = None, voice_description: str | None = None,
-                            speaker: str | None = None, instruct: str | None = None,
-                            max_chunk_chars: int | None = None, x_vector_only_mode: bool = False,
-                            config_provider: Any = None, progress_callback: Any = None) -> Iterator[tuple]:
+def run_inference_streaming(
+    model: Any,
+    text: str,
+    mode: str,
+    gen_params: dict,
+    language: str = "English",
+    voice_prompt: Any = None,
+    voice_description: str | None = None,
+    speaker: str | None = None,
+    instruct: str | None = None,
+    max_chunk_chars: int | None = None,
+    x_vector_only_mode: bool = False,
+    config_provider: Any = None,
+    progress_callback: Any = None,
+) -> Iterator[tuple]:
     """Run TTS inference in streaming mode, yielding audio chunks as they generate.
 
     For MLX backend, uses native streaming from model.generate().
@@ -805,9 +1002,17 @@ def run_inference_streaming(model: Any, text: str, mode: str, gen_params: dict, 
         # MLX has native streaming — yield chunks as they generate
         logger.info("Starting streaming inference [mlx]")
         yield from _run_inference_mlx_streaming(
-            model, text, mode, gen_params, language,
-            voice_prompt, voice_description, speaker, instruct,
-            x_vector_only_mode=x_vector_only_mode, config=config,
+            model,
+            text,
+            mode,
+            gen_params,
+            language,
+            voice_prompt,
+            voice_description,
+            speaker,
+            instruct,
+            x_vector_only_mode=x_vector_only_mode,
+            config=config,
             progress_callback=progress_callback,
         )
     else:
@@ -829,14 +1034,23 @@ def run_inference_streaming(model: Any, text: str, mode: str, gen_params: dict, 
                 progress_callback(i + 1, chunk_total)
 
             wav, sr = _run_inference_single(
-                model, chunk, mode, gen_params, language,
-                voice_prompt, voice_description, speaker, instruct,
+                model,
+                chunk,
+                mode,
+                gen_params,
+                language,
+                voice_prompt,
+                voice_description,
+                speaker,
+                instruct,
                 x_vector_only_mode=x_vector_only_mode,
             )
             yield wav, sr
 
 
-def create_voice_prompt(model: Any, ref_audio: Any, ref_sr: int, transcript: str) -> Any:
+def create_voice_prompt(
+    model: Any, ref_audio: Any, ref_sr: int, transcript: str
+) -> Any:
     """Create a reusable voice-clone prompt from reference audio.
 
     Args:
@@ -849,13 +1063,15 @@ def create_voice_prompt(model: Any, ref_audio: Any, ref_sr: int, transcript: str
         Voice prompt tensor (suitable for torch.save / generate_voice_clone).
     """
     import numpy as np  # lazy — heavy import
+
     # Convert to mono if stereo
     if ref_audio.ndim > 1:
         ref_audio = np.mean(ref_audio, axis=-1).astype(np.float32)
 
     logger.info(
         "Creating voice prompt: %.1fs audio, %d char transcript",
-        len(ref_audio) / ref_sr, len(transcript),
+        len(ref_audio) / ref_sr,
+        len(transcript),
     )
 
     voice_prompt = model.create_voice_clone_prompt(

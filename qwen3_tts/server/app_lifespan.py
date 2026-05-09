@@ -17,21 +17,21 @@ import threading
 import time
 from collections import deque
 from contextlib import asynccontextmanager
-from typing import Optional
 
 from qwen3_tts.core.config import (
-    TOKEN_FILE,
     HISTORY_FILE,
-    load_config,
+    TOKEN_FILE,
+    cleanup_pid_file,
     get_backend,
     get_eta_cache_ttl,
-    cleanup_pid_file,
+    load_config,
     sanitize_log,
 )
 
 # Optional memory monitoring for OOM safeguard
 try:
     import psutil
+
     _HAS_PSUTIL = True
 except ImportError:
     _HAS_PSUTIL = False
@@ -59,7 +59,8 @@ def _sanitize_error(msg: str) -> str:
 # Helper functions
 # ---------------------------------------------------------------------------
 
-def _estimate_eta(app_state, text_length: int, elapsed_sec: float) -> Optional[float]:
+
+def _estimate_eta(app_state, text_length: int, elapsed_sec: float) -> float | None:
     """Estimate remaining seconds from history data."""
     now = time.time()
 
@@ -70,7 +71,7 @@ def _estimate_eta(app_state, text_length: int, elapsed_sec: float) -> Optional[f
                 if not os.path.exists(HISTORY_FILE):
                     app_state.eta_cache["median_rate"] = None
                 else:
-                    with open(HISTORY_FILE, "r") as f:
+                    with open(HISTORY_FILE) as f:
                         lines = deque(f, maxlen=20)
                     rates = []
                     for line in lines:
@@ -138,8 +139,7 @@ def reset_activity_timer(app_state):
 
     # Start new timer
     app_state.shutdown_timer = threading.Timer(
-        auto_shutdown_minutes * 60,
-        lambda: auto_shutdown(app_state)
+        auto_shutdown_minutes * 60, lambda: auto_shutdown(app_state)
     )
     app_state.shutdown_timer.daemon = True
     app_state.shutdown_timer.start()
@@ -147,10 +147,13 @@ def reset_activity_timer(app_state):
 
 def auto_shutdown(app_state):
     """Auto-shutdown due to inactivity."""
-    logger.info("Auto-shutdown: No activity for %d minutes.",
-                app_state.server_config.get("auto_shutdown_minutes", 0))
+    logger.info(
+        "Auto-shutdown: No activity for %d minutes.",
+        app_state.server_config.get("auto_shutdown_minutes", 0),
+    )
     cleanup_resources(app_state)
     import signal
+
     os.kill(os.getpid(), signal.SIGTERM)
 
 
@@ -158,11 +161,13 @@ def auto_shutdown(app_state):
 # Lifespan
 # ---------------------------------------------------------------------------
 
+
 async def _maybe_start_vllm_adapter(state) -> None:
     """Start VLLMAdapter and attach to state when backend is vllm."""
     if get_backend() != "vllm":
         return
     from qwen3_tts.core.engine_vllm import VLLMAdapter
+
     adapter = VLLMAdapter()
     await adapter.start()
     state.vllm_adapter = adapter
@@ -266,7 +271,7 @@ async def lifespan(app):
     # A competing instance (e.g. PM2 crash loop) that failed to bind
     # must not delete the token written by the real server.
     try:
-        with open(TOKEN_FILE, "r") as f:
+        with open(TOKEN_FILE) as f:
             on_disk = f.read().strip()
         if on_disk == app.state.auth_token:
             os.unlink(TOKEN_FILE)
@@ -292,7 +297,9 @@ def _background_load(app_state):
     if not models_to_load:
         logger.warning("No models configured to load at startup.")
     else:
-        logger.info("Loading %d model(s): %s", len(models_to_load), ", ".join(models_to_load))
+        logger.info(
+            "Loading %d model(s): %s", len(models_to_load), ", ".join(models_to_load)
+        )
 
     for model_type in models_to_load:
         loading_map = getattr(app_state, "models_loading", None)
@@ -300,6 +307,7 @@ def _background_load(app_state):
             loading_map[model_type] = True
         try:
             from qwen3_tts.core.config import get_model_info
+
             info = get_model_info(model_type)
             model_name = info.get("name", info.get("name_template", model_type))
             logger.info("Loading %s...", sanitize_log(model_name))
@@ -307,10 +315,16 @@ def _background_load(app_state):
             model = load_model(model_type)
             app_state.models[model_type] = model
             app_state.model_load_times[model_type] = round(time.time() - t0, 1)
-            logger.info("Loaded %s model successfully in %.1fs.", model_type, app_state.model_load_times[model_type])
+            logger.info(
+                "Loaded %s model successfully in %.1fs.",
+                model_type,
+                app_state.model_load_times[model_type],
+            )
         except (ImportError, RuntimeError, OSError, ValueError, MemoryError) as e:
             error_msg = str(e)
-            logger.error("Failed to load %s model: %s", model_type, error_msg, exc_info=True)
+            logger.error(
+                "Failed to load %s model: %s", model_type, error_msg, exc_info=True
+            )
             # Sanitize before storing — /health is a public endpoint
             app_state.model_load_errors[model_type] = _sanitize_error(error_msg)
         finally:
@@ -370,7 +384,7 @@ def cleanup_pid(app_state):
         shutdown_timer.cancel()
     cleanup_pid_file()
     try:
-        with open(TOKEN_FILE, "r") as f:
+        with open(TOKEN_FILE) as f:
             on_disk = f.read().strip()
         if on_disk == getattr(app_state, "auth_token", None):
             os.unlink(TOKEN_FILE)

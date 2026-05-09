@@ -14,7 +14,7 @@ def print_header(text: str) -> None:
     """Print a formatted section header."""
     print(f"\n{'=' * 60}")
     print(f"  {text}")
-    print('=' * 60)
+    print("=" * 60)
 
 
 def print_success(text: str) -> None:

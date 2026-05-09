@@ -13,18 +13,18 @@ import os
 
 import requests
 
+from qwen3_tts.core.config import (
+    GenerationError,
+    auth_headers,
+    get_default_clone_prompt,
+)
 from qwen3_tts.server.client._base import (
+    MAX_BUFFER_SIZE,
+    _build_gen_params,
+    _extract_error_message,
+    _normalize_speaker_name,
     _require_server,
     _resolve_voice_alias,
-    _build_gen_params,
-    _normalize_speaker_name,
-    _extract_error_message,
-    MAX_BUFFER_SIZE,
-)
-from qwen3_tts.core.config import (
-    get_default_clone_prompt,
-    auth_headers,
-    GenerationError,
 )
 
 
@@ -101,6 +101,7 @@ class GeneratorMixin:
         # Resolve prosody preset into instruct text
         if prosody and not instruct:
             from qwen3_tts.core.config import get_prosody_presets
+
             prosody_presets = get_prosody_presets(self.config)
             if prosody in prosody_presets:
                 instruct = prosody_presets[prosody]
@@ -112,7 +113,13 @@ class GeneratorMixin:
 
         # Build generation parameters using helper
         gen_params = _build_gen_params(
-            self.config, temperature, top_k, top_p, repetition_penalty, max_new_tokens, seed
+            self.config,
+            temperature,
+            top_k,
+            top_p,
+            repetition_penalty,
+            max_new_tokens,
+            seed,
         )
 
         # Apply preset
@@ -129,36 +136,71 @@ class GeneratorMixin:
             speaker = _normalize_speaker_name(speaker)
             instruct = instruct or ""
         else:
-            description = description or self.config.get("default_voice_description", "")
+            description = description or self.config.get(
+                "default_voice_description", ""
+            )
 
         # Determine output path
         if output is None:
-            output_dir = os.path.expanduser(self.config.get("output_directory", "~/Downloads"))
+            output_dir = os.path.expanduser(
+                self.config.get("output_directory", "~/Downloads")
+            )
             output = os.path.join(output_dir, "tts_output.wav")
         else:
             output = os.path.expanduser(output)
-            if not output.endswith('.wav'):
-                output += '.wav'
+            if not output.endswith(".wav"):
+                output += ".wav"
 
         # Generate audio via server
-        wav, sr = self._generate_via_server(text, mode, prompt, description, speaker, instruct, gen_params,
-                                            x_vector_only_mode=x_vector_only_mode,
-                                            seed_lock_chunks=seed_lock_chunks)
+        wav, sr = self._generate_via_server(
+            text,
+            mode,
+            prompt,
+            description,
+            speaker,
+            instruct,
+            gen_params,
+            x_vector_only_mode=x_vector_only_mode,
+            seed_lock_chunks=seed_lock_chunks,
+        )
 
         # Apply audio processing (lazy import — only if needed)
-        needs_processing = trim_silence or normalize or (speed and speed != 1.0) or (pitch and pitch != 0)
+        needs_processing = (
+            trim_silence
+            or normalize
+            or (speed and speed != 1.0)
+            or (pitch and pitch != 0)
+        )
         if needs_processing:
             from qwen3_tts.core.engine import process_audio
-            wav = process_audio(wav, sr, trim=trim_silence, normalize=normalize,
-                                speed=speed, pitch=pitch)
+
+            wav = process_audio(
+                wav,
+                sr,
+                trim=trim_silence,
+                normalize=normalize,
+                speed=speed,
+                pitch=pitch,
+            )
 
         # Save output
         import soundfile as sf  # lazy — not needed at module import time
+
         sf.write(output, wav, sr)
         return output
 
-    def _generate_via_server(self, text, mode, prompt, description, speaker, instruct, gen_params,
-                             x_vector_only_mode=False, seed_lock_chunks=False):
+    def _generate_via_server(
+        self,
+        text,
+        mode,
+        prompt,
+        description,
+        speaker,
+        instruct,
+        gen_params,
+        x_vector_only_mode=False,
+        seed_lock_chunks=False,
+    ):
         """Generate audio via the TTS server."""
         payload = self._add_mode_params(
             {
@@ -168,17 +210,28 @@ class GeneratorMixin:
                 "seed_lock_chunks": seed_lock_chunks,
                 **gen_params,
             },
-            mode, prompt=prompt, description=description,
-            speaker=speaker, instruct=instruct, x_vector_only_mode=x_vector_only_mode,
+            mode,
+            prompt=prompt,
+            description=description,
+            speaker=speaker,
+            instruct=instruct,
+            x_vector_only_mode=x_vector_only_mode,
         )
 
-        resp = self._session.post(f"{self.server_url}/generate", json=payload, timeout=600, headers=auth_headers())
+        resp = self._session.post(
+            f"{self.server_url}/generate",
+            json=payload,
+            timeout=600,
+            headers=auth_headers(),
+        )
         if resp.status_code != 200:
             raise GenerationError(_extract_error_message(resp))
 
-        import io
         import base64
+        import io
+
         import soundfile as sf
+
         result = resp.json()["results"][0]
         audio_bytes = base64.b64decode(result["audio_base64"])
         wav, sr = sf.read(io.BytesIO(audio_bytes))
@@ -223,6 +276,7 @@ class GeneratorMixin:
             (wav_chunk, sample_rate) tuples where wav_chunk is a numpy float32 array
         """
         import struct
+
         import numpy as np
 
         # Resolve voice alias using helper
@@ -243,7 +297,13 @@ class GeneratorMixin:
 
         # Build generation parameters using helper
         gen_params = _build_gen_params(
-            self.config, temperature, top_k, top_p, repetition_penalty, max_new_tokens, seed
+            self.config,
+            temperature,
+            top_k,
+            top_p,
+            repetition_penalty,
+            max_new_tokens,
+            seed,
         )
 
         # Apply preset
@@ -260,7 +320,9 @@ class GeneratorMixin:
             speaker = _normalize_speaker_name(speaker)
             instruct = instruct or ""
         else:
-            description = description or self.config.get("default_voice_description", "")
+            description = description or self.config.get(
+                "default_voice_description", ""
+            )
 
         # Build payload
         payload = self._add_mode_params(
@@ -270,8 +332,12 @@ class GeneratorMixin:
                 "language": self.config.get("language", "English"),
                 **gen_params,
             },
-            mode, prompt=prompt, description=description,
-            speaker=speaker, instruct=instruct, x_vector_only_mode=x_vector_only_mode,
+            mode,
+            prompt=prompt,
+            description=description,
+            speaker=speaker,
+            instruct=instruct,
+            x_vector_only_mode=x_vector_only_mode,
         )
 
         # Stream from server
@@ -375,7 +441,13 @@ class GeneratorMixin:
 
         # Get generation parameters
         gen_params = _build_gen_params(
-            self.config, temperature, top_k, top_p, repetition_penalty, max_new_tokens, seed
+            self.config,
+            temperature,
+            top_k,
+            top_p,
+            repetition_penalty,
+            max_new_tokens,
+            seed,
         )
 
         # Apply preset
@@ -400,8 +472,12 @@ class GeneratorMixin:
 
             mode = speaker_config.get("mode", "clone")
             prompt = speaker_config.get("prompt", get_default_clone_prompt(self.config))
-            description = speaker_config.get("description", self.config.get("default_voice_description", ""))
-            custom_speaker = _normalize_speaker_name(speaker_config.get("speaker", "ryan"))
+            description = speaker_config.get(
+                "description", self.config.get("default_voice_description", "")
+            )
+            custom_speaker = _normalize_speaker_name(
+                speaker_config.get("speaker", "ryan")
+            )
             instruct = speaker_config.get("instruct", line.get("instruct", ""))
 
             # Generate this line
@@ -412,27 +488,49 @@ class GeneratorMixin:
                     "language": self.config.get("language", "English"),
                     **gen_params,
                 },
-                mode, prompt=prompt, description=description,
-                speaker=custom_speaker, instruct=instruct,
+                mode,
+                prompt=prompt,
+                description=description,
+                speaker=custom_speaker,
+                instruct=instruct,
             )
 
-            resp = self._session.post(f"{self.server_url}/generate", json=payload, timeout=600, headers=auth_headers())
+            resp = self._session.post(
+                f"{self.server_url}/generate",
+                json=payload,
+                timeout=600,
+                headers=auth_headers(),
+            )
             if resp.status_code != 200:
                 raise GenerationError(_extract_error_message(resp))
 
-            import io
             import base64
+            import io
+
             import soundfile as sf
+
             result = resp.json()["results"][0]
             audio_bytes = base64.b64decode(result["audio_base64"])
             wav, sr = sf.read(io.BytesIO(audio_bytes))
 
             # Apply audio processing if needed
-            needs_processing = trim_silence or normalize or (speed and speed != 1.0) or (pitch and pitch != 0)
+            needs_processing = (
+                trim_silence
+                or normalize
+                or (speed and speed != 1.0)
+                or (pitch and pitch != 0)
+            )
             if needs_processing:
                 from qwen3_tts.core.engine import process_audio
-                wav = process_audio(wav, sr, trim=trim_silence, normalize=normalize,
-                                    speed=speed, pitch=pitch)
+
+                wav = process_audio(
+                    wav,
+                    sr,
+                    trim=trim_silence,
+                    normalize=normalize,
+                    speed=speed,
+                    pitch=pitch,
+                )
 
             if sample_rate is None:
                 sample_rate = sr
@@ -455,14 +553,17 @@ class GeneratorMixin:
 
         # Determine output path
         if output is None:
-            output_dir = os.path.expanduser(self.config.get("output_directory", "~/Downloads"))
+            output_dir = os.path.expanduser(
+                self.config.get("output_directory", "~/Downloads")
+            )
             output = os.path.join(output_dir, "dialogue_output.wav")
         else:
             output = os.path.expanduser(output)
-            if not output.endswith('.wav'):
-                output += '.wav'
+            if not output.endswith(".wav"):
+                output += ".wav"
 
         import soundfile as sf  # lazy — not needed at module import time
+
         sf.write(output, combined, sample_rate)
         return output
 

@@ -16,7 +16,6 @@ from qwen3_tts.interface.generate import (
     process_audio_args,
 )
 
-
 # ---------------------------------------------------------------------------
 # SRT processing
 # ---------------------------------------------------------------------------
@@ -34,19 +33,20 @@ def process_srt_file(srt_path, config, args, gen_params, use_server):
     """
     import numpy as np  # lazy — heavy import
     import soundfile as sf  # lazy — heavy import
+
     entries = parse_srt(srt_path)
     if not entries:
         print(f"Error: No subtitles found in {srt_path}")
         return
-
-    from qwen3_tts.core.config import safe_path_join
 
     # Security: validate output directory against path traversal
     base_raw = config.get("output_directory", "~/Downloads")
     base_expanded = os.path.expanduser(base_raw)
     if os.path.isabs(base_expanded):
         if ".." in base_expanded:
-            raise ValueError(f"Path traversal detected in output_directory config: {base_raw}")
+            raise ValueError(
+                f"Path traversal detected in output_directory config: {base_raw}"
+            )
         base_dir = base_expanded
     else:
         base_dir = safe_path_join(os.getcwd(), base_expanded)
@@ -57,7 +57,9 @@ def process_srt_file(srt_path, config, args, gen_params, use_server):
         output_expanded = os.path.expanduser(output_raw)
         if os.path.isabs(output_expanded):
             if ".." in output_expanded:
-                raise ValueError(f"Path traversal detected in output path: {output_raw}")
+                raise ValueError(
+                    f"Path traversal detected in output path: {output_raw}"
+                )
             output_dir = output_expanded
         else:
             output_dir = safe_path_join(os.getcwd(), output_expanded)
@@ -88,14 +90,19 @@ def process_srt_file(srt_path, config, args, gen_params, use_server):
 
         if use_server:
             results = generate_via_server(
-                [text], mode, config, gen_params,
+                [text],
+                mode,
+                config,
+                gen_params,
                 prompt_file=prompt_file if mode == "clone" else None,
                 voice_description=voice_description if mode == "design" else None,
             )
             wav, sr = _decode_base64_result(results[0])
         else:
             wav, sr = generate_local(
-                text, mode, gen_params,
+                text,
+                mode,
+                gen_params,
                 config.get("language", "English"),
                 prompt_file=prompt_file,
                 voice_description=voice_description,
@@ -129,5 +136,3 @@ def process_srt_file(srt_path, config, args, gen_params, use_server):
 
     if args.play:
         play_audio(combined_path)
-
-

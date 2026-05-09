@@ -22,7 +22,6 @@ import threading
 from typing import Literal
 
 from qwen3_tts.core.config import (
-    get_server_url,
     is_server_running,
     load_config,
 )
@@ -38,11 +37,11 @@ Severity = Literal["info", "success", "warning", "error", "loading"]
 
 # Colour tokens chosen to meet WCAG 4.5:1 against light + dark Gradio surfaces.
 _SEVERITY_STYLE = {
-    "info":    {"color": "#1a4480", "label": "Info",     "icon": "info"},
-    "success": {"color": "#0c5d00", "label": "Success",  "icon": "check"},
-    "warning": {"color": "#7d4f00", "label": "Warning",  "icon": "warn"},
-    "error":   {"color": "#9b1c1c", "label": "Error",    "icon": "x"},
-    "loading": {"color": "#1a4480", "label": "Loading",  "icon": "spinner"},
+    "info": {"color": "#1a4480", "label": "Info", "icon": "info"},
+    "success": {"color": "#0c5d00", "label": "Success", "icon": "check"},
+    "warning": {"color": "#7d4f00", "label": "Warning", "icon": "warn"},
+    "error": {"color": "#9b1c1c", "label": "Error", "icon": "x"},
+    "loading": {"color": "#1a4480", "label": "Loading", "icon": "spinner"},
 }
 
 # Inline SVGs (Heroicons-style minimal). 16x16 viewBox, currentColor fill so
@@ -60,7 +59,7 @@ _SVG_X = (
     'height="14" fill="currentColor" aria-hidden="true" focusable="false" '
     'style="vertical-align:-2px;margin-right:4px;">'
     '<path d="M3.293 3.293a1 1 0 011.414 0L8 6.586l3.293-3.293a1 1 0 '
-    '111.414 1.414L9.414 8l3.293 3.293a1 1 0 01-1.414 1.414L8 9.414l-3.293 '
+    "111.414 1.414L9.414 8l3.293 3.293a1 1 0 01-1.414 1.414L8 9.414l-3.293 "
     '3.293a1 1 0 01-1.414-1.414L6.586 8 3.293 4.707a1 1 0 010-1.414z"/></svg>'
 )
 _SVG_WARN = (
@@ -68,7 +67,7 @@ _SVG_WARN = (
     'height="14" fill="currentColor" aria-hidden="true" focusable="false" '
     'style="vertical-align:-2px;margin-right:4px;">'
     '<path d="M8 1.5a1 1 0 01.866.5l6.5 11.25A1 1 0 0114.5 14.75h-13a1 1 0 '
-    '01-.866-1.5L7.134 2A1 1 0 018 1.5zM8 6a1 1 0 00-1 1v3a1 1 0 002 0V7a1 '
+    "01-.866-1.5L7.134 2A1 1 0 018 1.5zM8 6a1 1 0 00-1 1v3a1 1 0 002 0V7a1 "
     '1 0 00-1-1zm0 7.25a.875.875 0 100-1.75.875.875 0 000 1.75z"/></svg>'
 )
 _SVG_INFO = (
@@ -86,7 +85,7 @@ _SVG_SPINNER = (
     'fill="none" stroke-dasharray="9 6" stroke-linecap="round">'
     '<animateTransform attributeName="transform" type="rotate" '
     'from="0 8 8" to="360 8 8" dur="1s" repeatCount="indefinite"/>'
-    '</circle></svg>'
+    "</circle></svg>"
 )
 
 _ICON = {
@@ -116,13 +115,14 @@ def status_badge(message: str, severity: Severity = "info") -> str:
     return (
         f'<span aria-label="{aria}" style="color:{style["color"]};'
         f'font-weight:500;display:inline-flex;align-items:center;">'
-        f'{icon}{safe}</span>'
+        f"{icon}{safe}</span>"
     )
 
 
 # ---------------------------------------------------------------------------
 # StatusBanner
 # ---------------------------------------------------------------------------
+
 
 class StatusBanner:
     """Global accessible status surface for the Gradio UI.
@@ -170,11 +170,11 @@ class StatusBanner:
             '<div role="status" aria-live="polite" '
             f'aria-label="{aria}" '
             f'style="padding:8px 12px;border-radius:6px;'
-            f'background:var(--block-background-fill,#f8f8f8);'
-            f'border:1px solid var(--block-border-color,#e0e0e0);'
-            f'color:{style["color"]};font-weight:500;'
+            f"background:var(--block-background-fill,#f8f8f8);"
+            f"border:1px solid var(--block-border-color,#e0e0e0);"
+            f"color:{style['color']};font-weight:500;"
             f'display:flex;align-items:center;">'
-            f'{icon}<span>{safe}</span></div>'
+            f"{icon}<span>{safe}</span></div>"
         )
 
     @property
@@ -186,6 +186,7 @@ class StatusBanner:
 # ---------------------------------------------------------------------------
 # poll_model_loading_state - fixes Phase 0 bug #4 (stale "Loaded" indicator)
 # ---------------------------------------------------------------------------
+
 
 def poll_model_loading_state(model_type: str, timeout: float = 5.0) -> str:
     """Return live loading state for a single model_type.
@@ -211,6 +212,7 @@ def poll_model_loading_state(model_type: str, timeout: float = 5.0) -> str:
 
     try:
         from qwen3_tts.core.http_client import server_request
+
         resp = server_request("GET", "/models", timeout=timeout)
     except Exception as exc:
         logger.debug("poll_model_loading_state: request failed: %s", exc)
@@ -280,10 +282,10 @@ class ProgressIndicator:
                 '<div role="progressbar" aria-busy="true" '
                 f'aria-label="{safe_msg or "Working"}" '
                 'style="display:flex;align-items:center;padding:6px 10px;'
-                'border-radius:6px;background:var(--block-background-fill,#f8f8f8);'
-                'border:1px solid var(--block-border-color,#e0e0e0);'
+                "border-radius:6px;background:var(--block-background-fill,#f8f8f8);"
+                "border:1px solid var(--block-border-color,#e0e0e0);"
                 'color:#1a4480;font-weight:500;">'
-                f'{spinner}<span>{safe_msg}</span></div>'
+                f"{spinner}<span>{safe_msg}</span></div>"
             )
 
         # Bounded mode
@@ -305,8 +307,8 @@ class ProgressIndicator:
             f'aria-valuenow="{self.percent}" aria-valuemin="0" aria-valuemax="100" '
             f'aria-label="{html_mod.escape(label_text)}" '
             'style="padding:6px 10px;border-radius:6px;'
-            'background:var(--block-background-fill,#f8f8f8);'
-            'border:1px solid var(--block-border-color,#e0e0e0);'
+            "background:var(--block-background-fill,#f8f8f8);"
+            "border:1px solid var(--block-border-color,#e0e0e0);"
             'color:#1a4480;font-weight:500;">'
             f'<div style="display:flex;justify-content:space-between;'
             f'margin-bottom:4px;font-size:0.875rem;"><span>{label_text}</span></div>'
@@ -324,6 +326,7 @@ class ProgressIndicator:
 # ---------------------------------------------------------------------------
 # confirm_step (Phase 1c) - two-step confirm for destructive actions
 # ---------------------------------------------------------------------------
+
 
 def confirm_step(
     confirm_state: dict | None,
@@ -421,7 +424,9 @@ class ConfirmButton:
             timeout_s=self.timeout_s,
         )
 
-        status_update = gr.update(value=self.status_message) if not confirmed else gr.update()
+        status_update = (
+            gr.update(value=self.status_message) if not confirmed else gr.update()
+        )
 
         return new_state, btn_update, status_update, confirmed
 
@@ -451,6 +456,7 @@ def poll_model_load_progress(model_type: str, timeout: float = 5.0) -> dict:
 
     try:
         from qwen3_tts.core.http_client import server_request
+
         resp = server_request("GET", "/models", timeout=timeout)
     except Exception as exc:
         logger.debug("poll_model_load_progress: request failed: %s", exc)

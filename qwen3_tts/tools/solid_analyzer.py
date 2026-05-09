@@ -4,11 +4,11 @@ SOLID Code Analyzer - Static analysis tool for SOLID principle compliance.
 Analyzes Python source code and scores compliance with each SOLID principle.
 Outputs violations with line numbers for remediation.
 """
+
 import ast
 import sys
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Dict, List
 
 
 @dataclass
@@ -29,7 +29,7 @@ class SOLIDScore:
     lsp_score: float  # Liskov Substitution
     isp_score: float  # Interface Segregation
     dip_score: float  # Dependency Inversion
-    violations: List[Violation] = field(default_factory=list)
+    violations: list[Violation] = field(default_factory=list)
 
     @property
     def total_score(self) -> float:
@@ -61,14 +61,12 @@ def analyze_code(source: str, filename: str = "<unknown>") -> SOLIDScore:
     Returns:
         SOLIDScore with principle scores and violations
     """
-    violations: List[Violation] = []
+    violations: list[Violation] = []
 
     try:
         tree = ast.parse(source)
     except SyntaxError as e:
-        violations.append(
-            Violation("SYNTAX", f"Syntax error: {e.msg}", e.lineno or 1)
-        )
+        violations.append(Violation("SYNTAX", f"Syntax error: {e.msg}", e.lineno or 1))
         return SOLIDScore(0, 0, 0, 0, 0, violations)
 
     # Analyze each principle
@@ -94,7 +92,7 @@ def analyze_code(source: str, filename: str = "<unknown>") -> SOLIDScore:
     )
 
 
-def _analyze_srp(tree: ast.AST) -> tuple[float, List[Violation]]:
+def _analyze_srp(tree: ast.AST) -> tuple[float, list[Violation]]:
     """
     Analyze Single Responsibility Principle.
 
@@ -103,7 +101,7 @@ def _analyze_srp(tree: ast.AST) -> tuple[float, List[Violation]]:
     - Function length
     - Cyclomatic complexity (basic)
     """
-    violations: List[Violation] = []
+    violations: list[Violation] = []
     srp_score = 10.0
 
     for node in ast.walk(tree):
@@ -111,8 +109,7 @@ def _analyze_srp(tree: ast.AST) -> tuple[float, List[Violation]]:
             public_methods = [
                 n
                 for n in node.body
-                if isinstance(n, ast.FunctionDef)
-                and not n.name.startswith("_")
+                if isinstance(n, ast.FunctionDef) and not n.name.startswith("_")
             ]
             num_methods = len(public_methods)
 
@@ -145,7 +142,7 @@ def _analyze_srp(tree: ast.AST) -> tuple[float, List[Violation]]:
     return srp_score, violations
 
 
-def _analyze_ocp(tree: ast.AST, source: str) -> tuple[float, List[Violation]]:
+def _analyze_ocp(tree: ast.AST, source: str) -> tuple[float, list[Violation]]:
     """
     Analyze Open/Closed Principle.
 
@@ -153,7 +150,7 @@ def _analyze_ocp(tree: ast.AST, source: str) -> tuple[float, List[Violation]]:
     - if/elif chains for type/mode dispatch
     - Hardcoded type comparisons
     """
-    violations: List[Violation] = []
+    violations: list[Violation] = []
     ocp_score = 10.0
 
     def count_elif_chains(if_node: ast.If) -> int:
@@ -168,7 +165,7 @@ def _analyze_ocp(tree: ast.AST, source: str) -> tuple[float, List[Violation]]:
                 current = None
         return count
 
-    def get_top_level_ifs(node: ast.AST) -> List[ast.If]:
+    def get_top_level_ifs(node: ast.AST) -> list[ast.If]:
         """Get only top-level If statements (not nested in other Ifs)."""
         ifs = []
         for child in ast.iter_child_nodes(node):
@@ -184,7 +181,9 @@ def _analyze_ocp(tree: ast.AST, source: str) -> tuple[float, List[Violation]]:
             # Find only top-level if statements
             top_ifs = get_top_level_ifs(node)
             for if_node in top_ifs:
-                chain_length = count_elif_chains(if_node) - 1  # Subtract 1 for initial if
+                chain_length = (
+                    count_elif_chains(if_node) - 1
+                )  # Subtract 1 for initial if
                 if chain_length > MAX_IF_ELSE_CHAIN:
                     # Deduct 1.5 points per elif over threshold
                     deduction = (chain_length - MAX_IF_ELSE_CHAIN) * 1.5
@@ -201,7 +200,7 @@ def _analyze_ocp(tree: ast.AST, source: str) -> tuple[float, List[Violation]]:
     return ocp_score, violations
 
 
-def _analyze_lsp(tree: ast.AST) -> tuple[float, List[Violation]]:
+def _analyze_lsp(tree: ast.AST) -> tuple[float, list[Violation]]:
     """
     Analyze Liskov Substitution Principle.
 
@@ -210,11 +209,11 @@ def _analyze_lsp(tree: ast.AST) -> tuple[float, List[Violation]]:
     - Parameter type narrowing (violation)
     - Return type widening (violation)
     """
-    violations: List[Violation] = []
+    violations: list[Violation] = []
     lsp_score = 10.0
 
     # Build class hierarchy
-    classes: Dict[str, ast.ClassDef] = {}
+    classes: dict[str, ast.ClassDef] = {}
     for node in ast.walk(tree):
         if isinstance(node, ast.ClassDef):
             classes[node.name] = node
@@ -227,7 +226,7 @@ def _analyze_lsp(tree: ast.AST) -> tuple[float, List[Violation]]:
             return annotation.id
         if isinstance(annotation, ast.Constant):
             return str(annotation.value)
-        return ast.unparse(annotation) if hasattr(ast, 'unparse') else ""
+        return ast.unparse(annotation) if hasattr(ast, "unparse") else ""
 
     # Check each class for overrides
     for class_name, class_node in classes.items():
@@ -238,14 +237,10 @@ def _analyze_lsp(tree: ast.AST) -> tuple[float, List[Violation]]:
 
                 # Compare method signatures
                 base_methods = {
-                    n.name: n
-                    for n in base_class.body
-                    if isinstance(n, ast.FunctionDef)
+                    n.name: n for n in base_class.body if isinstance(n, ast.FunctionDef)
                 }
                 derived_methods = {
-                    n.name: n
-                    for n in class_node.body
-                    if isinstance(n, ast.FunctionDef)
+                    n.name: n for n in class_node.body if isinstance(n, ast.FunctionDef)
                 }
 
                 for method_name, derived_method in derived_methods.items():
@@ -287,7 +282,7 @@ def _analyze_lsp(tree: ast.AST) -> tuple[float, List[Violation]]:
     return lsp_score, violations
 
 
-def _analyze_isp(tree: ast.AST) -> tuple[float, List[Violation]]:
+def _analyze_isp(tree: ast.AST) -> tuple[float, list[Violation]]:
     """
     Analyze Interface Segregation Principle.
 
@@ -295,7 +290,7 @@ def _analyze_isp(tree: ast.AST) -> tuple[float, List[Violation]]:
     - Interface-like classes with too many methods
     - Abstract base classes with many abstract methods
     """
-    violations: List[Violation] = []
+    violations: list[Violation] = []
     isp_score = 10.0
 
     for node in ast.walk(tree):
@@ -319,8 +314,7 @@ def _analyze_isp(tree: ast.AST) -> tuple[float, List[Violation]]:
                 public_methods = [
                     n
                     for n in node.body
-                    if isinstance(n, ast.FunctionDef)
-                    and not n.name.startswith("_")
+                    if isinstance(n, ast.FunctionDef) and not n.name.startswith("_")
                 ]
                 num_methods = len(public_methods)
 
@@ -339,7 +333,7 @@ def _analyze_isp(tree: ast.AST) -> tuple[float, List[Violation]]:
     return isp_score, violations
 
 
-def _analyze_dip(tree: ast.AST, source: str) -> tuple[float, List[Violation]]:
+def _analyze_dip(tree: ast.AST, source: str) -> tuple[float, list[Violation]]:
     """
     Analyze Dependency Inversion Principle.
 
@@ -348,7 +342,7 @@ def _analyze_dip(tree: ast.AST, source: str) -> tuple[float, List[Violation]]:
     - Hardcoded imports of concrete implementations
     - Global state access
     """
-    violations: List[Violation] = []
+    violations: list[Violation] = []
     dip_score = 10.0
 
     for node in ast.walk(tree):
@@ -365,7 +359,11 @@ def _analyze_dip(tree: ast.AST, source: str) -> tuple[float, List[Violation]]:
                                         if isinstance(stmt.value.func, ast.Name):
                                             class_name = stmt.value.func.id
                                             # Heuristic: Capitalized names are likely concrete classes
-                                            if class_name[0].isupper() and not class_name.startswith("_"):
+                                            if class_name[
+                                                0
+                                            ].isupper() and not class_name.startswith(
+                                                "_"
+                                            ):
                                                 dip_score = max(0, dip_score - 1.5)
                                                 violations.append(
                                                     Violation(
@@ -403,22 +401,20 @@ def analyze_module(file_path: str) -> SOLIDScore:
     path = Path(file_path)
     if not path.exists():
         return SOLIDScore(
-            0, 0, 0, 0, 0,
-            [Violation("IO", f"File not found: {file_path}", 0)]
+            0, 0, 0, 0, 0, [Violation("IO", f"File not found: {file_path}", 0)]
         )
 
     try:
         source = path.read_text()
     except Exception as e:
         return SOLIDScore(
-            0, 0, 0, 0, 0,
-            [Violation("IO", f"Failed to read file: {e}", 0)]
+            0, 0, 0, 0, 0, [Violation("IO", f"Failed to read file: {e}", 0)]
         )
 
     return analyze_code(source, str(path))
 
 
-def analyze_package(package_path: str) -> Dict[str, SOLIDScore]:
+def analyze_package(package_path: str) -> dict[str, SOLIDScore]:
     """
     Analyze all Python files in a package.
 
@@ -429,7 +425,7 @@ def analyze_package(package_path: str) -> Dict[str, SOLIDScore]:
         Dict mapping filename to SOLIDScore
     """
     path = Path(package_path)
-    results: Dict[str, SOLIDScore] = {}
+    results: dict[str, SOLIDScore] = {}
 
     if not path.is_dir():
         return results
@@ -473,10 +469,13 @@ def main():
         sys.exit(1)
 
     # Output results
-    total_score = sum(r.total_score for r in results.values()) / len(results) if results else 0
+    total_score = (
+        sum(r.total_score for r in results.values()) / len(results) if results else 0
+    )
 
     if args.json:
         import json
+
         output = {
             "average_score": total_score,
             "modules": {
@@ -488,7 +487,11 @@ def main():
                     "isp": score.isp_score,
                     "dip": score.dip_score,
                     "violations": [
-                        {"principle": v.principle, "message": v.message, "line": v.line_number}
+                        {
+                            "principle": v.principle,
+                            "message": v.message,
+                            "line": v.line_number,
+                        }
                         for v in score.violations
                     ],
                 }

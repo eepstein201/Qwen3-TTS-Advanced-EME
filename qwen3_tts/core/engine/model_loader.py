@@ -49,6 +49,7 @@ def _install_mps_patch():
             return
 
         from qwen3_tts.core.config import IS_MACOS
+
         if not IS_MACOS:
             _mps_patch_installed = True  # Mark as done, no patch needed
             return
@@ -58,16 +59,24 @@ def _install_mps_patch():
         _original_multinomial = torch.multinomial
 
         def _safe_multinomial(input, num_samples, replacement=False, *, generator=None):
-            if input.device.type == "mps" and input.is_floating_point() and input.dtype != torch.float32:
+            if (
+                input.device.type == "mps"
+                and input.is_floating_point()
+                and input.dtype != torch.float32
+            ):
                 input = input.float()
             if input.device.type == "mps":
                 input = torch.nan_to_num(input, nan=0.0, posinf=1.0, neginf=0.0)
                 input = input.clamp(min=0.0)
                 row_sums = input.sum(dim=-1, keepdim=True)
-                zero_rows = (row_sums == 0)
+                zero_rows = row_sums == 0
                 if zero_rows.any():
-                    input = input.masked_fill(zero_rows.expand_as(input), 1.0 / input.shape[-1])
-            return _original_multinomial(input, num_samples, replacement=replacement, generator=generator)
+                    input = input.masked_fill(
+                        zero_rows.expand_as(input), 1.0 / input.shape[-1]
+                    )
+            return _original_multinomial(
+                input, num_samples, replacement=replacement, generator=generator
+            )
 
         torch.multinomial = _safe_multinomial
         _mps_patch_installed = True
@@ -77,6 +86,7 @@ def _install_mps_patch():
 # ---------------------------------------------------------------------------
 # CUDA optimizations
 # ---------------------------------------------------------------------------
+
 
 def _apply_cuda_optimizations(config):
     """Detect CUDA hardware and return optimal settings for model loading.
@@ -92,17 +102,20 @@ def _apply_cuda_optimizations(config):
     capability = torch.cuda.get_device_capability()
 
     # Always apply these on CUDA
-    torch.set_float32_matmul_precision('high')
+    torch.set_float32_matmul_precision("high")
     torch.backends.cudnn.benchmark = True
 
     if capability[0] >= 8:
         # Ampere+ (A100, A10G, RTX 30xx, etc.)
         from qwen3_tts.core.config import _has_flash_attn
+
         if _has_flash_attn():
             attn_impl = "flash_attention_2"
         else:
             attn_impl = "sdpa"
-            logger.info("flash_attn not installed — using SDPA attention (still fast on Ampere+)")
+            logger.info(
+                "flash_attn not installed — using SDPA attention (still fast on Ampere+)"
+            )
         should_compile = config.get("generation", {}).get("compile_model", True)
         return (attn_impl, torch.bfloat16, should_compile)
     else:
@@ -114,6 +127,7 @@ def _apply_cuda_optimizations(config):
 # ---------------------------------------------------------------------------
 # Shared retry helper
 # ---------------------------------------------------------------------------
+
 
 def _retry_model_load(loader_fn, model_type: str, model_name: str):
     """Invoke loader_fn(), retrying on transient IO/network errors with exponential backoff."""
@@ -127,7 +141,10 @@ def _retry_model_load(loader_fn, model_type: str, model_name: str):
                 delay = _RETRY_DELAYS[attempt]
                 logger.warning(
                     "Model load attempt %d/%d failed: %s. Retrying in %ds...",
-                    attempt + 1, len(_RETRY_DELAYS) + 1, e, delay,
+                    attempt + 1,
+                    len(_RETRY_DELAYS) + 1,
+                    e,
+                    delay,
                 )
                 time.sleep(delay)
             else:
@@ -143,10 +160,14 @@ def _retry_model_load(loader_fn, model_type: str, model_name: str):
 # Torch backend — model loading helpers (H5)
 # ---------------------------------------------------------------------------
 
-def _resolve_load_kwargs(torch_quant: str, torch_dtype, device: str, attn_impl: str, device_map: str) -> dict:
+
+def _resolve_load_kwargs(
+    torch_quant: str, torch_dtype, device: str, attn_impl: str, device_map: str
+) -> dict:
     """Build the from_pretrained kwargs dict based on quantization setting."""
-    import torch
     import sys
+
+    import torch
 
     load_kwargs: dict = dict(attn_implementation=attn_impl, device_map=device_map)
 
@@ -157,14 +178,16 @@ def _resolve_load_kwargs(torch_quant: str, torch_dtype, device: str, attn_impl: 
                 "Set torch_quantization to 'none' or '8bit', or use a different backend."
             )
         try:
-            from transformers import BitsAndBytesConfig
             import bitsandbytes  # noqa: F401
+            from transformers import BitsAndBytesConfig
         except ImportError as e:
             raise RuntimeError(
                 f"4-bit quantization requires bitsandbytes. Install with: pip install bitsandbytes. Error: {e}"
             )
         load_kwargs["quantization_config"] = BitsAndBytesConfig(
-            load_in_4bit=True, bnb_4bit_compute_dtype=torch_dtype, bnb_4bit_use_double_quant=True,
+            load_in_4bit=True,
+            bnb_4bit_compute_dtype=torch_dtype,
+            bnb_4bit_use_double_quant=True,
         )
         logger.info("Using 4-bit quantization (bitsandbytes NF4)")
     elif torch_quant == "8bit":
@@ -189,12 +212,15 @@ def _resolve_load_kwargs(torch_quant: str, torch_dtype, device: str, attn_impl: 
                 load_kwargs["load_in_8bit"] = True
                 logger.info(
                     "Auto-enabled 8-bit quantization for compute capability %s "
-                    "(override: set advanced.torch_quantization in config)", cap,
+                    "(override: set advanced.torch_quantization in config)",
+                    cap,
                 )
             elif cap[0] < 8 and explicitly_set:
                 logger.info(
                     "Turing GPU (compute %s) but torch_quantization explicitly set to '%s' "
-                    "— respecting user config", cap, torch_quant,
+                    "— respecting user config",
+                    cap,
+                    torch_quant,
                 )
 
     return load_kwargs
@@ -203,9 +229,11 @@ def _resolve_load_kwargs(torch_quant: str, torch_dtype, device: str, attn_impl: 
 def _is_model_cached(repo_id: str) -> bool:
     """Return True if the model snapshot is already in the local HF cache."""
     from huggingface_hub import snapshot_download
+
     try:
         snapshot_download(
-            repo_id, local_files_only=True,
+            repo_id,
+            local_files_only=True,
             allow_patterns=["*.json", "*.txt", "*.bin", "*.safetensors"],
         )
         return True
@@ -217,9 +245,12 @@ def _is_model_cached(repo_id: str) -> bool:
 def _apply_torch_compile(model, model_type: str, device: str, should_compile: bool):
     """Apply torch.compile to the model's inner nn.Module if conditions are met."""
     import torch
+
     if should_compile and device == "cuda":
         try:
-            logger.info("Applying torch.compile (reduce-overhead) to %s model", model_type)
+            logger.info(
+                "Applying torch.compile (reduce-overhead) to %s model", model_type
+            )
             model.model = torch.compile(model.model, mode="reduce-overhead")
         except Exception as e:
             logger.warning("torch.compile failed (%s) — running without compilation", e)
@@ -230,6 +261,7 @@ def _patch_tokenizer(model, repo_id: str):
     """Reload tokenizer with fix_mistral_regex=True if the transformers version supports it."""
     try:
         from transformers import AutoTokenizer
+
         model.tokenizer = AutoTokenizer.from_pretrained(repo_id, fix_mistral_regex=True)  # nosec B615
     except TypeError:
         pass  # Older transformers doesn't support fix_mistral_regex
@@ -239,6 +271,7 @@ def _patch_tokenizer(model, repo_id: str):
 # ---------------------------------------------------------------------------
 # Torch backend — model loading
 # ---------------------------------------------------------------------------
+
 
 def _load_model_torch(model_type):
     """Load a TTS model using the PyTorch/MPS backend.
@@ -253,26 +286,44 @@ def _load_model_torch(model_type):
     repo_id = get_torch_model_name(model_type)
     model_size = get_model_size()
     dtype_name = get_torch_dtype_name()
-    dtype_map = {"float32": torch.float32, "float16": torch.float16, "bfloat16": torch.bfloat16}
+    dtype_map = {
+        "float32": torch.float32,
+        "float16": torch.float16,
+        "bfloat16": torch.bfloat16,
+    }
     attn_impl, optimal_dtype, should_compile = _apply_cuda_optimizations(load_config())
     torch_quant = get_torch_quantization()
 
-    logger.info("Loading %s (%s) with dtype=%s, quant=%s, size=%s [torch backend]...",
-                sanitize_log(model_type), sanitize_log(repo_id), sanitize_log(dtype_name), sanitize_log(torch_quant), sanitize_log(model_size))
+    logger.info(
+        "Loading %s (%s) with dtype=%s, quant=%s, size=%s [torch backend]...",
+        sanitize_log(model_type),
+        sanitize_log(repo_id),
+        sanitize_log(dtype_name),
+        sanitize_log(torch_quant),
+        sanitize_log(model_size),
+    )
     t0 = time.time()
 
     def _do_load():
         from qwen3_tts.core.config import get_device
+
         device = get_device()
         torch_dtype = optimal_dtype if device == "cuda" else dtype_map[dtype_name]
         device_map = "auto" if device == "cuda" else device
 
-        load_kwargs = _resolve_load_kwargs(torch_quant, torch_dtype, device, attn_impl, device_map)
+        load_kwargs = _resolve_load_kwargs(
+            torch_quant, torch_dtype, device, attn_impl, device_map
+        )
 
         if not _is_model_cached(repo_id):
-            logger.info("Downloading %s model (this may take several minutes on first run)...", model_type)
-            logger.info("Model size: ~%s — ensure stable internet connection",
-                        "3.5GB" if model_size == "1.7B" else "2GB")
+            logger.info(
+                "Downloading %s model (this may take several minutes on first run)...",
+                model_type,
+            )
+            logger.info(
+                "Model size: ~%s — ensure stable internet connection",
+                "3.5GB" if model_size == "1.7B" else "2GB",
+            )
 
         model = Qwen3TTSModel.from_pretrained(repo_id, **load_kwargs)
         model = _apply_torch_compile(model, model_type, device, should_compile)
@@ -286,6 +337,7 @@ def _load_model_torch(model_type):
 # ---------------------------------------------------------------------------
 # MLX backend — model loading
 # ---------------------------------------------------------------------------
+
 
 def _load_model_mlx(model_type):
     """Load a TTS model using the MLX backend.
@@ -306,7 +358,12 @@ def _load_model_mlx(model_type):
 
     repo_id = get_mlx_model_name(model_type)
     model_size = get_model_size()
-    logger.info("Loading %s (%s) size=%s [mlx backend]...", sanitize_log(model_type), sanitize_log(repo_id), sanitize_log(model_size))
+    logger.info(
+        "Loading %s (%s) size=%s [mlx backend]...",
+        sanitize_log(model_type),
+        sanitize_log(repo_id),
+        sanitize_log(model_size),
+    )
     t0 = time.time()
 
     def _do_load():
@@ -332,6 +389,7 @@ def _load_model_mlx(model_type):
 # Model warm-up
 # ---------------------------------------------------------------------------
 
+
 def _warmup_model(model, model_type, backend):
     """Run a short warm-up inference to compile kernels. Non-fatal.
 
@@ -346,14 +404,17 @@ def _warmup_model(model, model_type, backend):
         t0 = time.time()
         logger.info("Running warm-up inference for %s model...", model_type)
         if backend == "mlx":
-            list(model.generate_voice_design(
-                text="Hello.",
-                instruct="Speak normally.",
-                language="English",
-                temperature=0.5,
-            ))
+            list(
+                model.generate_voice_design(
+                    text="Hello.",
+                    instruct="Speak normally.",
+                    language="English",
+                    temperature=0.5,
+                )
+            )
         else:
             import torch
+
             with torch.inference_mode():
                 model.generate_voice_design(
                     text="Hello.",
@@ -370,6 +431,7 @@ def _warmup_model(model, model_type, backend):
 # ---------------------------------------------------------------------------
 # Public dispatch API
 # ---------------------------------------------------------------------------
+
 
 def load_model(model_type):
     """Load a TTS model by type, dispatching to the configured backend.

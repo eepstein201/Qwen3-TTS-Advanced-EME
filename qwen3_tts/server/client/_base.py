@@ -17,7 +17,6 @@ from qwen3_tts.core.config import (
     is_server_running,
 )
 
-
 # ---------------------------------------------------------------------------
 # Constants
 # ---------------------------------------------------------------------------
@@ -28,6 +27,7 @@ MAX_BUFFER_SIZE = 100 * 1024 * 1024  # 100MB - maximum buffer size for streaming
 # ---------------------------------------------------------------------------
 # Helper functions for code reuse
 # ---------------------------------------------------------------------------
+
 
 def _normalize_speaker_name(speaker):
     """Normalize speaker name to lowercase for consistent lookup.
@@ -87,7 +87,9 @@ def _resolve_voice_alias(alias, prompt, mode, description, speaker, instruct, pr
     return result
 
 
-def _build_gen_params(config, temperature, top_k, top_p, repetition_penalty, max_new_tokens, seed):
+def _build_gen_params(
+    config, temperature, top_k, top_p, repetition_penalty, max_new_tokens, seed
+):
     """Build generation parameters dict from config and user overrides.
 
     User-provided values take precedence over config defaults.
@@ -106,11 +108,17 @@ def _build_gen_params(config, temperature, top_k, top_p, repetition_penalty, max
     """
     gen_config = config.get("generation", {})
     gen_params = {
-        "temperature": temperature if temperature is not None else gen_config.get("temperature", 0.7),
+        "temperature": temperature
+        if temperature is not None
+        else gen_config.get("temperature", 0.7),
         "top_k": top_k if top_k is not None else gen_config.get("top_k", 50),
         "top_p": top_p if top_p is not None else gen_config.get("top_p", 0.95),
-        "repetition_penalty": repetition_penalty if repetition_penalty is not None else gen_config.get("repetition_penalty", 1.05),
-        "max_new_tokens": max_new_tokens if max_new_tokens is not None else gen_config.get("max_new_tokens", 2048),
+        "repetition_penalty": repetition_penalty
+        if repetition_penalty is not None
+        else gen_config.get("repetition_penalty", 1.05),
+        "max_new_tokens": max_new_tokens
+        if max_new_tokens is not None
+        else gen_config.get("max_new_tokens", 2048),
     }
 
     if seed is not None:
@@ -140,6 +148,7 @@ def _extract_error_message(resp, default: str = "Unknown error") -> str:
 
 def _require_server(func):
     """Decorator that checks server is running before method execution."""
+
     @functools.wraps(func)
     def wrapper(self, *args, **kwargs):
         if not self.is_server_running():
@@ -147,12 +156,14 @@ def _require_server(func):
                 "TTS server is not running. Start it with: tts server start"
             )
         return func(self, *args, **kwargs)
+
     return wrapper
 
 
 # ---------------------------------------------------------------------------
 # _ClientBase class
 # ---------------------------------------------------------------------------
+
 
 class _ClientBase:
     """Base class providing shared state, config, and HTTP session."""
@@ -191,7 +202,7 @@ class _ClientBase:
                 "server": {"url": self._config_provider.get_server_url()},
             }
         if self._config is None:
-            with open(self.config_path, "r") as f:
+            with open(self.config_path) as f:
                 self._config = json.load(f)
         return self._config
 

@@ -21,9 +21,9 @@ _SEGMENTER_CACHE = {}
 # Pre-compiled regex patterns for text chunking
 # ---------------------------------------------------------------------------
 
-_SENTENCE_SPLIT_RE = re.compile(r'(?<=[.!?])\s+')
-_PARAGRAPH_SPLIT_RE = re.compile(r'\n+')
-_CLAUSE_SPLIT_RE = re.compile(r'(?<=[,;:\u2014])\s+')
+_SENTENCE_SPLIT_RE = re.compile(r"(?<=[.!?])\s+")
+_PARAGRAPH_SPLIT_RE = re.compile(r"\n+")
+_CLAUSE_SPLIT_RE = re.compile(r"(?<=[,;:\u2014])\s+")
 
 # ---------------------------------------------------------------------------
 # Language mapping helpers
@@ -57,17 +57,17 @@ def _map_language(language):
 
 # Abbreviation table — longer patterns first to avoid partial matches
 _ABBREV_TABLE = [
-    (r'\bProf\.', "Professor"),
-    (r'\bDr\.', "Doctor"),
-    (r'\bMrs\.', "Missus"),
-    (r'\bMr\.', "Mister"),
-    (r'\be\.g\.', "for example"),
-    (r'\bi\.e\.', "that is"),
-    (r'\bvs\.', "versus"),
-    (r'\betc\.', "et cetera"),
-    (r'\bapprox\.', "approximately"),
-    (r'\byrs\.', "years"),
-    (r'\byrs\b', "years"),
+    (r"\bProf\.", "Professor"),
+    (r"\bDr\.", "Doctor"),
+    (r"\bMrs\.", "Missus"),
+    (r"\bMr\.", "Mister"),
+    (r"\be\.g\.", "for example"),
+    (r"\bi\.e\.", "that is"),
+    (r"\bvs\.", "versus"),
+    (r"\betc\.", "et cetera"),
+    (r"\bapprox\.", "approximately"),
+    (r"\byrs\.", "years"),
+    (r"\byrs\b", "years"),
 ]
 
 # Currency symbols → (singular, plural)
@@ -85,23 +85,23 @@ _SUBUNIT_MAP = {
 }
 
 # Pre-compiled regex patterns for _normalize_text()
-_EMAIL_RE = re.compile(r'\b[A-Za-z0-9._%+\-]+@[A-Za-z0-9.\-]+\.[A-Za-z]{2,}\b')
-_URL_RE = re.compile(r'https?://\S+')
-_URL_PROTO_RE = re.compile(r'^https?://')
-_URL_WWW_RE = re.compile(r'^www\.')
-_PHONE_RE = re.compile(r'(?:\(\d{3}\)\s*|\d{3}[-.])\d{3}[-.]?\d{4}')
-_PHONE_NONDIGIT_RE = re.compile(r'\D')
-_ORDINAL_RE = re.compile(r'\b(\d+)(?:st|nd|rd|th)\b')
-_ISO_DATE_RE = re.compile(r'\b(\d{4})-(\d{2})-(\d{2})\b')
-_US_DATE_RE = re.compile(r'\b(\d{1,2})/(\d{1,2})/(\d{4})\b')
-_CARDINAL_RE = re.compile(r'(?<![.\w])\b\d+\b(?![.\w])')
+_EMAIL_RE = re.compile(r"\b[A-Za-z0-9._%+\-]+@[A-Za-z0-9.\-]+\.[A-Za-z]{2,}\b")
+_URL_RE = re.compile(r"https?://\S+")
+_URL_PROTO_RE = re.compile(r"^https?://")
+_URL_WWW_RE = re.compile(r"^www\.")
+_PHONE_RE = re.compile(r"(?:\(\d{3}\)\s*|\d{3}[-.])\d{3}[-.]?\d{4}")
+_PHONE_NONDIGIT_RE = re.compile(r"\D")
+_ORDINAL_RE = re.compile(r"\b(\d+)(?:st|nd|rd|th)\b")
+_ISO_DATE_RE = re.compile(r"\b(\d{4})-(\d{2})-(\d{2})\b")
+_US_DATE_RE = re.compile(r"\b(\d{1,2})/(\d{1,2})/(\d{4})\b")
+_CARDINAL_RE = re.compile(r"(?<![.\w])\b\d+\b(?![.\w])")
 
 # Pre-compile abbreviation table
 _ABBREV_TABLE_COMPILED = [(re.compile(pat), repl) for pat, repl in _ABBREV_TABLE]
 
 # Currency pattern (depends on _CURRENCY_MAP, so built here)
 _CURRENCY_RE = re.compile(
-    rf'([{"".join(re.escape(s) for s in _CURRENCY_MAP.keys())}])(\d+(?:\.\d+)?)'
+    rf"([{''.join(re.escape(s) for s in _CURRENCY_MAP.keys())}])(\d+(?:\.\d+)?)"
 )
 
 
@@ -118,6 +118,7 @@ def _safe_transform(text: str, step_name: str, transform_fn) -> str:
 # Normalization step helpers (H7 — extracted from _normalize_text closure)
 # ---------------------------------------------------------------------------
 
+
 def _expand_email_match(m) -> str:
     """Replace email address match with spoken form: 'user at example dot com'."""
     addr = m.group()
@@ -129,15 +130,15 @@ def _expand_email_match(m) -> str:
 def _expand_url_match(m) -> str:
     """Replace URL match with spoken form: 'example dot com'."""
     url = m.group()
-    url = _URL_PROTO_RE.sub('', url)
-    url = _URL_WWW_RE.sub('', url)
+    url = _URL_PROTO_RE.sub("", url)
+    url = _URL_WWW_RE.sub("", url)
     url = url.replace(".", " dot ").rstrip()
     return url
 
 
 def _expand_phone_match(m) -> str:
     """Replace phone number match with digit-by-digit spoken form."""
-    digits = _PHONE_NONDIGIT_RE.sub('', m.group())
+    digits = _PHONE_NONDIGIT_RE.sub("", m.group())
     return " ".join(digits)
 
 
@@ -177,6 +178,7 @@ def _expand_ordinal_match(m, n2w, lang: str) -> str:
 def _expand_date_components(month: int, day: int, year: int, n2w, lang: str) -> str:
     """Format date components into spoken form: 'March third, two thousand one'."""
     import calendar
+
     month_name = calendar.month_name[month]
     if n2w:
         day_word = n2w(day, lang=lang, to="ordinal")
@@ -190,7 +192,9 @@ def _expand_date_components(month: int, day: int, year: int, n2w, lang: str) -> 
 def _expand_iso_date_match(m, n2w, lang: str) -> str:
     """Replace ISO date match (YYYY-MM-DD) with spoken form."""
     try:
-        return _expand_date_components(int(m.group(2)), int(m.group(3)), int(m.group(1)), n2w, lang)
+        return _expand_date_components(
+            int(m.group(2)), int(m.group(3)), int(m.group(1)), n2w, lang
+        )
     except Exception as e:
         logger.debug("ISO date expansion failed for '%s': %s", m.group(), e)
         return m.group()
@@ -199,7 +203,9 @@ def _expand_iso_date_match(m, n2w, lang: str) -> str:
 def _expand_us_date_match(m, n2w, lang: str) -> str:
     """Replace US date match (MM/DD/YYYY) with spoken form."""
     try:
-        return _expand_date_components(int(m.group(1)), int(m.group(2)), int(m.group(3)), n2w, lang)
+        return _expand_date_components(
+            int(m.group(1)), int(m.group(2)), int(m.group(3)), n2w, lang
+        )
     except Exception as e:
         logger.debug("US date expansion failed for '%s': %s", m.group(), e)
         return m.group()
@@ -234,27 +240,49 @@ def _normalize_text(text, language="English"):
     if not _n2w_loaded:
         try:
             from num2words import num2words
+
             _n2w_cached = num2words
         except ImportError:
             _n2w_cached = None
         _n2w_loaded = True
     _n2w = _n2w_cached
 
-    text = _safe_transform(text, "email", lambda t: _EMAIL_RE.sub(_expand_email_match, t))
+    text = _safe_transform(
+        text, "email", lambda t: _EMAIL_RE.sub(_expand_email_match, t)
+    )
     text = _safe_transform(text, "url", lambda t: _URL_RE.sub(_expand_url_match, t))
-    text = _safe_transform(text, "phone", lambda t: _PHONE_RE.sub(_expand_phone_match, t))
-    text = _safe_transform(text, "currency", lambda t: _CURRENCY_RE.sub(
-        lambda m: _expand_currency_match(m, _n2w, lang), t))
-    text = _safe_transform(text, "ordinal", lambda t: _ORDINAL_RE.sub(
-        lambda m: _expand_ordinal_match(m, _n2w, lang), t))
-    text = _safe_transform(text, "iso_date", lambda t: _ISO_DATE_RE.sub(
-        lambda m: _expand_iso_date_match(m, _n2w, lang), t))
-    text = _safe_transform(text, "us_date", lambda t: _US_DATE_RE.sub(
-        lambda m: _expand_us_date_match(m, _n2w, lang), t))
+    text = _safe_transform(
+        text, "phone", lambda t: _PHONE_RE.sub(_expand_phone_match, t)
+    )
+    text = _safe_transform(
+        text,
+        "currency",
+        lambda t: _CURRENCY_RE.sub(lambda m: _expand_currency_match(m, _n2w, lang), t),
+    )
+    text = _safe_transform(
+        text,
+        "ordinal",
+        lambda t: _ORDINAL_RE.sub(lambda m: _expand_ordinal_match(m, _n2w, lang), t),
+    )
+    text = _safe_transform(
+        text,
+        "iso_date",
+        lambda t: _ISO_DATE_RE.sub(lambda m: _expand_iso_date_match(m, _n2w, lang), t),
+    )
+    text = _safe_transform(
+        text,
+        "us_date",
+        lambda t: _US_DATE_RE.sub(lambda m: _expand_us_date_match(m, _n2w, lang), t),
+    )
     text = _safe_transform(text, "abbreviation", _apply_abbreviations)
     if _n2w:
-        text = _safe_transform(text, "cardinal", lambda t: _CARDINAL_RE.sub(
-            lambda m: _n2w(int(m.group()), lang=lang) if _n2w else m.group(), t))
+        text = _safe_transform(
+            text,
+            "cardinal",
+            lambda t: _CARDINAL_RE.sub(
+                lambda m: _n2w(int(m.group()), lang=lang) if _n2w else m.group(), t
+            ),
+        )
 
     return text
 
@@ -262,6 +290,7 @@ def _normalize_text(text, language="English"):
 # ---------------------------------------------------------------------------
 # Text chunking for long-form reliability
 # ---------------------------------------------------------------------------
+
 
 def _pack_words(words: list, limit: int, measure) -> tuple:
     """Pack words into chunks respecting limit.
@@ -302,7 +331,9 @@ def _pack_clauses(clauses: list, limit: int, measure) -> tuple:
     return chunks, current
 
 
-def _split_text(text, max_chars=500, language="English", tokenizer=None, max_tokens=None):
+def _split_text(
+    text, max_chars=500, language="English", tokenizer=None, max_tokens=None
+):
     """Split text into chunks at sentence boundaries.
 
     Splits on sentence-ending punctuation (. ! ?) followed by whitespace,
@@ -329,7 +360,9 @@ def _split_text(text, max_chars=500, language="English", tokenizer=None, max_tok
             return len(tokenizer.encode(chunk, add_special_tokens=False))
         return len(chunk)
 
-    limit = max_tokens if (tokenizer is not None and max_tokens is not None) else max_chars
+    limit = (
+        max_tokens if (tokenizer is not None and max_tokens is not None) else max_chars
+    )
 
     if _measure(text) <= limit:
         return [text]
@@ -337,9 +370,12 @@ def _split_text(text, max_chars=500, language="English", tokenizer=None, max_tok
     # Sentence splitting: pySBD when available, regex fallback
     try:
         import pysbd
+
         lang_code = _map_language(language)
         if lang_code not in _SEGMENTER_CACHE:
-            _SEGMENTER_CACHE[lang_code] = pysbd.Segmenter(language=lang_code, clean=False)
+            _SEGMENTER_CACHE[lang_code] = pysbd.Segmenter(
+                language=lang_code, clean=False
+            )
         segmenter = _SEGMENTER_CACHE[lang_code]
         sentences = segmenter.segment(text)
     except ImportError:
@@ -361,7 +397,9 @@ def _split_text(text, max_chars=500, language="English", tokenizer=None, max_tok
             current_chunk = ""
 
         if _measure(sentence) <= limit:
-            current_chunk = (current_chunk + " " + sentence).strip() if current_chunk else sentence
+            current_chunk = (
+                (current_chunk + " " + sentence).strip() if current_chunk else sentence
+            )
             continue
 
         # Sentence exceeds limit — flush current and split at clause boundaries

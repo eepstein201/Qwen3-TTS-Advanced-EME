@@ -23,9 +23,9 @@ def _start_server_daemon(public=False):
     """
     from qwen3_tts.core.config import write_pid_file
 
-    cmd = [sys.executable, '-m', 'qwen3_tts.server.app']
+    cmd = [sys.executable, "-m", "qwen3_tts.server.app"]
     if public:
-        cmd.append('--public')
+        cmd.append("--public")
 
     proc = subprocess.Popen(
         cmd,
@@ -44,8 +44,10 @@ def server():
 
 
 @server.command()
-@click.option('--public', is_flag=True, help='Bind to 0.0.0.0')
-@click.option('--foreground', is_flag=True, help='Run in foreground (for Colab/notebooks)')
+@click.option("--public", is_flag=True, help="Bind to 0.0.0.0")
+@click.option(
+    "--foreground", is_flag=True, help="Run in foreground (for Colab/notebooks)"
+)
 def start(public, foreground):
     """Start the TTS server.
 
@@ -53,7 +55,10 @@ def start(public, foreground):
     Use --foreground to run in the foreground (useful for Colab).
     """
     from qwen3_tts.core.config import (
-        load_config, get_server_url, detect_server_state, cleanup_pid_file,
+        cleanup_pid_file,
+        detect_server_state,
+        get_server_url,
+        load_config,
     )
 
     config = load_config()
@@ -75,7 +80,9 @@ def start(public, foreground):
     if foreground:
         click.echo("Starting TTS server in foreground...")
         import uvicorn
+
         from qwen3_tts.server.app import app
+
         host = config.get("server", {}).get("host", "127.0.0.1")
         if public:
             host = "0.0.0.0"
@@ -85,6 +92,7 @@ def start(public, foreground):
         proc = _start_server_daemon(public=public)
         click.echo(f"TTS Server started with PID {proc.pid}")
         from qwen3_tts.core.config import LOG_FILE
+
         click.echo(f"Logs: {LOG_FILE}")
 
 
@@ -92,10 +100,14 @@ def start(public, foreground):
 def stop():
     """Stop the TTS server."""
     import signal
+
     from qwen3_tts.core.config import (
-        load_config, get_server_url,
-        detect_server_state, cleanup_pid_file, is_server_running, is_pid_alive,
+        cleanup_pid_file,
+        detect_server_state,
         find_pid_by_port,
+        is_pid_alive,
+        is_server_running,
+        load_config,
     )
 
     config = load_config()
@@ -115,8 +127,10 @@ def stop():
     shutdown_accepted = False
     if state["health_ok"]:
         try:
-            from qwen3_tts.core.http_client import server_request
             import requests
+
+            from qwen3_tts.core.http_client import server_request
+
             resp = server_request("POST", "/shutdown", timeout=5)
             if resp.status_code == 200:
                 shutdown_accepted = True
@@ -125,7 +139,12 @@ def stop():
                 click.echo("Shutdown rejected: 401 Unauthorized (token mismatch).")
             else:
                 click.echo(f"Shutdown returned HTTP {resp.status_code}.")
-        except (requests.ConnectionError, requests.Timeout, requests.RequestException, OSError):
+        except (
+            requests.ConnectionError,
+            requests.Timeout,
+            requests.RequestException,
+            OSError,
+        ):
             click.echo("Server did not respond to shutdown request.")
 
         # Only poll if shutdown was accepted
@@ -179,9 +198,10 @@ def stop():
 @server.command()
 def status():
     """Show server health, loaded models, and memory usage."""
-    from qwen3_tts.core.config import load_config, get_server_url, is_server_running
-    from qwen3_tts.core.http_client import server_request
     import requests
+
+    from qwen3_tts.core.config import get_server_url, is_server_running, load_config
+    from qwen3_tts.core.http_client import server_request
 
     config = load_config()
     if not is_server_running(config):
@@ -208,10 +228,18 @@ def status():
 
         resp = server_request("GET", "/stats", timeout=5)
         stats = resp.json()
-        mem_key = next((k for k in stats if 'memory' in k.lower() and 'mb' in k.lower()), None)
+        mem_key = next(
+            (k for k in stats if "memory" in k.lower() and "mb" in k.lower()), None
+        )
         if mem_key:
             click.echo(f"\nMemory: {stats[mem_key]}MB")
-    except (requests.ConnectionError, requests.Timeout, requests.RequestException, ValueError, KeyError) as e:
+    except (
+        requests.ConnectionError,
+        requests.Timeout,
+        requests.RequestException,
+        ValueError,
+        KeyError,
+    ) as e:
         click.echo(f"Error connecting to server: {e}")
         sys.exit(1)
 
@@ -231,14 +259,14 @@ def log():
     try:
         # Use tail command if available, otherwise Python fallback
         result = subprocess.run(
-            ['tail', '-f', str(log_file)],
+            ["tail", "-f", str(log_file)],
             text=True,
         )
         sys.exit(result.returncode)
     except FileNotFoundError:
         # Fallback: read and print new lines
         click.echo(f"Tailing {log_file} (Ctrl+C to stop)...")
-        with open(log_file, 'r') as f:
+        with open(log_file) as f:
             f.seek(0, 2)  # Seek to end
             try:
                 while True:
@@ -253,9 +281,10 @@ def log():
 
 def stats_command():
     """Show server statistics."""
-    from qwen3_tts.core.config import load_config, is_server_running
-    from qwen3_tts.core.http_client import server_request
     import json
+
+    from qwen3_tts.core.config import is_server_running, load_config
+    from qwen3_tts.core.http_client import server_request
 
     config = load_config()
     if not is_server_running(config):

@@ -17,25 +17,26 @@ from qwen3_tts.core.config import (
     VOICE_PROMPTS_DIR,
     get_backend,
     get_default_clone_prompt,
-    set_default_clone_prompt,
-    get_server_url,
     is_server_running,
     load_config,
     safe_path_join,
+    set_default_clone_prompt,
     validate_voice_name,
+)
+from qwen3_tts.interface.ui.shared import (
+    get_voice_prompts,
 )
 from qwen3_tts.interface.voice_helpers import (
     strip_extension,
     validate_prompt_name,
 )
-from qwen3_tts.interface.ui.shared import (
-    get_voice_prompts,
-)
 
 logger = logging.getLogger("tts.ui")
 
 
-def create_voice_prompt(audio_path, transcript, voice_name, no_transcript=False, auto_transcribed=False):
+def create_voice_prompt(
+    audio_path, transcript, voice_name, no_transcript=False, auto_transcribed=False
+):
     """Create a voice prompt from audio file and transcript.
 
     Args:
@@ -90,6 +91,7 @@ def create_voice_prompt(audio_path, transcript, voice_name, no_transcript=False,
         if backend == "mlx":
             # For MLX, copy the audio and transcript
             import shutil
+
             shutil.copy(audio_path, wav_path)
 
             if no_transcript:
@@ -100,7 +102,9 @@ def create_voice_prompt(audio_path, transcript, voice_name, no_transcript=False,
                 if not transcript or not transcript.strip():
                     # Clean up wav file
                     os.remove(wav_path)
-                    raise gr.Error("Please provide a transcript or enable 'no transcript' mode")
+                    raise gr.Error(
+                        "Please provide a transcript or enable 'no transcript' mode"
+                    )
                 with open(txt_path, "w") as f:
                     f.write(transcript.strip())
 
@@ -110,14 +114,12 @@ def create_voice_prompt(audio_path, transcript, voice_name, no_transcript=False,
             if not is_server_running(config):
                 raise gr.Error("Server must be running to create torch voice prompts")
 
-            import requests
-            url = get_server_url(config)
-
             # Upload audio and transcript to server
             with open(audio_path, "rb") as f:
                 audio_bytes = f.read()
 
             import base64
+
             payload = {
                 "audio_base64": base64.b64encode(audio_bytes).decode(),
                 "transcript": transcript.strip() if transcript else "",
@@ -126,8 +128,10 @@ def create_voice_prompt(audio_path, transcript, voice_name, no_transcript=False,
             }
 
             from qwen3_tts.core.http_client import server_request
+
             resp = server_request(
-                "POST", "/create-voice-prompt",
+                "POST",
+                "/create-voice-prompt",
                 json=payload,
                 timeout=60,
             )
@@ -142,7 +146,11 @@ def create_voice_prompt(audio_path, transcript, voice_name, no_transcript=False,
         prompts = get_voice_prompts()
         default = get_default_clone_prompt(config)
 
-        return status, gr.update(choices=prompts), gr.update(choices=prompts, value=default)
+        return (
+            status,
+            gr.update(choices=prompts),
+            gr.update(choices=prompts, value=default),
+        )
 
     except gr.Error:
         raise
@@ -179,10 +187,7 @@ def auto_transcribe_audio(audio_path):
         pass
 
     try:
-        import requests
         import base64
-
-        url = get_server_url(config)
 
         with open(audio_path, "rb") as f:
             audio_bytes = f.read()
@@ -192,8 +197,10 @@ def auto_transcribe_audio(audio_path):
         }
 
         from qwen3_tts.core.http_client import server_request
+
         resp = server_request(
-            "POST", "/transcribe",
+            "POST",
+            "/transcribe",
             json=payload,
             timeout=60,
         )
@@ -258,7 +265,8 @@ def preview_voice(name):
         from qwen3_tts.core.http_client import server_request
 
         resp = server_request(
-            "GET", "/preview-prompt",
+            "GET",
+            "/preview-prompt",
             params={"name": name},
             timeout=60,
         )
@@ -283,6 +291,7 @@ def preview_voice(name):
         if tmp_path is not None:
             try:
                 import os
+
                 os.unlink(tmp_path)
             except OSError:
                 pass
@@ -321,7 +330,8 @@ def rename_voice(old_name, new_name):
         from qwen3_tts.core.http_client import server_request
 
         resp = server_request(
-            "POST", "/rename-prompt",
+            "POST",
+            "/rename-prompt",
             json={"old_name": old_name, "new_name": new_name},
             timeout=10,
         )
@@ -331,7 +341,11 @@ def rename_voice(old_name, new_name):
             raise gr.Error(f"Rename failed: {error}")
 
         prompts = get_voice_prompts()
-        return f"Renamed '{old_name}' to '{new_name}'", get_prompt_table_data(), gr.update(choices=prompts)
+        return (
+            f"Renamed '{old_name}' to '{new_name}'",
+            get_prompt_table_data(),
+            gr.update(choices=prompts),
+        )
 
     except gr.Error:
         raise
@@ -362,7 +376,8 @@ def delete_voice(name):
         from qwen3_tts.core.http_client import server_request
 
         resp = server_request(
-            "POST", "/delete-prompt",
+            "POST",
+            "/delete-prompt",
             json={"name": name},
             timeout=10,
         )

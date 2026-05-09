@@ -112,7 +112,11 @@
       "mcp__playwright__browser_click",
       "mcp__playwright__browser_wait_for",
       "Bash(awk *)",
-      "mcp__playwright__browser_close"
+      "mcp__playwright__browser_close",
+      "mcp__plugin_everything-claude-code_sequential-thinking__sequentialthinking",
+      "mcp__claude_ai_Hugging_Face_2__hf_doc_search",
+      "mcp__plugin_everything-claude-code_context7__resolve-library-id",
+      "mcp__plugin_everything-claude-code_context7__query-docs"
     ],
     "deny": [
       "Bash(rm:*)",

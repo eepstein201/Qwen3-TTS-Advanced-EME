@@ -18,9 +18,8 @@ from qwen3_tts.core.config import (
     CUSTOM_VOICE_SPEAKERS,
     get_backend,
     get_generation_presets,
-    get_model_size,
     get_mlx_quantization,
-    get_server_url,
+    get_model_size,
     is_server_running,
     load_config,
 )
@@ -61,7 +60,9 @@ def enhance_description_with_ai(description):
     enhancer_config = config.get("prompt_enhancer", {})
 
     if not enhancer_config.get("enabled", False):
-        raise gr.Error("AI enhancement is not enabled. Set prompt_enhancer.enabled=true in config.json")
+        raise gr.Error(
+            "AI enhancement is not enabled. Set prompt_enhancer.enabled=true in config.json"
+        )
 
     api_key_env = enhancer_config.get("api_key_env", "ANTHROPIC_API_KEY")
     api_key = os.environ.get(api_key_env)
@@ -81,12 +82,16 @@ def enhance_description_with_ai(description):
     try:
         if provider == "anthropic":
             import anthropic
+
             client = anthropic.Anthropic(api_key=api_key)
             response = client.messages.create(
                 model=model,
                 max_tokens=200,
                 messages=[
-                    {"role": "user", "content": f"Expand this voice description: {description}"},
+                    {
+                        "role": "user",
+                        "content": f"Expand this voice description: {description}",
+                    },
                 ],
                 system=system_prompt,
             )
@@ -117,6 +122,7 @@ def get_current_model_settings():
     if is_server_running(load_config()):
         try:
             from qwen3_tts.core.http_client import server_request
+
             resp = server_request("GET", "/models", timeout=5)
             if resp.status_code == 200:
                 data = resp.json()
@@ -171,7 +177,8 @@ def apply_model_settings(model_size, mlx_quantization):
             for model_type in models_loaded:
                 try:
                     r = server_request(
-                        "POST", "/load-model",
+                        "POST",
+                        "/load-model",
                         json={"model_type": model_type},
                         timeout=120,
                     )
@@ -193,7 +200,10 @@ def apply_model_settings(model_size, mlx_quantization):
                     f"Settings applied. Reloaded: {', '.join(reloaded)}",
                     format_status_display(),
                 )
-            return "Settings applied. Models unloaded (reload failed)", format_status_display()
+            return (
+                "Settings applied. Models unloaded (reload failed)",
+                format_status_display(),
+            )
 
         return "Settings applied (models were not loaded)", format_status_display()
     except Exception as e:
@@ -219,6 +229,7 @@ def get_server_status():
         tuple: (status_str, memory_str, models_str, backend_str)
     """
     from qwen3_tts.server.client import TTSClient
+
     client = TTSClient()
 
     if not client.is_server_running():
@@ -228,12 +239,18 @@ def get_server_status():
         stats = client.get_stats()
         # Use explicit None check so 0.0 is a valid value, not skipped as falsy
         memory_val = None
-        for _key in ('mlx_memory_active_mb', 'mps_memory_allocated_mb', 'cuda_memory_allocated_mb'):
+        for _key in (
+            "mlx_memory_active_mb",
+            "mps_memory_allocated_mb",
+            "cuda_memory_allocated_mb",
+        ):
             _v = stats.get(_key)
             if _v is not None:
                 memory_val = _v
                 break
-        memory = f"{memory_val:.1f}MB" if isinstance(memory_val, (int, float)) else "N/A"
+        memory = (
+            f"{memory_val:.1f}MB" if isinstance(memory_val, (int, float)) else "N/A"
+        )
 
         loaded_models = []
         if stats.get("clone_model_loaded"):
@@ -268,9 +285,11 @@ def format_status_display():
         status_html = '<span style="color: red; font-weight: bold;">Disconnected</span>'
     else:
         import html as html_mod
+
         status_html = f'<span style="color: orange;">{html_mod.escape(status)}</span>'
 
     import html as html_mod
+
     return f"""
     <div role="status" aria-live="polite" style="padding: 10px; background: var(--block-background-fill, #f5f5f5); border-radius: 5px; margin-bottom: 15px; border: 1px solid var(--block-border-color, #e0e0e0);">
         <strong>Status:</strong> {status_html} |
@@ -284,16 +303,17 @@ def format_status_display():
 def get_voice_prompts():
     """Get list of available voice prompts, filtered by current backend."""
     from qwen3_tts.core.config import VOICE_PROMPTS_DIR
+
     backend = get_backend()
     try:
         files = os.listdir(VOICE_PROMPTS_DIR)
     except OSError:
         return []
     if backend == "mlx":
-        txt_bases = {f[:-4] for f in files if f.endswith('.txt')}
-        return sorted(f for f in files if f.endswith('.wav') and f[:-4] in txt_bases)
+        txt_bases = {f[:-4] for f in files if f.endswith(".txt")}
+        return sorted(f for f in files if f.endswith(".wav") and f[:-4] in txt_bases)
     else:
-        return sorted(f for f in files if f.endswith('.pt'))
+        return sorted(f for f in files if f.endswith(".pt"))
 
 
 def get_presets():
@@ -317,6 +337,7 @@ def add_to_history(history_list, mode, text, output_path, duration_chunks, seed=
         New list with the entry prepended, capped at MAX_HISTORY_SIZE.
     """
     import time
+
     entry = {
         "timestamp": time.time(),
         "mode": mode.capitalize() if mode else mode,
@@ -343,16 +364,20 @@ def get_history_data(history_list):
     rows = []
     for entry in history_list:
         ts = entry.get("timestamp", 0)
-        time_str = datetime.datetime.fromtimestamp(ts).strftime("%H:%M:%S") if ts else ""
+        time_str = (
+            datetime.datetime.fromtimestamp(ts).strftime("%H:%M:%S") if ts else ""
+        )
         seed_val = entry.get("seed")
         seed_str = str(seed_val) if seed_val is not None else "-"
-        rows.append([
-            time_str,
-            entry.get("mode", "?"),
-            entry.get("text", ""),
-            seed_str,
-            entry.get("chunks", 0),
-        ])
+        rows.append(
+            [
+                time_str,
+                entry.get("mode", "?"),
+                entry.get("text", ""),
+                seed_str,
+                entry.get("chunks", 0),
+            ]
+        )
 
     return rows
 
@@ -366,7 +391,10 @@ def _resolve_output_dir(config: dict) -> str:
     resolved = os.path.realpath(os.path.expanduser(raw))
     home = os.path.realpath(os.path.expanduser("~"))
     if not (resolved == home or resolved.startswith(home + os.sep)):
-        logger.warning("output_directory %r resolves outside home; falling back to ~/Downloads", raw)
+        logger.warning(
+            "output_directory %r resolves outside home; falling back to ~/Downloads",
+            raw,
+        )
         resolved = os.path.realpath(os.path.expanduser("~/Downloads"))
     return resolved
 
@@ -378,8 +406,9 @@ def save_generation_metadata(wav_path: str, metadata: dict) -> None:
         wav_path: Path to the .wav file.
         metadata: Dict of generation params (not mutated).
     """
-    from qwen3_tts.core.config import safe_path_join
     import json as json_mod
+
+    from qwen3_tts.core.config import safe_path_join
 
     # Security: validate wav_path against traversal before deriving json_path
     expanded = os.path.expanduser(wav_path)
@@ -409,9 +438,10 @@ def load_history_from_disk(output_dir: str) -> list:
     Scan for voice_ui_*.json files, pair with .wav files, return
     newest-first list capped at MAX_HISTORY_SIZE.
     """
-    from qwen3_tts.core.config import safe_path_join
     import glob
     import json as json_mod
+
+    from qwen3_tts.core.config import safe_path_join
 
     # Security: validate output_dir against traversal before globbing
     expanded = os.path.expanduser(output_dir)
@@ -440,21 +470,23 @@ def load_history_from_disk(output_dir: str) -> list:
             with open(jf) as f:
                 data = json_mod.load(f)
             text = data.get("text", "")
-            entries.append({
-                "timestamp": data.get("timestamp", 0),
-                "mode": (data.get("mode") or "?").capitalize(),
-                "text": text[:40] + "..." if len(text) > 40 else text,
-                "path": wav_path,
-                "chunks": data.get("chunks", 0),
-                "seed": data.get("seed"),
-                "temperature": data.get("temperature"),
-                "top_k": data.get("top_k"),
-                "top_p": data.get("top_p"),
-                "repetition_penalty": data.get("repetition_penalty"),
-                "prompt_file": data.get("prompt_file"),
-                "voice_description": data.get("voice_description"),
-                "speaker": data.get("speaker"),
-            })
+            entries.append(
+                {
+                    "timestamp": data.get("timestamp", 0),
+                    "mode": (data.get("mode") or "?").capitalize(),
+                    "text": text[:40] + "..." if len(text) > 40 else text,
+                    "path": wav_path,
+                    "chunks": data.get("chunks", 0),
+                    "seed": data.get("seed"),
+                    "temperature": data.get("temperature"),
+                    "top_k": data.get("top_k"),
+                    "top_p": data.get("top_p"),
+                    "repetition_penalty": data.get("repetition_penalty"),
+                    "prompt_file": data.get("prompt_file"),
+                    "voice_description": data.get("voice_description"),
+                    "speaker": data.get("speaker"),
+                }
+            )
         except (ValueError, OSError, KeyError):
             continue
     entries.sort(key=lambda e: e["timestamp"], reverse=True)
@@ -464,6 +496,7 @@ def load_history_from_disk(output_dir: str) -> list:
 def get_gradio_launch_kwargs(config: dict) -> dict:
     """Shared Gradio launch() kwargs -- single source of truth for all UI entry points."""
     import tempfile
+
     from qwen3_tts.core.config import IN_COLAB
 
     output_dir = _resolve_output_dir(config)

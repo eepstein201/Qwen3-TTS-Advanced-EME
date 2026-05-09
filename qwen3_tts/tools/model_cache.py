@@ -15,7 +15,6 @@ import click
 from qwen3_tts.core.config import HF_CACHE
 from qwen3_tts.tools._shared import _format_size
 
-
 # Model name patterns to identify TTS models
 _TORCH_MODEL_PREFIXES = (
     "models--Qwen--Qwen3-TTS-12Hz-1.7B-Base",
@@ -98,6 +97,7 @@ def _get_model_info(model_dir: pathlib.Path) -> dict:
     elif name.startswith("models--mlx-community--"):
         backend = "mlx"
         from qwen3_tts.core.config import VALID_MLX_QUANTIZATIONS
+
         quant = "unknown"
         for candidate in VALID_MLX_QUANTIZATIONS:
             if f"-{candidate}-" in name or name.endswith(f"-{candidate}"):
@@ -134,10 +134,9 @@ def list_models() -> list[dict]:
 
     for model_dir in HF_CACHE.iterdir():
         # Check if this is a TTS model
-        is_tts_model = (
-            model_dir.name.startswith(_TORCH_MODEL_PREFIXES) or
-            model_dir.name.startswith(_MLX_MODEL_PREFIXES)
-        )
+        is_tts_model = model_dir.name.startswith(
+            _TORCH_MODEL_PREFIXES
+        ) or model_dir.name.startswith(_MLX_MODEL_PREFIXES)
 
         if is_tts_model and model_dir.is_dir():
             info = _get_model_info(model_dir)
@@ -171,8 +170,12 @@ def list_models_cmd() -> None:
     click.echo()
 
     # Table header
-    click.echo(f"  {'Model Type':<12} {'Size':<8} {'Backend':<6} {'Last Accessed':<20} {'Size on Disk':>12}")
-    click.echo(f"  {'-'*12:<12} {'-'*8:<8} {'-'*6:<6} {'-'*20:<20} {'-'*12:>12}")
+    click.echo(
+        f"  {'Model Type':<12} {'Size':<8} {'Backend':<6} {'Last Accessed':<20} {'Size on Disk':>12}"
+    )
+    click.echo(
+        f"  {'-' * 12:<12} {'-' * 8:<8} {'-' * 6:<6} {'-' * 20:<20} {'-' * 12:>12}"
+    )
 
     for model in models:
         model_type = model["model_type"] or "unknown"
@@ -185,7 +188,9 @@ def list_models_cmd() -> None:
 
         type_str = f"{model_type} ({model_size})"
 
-        click.echo(f"  {type_str:<12} {size_formatted:<8} {backend:<6} {last_access:<20} {size_formatted:>12}")
+        click.echo(
+            f"  {type_str:<12} {size_formatted:<8} {backend:<6} {last_access:<20} {size_formatted:>12}"
+        )
 
     click.echo()
     click.echo(f"  Total: {_format_size(get_total_size())}")
@@ -239,8 +244,12 @@ def prune_models_cmd(days: int = 30, dry_run: bool = False) -> None:
 
     click.echo()
     click.echo(f"  Models to prune (not accessed in {days}+ days):")
-    click.echo("  WARNING: Modern filesystems (macOS APFS, Linux relatime) often do not track")
-    click.echo("  accurate file access times. Models listed below may have been used recently.")
+    click.echo(
+        "  WARNING: Modern filesystems (macOS APFS, Linux relatime) often do not track"
+    )
+    click.echo(
+        "  accurate file access times. Models listed below may have been used recently."
+    )
     click.echo()
 
     total_size = 0

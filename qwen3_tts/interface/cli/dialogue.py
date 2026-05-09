@@ -58,7 +58,8 @@ def process_dialogue(dialogue_path, config, args, gen_params, use_server):
     """
     import numpy as np  # lazy — heavy import
     import soundfile as sf  # lazy — heavy import
-    with open(dialogue_path, "r") as f:
+
+    with open(dialogue_path) as f:
         data = json.load(f)
 
     if isinstance(data, list):
@@ -79,14 +80,14 @@ def process_dialogue(dialogue_path, config, args, gen_params, use_server):
         print("Error: No dialogue lines found in file")
         return
 
-    from qwen3_tts.core.config import safe_path_join
-
     # Security: validate output directory against path traversal
     base_raw = config.get("output_directory", "~/Downloads")
     base_expanded = os.path.expanduser(base_raw)
     if os.path.isabs(base_expanded):
         if ".." in base_expanded:
-            raise ValueError(f"Path traversal detected in output_directory config: {base_raw}")
+            raise ValueError(
+                f"Path traversal detected in output_directory config: {base_raw}"
+            )
         base_dir = base_expanded
     else:
         base_dir = safe_path_join(os.getcwd(), base_expanded)
@@ -97,7 +98,9 @@ def process_dialogue(dialogue_path, config, args, gen_params, use_server):
         output_expanded = os.path.expanduser(output_raw)
         if os.path.isabs(output_expanded):
             if ".." in output_expanded:
-                raise ValueError(f"Path traversal detected in output path: {output_raw}")
+                raise ValueError(
+                    f"Path traversal detected in output path: {output_raw}"
+                )
             output_dir = output_expanded
         else:
             output_dir = safe_path_join(os.getcwd(), output_expanded)
@@ -137,7 +140,9 @@ def process_dialogue(dialogue_path, config, args, gen_params, use_server):
         mode = speaker_config.get("mode", "clone")
 
         prompt_file = speaker_config.get("prompt", get_default_clone_prompt(config))
-        voice_description = speaker_config.get("description", config.get("default_voice_description", ""))
+        voice_description = speaker_config.get(
+            "description", config.get("default_voice_description", "")
+        )
         custom_speaker = speaker_config.get("speaker", "ryan")
         instruct = speaker_config.get("instruct", line.get("instruct", ""))
 
@@ -152,12 +157,15 @@ def process_dialogue(dialogue_path, config, args, gen_params, use_server):
             resolved_speaker = None
 
         preview = text[:40] + "..." if len(text) > 40 else text
-        print(f"  [{idx}/{len(lines)}] {speaker_name} ({mode}): \"{preview}\"")
+        print(f'  [{idx}/{len(lines)}] {speaker_name} ({mode}): "{preview}"')
 
         try:
             if use_server:
                 results = generate_via_server(
-                    [text], mode, config, gen_params,
+                    [text],
+                    mode,
+                    config,
+                    gen_params,
                     prompt_file=prompt_file if mode == "clone" else None,
                     voice_description=voice_description if mode == "design" else None,
                     speaker=resolved_speaker if mode == "custom" else None,
@@ -166,7 +174,10 @@ def process_dialogue(dialogue_path, config, args, gen_params, use_server):
                 wav, sr = _decode_base64_result(results[0])
             else:
                 wav, sr = generate_local(
-                    text, mode, gen_params, language,
+                    text,
+                    mode,
+                    gen_params,
+                    language,
                     prompt_file=prompt_file,
                     voice_description=voice_description,
                     speaker=resolved_speaker,
@@ -181,7 +192,9 @@ def process_dialogue(dialogue_path, config, args, gen_params, use_server):
             all_audio.append(wav)
 
             if args.save_individual:
-                individual_path = safe_path_join(output_dir, f"{basename}_{idx:03d}.wav")
+                individual_path = safe_path_join(
+                    output_dir, f"{basename}_{idx:03d}.wav"
+                )
                 sf.write(individual_path, wav, sr)
 
         except Exception as e:
@@ -212,8 +225,11 @@ def process_dialogue(dialogue_path, config, args, gen_params, use_server):
 
     log_generation(
         f"[Dialogue: {len(lines)} lines]",
-        "dialogue", basename, combined_path,
-        gen_params, duration_sec,
+        "dialogue",
+        basename,
+        combined_path,
+        gen_params,
+        duration_sec,
     )
 
     if args.play:

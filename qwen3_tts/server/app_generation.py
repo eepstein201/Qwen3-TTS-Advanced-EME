@@ -19,12 +19,12 @@ from fastapi import HTTPException, Response
 from fastapi.responses import StreamingResponse
 
 from qwen3_tts.core.config import get_generation_cache_max
-from qwen3_tts.server.validation import (
-    _validate_generation_request,
-    _gen_cache_key,
-    _error_response,
-)
 from qwen3_tts.server.app_lifespan import _check_memory_available
+from qwen3_tts.server.validation import (
+    _error_response,
+    _gen_cache_key,
+    _validate_generation_request,
+)
 
 logger = logging.getLogger("tts")
 
@@ -74,7 +74,9 @@ async def handle_generate(request, state, req, security, config_provider):
 
     for i, t in enumerate(texts):
         if not isinstance(t, str) or not t.strip():
-            raise HTTPException(status_code=400, detail=f"Text at index {i} is empty or invalid")
+            raise HTTPException(
+                status_code=400, detail=f"Text at index {i} is empty or invalid"
+            )
         if len(t) > max_text_length:
             raise HTTPException(
                 status_code=400,
@@ -91,8 +93,9 @@ async def handle_generate(request, state, req, security, config_provider):
     model = state.models.get(mode)
     if model is None:
         from qwen3_tts.core.config import get_model_info
+
         info = get_model_info(mode)
-        detail = info.get('description', '')
+        detail = info.get("description", "")
         raise HTTPException(
             status_code=503,
             detail={
@@ -127,6 +130,7 @@ async def handle_generate(request, state, req, security, config_provider):
 
     try:
         import soundfile as sf
+
         from qwen3_tts.core.engine import load_voice_prompt, run_inference
 
         # Clear any stale cancellation flag from a prior request. Without this,
@@ -139,10 +143,13 @@ async def handle_generate(request, state, req, security, config_provider):
         pre_lock_results = {}
         for i, text in enumerate(texts):
             cache_key = _gen_cache_key(
-                text, mode, gen_params,
+                text,
+                mode,
+                gen_params,
                 prompt_file=prompt_file,
                 voice_description=voice_description,
-                speaker=speaker, instruct=instruct,
+                speaker=speaker,
+                instruct=instruct,
             )
             pre_lock_cache_keys[i] = cache_key
             with state.gen_cache_lock:
@@ -152,8 +159,16 @@ async def handle_generate(request, state, req, security, config_provider):
                 if cache_file and os.path.exists(cache_file):
                     with open(cache_file, "rb") as f:
                         b64_audio = base64.b64encode(f.read()).decode("utf-8")
-                    pre_lock_results[i] = {"index": i, "audio_base64": b64_audio, "sample_rate": entry["sample_rate"]}
-                    logger.info("Generation cache hit (pre-lock) for text %d/%d", i + 1, len(texts))
+                    pre_lock_results[i] = {
+                        "index": i,
+                        "audio_base64": b64_audio,
+                        "sample_rate": entry["sample_rate"],
+                    }
+                    logger.info(
+                        "Generation cache hit (pre-lock) for text %d/%d",
+                        i + 1,
+                        len(texts),
+                    )
 
         # If ALL texts hit cache, skip the lock entirely
         if len(pre_lock_results) == len(texts):
@@ -169,7 +184,9 @@ async def handle_generate(request, state, req, security, config_provider):
             for i, text in enumerate(texts):
                 # Check for cancellation before each batch item (R-44)
                 if state.generation_state.get("cancelled"):
-                    logger.info("Batch generation cancelled at item %d/%d", i + 1, len(texts))
+                    logger.info(
+                        "Batch generation cancelled at item %d/%d", i + 1, len(texts)
+                    )
                     break
 
                 # Use pre-lock cache hit if available
@@ -186,26 +203,41 @@ async def handle_generate(request, state, req, security, config_provider):
                     if cache_file and os.path.exists(cache_file):
                         with open(cache_file, "rb") as f:
                             b64_audio = base64.b64encode(f.read()).decode("utf-8")
-                        results.append({"index": i, "audio_base64": b64_audio, "sample_rate": entry["sample_rate"]})
-                        logger.info("Generation cache hit (post-lock) for text %d/%d", i + 1, len(texts))
+                        results.append(
+                            {
+                                "index": i,
+                                "audio_base64": b64_audio,
+                                "sample_rate": entry["sample_rate"],
+                            }
+                        )
+                        logger.info(
+                            "Generation cache hit (post-lock) for text %d/%d",
+                            i + 1,
+                            len(texts),
+                        )
                     continue
 
                 # Brief lock to set generation state
                 async with state.generation_lock:
-                    state.generation_state.update({
-                        "active": True,
-                        "start_time": time.time(),
-                        "text_length": len(text),
-                        "mode": mode,
-                        "batch_index": i,
-                        "batch_total": len(texts),
-                    })
+                    state.generation_state.update(
+                        {
+                            "active": True,
+                            "start_time": time.time(),
+                            "text_length": len(text),
+                            "mode": mode,
+                            "batch_index": i,
+                            "batch_total": len(texts),
+                        }
+                    )
 
                 # Prepare mode-specific params
                 voice_prompt = None
                 if mode == "clone":
                     if not prompt_file:
-                        raise HTTPException(status_code=400, detail="prompt_file required for clone mode")
+                        raise HTTPException(
+                            status_code=400,
+                            detail="prompt_file required for clone mode",
+                        )
                     voice_prompt = load_voice_prompt(prompt_file)
                     if voice_prompt is None:
                         raise HTTPException(
@@ -214,10 +246,12 @@ async def handle_generate(request, state, req, security, config_provider):
                         )
 
                 def _chunk_progress(chunk_idx, chunk_total):
-                    state.generation_state.update({
-                        "chunk_index": chunk_idx,
-                        "chunk_total": chunk_total,
-                    })
+                    state.generation_state.update(
+                        {
+                            "chunk_index": chunk_idx,
+                            "chunk_total": chunk_total,
+                        }
+                    )
 
                 # Run inference: vLLM adapter takes priority when available
                 vllm_adapter = getattr(request.app.state, "vllm_adapter", None)
@@ -262,7 +296,10 @@ async def handle_generate(request, state, req, security, config_provider):
 
                 with state.gen_cache_lock:
                     if len(state.gen_cache) >= get_generation_cache_max():
-                        oldest_key = min(state.gen_cache, key=lambda k: state.gen_cache[k]["timestamp"])
+                        oldest_key = min(
+                            state.gen_cache,
+                            key=lambda k: state.gen_cache[k]["timestamp"],
+                        )
                         old_entry = state.gen_cache.pop(oldest_key)
                         old_main = old_entry.get("main_file")
                         if old_main and os.path.exists(old_main):
@@ -276,15 +313,20 @@ async def handle_generate(request, state, req, security, config_provider):
                         "timestamp": time.time(),
                     }
 
-                from qwen3_tts.core.engine.audio_processing import calculate_waveform_peaks
+                from qwen3_tts.core.engine.audio_processing import (
+                    calculate_waveform_peaks,
+                )
+
                 peaks = calculate_waveform_peaks(wav, num_peaks=500)
-                results.append({
-                    "index": i,
-                    "audio_base64": b64_audio,
-                    "sample_rate": sr,
-                    "peaks": peaks,
-                    "chunks": state.generation_state.get("chunk_total", 0),
-                })
+                results.append(
+                    {
+                        "index": i,
+                        "audio_base64": b64_audio,
+                        "sample_rate": sr,
+                        "peaks": peaks,
+                        "chunks": state.generation_state.get("chunk_total", 0),
+                    }
+                )
 
             # Content negotiation: return binary WAV if Accept header contains audio/wav
             accept = request.headers.get("accept", "application/json")
@@ -303,22 +345,35 @@ async def handle_generate(request, state, req, security, config_provider):
 
     except HTTPException:
         raise
-    except (RuntimeError, OSError, ValueError, MemoryError, TypeError, ImportError) as e:
+    except (
+        RuntimeError,
+        OSError,
+        ValueError,
+        MemoryError,
+        TypeError,
+        ImportError,
+    ) as e:
         logger.error("Generation failed: %s", e, exc_info=True)
-        _error_response(500, "Audio generation failed",
-                        "An internal error occurred. Check server logs for details.", "retry")
+        _error_response(
+            500,
+            "Audio generation failed",
+            "An internal error occurred. Check server logs for details.",
+            "retry",
+        )
     finally:
         # Clear generation state
-        state.generation_state.update({
-            "active": False,
-            "start_time": 0.0,
-            "text_length": 0,
-            "mode": "",
-            "batch_index": 0,
-            "batch_total": 0,
-            "chunk_index": 0,
-            "chunk_total": 0,
-        })
+        state.generation_state.update(
+            {
+                "active": False,
+                "start_time": 0.0,
+                "text_length": 0,
+                "mode": "",
+                "batch_index": 0,
+                "batch_total": 0,
+                "chunk_index": 0,
+                "chunk_total": 0,
+            }
+        )
         with state.request_queue_lock:
             state.request_queue.discard(request_id)
 
@@ -367,7 +422,11 @@ async def handle_generate_stream(request, state, req, security, config_provider)
         error_msg = state.model_load_errors.get(mode, "Model not loaded")
         raise HTTPException(
             status_code=503,
-            detail={"error": "model_not_loaded", "message": error_msg, "model_type": mode},
+            detail={
+                "error": "model_not_loaded",
+                "message": error_msg,
+                "model_type": mode,
+            },
         )
 
     # Generation parameters
@@ -388,10 +447,14 @@ async def handle_generate_stream(request, state, req, security, config_provider)
     if mode == "clone":
         prompt_file = req.prompt_file
         if not prompt_file:
-            raise HTTPException(status_code=400, detail="prompt_file required for clone mode")
+            raise HTTPException(
+                status_code=400, detail="prompt_file required for clone mode"
+            )
         voice_prompt = load_voice_prompt(prompt_file)
         if voice_prompt is None:
-            raise HTTPException(status_code=404, detail=f"Voice prompt not found: {prompt_file}")
+            raise HTTPException(
+                status_code=404, detail=f"Voice prompt not found: {prompt_file}"
+            )
 
     voice_description = req.voice_description
     language = req.language
@@ -427,21 +490,25 @@ async def handle_generate_stream(request, state, req, security, config_provider)
                     state.pending_requests.remove(queue_entry)
 
             gen_id = str(uuid.uuid4())[:8]
-            state.generation_state.update({
-                "active": True,
-                "start_time": time.time(),
-                "text_length": len(text),
-                "mode": mode,
-                "generation_id": gen_id,
-                "cancelled": False,
-            })
+            state.generation_state.update(
+                {
+                    "active": True,
+                    "start_time": time.time(),
+                    "text_length": len(text),
+                    "mode": mode,
+                    "generation_id": gen_id,
+                    "cancelled": False,
+                }
+            )
 
             def _chunk_progress(chunk_idx, chunk_total):
                 """Update generation_state with chunk progress from streaming callback."""
-                state.generation_state.update({
-                    "chunk_index": chunk_idx,
-                    "chunk_total": chunk_total,
-                })
+                state.generation_state.update(
+                    {
+                        "chunk_index": chunk_idx,
+                        "chunk_total": chunk_total,
+                    }
+                )
 
             def inference_thread():
                 """Run inference in a thread and push chunks to queue."""
@@ -471,7 +538,9 @@ async def handle_generate_stream(request, state, req, security, config_provider)
                         header = struct.pack("<II", sr, len(audio_bytes))
 
                         # Use call_soon_threadsafe to safely put from thread to async queue
-                        loop.call_soon_threadsafe(queue.put_nowait, header + audio_bytes)
+                        loop.call_soon_threadsafe(
+                            queue.put_nowait, header + audio_bytes
+                        )
 
                 except (RuntimeError, OSError, ValueError, MemoryError, TypeError) as e:
                     logger.error("Streaming inference failed: %s", e, exc_info=True)
@@ -495,16 +564,18 @@ async def handle_generate_stream(request, state, req, security, config_provider)
                 stop_event.set()
                 # Reset generation state if still our generation
                 if state.generation_state.get("generation_id") == gen_id:
-                    state.generation_state.update({
-                        "active": False,
-                        "start_time": 0.0,
-                        "text_length": 0,
-                        "mode": "",
-                        "chunk_index": 0,
-                        "chunk_total": 0,
-                        "generation_id": None,
-                        "cancelled": False,
-                    })
+                    state.generation_state.update(
+                        {
+                            "active": False,
+                            "start_time": 0.0,
+                            "text_length": 0,
+                            "mode": "",
+                            "chunk_index": 0,
+                            "chunk_total": 0,
+                            "generation_id": None,
+                            "cancelled": False,
+                        }
+                    )
 
     return StreamingResponse(
         audio_stream_generator(),

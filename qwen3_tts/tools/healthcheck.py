@@ -10,13 +10,13 @@ import platform
 import sys
 
 from qwen3_tts.core.config import (
-    IN_COLAB,
-    IS_MACOS,
-    IS_LINUX,
     CONFIG_PATH,
-    VOICE_PROMPTS_DIR,
-    USER_FILES_DIR,
     HF_CACHE,
+    IN_COLAB,
+    IS_LINUX,
+    IS_MACOS,
+    USER_FILES_DIR,
+    VOICE_PROMPTS_DIR,
     detect_server_state,
 )
 from qwen3_tts.tools.model_cache import _MLX_MODEL_PREFIXES, _TORCH_MODEL_PREFIXES
@@ -81,6 +81,7 @@ def check_backend_availability() -> tuple:
     if IS_MACOS and platform.machine() == "arm64":
         try:
             import mlx  # noqa: F401
+
             backends.append("mlx")
         except ImportError:
             issues.append("MLX not installed (run: pip install mlx-audio)")
@@ -90,6 +91,7 @@ def check_backend_availability() -> tuple:
     # Check PyTorch
     try:
         import torch
+
         backends.append("torch")
 
         # Check CUDA availability
@@ -108,6 +110,7 @@ def check_backend_availability() -> tuple:
     if IS_LINUX:
         try:
             import vllm  # noqa: F401
+
             backends.append("vllm")
         except ImportError:
             issues.append("vLLM not installed (optional, for high-throughput)")
@@ -131,6 +134,7 @@ def check_config() -> tuple:
     if config_path.exists():
         try:
             from qwen3_tts.core.config import load_config, validate_config
+
             config = load_config()
             _, issues = validate_config(config)
 
@@ -158,7 +162,8 @@ def check_model_cache() -> tuple:
 
     for model_dir in HF_CACHE.iterdir():
         if model_dir.is_dir() and any(
-            model_dir.name.startswith(prefix) for prefix in _TORCH_MODEL_PREFIXES + _MLX_MODEL_PREFIXES
+            model_dir.name.startswith(prefix)
+            for prefix in _TORCH_MODEL_PREFIXES + _MLX_MODEL_PREFIXES
         ):
             model_count += 1
             # Simple size estimate
@@ -223,8 +228,8 @@ def check_audio_dependencies() -> tuple:
     # Check for ffmpeg
     try:
         import subprocess
-        result = subprocess.run(["ffmpeg", "-version"],
-                              capture_output=True, timeout=5)
+
+        result = subprocess.run(["ffmpeg", "-version"], capture_output=True, timeout=5)
         if result.returncode == 0:
             has_ffmpeg = True
         else:
@@ -237,8 +242,9 @@ def check_audio_dependencies() -> tuple:
 
     # Check for rubberband (optional but recommended)
     try:
-        result = subprocess.run(["rubberband", "--version"],
-                              capture_output=True, timeout=5)
+        result = subprocess.run(
+            ["rubberband", "--version"], capture_output=True, timeout=5
+        )
         has_rubberband = result.returncode == 0
     except (FileNotFoundError, subprocess.TimeoutExpired):
         has_rubberband = False
@@ -257,14 +263,21 @@ def check_disk_space() -> tuple:
     """Check available disk space."""
     try:
         import shutil
+
         stat = shutil.disk_usage(USER_FILES_DIR)
         free_gb = stat.free / (1024**3)
         total_gb = stat.total / (1024**3)
 
         if free_gb < 5:
-            return "warn", f"Low disk space: {free_gb:.1f}GB free (5GB minimum recommended)"
+            return (
+                "warn",
+                f"Low disk space: {free_gb:.1f}GB free (5GB minimum recommended)",
+            )
         elif free_gb < 15:
-            return "warn", f"Moderate disk space: {free_gb:.1f}GB free (15GB+ recommended for all models)"
+            return (
+                "warn",
+                f"Moderate disk space: {free_gb:.1f}GB free (15GB+ recommended for all models)",
+            )
         else:
             return "pass", f"{free_gb:.1f}GB free / {total_gb:.1f}GB total"
     except Exception as e:

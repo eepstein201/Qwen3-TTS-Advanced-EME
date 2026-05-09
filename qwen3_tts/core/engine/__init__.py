@@ -30,35 +30,50 @@ submodules, e.g.:
 
 # Import submodules to make them accessible for tests that need internal symbols
 # e.g., from qwen3_tts.core.engine.text_processing import _normalize_text
-from . import text_processing
-from . import audio_processing
-from . import voice_prompt
-from . import model_loader
-from . import inference
-from . import asr
+# --- asr ---
+from qwen3_tts.core.engine.asr import (
+    get_asr_model_info,
+    is_asr_available,
+    is_asr_loaded,
+    load_asr_model,
+    preload_asr_model,
+    transcribe_audio,
+    unload_asr_model,
+    unload_model_cleanup,
+)
 
 # --- audio_processing (base utility) ---
 from qwen3_tts.core.engine.audio_processing import (
+    adjust_pitch,
+    adjust_speed,
+    calculate_waveform_peaks,  # noqa: F401
     get_audio_loader,
-    set_audio_loader,
     load_audio,
     load_audio_for_cloning,
-    trim_silence,
     normalize_audio,
     normalize_lufs,
-    adjust_speed,
-    adjust_pitch,
     process_audio,
-    calculate_waveform_peaks,  # noqa: F401
+    set_audio_loader,
+    trim_silence,
 )
 
-# --- voice_prompt ---
-from qwen3_tts.core.engine.voice_prompt import (
-    load_voice_prompt,
-    clear_voice_prompt_cache,
-    voice_prompt_cache_info,
-    load_voice_prompt_mlx,
-    migrate_orphan_mlx_prompts,
+# --- inference ---
+from qwen3_tts.core.engine.inference import (
+    _INFERENCE_STRATEGIES,  # noqa: F401
+    _MODE_STRATEGIES_TORCH,  # noqa: F401
+    _crossfade_chunks,  # noqa: F401
+    _get_backend_strategy,  # noqa: F401
+    _get_max_chunk_chars,  # noqa: F401
+    _get_max_chunk_tokens,  # noqa: F401
+    _run_inference_mlx,  # noqa: F401
+    _run_inference_mlx_streaming,  # noqa: F401
+    _run_inference_single,  # noqa: F401
+    _run_inference_torch,  # noqa: F401
+    _validate_audio,  # noqa: F401
+    create_voice_prompt,
+    register_backend,  # noqa: F401
+    run_inference,
+    run_inference_streaming,
 )
 
 # --- model_loader ---
@@ -66,35 +81,22 @@ from qwen3_tts.core.engine.model_loader import (
     load_model,
 )
 
-# --- inference ---
-from qwen3_tts.core.engine.inference import (
-    run_inference,
-    run_inference_streaming,
-    create_voice_prompt,
-    _validate_audio,  # noqa: F401
-    _run_inference_torch,  # noqa: F401
-    _run_inference_mlx,  # noqa: F401
-    _run_inference_mlx_streaming,  # noqa: F401
-    _run_inference_single,  # noqa: F401
-    _get_max_chunk_chars,  # noqa: F401
-    _get_max_chunk_tokens,  # noqa: F401
-    _crossfade_chunks,  # noqa: F401
-    _INFERENCE_STRATEGIES,  # noqa: F401
-    _MODE_STRATEGIES_TORCH,  # noqa: F401
-    register_backend,  # noqa: F401
-    _get_backend_strategy,  # noqa: F401
+# --- voice_prompt ---
+from qwen3_tts.core.engine.voice_prompt import (
+    clear_voice_prompt_cache,
+    load_voice_prompt,
+    load_voice_prompt_mlx,
+    migrate_orphan_mlx_prompts,
+    voice_prompt_cache_info,
 )
 
-# --- asr ---
-from qwen3_tts.core.engine.asr import (
-    preload_asr_model,
-    load_asr_model,
-    transcribe_audio,
-    unload_asr_model,
-    is_asr_available,
-    is_asr_loaded,
-    get_asr_model_info,
-    unload_model_cleanup,
+from . import (
+    asr,
+    audio_processing,
+    inference,
+    model_loader,
+    text_processing,
+    voice_prompt,
 )
 
 # Public API — all symbols without underscore prefix

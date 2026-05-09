@@ -33,7 +33,9 @@ def get_audio_loader():
     if _AUDIO_LOADER is None:
         with _AUDIO_LOADER_LOCK:
             if _AUDIO_LOADER is None:
-                _AUDIO_LOADER = load_config().get("advanced", {}).get("audio_loader", "torchaudio")
+                _AUDIO_LOADER = (
+                    load_config().get("advanced", {}).get("audio_loader", "torchaudio")
+                )
     return _AUDIO_LOADER
 
 
@@ -50,12 +52,15 @@ def set_audio_loader(loader):
 # Smart Audio Loader (torchaudio primary, soundfile/librosa fallback)
 # ---------------------------------------------------------------------------
 
+
 def load_audio(file_path, target_sr=16000):
     """Load audio file, resample to target_sr. Uses cached loader preference."""
     import numpy as np  # lazy — heavy import
+
     if get_audio_loader() == "torchaudio":
         try:
             import torchaudio
+
             waveform, sr = torchaudio.load(file_path)
             if waveform.shape[0] > 1:
                 waveform = waveform.mean(dim=0, keepdim=True)
@@ -66,21 +71,27 @@ def load_audio(file_path, target_sr=16000):
         except (ImportError, RuntimeError, OSError) as e:
             logger.warning("torchaudio failed, falling back to soundfile: %s", e)
     import soundfile as sf
+
     audio, sr = sf.read(file_path)
     if audio.ndim > 1:
         audio = np.mean(audio, axis=-1).astype(np.float32)
     if sr != target_sr:
         import librosa
+
         audio = librosa.resample(audio, orig_sr=sr, target_sr=target_sr)
     return audio, target_sr
 
 
-def load_audio_for_cloning(file_path, max_duration=VOICE_EMBEDDING_MAX_DURATION, target_sr=DEFAULT_SAMPLE_RATE):
+def load_audio_for_cloning(
+    file_path, max_duration=VOICE_EMBEDDING_MAX_DURATION, target_sr=DEFAULT_SAMPLE_RATE
+):
     """Load audio truncated to max_duration seconds. For voice embedding only."""
     import numpy as np  # lazy — heavy import
+
     if get_audio_loader() == "torchaudio":
         try:
             import torchaudio
+
             info = torchaudio.info(file_path)
             max_frames = int(max_duration * info.sample_rate)
             waveform, sr = torchaudio.load(file_path, num_frames=max_frames)
@@ -93,6 +104,7 @@ def load_audio_for_cloning(file_path, max_duration=VOICE_EMBEDDING_MAX_DURATION,
         except (ImportError, RuntimeError, OSError) as e:
             logger.warning("torchaudio failed, falling back to soundfile: %s", e)
     import soundfile as sf
+
     audio, sr = sf.read(file_path)
     if audio.ndim > 1:
         audio = np.mean(audio, axis=-1).astype(np.float32)
@@ -100,6 +112,7 @@ def load_audio_for_cloning(file_path, max_duration=VOICE_EMBEDDING_MAX_DURATION,
     audio = audio[:max_samples]
     if sr != target_sr:
         import librosa
+
         audio = librosa.resample(audio, orig_sr=sr, target_sr=target_sr)
     return audio, target_sr
 
@@ -108,9 +121,13 @@ def load_audio_for_cloning(file_path, max_duration=VOICE_EMBEDDING_MAX_DURATION,
 # Audio processing (backend-agnostic — uses only numpy)
 # ---------------------------------------------------------------------------
 
-def trim_silence(audio, sample_rate, threshold_db=SILENCE_THRESHOLD_DB, min_silence_ms=100):
+
+def trim_silence(
+    audio, sample_rate, threshold_db=SILENCE_THRESHOLD_DB, min_silence_ms=100
+):
     """Trim leading and trailing silence from audio."""
     import numpy as np  # lazy — heavy import
+
     threshold = 10 ** (threshold_db / 20)
     min_samples = int(sample_rate * min_silence_ms / 1000)
 
@@ -132,6 +149,7 @@ def trim_silence(audio, sample_rate, threshold_db=SILENCE_THRESHOLD_DB, min_sile
 def normalize_audio(audio, target_db=NORMALIZATION_TARGET_DB):
     """Normalize audio to target peak dB level."""
     import numpy as np  # lazy — heavy import
+
     peak = np.max(np.abs(audio))
     if peak == 0:
         return audio
@@ -153,9 +171,11 @@ def adjust_speed(audio, sample_rate, speed_factor):
         return audio
     try:
         import pyrubberband as pyrb
+
         return pyrb.time_stretch(audio, sample_rate, speed_factor)
     except (ImportError, FileNotFoundError):
         import librosa
+
         return librosa.effects.time_stretch(audio, rate=speed_factor)
 
 
@@ -173,9 +193,11 @@ def adjust_pitch(audio, sample_rate, semitones):
         return audio
     try:
         import pyrubberband as pyrb
+
         return pyrb.pitch_shift(audio, sample_rate, semitones)
     except (ImportError, FileNotFoundError):
         import librosa
+
         return librosa.effects.pitch_shift(audio, sr=sample_rate, n_steps=semitones)
 
 
@@ -194,13 +216,21 @@ def normalize_lufs(audio, sample_rate, target_lufs=LUFS_TARGET):
         ImportError: If pyloudnorm is not installed.
     """
     import pyloudnorm as pyln
+
     meter = pyln.Meter(sample_rate)
     loudness = meter.integrated_loudness(audio)
     return pyln.normalize.loudness(audio, loudness, target_lufs)
 
 
-def process_audio(audio, sample_rate, trim=False, normalize=False,
-                  speed=None, pitch=None, lufs_target=None):
+def process_audio(
+    audio,
+    sample_rate,
+    trim=False,
+    normalize=False,
+    speed=None,
+    pitch=None,
+    lufs_target=None,
+):
     """Apply all audio processing in canonical order.
 
     Args:
@@ -239,6 +269,7 @@ def process_audio(audio, sample_rate, trim=False, normalize=False,
 # Waveform peak calculation (for wavesurfer.js backend-side rendering)
 # ---------------------------------------------------------------------------
 
+
 def calculate_waveform_peaks(audio, num_peaks: int = 500) -> list[float]:
     """Pre-calculate normalized peak amplitudes for waveform visualization.
 
@@ -254,6 +285,7 @@ def calculate_waveform_peaks(audio, num_peaks: int = 500) -> list[float]:
         List of peak values, each in [-1.0, 1.0].
     """
     import numpy as np  # lazy — heavy import
+
     if audio.size == 0:
         return [0.0] * num_peaks
 

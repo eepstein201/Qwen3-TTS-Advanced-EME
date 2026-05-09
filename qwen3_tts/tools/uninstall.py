@@ -11,17 +11,23 @@ import shutil
 import sys
 
 from qwen3_tts.core.config import (
-    USER_FILES_DIR,
-    VOICE_PROMPTS_DIR,
     CONFIG_PATH,
+    HF_CACHE,
     HISTORY_FILE,
-    TOKEN_FILE,
     LOG_FILE,
     PID_FILE,
-    HF_CACHE,
+    TOKEN_FILE,
+    USER_FILES_DIR,
+    VOICE_PROMPTS_DIR,
+)
+from qwen3_tts.tools._shared import (
+    _format_size,
+    print_header,
+    print_info,
+    print_success,
+    print_warning,
 )
 from qwen3_tts.tools.model_cache import _MLX_MODEL_PREFIXES, _TORCH_MODEL_PREFIXES
-from qwen3_tts.tools._shared import _format_size, print_header, print_success, print_warning, print_info
 
 logger = logging.getLogger("tts.uninstall")
 
@@ -32,7 +38,8 @@ def _get_models_size() -> int:
     if HF_CACHE.exists():
         for model_dir in HF_CACHE.iterdir():
             if model_dir.is_dir() and any(
-                model_dir.name.startswith(prefix) for prefix in _TORCH_MODEL_PREFIXES + _MLX_MODEL_PREFIXES
+                model_dir.name.startswith(prefix)
+                for prefix in _TORCH_MODEL_PREFIXES + _MLX_MODEL_PREFIXES
             ):
                 # Calculate directory size
                 for item in model_dir.rglob("*"):
@@ -50,7 +57,8 @@ def _list_cached_models() -> list[str]:
     if HF_CACHE.exists():
         for model_dir in HF_CACHE.iterdir():
             if model_dir.is_dir() and any(
-                model_dir.name.startswith(prefix) for prefix in _TORCH_MODEL_PREFIXES + _MLX_MODEL_PREFIXES
+                model_dir.name.startswith(prefix)
+                for prefix in _TORCH_MODEL_PREFIXES + _MLX_MODEL_PREFIXES
             ):
                 models.append(model_dir.name)
     return sorted(models)
@@ -69,7 +77,9 @@ def uninstall_models(dry_run: bool = False) -> None:
         return
 
     size_bytes = _get_models_size()
-    print_header(f"Models to remove ({len(models)} model(s), {_format_size(size_bytes)})")
+    print_header(
+        f"Models to remove ({len(models)} model(s), {_format_size(size_bytes)})"
+    )
 
     for model in models:
         print(f"  - {model}")
@@ -159,7 +169,7 @@ def uninstall_config(dry_run: bool = False) -> None:
         return
 
     # Import config utilities
-    from qwen3_tts.core.config import load_config, get_default_config
+    from qwen3_tts.core.config import get_default_config, load_config
 
     # Backup current config
     backup_path = CONFIG_PATH.with_suffix(".backup")
@@ -179,6 +189,7 @@ def uninstall_config(dry_run: bool = False) -> None:
     # Build and save the default config
     default_config = get_default_config(current_config)
     import json
+
     with open(CONFIG_PATH, "w") as f:
         json.dump(default_config, f, indent=2)
 
@@ -199,6 +210,7 @@ def print_environment_instructions() -> None:
     else:
         # Try to find conda environments
         from pathlib import Path
+
         home = Path.home()
         for base in ("miniforge3", "miniconda3", "anaconda3", "opt/anaconda3"):
             envs_path = home / base / "envs"

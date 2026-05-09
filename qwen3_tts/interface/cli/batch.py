@@ -36,7 +36,10 @@ def process_batch(texts, args, config, gen_params, use_server):
         List of output file paths
     """
     import soundfile as sf  # lazy — heavy import
-    output_dir = os.path.expanduser(args.output or config.get("output_directory", "~/Downloads"))
+
+    output_dir = os.path.expanduser(
+        args.output or config.get("output_directory", "~/Downloads")
+    )
     if not os.path.isdir(output_dir):
         os.makedirs(output_dir, exist_ok=True)
 
@@ -52,13 +55,16 @@ def process_batch(texts, args, config, gen_params, use_server):
         logger.info("Using TTS server for batch of %d texts...", len(texts))
         print(f"Using TTS server for batch of {len(texts)} texts...")
         results = generate_via_server(
-            texts, mode, config, gen_params,
+            texts,
+            mode,
+            config,
+            gen_params,
             prompt_file=prompt_file if mode == "clone" else None,
             voice_description=voice_description if mode == "design" else None,
         )
 
         for i, result in enumerate(results):
-            output_path = os.path.join(output_dir, f"output_{i+1}.wav")
+            output_path = os.path.join(output_dir, f"output_{i + 1}.wav")
             if needs_processing:
                 wav, sr = _decode_base64_result(result)
                 wav = process_audio_args(wav, sr, args)
@@ -69,15 +75,18 @@ def process_batch(texts, args, config, gen_params, use_server):
             print(f"Saved: {output_path}")
     else:
         for i, text in enumerate(texts):
-            print(f"\nProcessing {i+1}/{len(texts)}...")
+            print(f"\nProcessing {i + 1}/{len(texts)}...")
             wav, sr = generate_local(
-                text, mode, gen_params, language,
+                text,
+                mode,
+                gen_params,
+                language,
                 prompt_file=prompt_file,
                 voice_description=voice_description,
             )
             wav = process_audio_args(wav, sr, args)
 
-            output_path = os.path.join(output_dir, f"output_{i+1}.wav")
+            output_path = os.path.join(output_dir, f"output_{i + 1}.wav")
             sf.write(output_path, wav, sr)
             output_paths.append(output_path)
             print(f"Saved: {output_path}")
@@ -101,7 +110,7 @@ def load_batch_file(batch_path):
     if not os.path.isfile(batch_path):
         raise FileNotFoundError(f"Batch file not found: {batch_path}")
 
-    with open(batch_path, "r") as f:
+    with open(batch_path) as f:
         texts = json.load(f)
 
     if not isinstance(texts, list):

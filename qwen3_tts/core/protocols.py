@@ -11,7 +11,9 @@ Using protocols enables:
 - Flexibility in implementation (file-based, database, API, etc.)
 - Clear interface contracts between components
 """
-from typing import Protocol, runtime_checkable, Iterator, Any
+
+from collections.abc import Iterator
+from typing import Any, Protocol, runtime_checkable
 
 
 @runtime_checkable
@@ -190,4 +192,3 @@ class PromptManager(Protocol):
             Audio bytes (WAV format)
         """
         ...
-

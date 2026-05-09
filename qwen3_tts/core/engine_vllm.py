@@ -16,7 +16,6 @@ and provides a clean Python interface.
 
 import asyncio
 import base64
-import httpx
 import io
 import json
 import logging
@@ -26,8 +25,11 @@ import socket
 import subprocess
 import sys
 import tempfile
+from collections.abc import AsyncIterator, Callable
 from pathlib import Path
-from typing import Any, AsyncIterator, Callable, Optional
+from typing import Any
+
+import httpx
 
 logger = logging.getLogger("tts.engine.vllm")
 
@@ -55,8 +57,8 @@ class VLLMAdapter:
         self,
         model_name: str = "Qwen/Qwen3-TTS-12Hz-1.7B-Base",
         gpu_memory_utilization: float = 0.7,
-        port: Optional[int] = None,
-        log_file: Optional[str] = None,
+        port: int | None = None,
+        log_file: str | None = None,
         max_model_len: int = 4096,
         dtype: str = "bfloat16",
     ):
@@ -77,11 +79,11 @@ class VLLMAdapter:
         self.max_model_len = max_model_len
         self.dtype = dtype
 
-        self._process: Optional[subprocess.Popen] = None
-        self._client: Optional[httpx.AsyncClient] = None
+        self._process: subprocess.Popen | None = None
+        self._client: httpx.AsyncClient | None = None
         self._log_fh = None  # File handle for vLLM subprocess stdout/stderr
         self._ready_event = asyncio.Event()
-        self._cancellation_callback: Optional[Callable[[], bool]] = None
+        self._cancellation_callback: Callable[[], bool] | None = None
         self._auto_port = port is None
 
         logger.debug(
@@ -210,7 +212,9 @@ class VLLMAdapter:
 
             # Try health check
             try:
-                async with httpx.AsyncClient(timeout=_HEALTH_CHECK_TIMEOUT_SECS) as client:
+                async with httpx.AsyncClient(
+                    timeout=_HEALTH_CHECK_TIMEOUT_SECS
+                ) as client:
                     response = await client.get(f"{base_url}/v1/models")
                     if response.status_code == 200:
                         logger.info("vLLM server is ready")
@@ -249,7 +253,9 @@ class VLLMAdapter:
             except Exception as e:
                 logger.warning(
                     "vLLM start failed (attempt %d/%d): %s",
-                    attempt + 1, max_attempts, e,
+                    attempt + 1,
+                    max_attempts,
+                    e,
                 )
                 self.stop()  # Kill zombie process
 
@@ -318,7 +324,9 @@ class VLLMAdapter:
         """
         if self._client is None:
             base_url = f"http://127.0.0.1:{self.port}"
-            timeout = httpx.Timeout(_GENERATION_TIMEOUT_SECS, connect=_GENERATION_CONNECT_TIMEOUT_SECS)
+            timeout = httpx.Timeout(
+                _GENERATION_TIMEOUT_SECS, connect=_GENERATION_CONNECT_TIMEOUT_SECS
+            )
             limits = httpx.Limits(max_keepalive_connections=5, max_connections=10)
             self._client = httpx.AsyncClient(
                 base_url=base_url, timeout=timeout, limits=limits
@@ -329,9 +337,9 @@ class VLLMAdapter:
         self,
         text: str,
         mode: str,
-        prompt_audio: Optional[bytes],
-        voice_description: Optional[str],
-        speaker: Optional[str],
+        prompt_audio: bytes | None,
+        voice_description: str | None,
+        speaker: str | None,
         **kwargs,
     ) -> dict:
         """Build the vLLM request dict for clone/design/custom modes.
@@ -375,7 +383,11 @@ class VLLMAdapter:
                 raise ValueError("voice_description required for design mode")
             request = {
                 "model": self.model_name,
-                "input": {"text": text, "mode": "design", "voice_description": voice_description},
+                "input": {
+                    "text": text,
+                    "mode": "design",
+                    "voice_description": voice_description,
+                },
             }
 
         elif mode == "custom":
@@ -408,9 +420,9 @@ class VLLMAdapter:
         self,
         text: str,
         mode: str = "clone",
-        prompt_audio: Optional[bytes] = None,
-        voice_description: Optional[str] = None,
-        speaker: Optional[str] = None,
+        prompt_audio: bytes | None = None,
+        voice_description: str | None = None,
+        speaker: str | None = None,
         **kwargs,
     ) -> tuple[int, Any]:
         """Generate audio from text using vLLM-Omni.
@@ -447,6 +459,7 @@ class VLLMAdapter:
 
             # Load audio bytes into numpy array
             import soundfile as sf  # lazy — heavy import
+
             audio, sr = sf.read(io.BytesIO(audio_bytes))
             return sr, audio
 
@@ -461,9 +474,9 @@ class VLLMAdapter:
         self,
         text: str,
         mode: str = "clone",
-        prompt_audio: Optional[bytes] = None,
-        voice_description: Optional[str] = None,
-        speaker: Optional[str] = None,
+        prompt_audio: bytes | None = None,
+        voice_description: str | None = None,
+        speaker: str | None = None,
         **kwargs,
     ) -> AsyncIterator[tuple[int, Any]]:
         """Generate audio from text with streaming using vLLM-Omni.
@@ -491,7 +504,9 @@ class VLLMAdapter:
         request["stream"] = True
 
         try:
-            async with client.stream("POST", "/v1/audio/generations", json=request) as response:
+            async with client.stream(
+                "POST", "/v1/audio/generations", json=request
+            ) as response:
                 response.raise_for_status()
 
                 # Process streaming response
@@ -517,11 +532,14 @@ class VLLMAdapter:
                             if audio_base64:
                                 audio_bytes = base64.b64decode(audio_base64)
                                 import soundfile as sf  # lazy — heavy import
+
                                 audio, sr = sf.read(io.BytesIO(audio_bytes))
                                 yield sr, audio
 
                         except json.JSONDecodeError:
-                            logger.warning("Failed to parse streaming response: %s", data_str)
+                            logger.warning(
+                                "Failed to parse streaming response: %s", data_str
+                            )
 
         except httpx.HTTPStatusError as e:
             logger.error("vLLM streaming failed: %s", e.response.text)

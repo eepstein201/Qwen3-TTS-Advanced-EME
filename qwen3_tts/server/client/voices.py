@@ -11,8 +11,8 @@ import os
 
 import requests
 
-from qwen3_tts.server.client._base import _require_server, _extract_error_message
-from qwen3_tts.core.config import auth_headers, VoicePromptError
+from qwen3_tts.core.config import VoicePromptError, auth_headers
+from qwen3_tts.server.client._base import _extract_error_message, _require_server
 
 
 class VoiceManagerMixin:
@@ -26,7 +26,9 @@ class VoiceManagerMixin:
         """
         if self.is_server_running():
             try:
-                resp = self._session.get(f"{self.server_url}/prompts", timeout=5, headers=auth_headers())
+                resp = self._session.get(
+                    f"{self.server_url}/prompts", timeout=5, headers=auth_headers()
+                )
                 if resp.status_code == 200:
                     return resp.json().get("prompts", [])
             except (requests.RequestException, OSError):
@@ -36,9 +38,9 @@ class VoiceManagerMixin:
             files = os.listdir(self.voice_prompts_dir)
         except OSError:
             return []
-        pt_prompts = {f for f in files if f.endswith('.pt')}
-        txt_bases = {f[:-4] for f in files if f.endswith('.txt')}
-        mlx_prompts = {f for f in files if f.endswith('.wav') and f[:-4] in txt_bases}
+        pt_prompts = {f for f in files if f.endswith(".pt")}
+        txt_bases = {f[:-4] for f in files if f.endswith(".txt")}
+        mlx_prompts = {f for f in files if f.endswith(".wav") and f[:-4] in txt_bases}
         return sorted(pt_prompts | mlx_prompts)
 
     @_require_server

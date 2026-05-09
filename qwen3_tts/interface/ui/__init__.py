@@ -135,7 +135,13 @@ _module_cache = {}
 
 
 # Submodules that can be lazily imported
-_SUBMODULES = {"_facade", "shared", "generation", "voice_management", "model_management"}
+_SUBMODULES = {
+    "_facade",
+    "shared",
+    "generation",
+    "voice_management",
+    "model_management",
+}
 
 
 def __getattr__(name):
@@ -155,12 +161,19 @@ def __getattr__(name):
     # Special case: TTSClient re-exported from server.client for backward compatibility
     if name == "TTSClient":
         from qwen3_tts.server.client import TTSClient as _TTSClient
+
         return _TTSClient
 
     # Config constants re-exported for backward compatibility
-    if name in ("VALID_MODEL_SIZES", "VALID_MLX_QUANTIZATIONS",
-                "get_backend", "get_model_size", "get_mlx_quantization"):
+    if name in (
+        "VALID_MODEL_SIZES",
+        "VALID_MLX_QUANTIZATIONS",
+        "get_backend",
+        "get_model_size",
+        "get_mlx_quantization",
+    ):
         from qwen3_tts.core import config
+
         return getattr(config, name)
 
     raise AttributeError(f"module {__name__!r} has no attribute {name!r}")

@@ -19,65 +19,65 @@ import time
 import gradio as gr
 
 from qwen3_tts.core.config import (
-    VOICE_DESCRIPTION_ATTRIBUTES,
-    VALID_MODEL_SIZES,
-    VALID_MLX_QUANTIZATIONS,
     IN_COLAB,
-    get_default_clone_prompt,
+    VALID_MLX_QUANTIZATIONS,
+    VALID_MODEL_SIZES,
+    VOICE_DESCRIPTION_ATTRIBUTES,
     get_backend,
+    get_default_clone_prompt,
     load_config,
     validate_voice_name,
 )
-from qwen3_tts.interface.voice_helpers import (
-    get_prosody_choices,
-    apply_prosody_preset,
-    compose_voice_description,
+from qwen3_tts.interface.ui.components import ConfirmButton
+from qwen3_tts.interface.ui.generation import (
+    _build_common_controls,
+    _build_generate_buttons_and_output,
+    _prepare_streaming_config,
+    _wire_generation_tab,
 )
-from qwen3_tts.interface.wavesurfer_js import (
-    get_wavesurfer_loader_js,
-    get_streaming_player_js,
-    get_player_html,
-    get_script_reexecutor_fn,
-    get_load_into_player_js,
+from qwen3_tts.interface.ui.model_management import (
+    get_audio_loader_setting,
+    get_model_status_html,
+    get_model_table_data,
+    set_audio_loader_setting,
+    toggle_asr,
+    toggle_model,
+    update_startup_defaults,
 )
-from qwen3_tts.server.client import TTSClient
 
 # Import from sibling modules
 from qwen3_tts.interface.ui.shared import (
     SPEAKER_CHOICES,
-    enhance_description_with_ai,
-    is_enhancer_available,
-    get_current_model_settings,
     apply_model_settings,
+    enhance_description_with_ai,
     format_status_display,
-    get_voice_prompts,
+    get_current_model_settings,
     get_presets,
-)
-from qwen3_tts.interface.ui.components import confirm_step, ConfirmButton
-from qwen3_tts.interface.ui.generation import (
-    _prepare_streaming_config,
-    _build_common_controls,
-    _build_generate_buttons_and_output,
-    _wire_generation_tab,
+    get_voice_prompts,
+    is_enhancer_available,
 )
 from qwen3_tts.interface.ui.voice_management import (
-    create_voice_prompt,
     auto_transcribe_audio,
+    create_voice_prompt,
+    delete_voice,
     get_prompt_table_data,
     preview_voice,
     rename_voice,
-    delete_voice,
     set_voice_default,
 )
-from qwen3_tts.interface.ui.model_management import (
-    get_model_table_data,
-    toggle_model,
-    toggle_asr,
-    update_startup_defaults,
-    get_model_status_html,
-    get_audio_loader_setting,
-    set_audio_loader_setting,
+from qwen3_tts.interface.voice_helpers import (
+    apply_prosody_preset,
+    compose_voice_description,
+    get_prosody_choices,
 )
+from qwen3_tts.interface.wavesurfer_js import (
+    get_load_into_player_js,
+    get_player_html,
+    get_script_reexecutor_fn,
+    get_streaming_player_js,
+    get_wavesurfer_loader_js,
+)
+from qwen3_tts.server.client import TTSClient
 
 logger = logging.getLogger("tts.ui")
 
@@ -107,6 +107,7 @@ def _find_available_port(preferred, max_tries=10):
     Scans preferred .. preferred+max_tries-1.  Returns None if all are taken.
     """
     import socket
+
     bind_addr = "0.0.0.0" if IN_COLAB else "127.0.0.1"  # nosec B104
     for offset in range(max_tries):
         port = preferred + offset
@@ -119,7 +120,7 @@ def _find_available_port(preferred, max_tries=10):
     return None
 
 
-_SAFE_NAME_RE = re.compile(r'^[a-zA-Z0-9_\-]{1,64}$')
+_SAFE_NAME_RE = re.compile(r"^[a-zA-Z0-9_\-]{1,64}$")
 
 
 def _sanitize_voice_name(raw: str) -> tuple:
@@ -129,7 +130,10 @@ def _sanitize_voice_name(raw: str) -> tuple:
     """
     name = raw.strip().replace(" ", "_")
     if not _SAFE_NAME_RE.match(name):
-        return "", "Voice name may only contain letters, numbers, underscores, and hyphens (1-64 chars)"
+        return (
+            "",
+            "Voice name may only contain letters, numbers, underscores, and hyphens (1-64 chars)",
+        )
     return name, None
 
 
@@ -140,8 +144,12 @@ def extract_seed_from_history(evt: gr.SelectData, history_list):
     """
     if not (isinstance(history_list, list) and history_list):
         return ""
-    if not (hasattr(evt, 'index') and isinstance(evt.index, (list, tuple))
-            and len(evt.index) >= 1 and 0 <= evt.index[0] < len(history_list)):
+    if not (
+        hasattr(evt, "index")
+        and isinstance(evt.index, (list, tuple))
+        and len(evt.index) >= 1
+        and 0 <= evt.index[0] < len(history_list)
+    ):
         return ""
     seed = history_list[evt.index[0]].get("seed")
     return str(seed) if seed is not None else ""
@@ -159,8 +167,12 @@ def on_history_select(evt: gr.SelectData, history_list):
     seed_str = extract_seed_from_history(evt, history_list)
     if not (isinstance(history_list, list) and history_list):
         return None, seed_str, seed_str, seed_str
-    if not (hasattr(evt, 'index') and isinstance(evt.index, (list, tuple))
-            and len(evt.index) >= 1 and 0 <= evt.index[0] < len(history_list)):
+    if not (
+        hasattr(evt, "index")
+        and isinstance(evt.index, (list, tuple))
+        and len(evt.index) >= 1
+        and 0 <= evt.index[0] < len(history_list)
+    ):
         return None, seed_str, seed_str, seed_str
     path = history_list[evt.index[0]].get("path", "")
     if not path:
@@ -168,6 +180,7 @@ def on_history_select(evt: gr.SelectData, history_list):
     resolved = os.path.realpath(path)
     # Containment check: only serve files from known-safe directories
     from qwen3_tts.interface.ui.shared import _resolve_output_dir
+
     config = load_config()
     output_dir = _resolve_output_dir(config)
     safe_roots = {
@@ -203,45 +216,84 @@ def _build_clone_tab(status_html, history_state):
 
     with gr.Row():
         with gr.Column(scale=2):
-            clone_text = gr.Textbox(label="Text Input", placeholder="Enter text to synthesize...", lines=3)
-            clone_text_info = gr.Textbox(label="", show_label=False, interactive=False, max_lines=1, container=False)
+            clone_text = gr.Textbox(
+                label="Text Input", placeholder="Enter text to synthesize...", lines=3
+            )
+            clone_text_info = gr.Textbox(
+                label="",
+                show_label=False,
+                interactive=False,
+                max_lines=1,
+                container=False,
+            )
             _default_prompt = get_default_clone_prompt()
             _prompts = get_voice_prompts()
             clone_prompt = gr.Dropdown(
-                label="Voice Prompt", choices=_prompts,
-                value=_default_prompt if _default_prompt in _prompts else (_prompts[0] if _prompts else None)
+                label="Voice Prompt",
+                choices=_prompts,
+                value=_default_prompt
+                if _default_prompt in _prompts
+                else (_prompts[0] if _prompts else None),
             )
-            clone_preset = gr.Dropdown(label="Preset", choices=get_presets(), value="(none)")
+            clone_preset = gr.Dropdown(
+                label="Preset", choices=get_presets(), value="(none)"
+            )
 
         with gr.Column(scale=1):
             clone_ctrls = _build_common_controls()
             clone_no_transcript = gr.Checkbox(
-                label="Speaker embedding only", value=False,
-                info="Clone using x-vector only (no transcript needed, lower fidelity)"
+                label="Speaker embedding only",
+                value=False,
+                info="Clone using x-vector only (no transcript needed, lower fidelity)",
             )
 
     clone_btns = _build_generate_buttons_and_output("clone")
     gen_guard_state = gr.State({"generating": False, "armed": False, "ts": 0.0})
 
-    def clone_config_handler(text, prompt, preset, temp, top_k, top_p, rep, seed,
-                             no_transcript, seed_lock):
+    def clone_config_handler(
+        text, prompt, preset, temp, top_k, top_p, rep, seed, no_transcript, seed_lock
+    ):
         return _prepare_streaming_config(
-            "clone", text, preset, temp, top_k, top_p, rep, seed,
-            prompt_file=prompt, no_transcript=no_transcript,
-            seed_lock_chunks=seed_lock)
+            "clone",
+            text,
+            preset,
+            temp,
+            top_k,
+            top_p,
+            rep,
+            seed,
+            prompt_file=prompt,
+            no_transcript=no_transcript,
+            seed_lock_chunks=seed_lock,
+        )
 
     clone_chain = _wire_generation_tab(
-        "clone", clone_btns["btn"], clone_btns["cancel_btn"],
-        clone_btns["status"], clone_btns["stream_config"],
-        clone_btns["result_data"], clone_btns["mode_hidden"],
-        clone_btns["text_hidden"], clone_model_indicator,
-        clone_text, clone_text_info,
-        inputs_list=[clone_text, clone_prompt, clone_preset,
-                     clone_ctrls["temp"], clone_ctrls["top_k"], clone_ctrls["top_p"],
-                     clone_ctrls["rep"], clone_ctrls["seed"],
-                     clone_no_transcript, clone_ctrls["seed_lock"]],
+        "clone",
+        clone_btns["btn"],
+        clone_btns["cancel_btn"],
+        clone_btns["status"],
+        clone_btns["stream_config"],
+        clone_btns["result_data"],
+        clone_btns["mode_hidden"],
+        clone_btns["text_hidden"],
+        clone_model_indicator,
+        clone_text,
+        clone_text_info,
+        inputs_list=[
+            clone_text,
+            clone_prompt,
+            clone_preset,
+            clone_ctrls["temp"],
+            clone_ctrls["top_k"],
+            clone_ctrls["top_p"],
+            clone_ctrls["rep"],
+            clone_ctrls["seed"],
+            clone_no_transcript,
+            clone_ctrls["seed_lock"],
+        ],
         status_html=status_html,
-        config_handler=clone_config_handler, api_name="generate_clone",
+        config_handler=clone_config_handler,
+        api_name="generate_clone",
         history_state=history_state,
         audio_url_converter=clone_btns["audio_url_converter"],
         gen_guard_state=gen_guard_state,
@@ -261,39 +313,81 @@ def _build_design_tab(status_html, history_state, clone_prompt):
 
     with gr.Row():
         with gr.Column(scale=2):
-            design_text = gr.Textbox(label="Text Input", placeholder="Enter text to synthesize...", lines=3)
-            design_text_info = gr.Textbox(label="", show_label=False, interactive=False, max_lines=1, container=False)
+            design_text = gr.Textbox(
+                label="Text Input", placeholder="Enter text to synthesize...", lines=3
+            )
+            design_text_info = gr.Textbox(
+                label="",
+                show_label=False,
+                interactive=False,
+                max_lines=1,
+                container=False,
+            )
             design_desc = gr.Textbox(
                 label="Voice Description",
                 placeholder="Describe the voice (e.g., 'A warm, friendly female voice with clear articulation')",
-                lines=2
+                lines=2,
             )
             with gr.Row():
                 design_prosody = gr.Dropdown(
-                    label="Style Preset", choices=get_prosody_choices(), value="(none)",
-                    info="Appends style to description", scale=2,
+                    label="Style Preset",
+                    choices=get_prosody_choices(),
+                    value="(none)",
+                    info="Appends style to description",
+                    scale=2,
                 )
                 _enhancer_visible = is_enhancer_available()
                 design_enhance_btn = gr.Button(
-                    "Enhance with AI", size="sm", variant="secondary",
-                    visible=_enhancer_visible, scale=1,
+                    "Enhance with AI",
+                    size="sm",
+                    variant="secondary",
+                    visible=_enhancer_visible,
+                    scale=1,
                 )
 
             with gr.Accordion("Description Builder", open=False):
                 gr.Markdown("Build a voice description from attributes:")
                 _none_opt = ["(none)"]
                 with gr.Row():
-                    db_gender = gr.Dropdown(label="Gender", choices=_none_opt + VOICE_DESCRIPTION_ATTRIBUTES["gender"], value="(none)")
-                    db_age = gr.Dropdown(label="Age", choices=_none_opt + VOICE_DESCRIPTION_ATTRIBUTES["age"], value="(none)")
+                    db_gender = gr.Dropdown(
+                        label="Gender",
+                        choices=_none_opt + VOICE_DESCRIPTION_ATTRIBUTES["gender"],
+                        value="(none)",
+                    )
+                    db_age = gr.Dropdown(
+                        label="Age",
+                        choices=_none_opt + VOICE_DESCRIPTION_ATTRIBUTES["age"],
+                        value="(none)",
+                    )
                 with gr.Row():
-                    db_tone = gr.Dropdown(label="Tone", choices=_none_opt + VOICE_DESCRIPTION_ATTRIBUTES["tone"], value="(none)")
-                    db_texture = gr.Dropdown(label="Texture", choices=_none_opt + VOICE_DESCRIPTION_ATTRIBUTES["texture"], value="(none)")
+                    db_tone = gr.Dropdown(
+                        label="Tone",
+                        choices=_none_opt + VOICE_DESCRIPTION_ATTRIBUTES["tone"],
+                        value="(none)",
+                    )
+                    db_texture = gr.Dropdown(
+                        label="Texture",
+                        choices=_none_opt + VOICE_DESCRIPTION_ATTRIBUTES["texture"],
+                        value="(none)",
+                    )
                 with gr.Row():
-                    db_pace = gr.Dropdown(label="Pace", choices=_none_opt + VOICE_DESCRIPTION_ATTRIBUTES["pace"], value="(none)")
-                    db_accent = gr.Dropdown(label="Accent", choices=_none_opt + VOICE_DESCRIPTION_ATTRIBUTES["accent"], value="(none)")
-                db_compose_btn = gr.Button("Compose Description", size="sm", variant="secondary")
+                    db_pace = gr.Dropdown(
+                        label="Pace",
+                        choices=_none_opt + VOICE_DESCRIPTION_ATTRIBUTES["pace"],
+                        value="(none)",
+                    )
+                    db_accent = gr.Dropdown(
+                        label="Accent",
+                        choices=_none_opt + VOICE_DESCRIPTION_ATTRIBUTES["accent"],
+                        value="(none)",
+                    )
+                db_compose_btn = gr.Button(
+                    "Compose Description", size="sm", variant="secondary"
+                )
 
-            design_preset = gr.Dropdown(label="Preset", choices=get_presets(), value="(none)")
+            design_preset = gr.Dropdown(
+                label="Preset", choices=get_presets(), value="(none)"
+            )
 
         with gr.Column(scale=1):
             design_ctrls = _build_common_controls()
@@ -304,26 +398,55 @@ def _build_design_tab(status_html, history_state, clone_prompt):
     # Save as Voice Prompt (Design-then-Clone pipeline)
     with gr.Accordion("Save as Voice Prompt", open=False):
         gr.Markdown("Save the generated audio as a reusable voice clone prompt.")
-        design_save_name = gr.Textbox(label="Voice Name", placeholder="e.g., designed_voice", max_lines=1)
-        design_save_btn = gr.Button("Save as Voice Prompt", size="sm", variant="secondary")
-        design_save_status = gr.Textbox(label="", show_label=False, interactive=False, max_lines=1, container=False)
+        design_save_name = gr.Textbox(
+            label="Voice Name", placeholder="e.g., designed_voice", max_lines=1
+        )
+        design_save_btn = gr.Button(
+            "Save as Voice Prompt", size="sm", variant="secondary"
+        )
+        design_save_status = gr.Textbox(
+            label="", show_label=False, interactive=False, max_lines=1, container=False
+        )
 
-    def design_config_handler(text, desc, preset, temp, top_k, top_p, rep, seed,
-                              seed_lock):
+    def design_config_handler(
+        text, desc, preset, temp, top_k, top_p, rep, seed, seed_lock
+    ):
         return _prepare_streaming_config(
-            "design", text, preset, temp, top_k, top_p, rep, seed,
-            description=desc, seed_lock_chunks=seed_lock)
+            "design",
+            text,
+            preset,
+            temp,
+            top_k,
+            top_p,
+            rep,
+            seed,
+            description=desc,
+            seed_lock_chunks=seed_lock,
+        )
 
     design_chain = _wire_generation_tab(
-        "design", design_btns["btn"], design_btns["cancel_btn"],
-        design_btns["status"], design_btns["stream_config"],
-        design_btns["result_data"], design_btns["mode_hidden"],
-        design_btns["text_hidden"], design_model_indicator,
-        design_text, design_text_info,
-        inputs_list=[design_text, design_desc, design_preset,
-                     design_ctrls["temp"], design_ctrls["top_k"], design_ctrls["top_p"],
-                     design_ctrls["rep"], design_ctrls["seed"],
-                     design_ctrls["seed_lock"]],
+        "design",
+        design_btns["btn"],
+        design_btns["cancel_btn"],
+        design_btns["status"],
+        design_btns["stream_config"],
+        design_btns["result_data"],
+        design_btns["mode_hidden"],
+        design_btns["text_hidden"],
+        design_model_indicator,
+        design_text,
+        design_text_info,
+        inputs_list=[
+            design_text,
+            design_desc,
+            design_preset,
+            design_ctrls["temp"],
+            design_ctrls["top_k"],
+            design_ctrls["top_p"],
+            design_ctrls["rep"],
+            design_ctrls["seed"],
+            design_ctrls["seed_lock"],
+        ],
         status_html=status_html,
         config_handler=design_config_handler,
         history_state=history_state,
@@ -331,13 +454,19 @@ def _build_design_tab(status_html, history_state, clone_prompt):
         gen_guard_state=gen_guard_state,
     )
 
-    design_prosody.change(fn=apply_prosody_preset, inputs=[design_prosody, design_desc], outputs=design_desc)
+    design_prosody.change(
+        fn=apply_prosody_preset,
+        inputs=[design_prosody, design_desc],
+        outputs=design_desc,
+    )
     db_compose_btn.click(
         fn=compose_voice_description,
         inputs=[db_gender, db_age, db_tone, db_texture, db_pace, db_accent],
         outputs=design_desc,
     )
-    design_enhance_btn.click(fn=enhance_description_with_ai, inputs=[design_desc], outputs=design_desc)
+    design_enhance_btn.click(
+        fn=enhance_description_with_ai, inputs=[design_desc], outputs=design_desc
+    )
 
     def save_design_as_prompt(voice_name, history_list):
         """Save the most recent Design mode output as a voice prompt."""
@@ -355,12 +484,14 @@ def _build_design_tab(status_html, history_state, clone_prompt):
                 audio_path = entry["path"]
                 # Security: validate audio_path from history before using
                 from qwen3_tts.core.config import safe_path_join
-                import pathlib
 
                 audio_expanded = os.path.expanduser(audio_path)
                 if os.path.isabs(audio_expanded):
                     if ".." in audio_expanded:
-                        return f"Path traversal detected in history path: {audio_path}", gr.update()
+                        return (
+                            f"Path traversal detected in history path: {audio_path}",
+                            gr.update(),
+                        )
                     safe_audio_path = audio_expanded
                 else:
                     safe_audio_path = safe_path_join(os.getcwd(), audio_expanded)
@@ -369,25 +500,37 @@ def _build_design_tab(status_html, history_state, clone_prompt):
                 home = os.path.realpath(os.path.expanduser("~"))
                 resolved = os.path.realpath(safe_audio_path)
                 if not (resolved == home or resolved.startswith(home + os.sep)):
-                    return f"History path must be under home directory: {audio_path}", gr.update()
+                    return (
+                        f"History path must be under home directory: {audio_path}",
+                        gr.update(),
+                    )
 
                 if os.path.exists(safe_audio_path):
                     try:
-                        from qwen3_tts.tools.create_voice import create_and_save_voice_prompt
+                        from qwen3_tts.tools.create_voice import (
+                            create_and_save_voice_prompt,
+                        )
+
                         backend = get_backend()
                         mlx_only = (backend == "mlx") or IN_COLAB
                         create_and_save_voice_prompt(
-                            safe_audio_path, "", voice_name,
-                            test_generation=False, mlx_only=mlx_only,
+                            safe_audio_path,
+                            "",
+                            voice_name,
+                            test_generation=False,
+                            mlx_only=mlx_only,
                         )
                         prompts = get_voice_prompts()
-                        return f"Saved voice prompt: {voice_name}", gr.update(choices=prompts)
+                        return f"Saved voice prompt: {voice_name}", gr.update(
+                            choices=prompts
+                        )
                     except Exception as e:
                         return f"Error: {e}", gr.update()
         return "No recent Design mode output found. Generate audio first.", gr.update()
 
     design_save_btn.click(
-        fn=save_design_as_prompt, inputs=[design_save_name, history_state],
+        fn=save_design_as_prompt,
+        inputs=[design_save_name, history_state],
         outputs=[design_save_status, clone_prompt],
     )
     return design_model_indicator, design_chain, design_ctrls["seed"]
@@ -405,18 +548,33 @@ def _build_custom_tab(status_html, history_state):
 
     with gr.Row():
         with gr.Column(scale=2):
-            custom_text = gr.Textbox(label="Text Input", placeholder="Enter text to synthesize...", lines=3)
-            custom_text_info = gr.Textbox(label="", show_label=False, interactive=False, max_lines=1, container=False)
-            custom_speaker = gr.Dropdown(label="Speaker", choices=SPEAKER_CHOICES, value=SPEAKER_CHOICES[0])
+            custom_text = gr.Textbox(
+                label="Text Input", placeholder="Enter text to synthesize...", lines=3
+            )
+            custom_text_info = gr.Textbox(
+                label="",
+                show_label=False,
+                interactive=False,
+                max_lines=1,
+                container=False,
+            )
+            custom_speaker = gr.Dropdown(
+                label="Speaker", choices=SPEAKER_CHOICES, value=SPEAKER_CHOICES[0]
+            )
             custom_prosody = gr.Dropdown(
-                label="Style Preset", choices=get_prosody_choices(), value="(none)",
-                info="Select a preset to fill the instruction field, or type your own below"
+                label="Style Preset",
+                choices=get_prosody_choices(),
+                value="(none)",
+                info="Select a preset to fill the instruction field, or type your own below",
             )
             custom_instruct = gr.Textbox(
                 label="Style Instruction (optional)",
-                placeholder="e.g., 'Speak with enthusiasm' or 'Read slowly and clearly'", lines=1
+                placeholder="e.g., 'Speak with enthusiasm' or 'Read slowly and clearly'",
+                lines=1,
             )
-            custom_preset = gr.Dropdown(label="Preset", choices=get_presets(), value="(none)")
+            custom_preset = gr.Dropdown(
+                label="Preset", choices=get_presets(), value="(none)"
+            )
 
         with gr.Column(scale=1):
             custom_ctrls = _build_common_controls()
@@ -424,29 +582,58 @@ def _build_custom_tab(status_html, history_state):
     custom_btns = _build_generate_buttons_and_output("custom")
     gen_guard_state = gr.State({"generating": False, "armed": False, "ts": 0.0})
 
-    def custom_config_handler(text, speaker, instruct, preset, temp, top_k, top_p, rep, seed,
-                              seed_lock):
+    def custom_config_handler(
+        text, speaker, instruct, preset, temp, top_k, top_p, rep, seed, seed_lock
+    ):
         return _prepare_streaming_config(
-            "custom", text, preset, temp, top_k, top_p, rep, seed,
-            speaker=speaker, instruct=instruct, seed_lock_chunks=seed_lock)
+            "custom",
+            text,
+            preset,
+            temp,
+            top_k,
+            top_p,
+            rep,
+            seed,
+            speaker=speaker,
+            instruct=instruct,
+            seed_lock_chunks=seed_lock,
+        )
 
     custom_chain = _wire_generation_tab(
-        "custom", custom_btns["btn"], custom_btns["cancel_btn"],
-        custom_btns["status"], custom_btns["stream_config"],
-        custom_btns["result_data"], custom_btns["mode_hidden"],
-        custom_btns["text_hidden"], custom_model_indicator,
-        custom_text, custom_text_info,
-        inputs_list=[custom_text, custom_speaker, custom_instruct, custom_preset,
-                     custom_ctrls["temp"], custom_ctrls["top_k"], custom_ctrls["top_p"],
-                     custom_ctrls["rep"], custom_ctrls["seed"],
-                     custom_ctrls["seed_lock"]],
+        "custom",
+        custom_btns["btn"],
+        custom_btns["cancel_btn"],
+        custom_btns["status"],
+        custom_btns["stream_config"],
+        custom_btns["result_data"],
+        custom_btns["mode_hidden"],
+        custom_btns["text_hidden"],
+        custom_model_indicator,
+        custom_text,
+        custom_text_info,
+        inputs_list=[
+            custom_text,
+            custom_speaker,
+            custom_instruct,
+            custom_preset,
+            custom_ctrls["temp"],
+            custom_ctrls["top_k"],
+            custom_ctrls["top_p"],
+            custom_ctrls["rep"],
+            custom_ctrls["seed"],
+            custom_ctrls["seed_lock"],
+        ],
         status_html=status_html,
         config_handler=custom_config_handler,
         history_state=history_state,
         audio_url_converter=custom_btns["audio_url_converter"],
         gen_guard_state=gen_guard_state,
     )
-    custom_prosody.change(fn=apply_prosody_preset, inputs=[custom_prosody, custom_instruct], outputs=custom_instruct)
+    custom_prosody.change(
+        fn=apply_prosody_preset,
+        inputs=[custom_prosody, custom_instruct],
+        outputs=custom_instruct,
+    )
     return custom_model_indicator, custom_chain, custom_ctrls["seed"]
 
 
@@ -459,12 +646,12 @@ def _build_create_voice_tab(clone_prompt):
             create_audio = gr.Audio(
                 label="Reference Audio",
                 type="filepath",
-                sources=["upload", "microphone"]
+                sources=["upload", "microphone"],
             )
             create_transcript = gr.Textbox(
                 label="Transcript",
                 placeholder="Enter the exact words spoken in the audio...",
-                lines=3
+                lines=3,
             )
             with gr.Row():
                 auto_transcribe_btn = gr.Button("Auto-Transcribe", size="sm")
@@ -473,30 +660,26 @@ def _build_create_voice_tab(clone_prompt):
             create_name = gr.Textbox(
                 label="Voice Name",
                 placeholder="e.g., my_voice",
-                info="Will create my_voice.pt + .wav + .txt"
+                info="Will create my_voice.pt + .wav + .txt",
             )
             create_no_transcript = gr.Checkbox(
                 label="Speaker embedding only",
                 value=False,
-                info="Create without transcript (x-vector only, lower fidelity)"
+                info="Create without transcript (x-vector only, lower fidelity)",
             )
             create_btn = gr.Button("Create Voice Prompt", variant="primary")
             create_status = gr.Textbox(label="Status", interactive=False)
             voice_list = gr.Dropdown(
-                label="Available Voices",
-                choices=get_voice_prompts(),
-                interactive=False
+                label="Available Voices", choices=get_voice_prompts(), interactive=False
             )
 
     auto_transcribe_btn.click(
-        fn=auto_transcribe_audio,
-        inputs=[create_audio],
-        outputs=[create_transcript]
+        fn=auto_transcribe_audio, inputs=[create_audio], outputs=[create_transcript]
     )
     create_btn.click(
         fn=create_voice_prompt,
         inputs=[create_audio, create_transcript, create_name, create_no_transcript],
-        outputs=[create_status, voice_list, clone_prompt]
+        outputs=[create_status, voice_list, clone_prompt],
     )
 
 
@@ -517,24 +700,32 @@ def _build_manage_voices_tab(clone_prompt):
         with gr.Column(scale=1):
             manage_preview_audio = gr.Audio(label="Preview", visible=True)
             manage_selected = gr.Textbox(
-                label="Selected Voice", interactive=False,
-                max_lines=1, container=True
+                label="Selected Voice", interactive=False, max_lines=1, container=True
             )
             manage_new_name = gr.Textbox(
                 label="New Name (for rename)",
                 placeholder="Enter new name...",
-                max_lines=1
+                max_lines=1,
             )
             with gr.Row():
                 manage_preview_btn = gr.Button("Preview", size="sm", interactive=False)
-                manage_default_btn = gr.Button("Set Default", size="sm", interactive=False)
+                manage_default_btn = gr.Button(
+                    "Set Default", size="sm", interactive=False
+                )
             with gr.Row():
-                manage_rename_btn = gr.Button("Rename", size="sm", variant="secondary", interactive=False)
-                manage_delete_btn = gr.Button("Delete", size="sm", variant="stop", interactive=False)
+                manage_rename_btn = gr.Button(
+                    "Rename", size="sm", variant="secondary", interactive=False
+                )
+                manage_delete_btn = gr.Button(
+                    "Delete", size="sm", variant="stop", interactive=False
+                )
             delete_confirm_state = gr.State({"armed": False, "ts": 0.0})
             manage_status = gr.Textbox(
-                label="", show_label=False, interactive=False,
-                max_lines=2, container=False
+                label="",
+                show_label=False,
+                interactive=False,
+                max_lines=2,
+                container=False,
             )
 
     def on_table_select(evt: gr.SelectData, table_data):
@@ -544,7 +735,13 @@ def _build_manage_voices_tab(clone_prompt):
             row_idx = evt.index[0]
             if hasattr(table_data, "iloc"):
                 if row_idx < len(table_data):
-                    return str(table_data.iloc[row_idx, 0]), active, active, active, active
+                    return (
+                        str(table_data.iloc[row_idx, 0]),
+                        active,
+                        active,
+                        active,
+                        active,
+                    )
             elif table_data and row_idx < len(table_data):
                 return table_data[row_idx][0], active, active, active, active
         except (IndexError, TypeError, KeyError):
@@ -554,14 +751,27 @@ def _build_manage_voices_tab(clone_prompt):
     manage_table.select(
         fn=on_table_select,
         inputs=[manage_table],
-        outputs=[manage_selected, manage_preview_btn, manage_default_btn, manage_rename_btn, manage_delete_btn]
+        outputs=[
+            manage_selected,
+            manage_preview_btn,
+            manage_default_btn,
+            manage_rename_btn,
+            manage_delete_btn,
+        ],
     )
     manage_refresh_btn.click(fn=get_prompt_table_data, outputs=[manage_table])
-    manage_preview_btn.click(fn=preview_voice, inputs=[manage_selected], outputs=[manage_preview_audio])
-    manage_default_btn.click(fn=set_voice_default, inputs=[manage_selected], outputs=[manage_status, manage_table])
+    manage_preview_btn.click(
+        fn=preview_voice, inputs=[manage_selected], outputs=[manage_preview_audio]
+    )
+    manage_default_btn.click(
+        fn=set_voice_default,
+        inputs=[manage_selected],
+        outputs=[manage_status, manage_table],
+    )
     manage_rename_btn.click(
-        fn=rename_voice, inputs=[manage_selected, manage_new_name],
-        outputs=[manage_status, manage_table, clone_prompt]
+        fn=rename_voice,
+        inputs=[manage_selected, manage_new_name],
+        outputs=[manage_status, manage_table, clone_prompt],
     )
 
     # ConfirmButton for delete voice action
@@ -569,11 +779,13 @@ def _build_manage_voices_tab(clone_prompt):
         arm_label="Confirm Delete? (click again)",
         original_label="Delete",
         timeout_s=5.0,
-        status_message="Click again within 5s to confirm deletion."
+        status_message="Click again within 5s to confirm deletion.",
     )
 
     def on_delete_click(state, selected):
-        new_state, btn_update, status_update, confirmed = delete_confirm_btn.click(state)
+        new_state, btn_update, status_update, confirmed = delete_confirm_btn.click(
+            state
+        )
         if not confirmed:
             return new_state, btn_update, status_update, gr.update(), gr.update()
         status, table, prompt = delete_voice(selected)
@@ -582,12 +794,19 @@ def _build_manage_voices_tab(clone_prompt):
     manage_delete_btn.click(
         fn=on_delete_click,
         inputs=[delete_confirm_state, manage_selected],
-        outputs=[delete_confirm_state, manage_delete_btn, manage_status, manage_table, clone_prompt],
+        outputs=[
+            delete_confirm_state,
+            manage_delete_btn,
+            manage_status,
+            manage_table,
+            clone_prompt,
+        ],
     )
 
 
-def _build_manage_models_tab(status_html, clone_model_indicator,
-                             design_model_indicator, custom_model_indicator):
+def _build_manage_models_tab(
+    status_html, clone_model_indicator, design_model_indicator, custom_model_indicator
+):
     """Build Manage Models tab components and wiring."""
     gr.Markdown("Load/unload models, configure startup defaults, and audio loader.")
 
@@ -614,8 +833,11 @@ def _build_manage_models_tab(status_html, clone_model_indicator,
                 model_unload_btn = gr.Button("Unload", size="sm", variant="stop")
             unload_confirm_state = gr.State({"armed": False, "ts": 0.0})
             model_manage_status = gr.Textbox(
-                label="", show_label=False, interactive=False,
-                max_lines=2, container=False
+                label="",
+                show_label=False,
+                interactive=False,
+                max_lines=2,
+                container=False,
             )
 
             gr.Markdown("### ASR (Whisper)")
@@ -629,8 +851,11 @@ def _build_manage_models_tab(status_html, clone_model_indicator,
             startup_custom = gr.Checkbox(label="Custom at startup", value=False)
             startup_save_btn = gr.Button("Save Startup Config", size="sm")
             startup_status = gr.Textbox(
-                label="", show_label=False, interactive=False,
-                max_lines=1, container=False
+                label="",
+                show_label=False,
+                interactive=False,
+                max_lines=1,
+                container=False,
             )
 
             gr.Markdown("### Audio Loader")
@@ -638,12 +863,15 @@ def _build_manage_models_tab(status_html, clone_model_indicator,
                 label="Audio Loader",
                 choices=["torchaudio", "librosa"],
                 value=get_audio_loader_setting(),
-                info="torchaudio: faster C++ | librosa: broader format support"
+                info="torchaudio: faster C++ | librosa: broader format support",
             )
             audio_loader_save_btn = gr.Button("Save Audio Loader", size="sm")
             audio_loader_status = gr.Textbox(
-                label="", show_label=False, interactive=False,
-                max_lines=1, container=False
+                label="",
+                show_label=False,
+                interactive=False,
+                max_lines=1,
+                container=False,
             )
 
     model_refresh_btn.click(fn=get_model_table_data, outputs=model_table)
@@ -651,7 +879,7 @@ def _build_manage_models_tab(status_html, clone_model_indicator,
     model_load_btn.click(
         fn=lambda mt: toggle_model(mt, "load"),
         inputs=[model_type_select],
-        outputs=[model_manage_status, model_table, status_html]
+        outputs=[model_manage_status, model_table, status_html],
     ).then(
         fn=lambda mt: (
             get_model_status_html("clone") if mt == "clone" else gr.update(),
@@ -659,7 +887,7 @@ def _build_manage_models_tab(status_html, clone_model_indicator,
             get_model_status_html("custom") if mt == "custom" else gr.update(),
         ),
         inputs=[model_type_select],
-        outputs=[clone_model_indicator, design_model_indicator, custom_model_indicator]
+        outputs=[clone_model_indicator, design_model_indicator, custom_model_indicator],
     )
 
     # ConfirmButton for unload model action
@@ -667,11 +895,13 @@ def _build_manage_models_tab(status_html, clone_model_indicator,
         arm_label="Confirm Unload? (click again)",
         original_label="Unload",
         timeout_s=5.0,
-        status_message="Click again within 5s to confirm unload."
+        status_message="Click again within 5s to confirm unload.",
     )
 
     def on_unload_click(state, mt):
-        new_state, btn_update, status_update, confirmed = unload_confirm_btn.click(state)
+        new_state, btn_update, status_update, confirmed = unload_confirm_btn.click(
+            state
+        )
         if not confirmed:
             return new_state, btn_update, status_update, gr.update(), gr.update()
         status, table, status_h = toggle_model(mt, "unload")
@@ -680,7 +910,13 @@ def _build_manage_models_tab(status_html, clone_model_indicator,
     model_unload_btn.click(
         fn=on_unload_click,
         inputs=[unload_confirm_state, model_type_select],
-        outputs=[unload_confirm_state, model_unload_btn, model_manage_status, model_table, status_html],
+        outputs=[
+            unload_confirm_state,
+            model_unload_btn,
+            model_manage_status,
+            model_table,
+            status_html,
+        ],
     ).then(
         fn=lambda mt: (
             get_model_status_html("clone") if mt == "clone" else gr.update(),
@@ -688,20 +924,24 @@ def _build_manage_models_tab(status_html, clone_model_indicator,
             get_model_status_html("custom") if mt == "custom" else gr.update(),
         ),
         inputs=[model_type_select],
-        outputs=[clone_model_indicator, design_model_indicator, custom_model_indicator]
+        outputs=[clone_model_indicator, design_model_indicator, custom_model_indicator],
     )
 
-    asr_load_btn.click(fn=lambda: toggle_asr("load"), outputs=[model_manage_status, status_html])
-    asr_unload_btn.click(fn=lambda: toggle_asr("unload"), outputs=[model_manage_status, status_html])
+    asr_load_btn.click(
+        fn=lambda: toggle_asr("load"), outputs=[model_manage_status, status_html]
+    )
+    asr_unload_btn.click(
+        fn=lambda: toggle_asr("unload"), outputs=[model_manage_status, status_html]
+    )
     startup_save_btn.click(
         fn=update_startup_defaults,
         inputs=[startup_clone, startup_design, startup_custom],
-        outputs=startup_status
+        outputs=startup_status,
     )
     audio_loader_save_btn.click(
         fn=set_audio_loader_setting,
         inputs=[audio_loader_select],
-        outputs=audio_loader_status
+        outputs=audio_loader_status,
     )
 
 
@@ -712,7 +952,8 @@ def _load_initial_history():
         tuple: (clone_status_html, design_status_html, custom_status_html,
                 history_list, history_df_data)
     """
-    from qwen3_tts.interface.ui.shared import load_history_from_disk, get_history_data
+    from qwen3_tts.interface.ui.shared import get_history_data, load_history_from_disk
+
     config = load_config()
     output_dir = os.path.expanduser(config.get("output_directory", "~/Downloads"))
     history = load_history_from_disk(output_dir)
@@ -732,8 +973,12 @@ def build_ui():
         gr.Markdown("# Qwen3-TTS Web Interface")
 
         # Inject WaveSurfer.js and StreamingPlayer class
-        gr.HTML(value=get_wavesurfer_loader_js() +
-                "<script type='module'>" + get_streaming_player_js() + "</script>")
+        gr.HTML(
+            value=get_wavesurfer_loader_js()
+            + "<script type='module'>"
+            + get_streaming_player_js()
+            + "</script>"
+        )
 
         # Status bar
         status_html = gr.HTML(value=format_status_display())
@@ -741,35 +986,46 @@ def build_ui():
             refresh_btn = gr.Button("Refresh Status", size="sm")
             stop_btn = gr.Button("Stop Server", size="sm", variant="stop")
         refresh_btn.click(fn=format_status_display, outputs=status_html)
-        if hasattr(gr, 'Timer'):
+        if hasattr(gr, "Timer"):
             gr.Timer(value=5).tick(fn=format_status_display, outputs=status_html)
         stop_btn.click(fn=stop_server, outputs=status_html)
 
         # Model Settings (MLX-first architecture)
         current_size, current_quant, current_backend = get_current_model_settings()
         with gr.Accordion("Model Settings", open=False):
-            gr.Markdown("Change model size or quantization. Settings apply on next generation.")
+            gr.Markdown(
+                "Change model size or quantization. Settings apply on next generation."
+            )
             with gr.Row():
                 model_size_dropdown = gr.Dropdown(
-                    label="Model Size", choices=list(VALID_MODEL_SIZES), value=current_size,
-                    info="1.7B: higher quality | 0.6B: ~40% faster, lower memory"
+                    label="Model Size",
+                    choices=list(VALID_MODEL_SIZES),
+                    value=current_size,
+                    info="1.7B: higher quality | 0.6B: ~40% faster, lower memory",
                 )
                 mlx_quant_dropdown = gr.Dropdown(
-                    label="MLX Quantization", choices=list(VALID_MLX_QUANTIZATIONS),
+                    label="MLX Quantization",
+                    choices=list(VALID_MLX_QUANTIZATIONS),
                     value=current_quant,
                     info="4bit/5bit/6bit: progressively higher quality, more memory | 8bit: balanced (default) | bf16: highest quality, largest",
-                    visible=(current_backend == "mlx")
+                    visible=(current_backend == "mlx"),
                 )
             with gr.Row():
-                apply_settings_btn = gr.Button("Apply Settings", variant="secondary", size="sm")
+                apply_settings_btn = gr.Button(
+                    "Apply Settings", variant="secondary", size="sm"
+                )
                 settings_status = gr.Textbox(
-                    label="", show_label=False, interactive=False,
-                    max_lines=1, container=False, scale=3
+                    label="",
+                    show_label=False,
+                    interactive=False,
+                    max_lines=1,
+                    container=False,
+                    scale=3,
                 )
             apply_settings_btn.click(
                 fn=apply_model_settings,
                 inputs=[model_size_dropdown, mlx_quant_dropdown],
-                outputs=[settings_status, status_html]
+                outputs=[settings_status, status_html],
             )
 
         # Per-session history state (shared across tabs)
@@ -778,18 +1034,29 @@ def build_ui():
         # Tabs for different modes
         with gr.Tabs():
             with gr.Tab("Clone Mode") as clone_tab:
-                clone_prompt, clone_model_indicator, clone_chain, clone_seed = _build_clone_tab(
-                    status_html, history_state)
+                clone_prompt, clone_model_indicator, clone_chain, clone_seed = (
+                    _build_clone_tab(status_html, history_state)
+                )
             with gr.Tab("Design Mode") as design_tab:
                 design_model_indicator, design_chain, design_seed = _build_design_tab(
-                    status_html, history_state, clone_prompt)
+                    status_html, history_state, clone_prompt
+                )
             with gr.Tab("Custom Mode") as custom_tab:
                 custom_model_indicator, custom_chain, custom_seed = _build_custom_tab(
-                    status_html, history_state)
+                    status_html, history_state
+                )
 
-            clone_tab.select(fn=lambda: get_model_status_html("clone"), outputs=clone_model_indicator)
-            design_tab.select(fn=lambda: get_model_status_html("design"), outputs=design_model_indicator)
-            custom_tab.select(fn=lambda: get_model_status_html("custom"), outputs=custom_model_indicator)
+            clone_tab.select(
+                fn=lambda: get_model_status_html("clone"), outputs=clone_model_indicator
+            )
+            design_tab.select(
+                fn=lambda: get_model_status_html("design"),
+                outputs=design_model_indicator,
+            )
+            custom_tab.select(
+                fn=lambda: get_model_status_html("custom"),
+                outputs=custom_model_indicator,
+            )
 
             with gr.Tab("Create Voice"):
                 _build_create_voice_tab(clone_prompt)
@@ -797,14 +1064,19 @@ def build_ui():
                 _build_manage_voices_tab(clone_prompt)
             with gr.Tab("Manage Models"):
                 _build_manage_models_tab(
-                    status_html, clone_model_indicator,
-                    design_model_indicator, custom_model_indicator)
+                    status_html,
+                    clone_model_indicator,
+                    design_model_indicator,
+                    custom_model_indicator,
+                )
 
         # History panel below tabs (renders after tabs in the page layout)
         gr.Markdown("### Recent Generations")
         history_df = gr.Dataframe(
             headers=["Time", "Mode", "Text Preview", "Seed", "Chunks"],
-            value=[], interactive=False, wrap=True,
+            value=[],
+            interactive=False,
+            wrap=True,
         )
         gr.HTML(value=get_player_html("history"))
         history_audio_url = gr.Audio(elem_classes=["gr-hidden"])
@@ -814,21 +1086,35 @@ def build_ui():
             inputs=[history_state],
             outputs=[history_audio_url, clone_seed, design_seed, custom_seed],
         ).then(
-            fn=lambda x: x, js=get_load_into_player_js("history"),
-            inputs=[history_audio_url], outputs=[history_audio_url],
+            fn=lambda x: x,
+            js=get_load_into_player_js("history"),
+            inputs=[history_audio_url],
+            outputs=[history_audio_url],
         )
 
         # Wire history_df updates from each tab's generation chain
         from qwen3_tts.interface.ui.shared import get_history_data
-        clone_chain.then(fn=get_history_data, inputs=[history_state], outputs=[history_df])
-        design_chain.then(fn=get_history_data, inputs=[history_state], outputs=[history_df])
-        custom_chain.then(fn=get_history_data, inputs=[history_state], outputs=[history_df])
+
+        clone_chain.then(
+            fn=get_history_data, inputs=[history_state], outputs=[history_df]
+        )
+        design_chain.then(
+            fn=get_history_data, inputs=[history_state], outputs=[history_df]
+        )
+        custom_chain.then(
+            fn=get_history_data, inputs=[history_state], outputs=[history_df]
+        )
 
         demo.load(
             fn=_load_initial_history,
             js=get_script_reexecutor_fn(),
-            outputs=[clone_model_indicator, design_model_indicator, custom_model_indicator,
-                     history_state, history_df],
+            outputs=[
+                clone_model_indicator,
+                design_model_indicator,
+                custom_model_indicator,
+                history_state,
+                history_df,
+            ],
         )
 
         gr.Markdown("""
@@ -846,6 +1132,7 @@ def build_ui():
     # Preload ASR model in background (non-blocking)
     try:
         from qwen3_tts.core.engine import is_asr_available, preload_asr_model
+
         if is_asr_available():
             preload_asr_model()
             logger.info("ASR preload started in background")
@@ -863,10 +1150,16 @@ def main():
     default_port = config.get("ui", {}).get("port", 7860)
 
     parser = argparse.ArgumentParser(description="Qwen3-TTS Web Interface")
-    parser.add_argument("--port", type=int, default=default_port,
-                        help=f"Port to run on (default: {default_port})")
+    parser.add_argument(
+        "--port",
+        type=int,
+        default=default_port,
+        help=f"Port to run on (default: {default_port})",
+    )
     parser.add_argument("--share", action="store_true", help="Create public URL")
-    parser.add_argument("--no-browser", action="store_true", help="Don't open browser automatically")
+    parser.add_argument(
+        "--no-browser", action="store_true", help="Don't open browser automatically"
+    )
 
     args = parser.parse_args()
 

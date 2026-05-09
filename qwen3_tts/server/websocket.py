@@ -93,10 +93,16 @@ async def websocket_tts_handler(
                 continue
 
             # Enforce max text length (matches HTTP endpoint validation)
-            security = app_state.server_config.get("security", {}) if hasattr(app_state, "server_config") else {}
+            security = (
+                app_state.server_config.get("security", {})
+                if hasattr(app_state, "server_config")
+                else {}
+            )
             max_text_length = security.get("max_text_length", 10000)
             if len(text) > max_text_length:
-                await websocket.send_json({"error": f"Text exceeds {max_text_length} character limit"})
+                await websocket.send_json(
+                    {"error": f"Text exceeds {max_text_length} character limit"}
+                )
                 continue
 
             mode = data.get("mode", "clone")
@@ -123,6 +129,7 @@ async def websocket_tts_handler(
                 # Unexpected errors during generation
                 logger.error("WebSocket generation error: %s", e, exc_info=True)
                 from qwen3_tts.server.app_lifespan import _sanitize_error
+
                 await websocket.send_json({"error": _sanitize_error(str(e))})
 
     except WebSocketDisconnect:
@@ -163,7 +170,12 @@ async def _stream_generation(
     # Validate request (path traversal, speaker, mode) — same checks as HTTP endpoints
     try:
         from fastapi import HTTPException
-        from qwen3_tts.server.validation import GenerateRequest, _validate_generation_request
+
+        from qwen3_tts.server.validation import (
+            GenerateRequest,
+            _validate_generation_request,
+        )
+
         req = GenerateRequest(
             text=text,
             mode=mode,
@@ -172,10 +184,18 @@ async def _stream_generation(
             voice_description=data.get("voice_description", ""),
             instruct=data.get("instruct", ""),
         )
-        security = app_state.server_config.get("security", {}) if hasattr(app_state, "server_config") else {}
+        security = (
+            app_state.server_config.get("security", {})
+            if hasattr(app_state, "server_config")
+            else {}
+        )
         _validate_generation_request(req, security)
     except HTTPException as e:
-        detail = e.detail if isinstance(e.detail, str) else e.detail.get("detail", str(e.detail))
+        detail = (
+            e.detail
+            if isinstance(e.detail, str)
+            else e.detail.get("detail", str(e.detail))
+        )
         await websocket.send_json({"error": detail})
         return
 
@@ -199,6 +219,7 @@ async def _stream_generation(
             voice_prompt = None
             if mode == "clone":
                 from qwen3_tts.core.engine import load_voice_prompt
+
                 prompt_file = data.get("prompt_file")
                 if prompt_file:
                     voice_prompt = load_voice_prompt(prompt_file)
@@ -227,7 +248,9 @@ async def _stream_generation(
             logger.error("WebSocket inference thread error: %s", e, exc_info=True)
         except Exception as e:
             # Unexpected errors in inference thread
-            logger.error("WebSocket inference thread unexpected error: %s", e, exc_info=True)
+            logger.error(
+                "WebSocket inference thread unexpected error: %s", e, exc_info=True
+            )
         finally:
             loop.call_soon_threadsafe(queue.put_nowait, None)
 
@@ -247,7 +270,9 @@ async def _stream_generation(
             stop_event.set()
             return
 
-    await websocket.send_json({
-        "status": "complete",
-        "chunks": chunk_count,
-    })
+    await websocket.send_json(
+        {
+            "status": "complete",
+            "chunks": chunk_count,
+        }
+    )

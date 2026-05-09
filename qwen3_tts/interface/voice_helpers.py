@@ -7,25 +7,28 @@ This module contains helper functions for:
 
 These functions are used by the Gradio UI but don't depend on Gradio directly.
 """
+
 import re
-from typing import Optional, List, Tuple
 
 from qwen3_tts.core.config import get_prosody_presets
-
 
 # =============================================================================
 # Prompt Name Validation (duplicated here to avoid circular imports)
 # =============================================================================
 
-def validate_prompt_name(name: str) -> Optional[Tuple[dict, int]]:
+
+def validate_prompt_name(name: str) -> tuple[dict, int] | None:
     """Validate prompt name — returns error tuple or None."""
     if not name or not name.strip():
         return {"error": "Missing prompt name", "recovery": "config"}, 400
     name = name.strip()
     if len(name) > 255:
         return {"error": "Prompt name too long", "recovery": "config"}, 400
-    if not re.match(r'^[a-zA-Z0-9_\-\.]+$', name):
-        return {"error": "Invalid prompt name: only alphanumeric, dash, underscore, dot allowed", "recovery": "config"}, 400
+    if not re.match(r"^[a-zA-Z0-9_\-\.]+$", name):
+        return {
+            "error": "Invalid prompt name: only alphanumeric, dash, underscore, dot allowed",
+            "recovery": "config",
+        }, 400
     if ".." in name:
         return {"error": "Invalid prompt name", "recovery": "config"}, 400
     return None
@@ -36,7 +39,7 @@ def strip_extension(name: str) -> str:
     base = name
     for ext in (".pt", ".wav", ".txt"):
         if base.endswith(ext):
-            base = base[:-len(ext)]
+            base = base[: -len(ext)]
             break
     return base
 
@@ -45,7 +48,8 @@ def strip_extension(name: str) -> str:
 # Prosody Preset Helpers
 # =============================================================================
 
-def get_prosody_choices() -> List[str]:
+
+def get_prosody_choices() -> list[str]:
     """Return list of prosody preset choices for dropdown, with (none) first.
 
     Returns:
@@ -55,7 +59,7 @@ def get_prosody_choices() -> List[str]:
     return ["(none)"] + [f"{name} - {text}" for name, text in sorted(presets.items())]
 
 
-def apply_prosody_preset(choice: str, existing_text: Optional[str] = None) -> str:
+def apply_prosody_preset(choice: str, existing_text: str | None = None) -> str:
     """Apply a prosody preset to text.
 
     When a prosody preset is selected, append to existing text or fill in.
@@ -87,6 +91,7 @@ def apply_prosody_preset(choice: str, existing_text: Optional[str] = None) -> st
 # =============================================================================
 # Voice Description Builder
 # =============================================================================
+
 
 def compose_voice_description(
     gender: str,

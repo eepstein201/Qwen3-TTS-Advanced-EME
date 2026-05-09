@@ -10,12 +10,9 @@ The main entry point is re-exported from generate.py for backward compatibility.
 """
 
 # Re-export main entry point for backward compatibility
-from qwen3_tts.interface.generate import main
-
 # Export submodules
-from qwen3_tts.interface.cli import batch
-from qwen3_tts.interface.cli import dialogue
-from qwen3_tts.interface.cli import srt
+from qwen3_tts.interface.cli import batch, dialogue, srt
+from qwen3_tts.interface.generate import main
 
 __all__ = [
     # Main entry point

@@ -11,9 +11,7 @@ This module contains:
 
 import logging
 
-
 from qwen3_tts.core.config import (
-    get_server_url,
     is_server_running,
     load_config,
     save_config,
@@ -36,20 +34,25 @@ def get_model_table_data():
     config = load_config()
 
     if not is_server_running(config):
-        return [["clone", "server not running", "-", "—"],
-                ["design", "server not running", "-", "—"],
-                ["custom", "server not running", "-", "—"],
-                ["asr", "server not running", "-", "—"]]
+        return [
+            ["clone", "server not running", "-", "—"],
+            ["design", "server not running", "-", "—"],
+            ["custom", "server not running", "-", "—"],
+            ["asr", "server not running", "-", "—"],
+        ]
 
     try:
         from qwen3_tts.core.http_client import server_request
+
         resp = server_request("GET", "/models", timeout=5)
 
         if resp.status_code != 200:
-            return [["clone", "error", "-", "—"],
-                    ["design", "error", "-", "—"],
-                    ["custom", "error", "-", "—"],
-                    ["asr", "error", "-", "—"]]
+            return [
+                ["clone", "error", "-", "—"],
+                ["design", "error", "-", "—"],
+                ["custom", "error", "-", "—"],
+                ["asr", "error", "-", "—"],
+            ]
 
         data = resp.json()
         models = data.get("models", {})
@@ -60,7 +63,9 @@ def get_model_table_data():
             info = models.get(model_type, {})
             loaded = info.get("loaded", False)
             memory = info.get("memory_mb", 0)
-            load_at_startup = startup_config.get(model_type, {}).get("load_at_startup", False)
+            load_at_startup = startup_config.get(model_type, {}).get(
+                "load_at_startup", False
+            )
 
             status = "Loaded" if loaded else "Not loaded"
             memory_str = f"{memory:.0f}MB" if memory else "—"
@@ -79,10 +84,12 @@ def get_model_table_data():
 
     except Exception as e:
         logger.error("Failed to get model table data: %s", e)
-        return [["clone", f"error: {e}", "-", "—"],
-                ["design", f"error: {e}", "-", "—"],
-                ["custom", f"error: {e}", "-", "—"],
-                ["asr", f"error: {e}", "-", "—"]]
+        return [
+            ["clone", f"error: {e}", "-", "—"],
+            ["design", f"error: {e}", "-", "—"],
+            ["custom", f"error: {e}", "-", "—"],
+            ["asr", f"error: {e}", "-", "—"],
+        ]
 
 
 def toggle_model(model_type, action):
@@ -130,7 +137,8 @@ def toggle_model(model_type, action):
             path = "/unload-model"
 
         resp = server_request(
-            "POST", path,
+            "POST",
+            path,
             json={"model_type": model_type},
             timeout=120,
         )
@@ -138,7 +146,11 @@ def toggle_model(model_type, action):
         if resp.status_code == 200:
             result = resp.json()
             status = result.get("status", "done")
-            return f"Model {model_type}: {status}", get_model_table_data(), format_status_display()
+            return (
+                f"Model {model_type}: {status}",
+                get_model_table_data(),
+                format_status_display(),
+            )
         else:
             error = resp.json().get("error", "Unknown error")
             return f"Failed: {error}", get_model_table_data(), format_status_display()
@@ -238,6 +250,7 @@ def get_model_status_html(model_type):
 
     try:
         from qwen3_tts.core.http_client import server_request
+
         resp = server_request("GET", "/models", timeout=5)
 
         if resp.status_code != 200:

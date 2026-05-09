@@ -5,6 +5,7 @@ through :func:`server_request` instead. The URL is re-validated inline in this
 same function so CodeQL's data-flow analysis can see the trust boundary at the
 ``requests.request`` sink.
 """
+
 from __future__ import annotations
 
 import requests
@@ -18,7 +19,9 @@ from qwen3_tts.core.config import (
 
 __all__ = ["server_request"]
 
-_ALLOWED_METHODS = frozenset({"GET", "POST", "PUT", "DELETE", "PATCH", "HEAD", "OPTIONS"})
+_ALLOWED_METHODS = frozenset(
+    {"GET", "POST", "PUT", "DELETE", "PATCH", "HEAD", "OPTIONS"}
+)
 
 
 def server_request(
@@ -30,7 +33,7 @@ def server_request(
     params: dict[str, str] | None = None,
     headers: dict[str, str] | None = None,
     stream: bool = False,
-) -> "requests.Response":
+) -> requests.Response:
     """Issue an HTTP request to the local TTS server, re-validating inline.
 
     Args:
@@ -50,7 +53,13 @@ def server_request(
     """
     if not isinstance(method, str) or method.upper() not in _ALLOWED_METHODS:
         raise ValueError(f"Invalid HTTP method: {method!r}")
-    if not isinstance(path, str) or not path.startswith("/") or "://" in path or "?" in path or "#" in path:
+    if (
+        not isinstance(path, str)
+        or not path.startswith("/")
+        or "://" in path
+        or "?" in path
+        or "#" in path
+    ):
         raise ValueError(f"Invalid server path: {path!r}")
     base = _validate_server_url(get_server_url(load_config()))
     final_headers = {**auth_headers(), **(headers or {})}

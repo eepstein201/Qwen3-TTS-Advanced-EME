@@ -119,7 +119,9 @@ def validate_config(config: dict) -> tuple[dict, list[str]]:
         corrected_adv = dict(adv)
         backend = adv.get("backend")
         if backend and backend not in VALID_BACKENDS:
-            new_backend = "mlx" if (IS_MACOS and platform.machine() == "arm64") else "torch"
+            new_backend = (
+                "mlx" if (IS_MACOS and platform.machine() == "arm64") else "torch"
+            )
             corrected_adv["backend"] = new_backend
             issues.append(f"corrected backend from {backend!r} to {new_backend!r}")
         size = adv.get("model_size")
@@ -129,9 +131,13 @@ def validate_config(config: dict) -> tuple[dict, list[str]]:
         vllm_gpu = adv.get("vllm_gpu_memory_utilization")
         if vllm_gpu is not None and not (0.0 < vllm_gpu <= 1.0):
             corrected_adv["vllm_gpu_memory_utilization"] = 0.7
-            issues.append(f"corrected vllm_gpu_memory_utilization from {vllm_gpu} to 0.7")
+            issues.append(
+                f"corrected vllm_gpu_memory_utilization from {vllm_gpu} to 0.7"
+            )
         vllm_port = adv.get("vllm_port")
-        if vllm_port is not None and not (isinstance(vllm_port, int) and 1024 <= vllm_port <= 65535):
+        if vllm_port is not None and not (
+            isinstance(vllm_port, int) and 1024 <= vllm_port <= 65535
+        ):
             corrected_adv["vllm_port"] = None
             issues.append(f"corrected vllm_port from {vllm_port} to None")
         if corrected_adv != adv:
@@ -158,7 +164,9 @@ def validate_config(config: dict) -> tuple[dict, list[str]]:
                     corrected_limits[key] = value
                 else:
                     corrected_limits[key] = _get_default_rate_limit(key)
-                    issues.append(f"corrected rate_limits.{key} from {value!r} to {corrected_limits[key]!r}")
+                    issues.append(
+                        f"corrected rate_limits.{key} from {value!r} to {corrected_limits[key]!r}"
+                    )
             corrected_sec["rate_limits"] = corrected_limits
         else:
             # Add default rate_limits if missing
@@ -199,11 +207,14 @@ def load_config() -> dict:
         except OSError:
             current_mtime = 0
 
-        if _config_cache["data"] is not None and current_mtime == _config_cache["mtime"]:
+        if (
+            _config_cache["data"] is not None
+            and current_mtime == _config_cache["mtime"]
+        ):
             return copy.deepcopy(_config_cache["data"])
 
         try:
-            with open(CONFIG_PATH, "r") as f:
+            with open(CONFIG_PATH) as f:
                 data = json.load(f)
         except json.JSONDecodeError as e:
             raise ValueError(
@@ -326,6 +337,7 @@ def get_default_config(current_config: dict | None = None) -> dict:
 # ConfigLoader Protocol — enables dependency injection in tests and server
 # ---------------------------------------------------------------------------
 
+
 @runtime_checkable
 class ConfigLoader(Protocol):
     """Protocol for config loaders — allows DI in tests and server."""
@@ -358,8 +370,9 @@ def get_default_clone_prompt(config: dict | None = None) -> str | None:
         # Check it exists (as .pt or as MLX .wav/.txt pair)
         base = configured[:-3] if configured.endswith(".pt") else configured
         pt_exists = os.path.exists(safe_path_join(VOICE_PROMPTS_DIR, f"{base}.pt"))
-        mlx_exists = (os.path.exists(safe_path_join(VOICE_PROMPTS_DIR, f"{base}.wav"))
-                      and os.path.exists(safe_path_join(VOICE_PROMPTS_DIR, f"{base}.txt")))
+        mlx_exists = os.path.exists(
+            safe_path_join(VOICE_PROMPTS_DIR, f"{base}.wav")
+        ) and os.path.exists(safe_path_join(VOICE_PROMPTS_DIR, f"{base}.txt"))
         if pt_exists or mlx_exists:
             return configured
 
@@ -368,12 +381,12 @@ def get_default_clone_prompt(config: dict | None = None) -> str | None:
     try:
         all_files = os.listdir(VOICE_PROMPTS_DIR)
         if backend == "mlx":
-            txt_bases = {f[:-4] for f in all_files if f.endswith('.txt')}
-            for wav in sorted(f for f in all_files if f.endswith('.wav')):
+            txt_bases = {f[:-4] for f in all_files if f.endswith(".txt")}
+            for wav in sorted(f for f in all_files if f.endswith(".wav")):
                 if wav[:-4] in txt_bases:
                     return wav
         else:
-            prompts = sorted(f for f in all_files if f.endswith('.pt'))
+            prompts = sorted(f for f in all_files if f.endswith(".pt"))
             if prompts:
                 return prompts[0]
     except OSError:
@@ -396,8 +409,9 @@ def get_device() -> str:
     Returns: 'cuda', 'mps', or 'cpu'
     """
     if IN_COLAB or IS_LINUX:
-        if (os.environ.get("CUDA_VISIBLE_DEVICES") is not None
-                or os.path.exists("/dev/nvidia0")):
+        if os.environ.get("CUDA_VISIBLE_DEVICES") is not None or os.path.exists(
+            "/dev/nvidia0"
+        ):
             return "cuda"
         return "cpu"
     if IS_MACOS and platform.machine() == "arm64":
@@ -409,6 +423,7 @@ def get_cuda_capability() -> tuple[int, int] | None:
     """Return CUDA compute capability as (major, minor) or None if no CUDA."""
     try:
         import torch
+
         if torch.cuda.is_available():
             return torch.cuda.get_device_capability()
     except ImportError:
@@ -420,6 +435,7 @@ def _has_flash_attn() -> bool:
     """Check if flash_attn package is importable."""
     try:
         import flash_attn  # noqa: F401
+
         return True
     except ImportError:
         return False
@@ -486,7 +502,7 @@ def sanitize_log(value: Any) -> str:
     converted to str first (immutable — returns a new string).
     """
     s = str(value) if not isinstance(value, str) else value
-    return s.replace('\n', '\\n').replace('\r', '\\r').replace('\x00', '')
+    return s.replace("\n", "\\n").replace("\r", "\\r").replace("\x00", "")
 
 
 def safe_path_join(base_dir: str, *parts: str) -> str:
@@ -585,7 +601,9 @@ def find_pid_by_port(port: int) -> int | None:
     try:
         result = subprocess.run(
             ["lsof", "-ti", f":{port}"],
-            capture_output=True, text=True, timeout=5,
+            capture_output=True,
+            text=True,
+            timeout=5,
         )
         if result.returncode == 0 and result.stdout.strip():
             first_line = result.stdout.strip().splitlines()[0]
@@ -796,7 +814,10 @@ def get_vllm_port() -> int | None:
 # Cache configuration
 # ---------------------------------------------------------------------------
 
-def _get_config_value(key_path: list, default: Any, validator: Any | None = None) -> Any:
+
+def _get_config_value(
+    key_path: list, default: Any, validator: Any | None = None
+) -> Any:
     """Get a nested config value with fallback.
 
     Args:
@@ -829,9 +850,7 @@ def get_voice_prompt_cache_max() -> int:
         Defaults to 10 if not set or invalid.
     """
     return _get_config_value(
-        ["cache", "voice_prompt_max"],
-        10,
-        lambda x: isinstance(x, int) and x > 0
+        ["cache", "voice_prompt_max"], 10, lambda x: isinstance(x, int) and x > 0
     )
 
 
@@ -843,9 +862,7 @@ def get_generation_cache_max() -> int:
         Defaults to 5 if not set or invalid.
     """
     return _get_config_value(
-        ["cache", "generation_max"],
-        5,
-        lambda x: isinstance(x, int) and x > 0
+        ["cache", "generation_max"], 5, lambda x: isinstance(x, int) and x > 0
     )
 
 
@@ -857,9 +874,7 @@ def get_eta_cache_ttl() -> int:
         Defaults to 30 if not set or invalid.
     """
     return _get_config_value(
-        ["cache", "eta_ttl_seconds"],
-        30,
-        lambda x: isinstance(x, int) and x >= 0
+        ["cache", "eta_ttl_seconds"], 30, lambda x: isinstance(x, int) and x >= 0
     )
 
 
@@ -868,15 +883,23 @@ def get_eta_cache_ttl() -> int:
 # ---------------------------------------------------------------------------
 
 CUSTOM_VOICE_SPEAKERS = {
-    "ryan":     {"name": "Ryan",      "lang": "English",  "desc": "Dynamic male, strong rhythm"},
-    "aiden":    {"name": "Aiden",     "lang": "English",  "desc": "Sunny American male, clear midrange"},
-    "vivian":   {"name": "Vivian",    "lang": "Chinese",  "desc": "Bright young female"},
-    "serena":   {"name": "Serena",    "lang": "Chinese",  "desc": "Warm, gentle female"},
-    "uncle_fu": {"name": "Uncle_Fu",  "lang": "Chinese",  "desc": "Seasoned male, mellow timbre"},
-    "dylan":    {"name": "Dylan",     "lang": "Chinese",  "desc": "Youthful Beijing male"},
-    "eric":     {"name": "Eric",      "lang": "Chinese",  "desc": "Lively Chengdu male"},
-    "ono_anna": {"name": "Ono_Anna",  "lang": "Japanese", "desc": "Playful female"},
-    "sohee":    {"name": "Sohee",     "lang": "Korean",   "desc": "Warm female, rich emotion"},
+    "ryan": {"name": "Ryan", "lang": "English", "desc": "Dynamic male, strong rhythm"},
+    "aiden": {
+        "name": "Aiden",
+        "lang": "English",
+        "desc": "Sunny American male, clear midrange",
+    },
+    "vivian": {"name": "Vivian", "lang": "Chinese", "desc": "Bright young female"},
+    "serena": {"name": "Serena", "lang": "Chinese", "desc": "Warm, gentle female"},
+    "uncle_fu": {
+        "name": "Uncle_Fu",
+        "lang": "Chinese",
+        "desc": "Seasoned male, mellow timbre",
+    },
+    "dylan": {"name": "Dylan", "lang": "Chinese", "desc": "Youthful Beijing male"},
+    "eric": {"name": "Eric", "lang": "Chinese", "desc": "Lively Chengdu male"},
+    "ono_anna": {"name": "Ono_Anna", "lang": "Japanese", "desc": "Playful female"},
+    "sohee": {"name": "Sohee", "lang": "Korean", "desc": "Warm female, rich emotion"},
 }
 
 MODEL_INFO = {
@@ -1010,10 +1033,33 @@ def get_model_info(model_type):
 VOICE_DESCRIPTION_ATTRIBUTES = {
     "gender": ["Male", "Female", "Androgynous"],
     "age": ["Young (18-25)", "Adult (25-45)", "Middle-aged (45-60)", "Elderly (60+)"],
-    "tone": ["Warm", "Authoritative", "Gentle", "Energetic", "Calm", "Serious", "Playful"],
-    "texture": ["Smooth", "Gravelly", "Crisp", "Breathy", "Rich", "Clear", "Husky", "Raspy"],
+    "tone": [
+        "Warm",
+        "Authoritative",
+        "Gentle",
+        "Energetic",
+        "Calm",
+        "Serious",
+        "Playful",
+    ],
+    "texture": [
+        "Smooth",
+        "Gravelly",
+        "Crisp",
+        "Breathy",
+        "Rich",
+        "Clear",
+        "Husky",
+        "Raspy",
+    ],
     "pace": ["Slow and deliberate", "Moderate", "Fast-paced", "Measured", "Unhurried"],
-    "accent": ["Neutral American", "British RP", "Australian", "Southern American", "None/Default"],
+    "accent": [
+        "Neutral American",
+        "British RP",
+        "Australian",
+        "Southern American",
+        "None/Default",
+    ],
 }
 
 
@@ -1022,14 +1068,54 @@ VOICE_DESCRIPTION_ATTRIBUTES = {
 # ---------------------------------------------------------------------------
 
 DEFAULT_GENERATION_PRESETS = {
-    "stable": {"temperature": 0.5, "top_k": 30, "top_p": 0.90, "repetition_penalty": 1.10},
-    "natural": {"temperature": 0.7, "top_k": 50, "top_p": 0.95, "repetition_penalty": 1.05},
-    "expressive": {"temperature": 0.9, "top_k": 70, "top_p": 0.98, "repetition_penalty": 1.03},
-    "audiobook": {"temperature": 0.6, "top_k": 40, "top_p": 0.92, "repetition_penalty": 1.08},
-    "conversational": {"temperature": 0.8, "top_k": 60, "top_p": 0.97, "repetition_penalty": 1.04},
-    "broadcast": {"temperature": 0.55, "top_k": 35, "top_p": 0.91, "repetition_penalty": 1.09},
-    "dramatic": {"temperature": 1.0, "top_k": 80, "top_p": 0.99, "repetition_penalty": 1.02},
-    "whisper": {"temperature": 0.65, "top_k": 45, "top_p": 0.93, "repetition_penalty": 1.06},
+    "stable": {
+        "temperature": 0.5,
+        "top_k": 30,
+        "top_p": 0.90,
+        "repetition_penalty": 1.10,
+    },
+    "natural": {
+        "temperature": 0.7,
+        "top_k": 50,
+        "top_p": 0.95,
+        "repetition_penalty": 1.05,
+    },
+    "expressive": {
+        "temperature": 0.9,
+        "top_k": 70,
+        "top_p": 0.98,
+        "repetition_penalty": 1.03,
+    },
+    "audiobook": {
+        "temperature": 0.6,
+        "top_k": 40,
+        "top_p": 0.92,
+        "repetition_penalty": 1.08,
+    },
+    "conversational": {
+        "temperature": 0.8,
+        "top_k": 60,
+        "top_p": 0.97,
+        "repetition_penalty": 1.04,
+    },
+    "broadcast": {
+        "temperature": 0.55,
+        "top_k": 35,
+        "top_p": 0.91,
+        "repetition_penalty": 1.09,
+    },
+    "dramatic": {
+        "temperature": 1.0,
+        "top_k": 80,
+        "top_p": 0.99,
+        "repetition_penalty": 1.02,
+    },
+    "whisper": {
+        "temperature": 0.65,
+        "top_k": 45,
+        "top_p": 0.93,
+        "repetition_penalty": 1.06,
+    },
 }
 
 
@@ -1084,6 +1170,7 @@ def get_prosody_presets(config=None):
 # Error hierarchy
 # ---------------------------------------------------------------------------
 
+
 def read_auth_token():
     """Read the server auth token from TOKEN_FILE.
 
@@ -1093,17 +1180,19 @@ def read_auth_token():
         The token string, or None if file doesn't exist.
     """
     if os.path.exists(TOKEN_FILE):
-        with open(TOKEN_FILE, "r") as f:
+        with open(TOKEN_FILE) as f:
             return f.read().strip()
     # Backward compat: check legacy location
     if os.path.exists(_LEGACY_TOKEN_FILE):
         import logging
+
         logging.getLogger("tts").warning(
             "Reading auth token from legacy path %s — "
             "restart the server to migrate to %s",
-            _LEGACY_TOKEN_FILE, TOKEN_FILE,
+            _LEGACY_TOKEN_FILE,
+            TOKEN_FILE,
         )
-        with open(_LEGACY_TOKEN_FILE, "r") as f:
+        with open(_LEGACY_TOKEN_FILE) as f:
             return f.read().strip()
     return None
 
@@ -1155,7 +1244,9 @@ class TTSError(Exception):
             "bug": "#8e44ad",
             "retry": "#2980b9",
         }.get(self.recovery, "#333")
-        html = f'<span style="color:{color};font-weight:bold;">{self.user_message}</span>'
+        html = (
+            f'<span style="color:{color};font-weight:bold;">{self.user_message}</span>'
+        )
         if self.technical_detail:
             html += f'<br><small style="color:#666;">{self.technical_detail}</small>'
         suggestions = {
@@ -1166,7 +1257,7 @@ class TTSError(Exception):
         }
         hint = suggestions.get(self.recovery, "")
         if hint:
-            html += f'<br><em>{hint}</em>'
+            html += f"<br><em>{hint}</em>"
         return html
 
 
@@ -1223,7 +1314,8 @@ class AuthenticationError(TTSError):
     def __init__(self, detail=None):
         super().__init__(
             "Authentication failed.",
-            technical_detail=detail or "Cannot authenticate. Run 'tts server start' to generate auth token.",
+            technical_detail=detail
+            or "Cannot authenticate. Run 'tts server start' to generate auth token.",
             recovery="restart",
         )
 

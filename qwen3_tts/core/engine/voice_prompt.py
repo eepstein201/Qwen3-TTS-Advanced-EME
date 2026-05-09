@@ -47,25 +47,30 @@ def _store_in_torch_cache(prompt_file: str, result) -> None:
         _torch_prompt_cache_misses += 1
 
 
-def _auto_create_pt_from_wav(base_name: str, wav_path: str, txt_path: str,
-                              prompt_path: str, prompt_file: str):
+def _auto_create_pt_from_wav(
+    base_name: str, wav_path: str, txt_path: str, prompt_path: str, prompt_file: str
+):
     """Create a .pt voice prompt from .wav + .txt files and cache the result.
 
     Returns the voice_prompt tensor, or None if wav_path does not exist.
     """
     import torch
+
     if not os.path.exists(wav_path):
         return None
     logger.info("Auto-creating .pt from .wav for %s", sanitize_log(base_name))
     ref_audio, ref_sr = load_audio_for_cloning(wav_path)
     transcript = ""
     if os.path.exists(txt_path):
-        with open(txt_path, "r") as f:
+        with open(txt_path) as f:
             transcript = f.read().strip()
     if not transcript:
-        logger.warning("No transcript for %s, using empty string", sanitize_log(base_name))
-    from qwen3_tts.core.engine.model_loader import load_model
+        logger.warning(
+            "No transcript for %s, using empty string", sanitize_log(base_name)
+        )
     from qwen3_tts.core.engine.inference import create_voice_prompt
+    from qwen3_tts.core.engine.model_loader import load_model
+
     model = load_model("clone")
     voice_prompt = create_voice_prompt(model, ref_audio, ref_sr, transcript)
     torch.save(voice_prompt, prompt_path)
@@ -77,13 +82,17 @@ def _auto_create_pt_from_wav(base_name: str, wav_path: str, txt_path: str,
 def _load_pt_safe(prompt_path: str, prompt_file: str, device: str):
     """Load a .pt file with weights_only=True (safe deserialization only)."""
     import torch
+
     try:
         from qwen_tts.inference.qwen3_tts_model import VoiceClonePromptItem
+
         torch.serialization.add_safe_globals([VoiceClonePromptItem])
     except ImportError:
         pass
     try:
-        result = torch.load(prompt_path, weights_only=True, map_location=device)  # CodeQL: weights_only=True is safe [py/unsafe-deserialization]
+        result = torch.load(
+            prompt_path, weights_only=True, map_location=device
+        )  # CodeQL: weights_only=True is safe [py/unsafe-deserialization]
         _store_in_torch_cache(prompt_file, result)
         return result
     except (RuntimeError, ValueError, TypeError):
@@ -92,10 +101,11 @@ def _load_pt_safe(prompt_path: str, prompt_file: str, device: str):
         real_prompt = os.path.realpath(prompt_path)
         real_prompts_dir = os.path.realpath(VOICE_PROMPTS_DIR)
         if not real_prompt.startswith(real_prompts_dir + os.sep):
-            raise ValueError(f"Refusing to load {prompt_file}: outside voice_prompts/ directory")
+            raise ValueError(
+                f"Refusing to load {prompt_file}: outside voice_prompts/ directory"
+            )
         raise RuntimeError(
-            f"Cannot load {prompt_file} safely. "
-            f"Re-create with 'tts voice create'."
+            f"Cannot load {prompt_file} safely. Re-create with 'tts voice create'."
         )
 
 
@@ -119,12 +129,15 @@ def _load_voice_prompt_torch(prompt_file):
 
     prompt_path = safe_path_join(VOICE_PROMPTS_DIR, prompt_file)
     if not os.path.exists(prompt_path):
-        base_name = prompt_file[:-3] if prompt_file.endswith('.pt') else prompt_file
+        base_name = prompt_file[:-3] if prompt_file.endswith(".pt") else prompt_file
         wav_path = safe_path_join(VOICE_PROMPTS_DIR, f"{base_name}.wav")
         txt_path = safe_path_join(VOICE_PROMPTS_DIR, f"{base_name}.txt")
-        return _auto_create_pt_from_wav(base_name, wav_path, txt_path, prompt_path, prompt_file)
+        return _auto_create_pt_from_wav(
+            base_name, wav_path, txt_path, prompt_path, prompt_file
+        )
 
     from qwen3_tts.core.config import get_device
+
     return _load_pt_safe(prompt_path, prompt_file, get_device())
 
 
@@ -155,6 +168,7 @@ def voice_prompt_cache_info():
     For mlx: returns a simple namespace with hits/currsize.
     """
     from types import SimpleNamespace
+
     backend = get_backend()
     if backend == "mlx":
         with _mlx_prompt_cache_lock:
@@ -195,19 +209,22 @@ def migrate_orphan_mlx_prompts(clone_model=None):
                 if model is None:
                     # Lazy import to avoid circular dependency
                     from qwen3_tts.core.engine.model_loader import load_model
+
                     model = clone_model or load_model("clone")
                 ref_audio, ref_sr = load_audio_for_cloning(wav_path)
                 transcript = ""
                 txt_path = safe_path_join(VOICE_PROMPTS_DIR, f"{base}.txt")
                 if os.path.exists(txt_path):
-                    with open(txt_path, "r") as f:
+                    with open(txt_path) as f:
                         transcript = f.read().strip()
                 if not transcript:
                     logger.warning("No transcript for %s, using empty string", base)
                 # Lazy import to avoid circular dependency
                 from qwen3_tts.core.engine.inference import create_voice_prompt
+
                 voice_prompt = create_voice_prompt(model, ref_audio, ref_sr, transcript)
                 import torch  # lazy: only needed when saving .pt
+
                 torch.save(voice_prompt, pt_path)
                 logger.info("Auto-created and saved %s", pt_path)
                 migrated += 1
@@ -267,7 +284,7 @@ def load_voice_prompt_mlx(prompt_name):
             f"Voice prompt not found: looked for {wav_path} and {txt_path}"
         )
 
-    with open(txt_path, "r") as f:
+    with open(txt_path) as f:
         ref_text = f.read().strip()
 
     result = {"ref_audio": wav_path, "ref_text": ref_text}
