@@ -322,6 +322,54 @@ def get_presets():
     return ["(none)"] + list(get_generation_presets(config).keys())
 
 
+def get_voice_metadata(name: str) -> dict:
+    """Get metadata for a voice prompt.
+
+    Args:
+        name: Voice prompt name
+
+    Returns:
+        Dict with keys: name, formats, size_bytes, created, is_default, size_mb, duration
+    """
+    from qwen3_tts.server.client import TTSClient
+
+    try:
+        client = TTSClient()
+        if not client.is_server_running():
+            return {"name": name, "error": "Server not running"}
+
+        details = client.get_prompt_details(name=name)
+
+        # Add computed fields
+        size_mb = details.get("size_bytes", 0) / (1024 * 1024)
+        result = {
+            **details,
+            "size_mb": round(size_mb, 2),
+        }
+
+        # Try to get duration from .wav file
+        if ".wav" in details.get("formats", []):
+            try:
+                from qwen3_tts.core.config import VOICE_PROMPTS_DIR
+                import soundfile as sf
+
+                wav_path = os.path.join(VOICE_PROMPTS_DIR, f"{name}.wav")
+                if os.path.exists(wav_path):
+                    info = sf.info(wav_path)
+                    duration = info.duration
+                    result["duration"] = f"{duration:.1f}s"
+            except Exception:
+                result["duration"] = "N/A"
+        else:
+            result["duration"] = "N/A"
+
+        return result
+
+    except Exception as e:
+        logger.error("Failed to get voice metadata for '%s': %s", name, e)
+        return {"name": name, "error": str(e)}
+
+
 def add_to_history(history_list, mode, text, output_path, duration_chunks, seed=None):
     """Add a generation to history.
 

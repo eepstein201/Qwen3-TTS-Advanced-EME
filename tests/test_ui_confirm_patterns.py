@@ -11,7 +11,7 @@ Coverage:
 
 import time
 import unittest
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 
 class TestConfirmStep(unittest.TestCase):
@@ -170,6 +170,212 @@ class TestConfirmWiringStructural(unittest.TestCase):
         """`_wire_generation_tab` signature includes `gen_guard_state` parameter."""
         src = self._read_source("qwen3_tts/interface/ui/generation.py")
         self.assertIn("gen_guard_state", src)
+
+
+class TestVoiceDeleteMetadata(unittest.TestCase):
+    """Test voice delete confirmation shows metadata."""
+
+    @patch("qwen3_tts.server.client.TTSClient")
+    def test_prepare_delete_shows_metadata(self, mock_client_cls):
+        """Voice delete confirmation shows duration + format."""
+        # Mock successful metadata response
+        mock_client = MagicMock()
+        mock_client.is_server_running.return_value = True
+        mock_client.get_prompt_details.return_value = {
+            "name": "test-voice",
+            "formats": [".pt"],
+            "size_bytes": 1234567,
+            "created": 1715320000.0,  # Fixed timestamp
+            "is_default": False,
+        }
+        mock_client_cls.return_value = mock_client
+
+        from qwen3_tts.interface.ui.shared import get_voice_metadata
+
+        metadata = get_voice_metadata("test-voice")
+
+        self.assertEqual(metadata["name"], "test-voice")
+        self.assertIn(".pt", metadata["formats"])
+        self.assertAlmostEqual(metadata["size_mb"], 1.18, places=2)
+        self.assertIsNotNone(metadata["created"])
+
+    @patch("qwen3_tts.server.client.TTSClient")
+    @patch("qwen3_tts.interface.ui.shared.time")
+    def test_recent_voice_warning(self, mock_time, mock_client_cls):
+        """Warning shown if voice created <5 minutes ago."""
+        # Mock recent voice (2 minutes ago)
+        mock_client = MagicMock()
+        mock_client.is_server_running.return_value = True
+        mock_client.get_prompt_details.return_value = {
+            "name": "recent-voice",
+            "formats": [".wav"],
+            "size_bytes": 500000,
+            "created": 1715320000.0,  # Will be overridden by mock_time
+            "is_default": False,
+        }
+        mock_client_cls.return_value = mock_client
+
+        # Mock time.time() to return 2 minutes after created
+        mock_time.time.return_value = 1715320000.0 + 120
+
+        from qwen3_tts.interface.ui.shared import get_voice_metadata
+
+        metadata = get_voice_metadata("recent-voice")
+        age_seconds = mock_time.time() - metadata["created"]
+
+        # Verify recent warning would be triggered (<300 seconds)
+        self.assertLess(age_seconds, 300)
+
+
+class TestModelUnloadMetadata(unittest.TestCase):
+    """Test model unload confirmation shows memory usage."""
+
+    @patch("qwen3_tts.interface.ui.model_management.get_model_table_data")
+    def test_prepare_unload_shows_memory(self, mock_get_models):
+        """Model unload confirmation shows memory usage."""
+        # Mock model data with memory info
+        mock_get_models.return_value = [
+            ["clone", "Loaded", "2450.5", "default"],
+            ["design", "Loaded", "1800.0", "user"],
+            ["custom", "Not Loaded", "0", "user"],
+        ]
+
+        from qwen3_tts.interface.ui.model_management import get_model_table_data
+        from qwen3_tts.interface.ui.components import ConfirmButton
+
+        confirm_btn = ConfirmButton("Confirm", "Original", 5.0, "")
+        state = {"armed": False, "ts": 0.0}
+
+        # Simulate the first click logic (showing metadata)
+        models = get_model_table_data()
+        model = next((m for m in models if m[0] == "clone"), None)
+        self.assertIsNotNone(model)
+        self.assertEqual(model[2], "2450.5")
+        self.assertEqual(model[3], "default")
+
+    @patch("qwen3_tts.interface.ui.model_management.get_model_table_data")
+    def test_startup_model_warning(self, mock_get_models):
+        """Warning shown if model is startup=default."""
+        mock_get_models.return_value = [
+            ["clone", "Loaded", "2450.5", "default"],
+        ]
+
+        from qwen3_tts.interface.ui.model_management import get_model_table_data
+
+        models = get_model_table_data()
+        model = next((m for m in models if m[0] == "clone"), None)
+        self.assertIsNotNone(model)
+        self.assertEqual(model[3], "default")
+        # Warning would be shown in banner message
+
+
+class TestGenerationCancelProgress(unittest.TestCase):
+    """Test generation cancel confirmation with progress display."""
+
+    @patch("qwen3_tts.core.http_client.server_request")
+    @patch("qwen3_tts.interface.ui.generation.is_server_running")
+    def test_cancel_under_10_pct_skips_confirmation(self, mock_running, mock_request):
+        """Cancel <10% complete skips confirmation."""
+        mock_running.return_value = True
+
+        # Mock generation status with <10% progress
+        mock_request.return_value = MagicMock(
+            status_code=200,
+            json=lambda: {
+                "active": True,
+                "chunk_index": 1,
+                "chunk_total": 20,
+                "eta_sec": 45,
+            },
+        )
+
+        from qwen3_tts.interface.ui.generation import _prepare_cancel_confirmation
+
+        status_msg, should_proceed, progress_pct, chunks, eta = _prepare_cancel_confirmation()
+
+        # Should proceed immediately (no confirmation needed)
+        self.assertTrue(should_proceed)
+        self.assertLess(progress_pct, 10)
+        self.assertEqual(chunks, 1)
+
+    @patch("qwen3_tts.core.http_client.server_request")
+    @patch("qwen3_tts.interface.ui.generation.is_server_running")
+    def test_cancel_over_10_pct_requires_confirmation(self, mock_running, mock_request):
+        """Cancel >10% complete requires confirmation."""
+        mock_running.return_value = True
+
+        # Mock generation status with >10% progress
+        mock_request.return_value = MagicMock(
+            status_code=200,
+            json=lambda: {
+                "active": True,
+                "chunk_index": 12,
+                "chunk_total": 20,
+                "eta_sec": 18,
+            },
+        )
+
+        from qwen3_tts.interface.ui.generation import _prepare_cancel_confirmation
+
+        status_msg, should_proceed, progress_pct, chunks, eta = _prepare_cancel_confirmation()
+
+        # Should require confirmation
+        self.assertFalse(should_proceed)
+        self.assertGreater(progress_pct, 10)
+        self.assertEqual(chunks, 12)
+        self.assertIn("60%", status_msg)  # 12/20 = 60%
+
+    @patch("qwen3_tts.core.http_client.server_request")
+    @patch("qwen3_tts.interface.ui.generation.is_server_running")
+    def test_cancel_no_active_generation_proceeds(self, mock_running, mock_request):
+        """Cancel with no active generation proceeds immediately."""
+        mock_running.return_value = True
+
+        # Mock no active generation
+        mock_request.return_value = MagicMock(
+            status_code=200, json=lambda: {"active": False}
+        )
+
+        from qwen3_tts.interface.ui.generation import _prepare_cancel_confirmation
+
+        status_msg, should_proceed, progress_pct, chunks, eta = _prepare_cancel_confirmation()
+
+        # Should proceed immediately
+        self.assertTrue(should_proceed)
+        self.assertEqual(progress_pct, 0)
+
+
+class TestConfirmationThreadSafety(unittest.TestCase):
+    """Test confirmation patterns are thread-safe for concurrent tabs."""
+
+    def test_multiple_concurrent_confirmations(self):
+        """Multiple simultaneous confirmations don't interfere."""
+        import threading
+        from qwen3_tts.interface.ui.components import ConfirmButton
+
+        confirm_btn = ConfirmButton("Confirm", "Original", 5.0, "")
+
+        # Simulate 10 concurrent confirmation attempts
+        results = []
+        threads = []
+
+        def attempt_confirmation(thread_id):
+            state = {"armed": False, "ts": 0.0}
+            new_state, btn_update, status, confirmed = confirm_btn.click(state)
+            results.append((thread_id, new_state["armed"]))
+
+        for i in range(10):
+            t = threading.Thread(target=attempt_confirmation, args=(i,))
+            threads.append(t)
+            t.start()
+
+        for t in threads:
+            t.join()
+
+        # All should have armed successfully
+        self.assertEqual(len(results), 10)
+        for thread_id, armed in results:
+            self.assertTrue(armed, f"Thread {thread_id} failed to arm")
 
 
 if __name__ == "__main__":

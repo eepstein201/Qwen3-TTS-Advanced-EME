@@ -99,6 +99,68 @@ def cancel_streaming_generation():
         return f"Error: {e}", format_status_display()
 
 
+def _prepare_cancel_confirmation():
+    """Fetch generation progress for cancel confirmation.
+
+    Returns:
+        Tuple of (status_message, should_confirm, progress_pct, chunks, eta)
+    """
+    config = load_config()
+    if not is_server_running(config):
+        return "Server not running", False, 0, 0, "N/A"
+
+    try:
+        from qwen3_tts.core.http_client import server_request
+
+        resp = server_request("GET", "/generation-status", timeout=2)
+        if resp.status_code != 200:
+            # Generation not active - can proceed without confirmation
+            return "Ready to cancel", True, 0, 0, "N/A"
+
+        status = resp.json()
+        if not status.get("active", False):
+            return "No active generation", True, 0, 0, "N/A"
+
+        # Calculate progress percentage
+        chunk_index = status.get("chunk_index", 0)
+        chunk_total = status.get("chunk_total", 1)
+        progress_pct = int((chunk_index / chunk_total * 100)) if chunk_total > 0 else 0
+
+        chunks = chunk_index
+        eta = status.get("eta_sec", "N/A")
+
+        # Fast path: <10% progress, no confirmation needed
+        if progress_pct < 10:
+            return "Canceling...", True, progress_pct, chunks, eta
+
+        # Full confirmation required
+        return (
+            f"Cancel generation?\nProgress: {progress_pct}%\nChunks: {chunks}\nETA: {eta}s",
+            False,  # requires confirmation
+            progress_pct,
+            chunks,
+            eta,
+        )
+
+    except Exception as e:
+        logger.error("Failed to fetch generation status: %s", e)
+        return f"Error: {e}", True, 0, 0, "N/A"
+
+
+def _cancel_if_confirmed(confirmed: bool):
+    """Execute cancel if confirmed.
+
+    Args:
+        confirmed: Whether user confirmed the cancel
+
+    Returns:
+        Tuple of (status_message, status_html)
+    """
+    if not confirmed:
+        return "Cancel aborted", format_status_display()
+    return cancel_streaming_generation()
+
+
 def _prepare_streaming_config(
     mode,
     text,
@@ -513,10 +575,44 @@ def _wire_generation_tab(
             outputs=[gen_guard_state],
         )
 
-    # Cancel button — Python cancels server-side, then JS stops local player
+    # Cancel button — with confirmation for >10% progress
+    from qwen3_tts.interface.ui.components import ConfirmButton
+
+    cancel_confirm_btn = ConfirmButton(
+        arm_label="Confirm Cancel? (click again)",
+        original_label="Stop",
+        timeout_s=5.0,
+        status_message="Click again within 5s to confirm cancel.",
+    )
+
+    cancel_confirm_state = gr.State({"armed": False, "ts": 0.0})
+
+    def on_cancel_click(state):
+        # First click: show progress and request confirmation if needed
+        if not state.get("armed", False):
+            banner_msg, should_proceed, progress_pct, chunks, eta = _prepare_cancel_confirmation()
+            if should_proceed:
+                # Fast path: <10% or no active generation, proceed immediately
+                status_msg, status_html_msg = cancel_streaming_generation()
+                return state, gr.update(), status_msg, status_html_msg
+
+            new_state = cancel_confirm_btn.click(state)
+            return new_state, gr.update(value="Confirm Cancel? (click again)"), banner_msg
+
+        # Second click: user confirmed
+        new_state, btn_update, status_update, confirmed = cancel_confirm_btn.click(
+            state
+        )
+        if not confirmed:
+            return new_state, gr.update(value="Stop"), "Cancel aborted"
+
+        status_msg, status_html_msg = cancel_streaming_generation()
+        return new_state, gr.update(value="Stop"), status_msg, status_html_msg
+
     cancel_btn.click(
-        fn=cancel_streaming_generation,
-        outputs=[status, status_html],
+        fn=on_cancel_click,
+        inputs=[cancel_confirm_state],
+        outputs=[cancel_confirm_state, cancel_btn, status, status_html],
     ).then(
         # NOTE: fn=passthrough required for Gradio 6 .then() chain continuity
         fn=lambda x: x,

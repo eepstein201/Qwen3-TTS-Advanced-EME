@@ -783,6 +783,39 @@ def _build_manage_voices_tab(clone_prompt):
     )
 
     def on_delete_click(state, selected):
+        from qwen3_tts.interface.ui.shared import get_voice_metadata
+        import time
+
+        # First click: show metadata
+        if not state.get("armed", False):
+            metadata = get_voice_metadata(selected)
+            if "error" in metadata:
+                return state, gr.update(), f"Error: {metadata['error']}", gr.update(), gr.update()
+
+            duration = metadata.get("duration", "N/A")
+            formats = ", ".join(metadata.get("formats", []))
+            size_mb = metadata.get("size_mb", "N/A")
+            created = metadata.get("created")
+
+            # Check if recently created (<5 minutes)
+            recent_warning = ""
+            if created:
+                age_seconds = time.time() - created
+                if age_seconds < 300:
+                    recent_warning = "\n⚠️ Recently created!"
+
+            banner_msg = (
+                f"Delete '{selected}'?\n"
+                f"Duration: {duration}\n"
+                f"Format: {formats}\n"
+                f"Size: {size_mb} MB"
+                f"{recent_warning}"
+            )
+
+            new_state = delete_confirm_btn.click(state)
+            return new_state, gr.update(value="Confirm Delete? (click again)"), banner_msg, gr.update(), gr.update()
+
+        # Second click: proceed with deletion
         new_state, btn_update, status_update, confirmed = delete_confirm_btn.click(
             state
         )
@@ -899,6 +932,36 @@ def _build_manage_models_tab(
     )
 
     def on_unload_click(state, mt):
+        from qwen3_tts.interface.ui.shared import get_model_table_data
+
+        # First click: show metadata
+        if not state.get("armed", False):
+            models = get_model_table_data()
+            model = next((m for m in models if m[0] == mt), None)
+            if not model:
+                return state, gr.update(), f"Model '{mt}' not found", gr.update(), gr.update()
+
+            model_type = model[0]
+            memory_mb = model[2] if len(model) > 2 else "N/A"
+            startup = model[3] if len(model) > 3 else "unknown"
+
+            # Warning if model is startup=default
+            startup_warning = ""
+            if startup == "default":
+                startup_warning = "\n⚠️ Loaded at startup - will reload on server restart!"
+
+            banner_msg = (
+                f"Unload {model_type.upper()} model?\n"
+                f"Current memory: {memory_mb}\n"
+                f"Startup config: {startup}\n"
+                f"Reload time: ~3-5 seconds"
+                f"{startup_warning}"
+            )
+
+            new_state = unload_confirm_btn.click(state)
+            return new_state, gr.update(value="Confirm Unload? (click again)"), banner_msg, gr.update(), gr.update()
+
+        # Second click: proceed with unload
         new_state, btn_update, status_update, confirmed = unload_confirm_btn.click(
             state
         )
