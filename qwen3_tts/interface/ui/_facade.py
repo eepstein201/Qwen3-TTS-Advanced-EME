@@ -53,7 +53,7 @@ from qwen3_tts.interface.ui.shared import (
     get_voice_prompts,
     get_presets,
 )
-from qwen3_tts.interface.ui.components import confirm_step
+from qwen3_tts.interface.ui.components import confirm_step, ConfirmButton
 from qwen3_tts.interface.ui.generation import (
     _prepare_streaming_config,
     _build_common_controls,
@@ -563,12 +563,19 @@ def _build_manage_voices_tab(clone_prompt):
         fn=rename_voice, inputs=[manage_selected, manage_new_name],
         outputs=[manage_status, manage_table, clone_prompt]
     )
+
+    # ConfirmButton for delete voice action
+    delete_confirm_btn = ConfirmButton(
+        arm_label="Confirm Delete? (click again)",
+        original_label="Delete",
+        timeout_s=5.0,
+        status_message="Click again within 5s to confirm deletion."
+    )
+
     def on_delete_click(state, selected):
-        new_state, btn_update, confirmed = confirm_step(
-            state, "Confirm Delete? (click again)", "Delete"
-        )
+        new_state, btn_update, status_update, confirmed = delete_confirm_btn.click(state)
         if not confirmed:
-            return new_state, btn_update, "Click again within 5s to confirm deletion.", gr.update(), gr.update()
+            return new_state, btn_update, status_update, gr.update(), gr.update()
         status, table, prompt = delete_voice(selected)
         return new_state, btn_update, status, table, prompt
 
@@ -655,12 +662,18 @@ def _build_manage_models_tab(status_html, clone_model_indicator,
         outputs=[clone_model_indicator, design_model_indicator, custom_model_indicator]
     )
 
+    # ConfirmButton for unload model action
+    unload_confirm_btn = ConfirmButton(
+        arm_label="Confirm Unload? (click again)",
+        original_label="Unload",
+        timeout_s=5.0,
+        status_message="Click again within 5s to confirm unload."
+    )
+
     def on_unload_click(state, mt):
-        new_state, btn_update, confirmed = confirm_step(
-            state, "Confirm Unload? (click again)", "Unload"
-        )
+        new_state, btn_update, status_update, confirmed = unload_confirm_btn.click(state)
         if not confirmed:
-            return new_state, btn_update, "Click again within 5s to confirm unload.", gr.update(), gr.update()
+            return new_state, btn_update, status_update, gr.update(), gr.update()
         status, table, status_h = toggle_model(mt, "unload")
         return new_state, btn_update, status, table, status_h
 
