@@ -35,7 +35,7 @@ class TestVLLMAdapterInit(unittest.TestCase):
         import inspect
 
         sig = inspect.signature(VLLMAdapter.__init__)
-        self.assertEqual(sig.parameters["gpu_memory_utilization"].default, 0.7)
+        self.assertEqual(sig.parameters["gpu_memory_utilization"].default, 0.9)
 
     def test_default_port_is_none(self):
         from qwen3_tts.core.engine_vllm import VLLMAdapter

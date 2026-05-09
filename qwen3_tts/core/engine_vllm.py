@@ -56,11 +56,14 @@ class VLLMAdapter:
     def __init__(
         self,
         model_name: str = "Qwen/Qwen3-TTS-12Hz-1.7B-Base",
-        gpu_memory_utilization: float = 0.7,
+        gpu_memory_utilization: float = 0.9,
         port: int | None = None,
         log_file: str | None = None,
-        max_model_len: int = 4096,
+        max_model_len: int = 8192,
         dtype: str = "bfloat16",
+        audio_sample_rate: int = 24000,
+        audio_chunk_size: int = 2000,
+        mm_processor_name: str = "Qwen/Qwen2-Audio-7B-Instruct",
     ):
         """Initialize the vLLM adapter.
 
@@ -71,13 +74,40 @@ class VLLMAdapter:
             log_file: Path to log file for vLLM output (None = use default)
             max_model_len: Maximum model context length
             dtype: Model dtype (bfloat16 recommended for modern GPUs)
+            audio_sample_rate: Audio sample rate for processing (24000 Hz for Qwen2-Audio)
+            audio_chunk_size: Audio chunk size for real-time processing
+            mm_processor_name: Multimodal processor name for audio inputs
+
+        Raises:
+            ValueError: If parameters are outside valid ranges
         """
+        # Validate parameters
+        if not 0.0 < gpu_memory_utilization <= 1.0:
+            raise ValueError(
+                f"gpu_memory_utilization must be in (0.0, 1.0], got {gpu_memory_utilization}"
+            )
+        if max_model_len < 1024 or max_model_len > 32768:
+            raise ValueError(f"max_model_len must be in [1024, 32768], got {max_model_len}")
+        if dtype not in ("bfloat16", "float16", "float32"):
+            raise ValueError(f"dtype must be bfloat16, float16, or float32, got {dtype}")
+        if audio_sample_rate not in (16000, 24000, 48000):
+            raise ValueError(
+                f"audio_sample_rate must be 16000, 24000, or 48000, got {audio_sample_rate}"
+            )
+        if audio_chunk_size < 512 or audio_chunk_size > 8192:
+            raise ValueError(f"audio_chunk_size must be in [512, 8192], got {audio_chunk_size}")
+        if not mm_processor_name:
+            raise ValueError("mm_processor_name cannot be empty")
+
         self.model_name = model_name
         self.gpu_memory_utilization = gpu_memory_utilization
         self.port = port
         self.log_file = log_file or self._get_default_log_file()
         self.max_model_len = max_model_len
         self.dtype = dtype
+        self.audio_sample_rate = audio_sample_rate
+        self.audio_chunk_size = audio_chunk_size
+        self.mm_processor_name = mm_processor_name
 
         self._process: subprocess.Popen | None = None
         self._client: httpx.AsyncClient | None = None
@@ -144,7 +174,7 @@ class VLLMAdapter:
         log_path = Path(self.log_file)
         log_path.parent.mkdir(parents=True, exist_ok=True)
 
-        # Build command line
+        # Build command line with audio-optimized multimodal parameters
         cmd = [
             sys.executable,
             "-m",
@@ -163,6 +193,12 @@ class VLLMAdapter:
             self.dtype,
             "--max-model-len",
             str(self.max_model_len),
+            "--mm-processor-name",
+            self.mm_processor_name,
+            "--audio-sample-rate",
+            str(self.audio_sample_rate),
+            "--audio-chunk-size",
+            str(self.audio_chunk_size),
         ]
 
         logger.info("Starting vLLM subprocess: %s", " ".join(cmd))

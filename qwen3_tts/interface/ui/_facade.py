@@ -28,7 +28,7 @@ from qwen3_tts.core.config import (
     load_config,
     validate_voice_name,
 )
-from qwen3_tts.interface.ui.components import ConfirmButton
+from qwen3_tts.interface.ui.components import ConfirmButton, confirm_step
 from qwen3_tts.interface.ui.generation import (
     _build_common_controls,
     _build_generate_buttons_and_output,

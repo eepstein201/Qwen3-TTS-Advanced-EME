@@ -163,19 +163,68 @@ def auto_shutdown(app_state):
 
 
 async def _maybe_start_vllm_adapter(state) -> None:
-    """Start VLLMAdapter and attach to state when backend is vllm."""
-    if get_backend() != "vllm":
-        return
-    from qwen3_tts.core.engine_vllm import VLLMAdapter
+    """Start VLLMAdapter and AsyncVLLMClient when backend is vllm.
 
-    adapter = VLLMAdapter()
+    Uses protocol-based dependency injection:
+    - VLLMAdapter manages subprocess lifecycle
+    - AsyncVLLMClient provides async HTTP interface with circuit breaker
+    - Health check uses AsyncVLLMClient to avoid blocking startup
+    """
+    config = load_config()
+    vllm_config = config.get("vllm", {})
+
+    # Check if vLLM is enabled
+    if not vllm_config.get("enabled", False):
+        return
+
+    from qwen3_tts.core.engine_vllm import VLLMAdapter
+    from qwen3_tts.server.vllm_client import AsyncVLLMClient
+
+    # Create VLLM adapter with config parameters
+    adapter = VLLMAdapter(
+        gpu_memory_utilization=vllm_config.get("gpu_memory_utilization", 0.9),
+        max_model_len=vllm_config.get("max_model_len", 8192),
+        dtype=vllm_config.get("dtype", "bfloat16"),
+        audio_sample_rate=vllm_config.get("audio_sample_rate", 24000),
+        audio_chunk_size=vllm_config.get("audio_chunk_size", 2000),
+        mm_processor_name=vllm_config.get("mm_processor_name", "Qwen/Qwen2-Audio-7B-Instruct"),
+    )
+
+    # Start VLLM subprocess (may take up to 300s)
     await adapter.start()
+
+    # Create async HTTP client for non-blocking requests
+    base_url = f"http://127.0.0.1:{adapter.port}"
+    client = AsyncVLLMClient(
+        base_url=base_url,
+        timeout=vllm_config.get("timeout", 300.0),
+        circuit_breaker_failure_threshold=3,
+    )
+
+    # Verify health via async client (non-blocking)
+    healthy = await client.health_check()
+    if not healthy:
+        logger.warning("vLLM health check failed after startup")
+        if vllm_config.get("fallback_to_torch", True):
+            logger.info("vLLM fallback enabled - will use torch/MLX instead")
+        else:
+            raise RuntimeError("vLLM health check failed and fallback is disabled")
+
     state.vllm_adapter = adapter
-    logger.info("VLLMAdapter started and attached to app state")
+    state.vllm_client = client
+    logger.info("VLLMAdapter and AsyncVLLMClient started and attached to app state")
 
 
 async def _maybe_stop_vllm_adapter(state) -> None:
-    """Stop VLLMAdapter on shutdown if it was started."""
+    """Stop VLLMAdapter and AsyncVLLMClient on shutdown if they were started."""
+    # Stop async HTTP client first
+    client = getattr(state, "vllm_client", None)
+    if client is not None:
+        await client.close()
+        state.vllm_client = None
+        logger.info("AsyncVLLMClient closed")
+
+    # Stop VLLM subprocess
     adapter = getattr(state, "vllm_adapter", None)
     if adapter is not None:
         adapter.stop()
@@ -229,8 +278,9 @@ async def lifespan(app):
     # Auto-shutdown timer
     app.state.shutdown_timer = None
 
-    # vLLM adapter (None unless backend="vllm")
+    # vLLM adapter and client (None unless backend="vllm")
     app.state.vllm_adapter = None
+    app.state.vllm_client = None
 
     # Graceful shutdown event
     app.state.shutdown_event = asyncio.Event()

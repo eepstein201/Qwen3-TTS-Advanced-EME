@@ -32,11 +32,21 @@ class TestVLLMLifecycleFunctions:
     async def test_start_creates_adapter_when_backend_is_vllm(self, monkeypatch):
         """_maybe_start_vllm_adapter creates and starts adapter when backend=vllm."""
         from qwen3_tts.server.app_lifespan import _maybe_start_vllm_adapter
+
+        # Mock load_config to return config with vLLM enabled
+        mock_config = {
+            "vllm": {
+                "enabled": True,
+                "fallback_to_torch": True,
+            }
+        }
         monkeypatch.setattr(
-            "qwen3_tts.server.app_lifespan.get_backend", lambda: "vllm"
+            "qwen3_tts.server.app_lifespan.load_config", lambda: mock_config
         )
+
         mock_adapter = MagicMock()
         mock_adapter.start = AsyncMock()
+        mock_adapter.port = 5124  # Mock port for client creation
         mock_cls = MagicMock(return_value=mock_adapter)
         # Patch where the lazy import resolves, not where it's referenced
         monkeypatch.setattr(

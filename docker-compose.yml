@@ -23,5 +23,67 @@ services:
               capabilities: [gpu]
     restart: unless-stopped
 
+  # vLLM-Omni server for high-performance TTS with audio processing
+  # Use this service for accelerated inference with vLLM backend
+  vllm-server:
+    build:
+      context: ..
+      dockerfile: docker/vllm.Dockerfile
+    image: qwen3-tts-vllm:latest
+    container_name: qwen3-tts-vllm
+
+    # CRITICAL: Shared memory size for vLLM to prevent OOM errors
+    # 16GB is recommended for 1.7B models with audio processing
+    shm_size: '16gb'
+
+    # GPU configuration
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+
+    # Environment variables
+    environment:
+      # Tensor parallelism for multi-GPU systems (set to number of GPUs)
+      - TENSOR_PARALLEL_SIZE=${TENSOR_PARALLEL_SIZE:-1}
+      # HuggingFace cache directory
+      - HF_HOME=/root/.cache/huggingface
+      # Python unbuffered output
+      - PYTHONUNBUFFERED=1
+
+    # Volume mounts
+    volumes:
+      # Mount HuggingFace cache from host to avoid re-downloading models
+      - huggingface_cache:/root/.cache/huggingface
+      # Optional: Mount logs directory for debugging
+      - ./logs:/app/logs
+
+    # Port mapping: vLLM server (5123) - NOTE: Conflicts with qwen3-tts service
+    # Either run vllm-server alone or map to different port
+    ports:
+      - "5124:5123"  # Use port 5124 to avoid conflict with main service
+
+    # Network configuration
+    networks:
+      - qwen3-tts-network
+
+    # Restart policy: restart unless stopped
+    restart: unless-stopped
+
+    # Health check
+    healthcheck:
+      test: ["CMD", "python3", "-c", "import httpx; httpx.get('http://127.0.0.1:5123/health').raise_for_status()"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 300s
+
 volumes:
   huggingface_cache:
+
+networks:
+  qwen3-tts-network:
+    driver: bridge
