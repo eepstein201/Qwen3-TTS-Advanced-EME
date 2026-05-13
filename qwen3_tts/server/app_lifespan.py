@@ -292,11 +292,17 @@ async def lifespan(app):
     app.state.server_config["security"] = config.get("security", {})
 
     # Write token file (create directory with restricted permissions)
-    TOKEN_FILE.parent.mkdir(parents=True, exist_ok=True)
-    os.chmod(TOKEN_FILE.parent, 0o700)
-    with open(TOKEN_FILE, "w") as f:
-        f.write(app.state.auth_token)
-    os.chmod(TOKEN_FILE, 0o600)
+    try:
+        TOKEN_FILE.parent.mkdir(parents=True, exist_ok=True)
+        os.chmod(TOKEN_FILE.parent, 0o700)
+        with open(TOKEN_FILE, "w") as f:
+            f.write(app.state.auth_token)
+        os.chmod(TOKEN_FILE, 0o600)
+        logger.info(f"Auth token written to {TOKEN_FILE}")
+    except Exception as e:
+        logger.error(f"Failed to write auth token to {TOKEN_FILE}: {e}")
+        # Continue startup even if token file write fails
+        # Client will need to use alternative auth method
 
     # Register atexit handler as safety net for cleanup
     atexit.register(cleanup_resources, app.state)
@@ -320,11 +326,18 @@ async def lifespan(app):
     # Clean up token file — only if it contains OUR token.
     # A competing instance (e.g. PM2 crash loop) that failed to bind
     # must not delete the token written by the real server.
+    # IMPORTANT: Don't delete token on normal shutdown - clients need it!
+    # Only delete if this is a crash cleanup scenario.
     try:
         with open(TOKEN_FILE) as f:
             on_disk = f.read().strip()
-        if on_disk == app.state.auth_token:
+        # Only delete if token doesn't match (indicates crash scenario)
+        # Never delete our own valid token on normal shutdown
+        if on_disk != app.state.auth_token:
+            logger.warning(f"Token mismatch on disk vs memory - cleaning up: {TOKEN_FILE}")
             os.unlink(TOKEN_FILE)
+        else:
+            logger.info(f"Token file preserved for client use: {TOKEN_FILE}")
     except (FileNotFoundError, OSError):
         pass
 

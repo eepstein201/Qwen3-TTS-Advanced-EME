@@ -19,6 +19,13 @@ import subprocess
 import sys
 from pathlib import Path
 
+# E2E helper for automatic Playwright toggle
+import importlib.util
+spec = importlib.util.spec_from_file_location("e2e_helpers", Path(__file__).parent / "e2e_helpers.py")
+e2e_helpers = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(e2e_helpers)
+playwright_enabled = e2e_helpers.playwright_enabled
+
 
 # Test batches organized by risk level
 # Each batch: (name, [test_modules])
@@ -222,8 +229,16 @@ def run_batch(
     batch_info: dict,
     default_timeout: int,
     verbose: bool = True,
+    auto_playwright: bool = True,
 ) -> tuple[bool, str]:
     """Run a single test batch in a subprocess.
+
+    Args:
+        batch_num: Batch number to run
+        batch_info: Batch configuration dict
+        default_timeout: Default timeout in seconds
+        verbose: Enable verbose output
+        auto_playwright: Auto-enable Playwright for batch 6 (default: True)
 
     Returns:
         (success, output) tuple
@@ -238,6 +253,20 @@ def run_batch(
         print(colorize(f"  {batch_info['description']}", Colors.BLUE))
         print(colorize(f"  Timeout: {timeout}s", Colors.BLUE))
         print(colorize("=" * 60, Colors.BLUE))
+
+    # Auto-enable Playwright for E2E batch (batch 6)
+    playwright_context = None
+    if batch_num == 6 and auto_playwright:
+        playwright_context = playwright_enabled(auto_enable=True)
+        playwright_context.__enter__()
+        if verbose:
+            print("🎭 Playwright auto-enabled for E2E tests")
+            print()
+    elif batch_num == 6 and not auto_playwright:
+        if verbose:
+            print("⚠️  Running E2E tests WITHOUT auto-Playwright (manual control)")
+            print("   Manually enable Playwright in .claude/.mcp.json if needed")
+            print()
 
     # Run setup function if defined for this batch
     setup_name = batch_info.get("setup")
@@ -271,18 +300,33 @@ def run_batch(
         )
 
         output = result.stdout + result.stderr
+
+        # Cleanup Playwright context
+        if playwright_context:
+            playwright_context.__exit__(None, None, None)
+
         return result.returncode == 0, output
 
     except subprocess.TimeoutExpired:
         msg = f"ERROR: Batch {batch_num} timed out after {timeout}s"
         if verbose:
             print(colorize(msg, Colors.RED))
+
+        # Cleanup Playwright context
+        if playwright_context:
+            playwright_context.__exit__(None, None, None)
+
         return False, msg
 
     except Exception as e:
         msg = f"ERROR: Batch {batch_num} failed with exception: {e}"
         if verbose:
             print(colorize(msg, Colors.RED))
+
+        # Cleanup Playwright context
+        if playwright_context:
+            playwright_context.__exit__(None, None, None)
+
         return False, msg
 
 
@@ -292,6 +336,7 @@ def run_all_batches(
     specific_batch: int | None = None,
     continue_on_failure: bool = False,
     verbose: bool = True,
+    auto_playwright: bool = True,
 ) -> dict:
     """Run all or a specific test batch.
 
@@ -306,7 +351,7 @@ def run_all_batches(
             continue
 
         batch_info = batches[batch_num]
-        success, output = run_batch(batch_num, batch_info, default_timeout, verbose)
+        success, output = run_batch(batch_num, batch_info, default_timeout, verbose, auto_playwright)
 
         if verbose and output:
             # Print test output
@@ -426,6 +471,12 @@ Examples:
         help="List all batches and exit",
     )
 
+    parser.add_argument(
+        "--no-auto-playwright",
+        action="store_true",
+        help="Don't auto-enable Playwright for batch 6 (manual control required)",
+    )
+
     return parser.parse_args()
 
 
@@ -463,6 +514,7 @@ def main() -> int:
         specific_batch=args.batch,
         continue_on_failure=args.continue_on_failure,
         verbose=verbose,
+        auto_playwright=not args.no_auto_playwright,
     )
 
     # Print summary

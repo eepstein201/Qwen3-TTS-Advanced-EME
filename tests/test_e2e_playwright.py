@@ -22,6 +22,9 @@ import unittest
 import urllib.error
 import urllib.request
 
+# Auto-toggle helper for universal E2E test support
+from tests.e2e_helpers import playwright_enabled
+
 # Skip entire module if playwright is not installed
 try:
     from playwright.sync_api import sync_playwright
@@ -399,6 +402,41 @@ class GradioPage:
             }}""",
             timeout=timeout,
         )
+
+
+def setUpModule():
+    """Auto-enable Playwright MCP server before any E2E tests run.
+
+    This ensures Playwright is available for all test runners:
+    - python -m unittest tests.test_e2e_playwright -v
+    - python tests/run_batches.py --batch 6
+    - python tests/run_full_suite.py --test-type e2e
+    - pytest tests/test_e2e_playwright.py
+
+    The toggle happens at module level, so it only runs once for the
+    entire E2E test suite, not per-test or per-class.
+    """
+    try:
+        _playwright_context = playwright_enabled(auto_enable=True)
+        _playwright_context.__enter__()
+        print("🎭 Playwright auto-enabled for E2E test suite")
+    except Exception as e:
+        print(f"⚠️  Failed to auto-enable Playwright: {e}")
+        print("   Tests may fail if Playwright is required")
+
+
+def tearDownModule():
+    """Auto-disable Playwright MCP server after E2E tests complete.
+
+    This ensures Playwright is disabled after testing to save tokens
+    during normal development.
+    """
+    try:
+        if '_playwright_context' in globals():
+            _playwright_context.__exit__(None, None, None)
+            print("🎭 Playwright auto-disabled after E2E test suite")
+    except Exception as e:
+        print(f"⚠️  Failed to auto-disable Playwright: {e}")
 
 
 @unittest.skipUnless(HAS_PLAYWRIGHT, "playwright not installed")
