@@ -29,6 +29,39 @@ from collections.abc import AsyncIterator, Callable
 from pathlib import Path
 from typing import Any
 
+logger = logging.getLogger(__name__)
+
+
+def log_gpu_memory_usage():
+    """Log current GPU memory usage for monitoring.
+
+    Uses GPUtil if available, otherwise falls back to nvidia-smi.
+    This helps track memory usage during vLLM operations.
+    """
+    try:
+        import GPUtil
+
+        gpus = GPUtil.getGPUs()
+        for gpu in gpus:
+            logger.info(
+                f"GPU {gpu.id}: {gpu.memoryUsed}MB/{gpu.memoryTotal}MB "
+                f"({gpu.memoryUtil * 100:.1f}%)"
+            )
+    except ImportError:
+        # GPUtil not available, use nvidia-smi
+        try:
+            result = subprocess.run(
+                ["nvidia-smi", "--query-gpu=memory.used,memory.total", "--format=csv,noheader,nounits"],
+                capture_output=True,
+                text=True,
+            )
+            if result.returncode == 0:
+                logger.info(f"GPU Memory: {result.stdout.strip()}")
+            else:
+                logger.warning("nvidia-smi command failed")
+        except FileNotFoundError:
+            logger.warning("Neither GPUtil nor nvidia-smi available for GPU monitoring")
+
 import httpx
 
 logger = logging.getLogger("tts.engine.vllm")
@@ -202,6 +235,19 @@ class VLLMAdapter:
         ]
 
         logger.info("Starting vLLM subprocess: %s", " ".join(cmd))
+
+        # Log vLLM parameters for monitoring
+        logger.info("vLLM parameters:")
+        logger.info("  - model: %s", self.model_name)
+        logger.info("  - gpu_memory_utilization: %s", self.gpu_memory_utilization)
+        logger.info("  - max_model_len: %s", self.max_model_len)
+        logger.info("  - dtype: %s", self.dtype)
+        logger.info("  - audio_sample_rate: %s", self.audio_sample_rate)
+        logger.info("  - audio_chunk_size: %s", self.audio_chunk_size)
+        logger.info("  - mm_processor: %s", self.mm_processor_name)
+
+        # Log initial GPU state before starting
+        log_gpu_memory_usage()
 
         # Open log file for subprocess output (stored so stop() can close it)
         self._log_fh = open(log_path, "w")  # noqa: PTH123
