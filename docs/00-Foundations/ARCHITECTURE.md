@@ -461,4 +461,36 @@ These parameters are optimized for audio TTS workloads:
 - Chunked prefill improves throughput for long audio sequences
 - bfloat16 reduces memory usage while maintaining quality
 - Audio-optimized chunk size balances latency and throughput
+
+### Request Validation Patterns
+
+**TranscribeRequest Language Validation:**
+
+The `/transcribe` endpoint uses regex pattern validation for language codes:
+
+**Pattern:** `^[a-z]{2,3}(-[A-Za-z]{2,4})?$`
+
+**Accepts:**
+- `en`, `zho`, `fr` (2-3 letter language codes)
+- `en-US`, `zh-CN`, `en-GB` (language + region)
+- `es-MX` (language + 3-letter region)
+
+**Rejects:**
+- `EN`, `FR` (uppercase not allowed)
+- `e1`, `f2` (numbers not allowed)
+- `en_US` (underscores not allowed)
+- Empty strings
+
+**Implementation:** `qwen3_tts/server/validation.py:99`
+
+```python
+# Example usage
+req = TranscribeRequest(audio_base64="base64data", language="en-US")
+# Valid: en, zho, en-US, zh-CN, es-MX
+# Invalid: EN, e1, en_US, empty
 ```
+language: str = Field(default="en", pattern=r"^[a-z]{2,3}(-[A-Za-z]{2,4})?$")
+```
+
+**Validation Tests:** `tests/test_validation_ext.py`
+```python
