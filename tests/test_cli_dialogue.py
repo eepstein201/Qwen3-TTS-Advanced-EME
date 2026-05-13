@@ -73,7 +73,7 @@ class TestProcessDialogueSimpleArray(unittest.TestCase):
         import numpy as np
         mock_gen.return_value = [{"audio_base64": "AAAA"}]
         mock_decode.return_value = (np.zeros(100, dtype=np.float32), 24000)
-        with tempfile.TemporaryDirectory() as tmpdir:
+        with tempfile.TemporaryDirectory(dir=os.path.expanduser("~")) as tmpdir:
             path = os.path.join(tmpdir, "test.json")
             with open(path, "w") as f:
                 json.dump(_simple_dialogue(), f)
@@ -94,7 +94,7 @@ class TestProcessDialogueSimpleArray(unittest.TestCase):
         """Local mode calls generate_local for each line."""
         import numpy as np
         mock_gen.return_value = (np.zeros(100, dtype=np.float32), 24000)
-        with tempfile.TemporaryDirectory() as tmpdir:
+        with tempfile.TemporaryDirectory(dir=os.path.expanduser("~")) as tmpdir:
             path = os.path.join(tmpdir, "test.json")
             with open(path, "w") as f:
                 json.dump(_simple_dialogue(), f)
@@ -121,7 +121,7 @@ class TestProcessDialogueObjectFormat(unittest.TestCase):
         import numpy as np
         mock_gen.return_value = [{"audio_base64": "AAAA"}]
         mock_decode.return_value = (np.zeros(100, dtype=np.float32), 24000)
-        with tempfile.TemporaryDirectory() as tmpdir:
+        with tempfile.TemporaryDirectory(dir=os.path.expanduser("~")) as tmpdir:
             path = os.path.join(tmpdir, "test.json")
             with open(path, "w") as f:
                 json.dump(_object_dialogue(), f)
@@ -145,7 +145,7 @@ class TestProcessDialogueObjectFormat(unittest.TestCase):
         import numpy as np
         mock_gen.return_value = [{"audio_base64": "AAAA"}]
         mock_decode.return_value = (np.zeros(100, dtype=np.float32), 24000)
-        with tempfile.TemporaryDirectory() as tmpdir:
+        with tempfile.TemporaryDirectory(dir=os.path.expanduser("~")) as tmpdir:
             path = os.path.join(tmpdir, "test.json")
             with open(path, "w") as f:
                 json.dump(_object_dialogue(pause_ms=300), f)
@@ -165,7 +165,7 @@ class TestProcessDialogueEdgeCases(unittest.TestCase):
 
     def test_empty_lines(self):
         """Empty lines list prints error and returns None."""
-        with tempfile.TemporaryDirectory() as tmpdir:
+        with tempfile.TemporaryDirectory(dir=os.path.expanduser("~")) as tmpdir:
             path = os.path.join(tmpdir, "test.json")
             with open(path, "w") as f:
                 json.dump([], f)
@@ -178,7 +178,7 @@ class TestProcessDialogueEdgeCases(unittest.TestCase):
     def test_pause_ms_clamped_to_max(self):
         """pause_ms > 10000 is clamped to 10000."""
         data = {"lines": [{"text": "hello", "mode": "clone"}], "pause_ms": 99999}
-        with tempfile.TemporaryDirectory() as tmpdir:
+        with tempfile.TemporaryDirectory(dir=os.path.expanduser("~")) as tmpdir:
             path = os.path.join(tmpdir, "test.json")
             with open(path, "w") as f:
                 json.dump(data, f)
@@ -198,7 +198,7 @@ class TestProcessDialogueEdgeCases(unittest.TestCase):
     def test_pause_ms_clamped_to_min(self):
         """Negative pause_ms is clamped to 0."""
         data = {"lines": [{"text": "hi"}], "pause_ms": -500}
-        with tempfile.TemporaryDirectory() as tmpdir:
+        with tempfile.TemporaryDirectory(dir=os.path.expanduser("~")) as tmpdir:
             path = os.path.join(tmpdir, "test.json")
             with open(path, "w") as f:
                 json.dump(data, f)
@@ -217,7 +217,7 @@ class TestProcessDialogueEdgeCases(unittest.TestCase):
     def test_invalid_pause_ms_defaults_to_500(self):
         """Non-numeric pause_ms defaults to 500."""
         data = {"lines": [{"text": "hi"}], "pause_ms": "invalid"}
-        with tempfile.TemporaryDirectory() as tmpdir:
+        with tempfile.TemporaryDirectory(dir=os.path.expanduser("~")) as tmpdir:
             path = os.path.join(tmpdir, "test.json")
             with open(path, "w") as f:
                 json.dump(data, f)
@@ -249,7 +249,7 @@ class TestProcessDialogueEdgeCases(unittest.TestCase):
             [{"audio_base64": "AA"}],
         ]
         mock_decode.return_value = (np.zeros(100, dtype=np.float32), 24000)
-        with tempfile.TemporaryDirectory() as tmpdir:
+        with tempfile.TemporaryDirectory(dir=os.path.expanduser("~")) as tmpdir:
             path = os.path.join(tmpdir, "test.json")
             with open(path, "w") as f:
                 json.dump(_simple_dialogue(), f)
@@ -272,7 +272,7 @@ class TestProcessDialogueEdgeCases(unittest.TestCase):
         import numpy as np
         mock_gen.return_value = [{"audio_base64": "AA"}]
         mock_decode.return_value = (np.zeros(100, dtype=np.float32), 24000)
-        with tempfile.TemporaryDirectory() as tmpdir:
+        with tempfile.TemporaryDirectory(dir=os.path.expanduser("~")) as tmpdir:
             path = os.path.join(tmpdir, "test.json")
             with open(path, "w") as f:
                 json.dump(_simple_dialogue(), f)
@@ -289,7 +289,7 @@ class TestProcessDialogueEdgeCases(unittest.TestCase):
             {"text": "", "mode": "clone", "prompt": "v.pt"},
         ]
         import numpy as np
-        with tempfile.TemporaryDirectory() as tmpdir:
+        with tempfile.TemporaryDirectory(dir=os.path.expanduser("~")) as tmpdir:
             path = os.path.join(tmpdir, "test.json")
             with open(path, "w") as f:
                 json.dump(data, f)

@@ -63,7 +63,7 @@ class TestProcessSrtServerMode(unittest.TestCase):
         import numpy as np
         mock_gen.return_value = [{"audio_base64": "AA"}]
         mock_decode.return_value = (np.zeros(100, dtype=np.float32), 24000)
-        with tempfile.TemporaryDirectory() as tmpdir:
+        with tempfile.TemporaryDirectory(dir=os.path.expanduser("~")) as tmpdir:
             srt_path = _write_srt(tmpdir)
             args = _make_args(output=tmpdir)
             config = {"language": "English", "default_clone_prompt": "voice.pt"}
@@ -81,7 +81,7 @@ class TestProcessSrtServerMode(unittest.TestCase):
         import numpy as np
         mock_gen.return_value = [{"audio_base64": "AA"}]
         mock_decode.return_value = (np.zeros(100, dtype=np.float32), 24000)
-        with tempfile.TemporaryDirectory() as tmpdir:
+        with tempfile.TemporaryDirectory(dir=os.path.expanduser("~")) as tmpdir:
             srt_path = _write_srt(tmpdir)
             args = _make_args(output=tmpdir)
             config = {"language": "English", "default_clone_prompt": "voice.pt"}
@@ -100,7 +100,7 @@ class TestProcessSrtServerMode(unittest.TestCase):
         import numpy as np
         mock_gen.return_value = [{"audio_base64": "AA"}]
         mock_decode.return_value = (np.zeros(100, dtype=np.float32), 24000)
-        with tempfile.TemporaryDirectory() as tmpdir:
+        with tempfile.TemporaryDirectory(dir=os.path.expanduser("~")) as tmpdir:
             srt_path = _write_srt(tmpdir)
             args = _make_args(output=tmpdir)
             config = {"language": "English", "default_clone_prompt": "voice.pt"}
@@ -123,7 +123,7 @@ class TestProcessSrtLocalMode(unittest.TestCase):
         """Local mode calls generate_local for each subtitle."""
         import numpy as np
         mock_gen.return_value = (np.zeros(100, dtype=np.float32), 24000)
-        with tempfile.TemporaryDirectory() as tmpdir:
+        with tempfile.TemporaryDirectory(dir=os.path.expanduser("~")) as tmpdir:
             srt_path = _write_srt(tmpdir)
             args = _make_args(output=tmpdir)
             config = {"language": "English", "default_clone_prompt": "voice.pt"}
@@ -137,7 +137,7 @@ class TestProcessSrtEdgeCases(unittest.TestCase):
 
     def test_empty_srt_prints_error(self):
         """Empty SRT file prints error and returns None."""
-        with tempfile.TemporaryDirectory() as tmpdir:
+        with tempfile.TemporaryDirectory(dir=os.path.expanduser("~")) as tmpdir:
             srt_path = _write_srt(tmpdir, content="")
             args = _make_args(output=tmpdir)
             config = {"language": "English"}
@@ -156,7 +156,7 @@ class TestProcessSrtEdgeCases(unittest.TestCase):
         import numpy as np
         mock_gen.return_value = [{"audio_base64": "AA"}]
         mock_decode.return_value = (np.zeros(100, dtype=np.float32), 24000)
-        with tempfile.TemporaryDirectory() as tmpdir:
+        with tempfile.TemporaryDirectory(dir=os.path.expanduser("~")) as tmpdir:
             srt_path = _write_srt(tmpdir)
             new_dir = os.path.join(tmpdir, "subdir")
             args = _make_args(output=new_dir)
@@ -175,7 +175,7 @@ class TestProcessSrtEdgeCases(unittest.TestCase):
         import numpy as np
         mock_gen.return_value = [{"audio_base64": "AA"}]
         mock_decode.return_value = (np.zeros(100, dtype=np.float32), 24000)
-        with tempfile.TemporaryDirectory() as tmpdir:
+        with tempfile.TemporaryDirectory(dir=os.path.expanduser("~")) as tmpdir:
             srt_path = _write_srt(tmpdir)
             args = _make_args(output=tmpdir, play=True)
             config = {"language": "English", "default_clone_prompt": "voice.pt"}
@@ -193,7 +193,7 @@ class TestProcessSrtEdgeCases(unittest.TestCase):
         import numpy as np
         mock_gen.return_value = [{"audio_base64": "AA"}]
         mock_decode.return_value = (np.zeros(100, dtype=np.float32), 24000)
-        with tempfile.TemporaryDirectory() as tmpdir:
+        with tempfile.TemporaryDirectory(dir=os.path.expanduser("~")) as tmpdir:
             srt_path = _write_srt(tmpdir)
             args = _make_args(output=tmpdir, mode="design", description="warm voice")
             config = {"language": "English", "default_voice_description": "default"}
