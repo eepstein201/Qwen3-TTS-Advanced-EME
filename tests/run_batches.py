@@ -44,7 +44,6 @@ BATCHES = {
             "tests.test_healthcheck_ext",
             "tests.test_model_cache",
             "tests.test_model_cache_commands",
-            "tests.test_decomposition_check",
         ],
         "timeout": 90,  # Quick tests
     },
@@ -131,6 +130,7 @@ BATCHES = {
         "name": "Optional Tests",
         "description": "Tests requiring optional dependencies (pytest, etc.)",
         "modules": [
+            "tests.test_decomposition_check",
             "tests.test_flash_attn_install",
             "tests.test_solid_analyzer",
             "tests.test_protocols",
