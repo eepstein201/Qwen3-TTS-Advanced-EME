@@ -173,11 +173,7 @@ class TestClientModelMethods(unittest.TestCase):
 class TestReturnValueCounts(unittest.TestCase):
     """Tests that UI functions return correct number of values for Gradio wiring."""
 
-    @patch("qwen3_tts.interface.ui.voice_management.get_voice_prompts", return_value=["v.wav"])
-    @patch("qwen3_tts.interface.ui.voice_management.get_prompt_table_data", return_value=[])
     @patch("qwen3_tts.interface.ui.voice_management.is_server_running", return_value=True)
-    @patch("qwen3_tts.interface.ui.voice_management.load_config", return_value={})
-    @patch("qwen3_tts.interface.ui.voice_management.get_server_url", return_value="http://127.0.0.1:5123")
     def test_rename_voice_returns_3_values(self, *mocks):
         mock_resp = MagicMock()
         mock_resp.status_code = 200
@@ -187,11 +183,7 @@ class TestReturnValueCounts(unittest.TestCase):
             result = rename_voice("old", "new_name")
             self.assertEqual(len(result), 3, f"Expected 3 return values, got {len(result)}")
 
-    @patch("qwen3_tts.interface.ui.voice_management.get_voice_prompts", return_value=["v.wav"])
-    @patch("qwen3_tts.interface.ui.voice_management.get_prompt_table_data", return_value=[])
     @patch("qwen3_tts.interface.ui.voice_management.is_server_running", return_value=True)
-    @patch("qwen3_tts.interface.ui.voice_management.load_config", return_value={})
-    @patch("qwen3_tts.interface.ui.voice_management.get_server_url", return_value="http://127.0.0.1:5123")
     def test_delete_voice_returns_3_values(self, *mocks):
         mock_resp = MagicMock()
         mock_resp.status_code = 200

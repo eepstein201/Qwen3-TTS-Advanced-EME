@@ -530,8 +530,6 @@ class TestValidatePromptNameCallers(unittest.TestCase):
 
     @patch("qwen3_tts.interface.ui.voice_management.validate_prompt_name", return_value=None)
     @patch("qwen3_tts.interface.ui.voice_management.is_server_running", return_value=True)
-    @patch("qwen3_tts.interface.ui.voice_management.load_config", return_value={})
-    @patch("qwen3_tts.interface.ui.voice_management.get_server_url", return_value="http://127.0.0.1:5123")
     def test_rename_voice_valid_name_does_not_crash(self, *mocks):
         """Valid new name (returns None) must not raise TypeError from unpacking."""
         from qwen3_tts.interface.ui.voice_management import rename_voice
@@ -580,9 +578,7 @@ class TestPreviewVoiceExtension(unittest.TestCase):
     """Tests that preview_voice does not force .pt extension."""
 
     @patch("qwen3_tts.interface.ui.voice_management.is_server_running", return_value=True)
-    @patch("qwen3_tts.interface.ui.voice_management.load_config", return_value={})
-    @patch("qwen3_tts.interface.ui.voice_management.get_server_url", return_value="http://127.0.0.1:5123")
-    def test_does_not_force_pt_extension(self, mock_url, mock_cfg, mock_running):
+    def test_does_not_force_pt_extension(self, mock_running):
         """Name sent to server should not have .pt forced onto it."""
         mock_resp = MagicMock()
         mock_resp.status_code = 200

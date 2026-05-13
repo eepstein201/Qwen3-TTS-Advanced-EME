@@ -326,7 +326,7 @@ class TestClickCLI(unittest.TestCase):
         mock_resp.content = b"fake audio bytes"
 
         with patch('qwen3_tts.interface.ui.voice_management.is_server_running', return_value=True), \
-             patch('requests.get', return_value=mock_resp), \
+             patch('qwen3_tts.core.http_client.server_request', return_value=mock_resp), \
              patch('qwen3_tts.interface.ui.voice_management.tempfile.NamedTemporaryFile', side_effect=mock_named_temp_file):
 
             from qwen3_tts.interface.ui import preview_voice
@@ -367,7 +367,7 @@ class TestClickCLI(unittest.TestCase):
         mock_resp.content = b"fake audio bytes"
 
         with patch('qwen3_tts.interface.ui.voice_management.is_server_running', return_value=True), \
-             patch('requests.get', return_value=mock_resp), \
+             patch('qwen3_tts.core.http_client.server_request', return_value=mock_resp), \
              patch('qwen3_tts.interface.ui.voice_management.tempfile.NamedTemporaryFile', side_effect=mock_named_temp_file):
 
             from qwen3_tts.interface.ui import preview_voice
