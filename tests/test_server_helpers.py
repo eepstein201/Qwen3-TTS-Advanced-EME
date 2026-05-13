@@ -312,9 +312,15 @@ class TestManageVoicesRaceCondition(unittest.TestCase):
         from qwen3_tts.interface.ui._facade import _build_manage_voices_tab
         source = inspect.getsource(_build_manage_voices_tab)
         lines = source.split('\n')
-        for line in lines:
+        for i, line in enumerate(lines):
             if 'manage_default_btn' in line and 'gr.Button' in line:
-                self.assertIn('interactive=False', line,
+                # Check the next few lines for interactive=False (handles multi-line declarations)
+                found_interactive = False
+                for j in range(i, min(i + 3, len(lines))):
+                    if 'interactive=False' in lines[j]:
+                        found_interactive = True
+                        break
+                self.assertTrue(found_interactive,
                               "manage_default_btn must start non-interactive")
                 break
         else:

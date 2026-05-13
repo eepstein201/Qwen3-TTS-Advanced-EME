@@ -170,7 +170,7 @@ def _resolve_audio_path(args) -> str:
     if not os.path.isfile(safe_path):
         # Security: validate downloads fallback path against traversal
         downloads_dir = os.path.expanduser("~/Downloads")
-        if ".." in audio_path or "/" in audio_path:
+        if ".." in audio_path:
             raise ValueError(f"Path traversal detected in audio filename: {audio_path}")
         downloads_path = safe_path_join(downloads_dir, os.path.basename(audio_path))
         if os.path.isfile(downloads_path):

@@ -191,14 +191,15 @@ class TestGenerateColabFallback(unittest.TestCase):
     def test_js_success_returns_saved_path(self):
         import base64
         import tempfile
+        import os
         from qwen3_tts.interface.ui import _generate_server_side
 
-        with tempfile.TemporaryDirectory() as tmpdir:
+        # Create tmp directory under home to pass security validation
+        home = os.path.expanduser("~")
+        with tempfile.TemporaryDirectory(dir=home) as tmpdir:
             with patch('qwen3_tts.server.client.TTSClient') as mock_cls, \
                  patch('qwen3_tts.interface.ui.generation.load_config',
-                       return_value={"output_directory": tmpdir}), \
-                 patch('qwen3_tts.interface.ui.generation.os.path.expanduser',
-                       side_effect=lambda p: p.replace("~/Downloads", tmpdir)):
+                       return_value={"output_directory": tmpdir}):
                 mock_client = MagicMock()
                 mock_client.last_chunk_count = 1
                 mock_cls.return_value = mock_client
