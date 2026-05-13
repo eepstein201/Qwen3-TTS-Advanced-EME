@@ -427,4 +427,38 @@ The Wavesurfer audio visualization uses **real-time peak computation on the fron
 - Debouncing: Increase throttle interval from 200ms to 500ms
 
 **Conclusion**: The current architecture is already optimized for this use case. No backend pre-calculation is needed unless performance degrades significantly.
+
+### vLLM Multimodal Parameters
+
+The vLLM engine is configured with optimized parameters for audio TTS workloads:
+
+**Key Parameters:**
+- `--limit-mm-per-prompt audio=1`: Limits multimodal input to 1 audio chunk per prompt
+- `--enable-chunked-prefill`: Enables chunked prefill for better throughput with long audio
+- `--dtype bfloat16`: Uses bfloat16 precision for memory efficiency
+- `--max-model-len 8192`: Maximum context length (optimized for audio sequences)
+- `--audio-sample-rate 24000`: Audio sample rate matching TTS output
+- `--audio-chunk-size 2000`: Audio chunk size (~83ms at 24kHz)
+
+**Implementation Location:**
+- Code: `qwen3_tts/core/engine_vllm.py` (lines 189-201)
+- Config: `config.json` under `vllm` section
+- Validation: `scripts/validate_vllm_docker.sh`
+
+**Validation:**
+Run the Docker validation script to verify parameters:
+```bash
+./scripts/validate_vllm_docker.sh
+```
+
+This script starts the vLLM container and verifies that:
+- Multimodal parameters are correctly set
+- Audio processing parameters match expected values
+- Data type is configured for memory efficiency
+
+**Performance Impact:**
+These parameters are optimized for audio TTS workloads:
+- Chunked prefill improves throughput for long audio sequences
+- bfloat16 reduces memory usage while maintaining quality
+- Audio-optimized chunk size balances latency and throughput
 ```
