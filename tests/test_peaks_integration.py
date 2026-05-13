@@ -35,7 +35,7 @@ class TestWaveformPeaksIntegration(unittest.TestCase):
             self.assertEqual(len(peaks), 500)
             self.assertTrue(all(-1.0 <= p <= 1.0 for p in peaks))
 
-    def test_peaks_with_different resolutions(self):
+    def test_peaks_with_different_resolutions(self):
         """Test peaks calculation with different resolutions."""
         audio = np.random.randn(24000).astype(np.float32)  # 1 second
 
