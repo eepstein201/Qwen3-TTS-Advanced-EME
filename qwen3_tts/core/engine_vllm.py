@@ -54,13 +54,17 @@ def log_gpu_memory_usage():
                 ["nvidia-smi", "--query-gpu=memory.used,memory.total", "--format=csv,noheader,nounits"],
                 capture_output=True,
                 text=True,
+                timeout=5.0
             )
-            if result.returncode == 0:
+            if result.returncode == 0 and result.stdout.strip():
                 logger.info(f"GPU Memory: {result.stdout.strip()}")
             else:
-                logger.warning("nvidia-smi command failed")
-        except FileNotFoundError:
-            logger.warning("Neither GPUtil nor nvidia-smi available for GPU monitoring")
+                logger.warning("nvidia-smi command failed or returned no output")
+        except (FileNotFoundError, subprocess.TimeoutExpired) as e:
+            if isinstance(e, FileNotFoundError):
+                logger.warning("nvidia-smi not available for GPU monitoring")
+            else:
+                logger.warning("nvidia-smi command timed out")
 
 import httpx
 

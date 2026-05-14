@@ -732,7 +732,8 @@ class TestVLLMStartCmdParams(unittest.TestCase):
 
         mock_proc = MagicMock()
         with patch("subprocess.Popen", return_value=mock_proc) as mock_popen, \
-             patch("builtins.open", MagicMock()):
+             patch("builtins.open", MagicMock()), \
+             patch("qwen3_tts.core.engine_vllm.log_gpu_memory_usage"):
             adapter._start()
         return mock_popen.call_args[0][0]
 

@@ -107,7 +107,7 @@ class TestTTSClientInit(unittest.TestCase):
         tmp = self._make_config()
         try:
             client = TTSClient(config_path=tmp)
-            with patch("qwen3_tts.core.http_client.server_request", side_effect=requests.ConnectionError):
+            with patch("requests.get", side_effect=requests.ConnectionError):
                 result = client.is_server_running()
                 self.assertFalse(result)
             client.close()
