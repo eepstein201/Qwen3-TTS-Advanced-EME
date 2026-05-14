@@ -64,7 +64,8 @@ class TestStartSubprocess(unittest.TestCase):
         adapter = _make_adapter(port=8300)
         mock_proc = MagicMock()
         with patch("subprocess.Popen", return_value=mock_proc) as mock_popen, \
-             patch("builtins.open", MagicMock()):
+             patch("builtins.open", MagicMock()), \
+             patch("qwen3_tts.core.engine_vllm.log_gpu_memory_usage"):
             adapter._start()
 
         mock_popen.assert_called_once()
@@ -82,7 +83,8 @@ class TestStartSubprocess(unittest.TestCase):
         mock_proc = MagicMock()
         with patch.object(adapter, "_find_open_port", return_value=9999) as mock_find, \
              patch("subprocess.Popen", return_value=mock_proc), \
-             patch("builtins.open", MagicMock()):
+             patch("builtins.open", MagicMock()), \
+             patch("qwen3_tts.core.engine_vllm.log_gpu_memory_usage"):
             adapter._start()
 
         mock_find.assert_called_once()
@@ -93,7 +95,8 @@ class TestStartSubprocess(unittest.TestCase):
         adapter.model_name = "TestOrg/TestModel"
         mock_proc = MagicMock()
         with patch("subprocess.Popen", return_value=mock_proc) as mock_popen, \
-             patch("builtins.open", MagicMock()):
+             patch("builtins.open", MagicMock()), \
+             patch("qwen3_tts.core.engine_vllm.log_gpu_memory_usage"):
             adapter._start()
 
         cmd = mock_popen.call_args[0][0]
@@ -111,7 +114,8 @@ class TestStartSubprocess(unittest.TestCase):
         mock_proc = MagicMock()
         mock_fh = MagicMock()
         with patch("subprocess.Popen", return_value=mock_proc), \
-             patch("builtins.open", return_value=mock_fh):
+             patch("builtins.open", return_value=mock_fh), \
+             patch("qwen3_tts.core.engine_vllm.log_gpu_memory_usage"):
             adapter._start()
         self.assertIs(adapter._log_fh, mock_fh)
 
