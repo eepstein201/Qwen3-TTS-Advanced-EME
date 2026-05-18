@@ -1,0 +1,47 @@
+# Qwen3-TTS Test Container
+# Multi-stage build for efficient cross-platform testing
+# Build with: DOCKER_BUILDKIT=1 docker build -f Dockerfile.test -t qwen3-tts:test .
+# Or use buildx: docker buildx build -f Dockerfile.test -t qwen3-tts:test .
+
+FROM python:3.11-slim-bookworm AS test-base
+
+# Install system dependencies for testing
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    ffmpeg \
+    libsndfile1 \
+    portaudio19-dev \
+    curl \
+    git \
+    && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /app
+
+# Test stage - installs test extras only
+FROM test-base AS test
+ENV PYTHONUNBUFFERED=1 \
+    PYTHONDONTWRITEBYTECODE=1 \
+    # Disable gradio telemetry in containers
+    GRADIO_ANALYTICS_ENABLED=False
+
+# Copy package definition first for better layer caching
+COPY pyproject.toml README.md ./
+
+# Install with test extras (platform-agnostic)
+RUN pip install --no-cache-dir --upgrade pip && \
+    pip install --no-cache-dir -e ".[test]"
+
+# Copy source code
+COPY qwen3_tts/ ./qwen3_tts/
+COPY config.json ./
+
+# Create expected directory structure with symlinks
+RUN mkdir -p /root/Qwen3-TTS_UserFiles /app/voice_prompts && \
+    ln -sf /app/config.json /root/Qwen3-TTS_UserFiles/config.json && \
+    ln -sf /app/voice_prompts /root/Qwen3-TTS_UserFiles/voice_prompts
+
+# Health check for container readiness
+HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
+    CMD python -c "import pytest; import gradio; import qwen3_tts" || exit 1
+
+# Run tests by default (can be overridden)
+CMD ["python", "-m", "pytest", "tests/", "-v", "--tb=short"]

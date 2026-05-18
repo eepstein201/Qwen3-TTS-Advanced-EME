@@ -21,12 +21,13 @@ jobs:
             python-version: '3.10'
 
     steps:
-    - uses: actions/checkout@v3
+    - uses: actions/checkout@v4
 
     - name: Set up Python ${{ matrix.python-version }}
-      uses: actions/setup-python@v4
+      uses: actions/setup-python@v5
       with:
         python-version: ${{ matrix.python-version }}
+        cache: 'pip'
 
     - name: Install system dependencies (Ubuntu)
       if: runner.os == 'Linux'
@@ -52,21 +53,17 @@ jobs:
         python -c "import gradio; print(f'✅ gradio {gradio.__version__} available')"
         python -c "import pytest; print(f'✅ pytest {pytest.__version__} available')"
 
-    - name: Run Batch 2 tests (Voice & CLI)
-      run: |
-        python tests/run_batches.py --batch 2
-
     - name: Run Batch 1 tests (Core utilities)
       run: |
         python tests/run_batches.py --batch 1
 
-    - name: Run specific voice generation tests
+    - name: Run Batch 2 tests (Voice & CLI)
       run: |
-        python -m unittest tests.test_voice_generation.TestReturnValueCounts -v
+        python tests/run_batches.py --batch 2
 
-    - name: Run voice prompts tests
+    - name: Run Batch 3 tests (Server Infrastructure)
       run: |
-        python -m unittest tests.test_voice_prompts -v
+        python tests/run_batches.py --batch 3
 
     - name: Test cross-platform compatibility
       run: |
@@ -86,16 +83,46 @@ jobs:
         print('✅ All test dependencies available')
         "
 
+    - name: Upload test results on failure
+      if: failure()
+      uses: actions/upload-artifact@v4
+      with:
+        name: test-results-${{ matrix.os }}-py${{ matrix.python-version }}
+        path: .pytest_cache/
+
+  test-docker:
+    # Container-based testing
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: Build test container
+      run: |
+        docker build -f Dockerfile.test -t qwen3-tts:test .
+
+    - name: Run Batch 1 tests in container
+      run: |
+        docker run --rm qwen3-tts:test python tests/run_batches.py --batch 1
+
+    - name: Run Batch 2 tests in container
+      run: |
+        docker run --rm qwen3-tts:test python tests/run_batches.py --batch 2
+
+    - name: Verify container health
+      run: |
+        docker run --rm --health-cmd="python -c 'import qwen3_tts'" qwen3-tts:test
+
   test-minimal:
     # Minimal test job for quick feedback
     runs-on: ubuntu-latest
     steps:
-    - uses: actions/checkout@v3
+    - uses: actions/checkout@v4
 
     - name: Set up Python
-      uses: actions/setup-python@v4
+      uses: actions/setup-python@v5
       with:
         python-version: '3.11'
+        cache: 'pip'
 
     - name: Install test dependencies
       run: |
