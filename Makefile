@@ -12,6 +12,7 @@ help:
 	@echo "Targets:"
 	@echo "  install          Install package in editable mode"
 	@echo "  install-mlx      Install with MLX backend dependencies"
+	@echo "  install-test-deps Install test dependencies (works in any environment)"
 	@echo "  test             Run all tests (may hang, use test-batch)"
 	@echo "  test-batch       Run tests in isolated batches (recommended)"
 	@echo "  test-quick       Quick test: core utilities only"
@@ -32,6 +33,9 @@ install:
 
 install-mlx:
 	pip install -e .[mlx]
+
+install-test-deps:
+	pip install -e ".[test]"
 
 # Testing - Batch runner (recommended)
 test-batch:
