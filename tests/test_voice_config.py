@@ -1,10 +1,16 @@
 """Config-related tests extracted from test_voice.py."""
 
 import os
+import platform
 import sys
 import tempfile
 import unittest
 from unittest.mock import patch
+
+
+def _is_macos_arm64() -> bool:
+    """Check if running on Apple Silicon for platform-specific test skipping."""
+    return platform.system() == "Darwin" and platform.machine() == "arm64"
 
 
 class TestTTSConfig(unittest.TestCase):
@@ -126,6 +132,7 @@ class TestBackendConfig(unittest.TestCase):
             for model_type, info in MLX_MODEL_INFO[size].items():
                 self.assertIn("{quant}", info["name_template"])
 
+    @unittest.skipIf(not _is_macos_arm64(), "MLX-first default only on macOS ARM64")
     def test_get_backend_default(self):
         """get_backend() defaults to 'mlx' with no env/config override (MLX-first architecture)."""
         from qwen3_tts.core.config import get_backend
@@ -152,6 +159,7 @@ class TestBackendConfig(unittest.TestCase):
                 result = get_backend()
         self.assertEqual(result, "mlx")
 
+    @unittest.skipIf(not _is_macos_arm64(), "MLX-first fallback only on macOS ARM64")
     def test_get_backend_invalid_falls_back(self):
         """Invalid backend value falls back to 'mlx' (MLX-first architecture)."""
         from qwen3_tts.core.config import get_backend

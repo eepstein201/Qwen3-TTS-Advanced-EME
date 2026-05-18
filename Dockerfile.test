@@ -24,10 +24,13 @@ ENV PYTHONUNBUFFERED=1 \
     # Disable gradio telemetry in containers
     GRADIO_ANALYTICS_ENABLED=False
 
-# Create non-root user for security
+# Create non-root user for security with proper home directory
 RUN useradd -m -u 1000 -s /bin/bash testuser && \
-    mkdir -p /app /root/Qwen3-TTS_UserFiles /app/voice_prompts && \
-    chown -R testuser:testuser /app /root/Qwen3-TTS_UserFiles
+    mkdir -p /app /home/testuser/Qwen3-TTS_UserFiles /app/voice_prompts && \
+    chown -R testuser:testuser /app /home/testuser
+
+# Set environment for testuser
+ENV USER_FILES_DIR=/home/testuser/Qwen3-TTS_UserFiles
 
 # Copy package definition first for better layer caching
 COPY --chown=testuser:testuser pyproject.toml README.md ./
@@ -45,10 +48,13 @@ COPY --chown=testuser:testuser qwen3_tts/ ./qwen3_tts/
 COPY --chown=testuser:testuser tests/ ./tests/
 COPY --chown=testuser:testuser config.json ./
 
-# Create expected directory structure with symlinks
-RUN ln -sf /app/config.json /root/Qwen3-TTS_UserFiles/config.json && \
+# Create expected directory structure with symlinks for both root and testuser
+RUN mkdir -p /root/Qwen3-TTS_UserFiles /home/testuser/Qwen3-TTS_UserFiles && \
+    ln -sf /app/config.json /root/Qwen3-TTS_UserFiles/config.json && \
+    ln -sf /app/config.json /home/testuser/Qwen3-TTS_UserFiles/config.json && \
     ln -sf /app/voice_prompts /root/Qwen3-TTS_UserFiles/voice_prompts && \
-    chown -R testuser:testuser /root/Qwen3-TTS_UserFiles
+    ln -sf /app/voice_prompts /home/testuser/Qwen3-TTS_UserFiles/voice_prompts && \
+    chown -R testuser:testuser /home/testuser/Qwen3-TTS_UserFiles
 
 # Run tests as non-root user
 USER testuser

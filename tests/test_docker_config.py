@@ -4,6 +4,7 @@ Verifies IPC settings, dtype, tensor parallelism, multimodal params,
 and HuggingFace cache volume mounting.
 """
 
+import pathlib
 import unittest
 
 try:
@@ -14,7 +15,17 @@ except ImportError:
     HAS_YAML = False
 
 
-@unittest.skipUnless(HAS_YAML, "requires PyYAML")
+def _vllm_dockerfile_exists() -> bool:
+    """Check if Dockerfile.vllm exists for vLLM-specific tests."""
+    return pathlib.Path("Dockerfile.vllm").exists()
+
+
+def _docker_compose_exists() -> bool:
+    """Check if docker-compose.yml exists for compose tests."""
+    return pathlib.Path("docker-compose.yml").exists()
+
+
+@unittest.skipUnless(HAS_YAML and _docker_compose_exists(), "requires PyYAML and docker-compose.yml")
 class TestDockerCompose(unittest.TestCase):
     """Validate docker-compose.yml for vLLM production readiness."""
 
@@ -62,6 +73,7 @@ class TestDockerCompose(unittest.TestCase):
         self.assertTrue(has_gpu, "GPU reservation must be present for vLLM service")
 
 
+@unittest.skipIf(not _vllm_dockerfile_exists(), "Dockerfile.vllm not found - skip vLLM Docker tests")
 class TestDockerfile(unittest.TestCase):
     """Validate Dockerfile.vllm for production readiness."""
 

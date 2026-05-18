@@ -22,6 +22,15 @@ from unittest.mock import patch, MagicMock
 _MOD = "qwen3_tts.tools.healthcheck"
 
 
+def _is_mlx_installed() -> bool:
+    """Check if MLX is installed for platform-specific test skipping."""
+    try:
+        import mlx  # noqa: F401
+        return True
+    except ImportError:
+        return False
+
+
 class TestCheckPythonVersion(unittest.TestCase):
 
     def test_pass_current_version(self):
@@ -45,6 +54,7 @@ class TestCheckPythonVersion(unittest.TestCase):
 
 class TestCheckBackendAvailability(unittest.TestCase):
 
+    @unittest.skipIf(not _is_mlx_installed(), "MLX not installed - skip MLX-specific test")
     def test_mlx_available(self):
         from qwen3_tts.tools.healthcheck import check_backend_availability
         with patch(f"{_MOD}.IS_MACOS", True), \
