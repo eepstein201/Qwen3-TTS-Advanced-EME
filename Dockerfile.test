@@ -1,7 +1,6 @@
 # Qwen3-TTS Test Container
 # Multi-stage build for efficient cross-platform testing
-# Build with: DOCKER_BUILDKIT=1 docker build -f Dockerfile.test -t qwen3-tts:test .
-# Or use buildx: docker buildx build -f Dockerfile.test -t qwen3-tts:test .
+# Build with: docker build -f Dockerfile.test -t qwen3-tts:test .
 
 FROM python:3.11-slim-bookworm AS test-base
 
@@ -20,24 +19,40 @@ WORKDIR /app
 FROM test-base AS test
 ENV PYTHONUNBUFFERED=1 \
     PYTHONDONTWRITEBYTECODE=1 \
+    PIP_NO_CACHE_DIR=1 \
+    PIP_DISABLE_PIP_VERSION_CHECK=1 \
     # Disable gradio telemetry in containers
     GRADIO_ANALYTICS_ENABLED=False
 
+# Create non-root user for security
+RUN useradd -m -u 1000 -s /bin/bash testuser && \
+    mkdir -p /app /root/Qwen3-TTS_UserFiles /app/voice_prompts && \
+    chown -R testuser:testuser /app /root/Qwen3-TTS_UserFiles
+
 # Copy package definition first for better layer caching
-COPY pyproject.toml README.md ./
+COPY --chown=testuser:testuser pyproject.toml README.md ./
 
-# Install with test extras (platform-agnostic)
-RUN pip install --no-cache-dir --upgrade pip && \
-    pip install --no-cache-dir -e ".[test]"
+# Install as testuser to avoid root pip installations
+USER testuser
+RUN pip install --user --upgrade pip && \
+    pip install --user -e ".[test]"
 
-# Copy source code
-COPY qwen3_tts/ ./qwen3_tts/
-COPY config.json ./
+# Switch back to root to copy files with proper permissions
+USER root
+
+# Copy source code and tests
+COPY --chown=testuser:testuser qwen3_tts/ ./qwen3_tts/
+COPY --chown=testuser:testuser tests/ ./tests/
+COPY --chown=testuser:testuser config.json ./
 
 # Create expected directory structure with symlinks
-RUN mkdir -p /root/Qwen3-TTS_UserFiles /app/voice_prompts && \
-    ln -sf /app/config.json /root/Qwen3-TTS_UserFiles/config.json && \
-    ln -sf /app/voice_prompts /root/Qwen3-TTS_UserFiles/voice_prompts
+RUN ln -sf /app/config.json /root/Qwen3-TTS_UserFiles/config.json && \
+    ln -sf /app/voice_prompts /root/Qwen3-TTS_UserFiles/voice_prompts && \
+    chown -R testuser:testuser /root/Qwen3-TTS_UserFiles
+
+# Run tests as non-root user
+USER testuser
+WORKDIR /app
 
 # Health check for container readiness
 HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
