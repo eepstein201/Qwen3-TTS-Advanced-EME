@@ -105,13 +105,12 @@ class TestPreviewVoicePromptDeep(unittest.TestCase):
     """Deeper tests for preview_voice_prompt."""
 
     @patch("qwen3_tts.interface.generate_interactive.voice_prompt_exists", return_value=True)
-    @patch("qwen3_tts.core.config.is_server_running", return_value=True)
-    @patch("qwen3_tts.core.config.get_server_url", return_value="http://127.0.0.1:5123")
+    @patch("qwen3_tts.interface.generate_interactive.is_server_running", return_value=True)
     @patch("qwen3_tts.interface.generate_interactive._save_base64_result")
     @patch("qwen3_tts.interface.generate_interactive.play_audio")
     @patch("os.remove")
     @patch("builtins.print")
-    def test_server_success(self, _print, _remove, mock_play, mock_save, _url, _running, _exists):
+    def test_server_success(self, _print, _remove, mock_play, mock_save, _running, _exists):
         from qwen3_tts.interface.generate_interactive import preview_voice_prompt
         import tempfile as real_tempfile
 
@@ -139,10 +138,9 @@ class TestPreviewVoicePromptDeep(unittest.TestCase):
                 pass
 
     @patch("qwen3_tts.interface.generate_interactive.voice_prompt_exists", return_value=True)
-    @patch("qwen3_tts.core.config.is_server_running", return_value=True)
-    @patch("qwen3_tts.core.config.get_server_url", return_value="http://127.0.0.1:5123")
+    @patch("qwen3_tts.interface.generate_interactive.is_server_running", return_value=True)
     @patch("builtins.print")
-    def test_server_error(self, mock_print, _url, _running, _exists):
+    def test_server_error(self, mock_print, _running, _exists):
         from qwen3_tts.interface.generate_interactive import preview_voice_prompt
         mock_resp = MagicMock()
         mock_resp.status_code = 500
@@ -405,10 +403,9 @@ class TestPreviewJsonDecodeError(unittest.TestCase):
     """Cover lines 157-158: JSONDecodeError in preview_voice_prompt."""
 
     @patch("qwen3_tts.interface.generate_interactive.voice_prompt_exists", return_value=True)
-    @patch("qwen3_tts.core.config.is_server_running", return_value=True)
-    @patch("qwen3_tts.core.config.get_server_url", return_value="http://127.0.0.1:5123")
+    @patch("qwen3_tts.interface.generate_interactive.is_server_running", return_value=True)
     @patch("builtins.print")
-    def test_json_decode_error_on_error_response(self, mock_print, _url, _running, _exists):
+    def test_json_decode_error_on_error_response(self, mock_print, _running, _exists):
         from qwen3_tts.interface.generate_interactive import preview_voice_prompt
         mock_resp = MagicMock()
         mock_resp.status_code = 502
