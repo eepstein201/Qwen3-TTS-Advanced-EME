@@ -187,15 +187,45 @@ For full config.json structure, see `docs/00-Foundations/ARCHITECTURE.md`.
 
 ## Testing
 
-**Primary test environment:** `qwen3-tts-mlx` conda env (M2 Pro, MLX backend). Always test here first.
+**Environment Independence:** Tests now work in any Python environment with test dependencies installed. No conda environment required.
+
+**Universal Installation (works on all platforms):**
 ```bash
-source ~/miniforge3/etc/profile.d/conda.sh && conda activate qwen3-tts-mlx
+pip install -e ".[test]"
 ```
+
+**Primary test environment:** `qwen3-tts-mlx` conda env (M2 Pro, MLX backend) for development purposes only.
 
 **Server restart rule:** Always stop the server before starting to pick up code changes:
 ```bash
 tts server stop && tts server start
 ```
+
+**Quick Start (any platform):**
+```bash
+# Install test dependencies
+pip install -e ".[test]"
+
+# Run all tests
+python -m unittest discover -v tests/
+
+# Run specific batches
+python tests/run_batches.py --batch 2  # Batch 2: Voice & CLI
+python tests/run_batches.py --batch 3  # Batch 3: Server infrastructure
+```
+
+**Platform Support Matrix:**
+- Linux CPU: ✅ Full support
+- Linux GPU/CUDA: ✅ Full support with automatic CUDA detection
+- macOS MLX: ✅ Full support with MLX backend
+- Google Colab: ✅ Full support (free/pro tiers)
+- Docker: ✅ Full containerized support
+
+**Migration Notes:**
+- Old: `conda activate qwen3-tts-mlx && python -m unittest tests.test_module -v`
+- New: `pip install -e ".[test]" && python -m unittest tests.test_module -v`
+
+**Conda environments still work** for development, but are no longer required for testing.
 
 **Preferred: pytest full suite** (1900+ tests):
 ```bash

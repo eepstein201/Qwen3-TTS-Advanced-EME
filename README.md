@@ -553,12 +553,39 @@ All public functions are re-exported through `engine/__init__.py` for backward c
 
 ### Testing
 
-Run the test suite using the batch runner (1900+ tests across 80+ test files, organized in 6 batches):
+## Running Tests
+
+### Universal Test Installation
+
+Tests now work in **any** Python environment with a single installation command:
+
+```bash
+pip install -e ".[test]"
+```
+
+This installs all required dependencies including gradio, pytest, and playwright. No conda environment required!
+
+### Test Execution
+
+**Run all tests using the batch runner (1900+ tests across 80+ test files, organized in 6 batches):
 ```bash
 python tests/run_batches.py        # Run all batches
 python tests/run_batches.py --batch 1  # Run a specific batch
 make test-batch                    # Or use the Makefile
 ```
+
+**Run specific test modules directly:**
+```bash
+python -m unittest tests.test_voice_generation -v
+python -m unittest tests.test_voice_prompts -v
+```
+
+**Platform Support:**
+- ✅ **Linux CPU** - Full test suite support
+- ✅ **Linux GPU/CUDA** - Full test suite with CUDA detection  
+- ✅ **macOS MLX** - Full test suite with MLX backend support
+- ✅ **Google Colab** - Full test suite support (free/pro tiers)
+- ✅ **Docker** - Containerized testing support
 
 **Full suite runner** (multi-environment testing with server lifecycle management):
 ```bash
@@ -567,6 +594,33 @@ python tests/run_full_suite.py --full --env torch   # Torch environment only
 python tests/run_full_suite.py --full --env all     # Both environments
 python tests/run_full_suite.py --full --test-type unit  # Unit tests only
 python tests/run_full_suite.py --full --dry-run     # Preview without running
+```
+
+**Migration from conda-only testing:**
+```bash
+# Old way (still works):
+conda activate qwen3-tts-mlx
+python -m unittest tests.test_module -v
+
+# New way (works anywhere):
+pip install -e ".[test]"  # One-time setup
+python -m unittest tests.test_module -v  # Works in any environment!
+```
+
+### Troubleshooting
+
+**Tests fail with import errors:**
+```bash
+# Ensure test dependencies are installed
+pip install -e ".[test]"
+```
+
+**Specific test module not found:**
+```bash
+# Run from project root directory
+cd /path/to/Qwen3-TTS_UserFiles
+python -m unittest tests.test_module_name -v
+```
 ```
 
 ## License
