@@ -1,0 +1,112 @@
+name: Tests
+
+on:
+  push:
+    branches: [ main, develop, fix/*, feature/* ]
+  pull_request:
+    branches: [ main, develop ]
+  workflow_dispatch:
+
+jobs:
+  test:
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+        python-version: ['3.10', '3.11', '3.12']
+        exclude:
+          # Reduce matrix size for faster CI
+          - os: macos-latest
+            python-version: '3.10'
+
+    steps:
+    - uses: actions/checkout@v3
+
+    - name: Set up Python ${{ matrix.python-version }}
+      uses: actions/setup-python@v4
+      with:
+        python-version: ${{ matrix.python-version }}
+
+    - name: Install system dependencies (Ubuntu)
+      if: runner.os == 'Linux'
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y --no-install-recommends \
+          ffmpeg \
+          libsndfile1 \
+          portaudio19-dev
+
+    - name: Install system dependencies (macOS)
+      if: runner.os == 'macOS'
+      run: |
+        brew install ffmpeg portaudio
+
+    - name: Install test dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install -e ".[test]"
+
+    - name: Verify installation
+      run: |
+        python -c "import gradio; print(f'✅ gradio {gradio.__version__} available')"
+        python -c "import pytest; print(f'✅ pytest {pytest.__version__} available')"
+
+    - name: Run Batch 2 tests (Voice & CLI)
+      run: |
+        python tests/run_batches.py --batch 2
+
+    - name: Run Batch 1 tests (Core utilities)
+      run: |
+        python tests/run_batches.py --batch 1
+
+    - name: Run specific voice generation tests
+      run: |
+        python -m unittest tests.test_voice_generation.TestReturnValueCounts -v
+
+    - name: Run voice prompts tests
+      run: |
+        python -m unittest tests.test_voice_prompts -v
+
+    - name: Test cross-platform compatibility
+      run: |
+        python -c "
+        import platform
+        import sys
+
+        print(f'Platform: {platform.system()}')
+        print(f'Python: {sys.version}')
+        print(f'Architecture: {platform.machine()}')
+
+        # Test that all test dependencies are available
+        import gradio
+        import pytest
+        import unittest
+
+        print('✅ All test dependencies available')
+        "
+
+  test-minimal:
+    # Minimal test job for quick feedback
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v3
+
+    - name: Set up Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: '3.11'
+
+    - name: Install test dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install -e ".[test]"
+
+    - name: Quick smoke test
+      run: |
+        python -m unittest tests.test_voice_generation.TestReturnValueCounts -v
+
+    - name: Test universal installation
+      run: |
+        pip install -e ".[test]"
+        python -c "import gradio; print('✅ Universal test installation works')"
