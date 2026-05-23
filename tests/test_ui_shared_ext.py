@@ -132,7 +132,7 @@ class TestGetCurrentModelSettings(unittest.TestCase):
              patch(f"{_MOD}.get_mlx_quantization", return_value="8bit"), \
              patch(f"{_MOD}.is_server_running", return_value=True), \
              patch(f"{_MOD}.load_config", return_value={}), \
-             patch(f"{_MOD}.get_server_url", return_value="http://127.0.0.1:5123"), \
+             patch("qwen3_tts.core.http_client.get_server_url", return_value="http://127.0.0.1:5123"), \
              patch("qwen3_tts.core.http_client.server_request", return_value=mock_resp):
             result = get_current_model_settings()
         self.assertEqual(result, ("0.6B", "4bit", "mlx"))
@@ -144,7 +144,7 @@ class TestGetCurrentModelSettings(unittest.TestCase):
              patch(f"{_MOD}.get_mlx_quantization", return_value="8bit"), \
              patch(f"{_MOD}.is_server_running", return_value=True), \
              patch(f"{_MOD}.load_config", return_value={}), \
-             patch(f"{_MOD}.get_server_url", return_value="http://127.0.0.1:5123"), \
+             patch("qwen3_tts.core.http_client.get_server_url", return_value="http://127.0.0.1:5123"), \
              patch("qwen3_tts.core.http_client.server_request", side_effect=Exception("timeout")):
             result = get_current_model_settings()
         self.assertEqual(result, ("1.7B", "8bit", "torch"))
@@ -167,7 +167,7 @@ class TestApplyModelSettings(unittest.TestCase):
         mock_resp.status_code = 200
         with patch(f"{_MOD}.is_server_running", return_value=True), \
              patch(f"{_MOD}.load_config", return_value={}), \
-             patch(f"{_MOD}.get_server_url", return_value="http://127.0.0.1:5123"), \
+             patch("qwen3_tts.core.http_client.get_server_url", return_value="http://127.0.0.1:5123"), \
              patch(f"{_MOD}.get_backend", return_value="mlx"), \
              patch(f"{_MOD}.format_status_display", return_value="<html>"), \
              patch("qwen3_tts.core.http_client.server_request", return_value=mock_resp):
@@ -181,7 +181,7 @@ class TestApplyModelSettings(unittest.TestCase):
         mock_resp.json.return_value = {"error": "bad config"}
         with patch(f"{_MOD}.is_server_running", return_value=True), \
              patch(f"{_MOD}.load_config", return_value={}), \
-             patch(f"{_MOD}.get_server_url", return_value="http://127.0.0.1:5123"), \
+             patch("qwen3_tts.core.http_client.get_server_url", return_value="http://127.0.0.1:5123"), \
              patch(f"{_MOD}.get_backend", return_value="mlx"), \
              patch(f"{_MOD}.format_status_display", return_value="<html>"), \
              patch("qwen3_tts.core.http_client.server_request", return_value=mock_resp):
@@ -192,7 +192,7 @@ class TestApplyModelSettings(unittest.TestCase):
         from qwen3_tts.interface.ui.shared import apply_model_settings
         with patch(f"{_MOD}.is_server_running", return_value=True), \
              patch(f"{_MOD}.load_config", return_value={}), \
-             patch(f"{_MOD}.get_server_url", side_effect=Exception("conn")), \
+             patch("qwen3_tts.core.http_client.get_server_url", side_effect=Exception("conn")), \
              patch(f"{_MOD}.format_status_display", return_value="<html>"):
             msg, html = apply_model_settings("0.6B", "4bit")
         self.assertIn("Error", msg)

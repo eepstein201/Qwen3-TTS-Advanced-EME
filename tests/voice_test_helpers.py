@@ -98,9 +98,13 @@ async def _null_lifespan(app):
 def _make_test_client(app, server_config=None):
     """Create TestClient without triggering real lifespan model loading."""
     from fastapi.testclient import TestClient
+    from unittest.mock import patch
+
     _setup_fastapi_app_state(app, server_config)
-    original = app.router.lifespan_context
-    app.router.lifespan_context = _null_lifespan
-    client = TestClient(app)
-    app.router.lifespan_context = original
-    return client
+    # Mock memory check to avoid 503 due to low memory during tests
+    with patch("qwen3_tts.server.app_lifespan._check_memory_available", return_value=(True, 10000)):
+        original = app.router.lifespan_context
+        app.router.lifespan_context = _null_lifespan
+        client = TestClient(app)
+        app.router.lifespan_context = original
+        return client

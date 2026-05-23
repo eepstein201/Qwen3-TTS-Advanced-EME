@@ -159,8 +159,8 @@ class TestGetText(unittest.TestCase):
     def test_path_traversal_blocked(self):
         """Blocks path traversal attempts with '..' in filename."""
         from qwen3_tts.interface.generate_helpers import get_text
-        result = get_text("../etc/passwd")
-        self.assertEqual(result, "../etc/passwd")
+        with self.assertRaises(ValueError, msg="Path traversal should raise ValueError"):
+            get_text("../etc/passwd")
 
     def test_slash_in_name_skips_downloads(self):
         """Skips Downloads fallback when filename contains '/'."""

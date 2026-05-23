@@ -120,7 +120,7 @@ class TestAutoTranscribe(unittest.TestCase):
         mock_resp.json.return_value = {"transcript": "Hello world"}
         with patch(f"{_MOD}.load_config", return_value={}), \
              patch(f"{_MOD}.is_server_running", return_value=True), \
-             patch(f"{_MOD}.get_server_url", return_value="http://127.0.0.1:5123"), \
+             patch("qwen3_tts.core.http_client.get_server_url", return_value="http://127.0.0.1:5123"), \
              patch("builtins.open", mock_open(read_data=b"audio")), \
              patch("qwen3_tts.core.http_client.server_request", return_value=mock_resp):
             result = auto_transcribe_audio("/tmp/audio.wav")
@@ -133,7 +133,7 @@ class TestAutoTranscribe(unittest.TestCase):
         mock_resp.json.return_value = {"error": "failed"}
         with patch(f"{_MOD}.load_config", return_value={}), \
              patch(f"{_MOD}.is_server_running", return_value=True), \
-             patch(f"{_MOD}.get_server_url", return_value="http://127.0.0.1:5123"), \
+             patch("qwen3_tts.core.http_client.get_server_url", return_value="http://127.0.0.1:5123"), \
              patch("builtins.open", mock_open(read_data=b"audio")), \
              patch("qwen3_tts.core.http_client.server_request", return_value=mock_resp):
             with self.assertRaises(gr.Error):
@@ -176,7 +176,7 @@ class TestPreviewVoice(unittest.TestCase):
         mock_resp.content = b"RIFF fake wav data"
         with patch(f"{_MOD}.load_config", return_value={}), \
              patch(f"{_MOD}.is_server_running", return_value=True), \
-             patch(f"{_MOD}.get_server_url", return_value="http://127.0.0.1:5123"), \
+             patch("qwen3_tts.core.http_client.get_server_url", return_value="http://127.0.0.1:5123"), \
              patch("qwen3_tts.core.http_client.server_request", return_value=mock_resp), \
              patch("tempfile.NamedTemporaryFile") as mock_tmp:
             mock_file = MagicMock()
@@ -192,7 +192,7 @@ class TestPreviewVoice(unittest.TestCase):
         mock_resp.json.return_value = {"error": "not found"}
         with patch(f"{_MOD}.load_config", return_value={}), \
              patch(f"{_MOD}.is_server_running", return_value=True), \
-             patch(f"{_MOD}.get_server_url", return_value="http://127.0.0.1:5123"), \
+             patch("qwen3_tts.core.http_client.get_server_url", return_value="http://127.0.0.1:5123"), \
              patch("qwen3_tts.core.http_client.server_request", return_value=mock_resp):
             with self.assertRaises(gr.Error):
                 preview_voice("missing_voice")
@@ -201,7 +201,7 @@ class TestPreviewVoice(unittest.TestCase):
         from qwen3_tts.interface.ui.voice_management import preview_voice
         with patch(f"{_MOD}.load_config", return_value={}), \
              patch(f"{_MOD}.is_server_running", return_value=True), \
-             patch(f"{_MOD}.get_server_url", side_effect=Exception("conn")):
+             patch("qwen3_tts.core.http_client.get_server_url", side_effect=Exception("conn")):
             result = preview_voice("my_voice")
         self.assertIsNone(result)
 
@@ -234,7 +234,7 @@ class TestRenameVoice(unittest.TestCase):
         with patch(f"{_MOD}.validate_prompt_name", return_value=None), \
              patch(f"{_MOD}.load_config", return_value={}), \
              patch(f"{_MOD}.is_server_running", return_value=True), \
-             patch(f"{_MOD}.get_server_url", return_value="http://127.0.0.1:5123"), \
+             patch("qwen3_tts.core.http_client.get_server_url", return_value="http://127.0.0.1:5123"), \
              patch("qwen3_tts.core.http_client.server_request", return_value=mock_resp), \
              patch(f"{_MOD}.get_voice_prompts", return_value=["new.wav"]), \
              patch(f"{_MOD}.get_prompt_table_data", return_value=[]):
@@ -263,7 +263,7 @@ class TestDeleteVoice(unittest.TestCase):
         mock_resp.status_code = 200
         with patch(f"{_MOD}.load_config", return_value={}), \
              patch(f"{_MOD}.is_server_running", return_value=True), \
-             patch(f"{_MOD}.get_server_url", return_value="http://127.0.0.1:5123"), \
+             patch("qwen3_tts.core.http_client.get_server_url", return_value="http://127.0.0.1:5123"), \
              patch("qwen3_tts.core.http_client.server_request", return_value=mock_resp), \
              patch(f"{_MOD}.get_voice_prompts", return_value=[]), \
              patch(f"{_MOD}.get_prompt_table_data", return_value=[]):
@@ -277,7 +277,7 @@ class TestDeleteVoice(unittest.TestCase):
         mock_resp.json.return_value = {"error": "internal"}
         with patch(f"{_MOD}.load_config", return_value={}), \
              patch(f"{_MOD}.is_server_running", return_value=True), \
-             patch(f"{_MOD}.get_server_url", return_value="http://127.0.0.1:5123"), \
+             patch("qwen3_tts.core.http_client.get_server_url", return_value="http://127.0.0.1:5123"), \
              patch("qwen3_tts.core.http_client.server_request", return_value=mock_resp):
             with self.assertRaises(gr.Error):
                 delete_voice("my_voice")

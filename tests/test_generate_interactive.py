@@ -137,7 +137,7 @@ class TestPreviewVoicePrompt(unittest.TestCase):
 
     @patch("qwen3_tts.interface.generate_interactive.voice_prompt_exists",
            return_value=True)
-    @patch("qwen3_tts.core.config.is_server_running",
+    @patch("qwen3_tts.interface.generate_interactive.is_server_running",
            return_value=False)
     def test_server_not_running(self, _mock_server, _mock_exists):
         """Returns False and prints error when server is not running."""
@@ -147,8 +147,10 @@ class TestPreviewVoicePrompt(unittest.TestCase):
             result = preview_voice_prompt("my_voice", {})
 
         self.assertFalse(result)
-        mock_print.assert_called_once()
-        self.assertIn("server must be running", mock_print.call_args[0][0].lower())
+        # Check that error message was printed (may be called multiple times)
+        error_printed = any("server must be running" in str(call).lower()
+                           for call in mock_print.call_args_list)
+        self.assertTrue(error_printed, "Expected error message about server not running")
 
 
 if __name__ == "__main__":
