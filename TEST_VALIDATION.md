@@ -1,8 +1,8 @@
 # Test Validation Across All Environments
 
 **Date:** 2026-05-23
-**Status:** All 6 batches passing on macOS MLX
-**Branch:** `fix/vllm-testing-improvements` (commit: bafcf7c)
+**Status:** All 6 batches passing on macOS MLX **and** in the Docker test container
+**Branch:** `fix/vllm-testing-improvements` (latest commit: 845406c)
 
 ## Summary
 
@@ -24,19 +24,20 @@ All 2163+ tests pass after fixing mock patch paths in `test_generate_interactive
 
 ---
 
-## 🔄 Pending Validation
+## ✅ Docker Container
 
-### Docker Container
-```bash
-# Start Docker Desktop, then:
-docker build -t qwen3-tts-test -f - . <<'EOF'
-FROM python:3.11-slim
-WORKDIR /app
-COPY pyproject.toml . qwen3_tts/ qwen3_tts/ tests/ tests/
-RUN pip install -e ".[test]" --quiet
-RUN python tests/run_batches.py
-EOF
-```
+- **Image:** `qwen3-tts:test` (built from `Dockerfile.test`, non-root testuser)
+- **Result:** ✅ All 6 batches pass (Batch 6 cleanly skips with no server)
+- **Command:**
+  ```bash
+  bash tests/validate_docker.sh
+  ```
+  > Note: if Docker Desktop's credential helper isn't on PATH, prefix with
+  > `PATH="/Applications/Docker.app/Contents/Resources/bin:$PATH"`.
+
+---
+
+## 🔄 Pending Validation
 
 ### Linux CPU (Ubuntu/Debian)
 ```bash
@@ -83,20 +84,22 @@ python tests/run_batches.py
 
 ---
 
-## Fixes Applied (commit: bafcf7c)
+## Fixes Applied
 
-1. **Fixed mock patch paths** - Patches now target import location in `generate_interactive.py`
-2. **Removed unused patches** - `get_server_url` not used by `preview_voice_prompt`
-3. **Memory check mock** - Added in `voice_test_helpers.py` to avoid 503 errors
+| Commit | Change |
+|--------|--------|
+| `bafcf7c` | Fix mock patch paths in `test_generate_interactive_ext.py` (target import location, not definition) |
+| `db3b750` | Patch `get_server_url` at `qwen3_tts.core.http_client` (its real call site via `server_request`); add memory-check mock in `voice_test_helpers`; widen torch.compile lookback; skip Colab-specific tests when notebook absent; update path-traversal test for new `ValueError` behavior |
+| `845406c` | `validate_docker.sh` uses `Dockerfile.test` (real build context); `e2e_helpers.playwright_enabled` gracefully degrades when `.claude/.mcp.json` is absent so Batch 6 can skip cleanly in Docker/CI |
 
 ---
 
 ## Next Steps
 
-1. ✅ Merge `fix/vllm-testing-improvements` to main
-2. 🔄 Run Docker validation (when Docker available)
-3. 🔄 Run Linux/CUDA validation (if applicable)
-4. 🔄 Test in Google Colab (optional)
+1. ✅ Run Docker validation
+2. 🔄 Run Linux/CUDA validation on an actual Linux box
+3. 🔄 Test in Google Colab (upload `tests/validate_colab.ipynb`)
+4. Merge `fix/vllm-testing-improvements` to main once 2–3 are confirmed
 
 ---
 
