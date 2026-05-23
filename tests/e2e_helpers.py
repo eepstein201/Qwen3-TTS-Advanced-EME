@@ -64,13 +64,17 @@ def playwright_enabled(auto_enable: bool = True):
 
     try:
         if auto_enable:
-            # Save original state and enable Playwright
-            with open(MCP_CONFIG_PATH, "r") as f:
-                config = json.load(f)
-                original_state = config.get("mcpServers", {}).get("playwright", False)
-
-            _set_playwright(enabled=True)
-            print("🎭 Playwright enabled for E2E tests")
+            if MCP_CONFIG_PATH.exists():
+                with open(MCP_CONFIG_PATH, "r") as f:
+                    config = json.load(f)
+                    original_state = config.get("mcpServers", {}).get("playwright", False)
+                _set_playwright(enabled=True)
+                print("🎭 Playwright enabled for E2E tests")
+            else:
+                # No .claude/.mcp.json (Docker, CI, fresh checkout). Skip the toggle —
+                # Batch 6 will still detect-and-skip when no server is running, and
+                # individual E2E tests can manage their own playwright state.
+                print(f"🎭 {MCP_CONFIG_PATH} not found; skipping playwright toggle")
 
         yield
 

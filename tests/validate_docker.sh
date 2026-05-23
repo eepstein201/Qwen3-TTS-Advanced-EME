@@ -1,38 +1,25 @@
 #!/bin/bash
-# Validate tests in Docker container
-# Run from project root
+# Validate tests in Docker container.
+# Run from project root. Uses Dockerfile.test (multi-stage, non-root testuser).
 
 set -e
 
+# Resolve project root regardless of where this is invoked from.
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+PROJECT_ROOT="$(dirname "$SCRIPT_DIR")"
+cd "$PROJECT_ROOT"
+
 echo "=== Docker Test Validation ==="
-echo "Building test image..."
 
-docker build -t qwen3-tts-test - <<'EOF'
-FROM python:3.11-slim
+if ! docker info >/dev/null 2>&1; then
+    echo "ERROR: Docker daemon is not running. Start Docker Desktop and re-run."
+    exit 1
+fi
 
-WORKDIR /app
+echo "Building test image with Dockerfile.test ..."
+docker build -f Dockerfile.test -t qwen3-tts:test .
 
-# Install system dependencies
-RUN apt-get update && apt-get install -y --no-install-recommends \
-    git \
-    && rm -rf /var/lib/apt/lists/*
-
-# Copy project files
-COPY pyproject.toml .
-COPY qwen3_tts/ qwen3_tts/
-COPY tests/ tests/
-
-# Install test dependencies
-RUN pip install --upgrade pip && \
-    pip install -e ".[test]" --quiet
-
-# Run all test batches
-RUN python tests/run_batches.py
-
-CMD ["python", "-m", "unittest", "discover", "-v", "tests/"]
-EOF
-
-echo "Running tests..."
-docker run --rm qwen3-tts-test
+echo "Running batch suite inside container ..."
+docker run --rm qwen3-tts:test python tests/run_batches.py
 
 echo "=== Docker validation complete ==="
