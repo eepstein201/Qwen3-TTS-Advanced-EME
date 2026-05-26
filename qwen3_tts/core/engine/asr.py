@@ -67,6 +67,61 @@ def preload_asr_model():
     threading.Thread(target=_load, daemon=True).start()
 
 
+_MLX_WHISPER_REPO = "mlx-community/whisper-large-v3-turbo"
+_WHISPER_PROCESSOR_SOURCE = "openai/whisper-large-v3-turbo"
+_WHISPER_PROCESSOR_FILES = (
+    "preprocessor_config.json",
+    "tokenizer.json",
+    "tokenizer_config.json",
+    "vocab.json",
+    "merges.txt",
+    "normalizer.json",
+    "generation_config.json",
+    "added_tokens.json",
+    "special_tokens_map.json",
+)
+
+
+def _ensure_mlx_whisper_processor() -> None:
+    """Copy HF processor/tokenizer files into the MLX Whisper snapshot dir.
+
+    Why: The mlx-community/whisper-large-v3-turbo repo ships only weights +
+    config.json. mlx-audio loads them via WhisperProcessor.from_pretrained,
+    which then hard-fails on get_tokenizer(). We bridge by copying the
+    matching files from the upstream openai/whisper-large-v3-turbo repo.
+    Idempotent: skips files that already exist.
+    """
+    import os
+    import shutil
+
+    try:
+        from huggingface_hub import hf_hub_download, snapshot_download
+    except ImportError:
+        return  # huggingface_hub is a hard dep of mlx_audio; if missing the next call fails clearly
+
+    try:
+        snapshot_dir = snapshot_download(
+            repo_id=_MLX_WHISPER_REPO,
+            allow_patterns=["config.json"],
+        )
+    except Exception as e:
+        logger.warning("Could not locate MLX Whisper snapshot: %s", e)
+        return
+
+    missing = [f for f in _WHISPER_PROCESSOR_FILES if not os.path.exists(os.path.join(snapshot_dir, f))]
+    if not missing:
+        return
+
+    logger.info("Fetching %d missing Whisper processor files from %s", len(missing), _WHISPER_PROCESSOR_SOURCE)
+    for filename in missing:
+        try:
+            src = hf_hub_download(repo_id=_WHISPER_PROCESSOR_SOURCE, filename=filename)
+            shutil.copy(src, os.path.join(snapshot_dir, filename))
+        except Exception as e:
+            # added_tokens.json may legitimately not exist upstream; log and continue
+            logger.debug("Skipped processor file %s: %s", filename, e)
+
+
 def load_asr_model():
     """Load ASR model synchronously for the current backend. Returns True on success."""
     global _asr_model_mlx
@@ -78,7 +133,8 @@ def load_asr_model():
             try:
                 from mlx_audio.stt import load_model as load_stt_model
 
-                _asr_model_mlx = load_stt_model("mlx-community/whisper-large-v3-turbo")
+                _ensure_mlx_whisper_processor()
+                _asr_model_mlx = load_stt_model(_MLX_WHISPER_REPO)
                 logger.info("Loaded MLX ASR model")
                 return True
             except ImportError as e:
