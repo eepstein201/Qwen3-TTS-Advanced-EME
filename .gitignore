@@ -59,3 +59,22 @@ Thumbs.db
 
 .gemini/
 gha-creds-*.json
+
+# Playwright MCP artifacts
+.playwright-mcp/
+
+# UI/session capture artifacts
+current-tabs.md
+current-ui-state.md
+manage-voices-tab.md
+manage-voices-tab-reloaded.md
+gradio-ui-load*
+ui-initial-state.png
+ui-loaded.png
+screenshot-*.png
+page-*.yml
+
+# Local tooling
+.watchmanconfig
+poltergeist.config.json
+/info
