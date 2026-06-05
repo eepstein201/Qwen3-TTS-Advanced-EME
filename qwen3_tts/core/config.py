@@ -43,14 +43,14 @@ USER_FILES_DIR = os.path.expanduser("~/Qwen3-TTS_UserFiles")
 def _resolve_config_path():
     """Resolve config.json location across dev, CI, and packaged installs.
 
-    Order: TTS_CONFIG_PATH env override -> user files dir (normal runtime)
-    -> repo-root config.json (CI checkout / source tree). The home-dir path
-    coincides with the repo root on the maintainer's machine but not in CI,
-    so the repo-root fallback lets the committed config.json be found there.
+    Order: user files dir (normal runtime) -> repo-root config.json (CI
+    checkout / source tree). The home-dir path coincides with the repo root
+    on the maintainer's machine but not in CI, so the repo-root fallback
+    (anchored on __file__, not on any external input) lets the committed
+    config.json be found there. No environment-variable override is used:
+    feeding an env var into open() is a path-injection source (CodeQL
+    py/path-injection), and __file__ anchoring fixes CI without it.
     """
-    env = os.environ.get("TTS_CONFIG_PATH")
-    if env:
-        return env
     home_cfg = os.path.join(USER_FILES_DIR, "config.json")
     if os.path.exists(home_cfg):
         return home_cfg
