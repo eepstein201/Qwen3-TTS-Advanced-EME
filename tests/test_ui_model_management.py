@@ -74,7 +74,6 @@ def test_get_model_table_data_server_running():
 
     with patch("qwen3_tts.interface.ui.model_management.load_config", return_value=config), \
          patch("qwen3_tts.interface.ui.model_management.is_server_running", return_value=True), \
-         patch("qwen3_tts.interface.ui.model_management.get_server_url", return_value="http://127.0.0.1:5123"), \
          patch("qwen3_tts.core.http_client.server_request", return_value=mock_resp):
         rows = get_model_table_data()
 
@@ -96,7 +95,6 @@ def test_get_model_table_data_server_error():
 
     with patch("qwen3_tts.interface.ui.model_management.load_config", return_value={}), \
          patch("qwen3_tts.interface.ui.model_management.is_server_running", return_value=True), \
-         patch("qwen3_tts.interface.ui.model_management.get_server_url", return_value="http://127.0.0.1:5123"), \
          patch("qwen3_tts.core.http_client.server_request", return_value=mock_resp):
         rows = get_model_table_data()
 
@@ -111,7 +109,6 @@ def test_get_model_table_data_connection_error():
 
     with patch("qwen3_tts.interface.ui.model_management.load_config", return_value={}), \
          patch("qwen3_tts.interface.ui.model_management.is_server_running", return_value=True), \
-         patch("qwen3_tts.interface.ui.model_management.get_server_url", return_value="http://127.0.0.1:5123"), \
          patch("qwen3_tts.core.http_client.server_request", side_effect=ConnectionError("refused")):
         rows = get_model_table_data()
 
@@ -132,7 +129,6 @@ def test_toggle_model_load_success():
 
     with patch("qwen3_tts.interface.ui.model_management.load_config", return_value={}), \
          patch("qwen3_tts.interface.ui.model_management.is_server_running", return_value=True), \
-         patch("qwen3_tts.interface.ui.model_management.get_server_url", return_value="http://127.0.0.1:5123"), \
          patch("qwen3_tts.core.http_client.server_request", return_value=mock_resp), \
          patch("qwen3_tts.interface.ui.model_management.get_model_table_data", return_value=[]), \
          patch("qwen3_tts.interface.ui.model_management.format_status_display", return_value="ok"):
@@ -167,7 +163,6 @@ def test_toggle_model_unload_success():
 
     with patch("qwen3_tts.interface.ui.model_management.load_config", return_value={}), \
          patch("qwen3_tts.interface.ui.model_management.is_server_running", return_value=True), \
-         patch("qwen3_tts.interface.ui.model_management.get_server_url", return_value="http://127.0.0.1:5123"), \
          patch("qwen3_tts.core.http_client.server_request", return_value=mock_resp), \
          patch("qwen3_tts.interface.ui.model_management.get_model_table_data", return_value=[]), \
          patch("qwen3_tts.interface.ui.model_management.format_status_display", return_value="ok"):
@@ -187,7 +182,6 @@ def test_toggle_model_error_response():
 
     with patch("qwen3_tts.interface.ui.model_management.load_config", return_value={}), \
          patch("qwen3_tts.interface.ui.model_management.is_server_running", return_value=True), \
-         patch("qwen3_tts.interface.ui.model_management.get_server_url", return_value="http://127.0.0.1:5123"), \
          patch("qwen3_tts.core.http_client.server_request", return_value=mock_resp), \
          patch("qwen3_tts.interface.ui.model_management.get_model_table_data", return_value=[]), \
          patch("qwen3_tts.interface.ui.model_management.format_status_display", return_value=""):
@@ -209,7 +203,6 @@ def test_toggle_asr_load_success():
 
     with patch("qwen3_tts.interface.ui.model_management.load_config", return_value={}), \
          patch("qwen3_tts.interface.ui.model_management.is_server_running", return_value=True), \
-         patch("qwen3_tts.interface.ui.model_management.get_server_url", return_value="http://127.0.0.1:5123"), \
          patch("qwen3_tts.core.http_client.server_request", return_value=mock_resp), \
          patch("qwen3_tts.interface.ui.model_management.format_status_display", return_value="ok"):
         msg, status = toggle_asr("load")
@@ -268,7 +261,6 @@ def test_get_model_status_html_loaded():
 
     with patch("qwen3_tts.interface.ui.model_management.load_config", return_value={}), \
          patch("qwen3_tts.interface.ui.model_management.is_server_running", return_value=True), \
-         patch("qwen3_tts.interface.ui.model_management.get_server_url", return_value="http://127.0.0.1:5123"), \
          patch("qwen3_tts.core.http_client.server_request", return_value=mock_resp):
         html = get_model_status_html("clone")
 
@@ -289,7 +281,6 @@ def test_get_model_status_html_not_loaded():
 
     with patch("qwen3_tts.interface.ui.model_management.load_config", return_value={}), \
          patch("qwen3_tts.interface.ui.model_management.is_server_running", return_value=True), \
-         patch("qwen3_tts.interface.ui.model_management.get_server_url", return_value="http://127.0.0.1:5123"), \
          patch("qwen3_tts.core.http_client.server_request", return_value=mock_resp):
         html = get_model_status_html("design")
 

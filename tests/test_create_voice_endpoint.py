@@ -155,8 +155,7 @@ class TestModelTableASRRow(unittest.TestCase):
 
     @patch("qwen3_tts.interface.ui.model_management.is_server_running", return_value=True)
     @patch("qwen3_tts.interface.ui.model_management.load_config", return_value={"models": {}})
-    @patch("qwen3_tts.interface.ui.model_management.get_server_url", return_value="http://127.0.0.1:5123")
-    def test_asr_row_in_table(self, mock_url, mock_config, mock_running):
+    def test_asr_row_in_table(self, mock_config, mock_running):
         """Model table should include an ASR row."""
         mock_resp = MagicMock()
         mock_resp.status_code = 200

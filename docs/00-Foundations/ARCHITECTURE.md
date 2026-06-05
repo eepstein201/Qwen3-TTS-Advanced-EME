@@ -521,3 +521,37 @@ language: str = Field(default="en", pattern=r"^[a-z]{2,3}(-[A-Za-z]{2,4})?$")
 
 **Validation Tests:** `tests/test_validation_ext.py`
 ```python
+```
+
+## Poltergeist Development Workflow
+
+This project uses **Poltergeist** (polter) for automated build management and change detection.
+
+### Critical Rules for AI Agents
+
+**⚠️ NEVER manually run build commands when Poltergeist is running**
+- Poltergeist automatically detects code changes and rebuilds
+- Manual builds interfere with Poltergeist's file watching and state management
+- Let Poltergeist handle all compilation, bundling, and optimization
+
+**✅ ALWAYS use "polter <target>" to ensure fresh builds**
+```bash
+polter tts          # Build and run TTS target
+polter test         # Build and run tests
+polter ui           # Build and launch UI
+```
+
+**🔄 How Poltergeist Works**
+- Monitors source files for changes (automatic rebuild on save)
+- Maintains clean build artifacts and cache management
+- Provides consistent, reproducible builds across development environments
+- Eliminates "it works on my machine" issues from stale builds
+
+**🤖 For AI Agent Integration (Claude, Cursor, etc.)**
+When working with this codebase:
+1. Check if Poltergeist is running before suggesting build commands
+2. Use `polter <target>` syntax instead of direct build commands
+3. Trust Poltergeist's change detection — don't manually trigger builds
+4. If builds seem stale, restart Poltergeist rather than running manual builds
+
+This ensures AI agents and developers work efficiently with automated build management.
