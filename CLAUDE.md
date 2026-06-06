@@ -233,12 +233,10 @@ python -m pytest tests/ -v --tb=short          # skips E2E by default (no hang)
 python -m pytest tests/ -m e2e                  # opt-in: run E2E (needs live server)
 ```
 
-> **E2E gating:** All `tests/test_e2e_*.py` files are marked `pytest.mark.e2e`, and
-> `pytest.ini` deselects them by default (`-m "not e2e"`). This is required because the
-> heavy E2E files (stress/security/performance) make real `/generate` calls against the
-> live server — running them inline under plain `pytest tests/` hangs for minutes when a
-> server is up. The batch runner uses `python -m unittest` (ignores pytest markers), so
-> batch 6 and all batches are unaffected. Opt into E2E with `-m e2e`.
+> **E2E gating:** All `tests/test_e2e_*.py` are marked `pytest.mark.e2e`; `pytest.ini`
+> deselects them by default (`-m "not e2e"`) because they make real `/generate` calls and
+> hang plain `pytest tests/` when a server is up. Opt in with `-m e2e`. The batch runner
+> uses `unittest` (ignores markers), so all batches are unaffected.
 
 **Full suite runner** (multi-environment testing):
 ```bash
