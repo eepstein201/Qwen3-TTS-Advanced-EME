@@ -38,7 +38,30 @@ IS_LINUX = platform.system() == "Linux"
 # ---------------------------------------------------------------------------
 
 USER_FILES_DIR = os.path.expanduser("~/Qwen3-TTS_UserFiles")
-CONFIG_PATH = os.path.join(USER_FILES_DIR, "config.json")
+
+
+def _resolve_config_path():
+    """Resolve config.json location across dev, CI, and packaged installs.
+
+    Order: user files dir (normal runtime) -> repo-root config.json (CI
+    checkout / source tree). The home-dir path coincides with the repo root
+    on the maintainer's machine but not in CI, so the repo-root fallback
+    (anchored on __file__, not on any external input) lets the committed
+    config.json be found there. No environment-variable override is used:
+    feeding an env var into open() is a path-injection source (CodeQL
+    py/path-injection), and __file__ anchoring fixes CI without it.
+    """
+    home_cfg = os.path.join(USER_FILES_DIR, "config.json")
+    if os.path.exists(home_cfg):
+        return home_cfg
+    repo_cfg = os.path.join(
+        os.path.dirname(os.path.dirname(os.path.dirname(__file__))),
+        "config.json",
+    )
+    return repo_cfg if os.path.exists(repo_cfg) else home_cfg
+
+
+CONFIG_PATH = _resolve_config_path()
 VOICE_PROMPTS_DIR = pathlib.Path(USER_FILES_DIR) / "voice_prompts"
 HISTORY_FILE = os.path.expanduser("~/.voice_history.jsonl")
 PID_FILE = pathlib.Path(os.path.join(USER_FILES_DIR, ".voice_server.pid"))

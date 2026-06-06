@@ -12,6 +12,12 @@ Run: pytest tests/test_seed_lock_chunks.py -v
 import unittest
 from unittest.mock import patch, MagicMock, call
 
+try:
+    import mlx.core  # noqa: F401
+    HAS_MLX = True
+except ImportError:
+    HAS_MLX = False
+
 
 class TestSetSeedForBackend(unittest.TestCase):
     """Tests for _set_seed_for_backend helper."""
@@ -24,6 +30,7 @@ class TestSetSeedForBackend(unittest.TestCase):
             _set_seed_for_backend(42)
             mock_torch.manual_seed.assert_called_once_with(42)
 
+    @unittest.skipUnless(HAS_MLX, "requires mlx")
     @patch("qwen3_tts.core.engine.inference.get_backend", return_value="mlx")
     def test_mlx_backend_calls_mx_random_seed(self, _mock_backend):
         from qwen3_tts.core.engine.inference import _set_seed_for_backend

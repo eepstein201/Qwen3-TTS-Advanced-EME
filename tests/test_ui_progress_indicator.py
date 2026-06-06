@@ -157,7 +157,6 @@ class TestPollModelLoadProgress(unittest.TestCase):
 
         with patch("qwen3_tts.interface.ui.components.is_server_running", return_value=True), \
              patch("qwen3_tts.interface.ui.components.load_config", return_value={}), \
-             patch("qwen3_tts.interface.ui.components.get_server_url", return_value="http://x"), \
              patch("qwen3_tts.core.http_client.server_request") as mock_get:
             mock_get.return_value = MagicMock(
                 status_code=200,
@@ -175,7 +174,6 @@ class TestPollModelLoadProgress(unittest.TestCase):
 
         with patch("qwen3_tts.interface.ui.components.is_server_running", return_value=True), \
              patch("qwen3_tts.interface.ui.components.load_config", return_value={}), \
-             patch("qwen3_tts.interface.ui.components.get_server_url", return_value="http://x"), \
              patch("qwen3_tts.core.http_client.server_request") as mock_get:
             mock_get.return_value = MagicMock(
                 status_code=200,
@@ -190,7 +188,6 @@ class TestPollModelLoadProgress(unittest.TestCase):
 
         with patch("qwen3_tts.interface.ui.components.is_server_running", return_value=True), \
              patch("qwen3_tts.interface.ui.components.load_config", return_value={}), \
-             patch("qwen3_tts.interface.ui.components.get_server_url", return_value="http://x"), \
              patch("qwen3_tts.core.http_client.server_request") as mock_get:
             mock_get.return_value = MagicMock(
                 status_code=200,

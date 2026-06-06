@@ -10,7 +10,8 @@ from qwen3_tts.interface.ui.shared import (
 )
 
 
-def test_save_generation_metadata_creates_json(tmp_path):
+def test_save_generation_metadata_creates_json(tmp_path, monkeypatch):
+    monkeypatch.setenv("HOME", str(tmp_path))
     wav_path = str(tmp_path / "voice_ui_abc12345.wav")
     open(wav_path, "w").close()
     metadata = {
@@ -32,7 +33,8 @@ def test_save_generation_metadata_creates_json(tmp_path):
     assert saved["mode"] == "clone"
 
 
-def test_save_generation_metadata_immutable(tmp_path):
+def test_save_generation_metadata_immutable(tmp_path, monkeypatch):
+    monkeypatch.setenv("HOME", str(tmp_path))
     wav_path = str(tmp_path / "voice_ui_def67890.wav")
     open(wav_path, "w").close()
     metadata = {"mode": "design", "seed": 99}
@@ -41,7 +43,8 @@ def test_save_generation_metadata_immutable(tmp_path):
     assert metadata == original
 
 
-def test_load_history_from_disk_reads_json(tmp_path):
+def test_load_history_from_disk_reads_json(tmp_path, monkeypatch):
+    monkeypatch.setenv("HOME", str(tmp_path))
     for i in range(3):
         wav = tmp_path / f"voice_ui_{i:08d}.wav"
         wav.write_text("")
@@ -58,7 +61,8 @@ def test_load_history_from_disk_reads_json(tmp_path):
     assert history[0]["seed"] == 20
 
 
-def test_load_history_from_disk_caps_at_max(tmp_path):
+def test_load_history_from_disk_caps_at_max(tmp_path, monkeypatch):
+    monkeypatch.setenv("HOME", str(tmp_path))
     for i in range(MAX_HISTORY_SIZE + 5):
         wav = tmp_path / f"voice_ui_{i:08d}.wav"
         wav.write_text("")
@@ -68,7 +72,8 @@ def test_load_history_from_disk_caps_at_max(tmp_path):
     assert len(history) == MAX_HISTORY_SIZE
 
 
-def test_load_history_from_disk_skips_orphan_json(tmp_path):
+def test_load_history_from_disk_skips_orphan_json(tmp_path, monkeypatch):
+    monkeypatch.setenv("HOME", str(tmp_path))
     meta = {"timestamp": 1.0, "mode": "clone", "text": "orphan"}
     (tmp_path / "voice_ui_orphan.json").write_text(json.dumps(meta))
     history = load_history_from_disk(str(tmp_path))

@@ -97,7 +97,7 @@ def _apply_mps_float32_guard(model: Any, mode: str) -> Any | None:
         "Overriding to float32 for this generation. "
         "Set advanced.dtype to 'float32' in %s to silence this warning.",
         sanitize_log(dtype_name),
-        CONFIG_PATH,
+        sanitize_log(CONFIG_PATH),
     )
     original_dtype = next(model.parameters()).dtype
     model.float()
@@ -232,7 +232,7 @@ def _run_inference_torch(
                     "Generation produced NaN/Inf with dtype=%s. "
                     "Switch to float32 in %s under advanced.dtype for stability.",
                     sanitize_log(dtype_name),
-                    CONFIG_PATH,
+                    sanitize_log(CONFIG_PATH),
                 )
         raise
     finally:
