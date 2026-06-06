@@ -64,18 +64,21 @@ class TestDecompositionComplete(unittest.TestCase):
         except ImportError:
             self.skipTest("pytest not available - optional dependency")
 
-        result = subprocess.run(
-            [sys.executable, "-m", "pytest", "--co", "-q",
-             "tests/test_voice_config.py",
-             "tests/test_voice_server.py",
-             "tests/test_voice_prompts.py",
-             "tests/test_voice_streaming.py",
-             "tests/test_voice_engine.py",
-             "tests/test_voice_generation.py",
-             "tests/test_voice_ui.py",
-             "tests/test_voice_features.py"],
-            capture_output=True, text=True
-        )
+        try:
+            result = subprocess.run(
+                [sys.executable, "-m", "pytest", "--co", "-q",
+                 "tests/test_voice_config.py",
+                 "tests/test_voice_server.py",
+                 "tests/test_voice_prompts.py",
+                 "tests/test_voice_streaming.py",
+                 "tests/test_voice_engine.py",
+                 "tests/test_voice_generation.py",
+                 "tests/test_voice_ui.py",
+                 "tests/test_voice_features.py"],
+                capture_output=True, text=True, timeout=120
+            )
+        except subprocess.TimeoutExpired as exc:
+            self.fail(f"Nested pytest collection timed out after 120s: {exc}")
         self.assertIn("test", result.stdout.lower(),
             f"No tests collected from decomposed files. stderr: {result.stderr}")
 

@@ -25,6 +25,16 @@ import urllib.request
 # Auto-toggle helper for universal E2E test support
 from tests.e2e_helpers import playwright_enabled
 
+# E2E browser tests require a live server + Gradio UI + Chromium.
+# Gated behind the `e2e` marker so plain `pytest tests/` skips them (no hang).
+# Opt in with: pytest tests/ -m e2e. The unittest batch runner (batch 6)
+# ignores pytest markers, so it still runs these via `python -m unittest`.
+try:
+    import pytest
+    pytestmark = pytest.mark.e2e
+except ImportError:
+    pass
+
 # Skip entire module if playwright is not installed
 try:
     from playwright.sync_api import sync_playwright

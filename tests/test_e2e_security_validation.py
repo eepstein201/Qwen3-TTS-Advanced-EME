@@ -24,6 +24,11 @@ import urllib.error
 
 import pytest
 
+# E2E tests require a live server and make real generation requests under load.
+# Gated behind the `e2e` marker so plain `pytest tests/` skips them (no hang).
+# Opt in with: pytest tests/ -m e2e
+pytestmark = pytest.mark.e2e
+
 SERVER_URL = "http://127.0.0.1:5123"
 AUTH_TOKEN_PATHS = [
     "~/.config/qwen3-tts/.voice_server_token",
