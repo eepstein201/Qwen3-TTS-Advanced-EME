@@ -29,6 +29,14 @@ _skip_server = unittest.skipUnless(
     "requires fastapi + soundfile",
 )
 
+try:
+    import torch  # noqa: F401
+    HAS_TORCH = True
+except ImportError:
+    HAS_TORCH = False
+
+_skip_torch = unittest.skipUnless(HAS_TORCH, "requires torch")
+
 
 @pytest.mark.unit
 @_skip_server
@@ -53,6 +61,7 @@ class TestCreateVoicePromptEndpoint(unittest.TestCase):
         from tests.conftest import _restore_app_state
         _restore_app_state(self.app, self.original_state)
 
+    @_skip_torch
     @patch("qwen3_tts.core.engine.clear_voice_prompt_cache")
     @patch("torch.save")
     @patch("qwen3_tts.core.engine.create_voice_prompt")
@@ -123,6 +132,7 @@ class TestCreateVoicePromptEndpoint(unittest.TestCase):
         )
         self.assertEqual(resp.status_code, 503)
 
+    @_skip_torch
     @patch("qwen3_tts.core.engine.clear_voice_prompt_cache")
     @patch("torch.save")
     @patch("qwen3_tts.core.engine.create_voice_prompt")
