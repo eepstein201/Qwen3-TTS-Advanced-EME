@@ -58,6 +58,14 @@ try:
 except ImportError:
     HAS_FASTAPI = False
 
+# qwen3_tts.server.app imports slowapi unconditionally, so any fixture that
+# imports server.app needs slowapi too — gate those on HAS_FASTAPI and HAS_SLOWAPI.
+try:
+    import slowapi  # noqa: F401
+    HAS_SLOWAPI = True
+except ImportError:
+    HAS_SLOWAPI = False
+
 
 @pytest.fixture
 def unused_port():
@@ -155,7 +163,7 @@ def initialize_app_state_for_xdist():
 
     This is autouse=True so it applies to all tests without needing to request it.
     """
-    if not HAS_FASTAPI:
+    if not (HAS_FASTAPI and HAS_SLOWAPI):
         yield
         return
 
@@ -195,7 +203,7 @@ def reset_rate_limiters():
     Without this, rate limit counters accumulate across tests within a suite
     run, causing later tests to receive unexpected 429 responses.
     """
-    if not HAS_FASTAPI:
+    if not (HAS_FASTAPI and HAS_SLOWAPI):
         yield
         return
 
@@ -348,8 +356,8 @@ def fastapi_client(tmp_config, unused_port):
             response = fastapi_client.get("/health")
             assert response.status_code in (200, 503)  # loading or ready
     """
-    if not HAS_FASTAPI:
-        pytest.skip("requires fastapi and soundfile")
+    if not (HAS_FASTAPI and HAS_SLOWAPI):
+        pytest.skip("requires fastapi, soundfile, slowapi")
 
     from qwen3_tts.server.app import app
 

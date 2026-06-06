@@ -48,12 +48,23 @@ try:
     from fastapi.testclient import TestClient  # noqa: F401
     import soundfile  # noqa: F401
     import numpy as np  # noqa: F401
+    import slowapi  # noqa: F401  (server.app imports slowapi unconditionally)
     HAS_DEPS = True
 except ImportError:
     HAS_DEPS = False
 
+# server.app cannot be imported without these (it imports slowapi unconditionally).
+# Skip the whole module cleanly — not a collection/setup error — when any are
+# missing, e.g. an env installed without the server/test extra. A module-level
+# skip also covers in-body `from qwen3_tts.server.app import ...` calls that a
+# per-test decorator would miss.
+if HAS_PYTEST and not HAS_DEPS:
+    pytest.skip(
+        "requires fastapi, soundfile, numpy, slowapi", allow_module_level=True
+    )
+
 if HAS_DEPS:
-    _skip = pytest.mark.skipif(not HAS_DEPS, reason="requires fastapi, soundfile, numpy")
+    _skip = pytest.mark.skipif(not HAS_DEPS, reason="requires fastapi, soundfile, numpy, slowapi")
 else:
     def _skip(f):
         return f
