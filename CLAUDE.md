@@ -229,8 +229,14 @@ python tests/run_batches.py --batch 3  # Batch 3: Server infrastructure
 
 **Preferred: pytest full suite** (1900+ tests):
 ```bash
-python -m pytest tests/ -v --tb=short
+python -m pytest tests/ -v --tb=short          # skips E2E by default (no hang)
+python -m pytest tests/ -m e2e                  # opt-in: run E2E (needs live server)
 ```
+
+> **E2E gating:** All `tests/test_e2e_*.py` are marked `pytest.mark.e2e`; `pytest.ini`
+> deselects them by default (`-m "not e2e"`) because they make real `/generate` calls and
+> hang plain `pytest tests/` when a server is up. Opt in with `-m e2e`. The batch runner
+> uses `unittest` (ignores markers), so all batches are unaffected.
 
 **Full suite runner** (multi-environment testing):
 ```bash

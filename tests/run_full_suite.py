@@ -235,11 +235,17 @@ def load_models(env: str, dry_run: bool = False) -> bool:
 
 def run_tests(env: str, test_type: str, dry_run: bool = False) -> int:
     """Run tests of a specific type."""
+    # NOTE: A command-line `-m` OVERRIDES the `-m "not e2e"` default in pytest.ini
+    # addopts. So any test-type that passes its own `-m` must re-add `not e2e`
+    # explicitly, or it will re-collect the heavy E2E tests and hang against a live
+    # server. The `e2e` type intentionally opts back in with `-m e2e`.
     test_commands = {
-        "unit": ["python", "-m", "pytest", "tests/", "-q", "--tb=short", "-m", "not requires_server"],
-        "integration": ["python", "-m", "pytest", "tests/", "-q", "--tb=short", "-m", "integration"],
-        "e2e": ["python", "-m", "pytest", "tests/test_e2e_playwright.py", "-v", "--tb=short"],
+        "unit": ["python", "-m", "pytest", "tests/", "-q", "--tb=short", "-m", "not e2e and not requires_server"],
+        "integration": ["python", "-m", "pytest", "tests/", "-q", "--tb=short", "-m", "integration and not e2e"],
+        "e2e": ["python", "-m", "pytest", "tests/", "-m", "e2e", "-v", "--tb=short"],
         "evaluation": ["python", "-m", "pytest", "tests/evaluations/", "-v", "--tb=short"],
+        # `all` inherits the pytest.ini `-m "not e2e"` default (no explicit -m), so it
+        # excludes E2E. Run the `e2e` type separately for the live-server E2E suite.
         "all": ["python", "-m", "pytest", "tests/", "-v", "--tb=short"],
     }
 

@@ -13,6 +13,11 @@ Run: pytest tests/test_rate_limiting.py -v
 """
 
 import pytest
+
+# server.app imports slowapi unconditionally; skip the whole module (not error)
+# when slowapi is absent, e.g. an env installed without the server/test extra.
+pytest.importorskip("slowapi", reason="requires slowapi (pip install -e '.[test]')")
+
 from unittest.mock import patch, MagicMock
 from fastapi.testclient import TestClient
 from fastapi import Request

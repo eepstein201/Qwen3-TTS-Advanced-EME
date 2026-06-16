@@ -87,7 +87,9 @@ class TestRunWatchMode(unittest.TestCase):
         import tempfile
         import shutil
         from qwen3_tts.interface.generate_interactive import run_watch_mode
-        tmp_dir = tempfile.mkdtemp()
+        # run_watch_mode rejects output dirs outside $HOME; keep the temp dir
+        # under home so the security check passes (default macOS tmp is not).
+        tmp_dir = tempfile.mkdtemp(dir=os.path.expanduser("~"))
         args = MagicMock()
         args.output = tmp_dir
         args.mode = "clone"
@@ -114,7 +116,9 @@ class TestRunWatchMode(unittest.TestCase):
         import tempfile
         import shutil
         from qwen3_tts.interface.generate_interactive import run_watch_mode
-        tmp_dir = tempfile.mkdtemp()
+        # run_watch_mode rejects output dirs outside $HOME; keep the temp dir
+        # under home so the security check passes (default macOS tmp is not).
+        tmp_dir = tempfile.mkdtemp(dir=os.path.expanduser("~"))
         args = MagicMock()
         args.output = tmp_dir
         args.mode = "clone"
@@ -168,7 +172,9 @@ class TestRunWatchMode(unittest.TestCase):
         import tempfile
         import shutil
         from qwen3_tts.interface.generate_interactive import run_watch_mode
-        tmp_dir = tempfile.mkdtemp()
+        # run_watch_mode rejects output dirs outside $HOME; keep the temp dir
+        # under home so the security check passes (default macOS tmp is not).
+        tmp_dir = tempfile.mkdtemp(dir=os.path.expanduser("~"))
         args = MagicMock()
         args.output = tmp_dir
         args.mode = "clone"
