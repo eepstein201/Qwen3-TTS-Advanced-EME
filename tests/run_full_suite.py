@@ -18,13 +18,11 @@ Usage:
 """
 
 import argparse
-import os
 import platform
 import subprocess
 import sys
 import time
 from pathlib import Path
-from typing import Optional
 
 # Configuration
 PROJECT_ROOT = Path(__file__).parent.parent
@@ -218,7 +216,7 @@ def load_models(env: str, dry_run: bool = False) -> bool:
             "curl", "-s", "-X", "POST",
             f"http://127.0.0.1:{SERVER_PORT}/load-model",
             "-H", "Content-Type: application/json",
-            "-H", f"Authorization: Bearer $(cat ~/.voice_server_token 2>/dev/null || echo test)",
+            "-H", "Authorization: Bearer $(cat ~/.voice_server_token 2>/dev/null || echo test)",
             "-d", f'{{"mode": "{model}"}}'
         ], check=False)
         if result.returncode != 0:
@@ -268,7 +266,7 @@ def run_full_suite(args: argparse.Namespace) -> int:
     """Run the full test suite."""
     current_platform = get_platform()
     print(f"\n{'='*60}")
-    print(f"Qwen3-TTS Full Test Suite")
+    print("Qwen3-TTS Full Test Suite")
     print(f"{'='*60}")
     print(f"Platform: {current_platform}")
     print(f"Dry run: {args.dry_run}")

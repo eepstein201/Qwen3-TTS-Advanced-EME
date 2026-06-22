@@ -11,7 +11,7 @@ Covers:
 Run: pytest tests/test_ui_facade.py -v
 """
 import unittest
-from unittest.mock import patch, MagicMock
+from unittest.mock import MagicMock, patch
 
 try:
     import gradio as gr
@@ -154,7 +154,9 @@ class TestOnHistorySelect(unittest.TestCase):
     """
 
     def test_valid_selection_returns_temp_path(self):
-        import tempfile, os
+        import os
+        import tempfile
+
         from qwen3_tts.interface.ui._facade import on_history_select
         # Create a real temp file so containment and existence checks pass
         src = os.path.join(tempfile.gettempdir(), "test_on_hist.wav")
@@ -338,6 +340,7 @@ class TestGetGradioLaunchKwargs(unittest.TestCase):
     @patch("qwen3_tts.core.config.IN_COLAB", False)
     def test_includes_tempdir_in_allowed_paths(self):
         import tempfile
+
         from qwen3_tts.interface.ui.shared import get_gradio_launch_kwargs
         kwargs = get_gradio_launch_kwargs({"output_directory": "~/Downloads"})
         self.assertIn(tempfile.gettempdir(), kwargs["allowed_paths"])
@@ -345,6 +348,7 @@ class TestGetGradioLaunchKwargs(unittest.TestCase):
     @patch("qwen3_tts.core.config.IN_COLAB", False)
     def test_includes_downloads_in_allowed_paths(self):
         import os
+
         from qwen3_tts.interface.ui.shared import get_gradio_launch_kwargs
         kwargs = get_gradio_launch_kwargs({})
         downloads = os.path.realpath(os.path.expanduser("~/Downloads"))
@@ -374,6 +378,7 @@ class TestResolveOutputDir(unittest.TestCase):
 
     def test_default_downloads(self):
         import os
+
         from qwen3_tts.interface.ui.shared import _resolve_output_dir
         result = _resolve_output_dir({})
         expected = os.path.realpath(os.path.expanduser("~/Downloads"))
@@ -381,6 +386,7 @@ class TestResolveOutputDir(unittest.TestCase):
 
     def test_custom_output_dir(self):
         import os
+
         from qwen3_tts.interface.ui.shared import _resolve_output_dir
         result = _resolve_output_dir({"output_directory": "~/Music"})
         expected = os.path.realpath(os.path.expanduser("~/Music"))
@@ -388,6 +394,7 @@ class TestResolveOutputDir(unittest.TestCase):
 
     def test_traversal_falls_back_to_downloads(self):
         import os
+
         from qwen3_tts.interface.ui.shared import _resolve_output_dir
         result = _resolve_output_dir({"output_directory": "~/../../etc"})
         downloads = os.path.realpath(os.path.expanduser("~/Downloads"))
@@ -395,6 +402,7 @@ class TestResolveOutputDir(unittest.TestCase):
 
     def test_returns_absolute_path(self):
         import os
+
         from qwen3_tts.interface.ui.shared import _resolve_output_dir
         result = _resolve_output_dir({})
         self.assertTrue(os.path.isabs(result))
@@ -418,7 +426,9 @@ class TestOnHistorySelectHardened(unittest.TestCase):
         self.assertIsNone(audio)
 
     def test_valid_path_returns_temp_copy(self):
-        import tempfile, os
+        import os
+        import tempfile
+
         from qwen3_tts.interface.ui._facade import on_history_select
         # Create a real temp file to simulate a Downloads file
         src = os.path.join(tempfile.gettempdir(), "test_history_select.wav")
@@ -617,6 +627,7 @@ class TestConfirmStep(unittest.TestCase):
     def test_timeout_requires_rearming(self):
         """Click after timeout re-arms the button (requires two clicks again)."""
         import time
+
         from qwen3_tts.interface.ui.components import confirm_step
         # First click - arm
         state, _, _ = confirm_step(
@@ -640,6 +651,7 @@ class TestConfirmStep(unittest.TestCase):
     def test_timeout_prevents_confirmation(self):
         """Cannot confirm after timeout expires."""
         import time
+
         from qwen3_tts.interface.ui.components import confirm_step
         # First click - arm
         state, _, _ = confirm_step(

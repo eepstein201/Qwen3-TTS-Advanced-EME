@@ -14,11 +14,11 @@ Prerequisites:
 Run: pytest tests/test_e2e_performance_stress.py -v
 """
 
-import os
 import json
+import os
 import time
-import urllib.request
 import urllib.error
+import urllib.request
 
 import pytest
 
@@ -72,7 +72,7 @@ def _get_auth_token():
     for path in AUTH_TOKEN_PATHS:
         token_path = os.path.expanduser(path)
         try:
-            with open(token_path, "r") as f:
+            with open(token_path) as f:
                 token = f.read().strip()
                 if token:
                     return token
@@ -230,7 +230,7 @@ class TestE2EStressTesting:
             thread.join(timeout=60)
 
         # Verify all completed successfully
-        assert len(results) == 10, f"Some stats requests failed"
+        assert len(results) == 10, "Some stats requests failed"
 
     def test_04_memory_recovers_after_load(self):
         """REGRESSION: Memory usage should stabilize after load test.
@@ -285,7 +285,6 @@ class TestE2EGracefulDegradation:
         import threading
 
         token = _get_auth_token()
-        results = []
 
         def invalid_request(request_id):
             """Make an invalid request."""

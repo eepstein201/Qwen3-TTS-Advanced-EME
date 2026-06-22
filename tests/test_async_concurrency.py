@@ -3,7 +3,7 @@
 
 import threading
 import unittest
-from unittest.mock import patch, MagicMock
+from unittest.mock import MagicMock, patch
 
 
 class TestMPSPatchThreadSafety(unittest.TestCase):

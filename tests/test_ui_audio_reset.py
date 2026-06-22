@@ -4,7 +4,7 @@ Replaces the old audio reset JS tests now that WaveSurfer handles playback.
 """
 
 import unittest
-from unittest.mock import Mock, patch, MagicMock
+from unittest.mock import MagicMock, Mock, patch
 
 # Check for gradio availability
 try:
@@ -142,8 +142,9 @@ class TestOnHistorySelect(unittest.TestCase):
 
     @skip_if_no_gradio
     def test_valid_index_returns_path(self):
-        import tempfile
         import os
+        import tempfile
+
         from qwen3_tts.interface.ui import on_history_select
         with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as f:
             tmp_path = f.name
@@ -189,9 +190,9 @@ class TestGenerateColabFallback(unittest.TestCase):
 
     @skip_if_no_gradio
     def test_js_success_returns_saved_path(self):
-        import base64
-        import tempfile
         import os
+        import tempfile
+
         from qwen3_tts.interface.ui import _generate_server_side
 
         # Create tmp directory under home to pass security validation

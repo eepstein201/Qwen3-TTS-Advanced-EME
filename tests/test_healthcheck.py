@@ -1,8 +1,8 @@
 """Tests for healthcheck.py module."""
-import unittest
-from unittest import mock
 import sys
+import unittest
 from io import StringIO
+from unittest import mock
 
 
 class TestCheckPythonVersion(unittest.TestCase):

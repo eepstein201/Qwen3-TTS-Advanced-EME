@@ -3,10 +3,12 @@
 import os
 import tempfile
 import unittest
-from unittest.mock import patch, MagicMock
+from unittest.mock import MagicMock, patch
 
 from tests.voice_test_helpers import (
-    _skip_server, _skip_client, _make_test_client,
+    _make_test_client,
+    _skip_client,
+    _skip_server,
 )
 
 
@@ -133,7 +135,10 @@ class TestMLXVoicePromptCache(unittest.TestCase):
 
     def test_clear_voice_prompt_cache_clears_mlx(self):
         """clear_voice_prompt_cache clears MLX cache."""
-        from qwen3_tts.core.engine import load_voice_prompt_mlx, clear_voice_prompt_cache
+        from qwen3_tts.core.engine import (
+            clear_voice_prompt_cache,
+            load_voice_prompt_mlx,
+        )
         from qwen3_tts.core.engine.voice_prompt import _mlx_prompt_cache
         with patch("qwen3_tts.core.engine.voice_prompt.VOICE_PROMPTS_DIR", self.tmpdir):
             load_voice_prompt_mlx("voice_a")
@@ -410,6 +415,7 @@ class TestClientPromptManagement(unittest.TestCase):
     def test_list_prompts_uses_server(self):
         """list_prompts calls server /prompts when running."""
         import inspect
+
         from qwen3_tts.server.client import TTSClient
         source = inspect.getsource(TTSClient.list_prompts)
         self.assertIn("/prompts", source)
@@ -421,7 +427,11 @@ class TestSetDefaultClonePrompt(unittest.TestCase):
 
     def test_set_default_writes_config(self):
         """set_default_clone_prompt updates config.json."""
-        from qwen3_tts.core.config import set_default_clone_prompt, load_config, save_config
+        from qwen3_tts.core.config import (
+            load_config,
+            save_config,
+            set_default_clone_prompt,
+        )
         # Save original config
         original = load_config()
         try:
@@ -522,8 +532,9 @@ class TestValidatePromptNameCallers(unittest.TestCase):
     def test_create_voice_invalid_name_raises_error(self, mock_validate):
         """Invalid name must raise gr.Error with the error message."""
         mock_validate.return_value = ({"error": "Invalid prompt name", "recovery": "config"}, 400)
-        from qwen3_tts.interface.ui.voice_management import create_voice_prompt
         import gradio as gr
+
+        from qwen3_tts.interface.ui.voice_management import create_voice_prompt
         with self.assertRaises(gr.Error) as ctx:
             create_voice_prompt("/tmp/fake_audio.wav", "transcript", "bad_name")
         self.assertIn("Invalid", str(ctx.exception))

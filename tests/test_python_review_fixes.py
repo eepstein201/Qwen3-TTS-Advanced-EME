@@ -11,14 +11,13 @@ Run: pytest tests/test_python_review_fixes.py -v --tb=short
 import asyncio
 import os
 import signal
-import sys
 import threading
 import unittest
 from unittest.mock import AsyncMock, MagicMock, patch
 
 try:
-    from fastapi.testclient import TestClient
     import numpy as np
+    from fastapi.testclient import TestClient
     HAS_DEPS = True
 except ImportError:
     HAS_DEPS = False
@@ -194,12 +193,10 @@ class TestErrorResponseReturnGuard(unittest.TestCase):
         req.transcript = ""
 
         import base64
-        import tempfile
-        import wave
-        import struct
 
         # Create minimal valid WAV bytes for base64
         import io
+        import struct
         buf = io.BytesIO()
         # 1-second silence at 16kHz, 16-bit mono
         n_samples = 16000
@@ -388,14 +385,14 @@ class TestAudioProcessingNarrowExcept(unittest.TestCase):
         mock_ta = MagicMock()
         mock_ta.load.side_effect = AttributeError("torchaudio API changed: no attribute 'load'")
 
-        import tempfile
         import sys as _sys
+        import tempfile
 
         with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as f:
             tmp_path = f.name
         try:
-            import soundfile as sf
             import numpy as np_
+            import soundfile as sf
             sf.write(tmp_path, np_.zeros(1000, dtype=np_.float32), 16000)
 
             with patch("qwen3_tts.core.engine.audio_processing.get_audio_loader",
@@ -423,6 +420,7 @@ class TestCliConfigImmutability(unittest.TestCase):
         """The config dict returned by load_config must not be modified in-place."""
         try:
             from click.testing import CliRunner
+
             from qwen3_tts.cli_config import config as config_group
         except ImportError:
             self.skipTest("click or cli_config not importable")
@@ -494,6 +492,7 @@ class TestGenerateDialogueNumpyConcat(unittest.TestCase):
     def test_generator_uses_concatenate_not_extend(self):
         """generate_dialogue source uses np.concatenate pattern (not list.extend)."""
         import inspect
+
         from qwen3_tts.server.client import generator as gen_mod
         src = inspect.getsource(gen_mod.GeneratorMixin.generate_dialogue)
         self.assertIn("np.concatenate", src, "generate_dialogue must use np.concatenate")

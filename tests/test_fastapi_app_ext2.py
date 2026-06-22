@@ -23,7 +23,7 @@ import os
 import threading
 import time
 import unittest
-from unittest.mock import patch, MagicMock, AsyncMock
+from unittest.mock import AsyncMock, MagicMock, patch
 
 _APP = "qwen3_tts.server.app"
 _APP_LIFESPAN = "qwen3_tts.server.app_lifespan"
@@ -115,6 +115,7 @@ class TestCleanupPid(unittest.TestCase):
 
     def test_cleanup_pid_full_flow(self):
         from unittest.mock import mock_open
+
         from qwen3_tts.server.app import cleanup_pid
         state = _make_app_state()
         state.auth_token = "my_test_token_abc"
@@ -156,8 +157,9 @@ class TestCleanupPid(unittest.TestCase):
 class TestCleanupResources(unittest.TestCase):
 
     def test_cleanup_with_gen_cache_files(self):
-        import tempfile
         import shutil
+        import tempfile
+
         from qwen3_tts.server.app import cleanup_resources
         tmp = tempfile.mkdtemp()
         try:
@@ -576,8 +578,8 @@ class TestUpdateModelConfig(unittest.TestCase):
         self.assertEqual(resp.status_code, 200)
 
     def test_update_clears_gen_cache_with_files(self):
-        import tempfile
         import shutil
+        import tempfile
         client, token, state = self._setup_client()
         tmp = tempfile.mkdtemp()
         try:
@@ -665,6 +667,7 @@ class TestGenerateStream(unittest.TestCase):
 
     def test_stream_clone_success(self):
         import struct
+
         import numpy as np
         client, token, state = self._setup_stream_client()
 

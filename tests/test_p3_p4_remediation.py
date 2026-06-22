@@ -13,7 +13,6 @@ import unittest.mock
 
 import numpy as np
 
-
 # ---------------------------------------------------------------------------
 # Task 2: _normalize_text bare try/except:pass → logged warnings
 # ---------------------------------------------------------------------------
@@ -159,7 +158,7 @@ class TestPysdbCache(unittest.TestCase):
 
     def test_segmenter_cached_per_language(self):
         """Second call with same language should reuse cached segmenter."""
-        from qwen3_tts.core.engine.text_processing import _split_text, _SEGMENTER_CACHE
+        from qwen3_tts.core.engine.text_processing import _SEGMENTER_CACHE, _split_text
 
         _SEGMENTER_CACHE.clear()
         _split_text(
@@ -171,7 +170,7 @@ class TestPysdbCache(unittest.TestCase):
 
     def test_different_languages_cached_separately(self):
         """Different languages should have separate cache entries."""
-        from qwen3_tts.core.engine.text_processing import _split_text, _SEGMENTER_CACHE
+        from qwen3_tts.core.engine.text_processing import _SEGMENTER_CACHE, _split_text
 
         _SEGMENTER_CACHE.clear()
         _split_text("Hello world. This is a test.", max_chars=15, language="English")
@@ -181,7 +180,7 @@ class TestPysdbCache(unittest.TestCase):
 
     def test_cache_reuse_same_object(self):
         """Same language should return the same segmenter object."""
-        from qwen3_tts.core.engine.text_processing import _split_text, _SEGMENTER_CACHE
+        from qwen3_tts.core.engine.text_processing import _SEGMENTER_CACHE, _split_text
 
         _SEGMENTER_CACHE.clear()
         _split_text("Hello world. This is a test.", max_chars=15, language="English")

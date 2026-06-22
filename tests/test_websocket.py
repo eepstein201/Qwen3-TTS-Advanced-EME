@@ -21,8 +21,9 @@ import unittest
 from unittest.mock import MagicMock, patch
 
 try:
-    from fastapi.testclient import TestClient
     import numpy as np
+    from fastapi.testclient import TestClient
+
     from qwen3_tts.server.app import app
     from qwen3_tts.server.websocket import websocket_tts_handler  # noqa: F401
     HAS_DEPS = True

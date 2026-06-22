@@ -14,7 +14,7 @@ import pathlib
 import sys
 import tempfile
 import unittest
-from unittest.mock import patch, MagicMock
+from unittest.mock import MagicMock, patch
 
 try:
     import pytest
@@ -304,8 +304,9 @@ class TestEngineFunctions(unittest.TestCase):
 
     def test_memory_cleanup_logs_not_silent(self):
         """Memory cleanup in _run_inference_torch logs errors instead of silent pass."""
-        from qwen3_tts.core.engine import inference
         import numpy as np
+
+        from qwen3_tts.core.engine import inference
 
         # Mock torch with MPS available
         mock_torch = MagicMock()
@@ -349,8 +350,9 @@ class TestEngineFunctions(unittest.TestCase):
 
     def test_cuda_memory_cleanup_logs_not_silent(self):
         """CUDA memory cleanup in _run_inference_torch logs errors instead of silent pass."""
-        from qwen3_tts.core.engine import inference
         import numpy as np
+
+        from qwen3_tts.core.engine import inference
 
         # Mock torch with CUDA available (not MPS)
         mock_torch = MagicMock()
@@ -424,23 +426,26 @@ class TestEvictIfFull(unittest.TestCase):
     """Tests for the _evict_if_full LRU cache eviction helper."""
 
     def test_evicts_oldest_when_full(self):
-        from qwen3_tts.core.engine.voice_prompt import _evict_if_full
         from collections import OrderedDict
+
+        from qwen3_tts.core.engine.voice_prompt import _evict_if_full
         cache = OrderedDict([("a", 1), ("b", 2), ("c", 3)])
         _evict_if_full(cache, max_size=3)
         self.assertNotIn("a", cache)
         self.assertEqual(len(cache), 2)
 
     def test_no_eviction_when_under_limit(self):
-        from qwen3_tts.core.engine.voice_prompt import _evict_if_full
         from collections import OrderedDict
+
+        from qwen3_tts.core.engine.voice_prompt import _evict_if_full
         cache = OrderedDict([("a", 1), ("b", 2)])
         _evict_if_full(cache, max_size=3)
         self.assertEqual(len(cache), 2)
 
     def test_no_eviction_when_empty(self):
-        from qwen3_tts.core.engine.voice_prompt import _evict_if_full
         from collections import OrderedDict
+
+        from qwen3_tts.core.engine.voice_prompt import _evict_if_full
         cache = OrderedDict()
         _evict_if_full(cache, max_size=3)
         self.assertEqual(len(cache), 0)

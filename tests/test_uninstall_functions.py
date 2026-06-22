@@ -16,7 +16,6 @@ import tempfile
 import unittest
 from unittest import mock
 
-
 # ---------------------------------------------------------------------------
 # _get_models_size / _list_cached_models
 # ---------------------------------------------------------------------------

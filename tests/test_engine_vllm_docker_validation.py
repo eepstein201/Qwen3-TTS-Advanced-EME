@@ -8,8 +8,6 @@ Tests that vLLM starts with correct multimodal parameters:
 This test requires Docker environment with vLLM enabled.
 """
 
-import subprocess
-import time
 import unittest
 
 from qwen3_tts.core.config import load_config

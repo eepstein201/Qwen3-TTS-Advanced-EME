@@ -38,8 +38,7 @@ except ImportError:
 
     pytest = _DummyPytest()
 
-from unittest.mock import patch, MagicMock
-
+from unittest.mock import MagicMock, patch
 
 # ---- _install_mps_patch ----
 

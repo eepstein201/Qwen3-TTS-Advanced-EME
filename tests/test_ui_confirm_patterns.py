@@ -240,11 +240,10 @@ class TestModelUnloadMetadata(unittest.TestCase):
             ["custom", "Not Loaded", "0", "user"],
         ]
 
-        from qwen3_tts.interface.ui.model_management import get_model_table_data
         from qwen3_tts.interface.ui.components import ConfirmButton
+        from qwen3_tts.interface.ui.model_management import get_model_table_data
 
-        confirm_btn = ConfirmButton("Confirm", "Original", 5.0, "")
-        state = {"armed": False, "ts": 0.0}
+        ConfirmButton("Confirm", "Original", 5.0, "")
 
         # Simulate the first click logic (showing metadata)
         models = get_model_table_data()
@@ -351,6 +350,7 @@ class TestConfirmationThreadSafety(unittest.TestCase):
     def test_multiple_concurrent_confirmations(self):
         """Multiple simultaneous confirmations don't interfere."""
         import threading
+
         from qwen3_tts.interface.ui.components import ConfirmButton
 
         confirm_btn = ConfirmButton("Confirm", "Original", 5.0, "")

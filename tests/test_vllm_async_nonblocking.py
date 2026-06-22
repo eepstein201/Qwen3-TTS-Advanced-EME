@@ -6,7 +6,6 @@ allowing other requests to be processed concurrently.
 
 import asyncio
 import unittest
-from unittest.mock import AsyncMock, patch
 
 from qwen3_tts.server.vllm_client import AsyncVLLMClient
 
@@ -37,7 +36,7 @@ class TestVLLMNonBlocking(unittest.TestCase):
                 await asyncio.sleep(0.05)
 
             # Start both tasks concurrently
-            results = await asyncio.gather(
+            await asyncio.gather(
                 client.generate(text="Hello"),
                 other_task()
             )

@@ -20,9 +20,9 @@ class TestVLLMAdapterInit(unittest.TestCase):
     """Characterize __init__ parameter contracts."""
 
     def test_default_model_name(self):
-        from qwen3_tts.core.engine_vllm import VLLMAdapter
-
         import inspect
+
+        from qwen3_tts.core.engine_vllm import VLLMAdapter
 
         sig = inspect.signature(VLLMAdapter.__init__)
         self.assertEqual(
@@ -31,22 +31,25 @@ class TestVLLMAdapterInit(unittest.TestCase):
         )
 
     def test_default_gpu_memory_utilization(self):
-        from qwen3_tts.core.engine_vllm import VLLMAdapter
         import inspect
+
+        from qwen3_tts.core.engine_vllm import VLLMAdapter
 
         sig = inspect.signature(VLLMAdapter.__init__)
         self.assertEqual(sig.parameters["gpu_memory_utilization"].default, 0.9)
 
     def test_default_port_is_none(self):
-        from qwen3_tts.core.engine_vllm import VLLMAdapter
         import inspect
+
+        from qwen3_tts.core.engine_vllm import VLLMAdapter
 
         sig = inspect.signature(VLLMAdapter.__init__)
         self.assertIsNone(sig.parameters["port"].default)
 
     def test_default_log_file_is_none(self):
-        from qwen3_tts.core.engine_vllm import VLLMAdapter
         import inspect
+
+        from qwen3_tts.core.engine_vllm import VLLMAdapter
 
         sig = inspect.signature(VLLMAdapter.__init__)
         self.assertIsNone(sig.parameters["log_file"].default)

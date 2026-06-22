@@ -15,7 +15,7 @@ Run: pytest tests/test_ui_shared_ext.py -v
 """
 import os
 import unittest
-from unittest.mock import patch, MagicMock
+from unittest.mock import MagicMock, patch
 
 try:
     import gradio as gr
@@ -327,7 +327,7 @@ class TestHistoryFunctions(unittest.TestCase):
         self.assertEqual(len(result[0]["text"]), 43)
 
     def test_add_to_history_caps_at_max(self):
-        from qwen3_tts.interface.ui.shared import add_to_history, MAX_HISTORY_SIZE
+        from qwen3_tts.interface.ui.shared import MAX_HISTORY_SIZE, add_to_history
         history = [{"timestamp": i, "mode": "Clone", "text": "x", "path": "/tmp", "chunks": 0} for i in range(MAX_HISTORY_SIZE)]
         result = add_to_history(history, "clone", "new", "/tmp/new.wav", 1)
         self.assertEqual(len(result), MAX_HISTORY_SIZE)

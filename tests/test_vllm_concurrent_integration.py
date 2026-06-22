@@ -4,7 +4,6 @@ Integration tests that multiple generation requests don't block each other.
 Requires running server for full integration testing.
 """
 
-import asyncio
 import unittest
 
 try:

@@ -42,6 +42,7 @@ def _ensure_asr_torch_loaded():
             _asr_model_torch = hf_pipeline(
                 "automatic-speech-recognition",
                 model="openai/whisper-base",
+                revision=_WHISPER_REVISION,
                 device=device,
                 chunk_length_s=30,
             )
@@ -69,6 +70,9 @@ def preload_asr_model():
 
 _MLX_WHISPER_REPO = "mlx-community/whisper-large-v3-turbo"
 _WHISPER_PROCESSOR_SOURCE = "openai/whisper-large-v3-turbo"
+# HuggingFace revision for Whisper downloads. Default "main" preserves current
+# behavior; pin to a tag/SHA here to avoid tracking a repo's moving main branch.
+_WHISPER_REVISION = "main"
 _WHISPER_PROCESSOR_FILES = (
     "preprocessor_config.json",
     "tokenizer.json",
@@ -102,20 +106,33 @@ def _ensure_mlx_whisper_processor() -> None:
     try:
         snapshot_dir = snapshot_download(
             repo_id=_MLX_WHISPER_REPO,
+            revision=_WHISPER_REVISION,
             allow_patterns=["config.json"],
         )
     except Exception as e:
         logger.warning("Could not locate MLX Whisper snapshot: %s", e)
         return
 
-    missing = [f for f in _WHISPER_PROCESSOR_FILES if not os.path.exists(os.path.join(snapshot_dir, f))]
+    missing = [
+        f
+        for f in _WHISPER_PROCESSOR_FILES
+        if not os.path.exists(os.path.join(snapshot_dir, f))
+    ]
     if not missing:
         return
 
-    logger.info("Fetching %d missing Whisper processor files from %s", len(missing), _WHISPER_PROCESSOR_SOURCE)
+    logger.info(
+        "Fetching %d missing Whisper processor files from %s",
+        len(missing),
+        _WHISPER_PROCESSOR_SOURCE,
+    )
     for filename in missing:
         try:
-            src = hf_hub_download(repo_id=_WHISPER_PROCESSOR_SOURCE, filename=filename)
+            src = hf_hub_download(
+                repo_id=_WHISPER_PROCESSOR_SOURCE,
+                filename=filename,
+                revision=_WHISPER_REVISION,
+            )
             shutil.copy(src, os.path.join(snapshot_dir, filename))
         except Exception as e:
             # added_tokens.json may legitimately not exist upstream; log and continue

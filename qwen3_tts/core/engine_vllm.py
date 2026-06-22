@@ -29,6 +29,8 @@ from collections.abc import AsyncIterator, Callable
 from pathlib import Path
 from typing import Any
 
+import httpx
+
 logger = logging.getLogger(__name__)
 
 
@@ -51,10 +53,14 @@ def log_gpu_memory_usage():
         # GPUtil not available, use nvidia-smi
         try:
             result = subprocess.run(
-                ["nvidia-smi", "--query-gpu=memory.used,memory.total", "--format=csv,noheader,nounits"],
+                [
+                    "nvidia-smi",
+                    "--query-gpu=memory.used,memory.total",
+                    "--format=csv,noheader,nounits",
+                ],
                 capture_output=True,
                 text=True,
-                timeout=5.0
+                timeout=5.0,
             )
             if result.returncode == 0 and result.stdout.strip():
                 logger.info(f"GPU Memory: {result.stdout.strip()}")
@@ -66,7 +72,6 @@ def log_gpu_memory_usage():
             else:
                 logger.warning("nvidia-smi command timed out")
 
-import httpx
 
 logger = logging.getLogger("tts.engine.vllm")
 
@@ -124,15 +129,21 @@ class VLLMAdapter:
                 f"gpu_memory_utilization must be in (0.0, 1.0], got {gpu_memory_utilization}"
             )
         if max_model_len < 1024 or max_model_len > 32768:
-            raise ValueError(f"max_model_len must be in [1024, 32768], got {max_model_len}")
+            raise ValueError(
+                f"max_model_len must be in [1024, 32768], got {max_model_len}"
+            )
         if dtype not in ("bfloat16", "float16", "float32"):
-            raise ValueError(f"dtype must be bfloat16, float16, or float32, got {dtype}")
+            raise ValueError(
+                f"dtype must be bfloat16, float16, or float32, got {dtype}"
+            )
         if audio_sample_rate not in (16000, 24000, 48000):
             raise ValueError(
                 f"audio_sample_rate must be 16000, 24000, or 48000, got {audio_sample_rate}"
             )
         if audio_chunk_size < 512 or audio_chunk_size > 8192:
-            raise ValueError(f"audio_chunk_size must be in [512, 8192], got {audio_chunk_size}")
+            raise ValueError(
+                f"audio_chunk_size must be in [512, 8192], got {audio_chunk_size}"
+            )
         if not mm_processor_name:
             raise ValueError("mm_processor_name cannot be empty")
 

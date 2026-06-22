@@ -37,7 +37,10 @@ class TestRegisterBackend:
 
     def test_register_custom_backend(self):
         """Can register a custom backend."""
-        from qwen3_tts.core.engine.inference import register_backend, _INFERENCE_STRATEGIES
+        from qwen3_tts.core.engine.inference import (
+            _INFERENCE_STRATEGIES,
+            register_backend,
+        )
 
         def my_custom_backend(model, text, mode, **kwargs):
             return ([np.zeros(1000, dtype=np.float32)], 24000)
@@ -47,7 +50,10 @@ class TestRegisterBackend:
 
     def test_registered_backend_is_callable(self):
         """Registered backend is callable."""
-        from qwen3_tts.core.engine.inference import register_backend, _INFERENCE_STRATEGIES
+        from qwen3_tts.core.engine.inference import (
+            _INFERENCE_STRATEGIES,
+            register_backend,
+        )
 
         def my_backend(model, text, mode, **kwargs):
             return ([np.zeros(1000, dtype=np.float32)], 24000)
@@ -109,7 +115,10 @@ class TestStrategyDispatch:
 
     def test_can_add_new_backend_without_modifying_code(self):
         """Can add new backend without modifying existing code (OCP)."""
-        from qwen3_tts.core.engine.inference import register_backend, _INFERENCE_STRATEGIES
+        from qwen3_tts.core.engine.inference import (
+            _INFERENCE_STRATEGIES,
+            register_backend,
+        )
 
         initial_count = len(_INFERENCE_STRATEGIES)
 

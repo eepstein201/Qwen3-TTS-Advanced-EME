@@ -12,7 +12,7 @@ Covers:
 Run: pytest tests/test_ui_voice_mgmt.py -v
 """
 import unittest
-from unittest.mock import patch, MagicMock, mock_open
+from unittest.mock import MagicMock, mock_open, patch
 
 try:
     import gradio as gr

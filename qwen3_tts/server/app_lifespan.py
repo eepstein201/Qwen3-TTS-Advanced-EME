@@ -187,7 +187,9 @@ async def _maybe_start_vllm_adapter(state) -> None:
         dtype=vllm_config.get("dtype", "bfloat16"),
         audio_sample_rate=vllm_config.get("audio_sample_rate", 24000),
         audio_chunk_size=vllm_config.get("audio_chunk_size", 2000),
-        mm_processor_name=vllm_config.get("mm_processor_name", "Qwen/Qwen2-Audio-7B-Instruct"),
+        mm_processor_name=vllm_config.get(
+            "mm_processor_name", "Qwen/Qwen2-Audio-7B-Instruct"
+        ),
     )
 
     # Start VLLM subprocess (may take up to 300s)
@@ -334,7 +336,9 @@ async def lifespan(app):
         # Only delete if token doesn't match (indicates crash scenario)
         # Never delete our own valid token on normal shutdown
         if on_disk != app.state.auth_token:
-            logger.warning(f"Token mismatch on disk vs memory - cleaning up: {TOKEN_FILE}")
+            logger.warning(
+                f"Token mismatch on disk vs memory - cleaning up: {TOKEN_FILE}"
+            )
             os.unlink(TOKEN_FILE)
         else:
             logger.info(f"Token file preserved for client use: {TOKEN_FILE}")

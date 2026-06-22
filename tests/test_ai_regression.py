@@ -7,12 +7,12 @@ AI-assisted code review misses bugs:
 - Model state edge cases (graceful failures when models not loaded)
 - API response contracts (required fields always present)
 """
-import pytest
 import json
+import os
 import time
 import urllib.request
-import os
-from pathlib import Path
+
+import pytest
 
 SERVER_URL = "http://127.0.0.1:5123"
 
@@ -109,7 +109,6 @@ class TestBackendConsistency:
             pytest.skip("Server not running - cannot test backend consistency")
 
         # Check if models are loaded for the requested mode
-        model_key = f"{mode}_model_loaded"
         if not models_data.get("models", {}).get(mode, {}).get("loaded"):
             pytest.skip(f"{mode.capitalize()} model not loaded - skipping backend consistency test")
 
@@ -140,7 +139,7 @@ class TestBackendConsistency:
         # Verify response has expected structure
         assert "results" in response, f"Missing 'results' field in {mode} backend response"
         assert isinstance(response["results"], list), f"results should be a list, got {type(response['results'])}"
-        assert len(response["results"]) > 0, f"results should not be empty"
+        assert len(response["results"]) > 0, "results should not be empty"
 
         # Verify first result has required fields
         first_result = response["results"][0]
@@ -154,7 +153,7 @@ class TestBackendConsistency:
         assert isinstance(first_result["index"], int), f"index should be int, got {type(first_result['index'])}"
 
         # Verify audio is base64-encoded string (not empty)
-        assert len(first_result["audio_base64"]) > 0, f"audio_base64 should not be empty"
+        assert len(first_result["audio_base64"]) > 0, "audio_base64 should not be empty"
 
     def test_stats_endpoint_includes_all_required_fields(self):
         """Test /stats endpoint returns consistent response shape across backends.

@@ -28,7 +28,10 @@ from qwen3_tts.core.config import (
     load_config,
     validate_voice_name,
 )
-from qwen3_tts.interface.ui.components import ConfirmButton, confirm_step
+
+# confirm_step is re-exported here as part of the UI confirm-pattern wiring
+# contract verified by tests/test_ui_confirm_patterns.py.
+from qwen3_tts.interface.ui.components import ConfirmButton, confirm_step  # noqa: F401
 from qwen3_tts.interface.ui.generation import (
     _build_common_controls,
     _build_generate_buttons_and_output,
@@ -783,14 +786,21 @@ def _build_manage_voices_tab(clone_prompt):
     )
 
     def on_delete_click(state, selected):
-        from qwen3_tts.interface.ui.shared import get_voice_metadata
         import time
+
+        from qwen3_tts.interface.ui.shared import get_voice_metadata
 
         # First click: show metadata
         if not state.get("armed", False):
             metadata = get_voice_metadata(selected)
             if "error" in metadata:
-                return state, gr.update(), f"Error: {metadata['error']}", gr.update(), gr.update()
+                return (
+                    state,
+                    gr.update(),
+                    f"Error: {metadata['error']}",
+                    gr.update(),
+                    gr.update(),
+                )
 
             duration = metadata.get("duration", "N/A")
             formats = ", ".join(metadata.get("formats", []))
@@ -813,7 +823,13 @@ def _build_manage_voices_tab(clone_prompt):
             )
 
             new_state = delete_confirm_btn.click(state)
-            return new_state, gr.update(value="Confirm Delete? (click again)"), banner_msg, gr.update(), gr.update()
+            return (
+                new_state,
+                gr.update(value="Confirm Delete? (click again)"),
+                banner_msg,
+                gr.update(),
+                gr.update(),
+            )
 
         # Second click: proceed with deletion
         new_state, btn_update, status_update, confirmed = delete_confirm_btn.click(
@@ -939,7 +955,13 @@ def _build_manage_models_tab(
             models = get_model_table_data()
             model = next((m for m in models if m[0] == mt), None)
             if not model:
-                return state, gr.update(), f"Model '{mt}' not found", gr.update(), gr.update()
+                return (
+                    state,
+                    gr.update(),
+                    f"Model '{mt}' not found",
+                    gr.update(),
+                    gr.update(),
+                )
 
             model_type = model[0]
             memory_mb = model[2] if len(model) > 2 else "N/A"
@@ -948,7 +970,9 @@ def _build_manage_models_tab(
             # Warning if model is startup=default
             startup_warning = ""
             if startup == "default":
-                startup_warning = "\n⚠️ Loaded at startup - will reload on server restart!"
+                startup_warning = (
+                    "\n⚠️ Loaded at startup - will reload on server restart!"
+                )
 
             banner_msg = (
                 f"Unload {model_type.upper()} model?\n"
@@ -959,7 +983,13 @@ def _build_manage_models_tab(
             )
 
             new_state = unload_confirm_btn.click(state)
-            return new_state, gr.update(value="Confirm Unload? (click again)"), banner_msg, gr.update(), gr.update()
+            return (
+                new_state,
+                gr.update(value="Confirm Unload? (click again)"),
+                banner_msg,
+                gr.update(),
+                gr.update(),
+            )
 
         # Second click: proceed with unload
         new_state, btn_update, status_update, confirmed = unload_confirm_btn.click(

@@ -16,8 +16,9 @@ Run: pytest tests/test_fastapi_app_ext.py -v
 """
 import os
 import time
+from unittest.mock import MagicMock, patch
+
 import pytest
-from unittest.mock import patch, MagicMock
 
 try:
     from qwen3_tts.server.app import app as _app

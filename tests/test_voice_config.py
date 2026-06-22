@@ -23,8 +23,12 @@ class TestTTSConfig(unittest.TestCase):
 
     def test_error_hierarchy(self):
         from qwen3_tts.core.config import (
-            TTSError, ServerConnectionError, ModelNotLoadedError,
-            InvalidInputError, GenerationError, AuthenticationError,
+            AuthenticationError,
+            GenerationError,
+            InvalidInputError,
+            ModelNotLoadedError,
+            ServerConnectionError,
+            TTSError,
         )
         # All errors inherit from TTSError
         for cls in [ServerConnectionError, ModelNotLoadedError,
@@ -65,7 +69,7 @@ class TestTTSConfig(unittest.TestCase):
             token_path = f.name
         try:
             with patch("qwen3_tts.core.config.TOKEN_FILE", token_path):
-                from qwen3_tts.core.config import read_auth_token, auth_headers
+                from qwen3_tts.core.config import auth_headers, read_auth_token
                 # Need to reimport to pick up patched value
                 read_auth_token()
                 auth_headers()
@@ -283,7 +287,7 @@ class TestModelSize(unittest.TestCase):
             self.assertIn("0.6B", name)
 
     def test_model_info_has_0_6B(self):
-        from qwen3_tts.core.config import MODEL_INFO, MLX_MODEL_INFO
+        from qwen3_tts.core.config import MLX_MODEL_INFO, MODEL_INFO
         # Both should have 0.6B entries
         self.assertIn("0.6B", MODEL_INFO)
         self.assertIn("0.6B", MLX_MODEL_INFO)
@@ -298,7 +302,7 @@ class TestPlatformDetection(unittest.TestCase):
 
     def test_platform_constants_exist(self):
         """qwen3_tts.core.config has IN_COLAB, IS_MACOS, IS_LINUX constants."""
-        from qwen3_tts.core.config import IN_COLAB, IS_MACOS, IS_LINUX
+        from qwen3_tts.core.config import IN_COLAB, IS_LINUX, IS_MACOS
         self.assertIsInstance(IN_COLAB, bool)
         self.assertIsInstance(IS_MACOS, bool)
         self.assertIsInstance(IS_LINUX, bool)

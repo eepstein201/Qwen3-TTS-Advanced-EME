@@ -13,7 +13,7 @@ Using protocols enables:
 - Clear interface contracts between components
 - Decoupling from specific backend implementations
 """
-import asyncio
+
 from collections.abc import Iterator
 from typing import Any, Protocol, runtime_checkable
 

@@ -125,7 +125,7 @@ class TestValidateGenerationRequest(unittest.TestCase):
     """Test _validate_generation_request() from app.py."""
 
     def _get_validator_and_request_class(self):
-        from qwen3_tts.server.app import _validate_generation_request, GenerateRequest
+        from qwen3_tts.server.app import GenerateRequest, _validate_generation_request
         return _validate_generation_request, GenerateRequest
 
     def test_valid_clone_request(self):
@@ -255,7 +255,10 @@ class TestVoicePromptCacheThreadSafety(unittest.TestCase):
 
     def test_concurrent_clear_and_info(self):
         """Concurrent clear + info calls don't raise."""
-        from qwen3_tts.core.engine import clear_voice_prompt_cache, voice_prompt_cache_info
+        from qwen3_tts.core.engine import (
+            clear_voice_prompt_cache,
+            voice_prompt_cache_info,
+        )
         errors = []
 
         def worker(fn, n=50):
@@ -347,6 +350,7 @@ class TestSignalHandlerPattern(unittest.TestCase):
     def test_signal_handler_resets_before_kill(self):
         """_signal_handler in run_server resets handlers to prevent recursion."""
         import inspect
+
         from qwen3_tts.server.app import run_server
         source = inspect.getsource(run_server)
         # Handler must reset SIGTERM before sending

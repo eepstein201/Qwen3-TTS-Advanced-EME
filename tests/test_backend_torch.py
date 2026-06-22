@@ -36,7 +36,6 @@ except ImportError:
 
 from unittest.mock import patch
 
-
 # ---- voice_prompt_exists (torch backend) ----
 
 @pytest.mark.unit

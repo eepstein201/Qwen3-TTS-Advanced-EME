@@ -10,7 +10,7 @@ Covers:
 Run: pytest tests/test_seed_lock_chunks.py -v
 """
 import unittest
-from unittest.mock import patch, MagicMock, call
+from unittest.mock import MagicMock, call, patch
 
 try:
     import mlx.core  # noqa: F401
@@ -67,6 +67,7 @@ class TestSeedLockChunksInRunInference(unittest.TestCase):
     def test_reseeds_before_each_chunk(self, _max, mock_crossfade,
                                        mock_chunks, mock_single, mock_set_seed):
         import numpy as np
+
         from qwen3_tts.core.engine.inference import run_inference
 
         mock_chunks.return_value = ["chunk1", "chunk2", "chunk3"]
@@ -94,6 +95,7 @@ class TestSeedLockChunksInRunInference(unittest.TestCase):
     def test_no_reseed_when_disabled(self, _max, mock_crossfade,
                                      mock_chunks, mock_single, mock_set_seed):
         import numpy as np
+
         from qwen3_tts.core.engine.inference import run_inference
 
         mock_chunks.return_value = ["chunk1", "chunk2"]
@@ -118,6 +120,7 @@ class TestSeedLockChunksInRunInference(unittest.TestCase):
     def test_no_reseed_single_chunk(self, _max, mock_chunks, mock_single,
                                     mock_set_seed):
         import numpy as np
+
         from qwen3_tts.core.engine.inference import run_inference
 
         mock_chunks.return_value = ["single chunk"]

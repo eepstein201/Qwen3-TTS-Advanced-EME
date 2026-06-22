@@ -385,7 +385,7 @@ class SimpleClass:
 
     def test_analyze_module_returns_solid_score(self, tmp_path):
         """analyze_module returns SOLIDScore instance."""
-        from qwen3_tts.tools.solid_analyzer import analyze_module, SOLIDScore
+        from qwen3_tts.tools.solid_analyzer import SOLIDScore, analyze_module
 
         code_file = tmp_path / "test_module.py"
         code_file.write_text("def hello(): pass")
@@ -410,7 +410,7 @@ class TestAnalyzePackage:
 
     def test_analyze_package_returns_dict(self, tmp_path):
         """analyze_package returns dict of module scores."""
-        from qwen3_tts.tools.solid_analyzer import analyze_package, SOLIDScore
+        from qwen3_tts.tools.solid_analyzer import SOLIDScore, analyze_package
 
         # Create a mini package
         pkg = tmp_path / "test_pkg"

@@ -11,7 +11,7 @@ import json
 import os
 import tempfile
 import unittest
-from unittest.mock import patch, MagicMock
+from unittest.mock import MagicMock, patch
 
 try:
     import pytest
@@ -102,8 +102,9 @@ class TestTTSClientInit(unittest.TestCase):
 
     def test_is_server_running_down(self):
         """is_server_running returns False when connection fails."""
-        from qwen3_tts.server.client import TTSClient
         import requests
+
+        from qwen3_tts.server.client import TTSClient
         tmp = self._make_config()
         try:
             client = TTSClient(config_path=tmp)
@@ -340,9 +341,10 @@ class TestStreamingBufferOverflowProtection(unittest.TestCase):
 
     def test_streaming_buffer_overflow_raises_error(self):
         """generate_streaming should raise RuntimeError when buffer exceeds limit."""
+        import struct
+
         from qwen3_tts.server.client import TTSClient
         from qwen3_tts.server.client._base import MAX_BUFFER_SIZE
-        import struct
 
         tmp = self._make_config()
         try:
@@ -413,8 +415,9 @@ class TestSpeakerNameNormalization(unittest.TestCase):
 
     def test_generate_normalizes_speaker_name(self):
         """generate() should normalize speaker names to lowercase."""
-        from qwen3_tts.server.client import TTSClient
         import base64
+
+        from qwen3_tts.server.client import TTSClient
 
         tmp = self._make_config()
         try:

@@ -131,7 +131,7 @@ _LAZY_IMPORTS = {
 }
 
 # Cache for imported modules
-_module_cache = {}
+_module_cache: dict = {}
 
 
 # Submodules that can be lazily imported

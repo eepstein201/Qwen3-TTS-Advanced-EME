@@ -43,11 +43,11 @@ except ImportError:
 
 try:
     from qwen3_tts.interface.generate_server import (
-        ensure_server_running,
-        load_model_on_server,
-        generate_via_server,
-        _voice_param_for_log,
         _run_single_generation,
+        _voice_param_for_log,
+        ensure_server_running,
+        generate_via_server,
+        load_model_on_server,
     )
     HAS_DEPS = True
 except ImportError:
@@ -378,7 +378,9 @@ class TestGenerateStreaming(unittest.TestCase):
     def test_success_saves_combined(self):
         """Streaming collects chunks and saves combined wav."""
         import struct
+
         import numpy as np
+
         from qwen3_tts.interface.generate_server import generate_streaming
         # Build a mock streamed response with 2 chunks
         sr = 24000
@@ -437,6 +439,7 @@ class TestGenerateStreaming(unittest.TestCase):
     def test_request_error_raises(self):
         """RequestException re-raised as Exception."""
         import requests as req_mod
+
         from qwen3_tts.interface.generate_server import generate_streaming
         patches = self._base_patches()
         with patches["url"], patches["payload"], patches["play"], \
@@ -498,8 +501,9 @@ class TestGenerateLocal(unittest.TestCase):
                 generate_local("Hello", "clone", {}, prompt_file="missing.pt")
 
     def test_custom_mode_defaults_speaker(self):
-        from qwen3_tts.interface.generate_server import generate_local
         import numpy as np
+
+        from qwen3_tts.interface.generate_server import generate_local
         wav = np.zeros(100, dtype=np.float32)
         with patch("qwen3_tts.core.engine.load_model"), \
              patch("qwen3_tts.core.engine.run_inference", return_value=(wav, 24000)) as mock_inf, \
@@ -510,8 +514,9 @@ class TestGenerateLocal(unittest.TestCase):
         self.assertEqual(call_kwargs["speaker"], "Ryan")
 
     def test_custom_with_instruct(self):
-        from qwen3_tts.interface.generate_server import generate_local
         import numpy as np
+
+        from qwen3_tts.interface.generate_server import generate_local
         wav = np.zeros(100, dtype=np.float32)
         with patch("qwen3_tts.core.engine.load_model"), \
              patch("qwen3_tts.core.engine.run_inference", return_value=(wav, 24000)), \
@@ -521,8 +526,9 @@ class TestGenerateLocal(unittest.TestCase):
         self.assertIn("whisper", output)
 
     def test_design_mode(self):
-        from qwen3_tts.interface.generate_server import generate_local
         import numpy as np
+
+        from qwen3_tts.interface.generate_server import generate_local
         wav = np.zeros(100, dtype=np.float32)
         with patch("qwen3_tts.core.engine.load_model"), \
              patch("qwen3_tts.core.engine.run_inference", return_value=(wav, 24000)) as mock_inf, \

@@ -90,7 +90,7 @@ config.json → qwen3_tts.core.config → qwen3_tts.core.engine (dispatch)
 
 | Module | Purpose | Heavy imports? |
 |--------|---------|----------------|
-| `qwen3_tts/core/config.py` | Constants, config I/O, error classes, `MODEL_INFO`, auth, platform detection, CUDA capability detection, voice description attributes, PID lifecycle (`read_pid_file`, `write_pid_file`, `cleanup_pid_file`, `is_pid_alive`, `find_pid_by_port`, `detect_server_state`) | No |
+| `qwen3_tts/core/config.py` | Constants, config I/O (`save_config` writes atomically via temp file + `os.replace`), error classes, `MODEL_INFO`, `get_model_revision` (HF revision per model, default `"main"`), auth, platform detection, CUDA capability detection, voice description attributes, PID lifecycle (`read_pid_file`, `write_pid_file`, `cleanup_pid_file`, `is_pid_alive`, `find_pid_by_port`, `detect_server_state`) | No |
 | `qwen3_tts/core/engine/` | Package with 6 submodules: `text_processing`, `audio_processing`, `voice_prompt`, `model_loader`, `inference`, `asr`. `__init__.py` facade re-exports all public names. | No (all lazy) |
 | `qwen3_tts/core/protocols.py` | Abstract protocols for engine components. `FileConfigProvider` and `DefaultPromptManager` removed (dead code). | No |
 | `qwen3_tts/server/app.py` | FastAPI server: auth, endpoint wrappers, CORS, rate limiting. Thin wrappers delegate to handler modules. | No (lazy via engine) |
@@ -182,6 +182,7 @@ All other endpoints require `Authorization: Bearer <token>` (token from `~/.conf
 | `advanced.torch_quantization` | `"none"`, `"8bit"`, `"4bit"` | `"none"` |
 | `advanced.audio_loader` | `"torchaudio"`, `"librosa"` | `"torchaudio"` |
 | `generation.max_chunk_chars` | `0`-`10000` | `500` (0 disables chunking) |
+| `models.<type>.revision` | HF branch/tag/SHA for `clone`/`design`/`custom` downloads | `"main"` (unpinned) |
 
 For full config.json structure, see `docs/00-Foundations/ARCHITECTURE.md`.
 
@@ -271,6 +272,8 @@ make test-e2e      # Batch 6: E2E Playwright (requires server)
 ```bash
 tts server stop && tts server start
 ```
+
+**Static gates:** `ruff check qwen3_tts tests` (config in `.ruff.toml`), `mypy qwen3_tts/{core,server,interface}` (config in `pyproject.toml`; FastAPI `app.py` + vLLM modules excluded), `bandit -r qwen3_tts -c pyproject.toml` (target: 0 HIGH). All ship in the `dev` extra.
 
 **Log level:** Controlled by `TTS_LOG_LEVEL` env var (default `INFO`). Set `TTS_LOG_LEVEL=DEBUG` for verbose output.
 

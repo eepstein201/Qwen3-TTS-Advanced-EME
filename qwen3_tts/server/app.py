@@ -196,9 +196,12 @@ def _get_token_key(request: Request) -> str:
 
 
 async def verify_auth(request: Request) -> None:
-    """Verify Bearer token for protected endpoints."""
-    if request.url.path in ("/health", "/generation-status"):
-        return
+    """Verify Bearer token for protected endpoints.
+
+    Public endpoints (/health, /ready, /generation-status, /queue-status) achieve
+    no-auth access by simply not declaring Depends(verify_auth); this function only
+    ever runs for protected routes.
+    """
     token = request.headers.get("Authorization", "").replace("Bearer ", "")
     if not secrets.compare_digest(token, request.app.state.auth_token):
         client_ip = _get_real_client_ip(request)

@@ -15,7 +15,7 @@ Coverage:
 import os
 import tempfile
 import unittest
-from unittest.mock import patch, MagicMock
+from unittest.mock import MagicMock, patch
 
 from qwen3_tts.core.config import safe_path_join
 
@@ -128,8 +128,9 @@ class TestCreateVoicePathInjection(unittest.TestCase):
 
     def test_resolve_audio_path_rejects_traversal(self):
         """_resolve_audio_path with traversal path '../../../malicious.wav' raises ValueError."""
-        from qwen3_tts.tools.create_voice import _resolve_audio_path
         from unittest.mock import MagicMock
+
+        from qwen3_tts.tools.create_voice import _resolve_audio_path
 
         args = MagicMock(audio="../../../etc/passwd")
         # This should raise - traversal attempt
@@ -139,8 +140,9 @@ class TestCreateVoicePathInjection(unittest.TestCase):
 
     def test_resolve_audio_path_rejects_downloads_traversal(self):
         """_resolve_audio_path with '../escape in filename triggers ValueError."""
-        from qwen3_tts.tools.create_voice import _resolve_audio_path
         from unittest.mock import MagicMock
+
+        from qwen3_tts.tools.create_voice import _resolve_audio_path
 
         args = MagicMock(audio="../escape.wav")
         # The weak guard (".." not in text_or_file) should catch this
@@ -285,8 +287,6 @@ class TestVoiceManagementPathInjection(unittest.TestCase):
         voice_management = self._import_voice_management()
 
         # Verify the function uses safe_path_join for destinations
-        from qwen3_tts.core.config import VOICE_PROMPTS_DIR, safe_path_join
-        from qwen3_tts.core.config import validate_voice_name
         import inspect
 
         # Get the source code to verify the pattern

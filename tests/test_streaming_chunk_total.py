@@ -4,8 +4,6 @@ This test ensures that chunk_total is set during streaming generation.
 """
 
 import unittest
-from unittest.mock import patch, MagicMock
-import numpy as np
 
 
 class TestStreamingChunkTotal(unittest.TestCase):
@@ -13,8 +11,9 @@ class TestStreamingChunkTotal(unittest.TestCase):
 
     def test_run_inference_streaming_has_progress_callback_param(self):
         """run_inference_streaming should accept progress_callback parameter."""
-        from qwen3_tts.core.engine import run_inference_streaming
         import inspect
+
+        from qwen3_tts.core.engine import run_inference_streaming
 
         sig = inspect.signature(run_inference_streaming)
         self.assertIn("progress_callback", sig.parameters,
@@ -22,8 +21,9 @@ class TestStreamingChunkTotal(unittest.TestCase):
 
     def test_mlx_streaming_has_progress_callback_param(self):
         """_run_inference_mlx_streaming should accept progress_callback parameter."""
-        from qwen3_tts.core.engine.inference import _run_inference_mlx_streaming
         import inspect
+
+        from qwen3_tts.core.engine.inference import _run_inference_mlx_streaming
 
         sig = inspect.signature(_run_inference_mlx_streaming)
         self.assertIn("progress_callback", sig.parameters,

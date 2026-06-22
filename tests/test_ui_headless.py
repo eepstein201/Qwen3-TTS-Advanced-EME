@@ -25,8 +25,8 @@ PROJECT_DIR = os.path.expanduser("~/Qwen3-TTS_UserFiles")
 
 def wait_for_server(url, timeout=30):
     """Poll until the Gradio server responds, or raise on timeout."""
-    import urllib.request
     import urllib.error
+    import urllib.request
 
     deadline = time.time() + timeout
     while time.time() < deadline:
@@ -142,8 +142,8 @@ def main():
             return 1
 
         # Read and validate audio
-        import soundfile as sf
         import numpy as np
+        import soundfile as sf
 
         wav, sr = sf.read(audio_path)
         duration = len(wav) / sr

@@ -11,6 +11,7 @@ import time
 from qwen3_tts.core.config import (
     get_backend,
     get_mlx_model_name,
+    get_model_revision,
     get_model_size,
     get_torch_dtype_name,
     get_torch_model_name,
@@ -226,13 +227,14 @@ def _resolve_load_kwargs(
     return load_kwargs
 
 
-def _is_model_cached(repo_id: str) -> bool:
+def _is_model_cached(repo_id: str, revision: str = "main") -> bool:
     """Return True if the model snapshot is already in the local HF cache."""
     from huggingface_hub import snapshot_download
 
     try:
         snapshot_download(
             repo_id,
+            revision=revision,
             local_files_only=True,
             allow_patterns=["*.json", "*.txt", "*.bin", "*.safetensors"],
         )
@@ -257,12 +259,14 @@ def _apply_torch_compile(model, model_type: str, device: str, should_compile: bo
     return model
 
 
-def _patch_tokenizer(model, repo_id: str):
+def _patch_tokenizer(model, repo_id: str, revision: str = "main"):
     """Reload tokenizer with fix_mistral_regex=True if the transformers version supports it."""
     try:
         from transformers import AutoTokenizer
 
-        model.tokenizer = AutoTokenizer.from_pretrained(repo_id, fix_mistral_regex=True)  # nosec B615
+        model.tokenizer = AutoTokenizer.from_pretrained(
+            repo_id, revision=revision, fix_mistral_regex=True
+        )
     except TypeError:
         pass  # Older transformers doesn't support fix_mistral_regex
     return model
@@ -284,6 +288,7 @@ def _load_model_torch(model_type):
     _install_mps_patch()
 
     repo_id = get_torch_model_name(model_type)
+    revision = get_model_revision(model_type)
     model_size = get_model_size()
     dtype_name = get_torch_dtype_name()
     dtype_map = {
@@ -315,7 +320,7 @@ def _load_model_torch(model_type):
             torch_quant, torch_dtype, device, attn_impl, device_map
         )
 
-        if not _is_model_cached(repo_id):
+        if not _is_model_cached(repo_id, revision):
             logger.info(
                 "Downloading %s model (this may take several minutes on first run)...",
                 model_type,
@@ -325,9 +330,9 @@ def _load_model_torch(model_type):
                 "3.5GB" if model_size == "1.7B" else "2GB",
             )
 
-        model = Qwen3TTSModel.from_pretrained(repo_id, **load_kwargs)
+        model = Qwen3TTSModel.from_pretrained(repo_id, revision=revision, **load_kwargs)
         model = _apply_torch_compile(model, model_type, device, should_compile)
-        model = _patch_tokenizer(model, repo_id)
+        model = _patch_tokenizer(model, repo_id, revision)
         logger.info("Loaded %s model in %.1fs", model_type, time.time() - t0)
         return model
 

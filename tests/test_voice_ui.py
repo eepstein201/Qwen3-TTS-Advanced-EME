@@ -1,7 +1,7 @@
 """UI tests extracted from test_voice.py."""
 
 import unittest
-from unittest.mock import patch, MagicMock
+from unittest.mock import MagicMock, patch
 
 from tests.voice_test_helpers import (
     _skip_ui,
@@ -295,8 +295,8 @@ class TestProsodyUI(unittest.TestCase):
 
     def test_apply_prosody_preset_valid(self):
         """Selecting a valid preset should return its instruction text."""
-        from qwen3_tts.interface import ui as voice_ui
         from qwen3_tts.core.config import DEFAULT_PROSODY_PRESETS
+        from qwen3_tts.interface import ui as voice_ui
         result = voice_ui.apply_prosody_preset("excited")
         self.assertEqual(result, DEFAULT_PROSODY_PRESETS["excited"])
 

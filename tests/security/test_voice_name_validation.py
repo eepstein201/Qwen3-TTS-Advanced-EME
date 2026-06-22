@@ -1,5 +1,7 @@
 import pytest
+
 from qwen3_tts.core.config import validate_voice_name
+
 
 class TestValidateVoiceName:
     def test_01_plain_ascii_accepted(self):

@@ -8,7 +8,7 @@ Run: pytest tests/test_generate_interactive_ext_part2.py -v
 """
 import os
 import unittest
-from unittest.mock import patch, MagicMock
+from unittest.mock import MagicMock, patch
 
 try:
     import watchdog  # noqa: F401
@@ -52,6 +52,7 @@ class TestReplAudioProcessing(unittest.TestCase):
     def test_generation_with_speed_and_pitch(self):
         """Lines 561-565: speed and pitch adjustments applied during REPL gen."""
         import numpy as np
+
         from qwen3_tts.interface.generate_interactive import run_repl
         inputs = iter(["/speed 1.5", "/pitch 2.0", "Hello world", "/quit"])
         mock_wav = np.zeros(1000, dtype=np.float32)
@@ -84,8 +85,9 @@ class TestRunWatchMode(unittest.TestCase):
 
     def test_watch_mode_starts_and_stops(self):
         """Lines 652-670: observer starts and Ctrl+C stops it."""
-        import tempfile
         import shutil
+        import tempfile
+
         from qwen3_tts.interface.generate_interactive import run_watch_mode
         # run_watch_mode rejects output dirs outside $HOME; keep the temp dir
         # under home so the security check passes (default macOS tmp is not).
@@ -113,8 +115,9 @@ class TestRunWatchMode(unittest.TestCase):
 
     def test_watch_handler_processes_txt_file(self):
         """Lines 603-650: TTSHandler.on_created processes .txt files."""
-        import tempfile
         import shutil
+        import tempfile
+
         from qwen3_tts.interface.generate_interactive import run_watch_mode
         # run_watch_mode rejects output dirs outside $HOME; keep the temp dir
         # under home so the security check passes (default macOS tmp is not).
@@ -169,8 +172,9 @@ class TestRunWatchMode(unittest.TestCase):
 
     def test_watch_handler_skips_directories(self):
         """Line 606: TTSHandler skips directory events."""
-        import tempfile
         import shutil
+        import tempfile
+
         from qwen3_tts.interface.generate_interactive import run_watch_mode
         # run_watch_mode rejects output dirs outside $HOME; keep the temp dir
         # under home so the security check passes (default macOS tmp is not).

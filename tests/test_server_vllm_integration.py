@@ -1,7 +1,8 @@
 """Tests for VLLMAdapter integration with FastAPI server (HIGH-2)."""
-import pytest
 from types import SimpleNamespace
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock
+
+import pytest
 
 
 class TestVLLMLifecycleFunctions:
@@ -87,6 +88,7 @@ class TestVLLMStateInitialization:
     def test_lifespan_initializes_vllm_adapter_to_none(self):
         """The lifespan function sets app.state.vllm_adapter = None at startup."""
         import inspect
+
         from qwen3_tts.server import app_lifespan
 
         source = inspect.getsource(app_lifespan.lifespan)

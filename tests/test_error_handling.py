@@ -1,6 +1,7 @@
 """Tests for improved error handling in client.py."""
-import pytest
 from unittest import mock
+
+import pytest
 
 
 class TestClientErrorHandling:
@@ -8,8 +9,8 @@ class TestClientErrorHandling:
 
     def test_load_model_raises_model_error_on_failure(self):
         """load_model raises appropriate error type on failure."""
-        from qwen3_tts.server.client import TTSClient
         from qwen3_tts.core.config import TTSError
+        from qwen3_tts.server.client import TTSClient
 
         client = TTSClient()
         with mock.patch.object(client, 'is_server_running', return_value=True):
@@ -26,8 +27,8 @@ class TestClientErrorHandling:
 
     def test_delete_prompt_raises_voice_prompt_error(self):
         """delete_prompt raises appropriate error type on failure."""
-        from qwen3_tts.server.client import TTSClient
         from qwen3_tts.core.config import TTSError
+        from qwen3_tts.server.client import TTSClient
 
         client = TTSClient()
         with mock.patch.object(client, 'is_server_running', return_value=True):
@@ -43,8 +44,8 @@ class TestClientErrorHandling:
 
     def test_generate_raises_generation_error_on_server_error(self):
         """generate raises GenerationError on server error."""
-        from qwen3_tts.server.client import TTSClient
         from qwen3_tts.core.config import GenerationError
+        from qwen3_tts.server.client import TTSClient
 
         client = TTSClient()
         with mock.patch.object(client, 'is_server_running', return_value=True):

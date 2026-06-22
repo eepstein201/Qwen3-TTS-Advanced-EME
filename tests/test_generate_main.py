@@ -16,7 +16,7 @@ Run: pytest tests/test_generate_main.py -v
 """
 import argparse
 import unittest
-from unittest.mock import patch, MagicMock, mock_open
+from unittest.mock import MagicMock, mock_open, patch
 
 # MODEL_INFO in config.py is keyed by size ("1.7B"/"0.6B") then model_type.
 # _handle_list_models iterates MODEL_INFO.items() expecting model_type keys
@@ -126,6 +126,7 @@ class TestProcessBatch(unittest.TestCase):
     @patch("builtins.print")
     def test_local_mode(self, _print, _makedirs, mock_process, mock_gen):
         import numpy as np
+
         from qwen3_tts.interface.generate import process_batch
         wav = np.zeros(1000, dtype="float32")
         mock_gen.return_value = (wav, 24000)
@@ -147,6 +148,7 @@ class TestProcessBatch(unittest.TestCase):
     @patch("builtins.print")
     def test_server_mode_with_processing(self, _print, _makedirs, mock_process, mock_decode, mock_gen):
         import numpy as np
+
         from qwen3_tts.interface.generate import process_batch
         wav = np.zeros(1000, dtype="float32")
         mock_gen.return_value = ["base64data"]

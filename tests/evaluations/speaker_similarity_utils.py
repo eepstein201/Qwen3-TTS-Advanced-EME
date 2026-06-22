@@ -37,6 +37,7 @@ def extract_wavlm_embedding(audio_path: str) -> np.ndarray:
         1-D numpy array of speaker embedding features.
     """
     import os
+
     import torch
     import torchaudio
 

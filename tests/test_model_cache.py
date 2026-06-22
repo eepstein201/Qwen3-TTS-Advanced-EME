@@ -1,8 +1,8 @@
 """Tests for model_cache.py module."""
-import unittest
-from unittest import mock
 import pathlib
+import unittest
 from datetime import datetime
+from unittest import mock
 
 
 class TestSharedFormatSize(unittest.TestCase):

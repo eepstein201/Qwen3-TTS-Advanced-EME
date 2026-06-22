@@ -350,8 +350,9 @@ def get_voice_metadata(name: str) -> dict:
         # Try to get duration from .wav file
         if ".wav" in details.get("formats", []):
             try:
-                from qwen3_tts.core.config import VOICE_PROMPTS_DIR
                 import soundfile as sf
+
+                from qwen3_tts.core.config import VOICE_PROMPTS_DIR
 
                 wav_path = os.path.join(VOICE_PROMPTS_DIR, f"{name}.wav")
                 if os.path.exists(wav_path):

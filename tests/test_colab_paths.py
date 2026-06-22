@@ -38,7 +38,8 @@ except ImportError:
 
     pytest = _DummyPytest()
 
-from unittest.mock import patch, MagicMock
+from unittest.mock import MagicMock, patch
+
 import qwen3_tts.core.config as _cfg
 
 

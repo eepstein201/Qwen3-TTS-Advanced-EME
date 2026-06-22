@@ -260,15 +260,23 @@ async def handle_generate(request, state, req, security, config_provider):
                 # Check if vLLM should be used based on config and circuit state
                 config = request.app.state.server_config
                 vllm_enabled = config.get("vllm", {}).get("enabled", False)
-                vllm_fallback_enabled = config.get("vllm", {}).get("fallback_to_torch", True)
+                vllm_fallback_enabled = config.get("vllm", {}).get(
+                    "fallback_to_torch", True
+                )
 
                 use_vllm = False
-                if vllm_enabled and vllm_adapter is not None and vllm_client is not None:
+                if (
+                    vllm_enabled
+                    and vllm_adapter is not None
+                    and vllm_client is not None
+                ):
                     # Check circuit breaker state
                     circuit_state = vllm_client.circuit_state
                     if circuit_state == "CLOSED":
                         use_vllm = True
-                        logger.debug("Using vLLM for generation (circuit state: CLOSED)")
+                        logger.debug(
+                            "Using vLLM for generation (circuit state: CLOSED)"
+                        )
                     else:
                         logger.warning(
                             f"vLLM circuit breaker state: {circuit_state}, falling back to torch/MLX"
@@ -278,7 +286,9 @@ async def handle_generate(request, state, req, security, config_provider):
                                 f"vLLM circuit breaker is {circuit_state} and fallback is disabled"
                             )
                 elif vllm_enabled:
-                    logger.info("vLLM is enabled but not available (adapter/client not initialized)")
+                    logger.info(
+                        "vLLM is enabled but not available (adapter/client not initialized)"
+                    )
 
                 if use_vllm:
                     try:

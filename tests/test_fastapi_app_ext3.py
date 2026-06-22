@@ -43,7 +43,7 @@ import tempfile
 import threading
 import time
 import unittest
-from unittest.mock import patch, MagicMock
+from unittest.mock import MagicMock, patch
 
 import pytest
 
@@ -95,7 +95,7 @@ class TestSetAppConfigProvider(unittest.TestCase):
     """Line 82: set_app_config_provider stores provider."""
 
     def test_sets_provider(self):
-        from qwen3_tts.server.app import set_app_config_provider, _get_app_config
+        from qwen3_tts.server.app import _get_app_config, set_app_config_provider
         mock_provider = MagicMock()
         mock_provider.load.return_value = {"test": True}
         try:
@@ -210,6 +210,7 @@ class TestFastAPIAppExt3(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         from fastapi.testclient import TestClient
+
         from qwen3_tts.server.app import app
         cls.token = _setup_app_state()
         cls.client = TestClient(app, raise_server_exceptions=False)
@@ -509,6 +510,7 @@ class TestGenerateEndpointExt3(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         from fastapi.testclient import TestClient
+
         from qwen3_tts.server.app import app
         cls.token = _setup_app_state()
         cls.client = TestClient(app, raise_server_exceptions=False)
@@ -577,6 +579,7 @@ class TestGenerateEndpointExt3(unittest.TestCase):
     # --- cache eviction (lines 1379-1386) ---
     def test_generate_cache_eviction(self):
         import numpy as np
+
         from qwen3_tts.server.app import app
 
         fake_wav = np.zeros(500, dtype=np.float32)

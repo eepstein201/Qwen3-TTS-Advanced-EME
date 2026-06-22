@@ -16,11 +16,11 @@ Prerequisites:
 Run: pytest tests/test_e2e_security_validation.py -v
 """
 
-import os
 import json
+import os
 import time
-import urllib.request
 import urllib.error
+import urllib.request
 
 import pytest
 
@@ -74,7 +74,7 @@ def _get_auth_token():
     for path in AUTH_TOKEN_PATHS:
         token_path = os.path.expanduser(path)
         try:
-            with open(token_path, "r") as f:
+            with open(token_path) as f:
                 token = f.read().strip()
                 if token:
                     return token
@@ -144,13 +144,6 @@ def _make_request(endpoint, data=None, method="GET", token=None):
         return e.code, error_data
     except Exception as e:
         return 0, {"error": str(e)}
-
-
-@pytest.fixture(scope="session", autouse=True)
-def check_server():
-    """Skip all tests if server is not running."""
-    if not _is_server_running():
-        pytest.skip("TTS server not running on port 5123. Start with: tts server start")
 
 
 class TestE2EInputValidationSecurity:
@@ -323,7 +316,7 @@ class TestE2EInjectionPrevention:
             # If successful, verify XSS wasn't executed
             # (text should be treated as literal, not HTML)
             if status in [200, 202]:
-                response_text = json.dumps(response_str)
+                json.dumps(response_str)
                 # The response should not contain the unescaped script
                 # (or if it does, it should be escaped/sanitized)
 
@@ -437,7 +430,7 @@ class TestE2EInjectionPrevention:
             # Template injection should not execute
             # (text should be treated as literal)
             if status in [200, 202]:
-                response_text = json.dumps(response_str)
+                json.dumps(response_str)
                 # If the payload was executed, we'd see "49" for {{7*7}}
                 # Instead, it should be treated as literal text
                 pass  # Accept - server treated it as literal text

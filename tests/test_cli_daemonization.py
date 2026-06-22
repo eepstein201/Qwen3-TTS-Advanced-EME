@@ -71,7 +71,7 @@ class TestCLIDaemonization(unittest.TestCase):
         """Stopping server should send HTTP shutdown request."""
         from qwen3_tts.core.config import load_config
 
-        config = load_config()
+        load_config()
         # Only test if server is not running (don't affect running server)
         if 'TTS_TEST_RUNNING_SERVER' not in os.environ:
             # Mock server_request to avoid actually stopping a server
@@ -292,8 +292,9 @@ class TestFindPidByPort(unittest.TestCase):
 
     def test_find_pid_by_port_timeout(self):
         """find_pid_by_port returns None on timeout."""
-        from qwen3_tts.core.config import find_pid_by_port
         import subprocess as sp
+
+        from qwen3_tts.core.config import find_pid_by_port
 
         with patch('qwen3_tts.core.config.subprocess.run', side_effect=sp.TimeoutExpired("lsof", 5)):
             self.assertIsNone(find_pid_by_port(5123))
@@ -320,7 +321,7 @@ class TestCLIStopRewrite(unittest.TestCase):
 
     def test_stop_stale_pid_cleans_up(self):
         """stop should clean stale PID and report not running."""
-        from qwen3_tts.core.config import detect_server_state, cleanup_pid_file
+        from qwen3_tts.core.config import cleanup_pid_file, detect_server_state
 
         with tempfile.TemporaryDirectory() as tmpdir:
             fake_pid = Path(tmpdir) / "test.pid"
@@ -371,6 +372,7 @@ class TestCLIStopRewrite(unittest.TestCase):
     def test_stop_reports_auth_failure(self):
         """stop should report 401 when shutdown is rejected due to auth."""
         from click.testing import CliRunner
+
         from qwen3_tts.cli import server
 
         mock_resp = Mock()
@@ -388,6 +390,7 @@ class TestCLIStopRewrite(unittest.TestCase):
     def test_stop_discovers_pid_by_port(self):
         """stop should discover PID via port when PID file is missing."""
         from click.testing import CliRunner
+
         from qwen3_tts.cli import server
 
         mock_resp = Mock()
@@ -406,6 +409,7 @@ class TestCLIStopRewrite(unittest.TestCase):
     def test_stop_fails_when_server_still_running(self):
         """stop should exit 1 when server is still running after all attempts."""
         from click.testing import CliRunner
+
         from qwen3_tts.cli import server
 
         mock_resp = Mock()
@@ -429,7 +433,7 @@ class TestCLIStartRewrite(unittest.TestCase):
 
     def test_start_cleans_stale_pid(self):
         """start should clean stale PID and proceed to start."""
-        from qwen3_tts.core.config import detect_server_state, cleanup_pid_file
+        from qwen3_tts.core.config import cleanup_pid_file, detect_server_state
 
         with tempfile.TemporaryDirectory() as tmpdir:
             fake_pid = Path(tmpdir) / "test.pid"

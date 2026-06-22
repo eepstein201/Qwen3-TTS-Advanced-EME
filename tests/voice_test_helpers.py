@@ -6,8 +6,7 @@ that were originally at the top of test_voice.py.
 
 import unittest
 from contextlib import asynccontextmanager
-
-from unittest.mock import patch, MagicMock  # noqa: F401 — re-exported for test files
+from unittest.mock import MagicMock, patch  # noqa: F401 — re-exported for test files
 
 # Check optional dependencies — tests that need these are skipped when missing
 try:
@@ -23,8 +22,8 @@ except ImportError:
     HAS_GRADIO = False
 
 try:
-    from fastapi.testclient import TestClient  # noqa: F401
     import soundfile  # noqa: F401
+    from fastapi.testclient import TestClient  # noqa: F401
     HAS_FASTAPI = True
 except ImportError:
     HAS_FASTAPI = False
@@ -47,9 +46,8 @@ _skip_generate = unittest.skipUnless(HAS_SOUNDFILE, "requires soundfile (voice_g
 
 def _setup_fastapi_app_state(app, server_config=None):
     """Initialize app.state with minimal required attributes for FastAPI tests."""
-    import threading
     import asyncio
-
+    import threading
     from unittest.mock import AsyncMock
     app.state.auth_token = "test_token"  # nosec B105
     app.state.models = {"clone": None, "design": None, "custom": None}
@@ -98,7 +96,6 @@ async def _null_lifespan(app):
 def _make_test_client(app, server_config=None):
     """Create TestClient without triggering real lifespan model loading."""
     from fastapi.testclient import TestClient
-    from unittest.mock import patch
 
     _setup_fastapi_app_state(app, server_config)
     # Mock memory check to avoid 503 due to low memory during tests

@@ -5,7 +5,7 @@ and preview_voice_prompt with all external dependencies mocked.
 """
 
 import unittest
-from unittest.mock import patch, MagicMock
+from unittest.mock import MagicMock, patch
 
 
 class TestProgressPollerInit(unittest.TestCase):

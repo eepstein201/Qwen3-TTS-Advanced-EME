@@ -13,7 +13,9 @@ import time
 
 logger = logging.getLogger("tts.cli")
 
-from qwen3_tts.core.config import (  # noqa: E402
+# get_server_url / load_config are part of this module's namespace contract: they
+# are patched by tests (see tests/test_generate_server.py). Keep them imported.
+from qwen3_tts.core.config import (  # noqa: E402, F401
     CONFIG_PATH,
     VOICE_PROMPTS_DIR,
     get_backend,

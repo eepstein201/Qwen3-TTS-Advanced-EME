@@ -17,11 +17,11 @@ Usage:
         # You must manually enable Playwright first
 """
 
-import json
 import contextlib
-from pathlib import Path
+import json
+from collections.abc import Callable
 from functools import wraps
-from typing import Callable, Optional
+from pathlib import Path
 
 MCP_CONFIG_PATH = Path(".claude/.mcp.json")
 
@@ -65,7 +65,7 @@ def playwright_enabled(auto_enable: bool = True):
     try:
         if auto_enable:
             if MCP_CONFIG_PATH.exists():
-                with open(MCP_CONFIG_PATH, "r") as f:
+                with open(MCP_CONFIG_PATH) as f:
                     config = json.load(f)
                     original_state = config.get("mcpServers", {}).get("playwright", False)
                 _set_playwright(enabled=True)
@@ -117,6 +117,6 @@ def is_playwright_enabled() -> bool:
     if not MCP_CONFIG_PATH.exists():
         return False
 
-    with open(MCP_CONFIG_PATH, "r") as f:
+    with open(MCP_CONFIG_PATH) as f:
         config = json.load(f)
         return config.get("mcpServers", {}).get("playwright", False)

@@ -34,10 +34,9 @@ except ImportError:
 
     pytest = _DummyPytest()
 
-from unittest.mock import patch, MagicMock
-from datetime import datetime, timedelta
 import pathlib
-
+from datetime import datetime, timedelta
+from unittest.mock import MagicMock, patch
 
 # ---- _get_model_access_time ----
 

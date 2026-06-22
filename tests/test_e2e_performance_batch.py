@@ -16,12 +16,11 @@ Prerequisites:
 Run: pytest tests/test_e2e_performance_batch.py -v
 """
 
-import os
 import json
+import os
 import time
-import tempfile
-import urllib.request
 import urllib.error
+import urllib.request
 
 import pytest
 
@@ -42,7 +41,7 @@ def _get_auth_token():
     for path in AUTH_TOKEN_PATHS:
         token_path = os.path.expanduser(path)
         try:
-            with open(token_path, "r") as f:
+            with open(token_path) as f:
                 token = f.read().strip()
                 if token:
                     return token
@@ -184,7 +183,7 @@ class TestE2EBatchProcessingPerformance:
         start_time = time.time()
         for thread in threads:
             thread.join(timeout=180)
-        total_time = time.time() - start_time
+        time.time() - start_time
 
         # Verify all completed (no thread timeouts)
         assert len(results) == 5, \
@@ -327,7 +326,7 @@ class TestE2EResponseTimeBaselines:
         times = []
         for _ in range(5):
             start = time.time()
-            resp = urllib.request.urlopen(f"{SERVER_URL}/health", timeout=10)
+            urllib.request.urlopen(f"{SERVER_URL}/health", timeout=10)
             duration = time.time() - start
             times.append(duration)
 
