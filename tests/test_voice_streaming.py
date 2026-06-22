@@ -3,7 +3,9 @@
 import unittest
 
 from tests.voice_test_helpers import (
-    _skip_server, _skip_client, _make_test_client,
+    _make_test_client,
+    _skip_client,
+    _skip_server,
 )
 
 
@@ -22,16 +24,18 @@ class TestStreaming(unittest.TestCase):
 
     def test_streaming_torch_falls_back_to_chunked(self):
         """run_inference_streaming for torch uses chunked inference (not native streaming)."""
-        from qwen3_tts.core.engine import run_inference_streaming
         import inspect
+
+        from qwen3_tts.core.engine import run_inference_streaming
         source = inspect.getsource(run_inference_streaming)
         # Torch backend falls back to chunked approach
         self.assertIn("_run_inference_single", source)
 
     def test_streaming_mlx_function_signature(self):
         """_run_inference_mlx_streaming has correct parameters."""
-        from qwen3_tts.core.engine.inference import _run_inference_mlx_streaming
         import inspect
+
+        from qwen3_tts.core.engine.inference import _run_inference_mlx_streaming
         sig = inspect.signature(_run_inference_mlx_streaming)
         params = list(sig.parameters.keys())
         self.assertIn("model", params)
@@ -103,6 +107,7 @@ class TestStreamingClientMethod(unittest.TestCase):
     def test_generate_streaming_signature(self):
         """generate_streaming has expected parameters."""
         import inspect
+
         from qwen3_tts.server.client import TTSClient
         sig = inspect.signature(TTSClient.generate_streaming)
         params = list(sig.parameters.keys())

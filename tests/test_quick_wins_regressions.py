@@ -42,8 +42,9 @@ class TestR39WritePidFileAtomic(unittest.TestCase):
 
     def test_r39_write_pid_file_content_correct(self):
         """PID file must contain the correct PID after write."""
-        import qwen3_tts.core.config as cfg
         import tempfile
+
+        import qwen3_tts.core.config as cfg
 
         with tempfile.TemporaryDirectory() as tmp:
             pid_file = pathlib.Path(tmp) / ".voice_server.pid"
@@ -53,8 +54,9 @@ class TestR39WritePidFileAtomic(unittest.TestCase):
 
     def test_r39_no_temp_files_left_behind(self):
         """No .pid.tmp files should remain after write."""
-        import qwen3_tts.core.config as cfg
         import tempfile
+
+        import qwen3_tts.core.config as cfg
 
         with tempfile.TemporaryDirectory() as tmp:
             pid_file = pathlib.Path(tmp) / ".voice_server.pid"
@@ -154,6 +156,7 @@ class TestR41DeletePromptPartialFailure(unittest.TestCase):
     def test_r41_delete_prompt_reports_failed_files(self):
         """If one file fails to delete, result should include files_failed."""
         import tempfile
+
         import qwen3_tts.server.app_prompts as ap
 
         with tempfile.TemporaryDirectory() as tmp:

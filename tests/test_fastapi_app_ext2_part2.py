@@ -7,10 +7,10 @@ Covers: run_server, lifespan, CORS regex, ETA estimation.
 Run: python -m pytest tests/test_fastapi_app_ext2_part2.py -v
 """
 import pathlib
+import threading
 import time
 import unittest
-from unittest.mock import patch, MagicMock, AsyncMock
-import threading
+from unittest.mock import AsyncMock, MagicMock, patch
 
 _APP = "qwen3_tts.server.app"
 _APP_LIFESPAN = "qwen3_tts.server.app_lifespan"
@@ -84,7 +84,8 @@ class TestLifespan(unittest.TestCase):
     def test_lifespan_initializes_state(self):
         """Test that the lifespan context manager initializes app state correctly."""
         import asyncio
-        from qwen3_tts.server.app import lifespan, app
+
+        from qwen3_tts.server.app import app, lifespan
 
         mock_config = {
             "server": {"auto_shutdown_minutes": 0},

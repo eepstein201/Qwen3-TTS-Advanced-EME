@@ -117,7 +117,7 @@ def _get_auth_token():
     """Read the server auth token."""
     token_path = os.path.expanduser("~/.voice_server_token")
     try:
-        with open(token_path, "r") as f:
+        with open(token_path) as f:
             return f.read().strip()
     except FileNotFoundError:
         return ""
@@ -442,8 +442,8 @@ def tearDownModule():
     during normal development.
     """
     try:
-        if '_playwright_context' in globals():
-            _playwright_context.__exit__(None, None, None)
+        if "_playwright_context" in globals():
+            globals()["_playwright_context"].__exit__(None, None, None)
             print("🎭 Playwright auto-disabled after E2E test suite")
     except Exception as e:
         print(f"⚠️  Failed to auto-disable Playwright: {e}")
@@ -488,7 +488,7 @@ class TestE2EPlaywright(unittest.TestCase):
                     health = json.loads(resp.read())
                     if health.get("clone_model_loaded"):
                         break
-        except Exception as e:
+        except Exception:
             # Proceed with tests, they will fail appropriately if model not loaded
             pass
 

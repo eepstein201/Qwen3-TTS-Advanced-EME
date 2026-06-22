@@ -2,10 +2,11 @@
 
 import sys
 import unittest
-from unittest.mock import patch, MagicMock
+from unittest.mock import MagicMock, patch
 
 from tests.voice_test_helpers import (
-    _skip_server, _skip_ui,
+    _skip_server,
+    _skip_ui,
 )
 
 # Check for mlx import capability (not config — actual library)
@@ -211,8 +212,9 @@ class TestFloat32Guard(unittest.TestCase):
     def test_float32_guard_exists_in_torch_inference(self):
         """_apply_mps_float32_guard has float32 guard logic for clone mode on MPS."""
         # Logic extracted to _apply_mps_float32_guard in Phase 5 refactor
-        from qwen3_tts.core.engine.inference import _apply_mps_float32_guard
         import inspect
+
+        from qwen3_tts.core.engine.inference import _apply_mps_float32_guard
         source = inspect.getsource(_apply_mps_float32_guard)
         self.assertIn("float32", source)
         self.assertIn("clone", source)
@@ -223,8 +225,9 @@ class TestMLXMetalRecovery(unittest.TestCase):
 
     def test_run_inference_handles_exceptions(self):
         """run_inference wraps inference in try/except."""
-        from qwen3_tts.core.engine.inference import _run_inference_single
         import inspect
+
+        from qwen3_tts.core.engine.inference import _run_inference_single
         source = inspect.getsource(_run_inference_single)
         # Should have exception handling
         self.assertIn("except", source)
@@ -238,6 +241,7 @@ class TestMLXMemoryStats(unittest.TestCase):
     def test_stats_mlx_memory_code_exists(self):
         """Stats handler has MLX memory collection code."""
         import inspect
+
         from qwen3_tts.server import app_models
         # Find the stats handler
         source = inspect.getsource(app_models)
@@ -249,6 +253,7 @@ class TestMLXMemoryStats(unittest.TestCase):
     def test_ui_checks_mlx_memory_first(self):
         """voice_ui checks for MLX memory before MPS memory."""
         import inspect
+
         from qwen3_tts.interface import ui as voice_ui
         source = inspect.getsource(voice_ui.get_server_status)
         # Should check mlx_memory first
@@ -261,6 +266,7 @@ class TestDeviceAwareEngine(unittest.TestCase):
     def test_load_model_torch_uses_get_device(self):
         """_load_model_torch uses get_device() for device_map."""
         import inspect
+
         from qwen3_tts.core.engine.model_loader import _load_model_torch
         source = inspect.getsource(_load_model_torch)
         self.assertIn("get_device", source)
@@ -269,6 +275,7 @@ class TestDeviceAwareEngine(unittest.TestCase):
     def test_install_mps_patch_checks_platform(self):
         """_install_mps_patch checks IS_MACOS before patching."""
         import inspect
+
         from qwen3_tts.core.engine.model_loader import _install_mps_patch
         source = inspect.getsource(_install_mps_patch)
         self.assertIn("IS_MACOS", source)
@@ -277,6 +284,7 @@ class TestDeviceAwareEngine(unittest.TestCase):
         """_cleanup_device_memory has CUDA memory cleanup code."""
         # Logic extracted to _cleanup_device_memory in Phase 5 refactor
         import inspect
+
         from qwen3_tts.core.engine.inference import _cleanup_device_memory
         source = inspect.getsource(_cleanup_device_memory)
         self.assertIn("torch.cuda.is_available", source)
@@ -326,7 +334,7 @@ class TestSmartAudioLoader(unittest.TestCase):
             set_audio_loader("invalid_loader")
 
     def test_set_audio_loader_updates(self):
-        from qwen3_tts.core.engine import set_audio_loader, get_audio_loader
+        from qwen3_tts.core.engine import get_audio_loader, set_audio_loader
         original = get_audio_loader()
         try:
             set_audio_loader("librosa")

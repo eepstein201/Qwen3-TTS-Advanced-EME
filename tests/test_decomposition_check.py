@@ -60,7 +60,7 @@ class TestDecompositionComplete(unittest.TestCase):
         """Run all decomposed test files and verify tests are collected."""
         # Check if pytest is available
         try:
-            import pytest
+            import pytest  # noqa: F401  # availability probe only
         except ImportError:
             self.skipTest("pytest not available - optional dependency")
 

@@ -12,7 +12,7 @@ Covers uncovered Click commands:
 Run: pytest tests/test_cli_ext.py -v
 """
 import unittest
-from unittest.mock import patch, MagicMock
+from unittest.mock import MagicMock, patch
 
 try:
     from click.testing import CliRunner

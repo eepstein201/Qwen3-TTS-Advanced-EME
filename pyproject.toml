@@ -75,6 +75,9 @@ dev = [
     "pytest-timeout>=2.3",    # catch hanging tests
     "pytest-random-order>=1.1", # find interdependent tests
     "pytest-cov>=5.0",        # coverage reporting
+    "ruff>=0.6",              # linting + formatting
+    "mypy>=1.10",             # static type checking
+    "bandit>=1.7",            # security static analysis
 ]
 
 # Universal test dependencies (works across all environments)
@@ -131,6 +134,28 @@ filterwarnings = [
 
 [tool.ruff]
 exclude = ["colab_notebook.ipynb"]
+
+[tool.mypy]
+python_version = "3.10"
+# Heavy backends (torch/mlx/transformers/qwen_tts/mlx_audio) are lazily imported
+# and not installed in every environment, so don't fail on their missing stubs.
+ignore_missing_imports = true
+warn_unused_ignores = true
+# Excluded from type-checking for now:
+#  - server/app.py: FastAPI route decorators + Starlette Request generics produce
+#    framework-level type friction not worth annotating around without the FastAPI plugin.
+#  - vllm_client.py / engine_vllm.py: optional vLLM-Omni backend with looser typing.
+exclude = [
+    "tests/",
+    "build/",
+    "colab_notebook.ipynb",
+    "qwen3_tts/server/app.py",
+    "qwen3_tts/server/vllm_client.py",
+    "qwen3_tts/core/engine_vllm.py",
+]
+
+[tool.bandit]
+exclude_dirs = ["tests"]
 
 [tool.coverage.run]
 source = ["qwen3_tts"]

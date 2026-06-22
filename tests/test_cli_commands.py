@@ -35,9 +35,9 @@ except ImportError:
 
     pytest = _DummyPytest()
 
-from unittest.mock import patch, MagicMock
-from click.testing import CliRunner
+from unittest.mock import MagicMock, patch
 
+from click.testing import CliRunner
 
 # ---- TTSGroup routing ----
 

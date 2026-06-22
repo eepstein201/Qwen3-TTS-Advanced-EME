@@ -17,7 +17,7 @@ Run: pytest tests/test_healthcheck_ext.py -v
 """
 import pathlib
 import unittest
-from unittest.mock import patch, MagicMock
+from unittest.mock import MagicMock, patch
 
 _MOD = "qwen3_tts.tools.healthcheck"
 
@@ -168,8 +168,9 @@ class TestCheckVoicePrompts(unittest.TestCase):
         self.assertEqual(status, "info")
 
     def test_with_files(self):
-        import tempfile
         import shutil
+        import tempfile
+
         from qwen3_tts.tools.healthcheck import check_voice_prompts
         tmp_path = pathlib.Path(tempfile.mkdtemp())
         try:

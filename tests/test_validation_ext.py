@@ -4,6 +4,7 @@ Extends existing validation tests with comprehensive language code tests.
 """
 
 import unittest
+
 from pydantic import ValidationError
 
 from qwen3_tts.server.validation import TranscribeRequest

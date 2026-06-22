@@ -1,6 +1,9 @@
 # Ruff configuration for Qwen3-TTS project
 # https://docs.astral.sh/ruff/settings/
 
+# Don't lint/format Jupyter notebooks — their JSON churns badly under autofix.
+extend-exclude = ["*.ipynb"]
+
 [lint]
 select = [
     "E",     # pycodestyle errors
@@ -24,3 +27,6 @@ line-ending = "auto"
 "qwen3_tts/interface/ui/generation.py" = ["E501"]  # Long event chains
 "qwen3_tts/interface/ui/voice_management.py" = ["E501"]  # Long event chains
 "qwen3_tts/interface/ui/model_management.py" = ["E501"]  # Long event chains
+# Tests use descriptive method names (e.g. ..._1_7B, ..._TimeoutError), local
+# class aliases (Request = ...), and constant import aliases — all intentional.
+"tests/**" = ["N802", "N806", "N811"]

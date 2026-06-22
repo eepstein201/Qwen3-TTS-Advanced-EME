@@ -14,11 +14,11 @@ Prerequisites:
 Run: pytest tests/test_e2e_security_rate_limiting.py -v
 """
 
-import os
 import json
+import os
 import time
-import urllib.request
 import urllib.error
+import urllib.request
 
 import pytest
 
@@ -66,7 +66,7 @@ def _get_auth_token():
     for path in AUTH_TOKEN_PATHS:
         token_path = os.path.expanduser(path)
         try:
-            with open(token_path, "r") as f:
+            with open(token_path) as f:
                 token = f.read().strip()
                 if token:
                     return token
@@ -200,7 +200,7 @@ class TestE2ERateLimitingEnforcement:
         )
 
         try:
-            resp = urllib.request.urlopen(req, timeout=10)
+            urllib.request.urlopen(req, timeout=10)
             # If we get here, auth is NOT enforced (fail the test)
             pytest.fail("Request without auth token should have returned 401")
         except urllib.error.HTTPError as e:

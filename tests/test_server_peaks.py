@@ -1,6 +1,5 @@
 """Tests for waveform peaks in /generate response (MED-1)."""
 import numpy as np
-import pytest
 
 
 class TestGenerateResultPeaksField:

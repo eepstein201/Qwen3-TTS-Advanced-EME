@@ -12,8 +12,6 @@ Two kinds of checks:
 from __future__ import annotations
 
 import re
-import sys
-import types
 import unittest
 from pathlib import Path
 from unittest.mock import MagicMock, patch
@@ -200,7 +198,7 @@ class TestGenerationCancelRouting(unittest.TestCase):
                 "qwen3_tts.core.http_client.server_request", return_value=mock_resp
             ) as mock_sr,
         ):
-            result = generation.cancel_streaming_generation()
+            generation.cancel_streaming_generation()
 
         mock_sr.assert_called_once()
         call_args = mock_sr.call_args

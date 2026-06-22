@@ -15,10 +15,10 @@ Prerequisites:
 Run: pytest tests/test_e2e_security_auth.py -v
 """
 
-import os
 import json
-import urllib.request
+import os
 import urllib.error
+import urllib.request
 
 import pytest
 
@@ -39,7 +39,7 @@ def _get_auth_token():
     for path in AUTH_TOKEN_PATHS:
         token_path = os.path.expanduser(path)
         try:
-            with open(token_path, "r") as f:
+            with open(token_path) as f:
                 token = f.read().strip()
                 if token:
                     return token
@@ -218,10 +218,9 @@ class TestE2EAuthenticationSecurity:
             try:
                 resp = urllib.request.urlopen(req, timeout=10)
                 status = resp.status
-                data = json.loads(resp.read().decode())
+                json.loads(resp.read().decode())
             except urllib.error.HTTPError as e:
                 status = e.code
-                data = {}
 
             # Should be accessible without auth
             assert status == 200, \

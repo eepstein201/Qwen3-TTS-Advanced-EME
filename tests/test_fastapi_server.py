@@ -39,9 +39,9 @@ except ImportError:
     pytest = _DummyPytest()
 
 try:
-    from fastapi.testclient import TestClient  # noqa: F401
-    import soundfile  # noqa: F401
     import slowapi  # noqa: F401  (server.app imports slowapi unconditionally)
+    import soundfile  # noqa: F401
+    from fastapi.testclient import TestClient  # noqa: F401
     HAS_DEPS = True
 except ImportError:
     HAS_DEPS = False
@@ -149,8 +149,8 @@ def test_check_memory_available_no_psutil():
 @_skip
 def test_check_memory_available_low():
     """_check_memory_available returns False when memory below threshold."""
-    from qwen3_tts.server.app import _check_memory_available
     import qwen3_tts.server.app_lifespan as _app_mod
+    from qwen3_tts.server.app import _check_memory_available
     mock_mem = MagicMock()
     mock_mem.available = 500 * 1024 * 1024  # 500 MB
     mock_psutil = MagicMock()
@@ -175,8 +175,8 @@ def test_check_memory_available_low():
 @_skip
 def test_check_memory_available_ok():
     """_check_memory_available returns True when memory sufficient."""
-    from qwen3_tts.server.app import _check_memory_available
     import qwen3_tts.server.app_lifespan as _app_mod
+    from qwen3_tts.server.app import _check_memory_available
     mock_mem = MagicMock()
     mock_mem.available = 4 * 1024 * 1024 * 1024  # 4 GB
     mock_psutil = MagicMock()

@@ -124,7 +124,7 @@ def _prepare_cancel_confirmation():
         # Calculate progress percentage
         chunk_index = status.get("chunk_index", 0)
         chunk_total = status.get("chunk_total", 1)
-        progress_pct = int((chunk_index / chunk_total * 100)) if chunk_total > 0 else 0
+        progress_pct = int(chunk_index / chunk_total * 100) if chunk_total > 0 else 0
 
         chunks = chunk_index
         eta = status.get("eta_sec", "N/A")
@@ -590,14 +590,20 @@ def _wire_generation_tab(
     def on_cancel_click(state):
         # First click: show progress and request confirmation if needed
         if not state.get("armed", False):
-            banner_msg, should_proceed, progress_pct, chunks, eta = _prepare_cancel_confirmation()
+            banner_msg, should_proceed, progress_pct, chunks, eta = (
+                _prepare_cancel_confirmation()
+            )
             if should_proceed:
                 # Fast path: <10% or no active generation, proceed immediately
                 status_msg, status_html_msg = cancel_streaming_generation()
                 return state, gr.update(), status_msg, status_html_msg
 
             new_state = cancel_confirm_btn.click(state)
-            return new_state, gr.update(value="Confirm Cancel? (click again)"), banner_msg
+            return (
+                new_state,
+                gr.update(value="Confirm Cancel? (click again)"),
+                banner_msg,
+            )
 
         # Second click: user confirmed
         new_state, btn_update, status_update, confirmed = cancel_confirm_btn.click(

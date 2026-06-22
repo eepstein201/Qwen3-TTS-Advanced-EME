@@ -14,8 +14,8 @@ import unittest
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 
 try:
-    import whisper
     import jiwer
+    import whisper
     HAS_WER_DEPS = True
 except ImportError:
     HAS_WER_DEPS = False

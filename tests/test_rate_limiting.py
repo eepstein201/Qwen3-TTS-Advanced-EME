@@ -18,10 +18,11 @@ import pytest
 # when slowapi is absent, e.g. an env installed without the server/test extra.
 pytest.importorskip("slowapi", reason="requires slowapi (pip install -e '.[test]')")
 
-from unittest.mock import patch, MagicMock
-from fastapi.testclient import TestClient
+from unittest.mock import MagicMock
+
 from fastapi import Request
-from qwen3_tts.server.app import app, _get_real_client_ip, _rate_limit
+
+from qwen3_tts.server.app import _rate_limit, app
 
 
 class TestRateLimitKeyFunctions:
@@ -141,7 +142,6 @@ class TestAIRegressionDecoratorApplication:
         This test prevents the common AI bug of adding decorators to endpoint
         functions but forgetting to apply them or applying them in wrong order.
         """
-        from qwen3_tts.server.app import app
 
         # List of R-13 endpoints that must have rate limiting
         r13_endpoints = [
@@ -170,7 +170,6 @@ class TestAIRegressionDecoratorApplication:
 
         Prevents AI bug where decorator doesn't properly select between limiters.
         """
-        from qwen3_tts.server.app import _rate_limit
 
         # Test hybrid strategy (default)
         decorator = _rate_limit("10/minute", strategy="hybrid")
@@ -198,7 +197,9 @@ class TestAIRegressionConfigValidation:
         Prevents AI bug where malformed rate limits (e.g., "invalid", "abc/minute")
         crash the server instead of being corrected.
         """
-        from qwen3_tts.core.config import _validate_rate_limit_string, _get_default_rate_limit
+        from qwen3_tts.core.config import (
+            _validate_rate_limit_string,
+        )
 
         invalid_limits = ["invalid", "abc/minute", "100", "minute", "", None, 123]
 
@@ -240,7 +241,6 @@ class TestEndpointRateLimiting:
 
     def test_strategy_parameter_support(self):
         """Rate limit decorator should support different strategies."""
-        from qwen3_tts.server.app import _rate_limit
 
         # Test hybrid strategy (default)
         decorator = _rate_limit("10/minute", strategy="hybrid")
@@ -280,8 +280,9 @@ class TestAIRegressionRateLimitErrors:
         We verify that sensitive internal details aren't exposed in the default format.
         """
         # Test with error containing internal details
-        from qwen3_tts.server.app import _rate_limit_exceeded_handler
         from unittest.mock import MagicMock
+
+        from qwen3_tts.server.app import _rate_limit_exceeded_handler
 
         error = MagicMock()
         error.detail = "Rate limit exceeded"

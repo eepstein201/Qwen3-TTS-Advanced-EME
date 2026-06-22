@@ -11,8 +11,9 @@ Covers deeper paths not in test_generate_interactive.py:
 
 Run: pytest tests/test_generate_interactive_ext.py -v
 """
+import os
 import unittest
-from unittest.mock import patch, MagicMock
+from unittest.mock import MagicMock, patch
 
 
 class TestDeleteVoicePromptDeep(unittest.TestCase):
@@ -111,8 +112,9 @@ class TestPreviewVoicePromptDeep(unittest.TestCase):
     @patch("os.remove")
     @patch("builtins.print")
     def test_server_success(self, _print, _remove, mock_play, mock_save, _running, _exists):
-        from qwen3_tts.interface.generate_interactive import preview_voice_prompt
         import tempfile as real_tempfile
+
+        from qwen3_tts.interface.generate_interactive import preview_voice_prompt
 
         # Create a real temp file for testing
         with real_tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as real_tmp:
@@ -134,7 +136,7 @@ class TestPreviewVoicePromptDeep(unittest.TestCase):
             # Clean up the real temp file
             try:
                 os.remove(real_tmp_name)
-            except:
+            except OSError:
                 pass
 
     @patch("qwen3_tts.interface.generate_interactive.voice_prompt_exists", return_value=True)
@@ -653,8 +655,9 @@ class TestInteractiveModeClone(unittest.TestCase):
 
     def test_local_generation(self):
         """Lines 400-405: local generation path (use_server=False)."""
-        from qwen3_tts.interface.generate_interactive import interactive_mode
         import numpy as np
+
+        from qwen3_tts.interface.generate_interactive import interactive_mode
         inputs = iter(["1", "Hello", "1", "Y", "out.wav"])
         config = {"default_voice_description": "warm", "language": "English"}
         mock_wav = np.zeros(1000, dtype=np.float32)

@@ -445,6 +445,7 @@ class TestPrepareStreamingConfig(unittest.TestCase):
 
     def test_returns_error_when_server_not_running(self):
         from unittest.mock import patch
+
         from qwen3_tts.interface.ui import _prepare_streaming_config
 
         with patch('qwen3_tts.interface.ui.generation.is_server_running', return_value=False):

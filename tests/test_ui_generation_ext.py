@@ -11,7 +11,7 @@ Covers:
 Run: pytest tests/test_ui_generation_ext.py -v
 """
 import unittest
-from unittest.mock import patch, MagicMock
+from unittest.mock import MagicMock, patch
 
 try:
     import gradio as gr  # noqa: F401

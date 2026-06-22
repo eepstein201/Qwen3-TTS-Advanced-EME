@@ -319,8 +319,9 @@ class TestConfigFunctions(unittest.TestCase):
 
     def test_load_config_corrupt_json_raises_valueerror(self):
         """load_config must raise ValueError with clear message on corrupt JSON (R-42)."""
-        from qwen3_tts.core import config as cfg
         import pathlib
+
+        from qwen3_tts.core import config as cfg
         original_path = cfg.CONFIG_PATH
         original_cache = dict(cfg._config_cache)
         try:
@@ -345,6 +346,7 @@ class TestHFConsolidatedConstant(unittest.TestCase):
     def test_hf_cache_single_source(self):
         """HF_CACHE is imported from config in all tool modules."""
         import pathlib
+
         from qwen3_tts.core.config import HF_CACHE as config_hf_cache
 
         # Expected value
@@ -354,9 +356,9 @@ class TestHFConsolidatedConstant(unittest.TestCase):
         self.assertEqual(config_hf_cache, expected)
 
         # All tool modules should import from config
+        from qwen3_tts.tools.healthcheck import HF_CACHE as healthcheck_hf_cache
         from qwen3_tts.tools.model_cache import HF_CACHE as model_cache_hf_cache
         from qwen3_tts.tools.uninstall import HF_CACHE as uninstall_hf_cache
-        from qwen3_tts.tools.healthcheck import HF_CACHE as healthcheck_hf_cache
 
         # All should be the same object (single source of truth)
         self.assertIs(model_cache_hf_cache, config_hf_cache,

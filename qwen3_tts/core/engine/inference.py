@@ -30,7 +30,7 @@ _DEFAULT_CONFIG_LOADER = DefaultConfigLoader()
 # ---------------------------------------------------------------------------
 
 # Backend strategies: maps backend name -> inference function
-_INFERENCE_STRATEGIES = {}
+_INFERENCE_STRATEGIES: dict[str, Any] = {}
 
 # Mode strategies for torch backend: maps mode name -> model method name
 _MODE_STRATEGIES_TORCH = {
@@ -826,6 +826,10 @@ def run_inference(
             sample_rate = sr
 
         all_audio.append(wav)
+
+    # At least one chunk was processed, so the sample rate is set by now.
+    if sample_rate is None:
+        raise RuntimeError("no audio chunks were produced")
 
     # Combine chunks: use silence_gap_seconds from config, or crossfade (default 50ms)
     config = (config_provider or _DEFAULT_CONFIG_LOADER).load()

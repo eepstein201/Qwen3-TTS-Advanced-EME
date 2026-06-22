@@ -28,7 +28,7 @@ class TestVLLMParameterOptimization(unittest.TestCase):
     def test_tensor_parallel_size(self):
         """Verify tensor_parallel_size is appropriate."""
         # Create adapter with default parameters
-        adapter = VLLMAdapter()
+        VLLMAdapter()
         # Note: tensor_parallel_size isn't a direct attribute, it's handled internally
         # The default in the code is 1 for single GPU
 

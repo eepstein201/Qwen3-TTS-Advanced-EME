@@ -231,10 +231,10 @@ def _gen_cache_key(
     text: str,
     mode: str,
     gen_params: dict,
-    prompt_file: str = None,
-    voice_description: str = None,
-    speaker: str = None,
-    instruct: str = None,
+    prompt_file: str | None = None,
+    voice_description: str | None = None,
+    speaker: str | None = None,
+    instruct: str | None = None,
 ) -> str:
     """Generate a hash key for generation cache lookup."""
     key_parts = [text, mode, str(sorted(gen_params.items()))]

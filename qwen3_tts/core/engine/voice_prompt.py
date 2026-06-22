@@ -32,7 +32,7 @@ def _evict_if_full(cache: OrderedDict, max_size: int) -> None:
 # Voice prompt cache (torch backend)
 # ---------------------------------------------------------------------------
 
-_torch_prompt_cache = OrderedDict()
+_torch_prompt_cache: OrderedDict = OrderedDict()
 _torch_prompt_cache_lock = threading.Lock()
 _torch_prompt_cache_hits = 0
 _torch_prompt_cache_misses = 0
@@ -239,7 +239,7 @@ def migrate_orphan_mlx_prompts(clone_model=None):
 # MLX voice prompt loading
 # ---------------------------------------------------------------------------
 
-_mlx_prompt_cache = OrderedDict()
+_mlx_prompt_cache: OrderedDict = OrderedDict()
 _mlx_prompt_cache_lock = threading.Lock()
 
 

@@ -11,7 +11,7 @@ Fix 5: Config validation enforcement in config.py
 import asyncio
 import re
 import unittest
-from unittest.mock import MagicMock, patch, AsyncMock
+from unittest.mock import AsyncMock, MagicMock, patch
 
 # ---------------------------------------------------------------------------
 # Fix 5: Config validation enforcement
@@ -179,8 +179,9 @@ class TestMetalRetryDepthLimit(unittest.TestCase):
     @patch("qwen3_tts.core.engine.inference.get_backend", return_value="mlx")
     def test_depth_0_retries_on_metal_crash(self, mock_backend):
         """At depth 0 with text > 100 chars, Metal crash triggers split retry."""
-        from qwen3_tts.core.engine import _run_inference_single, _INFERENCE_STRATEGIES
         import numpy as _np
+
+        from qwen3_tts.core.engine import _INFERENCE_STRATEGIES, _run_inference_single
 
         long_text = "A " * 110  # > 100 chars, has spaces for splitting
         sr = 24000
@@ -206,7 +207,7 @@ class TestMetalRetryDepthLimit(unittest.TestCase):
     @patch("qwen3_tts.core.engine.inference.get_backend", return_value="mlx")
     def test_depth_2_raises_immediately(self, mock_backend):
         """At depth 2, Metal crash re-raises without recursion."""
-        from qwen3_tts.core.engine import _run_inference_single, _INFERENCE_STRATEGIES
+        from qwen3_tts.core.engine import _INFERENCE_STRATEGIES, _run_inference_single
 
         def mock_strategy(*args, **kwargs):
             raise self._make_metal_error()
@@ -221,7 +222,7 @@ class TestMetalRetryDepthLimit(unittest.TestCase):
     @patch("qwen3_tts.core.engine.inference.get_backend", return_value="mlx")
     def test_short_text_raises_immediately(self, mock_backend):
         """Short text (<=100 chars) should not trigger retry regardless of depth."""
-        from qwen3_tts.core.engine import _run_inference_single, _INFERENCE_STRATEGIES
+        from qwen3_tts.core.engine import _INFERENCE_STRATEGIES, _run_inference_single
 
         call_count = [0]
 

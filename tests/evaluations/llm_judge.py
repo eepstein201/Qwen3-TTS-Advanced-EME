@@ -7,8 +7,8 @@ with a strict rubric to score adherence.
 This is a non-blocking evaluation — failures do not block CI/CD.
 """
 
-import os
 import logging
+import os
 
 logger = logging.getLogger("tts.eval.llm_judge")
 

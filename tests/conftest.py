@@ -52,8 +52,8 @@ except ImportError:
     pytest = _DummyPytest()
 
 try:
-    from fastapi.testclient import TestClient
     import soundfile  # noqa: F401
+    from fastapi.testclient import TestClient
     HAS_FASTAPI = True
 except ImportError:
     HAS_FASTAPI = False

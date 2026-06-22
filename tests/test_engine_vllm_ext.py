@@ -231,8 +231,8 @@ class TestStopSubprocess(unittest.TestCase):
 
     def test_stop_timeout_expired_forces_sigkill(self):
         """TimeoutExpired causes SIGKILL to process group."""
-        import subprocess
         import signal
+        import subprocess
 
         adapter = _make_adapter(port=8200)
         mock_proc = MagicMock()
@@ -280,7 +280,7 @@ class TestStopSubprocess(unittest.TestCase):
         adapter._process = mock_proc
 
         mock_fh = MagicMock()
-        mock_fh.close.side_effect = IOError("disk error")
+        mock_fh.close.side_effect = OSError("disk error")
         adapter._log_fh = mock_fh
 
         with patch("os.getpgid", return_value=66666), \

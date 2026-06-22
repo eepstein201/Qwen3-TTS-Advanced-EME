@@ -9,7 +9,7 @@ No GPU, models, or running server required.
 
 import base64
 import unittest
-from unittest.mock import patch, MagicMock
+from unittest.mock import MagicMock, patch
 
 try:
     import pytest
@@ -18,8 +18,8 @@ except ImportError:
     HAS_PYTEST = False
 
 try:
-    from fastapi.testclient import TestClient
     import soundfile  # noqa: F401
+    from fastapi.testclient import TestClient
     HAS_FASTAPI = True
 except ImportError:
     HAS_FASTAPI = False
@@ -185,7 +185,7 @@ class TestModelTableASRRow(unittest.TestCase):
 
         with patch.dict("sys.modules", {"requests": mock_requests}):
             # Force reimport to use the mocked requests
-            import importlib
+
             import qwen3_tts.interface.ui.model_management as mm
             # Directly mock the requests.get call inside the function
             with patch("qwen3_tts.core.http_client.server_request", return_value=mock_resp):

@@ -1,6 +1,5 @@
 """Tests for server validation module."""
 import pytest
-
 from fastapi import HTTPException
 
 
@@ -20,7 +19,10 @@ class TestValidateGenerationRequest:
 
     def test_rejects_invalid_mode(self, security_config, valid_request):
         """Validation rejects modes other than clone/design/custom."""
-        from qwen3_tts.server.validation import _validate_generation_request, GenerateRequest
+        from qwen3_tts.server.validation import (
+            GenerateRequest,
+            _validate_generation_request,
+        )
 
         req = GenerateRequest(texts=["test"], mode="invalid")
         with pytest.raises(HTTPException) as exc:
@@ -30,7 +32,10 @@ class TestValidateGenerationRequest:
 
     def test_rejects_path_traversal_in_prompt_file(self, security_config):
         """Validation rejects path traversal in prompt_file."""
-        from qwen3_tts.server.validation import _validate_generation_request, GenerateRequest
+        from qwen3_tts.server.validation import (
+            GenerateRequest,
+            _validate_generation_request,
+        )
 
         req = GenerateRequest(texts=["test"], mode="clone", prompt_file="../../../etc/passwd")
         with pytest.raises(HTTPException) as exc:
@@ -40,7 +45,10 @@ class TestValidateGenerationRequest:
 
     def test_accepts_subdir_path_in_prompt_file(self, security_config):
         """Validation accepts subdirectory path in prompt_file (pathlib-based check)."""
-        from qwen3_tts.server.validation import _validate_generation_request, GenerateRequest
+        from qwen3_tts.server.validation import (
+            GenerateRequest,
+            _validate_generation_request,
+        )
 
         req = GenerateRequest(texts=["test"], mode="clone", prompt_file="subdir/file.pt")
         # Should NOT raise — pathlib check allows paths that resolve within voice_prompts dir
@@ -48,7 +56,10 @@ class TestValidateGenerationRequest:
 
     def test_rejects_absolute_path_in_prompt_file(self, security_config):
         """Validation rejects absolute path in prompt_file."""
-        from qwen3_tts.server.validation import _validate_generation_request, GenerateRequest
+        from qwen3_tts.server.validation import (
+            GenerateRequest,
+            _validate_generation_request,
+        )
 
         req = GenerateRequest(texts=["test"], mode="clone", prompt_file="/etc/passwd")
         with pytest.raises(HTTPException) as exc:
@@ -58,7 +69,10 @@ class TestValidateGenerationRequest:
 
     def test_rejects_invalid_speaker_for_custom_mode(self, security_config):
         """Validation rejects invalid speaker for custom mode."""
-        from qwen3_tts.server.validation import _validate_generation_request, GenerateRequest
+        from qwen3_tts.server.validation import (
+            GenerateRequest,
+            _validate_generation_request,
+        )
 
         req = GenerateRequest(texts=["test"], mode="custom", speaker="nonexistent_speaker")
         with pytest.raises(HTTPException) as exc:
@@ -68,7 +82,10 @@ class TestValidateGenerationRequest:
 
     def test_accepts_valid_speaker_lowercase(self, security_config):
         """Validation accepts valid lowercase speaker."""
-        from qwen3_tts.server.validation import _validate_generation_request, GenerateRequest
+        from qwen3_tts.server.validation import (
+            GenerateRequest,
+            _validate_generation_request,
+        )
 
         # Should not raise for valid speaker
         req = GenerateRequest(texts=["test"], mode="custom", speaker="ryan")
@@ -76,14 +93,20 @@ class TestValidateGenerationRequest:
 
     def test_accepts_valid_clone_mode(self, security_config):
         """Validation accepts clone mode."""
-        from qwen3_tts.server.validation import _validate_generation_request, GenerateRequest
+        from qwen3_tts.server.validation import (
+            GenerateRequest,
+            _validate_generation_request,
+        )
 
         req = GenerateRequest(texts=["test"], mode="clone", prompt_file="my_voice.pt")
         _validate_generation_request(req, security_config)  # No exception
 
     def test_accepts_valid_design_mode(self, security_config):
         """Validation accepts design mode."""
-        from qwen3_tts.server.validation import _validate_generation_request, GenerateRequest
+        from qwen3_tts.server.validation import (
+            GenerateRequest,
+            _validate_generation_request,
+        )
 
         req = GenerateRequest(texts=["test"], mode="design", voice_description="A calm voice")
         _validate_generation_request(req, security_config)  # No exception
@@ -260,6 +283,7 @@ class TestTranscribeRequestValidation:
     def test_language_rejects_invalid(self, lang):
         """TranscribeRequest rejects non-BCP-47 language codes."""
         from pydantic import ValidationError
+
         from qwen3_tts.server.validation import TranscribeRequest
         with pytest.raises(ValidationError):
             TranscribeRequest(audio_base64="abc", language=lang)
@@ -267,6 +291,7 @@ class TestTranscribeRequestValidation:
     def test_audio_base64_rejects_oversized_payload(self):
         """TranscribeRequest rejects base64 strings over 50MB."""
         from pydantic import ValidationError
+
         from qwen3_tts.server.validation import TranscribeRequest
         oversized = "A" * (51 * 1024 * 1024)
         with pytest.raises(ValidationError):
@@ -286,6 +311,7 @@ class TestCreateVoicePromptRequestValidation:
     def test_audio_base64_rejects_oversized_payload(self):
         """CreateVoicePromptRequest rejects base64 strings over 50MB."""
         from pydantic import ValidationError
+
         from qwen3_tts.server.validation import CreateVoicePromptRequest
         oversized = "A" * (51 * 1024 * 1024)
         with pytest.raises(ValidationError):

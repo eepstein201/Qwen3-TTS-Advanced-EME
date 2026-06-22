@@ -51,7 +51,10 @@ class TestGetGenerationPresets(unittest.TestCase):
     """Tests for get_generation_presets() merge behavior."""
 
     def test_returns_defaults_when_no_user_presets(self):
-        from qwen3_tts.core.config import get_generation_presets, DEFAULT_GENERATION_PRESETS
+        from qwen3_tts.core.config import (
+            DEFAULT_GENERATION_PRESETS,
+            get_generation_presets,
+        )
         with patch("qwen3_tts.core.config.load_config", return_value={}):
             result = get_generation_presets()
         self.assertEqual(result, DEFAULT_GENERATION_PRESETS)
@@ -64,7 +67,10 @@ class TestGetGenerationPresets(unittest.TestCase):
         self.assertEqual(result["stable"]["temperature"], 0.1)
 
     def test_user_presets_added_alongside_defaults(self):
-        from qwen3_tts.core.config import get_generation_presets, DEFAULT_GENERATION_PRESETS
+        from qwen3_tts.core.config import (
+            DEFAULT_GENERATION_PRESETS,
+            get_generation_presets,
+        )
         user_cfg = {"presets": {"my_custom": {"temperature": 0.6}}}
         with patch("qwen3_tts.core.config.load_config", return_value=user_cfg):
             result = get_generation_presets()
@@ -83,8 +89,8 @@ class TestGetPresetsIncludesDefaults(unittest.TestCase):
     """Tests that get_presets() in shared.py returns default presets."""
 
     def test_includes_defaults_when_no_user_presets(self):
-        from qwen3_tts.interface.ui.shared import get_presets
         from qwen3_tts.core.config import DEFAULT_GENERATION_PRESETS
+        from qwen3_tts.interface.ui.shared import get_presets
         with patch("qwen3_tts.interface.ui.shared.load_config", return_value={}):
             result = get_presets()
         self.assertIn("(none)", result)
@@ -106,8 +112,8 @@ class TestPresetAppliedInStreamingConfig(unittest.TestCase):
     @patch("qwen3_tts.interface.ui.generation.load_config")
     @patch("qwen3_tts.interface.ui.generation.is_server_running", return_value=True)
     def test_default_preset_applied(self, _mock_srv, mock_cfg):
-        from qwen3_tts.interface.ui.generation import _prepare_streaming_config
         from qwen3_tts.core.config import DEFAULT_GENERATION_PRESETS
+        from qwen3_tts.interface.ui.generation import _prepare_streaming_config
         mock_cfg.return_value = {}  # no user presets — defaults should kick in
         preset_name = next(iter(DEFAULT_GENERATION_PRESETS))
         preset_params = DEFAULT_GENERATION_PRESETS[preset_name]

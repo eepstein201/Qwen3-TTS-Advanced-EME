@@ -29,8 +29,8 @@ except ImportError:
     HAS_SOUNDFILE = False
 
 try:
-    from fastapi.testclient import TestClient  # noqa: F401
     from fastapi import HTTPException
+    from fastapi.testclient import TestClient  # noqa: F401
     HAS_FASTAPI = True
 except ImportError:
     HAS_FASTAPI = False
@@ -224,9 +224,9 @@ class TestErrorHandling(unittest.TestCase):
     def test_custom_error_classes(self):
         """Verify custom error classes work correctly."""
         from qwen3_tts.core.config import (
+            ModelError,
             TTSError,
             VoicePromptError,
-            ModelError,
         )
 
         # Test base error
@@ -305,8 +305,9 @@ class TestUtilityFunctions(unittest.TestCase):
     @_skip_integration
     def test_audio_validation(self):
         """Verify audio validation catches issues."""
-        from qwen3_tts.core.engine.inference import _validate_audio
         import numpy as np
+
+        from qwen3_tts.core.engine.inference import _validate_audio
 
         # Valid audio
         valid_audio = np.random.randn(16000).astype(np.float32) * 0.1
@@ -324,8 +325,9 @@ class TestCrossfadeFunctionality(unittest.TestCase):
     @_skip_integration
     def test_crossfade_basic(self):
         """Verify crossfade produces expected output."""
-        from qwen3_tts.core.engine.inference import _crossfade_chunks
         import numpy as np
+
+        from qwen3_tts.core.engine.inference import _crossfade_chunks
 
         # Two chunks of audio
         chunk1 = np.random.randn(1000).astype(np.float32)
@@ -341,8 +343,9 @@ class TestCrossfadeFunctionality(unittest.TestCase):
     @_skip_integration
     def test_crossfade_single_chunk(self):
         """Single chunk should pass through unchanged."""
-        from qwen3_tts.core.engine.inference import _crossfade_chunks
         import numpy as np
+
+        from qwen3_tts.core.engine.inference import _crossfade_chunks
 
         chunk = np.random.randn(1000).astype(np.float32)
         result = _crossfade_chunks([chunk], crossfade_ms=10, sample_rate=24000)
@@ -373,8 +376,7 @@ class TestOfflineFunctionality(unittest.TestCase):
     def test_imports_work(self):
         """Verify all key modules can be imported."""
         # Core modules
-        from qwen3_tts.core import config
-        from qwen3_tts.core import engine
+        from qwen3_tts.core import config, engine
 
         # Server modules
         from qwen3_tts.server import client
@@ -431,8 +433,9 @@ class TestOCPStrategyPattern(unittest.TestCase):
 
     def test_can_register_custom_backend(self):
         """Verify custom backends can be registered."""
-        from qwen3_tts.core.engine import register_backend, _INFERENCE_STRATEGIES
         import numpy as np
+
+        from qwen3_tts.core.engine import _INFERENCE_STRATEGIES, register_backend
 
         def mock_backend(model, text, mode, **kwargs):
             return ([np.zeros(100, dtype=np.float32)], 24000)

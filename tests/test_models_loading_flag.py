@@ -210,6 +210,7 @@ class TestAppStateInitializesModelsLoading(unittest.TestCase):
         # We can't easily run the full lifespan, but we can check the source-level
         # initialization site exists by importing and inspecting setup_app_state.
         import inspect
+
         from qwen3_tts.server import app_lifespan
 
         # Look for any function/code that sets models_loading.

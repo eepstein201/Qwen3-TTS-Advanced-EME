@@ -1,7 +1,7 @@
 """Tests for audio pipeline — inference configuration behavior."""
 import inspect
+
 import numpy as np
-import pytest
 
 
 class TestMetalRetrySilenceGap:
@@ -26,7 +26,8 @@ class TestLUFSNormalizationToggle:
 
     def test_run_inference_applies_lufs_when_enabled(self, monkeypatch):
         """When generation.lufs_normalize=True, process_audio is called with lufs_target."""
-        from unittest.mock import patch, MagicMock
+        from unittest.mock import MagicMock, patch
+
         from qwen3_tts.core.engine import inference
 
         fake_audio = np.zeros(24000, dtype=np.float32)
@@ -53,7 +54,8 @@ class TestLUFSNormalizationToggle:
 
     def test_run_inference_skips_lufs_by_default(self, monkeypatch):
         """When generation.lufs_normalize is absent/false, process_audio is not called."""
-        from unittest.mock import patch, MagicMock
+        from unittest.mock import MagicMock, patch
+
         from qwen3_tts.core.engine import inference
 
         fake_audio = np.zeros(24000, dtype=np.float32)
@@ -81,6 +83,7 @@ class TestLufsTargetConfigurable:
 
     def test_custom_lufs_target_propagates(self):
         from unittest.mock import patch
+
         import numpy as np
         captured = {}
 
@@ -109,6 +112,7 @@ class TestLufsTargetConfigurable:
 
     def test_default_lufs_target_is_minus_16(self):
         from unittest.mock import patch
+
         import numpy as np
         captured = {}
 

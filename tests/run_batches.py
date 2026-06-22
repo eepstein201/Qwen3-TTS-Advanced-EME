@@ -13,14 +13,15 @@ Usage:
 """
 
 import argparse
+
+# E2E helper for automatic Playwright toggle
+import importlib.util
 import json
 import os
 import subprocess
 import sys
 from pathlib import Path
 
-# E2E helper for automatic Playwright toggle
-import importlib.util
 spec = importlib.util.spec_from_file_location("e2e_helpers", Path(__file__).parent / "e2e_helpers.py")
 e2e_helpers = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(e2e_helpers)
@@ -166,8 +167,8 @@ def _ensure_models_loaded():
     load-model requests for clone, design, and custom.  Silently skips
     if the server is unreachable (the E2E tests will skip/fail on their own).
     """
-    import urllib.request
     import urllib.error
+    import urllib.request
 
     token_path = Path.home() / ".config" / "qwen3-tts" / ".voice_server_token"
     if not token_path.exists():

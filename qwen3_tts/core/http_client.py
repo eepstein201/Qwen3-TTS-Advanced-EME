@@ -8,6 +8,8 @@ same function so CodeQL's data-flow analysis can see the trust boundary at the
 
 from __future__ import annotations
 
+from typing import Any
+
 import requests
 
 from qwen3_tts.core.config import (
@@ -29,7 +31,7 @@ def server_request(
     path: str,
     *,
     timeout: int | float = 10,
-    json: object = None,
+    json: Any = None,
     params: dict[str, str] | None = None,
     headers: dict[str, str] | None = None,
     stream: bool = False,

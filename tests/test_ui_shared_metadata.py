@@ -1,12 +1,13 @@
 import json
 import os
 import time
-import pytest
 
 from qwen3_tts.interface.ui.shared import (
-    save_generation_metadata,
-    load_history_from_disk,
     MAX_HISTORY_SIZE,
+    add_to_history,
+    get_history_data,
+    load_history_from_disk,
+    save_generation_metadata,
 )
 
 
@@ -78,9 +79,6 @@ def test_load_history_from_disk_skips_orphan_json(tmp_path, monkeypatch):
     (tmp_path / "voice_ui_orphan.json").write_text(json.dumps(meta))
     history = load_history_from_disk(str(tmp_path))
     assert len(history) == 0
-
-
-from qwen3_tts.interface.ui.shared import add_to_history, get_history_data
 
 
 def test_add_to_history_includes_seed():

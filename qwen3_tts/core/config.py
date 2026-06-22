@@ -18,6 +18,7 @@ import platform
 import re
 import subprocess
 import sys
+import tempfile
 import threading
 from typing import Any, Protocol, runtime_checkable
 from urllib.parse import urlparse
@@ -78,7 +79,7 @@ HF_CACHE = pathlib.Path.home() / ".cache" / "huggingface" / "hub"
 # ---------------------------------------------------------------------------
 
 _config_lock = threading.Lock()
-_config_cache = {"data": None, "mtime": 0}
+_config_cache: dict[str, Any] = {"data": None, "mtime": 0}
 
 
 def _validate_rate_limit_string(limit_str: str) -> bool:
@@ -260,11 +261,30 @@ def load_config() -> dict:
 
 def save_config(config: dict) -> None:
     """Save configuration to config.json and invalidate the cache.
+
+    Writes atomically: serialize to a temp file in the same directory, fsync,
+    then os.replace() onto the target (atomic on POSIX). This guarantees a crash
+    mid-write leaves the previous config.json intact rather than truncated.
     Thread-safe: uses lock to prevent concurrent reads/writes.
     """
     with _config_lock:
-        with open(CONFIG_PATH, "w") as f:
-            json.dump(config, f, indent=2)
+        config_dir = os.path.dirname(CONFIG_PATH) or "."
+        fd, tmp_path = tempfile.mkstemp(
+            dir=config_dir, prefix=".config.", suffix=".tmp"
+        )
+        try:
+            with os.fdopen(fd, "w") as f:
+                json.dump(config, f, indent=2)
+                f.flush()
+                os.fsync(f.fileno())
+            os.replace(tmp_path, CONFIG_PATH)
+        except BaseException:
+            # Leave the original config.json untouched; clean up the temp file.
+            try:
+                os.remove(tmp_path)
+            except OSError:
+                pass
+            raise
         _config_cache["data"] = None
         _config_cache["mtime"] = 0
 
@@ -404,10 +424,11 @@ def get_default_clone_prompt(config: dict | None = None) -> str | None:
     if configured:
         # Check it exists (as .pt or as MLX .wav/.txt pair)
         base = configured[:-3] if configured.endswith(".pt") else configured
-        pt_exists = os.path.exists(safe_path_join(VOICE_PROMPTS_DIR, f"{base}.pt"))
+        prompts_dir = str(VOICE_PROMPTS_DIR)
+        pt_exists = os.path.exists(safe_path_join(prompts_dir, f"{base}.pt"))
         mlx_exists = os.path.exists(
-            safe_path_join(VOICE_PROMPTS_DIR, f"{base}.wav")
-        ) and os.path.exists(safe_path_join(VOICE_PROMPTS_DIR, f"{base}.txt"))
+            safe_path_join(prompts_dir, f"{base}.wav")
+        ) and os.path.exists(safe_path_join(prompts_dir, f"{base}.txt"))
         if pt_exists or mlx_exists:
             return configured
 
@@ -1055,6 +1076,24 @@ def get_model_info(model_type):
     else:
         size_info = MODEL_INFO.get(model_size, {})
     return size_info.get(model_type, {})
+
+
+def get_model_revision(model_type):
+    """Return the HuggingFace revision (branch/tag/SHA) to download for a model type.
+
+    Resolution order, falling back to "main" (current behavior — no change today):
+      1. config.json: models.<model_type>.revision
+      2. MODEL_INFO / MLX_MODEL_INFO entry's "revision" key
+      3. "main"
+
+    Pinning a specific SHA/tag here (via config or MODEL_INFO) lets a deployment
+    avoid silently tracking a repo's moving ``main`` branch.
+    """
+    config = load_config()
+    pinned = config.get("models", {}).get(model_type, {}).get("revision")
+    if pinned:
+        return pinned
+    return get_model_info(model_type).get("revision") or "main"
 
 
 # ---------------------------------------------------------------------------

@@ -117,6 +117,7 @@ class TestCalculateWaveformPeaks(unittest.TestCase):
     def test_default_num_peaks(self):
         """Default num_peaks should be 500."""
         import inspect
+
         from qwen3_tts.core.engine.audio_processing import calculate_waveform_peaks
 
         sig = inspect.signature(calculate_waveform_peaks)

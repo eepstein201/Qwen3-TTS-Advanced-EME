@@ -15,7 +15,7 @@ logger = logging.getLogger("tts.engine")
 
 _n2w_cached = None
 _n2w_loaded = False
-_SEGMENTER_CACHE = {}
+_SEGMENTER_CACHE: dict = {}
 
 # ---------------------------------------------------------------------------
 # Pre-compiled regex patterns for text chunking

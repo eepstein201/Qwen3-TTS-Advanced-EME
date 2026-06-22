@@ -9,7 +9,7 @@ No GPU, models, or running server required.
 
 import base64
 import unittest
-from unittest.mock import patch, MagicMock
+from unittest.mock import patch
 
 try:
     import pytest
@@ -18,8 +18,8 @@ except ImportError:
     HAS_PYTEST = False
 
 try:
-    from fastapi.testclient import TestClient
     import soundfile  # noqa: F401
+    from fastapi.testclient import TestClient
     HAS_FASTAPI = True
 except ImportError:
     HAS_FASTAPI = False

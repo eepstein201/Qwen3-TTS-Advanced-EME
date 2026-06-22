@@ -1,12 +1,13 @@
 """Feature tests extracted from test_voice.py."""
 
-import json
 import os
 import unittest
-from unittest.mock import patch, MagicMock
+from unittest.mock import MagicMock, patch
 
 from tests.voice_test_helpers import (
-    _skip_client, _skip_generate, _skip_ui,
+    _skip_client,
+    _skip_generate,
+    _skip_ui,
 )
 
 
@@ -15,24 +16,27 @@ class TestRubberBandAudioProcessing(unittest.TestCase):
 
     def test_adjust_speed_noop(self):
         """Speed factor 1.0 should return audio unchanged."""
-        from qwen3_tts.core.engine import adjust_speed
         import numpy as np
+
+        from qwen3_tts.core.engine import adjust_speed
         audio = np.random.randn(16000).astype(np.float32)
         result = adjust_speed(audio, 24000, 1.0)
         np.testing.assert_array_equal(result, audio)
 
     def test_adjust_pitch_noop(self):
         """Pitch shift 0 semitones should return audio unchanged."""
-        from qwen3_tts.core.engine import adjust_pitch
         import numpy as np
+
+        from qwen3_tts.core.engine import adjust_pitch
         audio = np.random.randn(16000).astype(np.float32)
         result = adjust_pitch(audio, 24000, 0)
         np.testing.assert_array_equal(result, audio)
 
     def test_adjust_speed_with_librosa_fallback(self):
         """Speed adjustment should work even when pyrubberband is missing."""
-        from qwen3_tts.core.engine import adjust_speed
         import numpy as np
+
+        from qwen3_tts.core.engine import adjust_speed
         audio = np.random.randn(16000).astype(np.float32)
         # Mock pyrubberband import failure to force librosa fallback
         with patch.dict('sys.modules', {'pyrubberband': None}):
@@ -50,8 +54,9 @@ class TestRubberBandAudioProcessing(unittest.TestCase):
 
     def test_adjust_pitch_with_librosa_fallback(self):
         """Pitch adjustment should work even when pyrubberband is missing."""
-        from qwen3_tts.core.engine import adjust_pitch
         import numpy as np
+
+        from qwen3_tts.core.engine import adjust_pitch
         audio = np.random.randn(16000).astype(np.float32)
         with patch.dict('sys.modules', {'pyrubberband': None}):
             try:
@@ -80,7 +85,7 @@ class TestProsodyPresets(unittest.TestCase):
 
     def test_get_prosody_presets_returns_defaults(self):
         """get_prosody_presets with empty config should return defaults."""
-        from qwen3_tts.core.config import get_prosody_presets, DEFAULT_PROSODY_PRESETS
+        from qwen3_tts.core.config import DEFAULT_PROSODY_PRESETS, get_prosody_presets
         presets = get_prosody_presets(config={})
         self.assertEqual(presets, DEFAULT_PROSODY_PRESETS)
 
@@ -120,6 +125,7 @@ class TestXVectorOnlyMode(unittest.TestCase):
     def test_run_inference_accepts_x_vector_only_mode(self):
         """run_inference should accept x_vector_only_mode parameter."""
         import inspect
+
         from qwen3_tts.core.engine import run_inference
         sig = inspect.signature(run_inference)
         self.assertIn("x_vector_only_mode", sig.parameters)
@@ -127,6 +133,7 @@ class TestXVectorOnlyMode(unittest.TestCase):
     def test_run_inference_streaming_accepts_x_vector_only_mode(self):
         """run_inference_streaming should accept x_vector_only_mode parameter."""
         import inspect
+
         from qwen3_tts.core.engine import run_inference_streaming
         sig = inspect.signature(run_inference_streaming)
         self.assertIn("x_vector_only_mode", sig.parameters)
@@ -134,6 +141,7 @@ class TestXVectorOnlyMode(unittest.TestCase):
     def test_inference_single_accepts_x_vector_only_mode(self):
         """_run_inference_single should accept x_vector_only_mode parameter."""
         import inspect
+
         from qwen3_tts.core.engine.inference import _run_inference_single
         sig = inspect.signature(_run_inference_single)
         self.assertIn("x_vector_only_mode", sig.parameters)
@@ -142,6 +150,7 @@ class TestXVectorOnlyMode(unittest.TestCase):
     def test_generate_via_server_accepts_x_vector_only_mode(self):
         """generate_via_server should accept x_vector_only_mode parameter."""
         import inspect
+
         from qwen3_tts.interface.generate import generate_via_server
         sig = inspect.signature(generate_via_server)
         self.assertIn("x_vector_only_mode", sig.parameters)
@@ -150,6 +159,7 @@ class TestXVectorOnlyMode(unittest.TestCase):
     def test_generate_streaming_accepts_x_vector_only_mode(self):
         """generate_streaming in voice_generate should accept x_vector_only_mode."""
         import inspect
+
         from qwen3_tts.interface.generate import generate_streaming
         sig = inspect.signature(generate_streaming)
         self.assertIn("x_vector_only_mode", sig.parameters)
@@ -162,6 +172,7 @@ class TestXVectorOnlyClient(unittest.TestCase):
     def test_client_generate_accepts_x_vector_only_mode(self):
         """TTSClient.generate should accept x_vector_only_mode parameter."""
         import inspect
+
         from qwen3_tts.server.client import TTSClient
         sig = inspect.signature(TTSClient.generate)
         self.assertIn("x_vector_only_mode", sig.parameters)
@@ -169,6 +180,7 @@ class TestXVectorOnlyClient(unittest.TestCase):
     def test_client_streaming_accepts_x_vector_only_mode(self):
         """TTSClient.generate_streaming should accept x_vector_only_mode parameter."""
         import inspect
+
         from qwen3_tts.server.client import TTSClient
         sig = inspect.signature(TTSClient.generate_streaming)
         self.assertIn("x_vector_only_mode", sig.parameters)
@@ -193,7 +205,7 @@ class TestClickCLI(unittest.TestCase):
 
     def test_cli_imports(self):
         """qwen3_tts.cli imports without error."""
-        from qwen3_tts.cli import cli, TTSGroup
+        from qwen3_tts.cli import TTSGroup, cli
         self.assertIsNotNone(cli)
         self.assertIsInstance(cli, TTSGroup)
 
@@ -212,9 +224,10 @@ class TestClickCLI(unittest.TestCase):
 
     def test_ttsgroup_server_mode_stripping(self):
         """TTSGroup strips --_server-mode and re-inserts after subcommand."""
-        from qwen3_tts.cli import TTSGroup
         # Verify the class has parse_args that handles --_server-mode
         import inspect
+
+        from qwen3_tts.cli import TTSGroup
         source = inspect.getsource(TTSGroup.parse_args)
         self.assertIn('--_server-mode', source)
         self.assertIn('server_mode', source)
@@ -222,6 +235,7 @@ class TestClickCLI(unittest.TestCase):
     def test_ui_rejects_server_mode_flag(self):
         """tts ui does not accept --_server-mode (it's a generate-only flag)."""
         from click.testing import CliRunner
+
         from qwen3_tts.cli import cli
         runner = CliRunner()
         with patch('qwen3_tts.interface.generate.launch_gradio_ui'):
@@ -233,6 +247,7 @@ class TestClickCLI(unittest.TestCase):
     def test_ttsgroup_skips_server_mode_for_non_generate_commands(self):
         """TTSGroup.parse_args does NOT re-insert --_server-mode for ui, config, etc."""
         from click.testing import CliRunner
+
         from qwen3_tts.cli import cli
         runner = CliRunner()
         # Commands that should NOT get --_server-mode re-inserted
@@ -260,6 +275,7 @@ class TestClickCLI(unittest.TestCase):
     def test_cli_version(self):
         """CLI has version option."""
         from click.testing import CliRunner
+
         from qwen3_tts.cli import cli
         runner = CliRunner()
         result = runner.invoke(cli, ['--version'])
@@ -269,6 +285,7 @@ class TestClickCLI(unittest.TestCase):
     def test_cli_help(self):
         """CLI --help shows subcommands."""
         from click.testing import CliRunner
+
         from qwen3_tts.cli import cli
         runner = CliRunner()
         result = runner.invoke(cli, ['--help'])
@@ -280,6 +297,7 @@ class TestClickCLI(unittest.TestCase):
     def test_cli_server_help(self):
         """CLI server --help shows subcommands."""
         from click.testing import CliRunner
+
         from qwen3_tts.cli import cli
         runner = CliRunner()
         result = runner.invoke(cli, ['server', '--help'])
@@ -291,6 +309,7 @@ class TestClickCLI(unittest.TestCase):
     def test_cli_generate_help(self):
         """CLI generate --help shows all options."""
         from click.testing import CliRunner
+
         from qwen3_tts.cli import cli
         runner = CliRunner()
         result = runner.invoke(cli, ['generate', '--help'])
@@ -387,6 +406,7 @@ class TestPlatformSafeCommands(unittest.TestCase):
     def test_play_audio_checks_platform(self):
         """play_audio checks platform before choosing command."""
         import inspect
+
         from qwen3_tts.interface.generate import play_audio
         source = inspect.getsource(play_audio)
         self.assertIn("IS_MACOS", source)
@@ -396,6 +416,7 @@ class TestPlatformSafeCommands(unittest.TestCase):
     def test_get_clipboard_text_checks_platform(self):
         """get_clipboard_text checks platform before choosing command."""
         import inspect
+
         from qwen3_tts.interface.generate import get_clipboard_text
         source = inspect.getsource(get_clipboard_text)
         self.assertIn("IS_MACOS", source)
@@ -409,6 +430,7 @@ class TestPlatformSafeCommands(unittest.TestCase):
     def test_open_file_handles_missing_xdg(self):
         """open_file wraps xdg-open in try/except."""
         import inspect
+
         from qwen3_tts.interface.generate import open_file
         source = inspect.getsource(open_file)
         self.assertIn("FileNotFoundError", source)
@@ -437,8 +459,8 @@ class TestGetPresets(unittest.TestCase):
     @patch("qwen3_tts.interface.ui.shared.load_config")
     def test_empty_user_presets_still_returns_defaults(self, mock_config):
         mock_config.return_value = {"presets": {}}
-        from qwen3_tts.interface.ui.shared import get_presets
         from qwen3_tts.core.config import DEFAULT_GENERATION_PRESETS
+        from qwen3_tts.interface.ui.shared import get_presets
         result = get_presets()
         self.assertIn("(none)", result)
         self.assertEqual(result[0], "(none)")

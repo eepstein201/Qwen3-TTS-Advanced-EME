@@ -4,10 +4,13 @@ import os
 import tempfile
 import time
 import unittest
-from unittest.mock import patch, MagicMock
+from unittest.mock import MagicMock, patch
 
 from tests.voice_test_helpers import (
-    _skip_server, _skip_client, _skip_generate, _make_test_client,
+    _make_test_client,
+    _skip_client,
+    _skip_generate,
+    _skip_server,
 )
 
 
@@ -73,7 +76,7 @@ class TestETACache(unittest.TestCase):
 
     def test_estimate_eta_uses_cache(self):
         """_estimate_eta reads from cache when fresh."""
-        from qwen3_tts.server.app import app, _estimate_eta
+        from qwen3_tts.server.app import _estimate_eta, app
         # Pre-populate cache with a known rate
         app.state.eta_cache["median_rate"] = 10.0  # 10 chars/sec
         app.state.eta_cache["last_updated"] = time.time()  # fresh
@@ -85,7 +88,7 @@ class TestETACache(unittest.TestCase):
 
     def test_estimate_eta_returns_none_without_data(self):
         """_estimate_eta returns None when no history data."""
-        from qwen3_tts.server.app import app, _estimate_eta
+        from qwen3_tts.server.app import _estimate_eta, app
         app.state.eta_cache["median_rate"] = None
         app.state.eta_cache["last_updated"] = time.time()
 
@@ -197,7 +200,9 @@ class TestReturnValueCounts(unittest.TestCase):
         """Table data rows must have 3 elements to match headers [Name, Format, Default]."""
         with patch("qwen3_tts.interface.ui.voice_management.get_voice_prompts", return_value=["v.pt"]):
             with patch("qwen3_tts.interface.ui.voice_management.load_config", return_value={}):
-                from qwen3_tts.interface.ui.voice_management import get_prompt_table_data
+                from qwen3_tts.interface.ui.voice_management import (
+                    get_prompt_table_data,
+                )
                 rows = get_prompt_table_data()
                 if rows:
                     self.assertEqual(len(rows[0]), 3)

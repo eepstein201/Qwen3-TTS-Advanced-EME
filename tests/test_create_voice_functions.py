@@ -775,6 +775,7 @@ class TestCreateVoiceMainArgv:
     def test_main_accepts_argv_param(self):
         """main() signature must declare an argv keyword argument."""
         import inspect
+
         from qwen3_tts.tools.create_voice import main
 
         sig = inspect.signature(main)

@@ -102,7 +102,9 @@ class CircuitBreaker:
                     )
             elif self._state == "HALF_OPEN":
                 # Allow one request through to test service
-                logger.debug("Circuit breaker: allowing test request in HALF_OPEN state")
+                logger.debug(
+                    "Circuit breaker: allowing test request in HALF_OPEN state"
+                )
 
     async def _on_success(self) -> None:
         """Handle successful request.
@@ -221,7 +223,10 @@ class AsyncVLLMClient:
             client = self._get_client()
 
             # Build request payload
-            request = {"model": "Qwen/Qwen3-TTS-12Hz-1.7B-Base", "input": {"text": text, "mode": mode}}
+            request = {
+                "model": "Qwen/Qwen3-TTS-12Hz-1.7B-Base",
+                "input": {"text": text, "mode": mode},
+            }
 
             if mode == "clone" and prompt_audio:
                 import tempfile
@@ -243,7 +248,9 @@ class AsyncVLLMClient:
                 # Implement retry with exponential backoff
                 for attempt in range(3):  # Max 3 retries
                     try:
-                        response = await client.post("/v1/audio/generations", json=request)
+                        response = await client.post(
+                            "/v1/audio/generations", json=request
+                        )
                         response.raise_for_status()
 
                         data = response.json()
@@ -266,7 +273,9 @@ class AsyncVLLMClient:
                         if attempt < 2 and e.response.status_code >= 500:
                             # Server error - retry with backoff
                             wait_time = 2**attempt  # 1s, 2s, 4s
-                            logger.warning(f"vLLM request failed (attempt {attempt + 1}), retrying in {wait_time}s")
+                            logger.warning(
+                                f"vLLM request failed (attempt {attempt + 1}), retrying in {wait_time}s"
+                            )
                             await asyncio.sleep(wait_time)
                             continue
                         else:

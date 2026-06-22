@@ -4,7 +4,8 @@ import unittest
 from unittest.mock import patch
 
 from tests.voice_test_helpers import (
-    _skip_server, _make_test_client,
+    _make_test_client,
+    _skip_server,
 )
 
 
@@ -521,6 +522,7 @@ class TestGenerateStreamIdCheck(unittest.TestCase):
     def test_generate_stream_checks_generation_id(self):
         """generate_stream only resets state if generation_id matches."""
         import inspect
+
         from qwen3_tts.server import app_generation
         source = inspect.getsource(app_generation)
         # Should check generation_id before resetting
@@ -720,8 +722,8 @@ class TestUpdateModelConfigAcceptsAll5MlxQuants:
     """Server /update-model-config must accept all VALID_MLX_QUANTIZATIONS values."""
 
     def test_5bit_accepted(self):
-        from qwen3_tts.server import app_models
         from qwen3_tts.core.config import VALID_MLX_QUANTIZATIONS
+        from qwen3_tts.server import app_models
         assert "5bit" in VALID_MLX_QUANTIZATIONS
         # The handler must not have a stale local tuple
         import inspect

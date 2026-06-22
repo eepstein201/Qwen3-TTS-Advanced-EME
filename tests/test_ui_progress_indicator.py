@@ -307,7 +307,9 @@ class TestComponentsExportsProgressIndicator(unittest.TestCase):
         from qwen3_tts.interface.ui.components import ProgressIndicator  # noqa: F401
 
     def test_poll_model_load_progress_is_importable(self):
-        from qwen3_tts.interface.ui.components import poll_model_load_progress  # noqa: F401
+        from qwen3_tts.interface.ui.components import (
+            poll_model_load_progress,  # noqa: F401
+        )
 
 
 if __name__ == "__main__":

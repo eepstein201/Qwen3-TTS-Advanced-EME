@@ -45,10 +45,10 @@ except ImportError:
     pytest = _DummyPytest()
 
 try:
-    from fastapi.testclient import TestClient  # noqa: F401
-    import soundfile  # noqa: F401
     import numpy as np  # noqa: F401
     import slowapi  # noqa: F401  (server.app imports slowapi unconditionally)
+    import soundfile  # noqa: F401
+    from fastapi.testclient import TestClient  # noqa: F401
     HAS_DEPS = True
 except ImportError:
     HAS_DEPS = False
