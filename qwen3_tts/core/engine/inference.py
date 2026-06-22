@@ -828,7 +828,8 @@ def run_inference(
         all_audio.append(wav)
 
     # At least one chunk was processed, so the sample rate is set by now.
-    assert sample_rate is not None, "no audio chunks were produced"
+    if sample_rate is None:
+        raise RuntimeError("no audio chunks were produced")
 
     # Combine chunks: use silence_gap_seconds from config, or crossfade (default 50ms)
     config = (config_provider or _DEFAULT_CONFIG_LOADER).load()

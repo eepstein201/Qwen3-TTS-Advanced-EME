@@ -268,11 +268,6 @@ make test-e2e      # Batch 6: E2E Playwright (requires server)
 
 2163+ tests across 108 modules. No GPU, models, or running server required (except E2E). Tests auto-skip when optional deps are missing.
 
-**Server restart rule:** Stop the server before starting to pick up code changes:
-```bash
-tts server stop && tts server start
-```
-
 **Static gates:** `ruff check qwen3_tts tests` (config in `.ruff.toml`), `mypy qwen3_tts/{core,server,interface}` (config in `pyproject.toml`; FastAPI `app.py` + vLLM modules excluded), `bandit -r qwen3_tts -c pyproject.toml` (target: 0 HIGH). All ship in the `dev` extra.
 
 **Log level:** Controlled by `TTS_LOG_LEVEL` env var (default `INFO`). Set `TTS_LOG_LEVEL=DEBUG` for verbose output.
