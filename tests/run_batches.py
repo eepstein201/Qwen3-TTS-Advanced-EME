@@ -100,6 +100,7 @@ BATCHES = {
             "tests.test_fastapi_app_ext2_part2",
             "tests.test_fastapi_app_ext3",
             "tests.test_silent_failure_logging",
+            "tests.test_silent_failure_logging_part2",
         ],
         "timeout": 180,  # Higher timeout for async operations
     },

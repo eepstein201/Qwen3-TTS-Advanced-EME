@@ -115,8 +115,12 @@ def handle_delete_prompt(state, req, config_fn):
         default_base = _strip_extension(current_default)
         if default_base == base:
             save_config({**config, "default_clone_prompt": ""})
-    except (OSError, json.JSONDecodeError, KeyError):
-        pass
+    except (OSError, json.JSONDecodeError, KeyError) as e:
+        logger.warning(
+            "Deleted prompt '%s' but failed to clear it as default_clone_prompt: %s",
+            base,
+            e,
+        )
 
     # Clear voice prompt cache
     from qwen3_tts.core.engine import clear_voice_prompt_cache
@@ -207,8 +211,12 @@ def handle_rename_prompt(state, req, config_fn):
                 save_config({**config, "default_clone_prompt": f"{new_base}.pt"})
             else:
                 save_config({**config, "default_clone_prompt": new_base})
-    except (OSError, json.JSONDecodeError, KeyError):
-        pass
+    except (OSError, json.JSONDecodeError, KeyError) as e:
+        logger.warning(
+            "Renamed prompt to '%s' but failed to update default_clone_prompt: %s",
+            new_base,
+            e,
+        )
 
     # Clear voice prompt cache
     from qwen3_tts.core.engine import clear_voice_prompt_cache

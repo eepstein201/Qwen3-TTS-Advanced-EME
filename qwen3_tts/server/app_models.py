@@ -361,8 +361,10 @@ async def handle_update_model_config(state, req, config_fn):
             from qwen3_tts.core.engine import set_audio_loader
 
             set_audio_loader(new_loader)
-        except (ValueError, ImportError):
-            pass
+        except (ValueError, ImportError) as e:
+            logger.warning(
+                "Failed to sync audio loader cache to %r: %s", new_loader, e
+            )
 
     logger.info(
         "Model config updated: %s. Models unloaded. Generation cache cleared.",

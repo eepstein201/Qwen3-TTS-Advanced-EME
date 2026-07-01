@@ -157,8 +157,10 @@ def apply_model_settings(model_size, mlx_quantization):
                 for model_type in ("clone", "design", "custom"):
                     if data.get("models", {}).get(model_type, {}).get("loaded"):
                         models_loaded.append(model_type)
-        except Exception:
-            pass  # Proceed without reload if we can't determine state
+        except Exception as e:
+            logger.warning(
+                "Could not determine loaded-model state (%s); skipping reload", e
+            )
 
         # Step 2: Apply config change (unloads all models)
         payload = {"model_size": model_size}
@@ -193,8 +195,12 @@ def apply_model_settings(model_size, mlx_quantization):
                                 model_key = f"{model_type}_model_loaded"
                                 if health_data.get(model_key):
                                     break
-                except Exception:
-                    pass  # Proceed without reload if we can't determine state
+                except Exception as e:
+                    logger.warning(
+                        "Failed to reload %s model after settings change: %s",
+                        model_type,
+                        e,
+                    )
             if reloaded:
                 return (
                     f"Settings applied. Reloaded: {', '.join(reloaded)}",
@@ -359,7 +365,8 @@ def get_voice_metadata(name: str) -> dict:
                     info = sf.info(wav_path)
                     duration = info.duration
                     result["duration"] = f"{duration:.1f}s"
-            except Exception:
+            except Exception as e:
+                logger.warning("Could not read WAV duration for %s: %s", name, e)
                 result["duration"] = "N/A"
         else:
             result["duration"] = "N/A"
