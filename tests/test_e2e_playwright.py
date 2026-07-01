@@ -45,6 +45,11 @@ except ImportError:
 UI_PORT = 7866
 UI_URL = f"http://127.0.0.1:{UI_PORT}"
 SERVER_URL = "http://127.0.0.1:5123"
+# Opt-in durable screenshots: set TTS_E2E_SCREENSHOTS=1 to capture a PNG of the
+# final page state per test into tests/screenshots/. Off by default so normal
+# runs and CI are unaffected.
+SCREENSHOT_DIR = os.path.join(os.path.dirname(__file__), "screenshots")
+_CAPTURE_SCREENSHOTS = os.environ.get("TTS_E2E_SCREENSHOTS") == "1"
 # Derive from test file location so it works in both main repo and worktrees
 PROJECT_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
@@ -573,6 +578,13 @@ class TestE2EPlaywright(unittest.TestCase):
 
     def tearDown(self):
         if self.page:
+            if _CAPTURE_SCREENSHOTS:
+                try:
+                    os.makedirs(SCREENSHOT_DIR, exist_ok=True)
+                    dest = os.path.join(SCREENSHOT_DIR, f"{self._testMethodName}.png")
+                    self.page.screenshot(path=dest, full_page=True)
+                except Exception as e:  # screenshots are best-effort, never fail a test
+                    print(f"[screenshot] capture failed for {self._testMethodName}: {e}")
             self.page.close()
 
     # ------------------------------------------------------------------
