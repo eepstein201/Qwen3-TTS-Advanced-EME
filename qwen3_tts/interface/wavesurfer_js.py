@@ -9,6 +9,23 @@ Wire format (from /generate-stream):
     [sample_rate:4 bytes LE uint32][length:4 bytes LE uint32][audio:length bytes float32 LE]
 """
 
+import json
+import os
+from functools import lru_cache
+
+_STATIC_DIR = os.path.join(os.path.dirname(__file__), "static")
+
+
+@lru_cache(maxsize=1)
+def _get_vendored_wavesurfer() -> str:
+    """Return the self-hosted WaveSurfer ESM source (vendored under static/).
+
+    Loaded from disk once and embedded into the StreamingPlayer module so the
+    library is served same-origin via a Blob URL instead of an external CDN.
+    """
+    with open(os.path.join(_STATIC_DIR, "wavesurfer.esm.js"), encoding="utf-8") as f:
+        return f.read()
+
 
 def get_script_reexecutor_fn():
     """Return JS function body for demo.load(js=...) to re-execute innerHTML scripts.
@@ -62,27 +79,14 @@ def get_script_reexecutor_fn():
 
 
 def get_wavesurfer_loader_js():
-    """Return a <script> tag that loads WaveSurfer 7.x from CDN.
+    """Return a marker comment; WaveSurfer is self-hosted.
 
-    Injects the script once into the page and exposes window.WaveSurfer.
-    Includes a fallback check so callers know if loading failed.
+    The library is vendored under interface/static and loaded by the
+    StreamingPlayer module via a Blob URL (see get_streaming_player_js), so no
+    external CDN <script> is injected. Kept as a function for caller
+    compatibility.
     """
-    return """
-    <script>
-    (function() {
-        if (window.WaveSurfer) return;
-        var s = document.createElement('script');
-        s.src = 'https://unpkg.com/wavesurfer.js@7/dist/wavesurfer.esm.js';
-        s.type = 'module';
-        s.onload = function() { console.log('[WaveSurfer] Loaded from CDN'); };
-        s.onerror = function() {
-            console.warn('[WaveSurfer] CDN load failed, falling back to <audio>');
-            window._wavesurferFailed = true;
-        };
-        document.head.appendChild(s);
-    })();
-    </script>
-    """
+    return "<!-- WaveSurfer is self-hosted; loaded by the StreamingPlayer module -->"
 
 
 def get_streaming_player_js():
@@ -95,7 +99,20 @@ def get_streaming_player_js():
     - WAV blob creation for saving
     - History playback via loadFile()
     """
-    return """
+    # Embed the vendored WaveSurfer source and expose it as a same-origin Blob
+    # URL, so the dynamic import() below never contacts an external CDN.
+    prelude = (
+        "const WAVESURFER_SRC = " + json.dumps(_get_vendored_wavesurfer()) + ";\n"
+        "let _wsModuleUrlCache = null;\n"
+        "function _wsModuleUrl() {\n"
+        "    if (!_wsModuleUrlCache) {\n"
+        "        const blob = new Blob([WAVESURFER_SRC], { type: 'application/javascript' });\n"
+        "        _wsModuleUrlCache = URL.createObjectURL(blob);\n"
+        "    }\n"
+        "    return _wsModuleUrlCache;\n"
+        "}\n"
+    )
+    return prelude + """
     const HARD_TIMEOUT_MS = 300000;
     const IDLE_TIMEOUT_MS = 60000;
     const WAVEFORM_UPDATE_MS = 200;
@@ -128,8 +145,8 @@ def get_streaming_player_js():
                     return;
                 }
 
-                // Dynamic import for ES module
-                import('https://unpkg.com/wavesurfer.js@7/dist/wavesurfer.esm.js').then(module => {
+                // Dynamic import of the self-hosted (vendored) ES module
+                import(_wsModuleUrl()).then(module => {
                     const WaveSurfer = module.default;
                     this.wavesurfer = WaveSurfer.create({
                         container: container,
