@@ -85,6 +85,7 @@ BATCHES = {
             "tests.test_client_models",
             "tests.test_client_voices",
             "tests.test_websocket",
+            "tests.test_websocket_rate_limit",
             "tests.test_async_concurrency",
             "tests.test_remediation_2026_03_03",
             "tests.test_remediation_2026_03_04",
