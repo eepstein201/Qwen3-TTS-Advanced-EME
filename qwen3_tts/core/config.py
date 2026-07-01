@@ -445,8 +445,8 @@ def get_default_clone_prompt(config: dict | None = None) -> str | None:
             prompts = sorted(f for f in all_files if f.endswith(".pt"))
             if prompts:
                 return prompts[0]
-    except OSError:
-        pass
+    except OSError as e:
+        logger.warning("Cannot scan voice_prompts dir %s: %s", VOICE_PROMPTS_DIR, e)
 
     return None
 

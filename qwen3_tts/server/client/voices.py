@@ -7,12 +7,15 @@ and get_prompt_details().
 This module NEVER imports torch or qwen3_tts.core.engine at module scope.
 """
 
+import logging
 import os
 
 import requests
 
 from qwen3_tts.core.config import VoicePromptError, auth_headers
 from qwen3_tts.server.client._base import _extract_error_message, _require_server
+
+logger = logging.getLogger("tts.client.voices")
 
 
 class VoiceManagerMixin:
@@ -31,8 +34,11 @@ class VoiceManagerMixin:
                 )
                 if resp.status_code == 200:
                     return resp.json().get("prompts", [])
-            except (requests.RequestException, OSError):
-                pass
+            except (requests.RequestException, OSError) as e:
+                logger.warning(
+                    "Server voice listing failed (%s); falling back to local filesystem",
+                    e,
+                )
         # Fallback to local filesystem (.pt for torch, .wav+.txt for MLX)
         try:
             files = os.listdir(self.voice_prompts_dir)
