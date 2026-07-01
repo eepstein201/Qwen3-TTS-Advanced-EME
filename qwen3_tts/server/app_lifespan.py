@@ -110,7 +110,14 @@ def _check_memory_available() -> tuple[bool, int]:
     """
     if not _HAS_PSUTIL:
         return True, 0  # Skip check if psutil not installed
-    mem = psutil.virtual_memory()
+    try:
+        mem = psutil.virtual_memory()
+    except (RuntimeError, OSError) as e:
+        # psutil can raise transiently on some platforms (e.g. macOS
+        # host_statistics64 syscall races under load). Degrade gracefully
+        # rather than failing the generation request.
+        logger.warning("Memory check unavailable (%s); skipping guard", e)
+        return True, 0
     available_mb = mem.available // (1024 * 1024)
     if mem.available < _MEMORY_THRESHOLD_BYTES:
         return False, available_mb
