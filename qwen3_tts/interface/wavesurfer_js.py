@@ -39,15 +39,22 @@ def get_script_reexecutor_fn():
             }
         });
 
-        // Re-execute inline scripts that create elements (like WaveSurfer loader)
+        // Re-execute inline scripts that create elements (like WaveSurfer loader).
+        // Use Blob + createObjectURL (never eval) so DOM script text is never
+        // executed as arbitrary code in the page scope.
         var inlineScripts = document.querySelectorAll('script:not([type]):not([src])');
         inlineScripts.forEach(function(s) {
             if (s.textContent && s.textContent.indexOf('createElement') >= 0) {
                 try {
-                    eval(s.textContent);
-                    console.log('[ScriptReexecutor] Re-executed inline script');
+                    var blob = new Blob([s.textContent], { type: 'application/javascript' });
+                    var url = URL.createObjectURL(blob);
+                    var ns = document.createElement('script');
+                    ns.src = url;
+                    ns.onload = function() { URL.revokeObjectURL(url); };
+                    document.head.appendChild(ns);
+                    console.log('[ScriptReexecutor] Re-injected inline script');
                 } catch(e) {
-                    console.error('[ScriptReexecutor] Failed to re-execute inline:', e);
+                    console.error('[ScriptReexecutor] Failed to re-inject inline:', e);
                 }
             }
         });

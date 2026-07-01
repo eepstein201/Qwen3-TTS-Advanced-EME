@@ -123,6 +123,7 @@ BATCHES = {
             "tests.test_ui_generation_ext",
             "tests.test_fastapi_app_ext",
             "tests.test_wavesurfer_js",
+            "tests.test_wavesurfer_security",
             "tests.test_model_loader_extended",
         ],
         "timeout": 240,  # Longest timeout
