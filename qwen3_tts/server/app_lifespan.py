@@ -126,6 +126,24 @@ def _check_memory_available() -> tuple[bool, int]:
     return True, available_mb
 
 
+def _write_auth_token(token: str) -> None:
+    """Write the auth token file with restricted permissions.
+
+    Raises RuntimeError on failure. TTSClient discovers the token ONLY by
+    reading TOKEN_FILE, so a write failure must abort startup rather than leave
+    every authenticated endpoint unreachable.
+    """
+    try:
+        TOKEN_FILE.parent.mkdir(parents=True, exist_ok=True)
+        os.chmod(TOKEN_FILE.parent, 0o700)
+        with open(TOKEN_FILE, "w") as f:
+            f.write(token)
+        os.chmod(TOKEN_FILE, 0o600)
+    except OSError as e:
+        raise RuntimeError(f"Cannot write auth token to {TOKEN_FILE}: {e}") from e
+    logger.info("Auth token written to %s", TOKEN_FILE)
+
+
 def _get_queue_size(app_state) -> int:
     """Return request queue size (thread-safe)."""
     with app_state.request_queue_lock:
@@ -300,18 +318,10 @@ async def lifespan(app):
     app.state.server_config["models"] = config.get("models", {})
     app.state.server_config["security"] = config.get("security", {})
 
-    # Write token file (create directory with restricted permissions)
-    try:
-        TOKEN_FILE.parent.mkdir(parents=True, exist_ok=True)
-        os.chmod(TOKEN_FILE.parent, 0o700)
-        with open(TOKEN_FILE, "w") as f:
-            f.write(app.state.auth_token)
-        os.chmod(TOKEN_FILE, 0o600)
-        logger.info(f"Auth token written to {TOKEN_FILE}")
-    except Exception as e:
-        logger.error(f"Failed to write auth token to {TOKEN_FILE}: {e}")
-        # Continue startup even if token file write fails
-        # Client will need to use alternative auth method
+    # Write token file (create directory with restricted permissions). This is
+    # the only channel by which TTSClient discovers the token, so a write
+    # failure must abort startup rather than silently leaving auth unreachable.
+    _write_auth_token(app.state.auth_token)
 
     # Register atexit handler as safety net for cleanup
     atexit.register(cleanup_resources, app.state)
