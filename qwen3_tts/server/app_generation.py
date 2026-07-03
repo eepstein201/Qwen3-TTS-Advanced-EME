@@ -29,6 +29,16 @@ from qwen3_tts.server.validation import (
 logger = logging.getLogger("tts")
 
 
+def _should_stop_streaming(stop_event, generation_state) -> bool:
+    """Return True if streaming generation should stop.
+
+    Stops when either the client disconnected (``stop_event`` set by the
+    generator's finally) or the user cancelled via /cancel-generation
+    (``generation_state['cancelled']``), matching the batch path's cancel check.
+    """
+    return stop_event.is_set() or bool(generation_state.get("cancelled"))
+
+
 async def handle_generate(request, state, req, security, config_provider):
     """Core logic for the /generate endpoint.
 
@@ -577,7 +587,9 @@ async def handle_generate_stream(request, state, req, security, config_provider)
                         config_provider=config_provider,
                         progress_callback=_chunk_progress,
                     ):
-                        if stop_event.is_set():
+                        if _should_stop_streaming(
+                            stop_event, state.generation_state
+                        ):
                             logger.info("Generation cancelled by user")
                             break
 
