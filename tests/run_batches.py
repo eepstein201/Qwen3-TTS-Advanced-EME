@@ -88,6 +88,7 @@ BATCHES = {
             "tests.test_websocket_rate_limit",
             "tests.test_auth_token_write",
             "tests.test_streaming_cancel",
+            "tests.test_generation_offload",
             "tests.test_async_concurrency",
             "tests.test_remediation_2026_03_03",
             "tests.test_remediation_2026_03_04",

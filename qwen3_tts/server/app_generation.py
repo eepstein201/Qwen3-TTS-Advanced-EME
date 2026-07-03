@@ -248,7 +248,9 @@ async def handle_generate(request, state, req, security, config_provider):
                             status_code=400,
                             detail="prompt_file required for clone mode",
                         )
-                    voice_prompt = load_voice_prompt(prompt_file)
+                    voice_prompt = await asyncio.to_thread(
+                        load_voice_prompt, prompt_file
+                    )
                     if voice_prompt is None:
                         raise HTTPException(
                             status_code=404,
@@ -341,16 +343,16 @@ async def handle_generate(request, state, req, security, config_provider):
                         seed_lock_chunks=req.seed_lock_chunks,
                     )
 
-                # Encode audio to base64 WAV in memory
+                # Encode audio to base64 WAV in memory (off the event loop)
                 buf = io.BytesIO()
-                sf.write(buf, wav, sr, format="WAV")
+                await asyncio.to_thread(sf.write, buf, wav, sr, format="WAV")
                 b64_audio = base64.b64encode(buf.getvalue()).decode("utf-8")
 
                 # Store persistent cache file for future hits
                 cache_file = tempfile.NamedTemporaryFile(suffix=".wav", delete=False)
                 cache_file.close()  # Close handle before sf.write to avoid leak
                 os.chmod(cache_file.name, 0o600)
-                sf.write(cache_file.name, wav, sr)
+                await asyncio.to_thread(sf.write, cache_file.name, wav, sr)
 
                 with state.gen_cache_lock:
                     if len(state.gen_cache) >= get_generation_cache_max():
@@ -375,7 +377,9 @@ async def handle_generate(request, state, req, security, config_provider):
                     calculate_waveform_peaks,
                 )
 
-                peaks = calculate_waveform_peaks(wav, num_peaks=500)
+                peaks = await asyncio.to_thread(
+                    calculate_waveform_peaks, wav, num_peaks=500
+                )
                 results.append(
                     {
                         "index": i,
@@ -508,7 +512,7 @@ async def handle_generate_stream(request, state, req, security, config_provider)
             raise HTTPException(
                 status_code=400, detail="prompt_file required for clone mode"
             )
-        voice_prompt = load_voice_prompt(prompt_file)
+        voice_prompt = await asyncio.to_thread(load_voice_prompt, prompt_file)
         if voice_prompt is None:
             raise HTTPException(
                 status_code=404, detail=f"Voice prompt not found: {prompt_file}"
