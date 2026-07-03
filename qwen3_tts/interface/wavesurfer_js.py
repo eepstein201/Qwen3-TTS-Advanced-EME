@@ -112,7 +112,7 @@ def get_streaming_player_js():
         "    return _wsModuleUrlCache;\n"
         "}\n"
     )
-    return prelude + """
+    player_body = """
     const HARD_TIMEOUT_MS = 300000;
     const IDLE_TIMEOUT_MS = 60000;
     const WAVEFORM_UPDATE_MS = 200;
@@ -628,6 +628,8 @@ def get_streaming_player_js():
     // Diagnostic: confirm module loaded and function is available
     console.log('[StreamingPlayer] Module loaded, getOrCreatePlayer =', typeof window.getOrCreatePlayer);
     """
+    # Concatenation is JS source assembly, not a SQL query.
+    return prelude + player_body  # nosec B608
 
 
 def get_player_html(tab_id):
