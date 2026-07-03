@@ -13,23 +13,23 @@ skip_if_no_gradio = unittest.skipUnless(HAS_GRADIO, "requires gradio")
 
 
 class TestWaveSurferLoaderJS(unittest.TestCase):
-    """Test the WaveSurfer CDN loader script."""
+    """WaveSurfer is self-hosted; the loader no longer injects a CDN script."""
 
-    def test_returns_script_tag(self):
+    def test_loader_has_no_cdn(self):
         from qwen3_tts.interface.wavesurfer_js import get_wavesurfer_loader_js
         js = get_wavesurfer_loader_js()
-        self.assertIn("<script>", js)
-        self.assertIn("</script>", js)
+        self.assertNotIn("unpkg.com", js)
 
-    def test_loads_wavesurfer_from_cdn(self):
-        from qwen3_tts.interface.wavesurfer_js import get_wavesurfer_loader_js
-        js = get_wavesurfer_loader_js()
-        self.assertIn("wavesurfer", js.lower())
-        self.assertIn("unpkg.com", js)
+    def test_player_embeds_vendored_source(self):
+        from qwen3_tts.interface.wavesurfer_js import get_streaming_player_js
+        js = get_streaming_player_js()
+        self.assertNotIn("unpkg.com", js)
+        self.assertIn("WAVESURFER_SRC", js)
 
-    def test_sets_fallback_flag(self):
-        from qwen3_tts.interface.wavesurfer_js import get_wavesurfer_loader_js
-        js = get_wavesurfer_loader_js()
+    def test_player_retains_fallback_flag(self):
+        # The <audio> fallback path (_wavesurferFailed) now lives in the module.
+        from qwen3_tts.interface.wavesurfer_js import get_streaming_player_js
+        js = get_streaming_player_js()
         self.assertIn("_wavesurferFailed", js)
 
 
@@ -207,9 +207,10 @@ class TestDeadCodeRemoval(unittest.TestCase):
         js = get_script_reexecutor_fn()
         self.assertEqual(js.count("Re-executing scripts"), 1)
 
-    def test_no_duplicate_loader_body(self):
-        from qwen3_tts.interface.wavesurfer_js import get_wavesurfer_loader_js
-        js = get_wavesurfer_loader_js()
+    def test_no_duplicate_fallback_flag(self):
+        # _wavesurferFailed is checked exactly once, in the module's _initWaveSurfer.
+        from qwen3_tts.interface.wavesurfer_js import get_streaming_player_js
+        js = get_streaming_player_js()
         self.assertEqual(js.count("_wavesurferFailed"), 1)
 
 

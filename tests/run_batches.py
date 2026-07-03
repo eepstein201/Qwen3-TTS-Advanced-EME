@@ -85,6 +85,7 @@ BATCHES = {
             "tests.test_client_models",
             "tests.test_client_voices",
             "tests.test_websocket",
+            "tests.test_websocket_rate_limit",
             "tests.test_async_concurrency",
             "tests.test_remediation_2026_03_03",
             "tests.test_remediation_2026_03_04",
@@ -98,6 +99,8 @@ BATCHES = {
             "tests.test_fastapi_app_ext2",
             "tests.test_fastapi_app_ext2_part2",
             "tests.test_fastapi_app_ext3",
+            "tests.test_silent_failure_logging",
+            "tests.test_silent_failure_logging_part2",
         ],
         "timeout": 180,  # Higher timeout for async operations
     },
@@ -122,6 +125,8 @@ BATCHES = {
             "tests.test_ui_generation_ext",
             "tests.test_fastapi_app_ext",
             "tests.test_wavesurfer_js",
+            "tests.test_wavesurfer_security",
+            "tests.test_wavesurfer_selfhost",
             "tests.test_model_loader_extended",
         ],
         "timeout": 240,  # Longest timeout

@@ -73,6 +73,8 @@ ui-initial-state.png
 ui-loaded.png
 screenshot-*.png
 page-*.yml
+# E2E screenshot artifacts (may embed private generation history)
+tests/screenshots/
 
 # Local tooling
 .watchmanconfig
