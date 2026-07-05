@@ -693,6 +693,7 @@ def run_server(host: str = "127.0.0.1", port: int = 5123, public: bool = False) 
     log_fmt = logging.Formatter(
         "%(asctime)s [%(name)s] %(levelname)s: %(message)s", datefmt="%Y-%m-%d %H:%M:%S"
     )
+    LOG_FILE.parent.mkdir(parents=True, exist_ok=True)
     file_handler = logging.handlers.RotatingFileHandler(
         LOG_FILE, maxBytes=5 * 1024 * 1024, backupCount=1
     )
