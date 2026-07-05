@@ -22,6 +22,38 @@ from fastapi import WebSocket, WebSocketDisconnect
 
 logger = logging.getLogger("tts.server.websocket")
 
+# Concurrent WebSocket connection caps. accept() precedes auth, so an
+# unauthenticated client could otherwise pin file descriptors by flooding /ws.
+_WS_MAX_PER_IP = 5
+_WS_MAX_TOTAL = 50
+_ws_conn_lock = threading.Lock()
+
+
+def _ws_try_acquire(app_state, client_ip: str) -> bool:
+    """Reserve a WebSocket slot for ``client_ip``; False if over per-IP/global cap."""
+    with _ws_conn_lock:
+        conns = getattr(app_state, "_ws_connections", None)
+        if conns is None:
+            conns = {}
+            app_state._ws_connections = conns
+        if sum(conns.values()) >= _WS_MAX_TOTAL:
+            return False
+        if conns.get(client_ip, 0) >= _WS_MAX_PER_IP:
+            return False
+        conns[client_ip] = conns.get(client_ip, 0) + 1
+        return True
+
+
+def _ws_release(app_state, client_ip: str) -> None:
+    """Release a previously reserved WebSocket slot for ``client_ip``."""
+    with _ws_conn_lock:
+        conns = getattr(app_state, "_ws_connections", None)
+        if not conns or client_ip not in conns:
+            return
+        conns[client_ip] -= 1
+        if conns[client_ip] <= 0:
+            del conns[client_ip]
+
 
 async def websocket_tts_handler(
     websocket: WebSocket,
@@ -41,6 +73,14 @@ async def websocket_tts_handler(
         app_state: The FastAPI app.state with models, config, etc.
         verify_token_fn: Function to validate auth tokens.
     """
+    # Cap concurrent connections BEFORE accepting, so a flood can't pin FDs
+    # through the pre-auth window.
+    client_ip = websocket.client.host if websocket.client else "unknown"
+    if not _ws_try_acquire(app_state, client_ip):
+        logger.warning("WebSocket connection rejected (limit reached) from %s", client_ip)
+        await websocket.close(code=1013, reason="Too many connections")
+        return
+
     await websocket.accept()
 
     # Step 1: Authenticate
@@ -51,10 +91,12 @@ async def websocket_tts_handler(
         if not verify_token_fn(token):
             await websocket.send_json({"error": "Authentication failed"})
             await websocket.close(code=4001, reason="Authentication failed")
+            _ws_release(app_state, client_ip)
             return
         await websocket.send_json({"status": "authenticated"})
     except (asyncio.TimeoutError, json.JSONDecodeError, WebSocketDisconnect):
         await websocket.close(code=4001, reason="Authentication failed")
+        _ws_release(app_state, client_ip)
         return
 
     # Step 2: Message loop
@@ -142,6 +184,7 @@ async def websocket_tts_handler(
         logger.error("WebSocket handler error: %s", e, exc_info=True)
     finally:
         stop_event.set()
+        _ws_release(app_state, client_ip)
 
 
 async def _stream_generation(

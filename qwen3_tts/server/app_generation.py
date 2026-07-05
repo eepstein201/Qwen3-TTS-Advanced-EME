@@ -29,6 +29,16 @@ from qwen3_tts.server.validation import (
 logger = logging.getLogger("tts")
 
 
+def _should_stop_streaming(stop_event, generation_state) -> bool:
+    """Return True if streaming generation should stop.
+
+    Stops when either the client disconnected (``stop_event`` set by the
+    generator's finally) or the user cancelled via /cancel-generation
+    (``generation_state['cancelled']``), matching the batch path's cancel check.
+    """
+    return stop_event.is_set() or bool(generation_state.get("cancelled"))
+
+
 async def handle_generate(request, state, req, security, config_provider):
     """Core logic for the /generate endpoint.
 
@@ -238,7 +248,9 @@ async def handle_generate(request, state, req, security, config_provider):
                             status_code=400,
                             detail="prompt_file required for clone mode",
                         )
-                    voice_prompt = load_voice_prompt(prompt_file)
+                    voice_prompt = await asyncio.to_thread(
+                        load_voice_prompt, prompt_file
+                    )
                     if voice_prompt is None:
                         raise HTTPException(
                             status_code=404,
@@ -331,16 +343,16 @@ async def handle_generate(request, state, req, security, config_provider):
                         seed_lock_chunks=req.seed_lock_chunks,
                     )
 
-                # Encode audio to base64 WAV in memory
+                # Encode audio to base64 WAV in memory (off the event loop)
                 buf = io.BytesIO()
-                sf.write(buf, wav, sr, format="WAV")
+                await asyncio.to_thread(sf.write, buf, wav, sr, format="WAV")
                 b64_audio = base64.b64encode(buf.getvalue()).decode("utf-8")
 
                 # Store persistent cache file for future hits
                 cache_file = tempfile.NamedTemporaryFile(suffix=".wav", delete=False)
                 cache_file.close()  # Close handle before sf.write to avoid leak
                 os.chmod(cache_file.name, 0o600)
-                sf.write(cache_file.name, wav, sr)
+                await asyncio.to_thread(sf.write, cache_file.name, wav, sr)
 
                 with state.gen_cache_lock:
                     if len(state.gen_cache) >= get_generation_cache_max():
@@ -365,7 +377,9 @@ async def handle_generate(request, state, req, security, config_provider):
                     calculate_waveform_peaks,
                 )
 
-                peaks = calculate_waveform_peaks(wav, num_peaks=500)
+                peaks = await asyncio.to_thread(
+                    calculate_waveform_peaks, wav, num_peaks=500
+                )
                 results.append(
                     {
                         "index": i,
@@ -498,7 +512,7 @@ async def handle_generate_stream(request, state, req, security, config_provider)
             raise HTTPException(
                 status_code=400, detail="prompt_file required for clone mode"
             )
-        voice_prompt = load_voice_prompt(prompt_file)
+        voice_prompt = await asyncio.to_thread(load_voice_prompt, prompt_file)
         if voice_prompt is None:
             raise HTTPException(
                 status_code=404, detail=f"Voice prompt not found: {prompt_file}"
@@ -577,7 +591,9 @@ async def handle_generate_stream(request, state, req, security, config_provider)
                         config_provider=config_provider,
                         progress_callback=_chunk_progress,
                     ):
-                        if stop_event.is_set():
+                        if _should_stop_streaming(
+                            stop_event, state.generation_state
+                        ):
                             logger.info("Generation cancelled by user")
                             break
 

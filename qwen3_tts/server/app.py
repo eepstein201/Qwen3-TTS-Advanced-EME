@@ -493,7 +493,9 @@ async def list_prompts(request: Request, _auth: None = Depends(verify_auth)):
     """List voice prompts with optional pagination (R-24)."""
     state = request.app.state
     reset_activity_timer(state)
-    return handle_list_prompts(state, get_backend(), request.query_params)
+    return await asyncio.to_thread(
+        handle_list_prompts, state, get_backend(), request.query_params
+    )
 
 
 @app.post("/delete-prompt")
@@ -504,7 +506,7 @@ async def delete_prompt(
     """Delete a voice prompt and all its format files."""
     state = request.app.state
     reset_activity_timer(state)
-    return handle_delete_prompt(state, req, _get_app_config)
+    return await asyncio.to_thread(handle_delete_prompt, state, req, _get_app_config)
 
 
 @app.post("/rename-prompt")
@@ -515,7 +517,7 @@ async def rename_prompt(
     """Rename a voice prompt (all format files) with rollback on partial failure."""
     state = request.app.state
     reset_activity_timer(state)
-    return handle_rename_prompt(state, req, _get_app_config)
+    return await asyncio.to_thread(handle_rename_prompt, state, req, _get_app_config)
 
 
 @app.get("/preview-prompt")
@@ -523,7 +525,9 @@ async def preview_prompt(request: Request, _auth: None = Depends(verify_auth)):
     """Return the .wav file for a voice prompt as audio/wav."""
     state = request.app.state
     reset_activity_timer(state)
-    return handle_preview_prompt(request.query_params.get("name", ""))
+    return await asyncio.to_thread(
+        handle_preview_prompt, request.query_params.get("name", "")
+    )
 
 
 @app.get("/prompt-details")
@@ -531,7 +535,9 @@ async def prompt_details(request: Request, _auth: None = Depends(verify_auth)):
     """Return metadata for voice prompts."""
     state = request.app.state
     reset_activity_timer(state)
-    return handle_prompt_details(request.query_params.get("name"))
+    return await asyncio.to_thread(
+        handle_prompt_details, request.query_params.get("name")
+    )
 
 
 @app.post("/create-voice-prompt")
