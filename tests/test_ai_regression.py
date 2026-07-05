@@ -14,6 +14,13 @@ import urllib.request
 
 import pytest
 
+# Every test in this module talks to a live server on :5123, so it is an
+# end-to-end suite. Gate it behind the e2e marker (deselected by pytest.ini's
+# default `-m "not e2e"`) so the offline test/coverage runs skip it cleanly
+# instead of hard-failing when a stale auth-token file makes the skip guards
+# in _get_json/_post_json fall through to pytest.fail().
+pytestmark = pytest.mark.e2e
+
 SERVER_URL = "http://127.0.0.1:5123"
 
 def _get_auth_token():

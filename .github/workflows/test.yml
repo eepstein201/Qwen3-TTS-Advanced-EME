@@ -65,6 +65,14 @@ jobs:
       run: |
         python tests/run_batches.py --batch 3
 
+    - name: Run Batch 4 tests (Engine & UI)
+      run: |
+        python tests/run_batches.py --batch 4
+
+    - name: Run Batch 5 tests (Optional)
+      run: |
+        python tests/run_batches.py --batch 5
+
     - name: Test cross-platform compatibility
       run: |
         python -c "
@@ -89,6 +97,61 @@ jobs:
       with:
         name: test-results-${{ matrix.os }}-py${{ matrix.python-version }}
         path: .pytest_cache/
+
+  lint:
+    # Static gates: lint, type-check, security (fast feedback)
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: Set up Python
+      uses: actions/setup-python@v5
+      with:
+        python-version: '3.11'
+        cache: 'pip'
+
+    - name: Install dev dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install -e ".[dev]"
+
+    - name: Ruff (lint)
+      run: ruff check qwen3_tts tests
+
+    - name: Mypy (type check)
+      run: mypy qwen3_tts/core qwen3_tts/server qwen3_tts/interface
+
+    - name: Bandit (security, fail on HIGH)
+      run: bandit -r qwen3_tts -c pyproject.toml --severity-level high
+
+  coverage:
+    # Coverage gate: 80% floor on the non-e2e suite
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: Set up Python
+      uses: actions/setup-python@v5
+      with:
+        python-version: '3.11'
+        cache: 'pip'
+
+    - name: Install system dependencies
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y --no-install-recommends \
+          ffmpeg \
+          libsndfile1 \
+          portaudio19-dev
+
+    - name: Install test dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install -e ".[test]"
+
+    - name: Pytest with coverage (non-e2e)
+      run: |
+        pytest -m "not e2e" --cov=qwen3_tts --cov-report=term-missing --cov-fail-under=80
 
   test-docker:
     # Container-based testing
