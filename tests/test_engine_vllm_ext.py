@@ -53,7 +53,7 @@ class TestGetDefaultLogFile(unittest.TestCase):
              patch.object(Path, "mkdir") as mock_mkdir:
             adapter = VLLMAdapter.__new__(VLLMAdapter)
             adapter._get_default_log_file()
-        mock_mkdir.assert_called_once_with(exist_ok=True)
+        mock_mkdir.assert_called_once_with(parents=True, exist_ok=True)
 
 
 class TestStartSubprocess(unittest.TestCase):

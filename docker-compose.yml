@@ -27,8 +27,8 @@ services:
   # Use this service for accelerated inference with vLLM backend
   vllm-server:
     build:
-      context: ..
-      dockerfile: docker/vllm.Dockerfile
+      context: docker
+      dockerfile: vllm.Dockerfile
     image: qwen3-tts-vllm:latest
     container_name: qwen3-tts-vllm
 

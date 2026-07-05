@@ -176,7 +176,7 @@ class VLLMAdapter:
         from qwen3_tts.core.config import USER_FILES_DIR
 
         log_dir = Path(USER_FILES_DIR) / ".vllm_logs"
-        log_dir.mkdir(exist_ok=True)
+        log_dir.mkdir(parents=True, exist_ok=True)
         return str(log_dir / "vllm_server.log")
 
     def _find_open_port(self, start_port: int = 8100) -> int:
