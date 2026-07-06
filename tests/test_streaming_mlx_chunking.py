@@ -7,20 +7,8 @@ truncated. The fix applies _prepare_text_chunks before streaming, matching
 what the batch path (run_inference) already does.
 """
 
-import sys
-import types
 import unittest
 from unittest.mock import MagicMock, patch
-
-
-def _make_fake_mlx_audio_result(sample_rate=24000, n_samples=240):
-    """Return a minimal result object as yielded by model.generate(stream=True)."""
-    import numpy as np
-
-    result = MagicMock()
-    result.audio = np.zeros(n_samples, dtype=np.float32)
-    result.sample_rate = sample_rate
-    return result
 
 
 class TestMLXStreamingChunking(unittest.TestCase):
@@ -31,8 +19,6 @@ class TestMLXStreamingChunking(unittest.TestCase):
 
     def _patch_mlx_streaming(self, yields_per_call=1):
         import numpy as np
-
-        fake_result = _make_fake_mlx_audio_result()
 
         def _fake_streaming(*args, **kwargs):
             for _ in range(yields_per_call):
@@ -105,7 +91,6 @@ class TestMLXStreamingChunking(unittest.TestCase):
 
     def test_all_audio_chunks_yielded(self):
         """Audio from every text chunk must be forwarded to the caller."""
-        import numpy as np
         from qwen3_tts.core.engine.inference import run_inference_streaming
 
         sentence = "This is a sentence that takes up space in the text. "
