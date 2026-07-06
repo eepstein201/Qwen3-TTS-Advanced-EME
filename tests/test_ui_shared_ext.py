@@ -350,5 +350,25 @@ class TestHistoryFunctions(unittest.TestCase):
         self.assertEqual(rows[0][4], 2)
 
 
+class TestGetVoiceMetadataPathTraversal(unittest.TestCase):
+    """get_voice_metadata must not read a .wav outside VOICE_PROMPTS_DIR (CodeQL py/path-injection)."""
+
+    def test_traversal_name_is_rejected_safely(self):
+        from qwen3_tts.interface.ui.shared import get_voice_metadata
+
+        mock_client = MagicMock()
+        mock_client.is_server_running.return_value = True
+        mock_client.get_prompt_details.return_value = {
+            "formats": [".wav"],
+            "size_bytes": 100,
+        }
+        with patch("qwen3_tts.server.client.TTSClient", return_value=mock_client):
+            result = get_voice_metadata("../../../etc/passwd")
+
+        # safe_path_join rejects the traversal; the except-branch surfaces "N/A"
+        # and no path outside the prompts dir is opened.
+        self.assertEqual(result["duration"], "N/A")
+
+
 if __name__ == "__main__":
     unittest.main()
