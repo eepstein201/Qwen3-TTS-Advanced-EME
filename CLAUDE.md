@@ -141,7 +141,7 @@ See `docs/00-Foundations/ARCHITECTURE.md` for full annotated file tree.
 
 Base: `http://127.0.0.1:5123`
 
-Public (no auth): `/health`, `/ready`, `/generation-status`, `/queue-status`
+Public (no auth): `/health`, `/ready`, `/generation-status`, `/queue-status`. `/generation-status` intentionally omits request-content-derived fields (`eta_sec`, `batch_total`, `chunk_total`) to avoid leaking input size to unauthenticated callers; it exposes only `active`, `cancelled`, coarse `batch_index`/`chunk_index`, and `elapsed_sec`.
 
 All other endpoints require `Authorization: Bearer <token>` (token from `~/.config/qwen3-tts/.voice_server_token`, legacy fallback: `~/.voice_server_token`).
 

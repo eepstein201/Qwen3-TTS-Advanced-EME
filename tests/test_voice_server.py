@@ -1,5 +1,6 @@
 """Server endpoint tests extracted from test_voice.py."""
 
+import time
 import unittest
 from unittest.mock import patch
 
@@ -281,6 +282,38 @@ class TestGenerationStatus(unittest.TestCase):
         resp = self.client.get("/generation-status")
         data = resp.json()
         self.assertFalse(data["active"])
+
+    def test_generation_status_does_not_leak_input_size(self):
+        """Public endpoint must not reveal text length or batch size.
+
+        eta_sec is derived from text_length, batch_total reveals batch size, and
+        chunk_total reveals the number of chunks (≈ text length). None of these
+        may appear in the unauthenticated response, even mid-generation.
+        """
+        from qwen3_tts.server.app import app
+
+        app.state.generation_state["active"] = True
+        app.state.generation_state["start_time"] = time.time() - 5
+        app.state.generation_state["text_length"] = 12345
+        app.state.generation_state["batch_total"] = 7
+        app.state.generation_state["chunk_total"] = 42
+        try:
+            resp = self.client.get("/generation-status")
+            data = resp.json()
+            self.assertEqual(resp.status_code, 200)
+            self.assertTrue(data["active"])
+            self.assertNotIn("eta_sec", data)
+            self.assertNotIn("batch_total", data)
+            self.assertNotIn("chunk_total", data)
+            self.assertNotIn("text_length", data)
+            # Coarse position + time fields remain available.
+            self.assertIn("cancelled", data)
+            self.assertIn("elapsed_sec", data)
+        finally:
+            app.state.generation_state["active"] = False
+            app.state.generation_state["start_time"] = 0.0
+            app.state.generation_state["batch_total"] = 0
+            app.state.generation_state["chunk_total"] = 0
 
 
 @_skip_server

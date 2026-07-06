@@ -76,7 +76,7 @@ from qwen3_tts.server.app_lifespan import (  # noqa: E402
     MAX_ERROR_MSG_LEN,  # noqa: F401 (re-exported)
     _background_load,  # noqa: F401 (re-exported for test backward compat)
     _check_memory_available,  # noqa: F401 (re-exported for test backward compat)
-    _estimate_eta,
+    _estimate_eta,  # noqa: F401 (re-exported for test backward compat)
     _get_queue_size,  # noqa: F401 (re-exported for test backward compat)
     _sanitize_error,  # noqa: F401 (re-exported for test backward compat)
     auto_shutdown,  # noqa: F401 (re-exported for test backward compat)
@@ -109,6 +109,7 @@ from qwen3_tts.server.app_prompts import (  # noqa: E402
 
 # Import validation module (models and helpers)
 from qwen3_tts.server.validation import (  # noqa: E402
+    MAX_AUDIO_BASE64_BYTES,
     CreateVoicePromptRequest,
     DeletePromptRequest,
     # Response models
@@ -251,6 +252,32 @@ app.add_middleware(
 )
 
 
+# Reject request bodies larger than this before they are read/parsed (R-30).
+# Sized ~2x the largest legitimate payload: MAX_AUDIO_BASE64_BYTES (50MB base64)
+# plus JSON envelope overhead. Guards against memory-exhaustion via oversized
+# uploads that Pydantic would only catch after buffering the whole body.
+MAX_REQUEST_BODY_BYTES = 2 * MAX_AUDIO_BASE64_BYTES  # ~100MB
+
+
+@app.middleware("http")
+async def limit_request_body_size(request: Request, call_next):
+    """Reject oversized request bodies via Content-Length before parsing."""
+    content_length = request.headers.get("content-length")
+    if content_length is not None:
+        try:
+            declared_size = int(content_length)
+        except ValueError:
+            declared_size = -1
+        if declared_size > MAX_REQUEST_BODY_BYTES:
+            from fastapi.responses import JSONResponse
+
+            return JSONResponse(
+                status_code=413,
+                content={"detail": "Request body too large"},
+            )
+    return await call_next(request)
+
+
 @app.middleware("http")
 async def security_headers(request: Request, call_next) -> dict:
     """Add security response headers to all responses."""
@@ -369,19 +396,18 @@ async def generation_status(request: Request) -> dict:
     """Get current generation status (public — sensitive fields stripped)."""
     state = request.app.state
     gen_state = state.generation_state
+    # Public/no-auth endpoint: expose only liveness, cancellation, and coarse
+    # progress position. Totals (batch_total, chunk_total) and eta_sec are
+    # omitted because they reveal the batch size / text length of the in-flight
+    # request to unauthenticated callers.
     result = {
         "active": gen_state["active"],
         "batch_index": gen_state["batch_index"],
-        "batch_total": gen_state["batch_total"],
         "chunk_index": gen_state["chunk_index"],
-        "chunk_total": gen_state["chunk_total"],
         "cancelled": gen_state["cancelled"],
     }
     if gen_state["active"]:
         result["elapsed_sec"] = round(time.time() - gen_state["start_time"], 1)
-        result["eta_sec"] = _estimate_eta(
-            state, gen_state["text_length"], result["elapsed_sec"]
-        )
     return result
 
 

@@ -237,11 +237,11 @@ The `language` field in `TranscribeRequest` is an unconstrained string passed di
 - **Location**: `qwen3_tts/server/validation.py:86`
 - **Fix**: Add `Field(pattern=r'^[a-z]{2,3}$')` or an enum of supported ISO 639-1 codes
 
-### R-30: Unbounded base64 Audio Payload
+### R-30: Unbounded base64 Audio Payload ✅ Fixed
 `TranscribeRequest.audio_base64` and `CreateVoicePromptRequest.audio_base64` have no `max_length` constraint. Large payloads are buffered entirely into memory before Pydantic validation.
 
 - **Location**: `qwen3_tts/server/validation.py:86, 92`
-- **Fix**: Add a server-level body size limit (uvicorn `--limit-max-requests`, FastAPI `Body(max_length=...)`, or a middleware check)
+- **Fix**: Added an ASGI `limit_request_body_size` middleware in `app.py` that rejects over-limit requests with HTTP 413 by `Content-Length` before parsing (`MAX_REQUEST_BODY_BYTES = 2 * MAX_AUDIO_BASE64_BYTES`) — implemented 2026-07-06
 
 ### R-31: Speaker Validation Case Normalization Gap ✅ Fixed
 `"RYAN"` fails validation even though `"Ryan"` and `"ryan"` both pass. The lowercase key check runs first but the fallback `_VALID_SPEAKER_NAMES` check uses the raw `req.speaker` value.
