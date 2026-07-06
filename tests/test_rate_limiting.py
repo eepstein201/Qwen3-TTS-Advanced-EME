@@ -39,17 +39,28 @@ class TestRateLimitKeyFunctions:
 
         assert result == "192.168.1.100"
 
-    def test_get_ip_key_with_proxy(self):
-        """IP-only key should handle X-Forwarded-For correctly."""
+    def test_get_ip_key_with_trusted_proxy(self):
+        """IP-only key honors X-Forwarded-For from a trusted proxy (loopback)."""
         request = MagicMock(spec=Request)
-        # Use non-loopback IP to allow X-Forwarded-For trust (security feature)
-        request.client.host = "192.168.1.100"
+        # Loopback is a trusted proxy by default (Colab/tunnel forwards here).
+        request.client.host = "127.0.0.1"
         request.headers = {"X-Forwarded-For": "203.0.113.1"}
 
         from qwen3_tts.server.app import _get_ip_key
         result = _get_ip_key(request)
 
         assert result == "203.0.113.1"
+
+    def test_get_ip_key_untrusted_peer_ignores_proxy_header(self):
+        """IP-only key ignores X-Forwarded-For from an untrusted direct peer."""
+        request = MagicMock(spec=Request)
+        request.client.host = "192.168.1.100"
+        request.headers = {"X-Forwarded-For": "203.0.113.1"}
+
+        from qwen3_tts.server.app import _get_ip_key
+        result = _get_ip_key(request)
+
+        assert result == "192.168.1.100"
 
     def test_get_token_key_with_valid_token(self):
         """Token-only key should hash token consistently."""

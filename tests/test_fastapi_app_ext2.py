@@ -358,20 +358,43 @@ class TestBackgroundLoad(unittest.TestCase):
 
 class TestGetRealClientIp(unittest.TestCase):
 
-    def test_loopback_ignores_xff(self):
-        from qwen3_tts.server.app import _get_real_client_ip
-        request = MagicMock()
-        request.client.host = "127.0.0.1"
-        request.headers = {"X-Forwarded-For": "1.2.3.4, 5.6.7.8"}
-        result = _get_real_client_ip(request)
-        self.assertEqual(result, "127.0.0.1")
+    def test_untrusted_peer_ignores_xff(self):
+        """A direct (non-proxy) peer cannot spoof its IP via X-Forwarded-For.
 
-    def test_non_loopback_reads_xff(self):
-        from qwen3_tts.server.app import _get_real_client_ip
+        Regression guard: on a public/Colab bind an attacker connecting
+        directly is non-loopback; trusting its XFF would let it rotate the
+        header to bypass the per-IP rate limit. The real peer must win.
+        """
+        from qwen3_tts.server import app
         request = MagicMock()
         request.client.host = "10.0.0.5"
         request.headers = {"X-Forwarded-For": "1.2.3.4, 5.6.7.8"}
-        result = _get_real_client_ip(request)
+        with patch.object(app, "TRUSTED_PROXIES", {"127.0.0.1", "::1"}):
+            result = app._get_real_client_ip(request)
+        self.assertEqual(result, "10.0.0.5")
+
+    def test_trusted_loopback_proxy_reads_xff(self):
+        """When the direct peer is a trusted proxy (loopback), honor XFF.
+
+        This is the Colab/tunnel case: the tunnel forwards to 127.0.0.1 and
+        carries the real client in X-Forwarded-For.
+        """
+        from qwen3_tts.server import app
+        request = MagicMock()
+        request.client.host = "127.0.0.1"
+        request.headers = {"X-Forwarded-For": "1.2.3.4, 5.6.7.8"}
+        with patch.object(app, "TRUSTED_PROXIES", {"127.0.0.1", "::1"}):
+            result = app._get_real_client_ip(request)
+        self.assertEqual(result, "1.2.3.4")
+
+    def test_env_configured_proxy_reads_xff(self):
+        """An operator-configured reverse proxy IP is trusted for XFF."""
+        from qwen3_tts.server import app
+        request = MagicMock()
+        request.client.host = "10.0.0.5"
+        request.headers = {"X-Forwarded-For": "1.2.3.4, 5.6.7.8"}
+        with patch.object(app, "TRUSTED_PROXIES", {"127.0.0.1", "::1", "10.0.0.5"}):
+            result = app._get_real_client_ip(request)
         self.assertEqual(result, "1.2.3.4")
 
     def test_no_client(self):
@@ -381,6 +404,22 @@ class TestGetRealClientIp(unittest.TestCase):
         request.headers = {}
         result = _get_real_client_ip(request)
         self.assertEqual(result, "127.0.0.1")
+
+    def test_load_trusted_proxies_env_override(self):
+        """TTS_TRUSTED_PROXIES adds operator proxy IPs on top of loopback."""
+        from qwen3_tts.server.app import _load_trusted_proxies
+        with patch.dict("os.environ", {"TTS_TRUSTED_PROXIES": "10.0.0.5, 192.168.1.1"}):
+            proxies = _load_trusted_proxies()
+        self.assertIn("10.0.0.5", proxies)
+        self.assertIn("192.168.1.1", proxies)
+        self.assertIn("127.0.0.1", proxies)  # loopback always trusted
+
+    def test_load_trusted_proxies_default_loopback_only(self):
+        """With no env override, only loopback is trusted."""
+        from qwen3_tts.server.app import _load_trusted_proxies
+        with patch.dict("os.environ", {}, clear=True):
+            proxies = _load_trusted_proxies()
+        self.assertEqual(proxies, {"127.0.0.1", "::1", "localhost"})
 
 
 # ---------------------------------------------------------------------------

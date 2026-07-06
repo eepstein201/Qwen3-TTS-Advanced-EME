@@ -136,21 +136,33 @@ from qwen3_tts.server.websocket import websocket_tts_handler  # noqa: E402
 # ---------------------------------------------------------------------------
 
 
+def _load_trusted_proxies() -> set[str]:
+    """Trusted reverse-proxy IPs whose X-Forwarded-For header we honor.
+
+    Defaults to loopback only (covers Colab/Gradio tunnels, which forward to
+    127.0.0.1). Operators fronting the server with a real reverse proxy can add
+    its IP(s) via TTS_TRUSTED_PROXIES (comma-separated).
+    """
+    proxies = {"127.0.0.1", "::1", "localhost"}
+    env = os.environ.get("TTS_TRUSTED_PROXIES", "")
+    proxies |= {ip.strip() for ip in env.split(",") if ip.strip()}
+    return proxies
+
+
+TRUSTED_PROXIES = _load_trusted_proxies()
+
+
 def _get_real_client_ip(request: Request) -> str:
-    """Extract real client IP, checking proxy headers first.
+    """Extract the real client IP, honoring X-Forwarded-For only from a proxy.
 
-    Critical for Colab/Gradio share links where all traffic
-    comes through a reverse proxy or tunnel.
-
-    X-Forwarded-For is only trusted when the server is NOT bound exclusively
-    to localhost (i.e. listening on a public interface for Colab/tunnel use).
-    Trusting XFF on a loopback-only server allows any client to spoof their IP
-    and bypass rate limiting.
+    Critical for Colab/Gradio share links where traffic arrives through a
+    reverse proxy or tunnel. X-Forwarded-For is trusted ONLY when the direct
+    TCP peer is in TRUSTED_PROXIES; otherwise a client connecting directly on a
+    public/Colab bind could spoof the header to rotate its rate-limit key and
+    bypass per-IP limits. Untrusted peers always fall back to their real IP.
     """
     direct_host = request.client.host if request.client else "127.0.0.1"
-    # Trust XFF only when not on pure loopback — prevents rate-limit bypass
-    is_loopback = direct_host in ("127.0.0.1", "::1", "localhost")
-    if not is_loopback:
+    if direct_host in TRUSTED_PROXIES:
         forwarded = request.headers.get("X-Forwarded-For")
         if forwarded:
             return forwarded.split(",")[0].strip()
