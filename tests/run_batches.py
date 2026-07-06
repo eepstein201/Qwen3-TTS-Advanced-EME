@@ -100,6 +100,7 @@ BATCHES = {
             "tests.test_decoupled_inference",
             "tests.test_docker_config",
             "tests.test_streaming_and_peaks",
+            "tests.test_streaming_mlx_chunking",
             "tests.test_fastapi_app_ext2",
             "tests.test_fastapi_app_ext2_part2",
             "tests.test_fastapi_app_ext3",
