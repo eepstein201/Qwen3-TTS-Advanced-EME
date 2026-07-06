@@ -203,6 +203,9 @@ class TestGenerateColabFallback(unittest.TestCase):
                        return_value={"output_directory": tmpdir}):
                 mock_client = MagicMock()
                 mock_client.last_chunk_count = 1
+                # A real TTSClient always exposes last_seed (int or None); the
+                # UI reads it for the history/metadata seed, so the mock must too.
+                mock_client.last_seed = 12345
                 mock_cls.return_value = mock_client
 
                 def fake_generate(**kwargs):
