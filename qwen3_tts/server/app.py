@@ -109,6 +109,7 @@ from qwen3_tts.server.app_prompts import (  # noqa: E402
 
 # Import validation module (models and helpers)
 from qwen3_tts.server.validation import (  # noqa: E402
+    MAX_AUDIO_BASE64_BYTES,
     CreateVoicePromptRequest,
     DeletePromptRequest,
     # Response models
@@ -249,6 +250,32 @@ app.add_middleware(
     allow_methods=["GET", "POST"],
     allow_headers=["Authorization", "Content-Type"],
 )
+
+
+# Reject request bodies larger than this before they are read/parsed (R-30).
+# Sized ~2x the largest legitimate payload: MAX_AUDIO_BASE64_BYTES (50MB base64)
+# plus JSON envelope overhead. Guards against memory-exhaustion via oversized
+# uploads that Pydantic would only catch after buffering the whole body.
+MAX_REQUEST_BODY_BYTES = 2 * MAX_AUDIO_BASE64_BYTES  # ~100MB
+
+
+@app.middleware("http")
+async def limit_request_body_size(request: Request, call_next):
+    """Reject oversized request bodies via Content-Length before parsing."""
+    content_length = request.headers.get("content-length")
+    if content_length is not None:
+        try:
+            declared_size = int(content_length)
+        except ValueError:
+            declared_size = -1
+        if declared_size > MAX_REQUEST_BODY_BYTES:
+            from fastapi.responses import JSONResponse
+
+            return JSONResponse(
+                status_code=413,
+                content={"detail": "Request body too large"},
+            )
+    return await call_next(request)
 
 
 @app.middleware("http")
