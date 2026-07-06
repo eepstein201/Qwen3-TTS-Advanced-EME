@@ -14,6 +14,7 @@ after repeated failures and closing after a cooldown period.
 
 import asyncio
 import logging
+import os
 import time
 from typing import Any
 
@@ -228,13 +229,17 @@ class AsyncVLLMClient:
                 "input": {"text": text, "mode": mode},
             }
 
+            # Track any temp file so it can be cleaned up in the finally block.
+            tmp_path: str | None = None
+
             if mode == "clone" and prompt_audio:
                 import tempfile
 
                 # Write audio to temp file for vLLM
                 with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as tmp:
                     tmp.write(prompt_audio)
-                    request["input"]["prompt_audio"] = tmp.name
+                    tmp_path = tmp.name
+                request["input"]["prompt_audio"] = tmp_path
 
             elif mode == "design" and voice_description:
                 request["input"]["voice_description"] = voice_description
@@ -286,6 +291,17 @@ class AsyncVLLMClient:
             except Exception as e:
                 logger.error("vLLM generation error: %s", e)
                 raise
+            finally:
+                # Always remove the temp prompt-audio file to avoid leaks.
+                if tmp_path is not None and os.path.exists(tmp_path):
+                    try:
+                        os.unlink(tmp_path)
+                    except OSError as unlink_err:
+                        logger.warning(
+                            "Failed to remove temp prompt-audio file %s: %s",
+                            tmp_path,
+                            unlink_err,
+                        )
 
     async def health_check(self) -> bool:
         """Check if vLLM server is healthy.
