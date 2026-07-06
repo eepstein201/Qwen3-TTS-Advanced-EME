@@ -360,6 +360,15 @@ class GeneratorMixin:
                     pass
                 raise GenerationError(error_msg)
 
+            # Capture the actual seed the server used (X-Seed header), matching
+            # the batch path's last_seed. Server-generated when none was sent.
+            seed_header = resp.headers.get("X-Seed")
+            if seed_header is not None:
+                try:
+                    self.last_seed = int(seed_header)
+                except ValueError:
+                    self.last_seed = None
+
             buffer = b""
             header_size = 8  # 4 bytes sample_rate + 4 bytes audio_length
 

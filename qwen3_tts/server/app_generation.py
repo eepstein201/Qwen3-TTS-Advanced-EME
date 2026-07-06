@@ -544,6 +544,12 @@ async def handle_generate_stream(request, state, req, security, config_provider)
     if req.seed is not None:
         gen_params["seed"] = req.seed
 
+    # Resolve the actual seed and apply it to inference so streaming generations
+    # are reproducible and can be reported to the client (via the X-Seed header
+    # below), matching the /generate batch path.
+    used_seed = _resolve_generation_seed(req.seed)
+    seeded_params = {**gen_params, "seed": used_seed}
+
     # Prepare mode-specific params
     from qwen3_tts.core.engine import load_voice_prompt
 
@@ -623,7 +629,7 @@ async def handle_generate_stream(request, state, req, security, config_provider)
                         model=model,
                         text=text,
                         mode=mode,
-                        gen_params=gen_params,
+                        gen_params=seeded_params,
                         language=language,
                         voice_prompt=voice_prompt,
                         voice_description=voice_description,
@@ -688,6 +694,9 @@ async def handle_generate_stream(request, state, req, security, config_provider)
         media_type="application/octet-stream",
         headers={
             "X-Content-Type": "audio/raw-float32",
+            # Actual seed used for this generation (server-generated when the
+            # caller supplied none), so the client can record/reuse it.
+            "X-Seed": str(used_seed),
             # Approximate: read without lock since response is already committed.
             # Exact position available via /queue-status endpoint.
             "X-Queue-Position": str(len(state.pending_requests)),

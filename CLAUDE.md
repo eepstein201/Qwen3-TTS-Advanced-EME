@@ -172,6 +172,8 @@ All other endpoints require `Authorization: Bearer <token>` (token from `~/.conf
 
 **Streaming format:** `/generate-stream` returns length-prefixed binary chunks. See `docs/00-Foundations/ARCHITECTURE.md` for wire format spec.
 
+**Seed reporting (all generation paths):** the actual seed used is returned so the client can record/reuse it — `/generate` in each result's `"seed"`, `/generate-stream` via the `X-Seed` response header, `/ws` in the `"complete"` message. When the caller supplies no seed the server generates one (`_resolve_generation_seed`) rather than leaving it unset. `TTSClient.last_seed` holds it after `generate()`/`generate_streaming()`.
+
 **Long-text chunking:** both the batch path (`run_inference`) and the streaming path (`run_inference_streaming`, all backends) split text via `_prepare_text_chunks` (≤`max_chunk_chars`, default 500) before generation. This prevents silent truncation — a single MLX `model.generate()` call is capped at `max_new_tokens=2048` (~170 s audio @ 12 Hz), so long text must be chunked or it cuts off mid-sentence.
 
 ## Key Settings

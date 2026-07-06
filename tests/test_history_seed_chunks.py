@@ -94,6 +94,52 @@ class TestCacheEntryCarriesSeedAndChunks(unittest.TestCase):
         )
 
 
+class TestStreamingPathReportsSeed(unittest.TestCase):
+    """/generate-stream must resolve, apply, and report the seed via X-Seed."""
+
+    def setUp(self):
+        self.src = inspect.getsource(app_generation)
+
+    def test_stream_resolves_seed(self):
+        # handle_generate_stream must call the shared resolver.
+        self.assertIn("_resolve_generation_seed(req.seed)", self.src)
+
+    def test_stream_applies_seeded_params(self):
+        # The streaming inference call must use seeded_params, not raw gen_params.
+        self.assertIn("gen_params=seeded_params", self.src)
+
+    def test_stream_sets_x_seed_header(self):
+        self.assertIn('"X-Seed": str(used_seed)', self.src)
+
+    def test_client_streaming_reads_x_seed(self):
+        from qwen3_tts.server.client import generator
+
+        gsrc = inspect.getsource(generator)
+        self.assertIn('resp.headers.get("X-Seed")', gsrc)
+
+
+class TestWebSocketPathReportsSeed(unittest.TestCase):
+    """/ws must resolve, apply, and report the seed in the completion message."""
+
+    def setUp(self):
+        from qwen3_tts.server import websocket
+
+        self.src = inspect.getsource(websocket)
+
+    def test_ws_resolves_seed(self):
+        self.assertIn("_resolve_generation_seed(data.get(\"seed\"))", self.src)
+
+    def test_ws_applies_seed_to_gen_params(self):
+        self.assertIn('"seed": used_seed', self.src)
+
+    def test_ws_completion_reports_seed(self):
+        # The "complete" message dict must include the seed.
+        self.assertRegex(
+            self.src,
+            r'"status":\s*"complete",\s*\n\s*"chunks":\s*chunk_count,\s*\n\s*"seed":\s*used_seed',
+        )
+
+
 class TestClientCapturesSeed(unittest.TestCase):
     """TTSClient must expose last_seed / last_chunk_count and populate them."""
 
