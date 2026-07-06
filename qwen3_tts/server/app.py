@@ -76,7 +76,7 @@ from qwen3_tts.server.app_lifespan import (  # noqa: E402
     MAX_ERROR_MSG_LEN,  # noqa: F401 (re-exported)
     _background_load,  # noqa: F401 (re-exported for test backward compat)
     _check_memory_available,  # noqa: F401 (re-exported for test backward compat)
-    _estimate_eta,
+    _estimate_eta,  # noqa: F401 (re-exported for test backward compat)
     _get_queue_size,  # noqa: F401 (re-exported for test backward compat)
     _sanitize_error,  # noqa: F401 (re-exported for test backward compat)
     auto_shutdown,  # noqa: F401 (re-exported for test backward compat)
@@ -369,19 +369,18 @@ async def generation_status(request: Request) -> dict:
     """Get current generation status (public — sensitive fields stripped)."""
     state = request.app.state
     gen_state = state.generation_state
+    # Public/no-auth endpoint: expose only liveness, cancellation, and coarse
+    # progress position. Totals (batch_total, chunk_total) and eta_sec are
+    # omitted because they reveal the batch size / text length of the in-flight
+    # request to unauthenticated callers.
     result = {
         "active": gen_state["active"],
         "batch_index": gen_state["batch_index"],
-        "batch_total": gen_state["batch_total"],
         "chunk_index": gen_state["chunk_index"],
-        "chunk_total": gen_state["chunk_total"],
         "cancelled": gen_state["cancelled"],
     }
     if gen_state["active"]:
         result["elapsed_sec"] = round(time.time() - gen_state["start_time"], 1)
-        result["eta_sec"] = _estimate_eta(
-            state, gen_state["text_length"], result["elapsed_sec"]
-        )
     return result
 
 
