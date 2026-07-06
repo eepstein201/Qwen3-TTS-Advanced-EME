@@ -96,6 +96,7 @@ BATCHES = {
             "tests.test_engine_vllm_characterization",
             "tests.test_engine_vllm_ext",
             "tests.test_engine_vllm_ext_part2",
+            "tests.test_model_name_validation",
             "tests.test_decoupled_inference",
             "tests.test_docker_config",
             "tests.test_streaming_and_peaks",
