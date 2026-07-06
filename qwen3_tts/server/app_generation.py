@@ -9,6 +9,7 @@ import base64
 import io
 import logging
 import os
+import secrets
 import struct
 import tempfile
 import threading
@@ -27,6 +28,23 @@ from qwen3_tts.server.validation import (
 )
 
 logger = logging.getLogger("tts")
+
+# Upper bound for a server-generated seed. Kept within signed int32 so it is
+# safe across torch/MLX seeding APIs and JSON-serializes cleanly.
+_MAX_SEED = 2**31 - 1
+
+
+def _resolve_generation_seed(req_seed: int | None) -> int:
+    """Return the seed to use for generation.
+
+    When the caller supplies a seed (including 0), it is used verbatim so the
+    request stays reproducible. When none is given, a random seed is generated
+    server-side so the value can be recorded in history and reused later — the
+    UI otherwise has no way to know which seed produced a "random" generation.
+    """
+    if req_seed is not None:
+        return req_seed
+    return secrets.randbelow(_MAX_SEED + 1)
 
 
 def _should_stop_streaming(stop_event, generation_state) -> bool:
@@ -127,6 +145,13 @@ async def handle_generate(request, state, req, security, config_provider):
     if req.seed is not None:
         gen_params["seed"] = req.seed
 
+    # Resolve the actual seed to apply and report. When the caller supplies no
+    # seed we generate one so it can be shown in history and reused. It is kept
+    # OUT of gen_params (and thus the cache key) so repeated blank-seed requests
+    # still cache-hit; the seed that produced the cached audio is stored on the
+    # cache entry and echoed back on hits.
+    used_seed = _resolve_generation_seed(req.seed)
+
     voice_description = req.voice_description
     language = req.language
     instruct = req.instruct
@@ -173,6 +198,8 @@ async def handle_generate(request, state, req, security, config_provider):
                         "index": i,
                         "audio_base64": b64_audio,
                         "sample_rate": entry["sample_rate"],
+                        "chunks": entry.get("chunks", 0),
+                        "seed": entry.get("seed"),
                     }
                     logger.info(
                         "Generation cache hit (pre-lock) for text %d/%d",
@@ -218,6 +245,8 @@ async def handle_generate(request, state, req, security, config_provider):
                                 "index": i,
                                 "audio_base64": b64_audio,
                                 "sample_rate": entry["sample_rate"],
+                                "chunks": entry.get("chunks", 0),
+                                "seed": entry.get("seed"),
                             }
                         )
                         logger.info(
@@ -265,6 +294,11 @@ async def handle_generate(request, state, req, security, config_provider):
                         }
                     )
 
+                # Apply the resolved seed for this generation. gen_params itself
+                # stays seed-free for blank-seed requests so the cache key is
+                # stable; the actual seed is injected only for inference.
+                seeded_params = {**gen_params, "seed": used_seed}
+
                 # Run inference: vLLM adapter takes priority when available
                 vllm_adapter = getattr(request.app.state, "vllm_adapter", None)
                 vllm_client = getattr(request.app.state, "vllm_client", None)
@@ -310,7 +344,7 @@ async def handle_generate(request, state, req, security, config_provider):
                             prompt_audio=voice_prompt,
                             voice_description=voice_description,
                             speaker=speaker,
-                            **gen_params,
+                            **seeded_params,
                         )
                         logger.info("vLLM generation completed successfully")
                     except Exception as e:
@@ -330,7 +364,7 @@ async def handle_generate(request, state, req, security, config_provider):
                         model=model,
                         text=text,
                         mode=mode,
-                        gen_params=gen_params,
+                        gen_params=seeded_params,
                         language=language,
                         voice_prompt=voice_prompt,
                         voice_description=voice_description,
@@ -342,6 +376,11 @@ async def handle_generate(request, state, req, security, config_provider):
                         config_provider=config_provider,
                         seed_lock_chunks=req.seed_lock_chunks,
                     )
+
+                # Capture chunk count now (still serialized under inference_lock)
+                # so the value reported and cached is this generation's, not a
+                # later request's, from the shared generation_state.
+                chunk_count = state.generation_state.get("chunk_total", 0)
 
                 # Encode audio to base64 WAV in memory (off the event loop)
                 buf = io.BytesIO()
@@ -371,6 +410,8 @@ async def handle_generate(request, state, req, security, config_provider):
                         "main_file": cache_file.name,
                         "sample_rate": sr,
                         "timestamp": time.time(),
+                        "chunks": chunk_count,
+                        "seed": used_seed,
                     }
 
                 from qwen3_tts.core.engine.audio_processing import (
@@ -386,7 +427,8 @@ async def handle_generate(request, state, req, security, config_provider):
                         "audio_base64": b64_audio,
                         "sample_rate": sr,
                         "peaks": peaks,
-                        "chunks": state.generation_state.get("chunk_total", 0),
+                        "chunks": chunk_count,
+                        "seed": used_seed,
                     }
                 )
 

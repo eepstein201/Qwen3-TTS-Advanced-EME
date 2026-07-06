@@ -307,6 +307,11 @@ def _generate_server_side(mode, text, history_list, stream_config):
             seed_lock_chunks=payload.get("seed_lock_chunks", False),
         )
         chunks = getattr(client, "last_chunk_count", 0)
+        # Prefer the actual seed the server used (set even for random seeds);
+        # fall back to whatever the user supplied in the payload.
+        used_seed = getattr(client, "last_seed", None)
+        if used_seed is None:
+            used_seed = payload.get("seed")
 
         # Copy to user's output directory for persistent access
         from qwen3_tts.core.config import safe_path_join
@@ -341,7 +346,7 @@ def _generate_server_side(mode, text, history_list, stream_config):
             "timestamp": time.time(),
             "mode": payload.get("mode", mode),
             "text": payload.get("text", ""),
-            "seed": payload.get("seed"),
+            "seed": used_seed,
             "chunks": chunks,
             "temperature": payload.get("temperature"),
             "top_k": payload.get("top_k"),
@@ -363,7 +368,7 @@ def _generate_server_side(mode, text, history_list, stream_config):
                 text,
                 persistent_path,
                 chunks,
-                seed=payload.get("seed"),
+                seed=used_seed,
             )
             # Make a copy for return to avoid external mutation
             history_list_copy = list(history_list)

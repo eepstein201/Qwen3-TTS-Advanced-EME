@@ -181,6 +181,10 @@ class _ClientBase:
         self.voice_prompts_dir = VOICE_PROMPTS_DIR
         self._config = None
         self._session = requests.Session()
+        # Populated after each generate(): the chunk count and actual seed the
+        # server used (server-generated when the caller supplied no seed).
+        self.last_chunk_count = 0
+        self.last_seed = None
 
     def close(self):
         """Close the HTTP session and release connection pool."""

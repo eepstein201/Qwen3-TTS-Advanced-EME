@@ -236,6 +236,7 @@ class GeneratorMixin:
         audio_bytes = base64.b64decode(result["audio_base64"])
         wav, sr = sf.read(io.BytesIO(audio_bytes))
         self.last_chunk_count = result.get("chunks", 0)
+        self.last_seed = result.get("seed")
         return wav, sr
 
     def generate_streaming(

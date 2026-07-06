@@ -95,7 +95,7 @@ config.json → qwen3_tts.core.config → qwen3_tts.core.engine (dispatch)
 | `qwen3_tts/core/protocols.py` | Abstract protocols for engine components. `FileConfigProvider` and `DefaultPromptManager` removed (dead code). | No |
 | `qwen3_tts/server/app.py` | FastAPI server: auth, endpoint wrappers, CORS, rate limiting. Thin wrappers delegate to handler modules. | No (lazy via engine) |
 | `qwen3_tts/server/app_lifespan.py` | Server lifecycle: lifespan context, background model loading, cleanup, auto-shutdown, ETA, memory checking, error sanitization | No |
-| `qwen3_tts/server/app_generation.py` | Generation endpoint handlers: `/generate`, `/generate-stream`. `/generate` response includes `"chunks"` count per result. | No (lazy) |
+| `qwen3_tts/server/app_generation.py` | Generation endpoint handlers: `/generate`, `/generate-stream`. `/generate` response includes `"chunks"` count and `"seed"` per result — when no seed is supplied the server generates one (`_resolve_generation_seed`) so it can be shown in history and reused; the auto-seed is kept out of the cache key, and both chunks+seed are stored on the cache entry and echoed on cache hits. | No (lazy) |
 | `qwen3_tts/server/app_models.py` | Model/stats endpoint handlers: `/stats`, `/models`, `/load-model`, `/unload-model`, `/update-model-config`, `/update-startup-config`, `/load-asr`, `/unload-asr`, `/transcribe` | No |
 | `qwen3_tts/server/app_prompts.py` | Prompt endpoint handlers: `/prompts`, `/delete-prompt`, `/rename-prompt`, `/preview-prompt`, `/prompt-details`, `/create-voice-prompt` | No |
 | `qwen3_tts/server/validation.py` | Canonical validation: `_validate_generation_request`, `_VALID_SPEAKER_NAMES` — do not re-define in app.py | No |
