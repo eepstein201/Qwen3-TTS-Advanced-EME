@@ -358,9 +358,14 @@ def get_voice_metadata(name: str) -> dict:
             try:
                 import soundfile as sf
 
-                from qwen3_tts.core.config import VOICE_PROMPTS_DIR
+                from qwen3_tts.core.config import (
+                    VOICE_PROMPTS_DIR,
+                    safe_path_join,
+                )
 
-                wav_path = os.path.join(VOICE_PROMPTS_DIR, f"{name}.wav")
+                # safe_path_join rejects traversal in the (user-supplied) name;
+                # a ValueError is caught below and surfaces as duration "N/A".
+                wav_path = safe_path_join(str(VOICE_PROMPTS_DIR), f"{name}.wav")
                 if os.path.exists(wav_path):
                     info = sf.info(wav_path)
                     duration = info.duration

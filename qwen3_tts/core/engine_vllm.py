@@ -20,6 +20,7 @@ import io
 import json
 import logging
 import os
+import re
 import signal
 import socket
 import subprocess
@@ -124,6 +125,11 @@ class VLLMAdapter:
             ValueError: If parameters are outside valid ranges
         """
         # Validate parameters
+        # model_name flows into the vLLM subprocess argv (--model). Popen uses a
+        # list (no shell), but restrict to an HF-repo-id / local-path shape to
+        # block argument injection (leading dash) and shell metacharacters.
+        if not re.match(r"^[A-Za-z0-9./][A-Za-z0-9._/-]*$", model_name):
+            raise ValueError(f"Invalid model_name: {model_name!r}")
         if not 0.0 < gpu_memory_utilization <= 1.0:
             raise ValueError(
                 f"gpu_memory_utilization must be in (0.0, 1.0], got {gpu_memory_utilization}"
