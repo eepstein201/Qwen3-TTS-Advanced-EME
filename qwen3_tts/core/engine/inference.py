@@ -1003,22 +1003,35 @@ def run_inference_streaming(
     backend = get_backend()
 
     if backend == "mlx":
-        # MLX has native streaming — yield chunks as they generate
-        logger.info("Starting streaming inference [mlx]")
-        yield from _run_inference_mlx_streaming(
-            model,
-            text,
-            mode,
-            gen_params,
-            language,
-            voice_prompt,
-            voice_description,
-            speaker,
-            instruct,
-            x_vector_only_mode=x_vector_only_mode,
-            config=config,
-            progress_callback=progress_callback,
+        # Apply text chunking for MLX streaming, same as the batch path.
+        # Without this, the full text is sent to model.generate() in one shot;
+        # max_new_tokens=2048 caps audio at ~170 s (12 Hz), so long texts are
+        # silently truncated. Chunking at ≤500 chars keeps each call well within
+        # the model's output window.
+        if max_chunk_chars is None:
+            max_chunk_chars = _get_max_chunk_chars()
+        chunks = _prepare_text_chunks(text, language, model, max_chunk_chars)
+        chunk_total = len(chunks)
+        logger.info(
+            "Starting streaming inference [mlx]: %d text chunk(s)", chunk_total
         )
+        for i, chunk in enumerate(chunks):
+            if progress_callback:
+                progress_callback(i + 1, chunk_total)
+            yield from _run_inference_mlx_streaming(
+                model,
+                chunk,
+                mode,
+                gen_params,
+                language,
+                voice_prompt,
+                voice_description,
+                speaker,
+                instruct,
+                x_vector_only_mode=x_vector_only_mode,
+                config=config,
+                progress_callback=None,  # text-chunk progress reported above
+            )
     else:
         # Torch fallback: chunk the text and yield per-chunk audio
         logger.info("Starting chunked streaming [torch fallback]")
