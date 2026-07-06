@@ -101,35 +101,36 @@ def test_sanitize_error_caps_length():
 
 @pytest.mark.unit
 @_skip
-def test_get_real_client_ip_loopback_ignores_xff():
-    """_get_real_client_ip ignores X-Forwarded-For on loopback."""
+def test_get_real_client_ip_loopback_trusts_xff():
+    """_get_real_client_ip honors X-Forwarded-For from a loopback proxy (Colab tunnel)."""
     from qwen3_tts.server.app import _get_real_client_ip
     mock_request = MagicMock()
     mock_request.client.host = "127.0.0.1"
     mock_request.headers.get.return_value = "10.0.0.1, 10.0.0.2"
     result = _get_real_client_ip(mock_request)
-    assert result == "127.0.0.1"
+    assert result == "10.0.0.1"
 
 
 @pytest.mark.unit
 @_skip
-def test_get_real_client_ip_non_loopback_uses_xff():
-    """_get_real_client_ip trusts X-Forwarded-For from non-loopback."""
+def test_get_real_client_ip_untrusted_peer_ignores_xff():
+    """_get_real_client_ip ignores X-Forwarded-For from an untrusted (direct) peer."""
     from qwen3_tts.server.app import _get_real_client_ip
     mock_request = MagicMock()
     mock_request.client.host = "10.0.0.5"
     mock_request.headers.get.return_value = "192.168.1.1, 10.0.0.2"
     result = _get_real_client_ip(mock_request)
-    assert result == "192.168.1.1"
+    assert result == "10.0.0.5"
 
 
 @pytest.mark.unit
 @_skip
 def test_get_real_client_ip_no_client():
-    """_get_real_client_ip returns 127.0.0.1 when client is None."""
+    """_get_real_client_ip returns 127.0.0.1 when client is None (and no XFF)."""
     from qwen3_tts.server.app import _get_real_client_ip
     mock_request = MagicMock()
     mock_request.client = None
+    mock_request.headers.get.return_value = None
     result = _get_real_client_ip(mock_request)
     assert result == "127.0.0.1"
 

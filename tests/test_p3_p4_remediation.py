@@ -451,23 +451,23 @@ class TestTorchLoadSecurity(unittest.TestCase):
 class TestRateLimiting(unittest.TestCase):
     """Verify rate limiting infrastructure."""
 
-    def test_real_ip_resolver_ignores_xff_for_loopback(self):
-        """S2 fix: XFF is NOT trusted when client connects from loopback (spoofing prevention)."""
+    def test_real_ip_resolver_trusts_xff_from_trusted_proxy(self):
+        """XFF is trusted when the direct peer is a trusted proxy (loopback default)."""
         from qwen3_tts.server.app import _get_real_client_ip
 
         mock_request = unittest.mock.MagicMock()
         mock_request.headers = {"X-Forwarded-For": "1.2.3.4, 10.0.0.1"}
         mock_request.client.host = "127.0.0.1"
-        self.assertEqual(_get_real_client_ip(mock_request), "127.0.0.1")
+        self.assertEqual(_get_real_client_ip(mock_request), "1.2.3.4")
 
-    def test_real_ip_resolver_trusts_xff_for_non_loopback(self):
-        """XFF is trusted when client connects from a non-loopback address (behind proxy)."""
+    def test_real_ip_resolver_ignores_xff_from_untrusted_peer(self):
+        """S2 fix: an untrusted direct peer cannot spoof its IP via XFF (rate-limit bypass)."""
         from qwen3_tts.server.app import _get_real_client_ip
 
         mock_request = unittest.mock.MagicMock()
         mock_request.headers = {"X-Forwarded-For": "1.2.3.4, 10.0.0.1"}
         mock_request.client.host = "10.0.0.5"
-        self.assertEqual(_get_real_client_ip(mock_request), "1.2.3.4")
+        self.assertEqual(_get_real_client_ip(mock_request), "10.0.0.5")
 
     def test_real_ip_falls_back_to_client_host(self):
         """Without X-Forwarded-For, should use client.host."""
