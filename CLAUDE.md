@@ -95,7 +95,7 @@ config.json → qwen3_tts.core.config → qwen3_tts.core.engine (dispatch)
 | `qwen3_tts/core/protocols.py` | Abstract protocols for engine components. `FileConfigProvider` and `DefaultPromptManager` removed (dead code). | No |
 | `qwen3_tts/server/app.py` | FastAPI server: auth, endpoint wrappers, CORS, rate limiting. Thin wrappers delegate to handler modules. | No (lazy via engine) |
 | `qwen3_tts/server/app_lifespan.py` | Server lifecycle: lifespan context, background model loading, cleanup, auto-shutdown, ETA, memory checking, error sanitization | No |
-| `qwen3_tts/server/app_generation.py` | Generation endpoint handlers: `/generate`, `/generate-stream`. `/generate` response includes `"chunks"` count and `"seed"` per result — when no seed is supplied the server generates one (`_resolve_generation_seed`) so it can be shown in history and reused; the auto-seed is kept out of the cache key, and both chunks+seed are stored on the cache entry and echoed on cache hits. | No (lazy) |
+| `qwen3_tts/server/app_generation.py` | Generation endpoint handlers: `/generate`, `/generate-stream`. Response includes `"chunks"` + `"seed"` per result — when no seed is supplied the server generates one (`_resolve_generation_seed`), kept out of the cache key but stored on the cache entry and echoed on hits. Seed is also surfaced on `/generate-stream` (`X-Seed` header) and `/ws` (`"complete"` message); `TTSClient.last_seed` holds it. | No (lazy) |
 | `qwen3_tts/server/app_models.py` | Model/stats endpoint handlers: `/stats`, `/models`, `/load-model`, `/unload-model`, `/update-model-config`, `/update-startup-config`, `/load-asr`, `/unload-asr`, `/transcribe` | No |
 | `qwen3_tts/server/app_prompts.py` | Prompt endpoint handlers: `/prompts`, `/delete-prompt`, `/rename-prompt`, `/preview-prompt`, `/prompt-details`, `/create-voice-prompt` | No |
 | `qwen3_tts/server/validation.py` | Canonical validation: `_validate_generation_request`, `_VALID_SPEAKER_NAMES` — do not re-define in app.py | No |
@@ -171,8 +171,6 @@ All other endpoints require `Authorization: Bearer <token>` (token from `~/.conf
 | `/shutdown` | POST | Graceful server shutdown |
 
 **Streaming format:** `/generate-stream` returns length-prefixed binary chunks. See `docs/00-Foundations/ARCHITECTURE.md` for wire format spec.
-
-**Seed reporting (all generation paths):** the actual seed used is returned so the client can record/reuse it — `/generate` in each result's `"seed"`, `/generate-stream` via the `X-Seed` response header, `/ws` in the `"complete"` message. When the caller supplies no seed the server generates one (`_resolve_generation_seed`) rather than leaving it unset. `TTSClient.last_seed` holds it after `generate()`/`generate_streaming()`.
 
 **Long-text chunking:** both the batch path (`run_inference`) and the streaming path (`run_inference_streaming`, all backends) split text via `_prepare_text_chunks` (≤`max_chunk_chars`, default 500) before generation. This prevents silent truncation — a single MLX `model.generate()` call is capped at `max_new_tokens=2048` (~170 s audio @ 12 Hz), so long text must be chunked or it cuts off mid-sentence.
 
