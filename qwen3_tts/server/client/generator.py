@@ -236,6 +236,7 @@ class GeneratorMixin:
         audio_bytes = base64.b64decode(result["audio_base64"])
         wav, sr = sf.read(io.BytesIO(audio_bytes))
         self.last_chunk_count = result.get("chunks", 0)
+        self.last_seed = result.get("seed")
         return wav, sr
 
     def generate_streaming(
@@ -358,6 +359,15 @@ class GeneratorMixin:
                 except (ValueError, requests.exceptions.JSONDecodeError):
                     pass
                 raise GenerationError(error_msg)
+
+            # Capture the actual seed the server used (X-Seed header), matching
+            # the batch path's last_seed. Server-generated when none was sent.
+            seed_header = resp.headers.get("X-Seed")
+            if seed_header is not None:
+                try:
+                    self.last_seed = int(seed_header)
+                except ValueError:
+                    self.last_seed = None
 
             buffer = b""
             header_size = 8  # 4 bytes sample_rate + 4 bytes audio_length

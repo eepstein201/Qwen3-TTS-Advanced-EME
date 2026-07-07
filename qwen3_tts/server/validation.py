@@ -129,6 +129,7 @@ class GenerateResult(BaseModel):
     sample_rate: int
     peaks: list[float] | None = None
     chunks: int | None = None
+    seed: int | None = None
 
 
 class GenerateResponse(BaseModel):

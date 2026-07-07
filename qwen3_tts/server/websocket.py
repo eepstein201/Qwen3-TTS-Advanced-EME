@@ -20,6 +20,8 @@ import threading
 
 from fastapi import WebSocket, WebSocketDisconnect
 
+from qwen3_tts.server.app_generation import _resolve_generation_seed
+
 logger = logging.getLogger("tts.server.websocket")
 
 # Concurrent WebSocket connection caps. accept() precedes auth, so an
@@ -242,6 +244,11 @@ async def _stream_generation(
         await websocket.send_json({"error": detail})
         return
 
+    # Resolve the actual seed (server-generated when the client sends none) so it
+    # can be applied to inference and reported in the completion message,
+    # matching the /generate and /generate-stream paths.
+    used_seed = _resolve_generation_seed(data.get("seed"))
+
     await websocket.send_json({"status": "generating", "text_length": len(text)})
 
     queue: asyncio.Queue = asyncio.Queue()
@@ -257,6 +264,7 @@ async def _stream_generation(
                 "top_p": data.get("top_p", 0.95),
                 "repetition_penalty": data.get("repetition_penalty", 1.05),
                 "max_new_tokens": data.get("max_new_tokens", 2048),
+                "seed": used_seed,
             }
 
             voice_prompt = None
@@ -317,5 +325,6 @@ async def _stream_generation(
         {
             "status": "complete",
             "chunks": chunk_count,
+            "seed": used_seed,
         }
     )
