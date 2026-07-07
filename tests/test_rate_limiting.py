@@ -12,17 +12,50 @@ Tests:
 Run: pytest tests/test_rate_limiting.py -v
 """
 
-import pytest
-
-# server.app imports slowapi unconditionally; skip the whole module (not error)
-# when slowapi is absent, e.g. an env installed without the server/test extra.
-pytest.importorskip("slowapi", reason="requires slowapi (pip install -e '.[test]')")
-
 from unittest.mock import MagicMock
 
-from fastapi import Request
+try:
+    import pytest
+    HAS_PYTEST = True
+except ImportError:
+    HAS_PYTEST = False
+    class _DummyMarkerFunc:
+        def __init__(self, name=None):
+            self._name = name
+        def __call__(self, condition, **kwargs):
+            return lambda f: f
+    class _DummyMark:
+        def __getattr__(self, name):
+            return _DummyMarkerFunc()
+    class _DummyPytest:
+        mark = _DummyMark()
+    pytest = _DummyPytest()
 
-from qwen3_tts.server.app import _rate_limit, app
+try:
+    from fastapi import Request
+    HAS_FASTAPI_DEPS = True
+except ImportError:
+    HAS_FASTAPI_DEPS = False
+
+try:
+    import slowapi  # noqa: F401  (server.app imports slowapi unconditionally)
+    HAS_SLOWAPI = True
+except ImportError:
+    HAS_SLOWAPI = False
+
+HAS_DEPS = HAS_FASTAPI_DEPS and HAS_SLOWAPI
+
+if HAS_PYTEST and not HAS_DEPS:
+    pytest.skip(
+        "requires fastapi, slowapi", allow_module_level=True
+    )
+
+if HAS_DEPS:
+    from fastapi import Request as _Request
+    Request = _Request
+
+if HAS_DEPS:
+    from qwen3_tts.server.app import _rate_limit, app
 
 
 class TestRateLimitKeyFunctions:

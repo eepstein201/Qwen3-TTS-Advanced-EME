@@ -46,12 +46,19 @@ except ImportError:
 
 try:
     import numpy as np  # noqa: F401
-    import slowapi  # noqa: F401  (server.app imports slowapi unconditionally)
     import soundfile  # noqa: F401
     from fastapi.testclient import TestClient  # noqa: F401
-    HAS_DEPS = True
+    HAS_FASTAPI_DEPS = True
 except ImportError:
-    HAS_DEPS = False
+    HAS_FASTAPI_DEPS = False
+
+try:
+    import slowapi  # noqa: F401  (server.app imports slowapi unconditionally)
+    HAS_SLOWAPI = True
+except ImportError:
+    HAS_SLOWAPI = False
+
+HAS_DEPS = HAS_FASTAPI_DEPS and HAS_SLOWAPI
 
 # server.app cannot be imported without these (it imports slowapi unconditionally).
 # Skip the whole module cleanly — not a collection/setup error — when any are
