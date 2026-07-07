@@ -105,7 +105,7 @@ config.json → qwen3_tts.core.config → qwen3_tts.core.engine (dispatch)
 | `qwen3_tts/interface/generate_helpers.py` | Voice prompt helpers, audio playback, SSML, file-open utilities | No (lazy) |
 | `qwen3_tts/interface/generate_interactive.py` | Interactive mode, REPL, watch mode, post-gen menu | No (lazy) |
 | `qwen3_tts/interface/generate_server.py` | Server-side generation, local generation fallback, streaming playback | No (lazy) |
-| `qwen3_tts/interface/ui/` | Gradio web UI package: `_facade.py` (launch), `generation.py` (Clone/Design/Custom tabs), `voice_management.py`, `model_management.py`, `shared.py`. Streaming audio with JavaScript reset. | No (HTTP only) |
+| `qwen3_tts/interface/ui/` | Gradio web UI package: `_facade.py` (launch), `generation.py` (Clone/Design/Custom tabs), `voice_management.py`, `model_management.py`, `shared.py`, `components.py` (reusable widgets: `ConfirmButton`, `confirm_step`, `ProgressIndicator`, `StatusBanner`, `status_badge`, `poll_model_loading_state`). Streaming audio with JavaScript reset. | No (HTTP only) |
 | `qwen3_tts/tools/create_voice.py` | Voice clone prompt creation, saves .pt + .wav/.txt dual format | Yes (via engine) |
 | `qwen3_tts/tools/model_cache.py` | HuggingFace cache management (list, size, prune, clear) | No |
 | `qwen3_tts/tools/healthcheck.py` | Installation health checks (deps, config, server) | No |
