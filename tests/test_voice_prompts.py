@@ -95,6 +95,85 @@ class TestMLXVoicePrompt(unittest.TestCase):
         self.assertEqual(result, mock_result)
 
 
+class TestCorruptPtFallback(unittest.TestCase):
+    """Test that corrupt .pt files fall back to .wav+.txt auto-recreation."""
+
+    def setUp(self):
+        from qwen3_tts.core.engine.voice_prompt import (
+            _torch_prompt_cache,
+            _torch_prompt_cache_lock,
+        )
+
+        with _torch_prompt_cache_lock:
+            _torch_prompt_cache.clear()
+
+    @patch("qwen3_tts.core.engine.voice_prompt.get_backend", return_value="torch")
+    def test_corrupt_pt_falls_back_to_wav(self, _mock_be):
+        """When .pt is corrupt but .wav+.txt exist, auto-recreate succeeds."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            pt_path = os.path.join(tmpdir, "broken.pt")
+            with open(pt_path, "wb") as f:
+                f.write(b"NOT_A_VALID_PT_FILE")
+
+            with (
+                patch(
+                    "qwen3_tts.core.engine.voice_prompt.VOICE_PROMPTS_DIR", tmpdir
+                ),
+                patch(
+                    "qwen3_tts.core.engine.voice_prompt.safe_path_join",
+                    side_effect=lambda d, f: os.path.join(d, f),
+                ),
+                patch(
+                    "qwen3_tts.core.engine.voice_prompt._load_pt_safe",
+                    side_effect=RuntimeError("Cannot load broken.pt safely"),
+                ),
+                patch(
+                    "qwen3_tts.core.engine.voice_prompt._auto_create_pt_from_wav",
+                    return_value="rebuilt_tensor",
+                ) as mock_auto,
+            ):
+                from qwen3_tts.core.engine.voice_prompt import (
+                    _load_voice_prompt_torch,
+                )
+
+                result = _load_voice_prompt_torch("broken.pt")
+
+            self.assertEqual(result, "rebuilt_tensor")
+            mock_auto.assert_called_once()
+
+    @patch("qwen3_tts.core.engine.voice_prompt.get_backend", return_value="torch")
+    def test_corrupt_pt_no_wav_raises(self, _mock_be):
+        """When .pt is corrupt and no .wav exists, the original error propagates."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            pt_path = os.path.join(tmpdir, "broken.pt")
+            with open(pt_path, "wb") as f:
+                f.write(b"NOT_A_VALID_PT_FILE")
+
+            with (
+                patch(
+                    "qwen3_tts.core.engine.voice_prompt.VOICE_PROMPTS_DIR", tmpdir
+                ),
+                patch(
+                    "qwen3_tts.core.engine.voice_prompt.safe_path_join",
+                    side_effect=lambda d, f: os.path.join(d, f),
+                ),
+                patch(
+                    "qwen3_tts.core.engine.voice_prompt._load_pt_safe",
+                    side_effect=RuntimeError("Cannot load broken.pt safely"),
+                ),
+                patch(
+                    "qwen3_tts.core.engine.voice_prompt._auto_create_pt_from_wav",
+                    return_value=None,
+                ),
+            ):
+                from qwen3_tts.core.engine.voice_prompt import (
+                    _load_voice_prompt_torch,
+                )
+
+                with self.assertRaises(RuntimeError):
+                    _load_voice_prompt_torch("broken.pt")
+
+
 class TestMLXVoicePromptCache(unittest.TestCase):
     """Test MLX voice prompt caching in voice_engine."""
 

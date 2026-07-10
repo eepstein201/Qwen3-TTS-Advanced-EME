@@ -7,6 +7,7 @@ Uses lazy imports for model_loader and inference to avoid circular dependencies.
 
 import logging
 import os
+import pickle
 import threading
 from collections import OrderedDict
 
@@ -95,7 +96,7 @@ def _load_pt_safe(prompt_path: str, prompt_file: str, device: str):
         )  # CodeQL: weights_only=True is safe [py/unsafe-deserialization]
         _store_in_torch_cache(prompt_file, result)
         return result
-    except (RuntimeError, ValueError, TypeError):
+    except (RuntimeError, ValueError, TypeError, pickle.UnpicklingError):
         # Only unpickling/weights_only failures reach here.
         # PermissionError, MemoryError, OSError propagate normally.
         real_prompt = os.path.realpath(prompt_path)
@@ -138,7 +139,22 @@ def _load_voice_prompt_torch(prompt_file):
 
     from qwen3_tts.core.config import get_device
 
-    return _load_pt_safe(prompt_path, prompt_file, get_device())
+    try:
+        return _load_pt_safe(prompt_path, prompt_file, get_device())
+    except (RuntimeError, ValueError):
+        base_name = prompt_file[:-3] if prompt_file.endswith(".pt") else prompt_file
+        wav_path = safe_path_join(VOICE_PROMPTS_DIR, f"{base_name}.wav")
+        txt_path = safe_path_join(VOICE_PROMPTS_DIR, f"{base_name}.txt")
+        result = _auto_create_pt_from_wav(
+            base_name, wav_path, txt_path, prompt_path, prompt_file
+        )
+        if result is not None:
+            logger.warning(
+                "Rebuilt corrupt %s from .wav+.txt fallback",
+                sanitize_log(prompt_file),
+            )
+            return result
+        raise
 
 
 def load_voice_prompt(prompt_file):
