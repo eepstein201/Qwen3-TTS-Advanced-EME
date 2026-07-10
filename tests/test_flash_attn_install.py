@@ -76,23 +76,41 @@ def _normalize_cuda_version(cuda_string):
     return parts[0] + parts[1]  # major + minor only
 
 
+def _torch_major_minor(version_str):
+    """Extract (major, minor) from a torch version string or wheel tag.
+
+    Handles installed versions ('2.11.0+cu128'), dot-format wheel tags ('2.4'),
+    and concatenated wheel tags ('260', '2110').
+    """
+    clean = version_str.split('+')[0]
+    if '.' in clean:
+        parts = clean.split('.')
+        return (int(parts[0]), int(parts[1]))
+    s = clean
+    if len(s) <= 2:
+        return (int(s[0]), int(s[1:]) if len(s) > 1 else 0)
+    return (int(s[0]), int(s[1:-1]))
+
+
 def _select_best_wheel(candidates, cu_installed, th_installed):
     """
     Select compatible wheels sorted by preference (highest CUDA, then highest torch).
 
     Args:
-        candidates:    list of (cu_num, th_num, name) tuples
+        candidates:    list of (cu_num, th_major_minor, name) tuples
         cu_installed:  numeric CUDA version of the runtime (e.g. 128 for CUDA 12.8)
-        th_installed:  numeric torch version of the runtime (e.g. 2100 for torch 2.10.0)
+        th_installed:  (major, minor) tuple of installed torch (e.g. (2, 11))
 
     Returns:
-        Ordered list of (cu_num, th_num, name) — best match first.
-        If no candidates have versions <= installed, returns ALL candidates
-        sorted highest-first as a last-resort fallback.
+        Ordered list of (cu_num, th_major_minor, name) — best match first.
+        Torch comparison requires exact major.minor match (ABI-locked).
+        CUDA comparison uses <= (backward-compatible within major version).
+        If no candidates match, returns ALL candidates sorted highest-first
+        as a last-resort fallback.
     """
     if not candidates:
         return []
-    compat = [c for c in candidates if c[0] <= cu_installed and c[1] <= th_installed]
+    compat = [c for c in candidates if c[0] <= cu_installed and c[1] == th_installed]
     if not compat:
         return sorted(candidates, key=lambda x: (x[0], x[1]), reverse=True)
     return sorted(compat, key=lambda x: (x[0], x[1]), reverse=True)
@@ -100,24 +118,24 @@ def _select_best_wheel(candidates, cu_installed, th_installed):
 
 def _parse_wheel_candidates(asset_names, py_str):
     """
-    Match flash-attn wheel filenames and extract (cu_num, th_num, name) tuples.
+    Match flash-attn wheel filenames and extract (cu_num, th_major_minor, name) tuples.
 
     Args:
         asset_names: list of filename strings from a GitHub release
         py_str:      e.g. "cp312"
 
     Returns:
-        List of (cu_num: int, th_num: int, name: str) for matching wheels.
+        List of (cu_num: int, th_major_minor: tuple[int,int], name: str).
     """
     pattern = re.compile(
-        r"flash_attn-[\d.]+\+cu(\d+)torch(\d+)cxx11abiFALSE"
+        r"flash_attn-[\d.]+(?:\.?post\d+)?\+cu(\d+)torch([\d.]+)cxx11abiFALSE"
         r"-(" + py_str + r")-\3-linux_x86_64\.whl"
     )
     candidates = []
     for name in asset_names:
         m = pattern.match(name)
         if m:
-            candidates.append((int(m.group(1)), int(m.group(2)), name))
+            candidates.append((int(m.group(1)), _torch_major_minor(m.group(2)), name))
     return candidates
 
 
@@ -228,6 +246,14 @@ _SAMPLE_ASSETS = [
     "checksums.txt",                      # non-wheel — should be ignored
 ]
 
+# Dot-format wheel filenames (some releases use this convention)
+_SAMPLE_ASSETS_DOT_FORMAT = [
+    "flash_attn-2.8.3.post1+cu12torch2.4cxx11abiFALSE-cp312-cp312-linux_x86_64.whl",
+    "flash_attn-2.8.3.post1+cu12torch2.3cxx11abiFALSE-cp312-cp312-linux_x86_64.whl",
+    "flash_attn-2.8.3.post1+cu12torch2.4cxx11abiFALSE-cp311-cp311-linux_x86_64.whl",
+    "flash_attn-2.8.3.post1.tar.gz",
+]
+
 
 @pytest.mark.unit
 class TestParseWheelCandidates(unittest.TestCase):
@@ -243,13 +269,13 @@ class TestParseWheelCandidates(unittest.TestCase):
         names = [r[2] for r in result]
         self.assertTrue(all("cp312" in n for n in names))
 
-    def test_extracts_cuda_and_torch_numbers(self):
-        """Parsed tuples contain correct (cu_num, th_num, name)."""
+    def test_extracts_cuda_and_torch_tuples(self):
+        """Parsed tuples contain correct (cu_num, (major, minor), name)."""
         result = _parse_wheel_candidates(_SAMPLE_ASSETS, "cp312")
         cu_th_pairs = [(r[0], r[1]) for r in result]
-        self.assertIn((124, 260), cu_th_pairs)
-        self.assertIn((124, 251), cu_th_pairs)
-        self.assertIn((121, 260), cu_th_pairs)
+        self.assertIn((124, (2, 6)), cu_th_pairs)
+        self.assertIn((124, (2, 5)), cu_th_pairs)
+        self.assertIn((121, (2, 6)), cu_th_pairs)
 
     def test_ignores_non_wheel_files(self):
         """Tarballs and text files are not matched."""
@@ -267,67 +293,140 @@ class TestParseWheelCandidates(unittest.TestCase):
         result = _parse_wheel_candidates(_SAMPLE_ASSETS, "cp313")
         self.assertEqual(result, [])
 
+    def test_dot_format_wheel_names(self):
+        """Regex handles dot-format torch tags like 'torch2.4'."""
+        result = _parse_wheel_candidates(_SAMPLE_ASSETS_DOT_FORMAT, "cp312")
+        self.assertEqual(len(result), 2)
+        cu_th_pairs = [(r[0], r[1]) for r in result]
+        self.assertIn((12, (2, 4)), cu_th_pairs)
+        self.assertIn((12, (2, 3)), cu_th_pairs)
+
+    def test_mixed_format_assets(self):
+        """Both concat ('torch260') and dot ('torch2.4') formats parse correctly."""
+        mixed = [
+            "flash_attn-2.7.4+cu124torch260cxx11abiFALSE-cp312-cp312-linux_x86_64.whl",
+            "flash_attn-2.8.3+cu12torch2.4cxx11abiFALSE-cp312-cp312-linux_x86_64.whl",
+        ]
+        result = _parse_wheel_candidates(mixed, "cp312")
+        self.assertEqual(len(result), 2)
+        cu_th_pairs = [(r[0], r[1]) for r in result]
+        self.assertIn((124, (2, 6)), cu_th_pairs)
+        self.assertIn((12, (2, 4)), cu_th_pairs)
+
 
 @pytest.mark.unit
 class TestSelectBestWheel(unittest.TestCase):
 
-    def test_prefers_highest_compatible_cuda_and_torch(self):
-        """With cu_installed=128, th_installed=2100, picks cu124/torch260 first."""
+    def test_prefers_highest_cuda_with_matching_torch(self):
+        """With torch (2, 6) installed, picks highest CUDA among torch (2, 6) wheels."""
         candidates = [
-            (121, 251, "flash_attn-cu121torch251-whl"),
-            (124, 260, "flash_attn-cu124torch260-whl"),
-            (121, 260, "flash_attn-cu121torch260-whl"),
+            (121, (2, 5), "flash_attn-cu121torch251-whl"),
+            (124, (2, 6), "flash_attn-cu124torch260-whl"),
+            (121, (2, 6), "flash_attn-cu121torch260-whl"),
         ]
-        result = _select_best_wheel(candidates, cu_installed=128, th_installed=2100)
-        self.assertEqual(result[0], (124, 260, "flash_attn-cu124torch260-whl"))
+        result = _select_best_wheel(candidates, cu_installed=128, th_installed=(2, 6))
+        self.assertEqual(result[0], (124, (2, 6), "flash_attn-cu124torch260-whl"))
 
     def test_filters_out_wheels_above_installed_cuda(self):
         """cu126 wheel excluded when installed CUDA is only 124."""
         candidates = [
-            (126, 260, "flash_attn-cu126-whl"),
-            (124, 260, "flash_attn-cu124-whl"),
+            (126, (2, 6), "flash_attn-cu126-whl"),
+            (124, (2, 6), "flash_attn-cu124-whl"),
         ]
-        result = _select_best_wheel(candidates, cu_installed=124, th_installed=260)
+        result = _select_best_wheel(candidates, cu_installed=124, th_installed=(2, 6))
         self.assertEqual(len(result), 1)
         self.assertEqual(result[0][0], 124)
 
-    def test_filters_out_wheels_above_installed_torch(self):
-        """torch260 wheel excluded when installed torch is only 251."""
+    def test_rejects_torch_abi_mismatch(self):
+        """torch (2, 6) wheel is incompatible with torch (2, 11) installed."""
         candidates = [
-            (124, 260, "flash_attn-torch260-whl"),
-            (124, 251, "flash_attn-torch251-whl"),
+            (124, (2, 6), "flash_attn-torch260-whl"),
+            (124, (2, 5), "flash_attn-torch251-whl"),
         ]
-        result = _select_best_wheel(candidates, cu_installed=124, th_installed=251)
+        result = _select_best_wheel(candidates, cu_installed=128, th_installed=(2, 11))
+        self.assertEqual(len(result), 2)
+        self.assertEqual(result[0][0], 124)
+
+    def test_accepts_exact_torch_match(self):
+        """torch (2, 6) wheel compatible when installed is also (2, 6)."""
+        candidates = [
+            (124, (2, 6), "flash_attn-torch260-whl"),
+            (124, (2, 5), "flash_attn-torch251-whl"),
+        ]
+        result = _select_best_wheel(candidates, cu_installed=128, th_installed=(2, 6))
         self.assertEqual(len(result), 1)
-        self.assertEqual(result[0][1], 251)
+        self.assertEqual(result[0][1], (2, 6))
 
     def test_falls_back_to_highest_when_none_compatible(self):
-        """When ALL candidates are newer than installed, returns highest-first."""
+        """When ALL candidates mismatch, returns highest-first as fallback."""
         candidates = [
-            (126, 260, "flash_attn-cu126torch260-whl"),
-            (124, 251, "flash_attn-cu124torch251-whl"),
+            (126, (2, 6), "flash_attn-cu126torch260-whl"),
+            (124, (2, 5), "flash_attn-cu124torch251-whl"),
         ]
-        result = _select_best_wheel(candidates, cu_installed=118, th_installed=240)
+        result = _select_best_wheel(candidates, cu_installed=128, th_installed=(2, 11))
         self.assertEqual(len(result), 2)
         self.assertEqual(result[0][0], 126)
 
     def test_empty_candidates_returns_empty(self):
         """No candidates -> empty result."""
-        result = _select_best_wheel([], cu_installed=128, th_installed=2100)
+        result = _select_best_wheel([], cu_installed=128, th_installed=(2, 11))
         self.assertEqual(result, [])
 
     def test_sort_order_cuda_then_torch(self):
         """Among compatible wheels, sort by (cuda DESC, torch DESC)."""
         candidates = [
-            (121, 260, "a"),
-            (124, 251, "b"),
-            (124, 260, "c"),
+            (121, (2, 6), "a"),
+            (124, (2, 6), "b"),
         ]
-        result = _select_best_wheel(candidates, cu_installed=128, th_installed=2100)
+        result = _select_best_wheel(candidates, cu_installed=128, th_installed=(2, 6))
         self.assertEqual(
             [(r[0], r[1]) for r in result],
-            [(124, 260), (124, 251), (121, 260)]
+            [(124, (2, 6)), (121, (2, 6))]
         )
+
+    def test_colab_torch_211_rejects_all_older_wheels(self):
+        """Colab's torch 2.11 finds no ABI match among 2.4-2.6 wheels."""
+        candidates = [
+            (128, (2, 6), "torch260"),
+            (124, (2, 5), "torch251"),
+            (12, (2, 4), "torch24"),
+        ]
+        result = _select_best_wheel(candidates, cu_installed=128, th_installed=(2, 11))
+        self.assertTrue(all(c[1] != (2, 11) for c in result))
+
+
+@pytest.mark.unit
+class TestTorchMajorMinor(unittest.TestCase):
+
+    def test_installed_version_with_cuda_suffix(self):
+        self.assertEqual(_torch_major_minor("2.11.0+cu128"), (2, 11))
+
+    def test_installed_version_clean(self):
+        self.assertEqual(_torch_major_minor("2.6.0"), (2, 6))
+
+    def test_dot_format_wheel_tag(self):
+        self.assertEqual(_torch_major_minor("2.4"), (2, 4))
+
+    def test_dot_format_with_patch(self):
+        self.assertEqual(_torch_major_minor("2.11.0"), (2, 11))
+
+    def test_concat_three_digit(self):
+        self.assertEqual(_torch_major_minor("260"), (2, 6))
+
+    def test_concat_three_digit_with_patch(self):
+        self.assertEqual(_torch_major_minor("251"), (2, 5))
+
+    def test_concat_four_digit(self):
+        self.assertEqual(_torch_major_minor("2110"), (2, 11))
+
+    def test_concat_four_digit_torch_210(self):
+        self.assertEqual(_torch_major_minor("2100"), (2, 10))
+
+    def test_concat_two_digit(self):
+        self.assertEqual(_torch_major_minor("24"), (2, 4))
+
+    def test_single_digit(self):
+        self.assertEqual(_torch_major_minor("2"), (2, 0))
 
 
 if __name__ == "__main__":
