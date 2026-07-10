@@ -4,6 +4,7 @@
 Imports from: config only. Does NOT import from inference or voice_prompt.
 """
 
+import contextlib
 import logging
 import threading
 import time
@@ -155,6 +156,57 @@ def _retry_model_load(loader_fn, model_type: str, model_name: str):
                     len(_RETRY_DELAYS) + 1,
                 )
                 raise last_error
+
+
+# ---------------------------------------------------------------------------
+# bitsandbytes deepcopy workaround (qwen-tts dict_keys pickling bug)
+# ---------------------------------------------------------------------------
+
+
+@contextlib.contextmanager
+def _patch_deepcopy_for_bnb():
+    """Temporarily patch get_keys_to_not_convert to handle dict_keys attributes.
+
+    qwen-tts stores dict_keys views as model attributes which causes
+    TypeError during deepcopy in transformers <= 4.x bitsandbytes path.
+    """
+    import importlib
+
+    target_module = None
+    original_fn = None
+    for module_path in (
+        "transformers.integrations.bitsandbytes",
+        "transformers.quantizers.base",
+    ):
+        try:
+            mod = importlib.import_module(module_path)
+            if hasattr(mod, "get_keys_to_not_convert"):
+                target_module = mod
+                original_fn = mod.get_keys_to_not_convert
+                break
+        except ImportError:
+            continue
+
+    if original_fn is None:
+        yield
+        return
+
+    _dict_keys_type = type({}.keys())
+    _dict_values_type = type({}.values())
+
+    def _safe_get_keys(model):
+        for obj in [model, *model.modules()]:
+            for attr_name in list(vars(obj)):
+                val = getattr(obj, attr_name, None)
+                if isinstance(val, (_dict_keys_type, _dict_values_type)):
+                    setattr(obj, attr_name, list(val))
+        return original_fn(model)
+
+    target_module.get_keys_to_not_convert = _safe_get_keys
+    try:
+        yield
+    finally:
+        target_module.get_keys_to_not_convert = original_fn
 
 
 # ---------------------------------------------------------------------------
@@ -330,7 +382,30 @@ def _load_model_torch(model_type):
                 "3.5GB" if model_size == "1.7B" else "2GB",
             )
 
-        model = Qwen3TTSModel.from_pretrained(repo_id, revision=revision, **load_kwargs)
+        uses_bnb = "load_in_8bit" in load_kwargs or "quantization_config" in load_kwargs
+        ctx = _patch_deepcopy_for_bnb() if uses_bnb else contextlib.nullcontext()
+
+        try:
+            with ctx:
+                model = Qwen3TTSModel.from_pretrained(
+                    repo_id, revision=revision, **load_kwargs
+                )
+        except TypeError as e:
+            if "pickle" not in str(e) and "dict_keys" not in str(e):
+                raise
+            logger.warning(
+                "Quantization loading failed (TypeError: %s). "
+                "Retrying without quantization — model will use more VRAM.",
+                e,
+            )
+            load_kwargs.pop("load_in_8bit", None)
+            load_kwargs.pop("quantization_config", None)
+            if "dtype" not in load_kwargs:
+                load_kwargs["dtype"] = torch_dtype
+            model = Qwen3TTSModel.from_pretrained(
+                repo_id, revision=revision, **load_kwargs
+            )
+
         model = _apply_torch_compile(model, model_type, device, should_compile)
         model = _patch_tokenizer(model, repo_id, revision)
         logger.info("Loaded %s model in %.1fs", model_type, time.time() - t0)
