@@ -197,7 +197,7 @@ For full config.json structure, see `docs/00-Foundations/ARCHITECTURE.md`.
 pip install -e ".[test]"
 ```
 
-**Reproducible installs:** `requirements.lock` pins the full `test+ui+dev` dependency tree (generated with `python -m piptools compile pyproject.toml --extra test --extra ui --extra dev --output-file requirements.lock`). Regenerate it after changing dependencies in `pyproject.toml`. Platform extras (`mlx`, `torch`) are excluded — they conflict on `transformers` and live in separate conda envs.
+**Reproducible installs:** `requirements.lock` pins the full `test+ui+dev` dependency tree (generated with `python -m piptools compile pyproject.toml --extra test --extra ui --extra dev --output-file requirements.lock`). Regenerate it after changing dependencies in `pyproject.toml`. Platform extras (`mlx`, `torch`) are excluded — they conflict on `transformers` and live in separate conda envs. **Never install the lock into the platform conda envs**: its `huggingface-hub>=1.0` pin (via gradio) conflicts with `transformers<4.58`'s `huggingface-hub<1.0` requirement — the lock is for standalone test/CI envs only (verified 2026-07-13: clean install on Linux py3.11/3.12; dry-run resolves in torch env but would break `pip check`).
 
 **Primary test environment:** `qwen3-tts-mlx` conda env (M2 Pro, MLX backend) for development purposes only.
 
