@@ -18,7 +18,7 @@ import json
 import os
 import socket
 import tempfile
-from unittest.mock import AsyncMock, MagicMock
+from unittest.mock import AsyncMock, MagicMock, patch
 
 try:
     import pytest
@@ -65,6 +65,27 @@ try:
     HAS_SLOWAPI = True
 except ImportError:
     HAS_SLOWAPI = False
+
+
+@pytest.fixture(autouse=True, scope="session")
+def _isolate_test_logging(tmp_path_factory):
+    """Redirect test logging away from the real .voice_server.log.
+
+    Without this, tests that call run_server() add a RotatingFileHandler
+    to the 'tts' logger pointing at the production log file. Once added,
+    all subsequent tests in the process write to it — thousands of
+    mock/testclient entries polluting real server logs.
+    """
+    import logging
+
+    test_log = tmp_path_factory.mktemp("logs") / ".voice_server.log"
+    with patch("qwen3_tts.core.config.LOG_FILE", test_log):
+        yield
+    tts_logger = logging.getLogger("tts")
+    tts_logger.handlers = [
+        h for h in tts_logger.handlers
+        if not isinstance(h, logging.FileHandler)
+    ]
 
 
 @pytest.fixture
