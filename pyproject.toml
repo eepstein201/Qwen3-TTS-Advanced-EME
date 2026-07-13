@@ -52,7 +52,6 @@ audio = [
     "pyrubberband",
     "pyloudnorm>=0.1.1",
     "pydub",
-    "scipy",
 ]
 
 # CUDA/Colab optimizations

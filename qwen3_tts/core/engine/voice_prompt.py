@@ -107,7 +107,7 @@ def _load_pt_safe(prompt_path: str, prompt_file: str, device: str):
             )
         base = prompt_file.removesuffix(".pt")
         wav_exists = os.path.exists(
-            safe_path_join(VOICE_PROMPTS_DIR, f"{base}.wav")
+            safe_path_join(str(VOICE_PROMPTS_DIR), f"{base}.wav")
         )
         hint = (
             f"Run 'tts voice rebuild {base}' to regenerate from .wav+.txt."

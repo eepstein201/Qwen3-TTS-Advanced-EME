@@ -35,7 +35,7 @@ logger = logging.getLogger("tts.ui")
 
 
 def create_voice_prompt(
-    audio_path, transcript, voice_name, no_transcript=False, auto_transcribed=False
+    audio_path, transcript, voice_name, no_transcript=False
 ):
     """Create a voice prompt from audio file and transcript.
 
@@ -44,7 +44,6 @@ def create_voice_prompt(
         transcript: Transcript text (or None if no_transcript=True)
         voice_name: Name for the voice prompt
         no_transcript: If True, use x_vector_only mode without transcript
-        auto_transcribed: If True, transcript was auto-generated
 
     Returns:
         Tuple of (status_message, prompt_list, default_prompt)

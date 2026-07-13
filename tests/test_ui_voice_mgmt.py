@@ -30,18 +30,18 @@ class TestCreateVoicePromptUI(unittest.TestCase):
     def test_no_audio_raises(self):
         from qwen3_tts.interface.ui.voice_management import create_voice_prompt
         with self.assertRaises(gr.Error):
-            create_voice_prompt(None, "hello", "my_voice", False, False)
+            create_voice_prompt(None, "hello", "my_voice", False)
 
     def test_no_name_raises(self):
         from qwen3_tts.interface.ui.voice_management import create_voice_prompt
         with self.assertRaises(gr.Error):
-            create_voice_prompt("/tmp/audio.wav", "hello", "", False, False)
+            create_voice_prompt("/tmp/audio.wav", "hello", "", False)
 
     def test_invalid_name_raises(self):
         from qwen3_tts.interface.ui.voice_management import create_voice_prompt
         with patch(f"{_MOD}.validate_prompt_name", return_value=[{"error": "bad name"}]):
             with self.assertRaises(gr.Error):
-                create_voice_prompt("/tmp/audio.wav", "hello", "my_voice", False, False)
+                create_voice_prompt("/tmp/audio.wav", "hello", "my_voice", False)
 
     def test_mlx_already_exists_raises(self):
         from qwen3_tts.interface.ui.voice_management import create_voice_prompt
@@ -50,7 +50,7 @@ class TestCreateVoicePromptUI(unittest.TestCase):
              patch(f"{_MOD}.strip_extension", return_value="voice1"), \
              patch("os.path.exists", return_value=True):
             with self.assertRaises(gr.Error):
-                create_voice_prompt("/tmp/audio.wav", "hello", "voice1", False, False)
+                create_voice_prompt("/tmp/audio.wav", "hello", "voice1", False)
 
     def test_mlx_creates_wav_and_txt(self):
         from qwen3_tts.interface.ui.voice_management import create_voice_prompt
@@ -63,7 +63,7 @@ class TestCreateVoicePromptUI(unittest.TestCase):
              patch(f"{_MOD}.get_voice_prompts", return_value=["new_voice.wav"]), \
              patch(f"{_MOD}.get_default_clone_prompt", return_value="new_voice.wav"):
             status, prompts, default = create_voice_prompt(
-                "/tmp/audio.wav", "Hello world", "new_voice", False, False,
+                "/tmp/audio.wav", "Hello world", "new_voice", False,
             )
         self.assertIn("MLX", status)
         mock_copy.assert_called_once()
@@ -82,7 +82,7 @@ class TestCreateVoicePromptUI(unittest.TestCase):
              patch(f"{_MOD}.get_voice_prompts", return_value=["voice.wav"]), \
              patch(f"{_MOD}.get_default_clone_prompt", return_value="voice.wav"):
             status, _, _ = create_voice_prompt(
-                "/tmp/audio.wav", None, "voice", True, False,
+                "/tmp/audio.wav", None, "voice", True,
             )
         self.assertIn("MLX", status)
 
@@ -95,7 +95,7 @@ class TestCreateVoicePromptUI(unittest.TestCase):
              patch("shutil.copy"), \
              patch("os.remove"):
             with self.assertRaises(gr.Error):
-                create_voice_prompt("/tmp/audio.wav", "", "voice", False, False)
+                create_voice_prompt("/tmp/audio.wav", "", "voice", False)
 
 
 @unittest.skipUnless(HAS_GRADIO, "requires gradio")

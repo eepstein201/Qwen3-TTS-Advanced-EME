@@ -37,7 +37,3 @@ def print_info(label: str, status: str = "", details: str = "") -> None:
     print(line)
 
 
-def print_check(label: str, status: bool, details: str = "") -> None:
-    """Print a check result with status indicator."""
-    status_str = "✓" if status else "✗"
-    print_info(label, status_str, details)

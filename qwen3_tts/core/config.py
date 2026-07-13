@@ -831,39 +831,6 @@ def get_torch_quantization() -> str:
     return quant
 
 
-def get_vllm_gpu_util() -> float:
-    """Read the configured vLLM GPU memory utilization from config.json.
-
-    Returns:
-        A float between 0.0 and 1.0 representing GPU memory fraction.
-        Defaults to 0.7 if not set or invalid.
-    """
-    try:
-        config = load_config()
-        util = config.get("advanced", {}).get("vllm_gpu_memory_utilization", 0.7)
-    except (json.JSONDecodeError, ValueError, OSError):
-        util = 0.7
-    if not isinstance(util, (int, float)) or not (0.0 < util <= 1.0):
-        util = 0.7
-    return float(util)
-
-
-def get_vllm_port() -> int | None:
-    """Read the configured vLLM port from config.json.
-
-    Returns:
-        An integer port number, or None for auto-find (default).
-    """
-    try:
-        config = load_config()
-        port = config.get("advanced", {}).get("vllm_port")
-    except (json.JSONDecodeError, ValueError, OSError):
-        port = None
-    if port is not None:
-        if not isinstance(port, int) or not (1024 <= port <= 65535):
-            logger.warning("Invalid vllm_port %s, using auto-find", sanitize_log(port))
-            port = None
-    return port
 
 
 # ---------------------------------------------------------------------------
