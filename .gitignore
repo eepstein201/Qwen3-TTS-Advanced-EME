@@ -80,3 +80,10 @@ tests/screenshots/
 .watchmanconfig
 poltergeist.config.json
 /info
+
+# Test/coverage artifacts
+.coverage
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+phase-*-smoke/
