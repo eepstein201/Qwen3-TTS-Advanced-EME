@@ -197,6 +197,8 @@ For full config.json structure, see `docs/00-Foundations/ARCHITECTURE.md`.
 pip install -e ".[test]"
 ```
 
+**Reproducible installs:** `requirements.lock` pins the full `test+ui+dev` dependency tree (generated with `python -m piptools compile pyproject.toml --extra test --extra ui --extra dev --output-file requirements.lock`). Regenerate it after changing dependencies in `pyproject.toml`. Platform extras (`mlx`, `torch`) are excluded — they conflict on `transformers` and live in separate conda envs.
+
 **Primary test environment:** `qwen3-tts-mlx` conda env (M2 Pro, MLX backend) for development purposes only.
 
 **Server restart rule:** Always stop the server before starting to pick up code changes:
@@ -296,4 +298,4 @@ pm2 resurrect                    # Restore saved list
 **Claude Commands:** /pm2-all, /pm2-all-stop, /pm2-all-restart, /pm2-5123, /pm2-5123-stop, /pm2-5123-restart, /pm2-logs, /pm2-status
 
 ## Deep Dive Reference
-For the Poltergeist build workflow, security, caching, thread safety, platform support, hardware optimization, upstream dependency monitoring, and code review history, see `docs/00-Foundations/ARCHITECTURE.md`.
+For security, caching, thread safety, platform support, hardware optimization, upstream dependency monitoring, and code review history, see `docs/00-Foundations/ARCHITECTURE.md`.
