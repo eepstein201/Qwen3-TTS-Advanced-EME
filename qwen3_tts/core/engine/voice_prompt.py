@@ -105,8 +105,17 @@ def _load_pt_safe(prompt_path: str, prompt_file: str, device: str):
             raise ValueError(
                 f"Refusing to load {prompt_file}: outside voice_prompts/ directory"
             )
+        base = prompt_file.removesuffix(".pt")
+        wav_exists = os.path.exists(
+            safe_path_join(VOICE_PROMPTS_DIR, f"{base}.wav")
+        )
+        hint = (
+            f"Run 'tts voice rebuild {base}' to regenerate from .wav+.txt."
+            if wav_exists
+            else f"No {base}.wav found — re-create with 'tts voice create'."
+        )
         raise RuntimeError(
-            f"Cannot load {prompt_file} safely. Re-create with 'tts voice create'."
+            f"Cannot load {prompt_file} safely. {hint}"
         )
 
 
