@@ -174,6 +174,8 @@ All other endpoints require `Authorization: Bearer <token>` (token from `~/.conf
 
 **Long-text chunking:** both the batch path (`run_inference`) and the streaming path (`run_inference_streaming`, all backends) split text via `_prepare_text_chunks` (≤`max_chunk_chars`, default 500) before generation. This prevents silent truncation — a single MLX `model.generate()` call is capped at `max_new_tokens=2048` (~170 s audio @ 12 Hz), so long text must be chunked or it cuts off mid-sentence.
 
+**Client read timeout scales with text length:** chunks generate sequentially (~40–70 s each on MLX/M2 Pro), so long texts legitimately exceed a fixed timeout. `TTSClient` non-streaming `/generate` calls use `_generation_timeout(len(text))` (`server/client/generator.py`): `max(600, 0.25 s/char)`. The streaming path keeps a flat 600 s because with `stream=True` it is an inter-chunk gap timeout, not total time. Do not reintroduce hardcoded `timeout=600` on batch generate calls — a 12-chunk (9k char) generation takes ~11 min and previously died at the client while the server completed it.
+
 ## Key Settings
 
 | Key | Options | Default |
