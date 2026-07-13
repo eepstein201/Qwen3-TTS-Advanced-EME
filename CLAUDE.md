@@ -291,8 +291,7 @@ pm2 start all                    # After first time
 pm2 stop all / pm2 restart all
 pm2 start tts-server-5123 / pm2 stop tts-server-5123
 pm2 logs / pm2 status / pm2 monit
-pm2 save                         # Save process list
-pm2 resurrect                    # Restore saved list
+pm2 save / pm2 resurrect         # Save / restore process list
 ```
 
 **Claude Commands:** /pm2-all, /pm2-all-stop, /pm2-all-restart, /pm2-5123, /pm2-5123-stop, /pm2-5123-restart, /pm2-logs, /pm2-status
