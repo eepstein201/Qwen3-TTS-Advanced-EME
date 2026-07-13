@@ -67,18 +67,6 @@ async def handle_generate(request, state, req, security, config_provider):
         security: security config dict
         config_provider: optional ConfigLoader for DI
     """
-    # Memory guard — prevent OOM crash
-    mem_ok, available_mb = _check_memory_available()
-    if not mem_ok:
-        raise HTTPException(
-            status_code=503,
-            detail={
-                "error": "insufficient_memory",
-                "detail": f"Only {available_mb}MB available. Unload unused models to free memory.",
-                "recovery": "unload",
-            },
-        )
-
     # Validate and normalize request
     max_text_length = security.get("max_text_length", 10000)
     max_batch_size = security.get("max_batch_size", 20)
@@ -112,6 +100,19 @@ async def handle_generate(request, state, req, security, config_provider):
             )
 
     _validate_generation_request(req, security)
+
+    # Memory guard — prevent OOM crash. Runs after validation so a malformed
+    # request is always a 400 regardless of host memory pressure.
+    mem_ok, available_mb = _check_memory_available()
+    if not mem_ok:
+        raise HTTPException(
+            status_code=503,
+            detail={
+                "error": "insufficient_memory",
+                "detail": f"Only {available_mb}MB available. Unload unused models to free memory.",
+                "recovery": "unload",
+            },
+        )
 
     mode = req.mode
     prompt_file = req.prompt_file
@@ -490,18 +491,6 @@ async def handle_generate_stream(request, state, req, security, config_provider)
     Wire format per chunk (little-endian):
         [sample_rate: 4 bytes uint32][audio_len: 4 bytes uint32][audio: audio_len bytes float32]
     """
-    # Memory guard — prevent OOM crash
-    mem_ok, available_mb = _check_memory_available()
-    if not mem_ok:
-        raise HTTPException(
-            status_code=503,
-            detail={
-                "error": "insufficient_memory",
-                "detail": f"Only {available_mb}MB available. Unload unused models to free memory.",
-                "recovery": "unload",
-            },
-        )
-
     # Validate request
     max_text_length = security.get("max_text_length", 10000)
 
@@ -517,6 +506,19 @@ async def handle_generate_stream(request, state, req, security, config_provider)
 
     # Shared validation (path traversal, speaker, mode)
     _validate_generation_request(req, security)
+
+    # Memory guard — prevent OOM crash. Runs after validation so a malformed
+    # request is always a 400 regardless of host memory pressure.
+    mem_ok, available_mb = _check_memory_available()
+    if not mem_ok:
+        raise HTTPException(
+            status_code=503,
+            detail={
+                "error": "insufficient_memory",
+                "detail": f"Only {available_mb}MB available. Unload unused models to free memory.",
+                "recovery": "unload",
+            },
+        )
 
     mode = req.mode
 

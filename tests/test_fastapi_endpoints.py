@@ -11,7 +11,7 @@ No GPU, models, or running server required. Tests use FastAPI TestClient.
 Run: pytest tests/test_fastapi_endpoints.py -v
 """
 import asyncio
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, patch
 
 try:
     import pytest
@@ -78,6 +78,23 @@ else:
 
 if HAS_DEPS:
     from qwen3_tts.server.app import app
+
+
+if HAS_PYTEST and HAS_DEPS:
+    @pytest.fixture(autouse=True)
+    def _healthy_memory_guard():
+        """Pin the memory guard to healthy so tests never depend on host RAM.
+
+        Without this, validation tests expecting 400 flake to 503 whenever the
+        host dips below the guard's 1 GB threshold mid-suite. Tests that
+        exercise the guard itself apply their own inner patch, which overrides
+        this one.
+        """
+        with patch(
+            "qwen3_tts.server.app_generation._check_memory_available",
+            return_value=(True, 8192),
+        ):
+            yield
 
 
 # Pytest-style tests using fixtures from conftest.py
