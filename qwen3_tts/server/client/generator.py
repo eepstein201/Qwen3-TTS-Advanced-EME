@@ -27,6 +27,19 @@ from qwen3_tts.server.client._base import (
     _resolve_voice_alias,
 )
 
+# Read-timeout budget for non-streaming /generate calls. Long texts are
+# chunked server-side and generated sequentially (~40-70s per ~800-char chunk
+# on MLX / M2 Pro ≈ 0.07 s/char), so a fixed timeout abandons generations the
+# server goes on to complete. 0.25 s/char gives ~3.5x headroom for slower
+# backends; the floor preserves the old 600s behavior for short texts.
+_TIMEOUT_FLOOR_SEC = 600
+_TIMEOUT_PER_CHAR_SEC = 0.25
+
+
+def _generation_timeout(text_len: int) -> int:
+    """Read timeout (seconds) scaled to the text length being generated."""
+    return max(_TIMEOUT_FLOOR_SEC, int(text_len * _TIMEOUT_PER_CHAR_SEC))
+
 
 class GeneratorMixin:
     """Mixin providing audio generation capabilities."""
@@ -221,7 +234,7 @@ class GeneratorMixin:
         resp = self._session.post(
             f"{self.server_url}/generate",
             json=payload,
-            timeout=600,
+            timeout=_generation_timeout(len(text)),
             headers=auth_headers(),
         )
         if resp.status_code != 200:
@@ -347,6 +360,8 @@ class GeneratorMixin:
             json=payload,
             headers=auth_headers(),
             stream=True,
+            # With stream=True this is the max gap between chunks (~40-70s
+            # apart), not the total generation time — no scaling needed.
             timeout=600,
         ) as resp:
             if resp.status_code != 200:
@@ -508,7 +523,7 @@ class GeneratorMixin:
             resp = self._session.post(
                 f"{self.server_url}/generate",
                 json=payload,
-                timeout=600,
+                timeout=_generation_timeout(len(text)),
                 headers=auth_headers(),
             )
             if resp.status_code != 200:
