@@ -113,25 +113,6 @@ test-cov = "qwen3_tts.test_cli:test_cov"
 [tool.hatch.build.targets.wheel]
 packages = ["qwen3_tts"]
 
-[tool.pytest.ini_options]
-asyncio_mode = "auto"
-testpaths = ["tests"]
-pythonpath = "."
-addopts = "-v --tb=short"
-markers = [
-    "unit: fast tests, no external services",
-    "integration: requires FastAPI/server",
-    "slow: marks tests as slow (deselect with '-m \"not slow\"')",
-    "requires_server: needs a running server",
-]
-filterwarnings = [
-    # All DeprecationWarnings from external dependencies (SWIG, transformers, etc.)
-    # We cannot fix these - they are upstream issues
-    "ignore::DeprecationWarning",
-    # Gradio async cleanup (not our code)
-    "ignore::ResourceWarning",
-]
-
 [tool.ruff]
 exclude = ["colab_notebook.ipynb"]
 
