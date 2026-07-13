@@ -1,6 +1,7 @@
 """Voice prompt tests extracted from test_voice.py."""
 
 import os
+import sys
 import tempfile
 import unittest
 from unittest.mock import MagicMock, patch
@@ -116,6 +117,7 @@ class TestCorruptPtFallback(unittest.TestCase):
                 f.write(b"NOT_A_VALID_PT_FILE")
 
             with (
+                patch.dict(sys.modules, {"torch": MagicMock()}),
                 patch(
                     "qwen3_tts.core.engine.voice_prompt.VOICE_PROMPTS_DIR", tmpdir
                 ),
@@ -150,6 +152,7 @@ class TestCorruptPtFallback(unittest.TestCase):
                 f.write(b"NOT_A_VALID_PT_FILE")
 
             with (
+                patch.dict(sys.modules, {"torch": MagicMock()}),
                 patch(
                     "qwen3_tts.core.engine.voice_prompt.VOICE_PROMPTS_DIR", tmpdir
                 ),

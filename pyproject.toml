@@ -42,7 +42,7 @@ server = [
 
 # Gradio web UI
 ui = [
-    "gradio>=5.0.0",
+    "gradio>=6.0.0",          # Aligned with test extra; capability matrix verified against 6.8.0
 ]
 
 # Audio processing extras

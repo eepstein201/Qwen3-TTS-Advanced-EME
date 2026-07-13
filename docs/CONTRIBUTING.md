@@ -214,28 +214,6 @@ pre-commit install
 
 ## Development Workflow
 
-### Poltergeist Build System
-
-This project uses **Poltergeist** (polter) for automated build management. **Follow these rules to avoid build conflicts:**
-
-**⚠️ NEVER manually run build commands when Poltergeist is running**
-- Poltergeist automatically detects code changes and rebuilds
-- Manual builds interfere with Poltergeist's file watching and state management
-
-**✅ ALWAYS use "polter <target>" for builds**
-```bash
-polter tts          # Build and run TTS target
-polter test         # Build and run tests
-polter ui           # Build and launch UI
-```
-
-**🔄 How Poltergeist Works**
-- Monitors source files for changes (automatic rebuild on save)
-- Maintains clean build artifacts and cache management
-- Provides consistent, reproducible builds
-
-**Note for AI Agents:** When suggesting build commands, always use `polter <target>` syntax rather than direct build commands.
-
 ### 1. Create Feature Branch
 
 ```bash

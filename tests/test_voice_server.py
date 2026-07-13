@@ -325,10 +325,21 @@ class TestLoadModelEndpoint(unittest.TestCase):
         from qwen3_tts.server.app import app
         cls.client = _make_test_client(app, server_config={"security": {}, "auto_shutdown_minutes": 0})
         app.state.models_loaded.set()  # simulate models ready for tests that need a live server
+        # Prevent real model loads: with a backend + cached models present,
+        # /load-model would otherwise pull ~7.5GB into the test process and
+        # trip the /generate memory guard for later test classes (503 != 400).
+        cls._load_patcher = patch(
+            "qwen3_tts.core.engine.load_model", return_value=object()
+        )
+        cls._load_patcher.start()
 
     @classmethod
     def tearDownClass(cls):
         from qwen3_tts.server.app import app
+        cls._load_patcher.stop()
+        # Drop stub models so later test classes see a clean not-loaded state.
+        for model_type in ("clone", "design", "custom"):
+            app.state.models[model_type] = None
         app.state.auth_token = "test_token"  # nosec B105
 
     def test_load_model_requires_auth(self):
