@@ -72,6 +72,52 @@ def test_rebuild_mlx_with_qwen_tts_forces_torch_backend(tmp_path):
     assert os.environ.get("TTS_BACKEND") == env_before
 
 
+def test_is_pt_valid_registers_safe_globals(tmp_path):
+    """_is_pt_valid must add VoiceClonePromptItem to torch safe globals.
+
+    Without registration, torch.load(weights_only=True) rejects every valid
+    .pt prompt, so rebuild re-generates all prompts on every run.
+    """
+    fake_torch = MagicMock()
+    fake_item = object()
+    fake_qwen_model_mod = MagicMock()
+    fake_qwen_model_mod.VoiceClonePromptItem = fake_item
+
+    with patch.dict(sys.modules, {
+        "torch": fake_torch,
+        "torch.serialization": fake_torch.serialization,
+        "qwen_tts": MagicMock(),
+        "qwen_tts.inference": MagicMock(),
+        "qwen_tts.inference.qwen3_tts_model": fake_qwen_model_mod,
+    }):
+        from qwen3_tts.cli_voice import _is_pt_valid
+
+        assert _is_pt_valid(str(tmp_path / "x.pt")) is True
+        fake_torch.serialization.add_safe_globals.assert_called_once_with(
+            [fake_item]
+        )
+
+
+def test_rebuild_mlx_without_qwen_tts_fails_before_scanning(tmp_path):
+    """Backend check must run before the .pt validity scan.
+
+    Validation itself needs qwen_tts (safe-globals registration), so in an
+    env without it the command must error out immediately instead of
+    misclassifying valid prompts as corrupt.
+    """
+    prompts_dir = _make_prompt_dir(tmp_path)
+    (tmp_path / "foo.pt").write_bytes(b"pt")
+    runner = CliRunner()
+    with patch("qwen3_tts.core.config.VOICE_PROMPTS_DIR", prompts_dir), \
+         patch("qwen3_tts.core.config.get_backend", return_value="mlx"), \
+         patch("qwen3_tts.cli_voice._torch_available", return_value=False), \
+         patch("qwen3_tts.cli_voice._is_pt_valid") as validator:
+        result = runner.invoke(voice, ["rebuild"])
+
+    assert result.exit_code == 1
+    validator.assert_not_called()
+
+
 def test_rebuild_torch_backend_skips_probe(tmp_path):
     """On torch backend, no availability probe or env override is needed."""
     prompts_dir = _make_prompt_dir(tmp_path)
