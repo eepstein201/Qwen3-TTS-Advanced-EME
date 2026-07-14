@@ -20,6 +20,34 @@ def voice():
     pass
 
 
+def _torch_available():
+    """Check whether the torch backend (qwen_tts package) is installed.
+
+    Uses find_spec so the check does not import the heavy package.
+    """
+    import importlib.util
+
+    return importlib.util.find_spec("qwen_tts") is not None
+
+
+def _is_pt_valid(pt_path):
+    """Check whether a .pt voice prompt loads with safe deserialization.
+
+    Registers VoiceClonePromptItem in torch safe globals (same as
+    _load_pt_safe in voice_prompt.py) — without it every valid prompt
+    fails weights_only loading and gets needlessly rebuilt.
+    """
+    import torch
+    from qwen_tts.inference.qwen3_tts_model import VoiceClonePromptItem
+
+    torch.serialization.add_safe_globals([VoiceClonePromptItem])
+    try:
+        torch.load(pt_path, weights_only=True, map_location="cpu")
+        return True
+    except Exception:
+        return False
+
+
 @voice.command("list")
 def voice_list():
     """List available voice prompts."""
@@ -132,62 +160,80 @@ def rebuild(name):
         click.echo("No .wav files found in voice_prompts/.")
         return
 
-    def _is_pt_valid(pt_path):
-        import torch
+    # .pt prompts can only be created (or even validated) with the torch
+    # backend — both create_voice_clone_prompt and the safe-globals
+    # registration in _is_pt_valid need the qwen_tts package, which has no
+    # MLX equivalent. Check before scanning so an MLX-only env fails fast
+    # instead of misclassifying valid prompts as corrupt.
+    from qwen3_tts.core.config import get_backend
 
-        try:
-            torch.load(pt_path, weights_only=True, map_location="cpu")
-            return True
-        except Exception:
-            return False
+    backend_env_before = os.environ.get("TTS_BACKEND")
+    if get_backend() != "torch":
+        if not _torch_available():
+            click.echo(
+                "Rebuilding .pt prompts requires the torch backend, but the "
+                "qwen_tts package is not installed in this environment.\n"
+                "Re-run in the torch environment:\n"
+                "  conda run -n qwen3-tts tts voice rebuild",
+                err=True,
+            )
+            sys.exit(1)
+        click.echo("Forcing torch backend (.pt prompts cannot be built with MLX).")
+        os.environ["TTS_BACKEND"] = "torch"
 
-    to_rebuild = []
-    skipped = 0
-    for base in targets:
-        wav_path = os.path.join(VOICE_PROMPTS_DIR, f"{base}.wav")
-        pt_path = os.path.join(VOICE_PROMPTS_DIR, f"{base}.pt")
-        if not os.path.exists(wav_path):
-            click.echo(f"  {base}: no .wav file, skipping")
-            skipped += 1
-            continue
-        if os.path.exists(pt_path) and _is_pt_valid(pt_path):
-            click.echo(f"  {base}: .pt valid, skipping")
-            skipped += 1
-            continue
-        to_rebuild.append(base)
+    try:
+        to_rebuild = []
+        skipped = 0
+        for base in targets:
+            wav_path = os.path.join(VOICE_PROMPTS_DIR, f"{base}.wav")
+            pt_path = os.path.join(VOICE_PROMPTS_DIR, f"{base}.pt")
+            if not os.path.exists(wav_path):
+                click.echo(f"  {base}: no .wav file, skipping")
+                skipped += 1
+                continue
+            if os.path.exists(pt_path) and _is_pt_valid(pt_path):
+                click.echo(f"  {base}: .pt valid, skipping")
+                skipped += 1
+                continue
+            to_rebuild.append(base)
 
-    if not to_rebuild:
-        click.echo(f"All {skipped} prompt(s) already valid.")
-        return
+        if not to_rebuild:
+            click.echo(f"All {skipped} prompt(s) already valid.")
+            return
 
-    click.echo(f"\nLoading clone model to rebuild {len(to_rebuild)} prompt(s)...")
-    from qwen3_tts.core.engine.audio_processing import load_audio_for_cloning
-    from qwen3_tts.core.engine.inference import create_voice_prompt
-    from qwen3_tts.core.engine.model_loader import load_model
+        click.echo(f"\nLoading clone model to rebuild {len(to_rebuild)} prompt(s)...")
+        from qwen3_tts.core.engine.audio_processing import load_audio_for_cloning
+        from qwen3_tts.core.engine.inference import create_voice_prompt
+        from qwen3_tts.core.engine.model_loader import load_model
 
-    model = load_model("clone")
+        model = load_model("clone")
 
-    rebuilt = 0
-    failed = 0
-    for base in to_rebuild:
-        wav_path = os.path.join(VOICE_PROMPTS_DIR, f"{base}.wav")
-        txt_path = os.path.join(VOICE_PROMPTS_DIR, f"{base}.txt")
-        pt_path = os.path.join(VOICE_PROMPTS_DIR, f"{base}.pt")
-        transcript = ""
-        if os.path.exists(txt_path):
-            with open(txt_path) as f:
-                transcript = f.read().strip()
-        try:
-            import torch
+        rebuilt = 0
+        failed = 0
+        for base in to_rebuild:
+            wav_path = os.path.join(VOICE_PROMPTS_DIR, f"{base}.wav")
+            txt_path = os.path.join(VOICE_PROMPTS_DIR, f"{base}.txt")
+            pt_path = os.path.join(VOICE_PROMPTS_DIR, f"{base}.pt")
+            transcript = ""
+            if os.path.exists(txt_path):
+                with open(txt_path) as f:
+                    transcript = f.read().strip()
+            try:
+                import torch
 
-            ref_audio, ref_sr = load_audio_for_cloning(wav_path)
-            voice_prompt = create_voice_prompt(model, ref_audio, ref_sr, transcript)
-            torch.save(voice_prompt, pt_path)
-            click.echo(f"  {base}: rebuilt ({os.path.getsize(pt_path)} bytes)")
-            rebuilt += 1
-        except Exception as e:
-            click.echo(f"  {base}: FAILED — {e}", err=True)
-            failed += 1
+                ref_audio, ref_sr = load_audio_for_cloning(wav_path)
+                voice_prompt = create_voice_prompt(model, ref_audio, ref_sr, transcript)
+                torch.save(voice_prompt, pt_path)
+                click.echo(f"  {base}: rebuilt ({os.path.getsize(pt_path)} bytes)")
+                rebuilt += 1
+            except Exception as e:
+                click.echo(f"  {base}: FAILED — {e}", err=True)
+                failed += 1
+    finally:
+        if backend_env_before is None:
+            os.environ.pop("TTS_BACKEND", None)
+        else:
+            os.environ["TTS_BACKEND"] = backend_env_before
 
     click.echo(f"\nDone: {rebuilt} rebuilt, {skipped} skipped, {failed} failed.")
     if failed:

@@ -45,6 +45,7 @@ Features: pyrubberband audio processing (with librosa fallback), prosody presets
 | `tts server log` | Tail server log |
 | `tts voice list` | List voice prompts |
 | `tts voice create [AUDIO]` | Create voice clone from audio |
+| `tts voice rebuild [NAME]` | Regenerate .pt prompts — torch-only (forces `TTS_BACKEND=torch`; needs `qwen_tts`, so run via `conda run -n qwen3-tts` on MLX setups) |
 | `tts voice delete NAME` | Delete a prompt |
 | `tts voice rename OLD NEW` | Rename a prompt |
 | `tts voice preview NAME` | Play a prompt |
@@ -226,11 +227,7 @@ python tests/run_batches.py --batch 3  # Batch 3: Server infrastructure
 - Google Colab: ✅ Full support (free/pro tiers)
 - Docker: ✅ Full containerized support
 
-**Migration Notes:**
-- Old: `conda activate qwen3-tts-mlx && python -m unittest tests.test_module -v`
-- New: `pip install -e ".[test]" && python -m unittest tests.test_module -v`
-
-**Conda environments still work** for development, but are no longer required for testing.
+**Migration:** tests no longer require conda envs — `pip install -e ".[test]" && python -m unittest tests.test_module -v` works anywhere (conda envs still fine for development).
 
 **Preferred: pytest full suite** (1900+ tests):
 ```bash
