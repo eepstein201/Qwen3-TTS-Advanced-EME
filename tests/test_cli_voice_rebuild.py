@@ -40,7 +40,7 @@ def test_rebuild_mlx_without_qwen_tts_exits_with_error(tmp_path):
 
     assert result.exit_code == 1
     assert "torch" in result.output
-    assert "conda activate qwen3-tts" in result.output
+    assert "conda run -n qwen3-tts tts voice rebuild" in result.output
 
 
 def test_rebuild_mlx_with_qwen_tts_forces_torch_backend(tmp_path):
