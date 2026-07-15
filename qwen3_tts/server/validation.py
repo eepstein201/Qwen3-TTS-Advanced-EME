@@ -18,6 +18,7 @@ from qwen3_tts.core.config import CUSTOM_VOICE_SPEAKERS, VOICE_PROMPTS_DIR
 
 MAX_PROMPT_NAME_LEN = 255  # max length for voice prompt names
 MAX_AUDIO_BASE64_BYTES = 50 * 1024 * 1024  # 50MB base64 ≈ 37.5MB raw audio
+MAX_SEED = 2**31 - 1  # upper bound for generation seed (signed int32, safe across torch/MLX)
 
 # Pre-computed valid speaker names (keys + display names)
 _VALID_SPEAKER_NAMES = frozenset(CUSTOM_VOICE_SPEAKERS.keys()) | frozenset(
@@ -46,7 +47,7 @@ class GenerateRequest(BaseModel):
     top_p: float = Field(default=0.95, ge=0.0, le=1.0)
     repetition_penalty: float = Field(default=1.05, ge=0.5, le=2.0)
     max_new_tokens: int = Field(default=2048, ge=1, le=8192)
-    seed: int | None = None
+    seed: int | None = Field(default=None, ge=0, le=MAX_SEED)
     max_chunk_chars: int | None = None
     x_vector_only_mode: bool = False
     seed_lock_chunks: bool = False

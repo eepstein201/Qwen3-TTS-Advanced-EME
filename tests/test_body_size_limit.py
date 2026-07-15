@@ -1,9 +1,10 @@
 """Tests for the ASGI request-body-size cap (roadmap R-30).
 
-Oversized bodies must be rejected by middleware via the Content-Length header
-BEFORE the body is read into memory / parsed by Pydantic. A request whose
-Content-Length exceeds the cap returns HTTP 413; a normal request passes
-through to routing/validation.
+Oversized bodies must be rejected by middleware BEFORE the body is read into
+memory / parsed by Pydantic. The middleware enforces the cap two ways:
+  1. Fast-path: Content-Length header present and over limit → immediate 413.
+  2. Streaming path: actual bytes counted regardless of Content-Length presence
+     (catches chunked or header-free transfers).
 """
 
 import unittest
@@ -24,23 +25,52 @@ class TestBodySizeLimit(unittest.TestCase):
         )
 
     def test_oversized_content_length_returns_413(self):
-        """Body larger than the cap is rejected with 413 before parsing."""
-        # Shrink the cap so the test does not need a real multi-MB payload.
+        """Fast-path: declared Content-Length over cap is rejected with 413."""
         with patch("qwen3_tts.server.app.MAX_REQUEST_BODY_BYTES", 16):
             resp = self.client.post(
                 "/generate",
-                content=b"x" * 64,  # 64 bytes > 16-byte cap
+                content=b"x" * 64,  # 64 bytes > 16-byte cap; httpx adds Content-Length
                 headers={"Content-Type": "application/json"},
             )
         self.assertEqual(resp.status_code, 413)
 
+    def test_missing_content_length_oversized_returns_413(self):
+        """Streaming path: body over cap without Content-Length returns 413."""
+
+        def _large_chunks():
+            # Yield chunks that sum to more than the patched cap (16 bytes)
+            for _ in range(5):
+                yield b"xxxxx"  # 5 * 5 = 25 bytes > 16-byte cap
+
+        with patch("qwen3_tts.server.app.MAX_REQUEST_BODY_BYTES", 16):
+            resp = self.client.post(
+                "/generate",
+                content=_large_chunks(),
+                headers={"Content-Type": "application/json"},
+                # httpx omits Content-Length for generator streams
+            )
+        self.assertEqual(resp.status_code, 413)
+
+    def test_missing_content_length_small_body_passes(self):
+        """Streaming path: small body without Content-Length is not blocked."""
+
+        def _small_chunks():
+            yield b'{"texts": ["hi"], "mode": "clone"}'
+
+        resp = self.client.post(
+            "/generate",
+            content=_small_chunks(),
+            headers={"Content-Type": "application/json"},
+        )
+        # May be rejected by auth/validation, but NOT by the size cap.
+        self.assertNotEqual(resp.status_code, 413)
+
     def test_normal_request_passes_through(self):
-        """A small body is not blocked by the size cap (413)."""
+        """A small JSON body is not blocked by the size cap."""
         resp = self.client.post(
             "/generate",
             json={"texts": ["hi"], "mode": "clone"},
         )
-        # It may be rejected by auth/validation, but must NOT be 413.
         self.assertNotEqual(resp.status_code, 413)
 
     def test_cap_is_named_constant_above_audio_limit(self):
