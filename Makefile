@@ -23,7 +23,7 @@ help:
 	@echo "  test-e2e         Batch 6: E2E Playwright browser tests"
 	@echo "  clean            Remove cache and runtime files"
 	@echo "  lint             Run linters (if installed)"
-	@echo "  format           Format code with black (if installed)"
+	@echo "  format           Format code with ruff"
 	@echo "  solid-score      Analyze SOLID principle compliance"
 	@echo "  coverage         Run tests with coverage report"
 
@@ -101,12 +101,12 @@ lint:
 		echo "No linter found. Install ruff: pip install ruff"; \
 	fi
 
-# Formatting (optional)
+# Formatting
 format:
-	@if command -v black >/dev/null 2>&1; then \
-		black qwen3_tts/ tests/; \
+	@if command -v ruff >/dev/null 2>&1; then \
+		ruff format qwen3_tts/ tests/; \
 	else \
-		echo "black not found. Install: pip install black"; \
+		echo "ruff not found. Install: pip install ruff"; \
 	fi
 
 # SOLID Score Analysis
