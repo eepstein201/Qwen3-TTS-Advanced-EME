@@ -1,7 +1,7 @@
 """Server management CLI commands.
 
 Extracted from cli.py to keep each module under 800 lines.
-Contains: server group (start, stop, status, log) and stats command.
+Contains: server group (start, stop, status, log, restart) and stats command.
 """
 
 import os
@@ -193,6 +193,40 @@ def stop():
         sys.exit(1)
 
     click.echo("TTS Server stopped.")
+
+
+@server.command()
+@click.option("--public", is_flag=True, help="Bind to 0.0.0.0")
+@click.pass_context
+def restart(ctx, public):
+    """Stop the server, then start it again (daemon mode)."""
+    from qwen3_tts.core.config import is_server_running, load_config
+
+    config = load_config()
+
+    if is_server_running(config):
+        try:
+            ctx.invoke(stop)
+        except SystemExit as exc:
+            if exc.code != 0:
+                click.echo("Error: failed to stop the server.")
+                sys.exit(1)
+        for _ in range(20):
+            time.sleep(0.5)
+            if not is_server_running(config):
+                break
+        if is_server_running(config):
+            click.echo("Error: server did not stop in time.")
+            sys.exit(1)
+    else:
+        click.echo("Server was not running.")
+
+    click.echo("Starting server...")
+    proc = _start_server_daemon(public=public)
+    click.echo(f"TTS Server started with PID {proc.pid}")
+    from qwen3_tts.core.config import LOG_FILE
+
+    click.echo(f"Logs: {LOG_FILE}")
 
 
 @server.command()
