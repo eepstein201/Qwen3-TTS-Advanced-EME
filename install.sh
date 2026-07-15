@@ -409,6 +409,9 @@ _pip_install_linux() {
     if [[ "$HAS_NVIDIA" == true ]] && [[ -n "$CUDA_VERSION" ]]; then
         extras="torch,cuda,server,audio,rich,ui"
     fi
+    if [[ "$SELECTED_BACKEND" == "vllm" ]]; then
+        extras="$extras,vllm"
+    fi
     pip install -e "$USER_FILES_DIR/[$extras]"
 }
 
