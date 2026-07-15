@@ -94,6 +94,11 @@ test = [
     "psutil>=5.9",
 ]
 
+# AI voice-description enhancement (Design mode)
+prompt-enhancer = [
+    "anthropic>=0.25",
+]
+
 # vLLM-Omni backend (Linux/CUDA only)
 vllm = [
     "vllm>=0.8",
