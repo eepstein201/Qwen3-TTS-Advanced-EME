@@ -150,8 +150,8 @@ class VLLMAdapter:
             raise ValueError(
                 f"audio_chunk_size must be in [512, 8192], got {audio_chunk_size}"
             )
-        if not mm_processor_name:
-            raise ValueError("mm_processor_name cannot be empty")
+        if not re.match(r"^[A-Za-z0-9./][A-Za-z0-9._/-]*$", mm_processor_name):
+            raise ValueError(f"Invalid mm_processor_name: {mm_processor_name!r}")
 
         self.model_name = model_name
         self.gpu_memory_utilization = gpu_memory_utilization
