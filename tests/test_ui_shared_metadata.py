@@ -2,6 +2,8 @@ import json
 import os
 import time
 
+import pytest
+
 from qwen3_tts.interface.ui.shared import (
     MAX_HISTORY_SIZE,
     add_to_history,
@@ -11,9 +13,15 @@ from qwen3_tts.interface.ui.shared import (
 )
 
 
-def test_save_generation_metadata_creates_json(tmp_path, monkeypatch):
+@pytest.fixture()
+def home_tmp(tmp_path, monkeypatch):
+    """Make tmp_path appear as the home directory for the home-dir guard."""
     monkeypatch.setenv("HOME", str(tmp_path))
-    wav_path = str(tmp_path / "voice_ui_abc12345.wav")
+    return tmp_path
+
+
+def test_save_generation_metadata_creates_json(home_tmp):
+    wav_path = str(home_tmp / "voice_ui_abc12345.wav")
     open(wav_path, "w").close()
     metadata = {
         "timestamp": time.time(),
@@ -34,9 +42,8 @@ def test_save_generation_metadata_creates_json(tmp_path, monkeypatch):
     assert saved["mode"] == "clone"
 
 
-def test_save_generation_metadata_immutable(tmp_path, monkeypatch):
-    monkeypatch.setenv("HOME", str(tmp_path))
-    wav_path = str(tmp_path / "voice_ui_def67890.wav")
+def test_save_generation_metadata_immutable(home_tmp):
+    wav_path = str(home_tmp / "voice_ui_def67890.wav")
     open(wav_path, "w").close()
     metadata = {"mode": "design", "seed": 99}
     original = dict(metadata)
@@ -44,10 +51,9 @@ def test_save_generation_metadata_immutable(tmp_path, monkeypatch):
     assert metadata == original
 
 
-def test_load_history_from_disk_reads_json(tmp_path, monkeypatch):
-    monkeypatch.setenv("HOME", str(tmp_path))
+def test_load_history_from_disk_reads_json(home_tmp):
     for i in range(3):
-        wav = tmp_path / f"voice_ui_{i:08d}.wav"
+        wav = home_tmp / f"voice_ui_{i:08d}.wav"
         wav.write_text("")
         meta = {
             "timestamp": 1000.0 + i,
@@ -55,29 +61,27 @@ def test_load_history_from_disk_reads_json(tmp_path, monkeypatch):
             "text": f"Text {i}",
             "seed": i * 10,
         }
-        (tmp_path / f"voice_ui_{i:08d}.json").write_text(json.dumps(meta))
-    history = load_history_from_disk(str(tmp_path))
+        (home_tmp / f"voice_ui_{i:08d}.json").write_text(json.dumps(meta))
+    history = load_history_from_disk(str(home_tmp))
     assert len(history) == 3
     assert history[0]["timestamp"] == 1002.0
     assert history[0]["seed"] == 20
 
 
-def test_load_history_from_disk_caps_at_max(tmp_path, monkeypatch):
-    monkeypatch.setenv("HOME", str(tmp_path))
+def test_load_history_from_disk_caps_at_max(home_tmp):
     for i in range(MAX_HISTORY_SIZE + 5):
-        wav = tmp_path / f"voice_ui_{i:08d}.wav"
+        wav = home_tmp / f"voice_ui_{i:08d}.wav"
         wav.write_text("")
         meta = {"timestamp": float(i), "mode": "clone", "text": f"T{i}"}
-        (tmp_path / f"voice_ui_{i:08d}.json").write_text(json.dumps(meta))
-    history = load_history_from_disk(str(tmp_path))
+        (home_tmp / f"voice_ui_{i:08d}.json").write_text(json.dumps(meta))
+    history = load_history_from_disk(str(home_tmp))
     assert len(history) == MAX_HISTORY_SIZE
 
 
-def test_load_history_from_disk_skips_orphan_json(tmp_path, monkeypatch):
-    monkeypatch.setenv("HOME", str(tmp_path))
+def test_load_history_from_disk_skips_orphan_json(home_tmp):
     meta = {"timestamp": 1.0, "mode": "clone", "text": "orphan"}
-    (tmp_path / "voice_ui_orphan.json").write_text(json.dumps(meta))
-    history = load_history_from_disk(str(tmp_path))
+    (home_tmp / "voice_ui_orphan.json").write_text(json.dumps(meta))
+    history = load_history_from_disk(str(home_tmp))
     assert len(history) == 0
 
 
