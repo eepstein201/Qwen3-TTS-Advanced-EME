@@ -37,8 +37,7 @@ The main configuration file is located at:
 
 | Variable | Required | Description | Example |
 |----------|----------|-------------|---------|
-| `QWEN3_TTS_LOG_LEVEL` | No | Logging level (DEBUG, INFO, WARNING, ERROR) | `INFO` |
-| `QWEN3_TTS_DEV_MODE` | No | Enable development mode (auto-reload, verbose logging) | `1` |
+| `TTS_LOG_LEVEL` | No | Logging level (DEBUG, INFO, WARNING, ERROR) | `INFO` |
 
 ## Configuration Structure
 

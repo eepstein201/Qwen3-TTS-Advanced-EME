@@ -10,12 +10,12 @@
 
 ```bash
 # Clone repository
-git clone https://github.com/your-org/Qwen3-TTS.git
-cd Qwen3-TTS
+git clone https://github.com/eepstein201/Qwen3-TTS-Advanced-EME.git
+cd Qwen3-TTS-Advanced-EME
 
 # Create conda environment
-conda create -n qwen3-tts-mlx python=3.9 -y
-conda activate qwen3-tss-mlx
+conda create -n qwen3-tts-mlx python=3.11 -y
+conda activate qwen3-tts-mlx
 
 # Install with MLX backend (Apple Silicon)
 pip install -e ".[mlx,server,ui]"
@@ -536,7 +536,7 @@ gzip .voice_server.log.old
 
 3. **Update dependencies**
    ```bash
-   conda activate qwen3-tss-mlx
+   conda activate qwen3-tts-mlx
    pip install -e ".[mlx,server,ui] --upgrade"
    ```
 

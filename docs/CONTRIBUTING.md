@@ -6,7 +6,7 @@
 
 ### Prerequisites
 
-- **Python**: 3.9 or later
+- **Python**: 3.10 or later (3.11 recommended)
 - **Conda**: Miniforge or Anaconda (recommended for environment management)
 - **Git**: For version control
 - **macOS**: Apple Silicon M1/M2/M3 for MLX backend (recommended)
@@ -18,7 +18,7 @@
 #### 1. Clone Repository
 
 ```bash
-git clone https://github.com/your-org/Qwen3-TTS.git
+git clone https://github.com/eepstein201/Qwen3-TTS-Advanced-EME.git
 cd Qwen3-TTS
 ```
 
@@ -26,14 +26,14 @@ cd Qwen3-TTS
 
 **For MLX backend (Apple Silicon only):**
 ```bash
-conda create -n qwen3-tts-mlx python=3.9 -y
+conda create -n qwen3-tts-mlx python=3.11 -y
 conda activate qwen3-tts-mlx
 pip install -e ".[mlx,server,ui,dev]"
 ```
 
 **For Torch backend (Linux/Windows/Intel Mac):**
 ```bash
-conda create -n qwen3-tts python=3.9 -y
+conda create -n qwen3-tts python=3.11 -y
 conda activate qwen3-tts
 pip install -e ".[torch,server,ui,dev]"
 ```
