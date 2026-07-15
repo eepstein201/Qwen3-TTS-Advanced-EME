@@ -261,20 +261,44 @@ MAX_REQUEST_BODY_BYTES = 2 * MAX_AUDIO_BASE64_BYTES  # ~100MB
 
 @app.middleware("http")
 async def limit_request_body_size(request: Request, call_next):
-    """Reject oversized request bodies via Content-Length before parsing."""
+    """Reject oversized request bodies by streaming actual bytes read.
+
+    Trusting Content-Length alone is bypassed by chunked/omitted headers.
+    This middleware reads the body in chunks and enforces the cap on actual
+    bytes received, then replaces request._receive so downstream reads normally.
+    """
+    from fastapi.responses import JSONResponse
+
+    # Fast-path: reject immediately when Content-Length is present and over limit
     content_length = request.headers.get("content-length")
     if content_length is not None:
         try:
-            declared_size = int(content_length)
+            if int(content_length) > MAX_REQUEST_BODY_BYTES:
+                return JSONResponse(
+                    status_code=413,
+                    content={"detail": "Request body too large"},
+                )
         except ValueError:
-            declared_size = -1
-        if declared_size > MAX_REQUEST_BODY_BYTES:
-            from fastapi.responses import JSONResponse
+            pass
 
+    # Stream actual bytes to catch chunked or header-free transfers
+    body_chunks: list[bytes] = []
+    body_size = 0
+    async for chunk in request.stream():
+        body_size += len(chunk)
+        if body_size > MAX_REQUEST_BODY_BYTES:
             return JSONResponse(
                 status_code=413,
                 content={"detail": "Request body too large"},
             )
+        body_chunks.append(chunk)
+
+    body = b"".join(body_chunks)
+
+    async def _receive():
+        return {"type": "http.request", "body": body, "more_body": False}
+
+    request._receive = _receive
     return await call_next(request)
 
 
