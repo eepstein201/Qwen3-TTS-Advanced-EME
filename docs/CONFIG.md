@@ -157,6 +157,8 @@ The main configuration file is located at:
 
 ### Prompt Enhancer (AI Description Enhancement)
 
+**Install:** `pip install -e ".[prompt-enhancer]"` (adds the `anthropic` SDK).
+
 ```json
 {
   "prompt_enhancer": {
