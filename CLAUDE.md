@@ -91,6 +91,7 @@ config.json → qwen3_tts.core.config → qwen3_tts.core.engine (dispatch)
 
 | Module | Purpose | Heavy imports? |
 |--------|---------|----------------|
+| `qwen3_tts/core/http_client.py` | `server_request()` — single choke-point for all HTTP calls to the local server; URL re-validated inline for CodeQL | No |
 | `qwen3_tts/core/config.py` | Constants, config I/O (`save_config` writes atomically via temp file + `os.replace`), error classes, `MODEL_INFO`, `get_model_revision` (HF revision per model, default `"main"`), auth, platform detection, CUDA capability detection, voice description attributes, PID lifecycle (`read_pid_file`, `write_pid_file`, `cleanup_pid_file`, `is_pid_alive`, `find_pid_by_port`, `detect_server_state`) | No |
 | `qwen3_tts/core/engine/` | Package with 6 submodules: `text_processing`, `audio_processing`, `voice_prompt`, `model_loader`, `inference`, `asr`. `__init__.py` facade re-exports all public names. | No (all lazy) |
 | `qwen3_tts/core/protocols.py` | Abstract protocols for engine components. `FileConfigProvider` and `DefaultPromptManager` removed (dead code). | No |
@@ -106,13 +107,15 @@ config.json → qwen3_tts.core.config → qwen3_tts.core.engine (dispatch)
 | `qwen3_tts/interface/generate_helpers.py` | Voice prompt helpers, audio playback, SSML, file-open utilities | No (lazy) |
 | `qwen3_tts/interface/generate_interactive.py` | Interactive mode, REPL, watch mode, post-gen menu | No (lazy) |
 | `qwen3_tts/interface/generate_server.py` | Server-side generation, local generation fallback, streaming playback | No (lazy) |
+| `qwen3_tts/interface/cli/` | CLI sub-package: `batch.py` (JSON batch), `srt.py` (subtitle), `dialogue.py` (multi-speaker) | No |
 | `qwen3_tts/interface/ui/` | Gradio web UI package: `_facade.py` (launch), `generation.py` (Clone/Design/Custom tabs), `voice_management.py`, `model_management.py`, `shared.py`, `components.py` (reusable widgets: `ConfirmButton`, `confirm_step`, `ProgressIndicator`, `StatusBanner`, `status_badge`, `poll_model_loading_state`). Streaming audio with JavaScript reset. | No (HTTP only) |
 | `qwen3_tts/tools/create_voice.py` | Voice clone prompt creation, saves .pt + .wav/.txt dual format | Yes (via engine) |
 | `qwen3_tts/tools/model_cache.py` | HuggingFace cache management (list, size, prune, clear) | No |
 | `qwen3_tts/tools/healthcheck.py` | Installation health checks (deps, config, server) | No |
 | `qwen3_tts/tools/uninstall.py` | Uninstall utilities (models, voices, config, all) | No |
+| `qwen3_tts/tools/solid_analyzer.py` | SOLID-principle compliance analyzer; scores each principle with line-number violations (`tts solid-score`) | No |
 | `qwen3_tts/cli.py` | Click entry point — imports command groups from sibling modules | No (all lazy) |
-| `qwen3_tts/cli_server.py` | Server CLI group: start, stop, status, log, stats | No |
+| `qwen3_tts/cli_server.py` | Server CLI group: start, stop, restart, status, log, stats | No |
 | `qwen3_tts/cli_voice.py` | Voice CLI group + list group: voice CRUD, list speakers/presets | No |
 | `qwen3_tts/cli_config.py` | Config/uninstall/cache groups, ui/history/doctor commands | No |
 
