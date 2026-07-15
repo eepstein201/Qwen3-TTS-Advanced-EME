@@ -22,16 +22,13 @@ from fastapi.responses import StreamingResponse
 from qwen3_tts.core.config import get_generation_cache_max
 from qwen3_tts.server.app_lifespan import _check_memory_available
 from qwen3_tts.server.validation import (
+    MAX_SEED,
     _error_response,
     _gen_cache_key,
     _validate_generation_request,
 )
 
 logger = logging.getLogger("tts")
-
-# Upper bound for a server-generated seed. Kept within signed int32 so it is
-# safe across torch/MLX seeding APIs and JSON-serializes cleanly.
-_MAX_SEED = 2**31 - 1
 
 
 def _resolve_generation_seed(req_seed: int | None) -> int:
@@ -44,7 +41,7 @@ def _resolve_generation_seed(req_seed: int | None) -> int:
     """
     if req_seed is not None:
         return req_seed
-    return secrets.randbelow(_MAX_SEED + 1)
+    return secrets.randbelow(MAX_SEED + 1)
 
 
 def _should_stop_streaming(stop_event, generation_state) -> bool:
