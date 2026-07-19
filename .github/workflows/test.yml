@@ -21,7 +21,7 @@ jobs:
             python-version: '3.10'
 
     steps:
-    - uses: actions/checkout@v4
+    - uses: actions/checkout@v7
 
     - name: Set up Python ${{ matrix.python-version }}
       uses: actions/setup-python@v5
@@ -102,7 +102,7 @@ jobs:
     # Static gates: lint, type-check, security (fast feedback)
     runs-on: ubuntu-latest
     steps:
-    - uses: actions/checkout@v4
+    - uses: actions/checkout@v7
 
     - name: Set up Python
       uses: actions/setup-python@v5
@@ -128,7 +128,7 @@ jobs:
     # Coverage gate: 80% floor on the non-e2e suite
     runs-on: ubuntu-latest
     steps:
-    - uses: actions/checkout@v4
+    - uses: actions/checkout@v7
 
     - name: Set up Python
       uses: actions/setup-python@v5
@@ -157,7 +157,7 @@ jobs:
     # Container-based testing
     runs-on: ubuntu-latest
     steps:
-    - uses: actions/checkout@v4
+    - uses: actions/checkout@v7
 
     - name: Build test container
       run: |
@@ -179,7 +179,7 @@ jobs:
     # Minimal test job for quick feedback
     runs-on: ubuntu-latest
     steps:
-    - uses: actions/checkout@v4
+    - uses: actions/checkout@v7
 
     - name: Set up Python
       uses: actions/setup-python@v5
