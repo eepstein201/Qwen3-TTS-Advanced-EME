@@ -293,12 +293,7 @@ async def limit_request_body_size(request: Request, call_next):
             )
         body_chunks.append(chunk)
 
-    body = b"".join(body_chunks)
-
-    async def _receive():
-        return {"type": "http.request", "body": body, "more_body": False}
-
-    request._receive = _receive
+    request._body = b"".join(body_chunks)
     return await call_next(request)
 
 
