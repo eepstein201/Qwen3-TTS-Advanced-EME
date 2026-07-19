@@ -50,7 +50,7 @@ class TestRunServer(unittest.TestCase):
         mock_handler.level = 0
         with patch(f"{_APP}.uvicorn") as mock_uv, \
              patch(f"{_APP}.IN_COLAB", False), \
-             patch(f"{_APP}.LOG_FILE", "/tmp/fake_log.log"), \
+             patch("qwen3_tts.core.config.LOG_FILE", "/tmp/fake_log.log"), \
              patch("logging.handlers.RotatingFileHandler", return_value=mock_handler), \
              patch("logging.StreamHandler", return_value=mock_handler), \
              patch("builtins.print"):
@@ -66,7 +66,7 @@ class TestRunServer(unittest.TestCase):
         mock_handler.level = 0
         with patch(f"{_APP}.uvicorn") as mock_uv, \
              patch(f"{_APP}.IN_COLAB", True), \
-             patch(f"{_APP}.LOG_FILE", "/tmp/fake_log.log"), \
+             patch("qwen3_tts.core.config.LOG_FILE", "/tmp/fake_log.log"), \
              patch("logging.handlers.RotatingFileHandler", return_value=mock_handler), \
              patch("logging.StreamHandler", return_value=mock_handler), \
              patch("builtins.print"):
