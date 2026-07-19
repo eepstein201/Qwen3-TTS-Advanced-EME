@@ -75,7 +75,7 @@ dev = [
     "pytest-random-order>=1.1", # find interdependent tests
     "pytest-cov>=5.0",        # coverage reporting
     "ruff>=0.6",              # linting + formatting
-    "mypy>=1.10",             # static type checking
+    "mypy>=2.3.0",             # static type checking
     "bandit>=1.7",            # security static analysis
 ]
 
