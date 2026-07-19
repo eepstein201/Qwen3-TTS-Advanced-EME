@@ -4,7 +4,7 @@ vllm[audio]>=0.6.0
 
 # Audio processing dependencies
 soundfile>=0.12.1
-librosa>=0.10.0
+librosa>=0.11.0
 numpy>=1.24.0
 
 # HTTP client for async requests
