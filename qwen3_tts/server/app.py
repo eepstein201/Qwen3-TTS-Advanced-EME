@@ -36,7 +36,6 @@ logger = logging.getLogger("tts")
 
 from qwen3_tts.core.config import (  # noqa: E402
     IN_COLAB,
-    LOG_FILE,
     TOKEN_FILE,
     ConfigLoader,
     DefaultConfigLoader,
@@ -747,6 +746,8 @@ async def shutdown(request: Request, _auth: None = Depends(verify_auth)) -> dict
 
 def run_server(host: str = "127.0.0.1", port: int = 5123, public: bool = False) -> None:
     """Run the FastAPI server."""
+    from qwen3_tts.core.config import LOG_FILE
+
     # Configure logging
     log_fmt = logging.Formatter(
         "%(asctime)s [%(name)s] %(levelname)s: %(message)s", datefmt="%Y-%m-%d %H:%M:%S"
