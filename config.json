@@ -14,7 +14,7 @@
     "model_size": "1.7B",
     "mlx_quantization": "8bit",
     "backend": "mlx",
-    "audio_loader": "librosa"
+    "audio_loader": "torchaudio"
   },
   "language": "English",
   "generation": {
