@@ -217,15 +217,23 @@ def apply_model_settings(model_size, mlx_quantization):
 
 
 def update_text_info(text):
-    """Update text info display with character count, word count, and chunk estimate."""
+    """Update text info display with character count, chunk estimate, and limit warning."""
     if not text or not text.strip():
         return ""
     chars = len(text)
-    # Estimate chunks (500 chars default)
-    chunks = max(1, (chars + 499) // 500)
+    config = load_config()
+    max_chunk_chars = config.get("generation", {}).get("max_chunk_chars", 500)
+    if max_chunk_chars and max_chunk_chars > 0:
+        chunks = max(1, (chars + max_chunk_chars - 1) // max_chunk_chars)
+    else:
+        chunks = 1
+    info = f"{chars} chars"
     if chunks > 1:
-        return f"{chars} chars | ~{chunks} chunks"
-    return f"{chars} chars"
+        info += f" | ~{chunks} chunks"
+    max_text_length = config.get("security", {}).get("max_text_length", 50000)
+    if chars > max_text_length:
+        info += f" ⚠️ exceeds {max_text_length} char limit — generation will be rejected"
+    return info
 
 
 def get_server_status():

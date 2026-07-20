@@ -57,13 +57,13 @@ class TestConfigValidationEnforcement(unittest.TestCase):
     def test_max_text_length_invalid_corrected(self):
         config = {"security": {"max_text_length": -5}}
         result, issues = self._validate(config)
-        self.assertEqual(result["security"]["max_text_length"], 10000)
+        self.assertEqual(result["security"]["max_text_length"], 50000)
         self.assertTrue(any("corrected" in i and "max_text_length" in i for i in issues))
 
     def test_max_text_length_non_int_corrected(self):
         config = {"security": {"max_text_length": "abc"}}
         result, _ = self._validate(config)
-        self.assertEqual(result["security"]["max_text_length"], 10000)
+        self.assertEqual(result["security"]["max_text_length"], 50000)
 
     def test_vllm_gpu_utilization_too_high_corrected(self):
         config = {"advanced": {"vllm_gpu_memory_utilization": 1.5}}

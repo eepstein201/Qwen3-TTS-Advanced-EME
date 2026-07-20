@@ -142,7 +142,7 @@ async def websocket_tts_handler(
                 if hasattr(app_state, "server_config")
                 else {}
             )
-            max_text_length = security.get("max_text_length", 10000)
+            max_text_length = security.get("max_text_length", 50000)
             if len(text) > max_text_length:
                 await websocket.send_json(
                     {"error": f"Text exceeds {max_text_length} character limit"}
