@@ -229,6 +229,46 @@ class TestGenerateViaServer(unittest.TestCase):
                 generate_via_server(["Hello"], "clone", _CONFIG, {})
         self.assertIn("503", str(ctx.exception))
 
+    def test_long_batch_scales_timeout(self):
+        """A long batch (>18 chunks worth of chars) scales the read timeout past 600s."""
+        from qwen3_tts.server.client.generator import _generation_timeout
+        long_texts = ["x" * 5000, "y" * 5000]  # 10,000 combined chars
+        resp = self._mock_response(200, {"results": [{"audio": "a"}, {"audio": "b"}]})
+        patches = self._base_patches()
+        with patches["url"], patches["payload"], patches["poller"], \
+             patch("qwen3_tts.core.http_client.server_request", return_value=resp) as mock_req:
+            generate_via_server(long_texts, "clone", _CONFIG, {})
+        self.assertEqual(mock_req.call_args.kwargs["timeout"], _generation_timeout(10000))
+        self.assertGreater(mock_req.call_args.kwargs["timeout"], 600)
+
+    def test_short_text_uses_floor_timeout(self):
+        """Short text still gets the 600s floor (regression protection)."""
+        resp = self._mock_response(200, {"results": [{"audio": "a"}]})
+        patches = self._base_patches()
+        with patches["url"], patches["payload"], patches["poller"], \
+             patch("qwen3_tts.core.http_client.server_request", return_value=resp) as mock_req:
+            generate_via_server(["Hi"], "clone", _CONFIG, {})
+        self.assertEqual(mock_req.call_args.kwargs["timeout"], 600)
+
+    def test_retry_after_model_load_reuses_scaled_timeout(self):
+        """The retry-after-model-load branch reuses the same scaled timeout, not a fixed 600."""
+        from qwen3_tts.server.client.generator import _generation_timeout
+        long_texts = ["z" * 12000]
+        resp_503 = self._mock_response(503, {
+            "error": "model_not_loaded", "model_type": "clone", "description": "Voice cloning",
+        })
+        resp_200 = self._mock_response(200, {"results": [{"audio": "ok"}]})
+        patches = self._base_patches()
+        with patches["url"], patches["payload"], patches["poller"], \
+             patch("qwen3_tts.core.http_client.server_request",
+                   side_effect=[resp_503, resp_200]) as mock_req, \
+             patch("builtins.input", return_value="y"), \
+             patch(f"{_MOD}.load_model_on_server", return_value=True):
+            generate_via_server(long_texts, "clone", _CONFIG, {})
+        expected = _generation_timeout(12000)
+        self.assertEqual(mock_req.call_args_list[0].kwargs["timeout"], expected)
+        self.assertEqual(mock_req.call_args_list[1].kwargs["timeout"], expected)
+
 
 # ---------------------------------------------------------------------------
 # _voice_param_for_log
@@ -448,6 +488,20 @@ class TestGenerateStreaming(unittest.TestCase):
             with self.assertRaises(Exception) as ctx:
                 generate_streaming("Hello", "clone", _CONFIG, {}, "/tmp/out.wav")
         self.assertIn("Streaming request failed", str(ctx.exception))
+
+    def test_long_text_streaming_keeps_flat_timeout(self):
+        """Streaming timeout stays flat 600s even for long text (gap-timeout, not wall-clock)."""
+        from qwen3_tts.interface.generate_server import generate_streaming
+        mock_resp = MagicMock()
+        mock_resp.status_code = 200
+        mock_resp.iter_content.return_value = []
+
+        patches = self._base_patches()
+        with patches["url"], patches["payload"], patches["play"], \
+             patch("qwen3_tts.core.http_client.server_request", return_value=mock_resp) as mock_req, \
+             patch("builtins.print"):
+            generate_streaming("x" * 12000, "clone", _CONFIG, {}, "/tmp/out.wav")
+        self.assertEqual(mock_req.call_args.kwargs["timeout"], 600)
 
 
 # ---------------------------------------------------------------------------

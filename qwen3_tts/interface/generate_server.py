@@ -156,6 +156,7 @@ def generate_via_server(
 
     from qwen3_tts.core.http_client import server_request
     from qwen3_tts.interface.generate_interactive import _ProgressPoller
+    from qwen3_tts.server.client.generator import _generation_timeout
 
     payload = _build_generation_payload(
         mode,
@@ -169,13 +170,14 @@ def generate_via_server(
         max_chunk_chars=max_chunk_chars,
     )
     payload["texts"] = texts
+    gen_timeout = _generation_timeout(sum(len(t) for t in texts))
 
     # Start progress polling
     progress = _ProgressPoller(batch_total=len(texts))
     progress.start()
 
     try:
-        resp = server_request("POST", "/generate", json=payload, timeout=600)
+        resp = server_request("POST", "/generate", json=payload, timeout=gen_timeout)
     finally:
         progress.stop()
 
@@ -207,7 +209,7 @@ def generate_via_server(
                         progress.start()
                         try:
                             resp = server_request(
-                                "POST", "/generate", json=payload, timeout=600
+                                "POST", "/generate", json=payload, timeout=gen_timeout
                             )
                         finally:
                             progress.stop()
@@ -288,7 +290,7 @@ def generate_streaming(
             "POST",
             "/generate-stream",
             json=payload,
-            timeout=600,
+            timeout=600,  # stream=True: inter-chunk gap timeout, not total time — no scaling needed
             stream=True,
         )
 
