@@ -65,7 +65,7 @@ async def handle_generate(request, state, req, security, config_provider):
         config_provider: optional ConfigLoader for DI
     """
     # Validate and normalize request
-    max_text_length = security.get("max_text_length", 10000)
+    max_text_length = security.get("max_text_length", 50000)
     max_batch_size = security.get("max_batch_size", 20)
 
     # Support both text and texts
@@ -489,7 +489,7 @@ async def handle_generate_stream(request, state, req, security, config_provider)
         [sample_rate: 4 bytes uint32][audio_len: 4 bytes uint32][audio: audio_len bytes float32]
     """
     # Validate request
-    max_text_length = security.get("max_text_length", 10000)
+    max_text_length = security.get("max_text_length", 50000)
 
     if not req.text:
         raise HTTPException(status_code=400, detail="No text provided")

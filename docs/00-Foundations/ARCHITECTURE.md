@@ -16,7 +16,7 @@ This document contains detailed architectural reference extracted from CLAUDE.md
     "design": { "load_at_startup": false },
     "custom": { "load_at_startup": false }
   },
-  "security": { "max_text_length": 10000, "max_batch_size": 20 },
+  "security": { "max_text_length": 50000, "max_batch_size": 20 },
   "generation": {
     "temperature": 0.7, "top_k": 50, "top_p": 0.95,
     "repetition_penalty": 1.05, "seed": null, "max_chunk_chars": 500,

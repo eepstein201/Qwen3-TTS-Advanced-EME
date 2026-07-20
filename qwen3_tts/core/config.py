@@ -206,8 +206,8 @@ def validate_config(config: dict) -> tuple[dict, list[str]]:
         # Existing security validations
         mtl = sec.get("max_text_length")
         if mtl is not None and (not isinstance(mtl, int) or mtl <= 0):
-            corrected_sec["max_text_length"] = 10000
-            issues.append(f"corrected max_text_length from {mtl} to 10000")
+            corrected_sec["max_text_length"] = 50000
+            issues.append(f"corrected max_text_length from {mtl} to 50000")
         if corrected_sec != sec:
             result["security"] = corrected_sec
     for issue in issues:
@@ -317,7 +317,7 @@ def get_default_config(current_config: dict | None = None) -> dict:
             "custom": {"load_at_startup": False},
         },
         "security": {
-            "max_text_length": 10000,
+            "max_text_length": 50000,
             "max_batch_size": 20,
         },
         "advanced": {
