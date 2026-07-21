@@ -212,48 +212,54 @@ async def handle_generate(request, state, req, security, config_provider):
                 state.request_queue.discard(request_id)
             return {"results": results}
 
-        # Acquire inference_lock for GPU serialization (generation_lock used only for state updates)
-        async with state.inference_lock:
-            results = []
+        results = []
 
-            for i, text in enumerate(texts):
-                # Check for cancellation before each batch item (R-44)
-                if state.generation_state.get("cancelled"):
-                    logger.info(
-                        "Batch generation cancelled at item %d/%d", i + 1, len(texts)
+        for i, text in enumerate(texts):
+            # Check for cancellation before each batch item (R-44)
+            if state.generation_state.get("cancelled"):
+                logger.info(
+                    "Batch generation cancelled at item %d/%d", i + 1, len(texts)
+                )
+                break
+
+            # Use pre-lock cache hit if available
+            if i in pre_lock_results:
+                results.append(pre_lock_results[i])
+                continue
+
+            # Post-lock cache check (does not need inference_lock — pure dict
+            # lookup under gen_cache_lock)
+            cache_key = pre_lock_cache_keys[i]
+            with state.gen_cache_lock:
+                entry = state.gen_cache.get(cache_key)
+            if entry:
+                cache_file = entry.get("main_file") or entry.get("file")
+                if cache_file and os.path.exists(cache_file):
+                    with open(cache_file, "rb") as f:
+                        b64_audio = base64.b64encode(f.read()).decode("utf-8")
+                    results.append(
+                        {
+                            "index": i,
+                            "audio_base64": b64_audio,
+                            "sample_rate": entry["sample_rate"],
+                            "chunks": entry.get("chunks", 0),
+                            "seed": entry.get("seed"),
+                        }
                     )
-                    break
+                    logger.info(
+                        "Generation cache hit (post-lock) for text %d/%d",
+                        i + 1,
+                        len(texts),
+                    )
+                continue
 
-                # Use pre-lock cache hit if available
-                if i in pre_lock_results:
-                    results.append(pre_lock_results[i])
-                    continue
-
-                # Post-lock cache check
-                cache_key = pre_lock_cache_keys[i]
-                with state.gen_cache_lock:
-                    entry = state.gen_cache.get(cache_key)
-                if entry:
-                    cache_file = entry.get("main_file") or entry.get("file")
-                    if cache_file and os.path.exists(cache_file):
-                        with open(cache_file, "rb") as f:
-                            b64_audio = base64.b64encode(f.read()).decode("utf-8")
-                        results.append(
-                            {
-                                "index": i,
-                                "audio_base64": b64_audio,
-                                "sample_rate": entry["sample_rate"],
-                                "chunks": entry.get("chunks", 0),
-                                "seed": entry.get("seed"),
-                            }
-                        )
-                        logger.info(
-                            "Generation cache hit (post-lock) for text %d/%d",
-                            i + 1,
-                            len(texts),
-                        )
-                    continue
-
+            # Acquire inference_lock ONLY for GPU-bound work: the state update,
+            # voice-prompt load, and the inference call itself. Everything after
+            # chunk_count capture is CPU-only on the local wav array and must
+            # run with the lock released so other requests can inference in
+            # parallel with our encode/peaks. (generation_lock is a separate
+            # short-lived lock used only for state updates.)
+            async with state.inference_lock:
                 # Brief lock to set generation state
                 async with state.generation_lock:
                     state.generation_state.update(
@@ -375,75 +381,82 @@ async def handle_generate(request, state, req, security, config_provider):
                         seed_lock_chunks=req.seed_lock_chunks,
                     )
 
-                # Capture chunk count now (still serialized under inference_lock)
-                # so the value reported and cached is this generation's, not a
-                # later request's, from the shared generation_state.
+                # Capture chunk count IMMEDIATELY, while still serialized under
+                # inference_lock. A later request's inference overwrites
+                # generation_state["chunk_total"], so reading it after the lock
+                # releases would surface another generation's chunk count. This
+                # MUST stay inside the lock block.
                 chunk_count = state.generation_state.get("chunk_total", 0)
 
-                # Encode audio to base64 WAV in memory (off the event loop)
-                buf = io.BytesIO()
-                await asyncio.to_thread(sf.write, buf, wav, sr, format="WAV")
-                b64_audio = base64.b64encode(buf.getvalue()).decode("utf-8")
+            # inference_lock is now RELEASED. Everything below is CPU-only and
+            # operates on the local (wav, sr) arrays returned by inference, so
+            # it does not need GPU serialization and can run concurrently with
+            # another request's inference.
 
-                # Store persistent cache file for future hits
-                cache_file = tempfile.NamedTemporaryFile(suffix=".wav", delete=False)
-                cache_file.close()  # Close handle before sf.write to avoid leak
-                os.chmod(cache_file.name, 0o600)
-                await asyncio.to_thread(sf.write, cache_file.name, wav, sr)
+            # Encode audio to base64 WAV in memory (off the event loop)
+            buf = io.BytesIO()
+            await asyncio.to_thread(sf.write, buf, wav, sr, format="WAV")
+            b64_audio = base64.b64encode(buf.getvalue()).decode("utf-8")
 
-                with state.gen_cache_lock:
-                    if len(state.gen_cache) >= get_generation_cache_max():
-                        oldest_key = min(
-                            state.gen_cache,
-                            key=lambda k: state.gen_cache[k]["timestamp"],
-                        )
-                        old_entry = state.gen_cache.pop(oldest_key)
-                        old_main = old_entry.get("main_file")
-                        if old_main and os.path.exists(old_main):
-                            try:
-                                os.remove(old_main)
-                            except OSError:
-                                pass
-                    state.gen_cache[cache_key] = {
-                        "main_file": cache_file.name,
-                        "sample_rate": sr,
-                        "timestamp": time.time(),
-                        "chunks": chunk_count,
-                        "seed": used_seed,
-                    }
+            # Store persistent cache file for future hits
+            cache_file = tempfile.NamedTemporaryFile(suffix=".wav", delete=False)
+            cache_file.close()  # Close handle before sf.write to avoid leak
+            os.chmod(cache_file.name, 0o600)
+            await asyncio.to_thread(sf.write, cache_file.name, wav, sr)
 
-                from qwen3_tts.core.engine.audio_processing import (
-                    calculate_waveform_peaks,
-                )
-
-                peaks = await asyncio.to_thread(
-                    calculate_waveform_peaks, wav, num_peaks=500
-                )
-                results.append(
-                    {
-                        "index": i,
-                        "audio_base64": b64_audio,
-                        "sample_rate": sr,
-                        "peaks": peaks,
-                        "chunks": chunk_count,
-                        "seed": used_seed,
-                    }
-                )
-
-            # Content negotiation: return binary WAV if Accept header contains audio/wav
-            accept = request.headers.get("accept", "application/json")
-            if "audio/wav" in accept and len(results) == 1:
-                # Single text generation with audio/wav Accept: return binary WAV directly
-                result = results[0]
-                if result.get("audio_base64"):
-                    audio_bytes = base64.b64decode(result["audio_base64"])
-                    return Response(
-                        content=audio_bytes,
-                        media_type="audio/wav",
-                        headers={"X-Sample-Rate": str(result["sample_rate"])},
+            with state.gen_cache_lock:
+                if len(state.gen_cache) >= get_generation_cache_max():
+                    oldest_key = min(
+                        state.gen_cache,
+                        key=lambda k: state.gen_cache[k]["timestamp"],
                     )
+                    old_entry = state.gen_cache.pop(oldest_key)
+                    old_main = old_entry.get("main_file")
+                    if old_main and os.path.exists(old_main):
+                        try:
+                            os.remove(old_main)
+                        except OSError:
+                            pass
+                state.gen_cache[cache_key] = {
+                    "main_file": cache_file.name,
+                    "sample_rate": sr,
+                    "timestamp": time.time(),
+                    "chunks": chunk_count,
+                    "seed": used_seed,
+                }
 
-            return {"results": results}
+            from qwen3_tts.core.engine.audio_processing import (
+                calculate_waveform_peaks,
+            )
+
+            peaks = await asyncio.to_thread(
+                calculate_waveform_peaks, wav, num_peaks=500
+            )
+            results.append(
+                {
+                    "index": i,
+                    "audio_base64": b64_audio,
+                    "sample_rate": sr,
+                    "peaks": peaks,
+                    "chunks": chunk_count,
+                    "seed": used_seed,
+                }
+            )
+
+        # Content negotiation: return binary WAV if Accept header contains audio/wav
+        accept = request.headers.get("accept", "application/json")
+        if "audio/wav" in accept and len(results) == 1:
+            # Single text generation with audio/wav Accept: return binary WAV directly
+            result = results[0]
+            if result.get("audio_base64"):
+                audio_bytes = base64.b64decode(result["audio_base64"])
+                return Response(
+                    content=audio_bytes,
+                    media_type="audio/wav",
+                    headers={"X-Sample-Rate": str(result["sample_rate"])},
+                )
+
+        return {"results": results}
 
     except HTTPException:
         raise
