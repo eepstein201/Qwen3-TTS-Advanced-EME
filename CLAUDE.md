@@ -149,6 +149,8 @@ Public (no auth): `/health`, `/ready`, `/generation-status`, `/queue-status`. `/
 
 All other endpoints require `Authorization: Bearer <token>` (token from `~/.config/qwen3-tts/.voice_server_token`, legacy fallback: `~/.voice_server_token`).
 
+**Reverse proxies:** `X-Forwarded-For` is honored for client-IP / rate-limit keying only when the direct TCP peer is in the `TTS_TRUSTED_PROXIES` allowlist (comma-separated IPs; loopback by default). Set it when running behind a reverse proxy so per-IP rate limiting sees the real client.
+
 | Endpoint | Method | Purpose |
 |----------|--------|---------|
 | `/ready` | GET | Readiness probe (503 while loading, 200 when ready) |
@@ -188,6 +190,9 @@ All other endpoints require `Authorization: Bearer <token>` (token from `~/.conf
 | `advanced.torch_quantization` | `"none"`, `"8bit"`, `"4bit"` | `"none"` |
 | `advanced.audio_loader` | `"torchaudio"`, `"librosa"` | `"torchaudio"` |
 | `generation.max_chunk_chars` | `0`-`10000` | `500` (0 disables chunking) |
+| `generation.lufs_normalize` | `true`, `false` | `false` (off; applies EBU R128 loudness normalization when on) |
+| `generation.lufs_target` | float (LUFS) | `-16.0` (used only when `lufs_normalize` is `true`) |
+| `generation.silence_gap_seconds` | `0.0`-`5.0` | `0.0` (silence between chunks; `0.0` uses a 50 ms crossfade) |
 | `models.<type>.revision` | HF branch/tag/SHA for `clone`/`design`/`custom` downloads | `"main"` (unpinned) |
 
 For full config.json structure, see `docs/00-Foundations/ARCHITECTURE.md`.

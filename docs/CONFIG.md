@@ -96,7 +96,8 @@ The main configuration file is located at:
   "generation": {
     "silence_gap_seconds": 0.0,
     "max_chunk_chars": 500,
-    "lufs_normalize": false
+    "lufs_normalize": false,
+    "lufs_target": -16.0
   }
 }
 ```
@@ -105,7 +106,8 @@ The main configuration file is located at:
 |-----|------|---------|-------------|
 | `generation.silence_gap_seconds` | float | `0.0` | Silence gap between chunks (0-5 seconds) |
 | `generation.max_chunk_chars` | integer | `500` | Max characters per chunk (0=disable chunking) |
-| `generation.lufs_normalize` | boolean | `false` | Normalize audio to -3dB LUFS |
+| `generation.lufs_normalize` | boolean | `false` | Apply EBU R128 loudness normalization |
+| `generation.lufs_target` | float | `-16.0` | Target loudness in LUFS (used when `lufs_normalize` is true) |
 
 ### Language Setting
 
@@ -268,7 +270,8 @@ A minimal `config.json` with defaults:
   "generation": {
     "silence_gap_seconds": 0.0,
     "max_chunk_chars": 500,
-    "lufs_normalize": false
+    "lufs_normalize": false,
+    "lufs_target": -16.0
   }
 }
 ```
