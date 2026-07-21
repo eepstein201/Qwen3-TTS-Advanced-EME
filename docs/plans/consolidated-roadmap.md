@@ -1,7 +1,7 @@
 # Qwen3-TTS Consolidated Development Roadmap
 
-> **Status:** All P0–P2 items complete. Priority 2 enhancements (R-23/27/29/43) complete. Open work is: one generation-path lock refinement (GEN-1), response-model coverage (GEN-2), the `load_at_startup` default decision (FOLLOWUP-1), vLLM-backend performance (HIGH-1/2, MED-2), and upstream-blocked research.
-> **Last Updated:** 2026-07-21 — reconciled against code at `main` @ `6e8ec9d`
+> **Status:** All P0–P2 items complete. Priority 2 enhancements (R-23/27/29/43) complete. GEN-1 (inference_lock release) shipped (#59, 2026-07-21). Open work is: response-model coverage (GEN-2), the `load_at_startup` default decision (FOLLOWUP-1), vLLM-backend performance (HIGH-1/2, MED-2), and upstream-blocked research.
+> **Last Updated:** 2026-07-21 — GEN-1 shipped (#59); reconciled against code at `main` @ `752e265`
 
 ---
 
@@ -44,6 +44,7 @@ Every ✅ below was confirmed against current source on 2026-07-21 (`file:line` 
 | E2E-4 | `trusted_proxies` allowlist — `TTS_TRUSTED_PROXIES` env, loopback default; `X-Forwarded-For` honored only for trusted hosts (`app.py:139-149,155-169`) | ✅ 2026-07-21 |
 | E2E-5 | `/generation-status` no longer leaks — public body omits `eta_sec`/`batch_total`/`chunk_total` (`app.py:421-429`) | ✅ 2026-07-21 |
 | E2E-6 | vLLM clone temp-file cleanup — `tmp_path` `os.unlink`'d in `finally` (`vllm_client.py:239,294-304`) | ✅ 2026-07-21 |
+| GEN-1 | Release `inference_lock` before WAV-encode + peaks — lock narrowed to inference + `chunk_count` capture (`app_generation.py:262,389`); encode/cache/peaks run lock-free; AST test `tests/test_generation_lock_scope.py` (PR #59, full test matrix green) | ✅ 2026-07-21 |
 
 ---
 
@@ -51,19 +52,16 @@ Every ✅ below was confirmed against current source on 2026-07-21 (`file:line` 
 
 | ID | Task | Impact | Effort | Files |
 |----|------|--------|--------|-------|
-| **GEN-1** | Release `inference_lock` before WAV-encode + peak computation | Medium | Medium | `app_generation.py:216,278-280,360,385,392,419-421` |
 | **GEN-2** | Add `response_model=` Pydantic contracts to the 22/24 routes currently returning raw `dict` | Medium | Medium | `server/app.py` (+ models in `validation.py`) |
 | **HIGH-1** | vLLM multimodal params: `--limit-mm-per-prompt audio=1`, `--enable-chunked-prefill`, `bfloat16` **(vLLM backend only)** | High | Medium | Docker configs, vLLM init |
 | **HIGH-2** | Decouple FastAPI from vLLM inference via `httpx.AsyncClient` **(vLLM backend only)** | High | High | `app.py`, `engine_vllm.py` |
 | **MED-1** | Wavesurfer peaks: confirm caching — peaks now computed server-side via `asyncio.to_thread`, verify results are cached rather than recomputed per playback | Medium | Low-Med | `audio_processing.py`, `app_generation.py` |
 | **MED-2** | Optimize `engine_vllm.py` parameters (`max_model_len`, `tensor_parallel_size`, …) **(vLLM backend only)** | High | Medium | `engine_vllm.py` |
 
-**Why GEN-1:** blocking work is already off the event loop (`asyncio.to_thread`), but `inference_lock` is still held across WAV encode + peak computation, so concurrent generations serialize on non-inference work.
 **Why GEN-2:** 22 of 24 routes return untyped `dict` — no response contract for clients and thin generated OpenAPI schema; structural debt flagged in the 2026-07 e2e review.
 **Scope note (HIGH-1/HIGH-2/MED-2):** these apply only to the optional **vLLM backend** (Linux/datacenter). Default deployments (MLX on Apple Silicon, torch elsewhere) are unaffected — prioritize only if vLLM is in use.
 
 **Acceptance criteria (test-first):**
-- **GEN-1:** a test asserting two concurrent `/generate-stream` requests for different voices interleave (lock released during encode), rather than fully serializing.
 - **GEN-2:** each newly-typed route has a test asserting the JSON response validates against its Pydantic model; `app.openapi()` generates with no warnings.
 - **HIGH-1 / MED-2:** a Docker-vLLM smoke test asserting the server starts with the new params and `/health` returns 200.
 - **HIGH-2:** a test asserting the request handler does not block the event loop during a mocked vLLM call.
@@ -112,8 +110,8 @@ Long tail tracked in `docs/reviews/e2e-review-2026-07-01.md`. Highest-value item
 2. **FOLLOWUP-1:** decide `load_at_startup` defaults (config-only)
 3. **MED-1:** verify/cache wavesurfer peaks
 
-### Sprint 2 — Concurrency refinement
-4. **GEN-1:** release `inference_lock` during encode/peaks (pair with a concurrency test)
+### Sprint 2 — Concurrency refinement ✅ (2026-07-21)
+4. ~~**GEN-1:** release `inference_lock` during encode/peaks~~ — shipped (#59); AST lock-scope test added
 
 ### Sprint 3 — vLLM backend (only if vLLM is deployed)
 5. **HIGH-1 + MED-2:** vLLM params
@@ -125,7 +123,7 @@ Long tail tracked in `docs/reviews/e2e-review-2026-07-01.md`. Highest-value item
 
 - [x] R-29/R-30 validation gaps closed (2026-07-21)
 - [x] Full test suite passes — 2258 tests (2026-07-01 e2e review; maintained baseline)
-- [ ] **GEN-1:** concurrent generations interleave during encode (no longer serialized on `inference_lock`)
+- [x] **GEN-1:** concurrent generations interleave during encode — shipped #59, 2026-07-21 (`tests/test_generation_lock_scope.py`)
 - [ ] **GEN-2:** ≥80% of routes carry `response_model`
 - [ ] **HIGH-1/MED-2:** vLLM params validated in a Docker environment
 - [ ] **HIGH-2:** FastAPI decoupled from vLLM — event loop not blocked during generation
@@ -137,4 +135,4 @@ Long tail tracked in `docs/reviews/e2e-review-2026-07-01.md`. Highest-value item
 - **E2E Testing:** plan at `docs/plans/e2e-testing-implementation-plan.md`. Phases 1–2 complete (50 tests). Phases 3–4 (UI, cross-browser, a11y) are considered covered by `tests/test_e2e_playwright.py`.
 - **AI Regression Prevention:** all implementations follow TDD (red-green-refactor).
 - **Git Workflow:** feature branches; never push directly to main without approval.
-- **Verification log:** this reconcile pass confirmed every ✅ against `main` @ `6e8ec9d` on 2026-07-21; see `docs/reviews/e2e-review-2026-07-01.md` for source findings.
+- **Verification log:** reconcile pass confirmed ✅s against `main` on 2026-07-21; GEN-1 shipped via #59 (merged `752e265`). See `docs/reviews/e2e-review-2026-07-01.md` for source findings.
