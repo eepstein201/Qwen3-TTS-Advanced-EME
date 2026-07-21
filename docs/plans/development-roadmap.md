@@ -1,6 +1,6 @@
 # Qwen3-TTS Development Roadmap
 
-This document outlines future improvements identified during the multi-agent code review (2025). Priority 1 and 2 items have been implemented in commits 1-5. This roadmap covers Priority 3 (Medium) and Priority 4 (Low) items for future consideration.
+This document outlines improvements identified during the multi-agent code review (2025). Priority 1 and 2 items shipped in commits 1-5. Priority 3 (Medium) and Priority 4 (Low) items are reconciled below against current source as of 2026-07-21 (`main` @ `6e8ec9d`): **all R-* items are now ✅ Fixed except R-28** (speculative decoding, upstream-blocked). Open performance/infra work (GEN-1/2, vLLM HIGH-1/2, MED-1/2, FOLLOWUP-1) lives in [`consolidated-roadmap.md`](consolidated-roadmap.md).
 
 ## Priority 3 — Medium Priority
 
@@ -78,12 +78,13 @@ The num2words import happens inside the text normalization function. Lazy-load a
 - **Location**: `qwen3_tts/core/engine/text_processing.py:16,233-241`
 - **Fix**: Module-level `_n2w_cached` lazy import with `_n2w_loaded` flag — already implemented
 
-### R-23: LUFS Normalization Option
+### R-23: LUFS Normalization Option ✅ Fixed
 Add optional LUFS (loudness) normalization to audio post-processing for broadcast-quality output.
 
-- **Library**: `pyloudnorm` or similar
-- **Config**: `generation.lufs_target` (e.g., -16.0 for EBU R128)
-- **Default**: Disabled (current behavior)
+- **Location**: `qwen3_tts/core/engine/inference.py:642-653` (`_maybe_apply_lufs`)
+- **Config**: `generation.lufs_normalize` (gate) + `generation.lufs_target` (target; falls back to `LUFS_TARGET` constant at `audio_processing.py:21`)
+- **Wiring**: single-chunk path `inference.py:779`; multi-chunk path `inference.py:844`
+- **Default**: ships OFF (`config.json` `lufs_normalize: false`) — verified 2026-07-21
 
 ### R-24: Pagination for /prompts ✅ Fixed
 The `/prompts` endpoint returns all voice prompts at once. Add pagination for large prompt collections.
@@ -105,12 +106,12 @@ Add audit logging for authentication failures to detect potential brute-force at
 - **Location**: `qwen3_tts/server/app.py:166-189`
 - **Fix**: Enhanced `verify_auth()` to log failure reason (missing_token, invalid_token) — implemented 2026-03-28
 
-### R-27: Configurable Silence Gap
-The silence gap inserted between chunks is currently hardcoded. Make it configurable.
+### R-27: Configurable Silence Gap ✅ Fixed
+The silence gap inserted between chunks is now configurable.
 
-- **Config key**: `generation.silence_gap_seconds` (float)
-- **Default**: 0.0 (current behavior)
-- **Implementation**: Apply in chunk concatenation logic
+- **Location**: `qwen3_tts/core/engine/inference.py:836-842` (concat path), `:943-946` (Metal-retry concat)
+- **Config key**: `generation.silence_gap_seconds` (float) — selects silence-gap concat vs 50 ms crossfade
+- **Default**: `0.0` (crossfade behavior, `config.json`) — verified 2026-07-21
 
 ### R-33: _validate_prompt_name Return Type Annotation ✅ Fixed
 The annotation says `Optional[tuple]` but the actual return type is `Optional[tuple[dict, int]]`.
@@ -173,13 +174,11 @@ The annotation says `Optional[tuple]` but the actual return type is `Optional[tu
 - **Location**: `qwen3_tts/core/config.py:137`
 - **Fix**: Raises `ValueError` with clear message; all call sites updated to also catch `ValueError` — implemented 2026-03-28
 
-### R-43: Refactor create_voice.main() to Accept Args Directly (PARTIAL)
-`create_voice.main()` uses argparse (standard pattern) but still reads from `sys.argv` via `parser.parse_args()`. Can be made more directly testable by accepting `args` parameter.
+### R-43: Refactor create_voice.main() to Accept Args Directly ✅ Fixed
+`create_voice.main()` now accepts an optional `argv` parameter instead of reading `sys.argv` implicitly, enabling direct testing without subprocess/mocking.
 
-- **Location**: `qwen3_tts/tools/create_voice.py:218-240`
-- **Current**: Uses `argparse.ArgumentParser()` with `parser.parse_args()` (reads sys.argv by default)
-- **Improvement**: Accept optional `args` parameter for easier testing without subprocess/mocking
-- **Note**: Core logic already separated into `create_and_save_voice_prompt()` function (testable)
+- **Location**: `qwen3_tts/tools/create_voice.py:269` (`def main(argv=None):`), `:309` (`parser.parse_args(argv)`)
+- **Core logic**: already separated into `create_and_save_voice_prompt()` (testable) — verified 2026-07-21
 
 ### R-44: Add Cancellation Check in Non-Streaming Batch Loop ✅ Fixed
 `handle_generate` in `app.py:462-464` processes all chunks in a batch loop without checking for cancellation. A cancelled request continues generating.
@@ -224,18 +223,14 @@ The annotation says `Optional[tuple]` but the actual return type is `Optional[tu
 - **Root cause**: Gradio's `history_state` shared across all tabs without thread-safe concurrent access protection
 - **Fix**: Added `threading.Lock()`, defensive type checking, list copying on input/output, lock-protected operations — implemented 2026-03-29
 - **Tests**: E2E concurrent generation test passes (2 tabs clicking Generate simultaneously)
-`uninstall.py:15,25,26` has non-top-level imports (ruff E402).
-
-- **Location**: `qwen3_tts/tools/uninstall.py:15,25,26`
-- **Fix**: Moved imports above `logger = ...` declaration — implemented 2026-03-28
 
 ## Priority 5 — Future / Upstream-Dependent
 
-### R-29: Unconstrained TranscribeRequest.language Field
-The `language` field in `TranscribeRequest` is an unconstrained string passed directly to whisper's `generate_kwargs`. A malformed value could cause unexpected ASR behavior.
+### R-29: Unconstrained TranscribeRequest.language Field ✅ Fixed
+The `language` field in `TranscribeRequest` was an unconstrained string passed directly to whisper's `generate_kwargs`.
 
-- **Location**: `qwen3_tts/server/validation.py:86`
-- **Fix**: Add `Field(pattern=r'^[a-z]{2,3}$')` or an enum of supported ISO 639-1 codes
+- **Location**: `qwen3_tts/server/validation.py:100`
+- **Fix**: `language: str = Field(default="en", pattern=r"^[a-z]{2,3}(-[A-Za-z]{2,4})?$")` — verified 2026-07-21
 
 ### R-30: Unbounded base64 Audio Payload ✅ Fixed
 `TranscribeRequest.audio_base64` and `CreateVoicePromptRequest.audio_base64` have no `max_length` constraint. Large payloads are buffered entirely into memory before Pydantic validation.
