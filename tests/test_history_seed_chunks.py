@@ -127,7 +127,10 @@ class TestWebSocketPathReportsSeed(unittest.TestCase):
         self.src = inspect.getsource(websocket)
 
     def test_ws_resolves_seed(self):
-        self.assertIn("_resolve_generation_seed(data.get(\"seed\"))", self.src)
+        # The /ws path now builds a validated GenerateRequest first (C2 DoS
+        # fix), so the seed is resolved from req.seed rather than the raw
+        # data dict. Either way it must flow through _resolve_generation_seed.
+        self.assertIn("_resolve_generation_seed(req.seed)", self.src)
 
     def test_ws_applies_seed_to_gen_params(self):
         self.assertIn('"seed": used_seed', self.src)

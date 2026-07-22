@@ -98,6 +98,21 @@ class TestWebSocketAuth(unittest.TestCase):
             resp = ws.receive_json()
             self.assertEqual(resp["error"], "Authentication failed")
 
+    def test_non_dict_first_message_releases_slot(self):
+        """A valid-JSON non-object first message (e.g. "42") must not leak the
+        connection slot. Pre-fix, auth_data.get() raised AttributeError, which
+        escaped the except and skipped _ws_release (slot-exhaustion DoS)."""
+        from starlette.websockets import WebSocketDisconnect
+
+        _setup_app_state()
+        app.state._ws_connections = {}  # isolate the slot counter
+        with TestClient(app).websocket_connect("/ws") as ws:
+            ws.send_text("42")  # valid JSON, but not an object
+            with self.assertRaises(WebSocketDisconnect):
+                ws.receive_json()
+        conns = getattr(app.state, "_ws_connections", None) or {}
+        self.assertEqual(sum(conns.values()), 0, f"slot leaked: {conns}")
+
 
 @_skip
 class TestWebSocketGeneration(unittest.TestCase):
@@ -108,6 +123,37 @@ class TestWebSocketGeneration(unittest.TestCase):
         ws.send_text(json.dumps({"token": _TEST_TOKEN}))
         resp = ws.receive_json()
         self.assertEqual(resp["status"], "authenticated")
+
+    def test_oversized_max_new_tokens_rejected(self):
+        """max_new_tokens beyond the Pydantic cap (le=8192) must be rejected,
+        not passed to inference. Pre-fix the WS path built GenerateRequest from
+        only 6 fields and passed raw data unvalidated (inference-lock DoS)."""
+        _setup_app_state(
+            models={"clone": MagicMock(), "design": None, "custom": None},
+            server_config={"security": {}},
+        )
+        with TestClient(app).websocket_connect("/ws") as ws:
+            self._authenticate(ws)
+            ws.send_text(
+                json.dumps({"text": "hi", "mode": "clone", "max_new_tokens": 999999})
+            )
+            resp = ws.receive_json()
+            self.assertIn("error", resp)
+            self.assertNotEqual(resp.get("status"), "generating")
+
+    def test_out_of_range_temperature_rejected(self):
+        """temperature > 2.0 must be rejected by Pydantic validation."""
+        _setup_app_state(
+            models={"clone": MagicMock(), "design": None, "custom": None},
+            server_config={"security": {}},
+        )
+        with TestClient(app).websocket_connect("/ws") as ws:
+            self._authenticate(ws)
+            ws.send_text(
+                json.dumps({"text": "hi", "mode": "clone", "temperature": 9.9})
+            )
+            resp = ws.receive_json()
+            self.assertIn("error", resp)
 
     def test_empty_text_returns_error(self):
         """Sending a request with empty text should return an error."""

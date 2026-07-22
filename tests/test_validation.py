@@ -260,6 +260,56 @@ class TestGenCacheKey:
         key = _gen_cache_key("hello", "clone", {"temp": 0.7})
         assert all(c in "0123456789abcdef" for c in key)
 
+    def test_different_language_produces_different_hash(self):
+        """language changes pronunciation and must distinguish cache entries.
+
+        Pre-fix, language was omitted, so an English request could be served a
+        Spanish (etc.) cache entry for the same text/voice/params.
+        """
+        from qwen3_tts.server.validation import _gen_cache_key
+
+        base = ("hello", "clone", {"temp": 0.7})
+        key_en = _gen_cache_key(*base, language="English")
+        key_es = _gen_cache_key(*base, language="Spanish")
+        assert key_en != key_es
+
+    def test_x_vector_only_mode_distinguishes_hash(self):
+        """x_vector_only_mode switches the clone feature path."""
+        from qwen3_tts.server.validation import _gen_cache_key
+
+        base = ("hello", "clone", {"temp": 0.7})
+        key_off = _gen_cache_key(*base, x_vector_only_mode=False)
+        key_on = _gen_cache_key(*base, x_vector_only_mode=True)
+        assert key_off != key_on
+
+    def test_max_chunk_chars_distinguishes_hash(self):
+        """max_chunk_chars moves chunk boundaries and must not collide."""
+        from qwen3_tts.server.validation import _gen_cache_key
+
+        base = ("hello", "clone", {"temp": 0.7})
+        key_default = _gen_cache_key(*base)
+        key_small = _gen_cache_key(*base, max_chunk_chars=200)
+        assert key_default != key_small
+
+    def test_seed_lock_chunks_distinguishes_hash(self):
+        """seed_lock_chunks changes the per-chunk seed strategy (not value)."""
+        from qwen3_tts.server.validation import _gen_cache_key
+
+        base = ("hello", "clone", {"temp": 0.7})
+        key_off = _gen_cache_key(*base, seed_lock_chunks=False)
+        key_on = _gen_cache_key(*base, seed_lock_chunks=True)
+        assert key_off != key_on
+
+    def test_unset_behavior_toggles_stable_across_calls(self):
+        """Default toggles must be deterministic so base keys are stable."""
+        from qwen3_tts.server.validation import _gen_cache_key
+
+        base = ("hello", "clone", {"temp": 0.7})
+        a = _gen_cache_key(*base)
+        b = _gen_cache_key(*base, language=None, x_vector_only_mode=False,
+                           seed_lock_chunks=False)
+        assert a == b
+
 
 class TestTranscribeRequestValidation:
     """Tests for TranscribeRequest field validation (R-29, R-30)."""

@@ -521,6 +521,61 @@ class TestPrintEnvironmentInstructions(unittest.TestCase):
         printed = " ".join(str(c) for c in mock_print.call_args_list)
         self.assertIn("No conda environments", printed)
 
+    def test_miniforge3_primary_path_no_typeerror(self):
+        """The documented primary install path (~/miniforge3/envs) must not
+        crash. Pre-fix, this branch assigned a ``str`` to ``miniforge_envs``
+        then evaluated ``miniforge_envs / env_name`` — ``str / str`` raised
+        TypeError, so the real install path printed nothing / errored out.
+        """
+        from qwen3_tts.tools.uninstall import print_environment_instructions
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            envs_path = pathlib.Path(tmpdir) / "miniforge3" / "envs"
+            envs_path.mkdir(parents=True)
+            (envs_path / "qwen3-tts-mlx").mkdir()
+
+            def fake_expanduser(path):
+                # Route the literal ~/miniforge3/envs path at the temp dir so
+                # the first (str-producing) detection branch is taken.
+                if path == "~/miniforge3/envs":
+                    return str(envs_path)
+                return path
+
+            with mock.patch(
+                "qwen3_tts.tools.uninstall.os.path.expanduser",
+                side_effect=fake_expanduser,
+            ):
+                with mock.patch("builtins.print") as mock_print:
+                    print_environment_instructions()  # must not raise
+
+            printed = " ".join(str(c) for c in mock_print.call_args_list)
+            self.assertIn("qwen3-tts-mlx", printed)
+
+    def test_miniconda3_primary_path_no_typeerror(self):
+        """The ~/miniconda3/envs primary path (elif branch) is the same bug
+        class and must also produce a Path, not a str."""
+        from qwen3_tts.tools.uninstall import print_environment_instructions
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            envs_path = pathlib.Path(tmpdir) / "miniconda3" / "envs"
+            envs_path.mkdir(parents=True)
+            (envs_path / "qwen3-tts").mkdir()
+
+            def fake_expanduser(path):
+                if path == "~/miniconda3/envs":
+                    return str(envs_path)
+                return path
+
+            with mock.patch(
+                "qwen3_tts.tools.uninstall.os.path.expanduser",
+                side_effect=fake_expanduser,
+            ):
+                with mock.patch("builtins.print") as mock_print:
+                    print_environment_instructions()  # must not raise
+
+            printed = " ".join(str(c) for c in mock_print.call_args_list)
+            self.assertIn("qwen3-tts", printed)
+
 
 # ---------------------------------------------------------------------------
 # uninstall_all

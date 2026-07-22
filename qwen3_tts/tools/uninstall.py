@@ -200,17 +200,21 @@ def print_environment_instructions() -> None:
     """Print instructions for removing conda environments."""
     print_header("Conda Environment Removal")
 
-    # Detect which environments exist
+    # Detect which environments exist. miniforge_envs must always be a Path —
+    # it is later divided with ``/ env_name`` and queried with .exists(), which
+    # both fail on a bare str. Pre-fix, the primary miniforge3/miniconda3
+    # branches (the documented install paths) returned a str and crashed here
+    # with TypeError on the documented primary install path.
+    from pathlib import Path
+
     conda_envs = []
     miniforge_envs = None  # Initialize to prevent undefined variable
     if os.path.exists(os.path.expanduser("~/miniforge3/envs")):
-        miniforge_envs = os.path.expanduser("~/miniforge3/envs")
+        miniforge_envs = Path(os.path.expanduser("~/miniforge3/envs"))
     elif os.path.exists(os.path.expanduser("~/miniconda3/envs")):
-        miniforge_envs = os.path.expanduser("~/miniconda3/envs")
+        miniforge_envs = Path(os.path.expanduser("~/miniconda3/envs"))
     else:
         # Try to find conda environments
-        from pathlib import Path
-
         home = Path.home()
         for base in ("miniforge3", "miniconda3", "anaconda3", "opt/anaconda3"):
             envs_path = home / base / "envs"
