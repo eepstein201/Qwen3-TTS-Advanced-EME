@@ -62,7 +62,7 @@ cuda = [
 
 # Rich CLI progress bars
 rich = [
-    "rich>=13.7.1",
+    "rich>=15.0.0",
 ]
 
 # Development tools (for development workflow, not required for testing)
