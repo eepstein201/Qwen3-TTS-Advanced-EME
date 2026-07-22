@@ -248,32 +248,14 @@ python -m pytest tests/ -m e2e                  # opt-in: run E2E (needs live se
 > hang plain `pytest tests/` when a server is up. Opt in with `-m e2e`. The batch runner
 > uses `unittest` (ignores markers), so all batches are unaffected.
 
-**Full suite runner** (multi-environment testing):
-```bash
-python tests/run_full_suite.py --full --env mlx   # MLX environment only
-python tests/run_full_suite.py --full --env torch  # Torch environment only
-python tests/run_full_suite.py --full --env all    # Both environments
-python tests/run_full_suite.py --full --test-type unit  # Unit tests only
-python tests/run_full_suite.py --full --dry-run     # Preview without running
-```
-
 **Batch runner** (prevents hangs from cascading failures):
 ```bash
-python tests/run_batches.py          # All batches
+python tests/run_batches.py            # All batches
 python tests/run_batches.py --batch 1  # Specific batch
 python tests/run_batches.py --list     # List batches
 ```
 
-**Makefile shortcuts:**
-```bash
-make test-batch    # All batches
-make test-core     # Batch 1: Core utilities
-make test-voice    # Batch 2: Voice & CLI
-make test-server   # Batch 3: Server infrastructure
-make test-engine   # Batch 4: Engine & UI
-make test-optional # Batch 5: Optional (pytest-dependent)
-make test-e2e      # Batch 6: E2E Playwright (requires server)
-```
+**More runners:** `tests/run_full_suite.py --full --env {mlx,torch,all}` (multi-env; `--test-type unit`, `--dry-run` supported); `make test-{core,voice,server,engine,optional,e2e}` / `make test-batch` (Makefile shortcuts).
 
 2163+ tests across 108 modules. No GPU, models, or running server required (except E2E). Tests auto-skip when optional deps are missing.
 
