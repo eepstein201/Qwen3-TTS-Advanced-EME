@@ -35,7 +35,7 @@ mlx = [
 server = [
     "fastapi>=0.110.0",
     "slowapi>=0.1.10",
-    "uvicorn[standard]>=0.29.0",
+    "uvicorn[standard]>=0.51.0",
     "soundfile>=0.12.1",
     "psutil>=5.9",
 ]
@@ -89,7 +89,7 @@ test = [
     "playwright>=1.40.0",     # E2E testing (if not already in main deps)
     "fastapi>=0.110.0",       # Server dependencies for integration tests
     "slowapi>=0.1.10",         # Rate limiting for server tests
-    "uvicorn[standard]>=0.29.0",
+    "uvicorn[standard]>=0.51.0",
     "soundfile>=0.12.1",
     "psutil>=5.9",
 ]
