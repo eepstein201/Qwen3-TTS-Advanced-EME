@@ -21,12 +21,9 @@ from fastapi.responses import StreamingResponse
 
 from qwen3_tts.core.config import get_generation_cache_max
 from qwen3_tts.server.app_lifespan import _check_memory_available
-from qwen3_tts.server.validation import (
-    MAX_SEED,
-    _error_response,
-    _gen_cache_key,
-    _validate_generation_request,
-)
+from qwen3_tts.server.validation import (MAX_SEED, _error_response,
+                                         _gen_cache_key,
+                                         _validate_generation_request)
 
 logger = logging.getLogger("tts")
 
@@ -171,9 +168,16 @@ async def handle_generate(request, state, req, security, config_provider):
         # on the first loop iteration, returning an empty results array.
         state.generation_state["cancelled"] = False
 
+        # Helper for reading cache files without blocking the event loop
+        def _read_b64(cache_path):
+            with open(cache_path, "rb") as f:
+                return base64.b64encode(f.read()).decode("utf-8")
+
         # Pre-lock cache check
         pre_lock_cache_keys = {}
         pre_lock_results = {}
+        pre_lock_cache_hits = []
+
         for i, text in enumerate(texts):
             cache_key = _gen_cache_key(
                 text,
@@ -190,20 +194,31 @@ async def handle_generate(request, state, req, security, config_provider):
             if entry:
                 cache_file = entry.get("main_file") or entry.get("file")
                 if cache_file and os.path.exists(cache_file):
-                    with open(cache_file, "rb") as f:
-                        b64_audio = base64.b64encode(f.read()).decode("utf-8")
-                    pre_lock_results[i] = {
-                        "index": i,
-                        "audio_base64": b64_audio,
-                        "sample_rate": entry["sample_rate"],
-                        "chunks": entry.get("chunks", 0),
-                        "seed": entry.get("seed"),
-                    }
-                    logger.info(
-                        "Generation cache hit (pre-lock) for text %d/%d",
-                        i + 1,
-                        len(texts),
-                    )
+                    pre_lock_cache_hits.append((i, cache_file, entry))
+
+        if pre_lock_cache_hits:
+            b64_results = await asyncio.gather(
+                *[
+                    asyncio.to_thread(_read_b64, cache_file)
+                    for _, cache_file, _ in pre_lock_cache_hits
+                ]
+            )
+
+            for (i, cache_file, entry), b64_audio in zip(
+                pre_lock_cache_hits, b64_results
+            ):
+                pre_lock_results[i] = {
+                    "index": i,
+                    "audio_base64": b64_audio,
+                    "sample_rate": entry["sample_rate"],
+                    "chunks": entry.get("chunks", 0),
+                    "seed": entry.get("seed"),
+                }
+                logger.info(
+                    "Generation cache hit (pre-lock) for text %d/%d",
+                    i + 1,
+                    len(texts),
+                )
 
         # If ALL texts hit cache, skip the lock entirely
         if len(pre_lock_results) == len(texts):
@@ -235,8 +250,7 @@ async def handle_generate(request, state, req, security, config_provider):
             if entry:
                 cache_file = entry.get("main_file") or entry.get("file")
                 if cache_file and os.path.exists(cache_file):
-                    with open(cache_file, "rb") as f:
-                        b64_audio = base64.b64encode(f.read()).decode("utf-8")
+                    b64_audio = await asyncio.to_thread(_read_b64, cache_file)
                     results.append(
                         {
                             "index": i,
@@ -425,9 +439,8 @@ async def handle_generate(request, state, req, security, config_provider):
                     "seed": used_seed,
                 }
 
-            from qwen3_tts.core.engine.audio_processing import (
-                calculate_waveform_peaks,
-            )
+            from qwen3_tts.core.engine.audio_processing import \
+                calculate_waveform_peaks
 
             peaks = await asyncio.to_thread(
                 calculate_waveform_peaks, wav, num_peaks=500
@@ -651,9 +664,7 @@ async def handle_generate_stream(request, state, req, security, config_provider)
                         config_provider=config_provider,
                         progress_callback=_chunk_progress,
                     ):
-                        if _should_stop_streaming(
-                            stop_event, state.generation_state
-                        ):
+                        if _should_stop_streaming(stop_event, state.generation_state):
                             logger.info("Generation cancelled by user")
                             break
 
