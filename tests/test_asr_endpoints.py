@@ -12,7 +12,6 @@ import unittest
 from unittest.mock import patch
 
 try:
-    import pytest
     HAS_PYTEST = True
 except ImportError:
     HAS_PYTEST = False

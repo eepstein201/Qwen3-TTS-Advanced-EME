@@ -11,13 +11,11 @@ import unittest
 from unittest.mock import MagicMock
 
 try:
-    import pytest
     HAS_PYTEST = True
 except ImportError:
     HAS_PYTEST = False
 
 from qwen3_tts.server.client._base import _extract_error_message
-
 
 
 class TestExtractErrorMessage(unittest.TestCase):
