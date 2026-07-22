@@ -171,6 +171,10 @@ async def handle_generate(request, state, req, security, config_provider):
         # on the first loop iteration, returning an empty results array.
         state.generation_state["cancelled"] = False
 
+        def _read_cache_file_b64(filepath: str) -> str:
+            with open(filepath, "rb") as f:
+                return base64.b64encode(f.read()).decode("utf-8")
+
         # Pre-lock cache check
         pre_lock_cache_keys = {}
         pre_lock_results = {}
@@ -194,8 +198,7 @@ async def handle_generate(request, state, req, security, config_provider):
             if entry:
                 cache_file = entry.get("main_file") or entry.get("file")
                 if cache_file and os.path.exists(cache_file):
-                    with open(cache_file, "rb") as f:
-                        b64_audio = base64.b64encode(f.read()).decode("utf-8")
+                    b64_audio = await asyncio.to_thread(_read_cache_file_b64, cache_file)
                     pre_lock_results[i] = {
                         "index": i,
                         "audio_base64": b64_audio,
@@ -239,8 +242,7 @@ async def handle_generate(request, state, req, security, config_provider):
             if entry:
                 cache_file = entry.get("main_file") or entry.get("file")
                 if cache_file and os.path.exists(cache_file):
-                    with open(cache_file, "rb") as f:
-                        b64_audio = base64.b64encode(f.read()).decode("utf-8")
+                    b64_audio = await asyncio.to_thread(_read_cache_file_b64, cache_file)
                     results.append(
                         {
                             "index": i,
