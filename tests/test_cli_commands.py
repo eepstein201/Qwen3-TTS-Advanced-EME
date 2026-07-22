@@ -41,7 +41,7 @@ from click.testing import CliRunner
 
 # ---- TTSGroup routing ----
 
-@pytest.mark.unit
+
 def test_tts_group_routes_bare_text():
     """Bare text is routed to generate subcommand."""
     from qwen3_tts.cli import cli
@@ -52,7 +52,7 @@ def test_tts_group_routes_bare_text():
     mock_gen.assert_called_once()
 
 
-@pytest.mark.unit
+
 def test_tts_group_routes_empty_to_generate():
     """Bare `tts` with no args routes to generate."""
     from qwen3_tts.cli import cli
@@ -63,7 +63,7 @@ def test_tts_group_routes_empty_to_generate():
     mock_gen.assert_called_once()
 
 
-@pytest.mark.unit
+
 def test_tts_group_server_mode_flag():
     """--_server-mode flag is stripped from routing and re-inserted for generation."""
     from qwen3_tts.cli import cli
@@ -76,7 +76,7 @@ def test_tts_group_server_mode_flag():
     assert call_kwargs[1].get('server_mode') is True or '--_server-mode' in str(call_kwargs)
 
 
-@pytest.mark.unit
+
 def test_tts_group_server_mode_not_for_non_generation():
     """--_server-mode is not added to non-generation commands."""
     from qwen3_tts.cli import cli
@@ -90,7 +90,7 @@ def test_tts_group_server_mode_not_for_non_generation():
 
 # ---- _call_generate flag mapping ----
 
-@pytest.mark.unit
+
 def test_call_generate_maps_flags():
     """_call_generate translates Click kwargs to argparse sys.argv."""
     from qwen3_tts.cli import _call_generate
@@ -115,7 +115,7 @@ def test_call_generate_maps_flags():
     mock_main.assert_called_once()
 
 
-@pytest.mark.unit
+
 def test_call_generate_restores_argv():
     """_call_generate restores sys.argv even on exception."""
     from qwen3_tts.cli import _call_generate
@@ -131,7 +131,7 @@ def test_call_generate_restores_argv():
     assert sys.argv == original
 
 
-@pytest.mark.unit
+
 def test_call_generate_exits_on_true_return():
     """_call_generate calls sys.exit(2) when main returns True."""
     from qwen3_tts.cli import _call_generate
@@ -145,7 +145,7 @@ def test_call_generate_exits_on_true_return():
 
 # ---- list speakers ----
 
-@pytest.mark.unit
+
 def test_list_speakers():
     """list speakers shows premium speakers."""
     from qwen3_tts.cli import cli
@@ -158,7 +158,7 @@ def test_list_speakers():
 
 # ---- list presets ----
 
-@pytest.mark.unit
+
 def test_list_presets_empty():
     """list presets shows 'no presets' when config empty."""
     from qwen3_tts.cli import cli
@@ -170,7 +170,7 @@ def test_list_presets_empty():
     assert "No presets configured" in result.output
 
 
-@pytest.mark.unit
+
 def test_list_presets_with_data():
     """list presets shows configured presets."""
     from qwen3_tts.cli import cli
@@ -186,7 +186,7 @@ def test_list_presets_with_data():
 
 # ---- list aliases ----
 
-@pytest.mark.unit
+
 def test_list_aliases_empty():
     """list aliases shows 'no aliases' when config empty."""
     from qwen3_tts.cli import cli
@@ -198,7 +198,7 @@ def test_list_aliases_empty():
     assert "No aliases configured" in result.output
 
 
-@pytest.mark.unit
+
 def test_list_aliases_with_data():
     """list aliases shows configured aliases."""
     from qwen3_tts.cli import cli
@@ -215,7 +215,7 @@ def test_list_aliases_with_data():
 
 # ---- list prosody ----
 
-@pytest.mark.unit
+
 def test_list_prosody_empty():
     """list prosody shows 'no presets' when empty."""
     from qwen3_tts.cli import cli
@@ -227,7 +227,7 @@ def test_list_prosody_empty():
     assert "No prosody presets" in result.output
 
 
-@pytest.mark.unit
+
 def test_list_prosody_with_data():
     """list prosody shows configured presets."""
     from qwen3_tts.cli import cli
@@ -242,7 +242,7 @@ def test_list_prosody_with_data():
 
 # ---- list models ----
 
-@pytest.mark.unit
+
 def test_list_models_server_not_running():
     """list models shows configured models when server is not running."""
     from qwen3_tts.cli import cli
@@ -260,7 +260,7 @@ def test_list_models_server_not_running():
 
 # ---- list backends ----
 
-@pytest.mark.unit
+
 def test_list_backends_mlx():
     """list backends shows MLX info when mlx is current."""
     from qwen3_tts.cli import cli
@@ -276,7 +276,7 @@ def test_list_backends_mlx():
     assert "8bit" in result.output
 
 
-@pytest.mark.unit
+
 def test_list_backends_torch():
     """list backends shows torch info when torch is current."""
     from qwen3_tts.cli import cli
@@ -294,7 +294,7 @@ def test_list_backends_torch():
 
 # ---- config show ----
 
-@pytest.mark.unit
+
 def test_config_show():
     """config show prints JSON config."""
     from qwen3_tts.cli import cli
@@ -309,7 +309,7 @@ def test_config_show():
 
 # ---- config path ----
 
-@pytest.mark.unit
+
 def test_config_path():
     """config path prints the config file path."""
     from qwen3_tts.cli import cli
@@ -323,7 +323,7 @@ def test_config_path():
 
 # ---- cache list ----
 
-@pytest.mark.unit
+
 def test_cache_list():
     """cache list delegates to list_models_cmd."""
     from qwen3_tts.cli import cli
@@ -336,7 +336,7 @@ def test_cache_list():
 
 # ---- cache size ----
 
-@pytest.mark.unit
+
 def test_cache_size():
     """cache size delegates to get_size_cmd."""
     from qwen3_tts.cli import cli
@@ -349,7 +349,7 @@ def test_cache_size():
 
 # ---- doctor ----
 
-@pytest.mark.unit
+
 def test_doctor():
     """doctor delegates to run_healthcheck."""
     from qwen3_tts.cli import cli
@@ -360,7 +360,7 @@ def test_doctor():
     assert result.exit_code == 0
 
 
-@pytest.mark.unit
+
 def test_doctor_failure():
     """doctor returns non-zero on failure."""
     from qwen3_tts.cli import cli
@@ -373,7 +373,7 @@ def test_doctor_failure():
 
 # ---- history ----
 
-@pytest.mark.unit
+
 def test_history_default():
     """history delegates to show_history with default count."""
     from qwen3_tts.cli import cli
@@ -384,7 +384,7 @@ def test_history_default():
     mock_hist.assert_called_once_with(10)
 
 
-@pytest.mark.unit
+
 def test_history_custom_count():
     """history passes custom count."""
     from qwen3_tts.cli import cli
@@ -397,7 +397,7 @@ def test_history_custom_count():
 
 # ---- stats ----
 
-@pytest.mark.unit
+
 def test_stats_server_not_running():
     """stats shows error when server not running."""
     from qwen3_tts.cli import cli
@@ -413,7 +413,7 @@ def test_stats_server_not_running():
 
 # ---- voice list ----
 
-@pytest.mark.unit
+
 def test_voice_list_empty():
     """voice list shows 'no prompts' when empty."""
     from qwen3_tts.cli import cli
@@ -426,7 +426,7 @@ def test_voice_list_empty():
     assert "No voice prompts found" in result.output
 
 
-@pytest.mark.unit
+
 def test_voice_list_with_prompts():
     """voice list shows prompts with default marker."""
     from qwen3_tts.cli import cli
@@ -443,7 +443,7 @@ def test_voice_list_with_prompts():
 
 # ---- voice info ----
 
-@pytest.mark.unit
+
 def test_voice_info_server_not_running():
     """voice info shows error when server not running."""
     from qwen3_tts.cli import cli
@@ -458,7 +458,7 @@ def test_voice_info_server_not_running():
 
 # ---- version ----
 
-@pytest.mark.unit
+
 def test_version():
     """--version shows version string."""
     from qwen3_tts.cli import cli
@@ -470,7 +470,7 @@ def test_version():
 
 # ---- uninstall commands delegate ----
 
-@pytest.mark.unit
+
 def test_uninstall_environment():
     """uninstall environment delegates to print_environment_instructions."""
     from qwen3_tts.cli import cli

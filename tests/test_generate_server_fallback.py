@@ -48,7 +48,7 @@ _skip = unittest.skipUnless(HAS_DEPS, "requires qwen3_tts.interface.generate")
 _CONFIG = {"server": {"host": "127.0.0.1", "port": 5123}}
 
 
-@pytest.mark.unit
+
 @_skip
 class TestEnsureServerRunningFallback(unittest.TestCase):
     """Fallback must use python -m qwen3_tts.server.app when tts CLI not found."""

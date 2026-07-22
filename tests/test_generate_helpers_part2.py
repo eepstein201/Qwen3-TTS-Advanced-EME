@@ -40,7 +40,7 @@ except ImportError:
 # _decode_base64_result / _save_base64_result
 # =========================================================================
 
-@pytest.mark.unit
+
 class TestDecodeBase64Result(unittest.TestCase):
     """Tests for _decode_base64_result — base64 audio decoding roundtrip."""
 
@@ -65,7 +65,7 @@ class TestDecodeBase64Result(unittest.TestCase):
         self.assertEqual(len(wav), 100)
 
 
-@pytest.mark.unit
+
 class TestSaveBase64Result(unittest.TestCase):
     """Tests for _save_base64_result — write base64 audio to file."""
 
@@ -88,7 +88,7 @@ class TestSaveBase64Result(unittest.TestCase):
 # get_generation_params
 # =========================================================================
 
-@pytest.mark.unit
+
 class TestGetGenerationParams(unittest.TestCase):
     """Tests for get_generation_params — merge config, preset, and CLI args."""
 

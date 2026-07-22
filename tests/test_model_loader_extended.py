@@ -43,7 +43,7 @@ from unittest.mock import MagicMock, patch
 # ---- _install_mps_patch ----
 
 
-@pytest.mark.unit
+
 def test_install_mps_patch_non_macos():
     """_install_mps_patch marks as done but doesn't patch on non-macOS."""
     from qwen3_tts.core.engine import model_loader
@@ -58,7 +58,7 @@ def test_install_mps_patch_non_macos():
         model_loader._mps_patch_installed = orig
 
 
-@pytest.mark.unit
+
 def test_install_mps_patch_already_installed():
     """_install_mps_patch is a no-op when already installed."""
     from qwen3_tts.core.engine import model_loader
@@ -73,7 +73,7 @@ def test_install_mps_patch_already_installed():
         model_loader._mps_patch_installed = orig
 
 
-@pytest.mark.unit
+
 def test_install_mps_patch_on_macos():
     """_install_mps_patch patches torch.multinomial on macOS."""
     from qwen3_tts.core.engine import model_loader
@@ -101,7 +101,7 @@ def test_install_mps_patch_on_macos():
 # ---- _resolve_load_kwargs ----
 
 
-@pytest.mark.unit
+
 def test_resolve_load_kwargs_none_quant():
     """_resolve_load_kwargs with no quantization sets dtype."""
     from qwen3_tts.core.engine.model_loader import _resolve_load_kwargs
@@ -118,7 +118,7 @@ def test_resolve_load_kwargs_none_quant():
     assert "load_in_8bit" not in result
 
 
-@pytest.mark.unit
+
 def test_resolve_load_kwargs_8bit_no_cuda():
     """_resolve_load_kwargs raises for 8bit without CUDA."""
     from qwen3_tts.core.engine.model_loader import _resolve_load_kwargs
@@ -133,7 +133,7 @@ def test_resolve_load_kwargs_8bit_no_cuda():
         _resolve_load_kwargs("8bit", "float16", "cpu", "sdpa", "auto")
 
 
-@pytest.mark.unit
+
 def test_resolve_load_kwargs_4bit_no_linux():
     """_resolve_load_kwargs raises for 4bit without CUDA+Linux."""
     from qwen3_tts.core.engine.model_loader import _resolve_load_kwargs
@@ -149,7 +149,7 @@ def test_resolve_load_kwargs_4bit_no_linux():
         _resolve_load_kwargs("4bit", "float16", "cuda", "sdpa", "auto")
 
 
-@pytest.mark.unit
+
 def test_resolve_load_kwargs_auto_8bit_turing():
     """_resolve_load_kwargs auto-enables 8bit on Turing GPUs when not explicitly set."""
     from qwen3_tts.core.engine.model_loader import _resolve_load_kwargs
@@ -173,7 +173,7 @@ def test_resolve_load_kwargs_auto_8bit_turing():
     assert result.get("load_in_8bit") is True
 
 
-@pytest.mark.unit
+
 def test_resolve_load_kwargs_turing_explicit_none():
     """_resolve_load_kwargs respects explicit 'none' quant on Turing."""
     from qwen3_tts.core.engine.model_loader import _resolve_load_kwargs
@@ -198,7 +198,7 @@ def test_resolve_load_kwargs_turing_explicit_none():
 # ---- _is_model_cached ----
 
 
-@pytest.mark.unit
+
 def test_is_model_cached_true():
     """_is_model_cached returns True when model is cached."""
     from qwen3_tts.core.engine.model_loader import _is_model_cached
@@ -209,7 +209,7 @@ def test_is_model_cached_true():
         assert _is_model_cached("repo/model") is True
 
 
-@pytest.mark.unit
+
 def test_is_model_cached_false():
     """_is_model_cached returns False when model is not cached."""
     from qwen3_tts.core.engine.model_loader import _is_model_cached
@@ -223,7 +223,7 @@ def test_is_model_cached_false():
 # ---- _apply_torch_compile ----
 
 
-@pytest.mark.unit
+
 def test_apply_torch_compile_success():
     """_apply_torch_compile wraps model.model with torch.compile."""
     from qwen3_tts.core.engine.model_loader import _apply_torch_compile
@@ -240,7 +240,7 @@ def test_apply_torch_compile_success():
     assert result.model == compiled
 
 
-@pytest.mark.unit
+
 def test_apply_torch_compile_skips_non_cuda():
     """_apply_torch_compile skips compilation on non-CUDA."""
     from qwen3_tts.core.engine.model_loader import _apply_torch_compile
@@ -256,7 +256,7 @@ def test_apply_torch_compile_skips_non_cuda():
     assert result.model == original_inner
 
 
-@pytest.mark.unit
+
 def test_apply_torch_compile_failure():
     """_apply_torch_compile handles compile failure gracefully."""
     from qwen3_tts.core.engine.model_loader import _apply_torch_compile
@@ -272,7 +272,7 @@ def test_apply_torch_compile_failure():
     assert result == mock_model
 
 
-@pytest.mark.unit
+
 def test_apply_torch_compile_disabled():
     """_apply_torch_compile does nothing when should_compile=False."""
     from qwen3_tts.core.engine.model_loader import _apply_torch_compile
@@ -289,7 +289,7 @@ def test_apply_torch_compile_disabled():
 # ---- _patch_tokenizer ----
 
 
-@pytest.mark.unit
+
 def test_patch_tokenizer_success():
     """_patch_tokenizer reloads tokenizer with fix_mistral_regex."""
     from qwen3_tts.core.engine.model_loader import _patch_tokenizer
@@ -306,7 +306,7 @@ def test_patch_tokenizer_success():
     assert result.tokenizer == mock_tokenizer
 
 
-@pytest.mark.unit
+
 def test_patch_tokenizer_unsupported():
     """_patch_tokenizer handles TypeError when fix_mistral_regex not supported."""
     from qwen3_tts.core.engine.model_loader import _patch_tokenizer
@@ -329,7 +329,7 @@ def test_patch_tokenizer_unsupported():
 # ---- _warmup_model ----
 
 
-@pytest.mark.unit
+
 def test_warmup_model_design_mlx():
     """_warmup_model runs warm-up inference for design model on MLX."""
     from qwen3_tts.core.engine.model_loader import _warmup_model
@@ -341,7 +341,7 @@ def test_warmup_model_design_mlx():
     mock_model.generate_voice_design.assert_called_once()
 
 
-@pytest.mark.unit
+
 def test_warmup_model_design_torch():
     """_warmup_model runs warm-up inference for design model on torch."""
     from qwen3_tts.core.engine.model_loader import _warmup_model
@@ -355,7 +355,7 @@ def test_warmup_model_design_torch():
     mock_model.generate_voice_design.assert_called_once()
 
 
-@pytest.mark.unit
+
 def test_warmup_model_skips_non_design():
     """_warmup_model skips warm-up for clone and custom models."""
     from qwen3_tts.core.engine.model_loader import _warmup_model
@@ -368,7 +368,7 @@ def test_warmup_model_skips_non_design():
     mock_model.generate_voice_design.assert_not_called()
 
 
-@pytest.mark.unit
+
 def test_warmup_model_handles_exception():
     """_warmup_model handles exceptions gracefully."""
     from qwen3_tts.core.engine.model_loader import _warmup_model
@@ -383,7 +383,7 @@ def test_warmup_model_handles_exception():
 # ---- load_model dispatch ----
 
 
-@pytest.mark.unit
+
 def test_load_model_dispatches_mlx():
     """load_model dispatches to _load_model_mlx when backend is mlx."""
     from qwen3_tts.core.engine.model_loader import load_model
@@ -403,7 +403,7 @@ def test_load_model_dispatches_mlx():
     assert result == mock_model
 
 
-@pytest.mark.unit
+
 def test_load_model_dispatches_torch():
     """load_model dispatches to _load_model_torch when backend is torch."""
     from qwen3_tts.core.engine.model_loader import load_model
@@ -426,7 +426,7 @@ def test_load_model_dispatches_torch():
 # ---- _apply_cuda_optimizations additional coverage ----
 
 
-@pytest.mark.unit
+
 def test_cuda_optimizations_no_cuda():
     """_apply_cuda_optimizations returns defaults when no CUDA."""
     from qwen3_tts.core.engine.model_loader import _apply_cuda_optimizations
@@ -443,7 +443,7 @@ def test_cuda_optimizations_no_cuda():
     assert compile_ is False
 
 
-@pytest.mark.unit
+
 def test_cuda_optimizations_turing():
     """_apply_cuda_optimizations on Turing uses float16 and no compile by default."""
     from qwen3_tts.core.engine.model_loader import _apply_cuda_optimizations
@@ -465,7 +465,7 @@ def test_cuda_optimizations_turing():
 # ---- _retry_model_load ----
 
 
-@pytest.mark.unit
+
 def test_retry_model_load_immediate_success():
     """_retry_model_load returns on first success without retrying."""
     from qwen3_tts.core.engine.model_loader import _retry_model_load
@@ -477,7 +477,7 @@ def test_retry_model_load_immediate_success():
     mock_fn.assert_called_once()
 
 
-@pytest.mark.unit
+
 def test_retry_model_load_retries_on_oserror():
     """_retry_model_load retries on OSError."""
     from qwen3_tts.core.engine.model_loader import _retry_model_load
@@ -491,7 +491,7 @@ def test_retry_model_load_retries_on_oserror():
     assert mock_fn.call_count == 3
 
 
-@pytest.mark.unit
+
 def test_retry_model_load_raises_after_exhaustion():
     """_retry_model_load raises after max retries."""
     from qwen3_tts.core.engine.model_loader import _retry_model_load
@@ -505,7 +505,7 @@ def test_retry_model_load_raises_after_exhaustion():
 # ---- R-18: Turing GPU torch_quantization (already implemented) ----
 
 
-@pytest.mark.unit
+
 def test_turing_respects_explicit_torch_quantization():
     """Turing GPUs should respect explicit torch_quantization setting (R-18).
 

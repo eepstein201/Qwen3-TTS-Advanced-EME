@@ -37,7 +37,7 @@ from unittest.mock import MagicMock, patch
 
 # ---- get_model_table_data ----
 
-@pytest.mark.unit
+
 def test_get_model_table_data_server_not_running():
     """get_model_table_data returns 'server not running' when server is down."""
     from qwen3_tts.interface.ui.model_management import get_model_table_data
@@ -51,7 +51,7 @@ def test_get_model_table_data_server_not_running():
         assert "server not running" in row[1]
 
 
-@pytest.mark.unit
+
 def test_get_model_table_data_server_running():
     """get_model_table_data returns model statuses when server responds."""
     from qwen3_tts.interface.ui.model_management import get_model_table_data
@@ -84,7 +84,7 @@ def test_get_model_table_data_server_running():
     assert rows[3][0] == "asr"
 
 
-@pytest.mark.unit
+
 def test_get_model_table_data_server_error():
     """get_model_table_data returns error rows on non-200 response."""
     from qwen3_tts.interface.ui.model_management import get_model_table_data
@@ -101,7 +101,7 @@ def test_get_model_table_data_server_error():
     assert "error" in rows[0][1]
 
 
-@pytest.mark.unit
+
 def test_get_model_table_data_connection_error():
     """get_model_table_data handles connection errors gracefully."""
     from qwen3_tts.interface.ui.model_management import get_model_table_data
@@ -117,7 +117,7 @@ def test_get_model_table_data_connection_error():
 
 # ---- toggle_model ----
 
-@pytest.mark.unit
+
 def test_toggle_model_load_success():
     """toggle_model load returns success message."""
     from qwen3_tts.interface.ui.model_management import toggle_model
@@ -137,7 +137,7 @@ def test_toggle_model_load_success():
     assert "clone" in msg
 
 
-@pytest.mark.unit
+
 def test_toggle_model_server_down():
     """toggle_model returns 'Server not running' when down."""
     from qwen3_tts.interface.ui.model_management import toggle_model
@@ -151,7 +151,7 @@ def test_toggle_model_server_down():
     assert "not running" in msg.lower()
 
 
-@pytest.mark.unit
+
 def test_toggle_model_unload_success():
     """toggle_model unload returns success message."""
     from qwen3_tts.interface.ui.model_management import toggle_model
@@ -170,7 +170,7 @@ def test_toggle_model_unload_success():
     assert "unloaded" in msg
 
 
-@pytest.mark.unit
+
 def test_toggle_model_error_response():
     """toggle_model returns error message on non-200."""
     from qwen3_tts.interface.ui.model_management import toggle_model
@@ -191,7 +191,7 @@ def test_toggle_model_error_response():
 
 # ---- toggle_asr ----
 
-@pytest.mark.unit
+
 def test_toggle_asr_load_success():
     """toggle_asr load returns success."""
     from qwen3_tts.interface.ui.model_management import toggle_asr
@@ -209,7 +209,7 @@ def test_toggle_asr_load_success():
     assert "loaded" in msg
 
 
-@pytest.mark.unit
+
 def test_toggle_asr_server_down():
     """toggle_asr returns error when server is down."""
     from qwen3_tts.interface.ui.model_management import toggle_asr
@@ -224,7 +224,7 @@ def test_toggle_asr_server_down():
 
 # ---- update_startup_defaults ----
 
-@pytest.mark.unit
+
 def test_update_startup_defaults(tmp_path):
     """update_startup_defaults saves config correctly."""
     from qwen3_tts.interface.ui.model_management import update_startup_defaults
@@ -247,7 +247,7 @@ def test_update_startup_defaults(tmp_path):
 
 # ---- get_model_status_html ----
 
-@pytest.mark.unit
+
 def test_get_model_status_html_loaded():
     """get_model_status_html shows green loaded status."""
     from qwen3_tts.interface.ui.model_management import get_model_status_html
@@ -267,7 +267,7 @@ def test_get_model_status_html_loaded():
     assert "3500" in html
 
 
-@pytest.mark.unit
+
 def test_get_model_status_html_not_loaded():
     """get_model_status_html shows gray not-loaded status."""
     from qwen3_tts.interface.ui.model_management import get_model_status_html
@@ -286,7 +286,7 @@ def test_get_model_status_html_not_loaded():
     assert "Not loaded" in html
 
 
-@pytest.mark.unit
+
 def test_get_model_status_html_server_down():
     """get_model_status_html shows gray when server is down."""
     from qwen3_tts.interface.ui.model_management import get_model_status_html
@@ -300,7 +300,7 @@ def test_get_model_status_html_server_down():
 
 # ---- get_audio_loader_setting / set_audio_loader_setting ----
 
-@pytest.mark.unit
+
 def test_get_audio_loader_setting_default():
     """get_audio_loader_setting returns 'torchaudio' by default."""
     from qwen3_tts.interface.ui.model_management import get_audio_loader_setting
@@ -309,7 +309,7 @@ def test_get_audio_loader_setting_default():
         assert get_audio_loader_setting() == "torchaudio"
 
 
-@pytest.mark.unit
+
 def test_get_audio_loader_setting_librosa():
     """get_audio_loader_setting returns configured value."""
     from qwen3_tts.interface.ui.model_management import get_audio_loader_setting
@@ -319,7 +319,7 @@ def test_get_audio_loader_setting_librosa():
         assert get_audio_loader_setting() == "librosa"
 
 
-@pytest.mark.unit
+
 def test_set_audio_loader_setting():
     """set_audio_loader_setting saves config and returns message."""
     from qwen3_tts.interface.ui.model_management import set_audio_loader_setting

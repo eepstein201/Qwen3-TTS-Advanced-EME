@@ -45,7 +45,7 @@ except ImportError:
     pytest = _DummyPytest()
 
 
-@pytest.mark.unit
+
 class TestTTSClientInit(unittest.TestCase):
     """Test TTSClient initialization."""
 
@@ -177,7 +177,7 @@ class TestTTSClientInit(unittest.TestCase):
             os.unlink(tmp)
 
 
-@pytest.mark.unit
+
 class TestClientHelpers(unittest.TestCase):
     """Test internal helper functions for code reuse."""
 
@@ -314,7 +314,7 @@ class TestClientHelpers(unittest.TestCase):
             os.unlink(tmp)
 
 
-@pytest.mark.unit
+
 class TestStreamingBufferOverflowProtection(unittest.TestCase):
     """Test streaming buffer overflow protection."""
 
@@ -375,7 +375,7 @@ class TestStreamingBufferOverflowProtection(unittest.TestCase):
             os.unlink(tmp)
 
 
-@pytest.mark.unit
+
 class TestSpeakerNameNormalization(unittest.TestCase):
     """Test speaker name normalization to lowercase."""
 
@@ -452,7 +452,7 @@ class TestSpeakerNameNormalization(unittest.TestCase):
             os.unlink(tmp)
 
 
-@pytest.mark.unit
+
 class TestAddModeParams(unittest.TestCase):
     """Test TTSClient._add_mode_params static method (returns new dict)."""
 

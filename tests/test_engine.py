@@ -54,7 +54,7 @@ def _colab_notebook_exists() -> bool:
     return notebook_path.exists()
 
 
-@pytest.mark.unit
+
 class TestEngineFunctions(unittest.TestCase):
     """Tests for engine.py utility functions."""
 
@@ -394,7 +394,7 @@ class TestEngineFunctions(unittest.TestCase):
                         )
 
 
-@pytest.mark.unit
+
 class TestGetMlxGenParams(unittest.TestCase):
     """Tests for _get_mlx_gen_params helper in inference.py."""
 
@@ -421,7 +421,7 @@ class TestGetMlxGenParams(unittest.TestCase):
         self.assertEqual(result["max_new_tokens"], 2048)
 
 
-@pytest.mark.unit
+
 class TestEvictIfFull(unittest.TestCase):
     """Tests for the _evict_if_full LRU cache eviction helper."""
 
@@ -451,7 +451,7 @@ class TestEvictIfFull(unittest.TestCase):
         self.assertEqual(len(cache), 0)
 
 
-@pytest.mark.unit
+
 class TestRetryModelLoad(unittest.TestCase):
     """Tests for the _retry_model_load helper in model_loader.py."""
 

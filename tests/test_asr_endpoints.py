@@ -30,7 +30,7 @@ _skip_server = unittest.skipUnless(
 )
 
 
-@pytest.mark.unit
+
 @_skip_server
 class TestLoadASREndpoint(unittest.TestCase):
     """Test POST /load-asr endpoint."""
@@ -77,7 +77,7 @@ class TestLoadASREndpoint(unittest.TestCase):
         self.assertEqual(resp.status_code, 401)
 
 
-@pytest.mark.unit
+
 @_skip_server
 class TestUnloadASREndpoint(unittest.TestCase):
     """Test POST /unload-asr endpoint."""
@@ -111,7 +111,7 @@ class TestUnloadASREndpoint(unittest.TestCase):
         self.assertEqual(resp.status_code, 401)
 
 
-@pytest.mark.unit
+
 @_skip_server
 class TestTranscribeEndpoint(unittest.TestCase):
     """Test POST /transcribe endpoint."""
@@ -182,7 +182,7 @@ class TestTranscribeEndpoint(unittest.TestCase):
         self.assertEqual(resp.status_code, 422)
 
 
-@pytest.mark.unit
+
 @_skip_server
 class TestModelsEndpointASR(unittest.TestCase):
     """Test that GET /models includes ASR info."""

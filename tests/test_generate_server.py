@@ -62,7 +62,7 @@ _CONFIG = {"server": {"host": "127.0.0.1", "port": 5123}}
 # ensure_server_running
 # ---------------------------------------------------------------------------
 
-@pytest.mark.unit
+
 @_skip
 class TestEnsureServerRunning(unittest.TestCase):
     """Tests for ensure_server_running()."""
@@ -112,7 +112,7 @@ class TestEnsureServerRunning(unittest.TestCase):
 # load_model_on_server
 # ---------------------------------------------------------------------------
 
-@pytest.mark.unit
+
 @_skip
 class TestLoadModelOnServer(unittest.TestCase):
     """Tests for load_model_on_server()."""
@@ -150,7 +150,7 @@ class TestLoadModelOnServer(unittest.TestCase):
 # generate_via_server
 # ---------------------------------------------------------------------------
 
-@pytest.mark.unit
+
 @_skip
 class TestGenerateViaServer(unittest.TestCase):
     """Tests for generate_via_server()."""
@@ -274,7 +274,7 @@ class TestGenerateViaServer(unittest.TestCase):
 # _voice_param_for_log
 # ---------------------------------------------------------------------------
 
-@pytest.mark.unit
+
 @_skip
 class TestVoiceParamForLog(unittest.TestCase):
     """Tests for _voice_param_for_log()."""
@@ -304,7 +304,7 @@ class TestVoiceParamForLog(unittest.TestCase):
 # _run_single_generation
 # ---------------------------------------------------------------------------
 
-@pytest.mark.unit
+
 @_skip
 class TestRunSingleGeneration(unittest.TestCase):
     """Tests for _run_single_generation()."""
@@ -358,7 +358,7 @@ class TestRunSingleGeneration(unittest.TestCase):
 # launch_gradio_ui / build_ui_and_launch
 # ---------------------------------------------------------------------------
 
-@pytest.mark.unit
+
 @_skip
 class TestLaunchGradioUI(unittest.TestCase):
     """Tests for launch_gradio_ui and build_ui_and_launch."""
@@ -403,7 +403,7 @@ class TestLaunchGradioUI(unittest.TestCase):
 # generate_streaming
 # ---------------------------------------------------------------------------
 
-@pytest.mark.unit
+
 @_skip
 class TestGenerateStreaming(unittest.TestCase):
     """Tests for generate_streaming()."""
@@ -508,7 +508,7 @@ class TestGenerateStreaming(unittest.TestCase):
 # generate_local
 # ---------------------------------------------------------------------------
 
-@pytest.mark.unit
+
 @_skip
 class TestGenerateLocal(unittest.TestCase):
     """Tests for generate_local()."""
@@ -596,7 +596,7 @@ class TestGenerateLocal(unittest.TestCase):
 # _run_single_generation — additional paths
 # ---------------------------------------------------------------------------
 
-@pytest.mark.unit
+
 @_skip
 class TestRunSingleGenerationExtended(unittest.TestCase):
     """Additional path coverage for _run_single_generation."""
@@ -744,7 +744,7 @@ class TestRunSingleGenerationExtended(unittest.TestCase):
 # generate_via_server — additional paths
 # ---------------------------------------------------------------------------
 
-@pytest.mark.unit
+
 @_skip
 class TestGenerateViaServerExtended(unittest.TestCase):
     """Additional paths for generate_via_server."""

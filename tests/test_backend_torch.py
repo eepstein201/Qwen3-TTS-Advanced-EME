@@ -38,7 +38,7 @@ from unittest.mock import patch
 
 # ---- voice_prompt_exists (torch backend) ----
 
-@pytest.mark.unit
+
 def test_voice_prompt_exists_torch_pt_found(tmp_path):
     """voice_prompt_exists returns True when .pt file exists (torch backend)."""
     from qwen3_tts.interface.generate_helpers import voice_prompt_exists
@@ -51,7 +51,7 @@ def test_voice_prompt_exists_torch_pt_found(tmp_path):
         assert voice_prompt_exists("my_voice.pt") is True
 
 
-@pytest.mark.unit
+
 def test_voice_prompt_exists_torch_pt_missing(tmp_path):
     """voice_prompt_exists returns False when .pt file missing (torch backend)."""
     from qwen3_tts.interface.generate_helpers import voice_prompt_exists
@@ -61,7 +61,7 @@ def test_voice_prompt_exists_torch_pt_missing(tmp_path):
         assert voice_prompt_exists("missing.pt") is False
 
 
-@pytest.mark.unit
+
 def test_voice_prompt_exists_mlx_pair_found(tmp_path):
     """voice_prompt_exists returns True when .wav+.txt pair exists (mlx backend)."""
     from qwen3_tts.interface.generate_helpers import voice_prompt_exists
@@ -74,7 +74,7 @@ def test_voice_prompt_exists_mlx_pair_found(tmp_path):
         assert voice_prompt_exists("my_voice.pt") is True
 
 
-@pytest.mark.unit
+
 def test_voice_prompt_exists_mlx_missing_txt(tmp_path):
     """voice_prompt_exists returns False when .txt missing (mlx backend)."""
     from qwen3_tts.interface.generate_helpers import voice_prompt_exists
@@ -88,7 +88,7 @@ def test_voice_prompt_exists_mlx_missing_txt(tmp_path):
 
 # ---- list_voice_prompts ----
 
-@pytest.mark.unit
+
 def test_list_voice_prompts_torch_only(tmp_path):
     """list_voice_prompts returns .pt files."""
     from qwen3_tts.interface.generate_helpers import list_voice_prompts
@@ -104,7 +104,7 @@ def test_list_voice_prompts_torch_only(tmp_path):
     assert "notes.txt" not in prompts
 
 
-@pytest.mark.unit
+
 def test_list_voice_prompts_mlx_pairs(tmp_path):
     """list_voice_prompts returns .wav files with matching .txt."""
     from qwen3_tts.interface.generate_helpers import list_voice_prompts
@@ -119,7 +119,7 @@ def test_list_voice_prompts_mlx_pairs(tmp_path):
     assert "orphan.wav" not in prompts
 
 
-@pytest.mark.unit
+
 def test_list_voice_prompts_mixed(tmp_path):
     """list_voice_prompts returns both .pt and valid .wav+.txt pairs."""
     from qwen3_tts.interface.generate_helpers import list_voice_prompts
@@ -134,7 +134,7 @@ def test_list_voice_prompts_mixed(tmp_path):
     assert "mlx_voice.wav" in prompts
 
 
-@pytest.mark.unit
+
 def test_list_voice_prompts_empty_dir(tmp_path):
     """list_voice_prompts returns empty list when dir is empty."""
     from qwen3_tts.interface.generate_helpers import list_voice_prompts
@@ -143,7 +143,7 @@ def test_list_voice_prompts_empty_dir(tmp_path):
         assert list_voice_prompts() == []
 
 
-@pytest.mark.unit
+
 def test_list_voice_prompts_missing_dir():
     """list_voice_prompts returns empty list when dir doesn't exist."""
     from qwen3_tts.interface.generate_helpers import list_voice_prompts
@@ -154,7 +154,7 @@ def test_list_voice_prompts_missing_dir():
 
 # ---- get_backend ----
 
-@pytest.mark.unit
+
 def test_get_backend_env_override():
     """TTS_BACKEND env var overrides config."""
     from qwen3_tts.core.config import get_backend
@@ -163,7 +163,7 @@ def test_get_backend_env_override():
         assert get_backend() == "torch"
 
 
-@pytest.mark.unit
+
 def test_get_backend_env_override_mlx():
     """TTS_BACKEND=mlx is respected."""
     from qwen3_tts.core.config import get_backend
@@ -172,7 +172,7 @@ def test_get_backend_env_override_mlx():
         assert get_backend() == "mlx"
 
 
-@pytest.mark.unit
+
 def test_get_backend_invalid_env_ignored():
     """Invalid TTS_BACKEND env var falls through to config."""
     from qwen3_tts.core.config import get_backend
@@ -182,7 +182,7 @@ def test_get_backend_invalid_env_ignored():
         assert get_backend() == "torch"
 
 
-@pytest.mark.unit
+
 def test_get_backend_config_fallback():
     """get_backend reads from config when no env var set."""
     from qwen3_tts.core.config import get_backend
@@ -199,7 +199,7 @@ def test_get_backend_config_fallback():
 
 # ---- get_device ----
 
-@pytest.mark.unit
+
 def test_get_device_colab_with_gpu():
     """get_device returns 'cuda' in Colab with GPU."""
     import qwen3_tts.core.config as cfg
@@ -215,7 +215,7 @@ def test_get_device_colab_with_gpu():
         cfg.IS_LINUX = orig_linux
 
 
-@pytest.mark.unit
+
 def test_get_device_linux_no_gpu():
     """get_device returns 'cpu' on Linux without GPU."""
     import qwen3_tts.core.config as cfg
@@ -237,7 +237,7 @@ def test_get_device_linux_no_gpu():
         cfg.IS_MACOS = orig_macos
 
 
-@pytest.mark.unit
+
 def test_get_device_macos_arm64():
     """get_device returns 'mps' on macOS ARM64."""
     import qwen3_tts.core.config as cfg
@@ -258,7 +258,7 @@ def test_get_device_macos_arm64():
 
 # ---- Model name resolution ----
 
-@pytest.mark.unit
+
 def test_torch_model_name_clone_17b():
     """get_torch_model_name returns correct repo ID for clone 1.7B."""
     from qwen3_tts.core.config import get_torch_model_name
@@ -268,7 +268,7 @@ def test_torch_model_name_clone_17b():
     assert name == "Qwen/Qwen3-TTS-12Hz-1.7B-Base"
 
 
-@pytest.mark.unit
+
 def test_torch_model_name_design_06b():
     """get_torch_model_name returns correct repo ID for design 0.6B."""
     from qwen3_tts.core.config import get_torch_model_name
@@ -278,7 +278,7 @@ def test_torch_model_name_design_06b():
     assert name == "Qwen/Qwen3-TTS-12Hz-0.6B-VoiceDesign"
 
 
-@pytest.mark.unit
+
 def test_torch_model_name_custom_17b():
     """get_torch_model_name returns correct repo ID for custom 1.7B."""
     from qwen3_tts.core.config import get_torch_model_name
@@ -288,7 +288,7 @@ def test_torch_model_name_custom_17b():
     assert name == "Qwen/Qwen3-TTS-12Hz-1.7B-CustomVoice"
 
 
-@pytest.mark.unit
+
 def test_mlx_model_name_clone_8bit():
     """get_mlx_model_name returns correct repo ID with quantization."""
     from qwen3_tts.core.config import get_mlx_model_name
@@ -299,7 +299,7 @@ def test_mlx_model_name_clone_8bit():
     assert name == "mlx-community/Qwen3-TTS-12Hz-1.7B-Base-8bit"
 
 
-@pytest.mark.unit
+
 def test_mlx_model_name_design_4bit():
     """get_mlx_model_name returns correct repo ID with 4bit quantization."""
     from qwen3_tts.core.config import get_mlx_model_name
@@ -310,7 +310,7 @@ def test_mlx_model_name_design_4bit():
     assert name == "mlx-community/Qwen3-TTS-12Hz-0.6B-VoiceDesign-4bit"
 
 
-@pytest.mark.unit
+
 def test_torch_model_name_invalid_type():
     """get_torch_model_name raises ValueError for unknown model type."""
     from qwen3_tts.core.config import get_torch_model_name
@@ -320,7 +320,7 @@ def test_torch_model_name_invalid_type():
             get_torch_model_name("invalid")
 
 
-@pytest.mark.unit
+
 def test_torch_model_name_invalid_size():
     """get_torch_model_name raises ValueError for unknown model size."""
     from qwen3_tts.core.config import get_torch_model_name
@@ -332,7 +332,7 @@ def test_torch_model_name_invalid_size():
 
 # ---- get_model_size ----
 
-@pytest.mark.unit
+
 def test_get_model_size_env_override():
     """TTS_MODEL_SIZE env var overrides config."""
     from qwen3_tts.core.config import get_model_size
@@ -341,7 +341,7 @@ def test_get_model_size_env_override():
         assert get_model_size() == "0.6B"
 
 
-@pytest.mark.unit
+
 def test_get_model_size_invalid_env():
     """Invalid TTS_MODEL_SIZE env var falls through to config."""
     from qwen3_tts.core.config import get_model_size
@@ -353,7 +353,7 @@ def test_get_model_size_invalid_env():
 
 # ---- get_model_info ----
 
-@pytest.mark.unit
+
 def test_get_model_info_torch():
     """get_model_info returns torch MODEL_INFO dict when backend is torch."""
     from qwen3_tts.core.config import get_model_info
@@ -365,7 +365,7 @@ def test_get_model_info_torch():
     assert "memory_mb" in info
 
 
-@pytest.mark.unit
+
 def test_get_model_info_mlx():
     """get_model_info returns MLX_MODEL_INFO dict when backend is mlx."""
     from qwen3_tts.core.config import get_model_info
@@ -377,7 +377,7 @@ def test_get_model_info_mlx():
     assert "memory_mb" in info
 
 
-@pytest.mark.unit
+
 def test_get_model_info_unknown_type():
     """get_model_info returns empty dict for unknown model type."""
     from qwen3_tts.core.config import get_model_info

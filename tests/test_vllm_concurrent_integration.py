@@ -13,7 +13,7 @@ except ImportError:
     HTTPX_AVAILABLE = False
 
 
-class TestVLLMConcurrentIntegration(unittest.TestCase):
+class TestVLLMConcurrentIntegration(unittest.IsolatedAsyncioTestCase):
     async def test_concurrent_generation_requests(self):
         """Test that multiple generation requests don't block each other."""
 

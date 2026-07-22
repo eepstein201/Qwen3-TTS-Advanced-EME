@@ -43,7 +43,7 @@ except ImportError:
     pytest = _DummyPytest()
 
 
-@pytest.mark.unit
+
 class TestCLIDaemonization(unittest.TestCase):
     """Test server daemonization functionality."""
 
@@ -95,7 +95,7 @@ class TestCLIDaemonization(unittest.TestCase):
         self.assertIn('--public', result.stdout)
 
 
-@pytest.mark.unit
+
 class TestPIDLifecycle(unittest.TestCase):
     """Test PID lifecycle functions in config.py."""
 
@@ -246,7 +246,7 @@ class TestPIDLifecycle(unittest.TestCase):
                 self.assertFalse(state["stale_pid"])
 
 
-@pytest.mark.unit
+
 class TestFindPidByPort(unittest.TestCase):
     """Test find_pid_by_port() in config.py."""
 
@@ -300,7 +300,7 @@ class TestFindPidByPort(unittest.TestCase):
             self.assertIsNone(find_pid_by_port(5123))
 
 
-@pytest.mark.unit
+
 class TestCLIStopRewrite(unittest.TestCase):
     """Test rewritten stop() command using detect_server_state()."""
 
@@ -427,7 +427,7 @@ class TestCLIStopRewrite(unittest.TestCase):
             self.assertIn("still running", result.output)
 
 
-@pytest.mark.unit
+
 class TestCLIStartRewrite(unittest.TestCase):
     """Test rewritten start() command using detect_server_state()."""
 
@@ -482,7 +482,7 @@ class TestCLIStartRewrite(unittest.TestCase):
                 self.assertEqual(fake_pid.read_text(), "54321")
 
 
-@pytest.mark.unit
+
 class TestShutdownEndpoint(unittest.TestCase):
     """Test /shutdown endpoint returns response before terminating."""
 
@@ -509,7 +509,7 @@ class TestShutdownEndpoint(unittest.TestCase):
                 break
 
 
-@pytest.mark.unit
+
 class TestGradioStopVerification(unittest.TestCase):
     """Test Gradio stop_server() polls for shutdown verification."""
 

@@ -77,7 +77,7 @@ if HAS_DEPS:
 # Helper function tests (import directly, no HTTP needed)
 # ---------------------------------------------------------------------------
 
-@pytest.mark.unit
+
 @_skip
 def test_sanitize_error_strips_unix_paths():
     """_sanitize_error replaces Unix absolute paths."""
@@ -87,7 +87,7 @@ def test_sanitize_error_strips_unix_paths():
     assert "<path>" in result
 
 
-@pytest.mark.unit
+
 @_skip
 def test_sanitize_error_strips_windows_paths():
     """_sanitize_error replaces Windows paths."""
@@ -97,7 +97,7 @@ def test_sanitize_error_strips_windows_paths():
     assert "<path>" in result
 
 
-@pytest.mark.unit
+
 @_skip
 def test_sanitize_error_caps_length():
     """_sanitize_error caps output at 200 chars."""
@@ -106,7 +106,7 @@ def test_sanitize_error_caps_length():
     assert len(result) <= 200
 
 
-@pytest.mark.unit
+
 @_skip
 def test_get_real_client_ip_loopback_trusts_xff():
     """_get_real_client_ip honors X-Forwarded-For from a loopback proxy (Colab tunnel)."""
@@ -118,7 +118,7 @@ def test_get_real_client_ip_loopback_trusts_xff():
     assert result == "10.0.0.1"
 
 
-@pytest.mark.unit
+
 @_skip
 def test_get_real_client_ip_untrusted_peer_ignores_xff():
     """_get_real_client_ip ignores X-Forwarded-For from an untrusted (direct) peer."""
@@ -130,7 +130,7 @@ def test_get_real_client_ip_untrusted_peer_ignores_xff():
     assert result == "10.0.0.5"
 
 
-@pytest.mark.unit
+
 @_skip
 def test_get_real_client_ip_no_client():
     """_get_real_client_ip returns 127.0.0.1 when client is None (and no XFF)."""
@@ -142,7 +142,7 @@ def test_get_real_client_ip_no_client():
     assert result == "127.0.0.1"
 
 
-@pytest.mark.unit
+
 @_skip
 def test_check_memory_available_no_psutil():
     """_check_memory_available returns (True, 0) when psutil missing."""
@@ -153,7 +153,7 @@ def test_check_memory_available_no_psutil():
     assert mb == 0
 
 
-@pytest.mark.unit
+
 @_skip
 def test_check_memory_available_low():
     """_check_memory_available returns False when memory below threshold."""
@@ -179,7 +179,7 @@ def test_check_memory_available_low():
     assert mb == 500
 
 
-@pytest.mark.unit
+
 @_skip
 def test_check_memory_available_ok():
     """_check_memory_available returns True when memory sufficient."""
@@ -205,7 +205,7 @@ def test_check_memory_available_ok():
     assert mb == 4096
 
 
-@pytest.mark.unit
+
 @_skip
 def test_estimate_eta_zero_median_rate():
     """_estimate_eta returns None when median_rate is 0."""
@@ -218,7 +218,7 @@ def test_estimate_eta_zero_median_rate():
     assert result is None
 
 
-@pytest.mark.unit
+
 @_skip
 def test_estimate_eta_none_median_rate():
     """_estimate_eta returns None when median_rate is None."""
@@ -231,7 +231,7 @@ def test_estimate_eta_none_median_rate():
     assert result is None
 
 
-@pytest.mark.unit
+
 @_skip
 def test_estimate_eta_positive_rate():
     """_estimate_eta returns remaining seconds with valid rate."""
@@ -245,7 +245,7 @@ def test_estimate_eta_positive_rate():
     assert result == 8.0
 
 
-@pytest.mark.unit
+
 @_skip
 def test_reset_activity_timer_no_auto_shutdown():
     """reset_activity_timer sets last_activity but skips timer when auto_shutdown=0."""
@@ -260,7 +260,7 @@ def test_reset_activity_timer_no_auto_shutdown():
     assert state.shutdown_timer is None
 
 
-@pytest.mark.unit
+
 @_skip
 def test_cleanup_resources_cleans_models():
     """cleanup_resources sets models to None."""
@@ -275,7 +275,7 @@ def test_cleanup_resources_cleans_models():
     assert state.models["clone"] is None
 
 
-@pytest.mark.unit
+
 @_skip
 def test_cleanup_resources_clears_gen_cache(tmp_path):
     """cleanup_resources removes gen_cache temp files."""
@@ -297,7 +297,7 @@ def test_cleanup_resources_clears_gen_cache(tmp_path):
 # Public endpoint tests
 # ---------------------------------------------------------------------------
 
-@pytest.mark.unit
+
 @_skip
 def test_health_models_loading(fastapi_client):
     """GET /health returns 503 when models not yet loaded."""
@@ -307,7 +307,7 @@ def test_health_models_loading(fastapi_client):
     assert response.json()["status"] == "loading"
 
 
-@pytest.mark.unit
+
 @_skip
 def test_health_models_loaded(fastapi_client):
     """GET /health returns 200 when models loaded."""
@@ -319,7 +319,7 @@ def test_health_models_loaded(fastapi_client):
     assert "backend" in data
 
 
-@pytest.mark.unit
+
 @_skip
 def test_ready_not_loaded(fastapi_client):
     """GET /ready returns 503 when models not loaded."""
@@ -328,7 +328,7 @@ def test_ready_not_loaded(fastapi_client):
     assert response.status_code == 503
 
 
-@pytest.mark.unit
+
 @_skip
 def test_ready_loaded(fastapi_client):
     """GET /ready returns 200 when models loaded."""
@@ -338,7 +338,7 @@ def test_ready_loaded(fastapi_client):
     assert response.json()["status"] == "ready"
 
 
-@pytest.mark.unit
+
 @_skip
 def test_generation_status_inactive(fastapi_client):
     """GET /generation-status shows inactive when no generation."""
@@ -347,7 +347,7 @@ def test_generation_status_inactive(fastapi_client):
     assert response.json()["active"] is False
 
 
-@pytest.mark.unit
+
 @_skip
 def test_generation_status_active(fastapi_client):
     """GET /generation-status shows elapsed_sec when active."""
@@ -365,7 +365,7 @@ def test_generation_status_active(fastapi_client):
         app.state.generation_state["start_time"] = 0.0
 
 
-@pytest.mark.unit
+
 @_skip
 def test_queue_status_empty(fastapi_client):
     """GET /queue-status returns empty queue."""
@@ -385,7 +385,7 @@ def test_queue_status_empty(fastapi_client):
 # Admin endpoint tests
 # ---------------------------------------------------------------------------
 
-@pytest.mark.unit
+
 @_skip
 def test_stats_returns_expected_keys(fastapi_client):
     """GET /stats returns expected fields."""
@@ -403,7 +403,7 @@ def test_stats_returns_expected_keys(fastapi_client):
     assert "idle_seconds" in data
 
 
-@pytest.mark.unit
+
 @_skip
 def test_cancel_generation_no_active(fastapi_client):
     """POST /cancel-generation when no active generation."""
@@ -412,7 +412,7 @@ def test_cancel_generation_no_active(fastapi_client):
     assert response.json()["status"] == "no_active_generation"
 
 
-@pytest.mark.unit
+
 @_skip
 def test_cancel_generation_active(fastapi_client):
     """POST /cancel-generation when generation is active."""
@@ -437,7 +437,7 @@ def test_cancel_generation_active(fastapi_client):
 # Prompt endpoint tests
 # ---------------------------------------------------------------------------
 
-@pytest.mark.unit
+
 @_skip
 def test_prompts_mlx_backend(fastapi_client):
     """GET /prompts lists MLX-style prompts (wav+txt pairs)."""
@@ -452,7 +452,7 @@ def test_prompts_mlx_backend(fastapi_client):
     assert "bob.wav" in data["prompts"]
 
 
-@pytest.mark.unit
+
 @_skip
 def test_prompts_torch_backend(fastapi_client):
     """GET /prompts lists torch-style prompts (.pt files)."""
@@ -467,7 +467,7 @@ def test_prompts_torch_backend(fastapi_client):
     assert "bob.pt" in data["prompts"]
 
 
-@pytest.mark.unit
+
 @_skip
 def test_prompts_pagination(fastapi_client):
     """GET /prompts supports offset and limit."""
@@ -481,7 +481,7 @@ def test_prompts_pagination(fastapi_client):
     assert len(data["prompts"]) == 2
 
 
-@pytest.mark.unit
+
 @_skip
 def test_prompts_empty_dir(fastapi_client):
     """GET /prompts returns empty when VOICE_PROMPTS_DIR fails."""
@@ -491,7 +491,7 @@ def test_prompts_empty_dir(fastapi_client):
     assert response.json()["prompts"] == []
 
 
-@pytest.mark.unit
+
 @_skip
 def test_delete_prompt_success(fastapi_client):
     """POST /delete-prompt removes matching files."""
@@ -508,7 +508,7 @@ def test_delete_prompt_success(fastapi_client):
     assert mock_rm.call_count == 2  # .wav and .txt
 
 
-@pytest.mark.unit
+
 @_skip
 def test_delete_prompt_not_found(fastapi_client):
     """POST /delete-prompt returns 404 for missing prompt."""
@@ -519,7 +519,7 @@ def test_delete_prompt_not_found(fastapi_client):
     assert response.status_code == 404
 
 
-@pytest.mark.unit
+
 @_skip
 def test_delete_prompt_invalid_name(fastapi_client):
     """POST /delete-prompt rejects empty name."""
@@ -529,7 +529,7 @@ def test_delete_prompt_invalid_name(fastapi_client):
     assert response.status_code in (400, 422)
 
 
-@pytest.mark.unit
+
 @_skip
 def test_rename_prompt_same_name(fastapi_client):
     """POST /rename-prompt rejects when old==new."""
@@ -540,7 +540,7 @@ def test_rename_prompt_same_name(fastapi_client):
     assert "same" in response.json()["detail"].lower()
 
 
-@pytest.mark.unit
+
 @_skip
 def test_rename_prompt_collision(fastapi_client):
     """POST /rename-prompt returns 409 when new name exists."""
@@ -552,7 +552,7 @@ def test_rename_prompt_collision(fastapi_client):
     assert "already exists" in response.json()["detail"]
 
 
-@pytest.mark.unit
+
 @_skip
 def test_rename_prompt_not_found(fastapi_client):
     """POST /rename-prompt returns 404 when old prompt not found."""
@@ -565,7 +565,7 @@ def test_rename_prompt_not_found(fastapi_client):
     assert response.status_code == 404
 
 
-@pytest.mark.unit
+
 @_skip
 def test_preview_prompt_not_found(fastapi_client):
     """GET /preview-prompt returns 404 when .wav not found."""
@@ -575,7 +575,7 @@ def test_preview_prompt_not_found(fastapi_client):
     assert response.status_code == 404
 
 
-@pytest.mark.unit
+
 @_skip
 def test_preview_prompt_symlink_traversal(fastapi_client):
     """GET /preview-prompt rejects symlinks outside prompts dir."""
@@ -586,7 +586,7 @@ def test_preview_prompt_symlink_traversal(fastapi_client):
     assert response.status_code == 403
 
 
-@pytest.mark.unit
+
 @_skip
 def test_prompt_details_not_found(fastapi_client):
     """GET /prompt-details returns 404 for missing prompt."""
@@ -597,7 +597,7 @@ def test_prompt_details_not_found(fastapi_client):
     assert response.status_code == 404
 
 
-@pytest.mark.unit
+
 @_skip
 def test_prompt_details_all_prompts(fastapi_client):
     """GET /prompt-details without name returns all prompts."""
@@ -617,7 +617,7 @@ def test_prompt_details_all_prompts(fastapi_client):
 # Route existence (kept from original)
 # ---------------------------------------------------------------------------
 
-@pytest.mark.unit
+
 @_skip
 def test_app_exists():
     """FastAPI app should be importable."""
@@ -625,7 +625,7 @@ def test_app_exists():
     assert isinstance(app, FastAPI)
 
 
-@pytest.mark.unit
+
 @_skip
 def test_app_has_routes():
     """App should have expected routes."""
@@ -637,7 +637,7 @@ def test_app_has_routes():
     assert "/models" in routes
 
 
-@pytest.mark.unit
+
 @_skip
 def test_app_has_lifespan():
     """App should have lifespan configured."""

@@ -41,7 +41,7 @@ except ImportError:
     pytest = _DummyPytest()
 
 
-@pytest.mark.unit
+
 class TestVoicePromptCacheEdgeCases(unittest.TestCase):
     """Test voice prompt cache clearing and MLX cache eviction."""
 

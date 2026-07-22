@@ -160,7 +160,7 @@ def _normalize_torch_version(torch_string):
     return ''.join(parts[:3])
 
 
-@pytest.mark.unit
+
 class TestFlashAttnWheelUrlConstruction(unittest.TestCase):
     """Unit tests for flash-attn wheel URL construction."""
 
@@ -255,7 +255,7 @@ _SAMPLE_ASSETS_DOT_FORMAT = [
 ]
 
 
-@pytest.mark.unit
+
 class TestParseWheelCandidates(unittest.TestCase):
 
     def test_filters_to_matching_python_version(self):
@@ -314,7 +314,7 @@ class TestParseWheelCandidates(unittest.TestCase):
         self.assertIn((12, (2, 4)), cu_th_pairs)
 
 
-@pytest.mark.unit
+
 class TestSelectBestWheel(unittest.TestCase):
 
     def test_prefers_highest_cuda_with_matching_torch(self):
@@ -395,7 +395,7 @@ class TestSelectBestWheel(unittest.TestCase):
         self.assertTrue(all(c[1] != (2, 11) for c in result))
 
 
-@pytest.mark.unit
+
 class TestTorchMajorMinor(unittest.TestCase):
 
     def test_installed_version_with_cuda_suffix(self):

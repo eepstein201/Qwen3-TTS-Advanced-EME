@@ -44,7 +44,7 @@ except ImportError:
 # Config Edge Cases
 # =========================================================================
 
-@pytest.mark.unit
+
 class TestConfigEdgeCases(unittest.TestCase):
     """Test config constants and accessor functions."""
 
@@ -88,7 +88,7 @@ class TestConfigEdgeCases(unittest.TestCase):
         self.assertIn("mlx", VALID_BACKENDS)
 
 
-@pytest.mark.unit
+
 class TestConfigValidation(unittest.TestCase):
     """Test validate_config() catches bad values."""
 
@@ -142,7 +142,7 @@ class TestConfigValidation(unittest.TestCase):
 # Config Function Tests
 # =========================================================================
 
-@pytest.mark.unit
+
 class TestConfigFunctions(unittest.TestCase):
     """Tests for config.py utility functions."""
 
@@ -339,7 +339,7 @@ class TestConfigFunctions(unittest.TestCase):
             os.unlink(bad_path)
 
 
-@pytest.mark.unit
+
 class TestHFConsolidatedConstant(unittest.TestCase):
     """Test that HF_CACHE is defined once in config.py and imported by all users."""
 
@@ -369,7 +369,7 @@ class TestHFConsolidatedConstant(unittest.TestCase):
                       "healthcheck.HF_CACHE should be imported from config")
 
 
-@pytest.mark.unit
+
 class TestSanitizeLog(unittest.TestCase):
     """Tests for sanitize_log utility."""
 

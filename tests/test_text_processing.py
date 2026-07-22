@@ -55,7 +55,7 @@ _skip_generate = unittest.skipUnless(HAS_SOUNDFILE, "requires soundfile (voice_g
 # SSML Edge Cases
 # =========================================================================
 
-@pytest.mark.unit
+
 @_skip_generate
 class TestSSMLEdgeCases(unittest.TestCase):
     """Test SSML parsing edge cases."""
@@ -102,7 +102,7 @@ class TestSSMLEdgeCases(unittest.TestCase):
 # Dry-Run and Interactive Mode Tests
 # =========================================================================
 
-@pytest.mark.unit
+
 @_skip_generate
 class TestDryRunAndInteractive(unittest.TestCase):
     """Verify dry-run flag and interactive mode exist in source."""

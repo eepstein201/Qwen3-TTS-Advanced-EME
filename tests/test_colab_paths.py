@@ -63,7 +63,7 @@ def _set_platform(colab=False, macos=False, linux=False):
 
 # ---- get_clipboard_text in Colab ----
 
-@pytest.mark.unit
+
 def test_clipboard_colab_exits(capsys):
     """get_clipboard_text exits with error in Colab."""
     from qwen3_tts.interface.generate_helpers import get_clipboard_text
@@ -77,7 +77,7 @@ def test_clipboard_colab_exits(capsys):
 
 # ---- play_audio in Colab ----
 
-@pytest.mark.unit
+
 def test_play_audio_colab_skips():
     """play_audio skips playback silently in Colab."""
     from qwen3_tts.interface.generate_helpers import play_audio
@@ -88,7 +88,7 @@ def test_play_audio_colab_skips():
     mock_run.assert_not_called()
 
 
-@pytest.mark.unit
+
 def test_play_audio_macos():
     """play_audio calls afplay (absolute path) on macOS."""
     from qwen3_tts.interface.generate_helpers import play_audio
@@ -102,7 +102,7 @@ def test_play_audio_macos():
     assert mock_run.call_args[0][0] == ["/usr/bin/afplay", "/tmp/test.wav"]
 
 
-@pytest.mark.unit
+
 def test_play_audio_linux():
     """play_audio calls ffplay (absolute path) on Linux."""
     from qwen3_tts.interface.generate_helpers import play_audio
@@ -118,7 +118,7 @@ def test_play_audio_linux():
 
 # ---- open_file in Colab ----
 
-@pytest.mark.unit
+
 def test_open_file_colab_prints_path(capsys):
     """open_file just prints the path in Colab."""
     from qwen3_tts.interface.generate_helpers import open_file
@@ -131,7 +131,7 @@ def test_open_file_colab_prints_path(capsys):
     assert "/tmp/output.wav" in captured.out
 
 
-@pytest.mark.unit
+
 def test_open_file_macos():
     """open_file calls 'open' on macOS."""
     from qwen3_tts.interface.generate_helpers import open_file
@@ -145,7 +145,7 @@ def test_open_file_macos():
 
 # ---- build_ui_and_launch Colab paths ----
 
-@pytest.mark.unit
+
 def test_build_ui_and_launch_colab_share():
     """build_ui_and_launch uses share=True, inbrowser=False in Colab."""
     from qwen3_tts.interface.generate_server import build_ui_and_launch
@@ -172,7 +172,7 @@ def test_build_ui_and_launch_colab_share():
     assert call_kwargs["inbrowser"] is False
 
 
-@pytest.mark.unit
+
 def test_build_ui_and_launch_local():
     """build_ui_and_launch uses share=False, inbrowser=True locally."""
     from qwen3_tts.interface.generate_server import build_ui_and_launch
@@ -199,7 +199,7 @@ def test_build_ui_and_launch_local():
     assert call_kwargs["inbrowser"] is True
 
 
-@pytest.mark.unit
+
 def test_build_ui_and_launch_no_port(capsys):
     """build_ui_and_launch prints error when no port available."""
     from qwen3_tts.interface.generate_server import build_ui_and_launch
@@ -215,7 +215,7 @@ def test_build_ui_and_launch_no_port(capsys):
 
 # ---- _find_available_port Colab bind address ----
 
-@pytest.mark.unit
+
 def test_find_available_port_colab_binds_all():
     """_find_available_port binds 0.0.0.0 in Colab."""
     with patch("qwen3_tts.interface.ui._facade.IN_COLAB", True):
@@ -225,7 +225,7 @@ def test_find_available_port_colab_binds_all():
         assert isinstance(port, int)
 
 
-@pytest.mark.unit
+
 def test_find_available_port_local_binds_localhost():
     """_find_available_port binds 127.0.0.1 when not in Colab."""
     with patch("qwen3_tts.interface.ui._facade.IN_COLAB", False):
@@ -237,7 +237,7 @@ def test_find_available_port_local_binds_localhost():
 
 # ---- get_device Colab ----
 
-@pytest.mark.unit
+
 def test_get_device_colab_cuda():
     """get_device returns 'cuda' in Colab with CUDA_VISIBLE_DEVICES set."""
     with _set_platform(colab=True, linux=True):
@@ -245,7 +245,7 @@ def test_get_device_colab_cuda():
             assert _cfg.get_device() == "cuda"
 
 
-@pytest.mark.unit
+
 def test_get_device_colab_nvidia_device():
     """get_device returns 'cuda' in Colab with /dev/nvidia0."""
     with _set_platform(colab=True, linux=True):
@@ -256,7 +256,7 @@ def test_get_device_colab_nvidia_device():
             assert _cfg.get_device() == "cuda"
 
 
-@pytest.mark.unit
+
 def test_get_device_colab_no_gpu():
     """get_device returns 'cpu' in Colab without GPU indicators."""
     with _set_platform(colab=True, linux=True):
@@ -269,7 +269,7 @@ def test_get_device_colab_no_gpu():
 
 # ---- CORS in Colab ----
 
-@pytest.mark.unit
+
 def test_cors_regex_colab_allows_gradio_live():
     """CORS regex in Colab mode allows *.gradio.live origins."""
     import re
@@ -282,7 +282,7 @@ def test_cors_regex_colab_allows_gradio_live():
     assert not re.match(colab_regex, "https://evil.example.com")
 
 
-@pytest.mark.unit
+
 def test_cors_regex_local_rejects_gradio_live():
     """CORS regex in local mode does NOT allow *.gradio.live."""
     import re

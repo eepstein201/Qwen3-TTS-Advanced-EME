@@ -19,7 +19,7 @@ except ImportError:
 from qwen3_tts.server.client._base import _extract_error_message
 
 
-@pytest.mark.unit
+
 class TestExtractErrorMessage(unittest.TestCase):
     """Test _extract_error_message handles all FastAPI error response shapes."""
 

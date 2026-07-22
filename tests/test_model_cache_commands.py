@@ -40,7 +40,7 @@ from unittest.mock import MagicMock, patch
 
 # ---- _get_model_access_time ----
 
-@pytest.mark.unit
+
 def test_get_model_access_time_pytorch_model_bin(tmp_path):
     """Returns atime of pytorch_model.bin when present."""
     from qwen3_tts.tools.model_cache import _get_model_access_time
@@ -52,7 +52,7 @@ def test_get_model_access_time_pytorch_model_bin(tmp_path):
     assert result != datetime.min
 
 
-@pytest.mark.unit
+
 def test_get_model_access_time_config_json(tmp_path):
     """Returns atime of config.json when pytorch_model.bin missing."""
     from qwen3_tts.tools.model_cache import _get_model_access_time
@@ -64,7 +64,7 @@ def test_get_model_access_time_config_json(tmp_path):
     assert result != datetime.min
 
 
-@pytest.mark.unit
+
 def test_get_model_access_time_model_safetensors(tmp_path):
     """Returns atime of model.safetensors when it's the only known file."""
     from qwen3_tts.tools.model_cache import _get_model_access_time
@@ -75,7 +75,7 @@ def test_get_model_access_time_model_safetensors(tmp_path):
     assert result != datetime.min
 
 
-@pytest.mark.unit
+
 def test_get_model_access_time_fallback_to_dir_mtime(tmp_path):
     """Falls back to directory mtime when no known files exist."""
     from qwen3_tts.tools.model_cache import _get_model_access_time
@@ -85,7 +85,7 @@ def test_get_model_access_time_fallback_to_dir_mtime(tmp_path):
     assert result != datetime.min
 
 
-@pytest.mark.unit
+
 def test_get_model_access_time_missing_dir():
     """Returns datetime.min for non-existent directory."""
     from qwen3_tts.tools.model_cache import _get_model_access_time
@@ -96,7 +96,7 @@ def test_get_model_access_time_missing_dir():
 
 # ---- _get_model_info MLX parsing ----
 
-@pytest.mark.unit
+
 def test_get_model_info_mlx_4bit():
     """Parses MLX 4bit quantization from model name."""
     from qwen3_tts.tools.model_cache import _get_model_info
@@ -114,7 +114,7 @@ def test_get_model_info_mlx_4bit():
     assert result["model_size"] == "1.7B"
 
 
-@pytest.mark.unit
+
 def test_get_model_info_mlx_8bit():
     """Parses MLX 8bit quantization."""
     from qwen3_tts.tools.model_cache import _get_model_info
@@ -132,7 +132,7 @@ def test_get_model_info_mlx_8bit():
     assert result["model_size"] == "0.6B"
 
 
-@pytest.mark.unit
+
 def test_get_model_info_mlx_bf16():
     """Parses MLX bf16 quantization."""
     from qwen3_tts.tools.model_cache import _get_model_info
@@ -149,7 +149,7 @@ def test_get_model_info_mlx_bf16():
     assert result["model_type"] == "custom"
 
 
-@pytest.mark.unit
+
 def test_get_model_info_mlx_unknown_quant():
     """Parses MLX with unknown quantization."""
     from qwen3_tts.tools.model_cache import _get_model_info
@@ -165,7 +165,7 @@ def test_get_model_info_mlx_unknown_quant():
     assert result["quantization"] == "unknown"
 
 
-@pytest.mark.unit
+
 def test_get_model_info_unrecognized_model():
     """Returns None backend for unrecognized model names."""
     from qwen3_tts.tools.model_cache import _get_model_info
@@ -183,7 +183,7 @@ def test_get_model_info_unrecognized_model():
 
 # ---- list_models_cmd ----
 
-@pytest.mark.unit
+
 def test_list_models_cmd_no_models(capsys):
     """list_models_cmd prints 'no models' when cache empty."""
     from qwen3_tts.tools.model_cache import list_models_cmd
@@ -195,7 +195,7 @@ def test_list_models_cmd_no_models(capsys):
     assert "No TTS models found" in captured.out
 
 
-@pytest.mark.unit
+
 def test_list_models_cmd_with_models(capsys):
     """list_models_cmd prints formatted table."""
     from qwen3_tts.tools.model_cache import list_models_cmd
@@ -220,7 +220,7 @@ def test_list_models_cmd_with_models(capsys):
     assert "torch" in captured.out
 
 
-@pytest.mark.unit
+
 def test_list_models_cmd_datetime_min(capsys):
     """list_models_cmd shows 'unknown' for datetime.min access time."""
     from qwen3_tts.tools.model_cache import list_models_cmd
@@ -245,7 +245,7 @@ def test_list_models_cmd_datetime_min(capsys):
 
 # ---- get_size_cmd ----
 
-@pytest.mark.unit
+
 def test_get_size_cmd_no_models(capsys):
     """get_size_cmd prints 'no models' when cache empty."""
     from qwen3_tts.tools.model_cache import get_size_cmd
@@ -257,7 +257,7 @@ def test_get_size_cmd_no_models(capsys):
     assert "No TTS models found" in captured.out
 
 
-@pytest.mark.unit
+
 def test_get_size_cmd_with_models(capsys):
     """get_size_cmd shows size breakdown by backend."""
     from qwen3_tts.tools.model_cache import get_size_cmd
@@ -280,7 +280,7 @@ def test_get_size_cmd_with_models(capsys):
 
 # ---- prune_models_cmd ----
 
-@pytest.mark.unit
+
 def test_prune_models_cmd_no_old_models(capsys):
     """prune_models_cmd prints 'no models' when none are old enough."""
     from qwen3_tts.tools.model_cache import prune_models_cmd
@@ -294,7 +294,7 @@ def test_prune_models_cmd_no_old_models(capsys):
     assert "No models found unused" in captured.out
 
 
-@pytest.mark.unit
+
 def test_prune_models_cmd_dry_run(capsys):
     """prune_models_cmd dry run shows what would be removed."""
     from qwen3_tts.tools.model_cache import prune_models_cmd
@@ -310,7 +310,7 @@ def test_prune_models_cmd_dry_run(capsys):
     assert "Dry run" in captured.out
 
 
-@pytest.mark.unit
+
 def test_prune_models_cmd_cancelled(capsys):
     """prune_models_cmd cancelled by user."""
     from qwen3_tts.tools.model_cache import prune_models_cmd
@@ -326,7 +326,7 @@ def test_prune_models_cmd_cancelled(capsys):
     assert "Cancelled" in captured.out
 
 
-@pytest.mark.unit
+
 def test_prune_models_cmd_confirmed(capsys, tmp_path):
     """prune_models_cmd deletes when confirmed."""
     from qwen3_tts.tools.model_cache import prune_models_cmd
@@ -348,7 +348,7 @@ def test_prune_models_cmd_confirmed(capsys, tmp_path):
     assert not model_dir.exists()
 
 
-@pytest.mark.unit
+
 def test_prune_models_cmd_oserror(capsys):
     """prune_models_cmd handles OSError during deletion."""
     from qwen3_tts.tools.model_cache import prune_models_cmd
@@ -367,7 +367,7 @@ def test_prune_models_cmd_oserror(capsys):
 
 # ---- clear_cache_cmd ----
 
-@pytest.mark.unit
+
 def test_clear_cache_cmd_no_models(capsys):
     """clear_cache_cmd prints 'no models' when cache empty."""
     from qwen3_tts.tools.model_cache import clear_cache_cmd
@@ -380,7 +380,7 @@ def test_clear_cache_cmd_no_models(capsys):
     assert "No TTS models found" in captured.out
 
 
-@pytest.mark.unit
+
 def test_clear_cache_cmd_force(capsys, tmp_path):
     """clear_cache_cmd with force=True skips confirmation."""
     from qwen3_tts.tools.model_cache import clear_cache_cmd
@@ -400,7 +400,7 @@ def test_clear_cache_cmd_force(capsys, tmp_path):
     assert not model_dir.exists()
 
 
-@pytest.mark.unit
+
 def test_clear_cache_cmd_cancelled(capsys):
     """clear_cache_cmd cancelled by user."""
     from qwen3_tts.tools.model_cache import clear_cache_cmd
@@ -416,7 +416,7 @@ def test_clear_cache_cmd_cancelled(capsys):
     assert "Cancelled" in captured.out
 
 
-@pytest.mark.unit
+
 def test_clear_cache_cmd_oserror(capsys):
     """clear_cache_cmd handles OSError during deletion."""
     from qwen3_tts.tools.model_cache import clear_cache_cmd
@@ -434,7 +434,7 @@ def test_clear_cache_cmd_oserror(capsys):
 
 # ---- _get_model_dir_size OSError path ----
 
-@pytest.mark.unit
+
 def test_get_model_dir_size_oserror_on_stat():
     """_get_model_dir_size skips files with OSError on stat."""
     from qwen3_tts.tools.model_cache import _get_model_dir_size

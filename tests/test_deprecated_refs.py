@@ -64,7 +64,7 @@ _DEPRECATED_COMMANDS = [
 ]
 
 
-@pytest.mark.unit
+
 @_skip_generate
 class TestDeprecatedRefsGenerate(unittest.TestCase):
     """generate.py must not contain deprecated command names in user messages."""
@@ -76,7 +76,7 @@ class TestDeprecatedRefsGenerate(unittest.TestCase):
             self.assertNotIn(cmd, source, f"Found deprecated '{cmd}' in generate.py")
 
 
-@pytest.mark.unit
+
 class TestDeprecatedRefsEngine(unittest.TestCase):
     """engine.py must not contain deprecated command names."""
 
@@ -87,7 +87,7 @@ class TestDeprecatedRefsEngine(unittest.TestCase):
             self.assertNotIn(cmd, source, f"Found deprecated '{cmd}' in engine.py")
 
 
-@pytest.mark.unit
+
 class TestDeprecatedRefsCreateVoice(unittest.TestCase):
     """create_voice.py must not contain deprecated command names."""
 
@@ -98,7 +98,7 @@ class TestDeprecatedRefsCreateVoice(unittest.TestCase):
             self.assertNotIn(cmd, source, f"Found deprecated '{cmd}' in create_voice.py")
 
 
-@pytest.mark.unit
+
 @_skip_gradio
 class TestDeprecatedRefsUI(unittest.TestCase):
     """ui.py must not contain deprecated command names."""

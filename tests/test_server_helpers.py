@@ -71,7 +71,7 @@ _skip_gradio = unittest.skipUnless(HAS_GRADIO, "requires gradio")
 # Gradio UI Launch Tests
 # =========================================================================
 
-@pytest.mark.unit
+
 class TestLaunchGradioUI(unittest.TestCase):
     """Verify launch_gradio_ui does not shell out to a subprocess."""
 
@@ -95,7 +95,7 @@ class TestLaunchGradioUI(unittest.TestCase):
 # ensure_server_running Tests
 # =========================================================================
 
-@pytest.mark.unit
+
 class TestEnsureServerRunning(unittest.TestCase):
     """Verify ensure_server_running uses new CLI paths."""
 
@@ -116,7 +116,7 @@ class TestEnsureServerRunning(unittest.TestCase):
 # App Helper Function Tests
 # =========================================================================
 
-@pytest.mark.unit
+
 @_skip_server
 class TestAppHelperFunctions(unittest.TestCase):
     """Tests for app.py helper functions."""
@@ -147,7 +147,7 @@ class TestAppHelperFunctions(unittest.TestCase):
 # build_ui_and_launch Tests
 # =========================================================================
 
-@pytest.mark.unit
+
 @_skip_gradio
 class TestBuildUIAndLaunch(unittest.TestCase):
     """build_ui_and_launch should respect TTS_UI_NO_BROWSER and TTS_UI_SHARE env vars."""
@@ -236,7 +236,7 @@ class TestBuildUIAndLaunch(unittest.TestCase):
 # get_server_status Tests
 # =========================================================================
 
-@pytest.mark.unit
+
 @_skip_gradio
 class TestGetServerStatus(unittest.TestCase):
     """get_server_status() should correctly parse stats response."""
@@ -302,7 +302,7 @@ class TestGetServerStatus(unittest.TestCase):
         self.assertNotEqual(models, "None")
 
 
-@pytest.mark.unit
+
 @_skip_gradio
 class TestManageVoicesRaceCondition(unittest.TestCase):
     """Manage Voices buttons must start non-interactive to prevent race condition."""

@@ -41,7 +41,7 @@ except ImportError:
     pytest = _DummyPytest()
 
 
-@pytest.mark.unit
+
 class TestAudioProcessing(unittest.TestCase):
     """Tests for normalize_audio, trim_silence, and process_audio."""
 
@@ -163,7 +163,7 @@ class TestAudioProcessing(unittest.TestCase):
         self.assertAlmostEqual(actual_peak, expected_peak, places=5)
 
 
-@pytest.mark.unit
+
 class TestTextChunkingEdgeCases(unittest.TestCase):
     """Tests for _split_text edge cases and boundary conditions."""
 
@@ -264,7 +264,7 @@ _skip_num2words = unittest.skipUnless(HAS_NUM2WORDS, "requires num2words")
 _skip_pysbd = unittest.skipUnless(HAS_PYSBD, "requires pysbd")
 
 
-@pytest.mark.unit
+
 class TestMapLanguage(unittest.TestCase):
     """Tests for _map_language() language code mapping helper."""
 
@@ -290,7 +290,7 @@ class TestMapLanguage(unittest.TestCase):
         self.assertEqual(_map_language("ENGLISH"), "en")
 
 
-@pytest.mark.unit
+
 @_skip_num2words
 class TestNormalizeText(unittest.TestCase):
     """Tests for _normalize_text() — numbers, abbreviations, dates, currencies."""
@@ -405,7 +405,7 @@ class TestNormalizeText(unittest.TestCase):
         self.assertIn("eight", result)
 
 
-@pytest.mark.unit
+
 @_skip_pysbd
 class TestPysbdSentenceSplitting(unittest.TestCase):
     """Tests that pySBD does not split on abbreviation dots."""
@@ -440,7 +440,7 @@ class TestPysbdSentenceSplitting(unittest.TestCase):
         self.assertTrue(len(result) >= 1)
 
 
-@pytest.mark.unit
+
 class TestGetMaxChunkTokens(unittest.TestCase):
     """Tests for _get_max_chunk_tokens() config reader."""
 
@@ -455,7 +455,7 @@ class TestGetMaxChunkTokens(unittest.TestCase):
         self.assertGreater(result, 0)
 
 
-@pytest.mark.unit
+
 class TestTokenAwareChunking(unittest.TestCase):
     """Tests for token-aware _split_text(tokenizer=, max_tokens=)."""
 

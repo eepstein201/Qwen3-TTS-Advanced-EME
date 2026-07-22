@@ -38,7 +38,7 @@ except ImportError:
 _skip_torch = unittest.skipUnless(HAS_TORCH, "requires torch")
 
 
-@pytest.mark.unit
+
 @_skip_server
 class TestCreateVoicePromptEndpoint(unittest.TestCase):
     """Test POST /create-voice-prompt endpoint."""
@@ -158,7 +158,7 @@ class TestCreateVoicePromptEndpoint(unittest.TestCase):
         self.assertEqual(data["status"], "created")
 
 
-@pytest.mark.unit
+
 @_skip_server
 class TestModelTableASRRow(unittest.TestCase):
     """Test that get_model_table_data includes ASR row."""

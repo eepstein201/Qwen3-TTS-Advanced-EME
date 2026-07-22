@@ -69,7 +69,7 @@ _skip_pydantic = unittest.skipUnless(HAS_PYDANTIC, "requires pydantic")
 # =========================================================================
 
 @_skip_numpy
-@pytest.mark.unit
+
 class TestValidateAudio(unittest.TestCase):
     """Test _validate_audio() from engine.py."""
 
@@ -120,7 +120,7 @@ class TestValidateAudio(unittest.TestCase):
 # =========================================================================
 
 @_skip_fastapi
-@pytest.mark.unit
+
 class TestValidateGenerationRequest(unittest.TestCase):
     """Test _validate_generation_request() from app.py."""
 
@@ -183,7 +183,7 @@ class TestValidateGenerationRequest(unittest.TestCase):
 # =========================================================================
 
 @_skip_fastapi
-@pytest.mark.unit
+
 class TestErrorResponse(unittest.TestCase):
     """Test _error_response() helper from app.py."""
 
@@ -224,7 +224,7 @@ class TestErrorResponse(unittest.TestCase):
 # Voice Prompt Cache Tests (R-4, I-5, I-2)
 # =========================================================================
 
-@pytest.mark.unit
+
 class TestVoicePromptCacheInfo(unittest.TestCase):
     """Test voice_prompt_cache_info() returns correct structure."""
 
@@ -249,7 +249,7 @@ class TestVoicePromptCacheInfo(unittest.TestCase):
         self.assertIsInstance(info.maxsize, int)
 
 
-@pytest.mark.unit
+
 class TestVoicePromptCacheThreadSafety(unittest.TestCase):
     """Test that concurrent cache access doesn't crash."""
 
@@ -287,7 +287,7 @@ class TestVoicePromptCacheThreadSafety(unittest.TestCase):
 
 @_skip_pydantic
 @_skip_fastapi
-@pytest.mark.unit
+
 class TestPydanticModels(unittest.TestCase):
     """Test Pydantic response models serialize correctly."""
 
@@ -343,7 +343,7 @@ class TestPydanticModels(unittest.TestCase):
 # Signal Handler Tests (R-1)
 # =========================================================================
 
-@pytest.mark.unit
+
 class TestSignalHandlerPattern(unittest.TestCase):
     """Verify signal handler resets to SIG_DFL before re-sending."""
 

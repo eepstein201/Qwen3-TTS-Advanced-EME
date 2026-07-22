@@ -41,7 +41,7 @@ except ImportError:
 # voice_prompt_exists
 # =========================================================================
 
-@pytest.mark.unit
+
 class TestVoicePromptExists(unittest.TestCase):
     """Tests for voice_prompt_exists — backend-aware prompt file check."""
 
@@ -88,7 +88,7 @@ class TestVoicePromptExists(unittest.TestCase):
 # list_voice_prompts
 # =========================================================================
 
-@pytest.mark.unit
+
 class TestListVoicePrompts(unittest.TestCase):
     """Tests for list_voice_prompts — directory listing of prompt files."""
 
@@ -126,7 +126,7 @@ class TestListVoicePrompts(unittest.TestCase):
 # get_text
 # =========================================================================
 
-@pytest.mark.unit
+
 class TestGetText(unittest.TestCase):
     """Tests for get_text — resolves text from string, file, or ~/Downloads."""
 
@@ -173,7 +173,7 @@ class TestGetText(unittest.TestCase):
 # get_clipboard_text
 # =========================================================================
 
-@pytest.mark.unit
+
 class TestGetClipboardText(unittest.TestCase):
     """Tests for get_clipboard_text — platform-aware clipboard access."""
 
@@ -236,7 +236,7 @@ class TestGetClipboardText(unittest.TestCase):
 # auto_increment_filename
 # =========================================================================
 
-@pytest.mark.unit
+
 class TestAutoIncrementFilename(unittest.TestCase):
     """Tests for auto_increment_filename — collision-free file naming."""
 
@@ -266,7 +266,7 @@ class TestAutoIncrementFilename(unittest.TestCase):
 # play_audio
 # =========================================================================
 
-@pytest.mark.unit
+
 class TestPlayAudio(unittest.TestCase):
     """Tests for play_audio — platform-aware audio playback."""
 
@@ -325,7 +325,7 @@ class TestPlayAudio(unittest.TestCase):
 # open_file
 # =========================================================================
 
-@pytest.mark.unit
+
 class TestOpenFile(unittest.TestCase):
     """Tests for open_file — open file with system default handler."""
 
@@ -370,7 +370,7 @@ class TestOpenFile(unittest.TestCase):
 # log_generation / show_history
 # =========================================================================
 
-@pytest.mark.unit
+
 class TestLogGeneration(unittest.TestCase):
     """Tests for log_generation — append history entries."""
 
@@ -422,7 +422,7 @@ class TestLogGeneration(unittest.TestCase):
             os.unlink(path)
 
 
-@pytest.mark.unit
+
 class TestShowHistory(unittest.TestCase):
     """Tests for show_history — display recent generation history."""
 
@@ -475,7 +475,7 @@ class TestShowHistory(unittest.TestCase):
 # get_voice_alias
 # =========================================================================
 
-@pytest.mark.unit
+
 class TestGetVoiceAlias(unittest.TestCase):
     """Tests for get_voice_alias — resolve alias from config."""
 
@@ -496,7 +496,7 @@ class TestGetVoiceAlias(unittest.TestCase):
 # parse_ssml
 # =========================================================================
 
-@pytest.mark.unit
+
 class TestParseSSML(unittest.TestCase):
     """Tests for parse_ssml — SSML tag processing."""
 
@@ -558,7 +558,7 @@ class TestParseSSML(unittest.TestCase):
 # process_ssml_text
 # =========================================================================
 
-@pytest.mark.unit
+
 class TestProcessSSMLText(unittest.TestCase):
     """Tests for process_ssml_text — apply SSML prosody to args."""
 
@@ -584,7 +584,7 @@ class TestProcessSSMLText(unittest.TestCase):
 # parse_srt / srt_time_to_ms
 # =========================================================================
 
-@pytest.mark.unit
+
 class TestParseSrt(unittest.TestCase):
     """Tests for parse_srt — SRT subtitle file parsing."""
 
@@ -612,7 +612,7 @@ class TestParseSrt(unittest.TestCase):
             os.unlink(path)
 
 
-@pytest.mark.unit
+
 class TestSrtTimeToMs(unittest.TestCase):
     """Tests for srt_time_to_ms — SRT timestamp conversion."""
 
@@ -628,7 +628,7 @@ class TestSrtTimeToMs(unittest.TestCase):
 # process_audio_args
 # =========================================================================
 
-@pytest.mark.unit
+
 class TestProcessAudioArgs(unittest.TestCase):
     """Tests for process_audio_args — conditional audio post-processing."""
 
@@ -654,7 +654,7 @@ class TestProcessAudioArgs(unittest.TestCase):
 # _build_generation_payload
 # =========================================================================
 
-@pytest.mark.unit
+
 class TestBuildGenerationPayload(unittest.TestCase):
     """Tests for _build_generation_payload — server request construction."""
 

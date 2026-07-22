@@ -99,7 +99,7 @@ if HAS_PYTEST and HAS_DEPS:
 
 # Pytest-style tests using fixtures from conftest.py
 
-@pytest.mark.unit
+
 @_skip
 def test_asyncio_lock_works():
     """Verify asyncio.Lock works for GPU serialization."""
@@ -114,7 +114,7 @@ def test_asyncio_lock_works():
     assert result is True
 
 
-@pytest.mark.unit
+
 @_skip
 def test_fastapi_app_exists():
     """FastAPI app should be importable and valid."""
@@ -122,7 +122,7 @@ def test_fastapi_app_exists():
     assert isinstance(app, FastAPI)
 
 
-@pytest.mark.unit
+
 @_skip
 def test_fastapi_routes_exist():
     """FastAPI app should have all expected routes."""
@@ -140,14 +140,14 @@ def test_fastapi_routes_exist():
         assert route in routes, f"Route {route} should exist"
 
 
-@pytest.mark.unit
+
 @_skip
 def test_fastapi_lifespan_configured():
     """FastAPI app should have lifespan configured for startup/shutdown."""
     assert app.router.lifespan_context is not None
 
 
-@pytest.mark.unit
+
 @_skip
 def test_public_endpoints_no_auth(fastapi_client):
     """Public endpoints should work without auth token."""
@@ -160,7 +160,7 @@ def test_public_endpoints_no_auth(fastapi_client):
             f"{endpoint} should be public, got {response.status_code}"
 
 
-@pytest.mark.unit
+
 @_skip
 def test_protected_endpoints_require_auth(fastapi_client):
     """Protected endpoints should return 401 without auth token."""
@@ -172,7 +172,7 @@ def test_protected_endpoints_require_auth(fastapi_client):
     assert response.status_code == 401, "Should require auth"
 
 
-@pytest.mark.unit
+
 @_skip
 def test_valid_auth_accepted(fastapi_client):
     """Valid auth token should be accepted."""
@@ -181,7 +181,7 @@ def test_valid_auth_accepted(fastapi_client):
     assert response.status_code != 401, "Valid auth token should be accepted"
 
 
-@pytest.mark.unit
+
 @_skip
 def test_invalid_auth_rejected():
     """Invalid auth token should be rejected."""
@@ -195,7 +195,7 @@ def test_invalid_auth_rejected():
     assert response.status_code == 401
 
 
-@pytest.mark.unit
+
 @_skip
 def test_missing_auth_rejected():
     """Missing auth header should be rejected."""
@@ -206,7 +206,7 @@ def test_missing_auth_rejected():
     assert response.status_code == 401
 
 
-@pytest.mark.unit
+
 @_skip
 def test_streaming_requires_auth():
     """Streaming endpoint should reject requests without auth token."""
@@ -220,7 +220,7 @@ def test_streaming_requires_auth():
     assert response.status_code == 401
 
 
-@pytest.mark.unit
+
 @_skip
 def test_streaming_with_auth(fastapi_client):
     """Streaming endpoint with auth should not return 401."""
@@ -236,7 +236,7 @@ def test_streaming_with_auth(fastapi_client):
 # Phase 4A: Generation & model management endpoint tests
 # ---------------------------------------------------------------------------
 
-@pytest.mark.unit
+
 @_skip
 def test_generate_no_text(fastapi_client):
     """POST /generate with no text returns 400."""
@@ -244,7 +244,7 @@ def test_generate_no_text(fastapi_client):
     assert response.status_code == 400
 
 
-@pytest.mark.unit
+
 @_skip
 def test_generate_empty_text(fastapi_client):
     """POST /generate with empty string returns 400."""
@@ -254,7 +254,7 @@ def test_generate_empty_text(fastapi_client):
     assert response.status_code == 400
 
 
-@pytest.mark.unit
+
 @_skip
 def test_generate_model_not_loaded(fastapi_client):
     """POST /generate when model is None returns 503 model_not_loaded."""
@@ -268,7 +268,7 @@ def test_generate_model_not_loaded(fastapi_client):
     assert data["detail"]["error"] == "model_not_loaded"
 
 
-@pytest.mark.unit
+
 @_skip
 def test_generate_batch_size_exceeded(fastapi_client):
     """POST /generate with too many texts returns 400."""
@@ -281,7 +281,7 @@ def test_generate_batch_size_exceeded(fastapi_client):
     assert "exceeds limit" in response.json()["detail"]
 
 
-@pytest.mark.unit
+
 @_skip
 def test_generate_text_too_long(fastapi_client):
     """POST /generate with text exceeding max_text_length returns 400."""
@@ -299,7 +299,7 @@ def test_generate_text_too_long(fastapi_client):
         app.state.models["clone"] = None
 
 
-@pytest.mark.unit
+
 @_skip
 def test_generate_empty_text_in_batch(fastapi_client):
     """POST /generate with empty text in batch returns 400."""
@@ -311,7 +311,7 @@ def test_generate_empty_text_in_batch(fastapi_client):
     assert "empty or invalid" in response.json()["detail"]
 
 
-@pytest.mark.unit
+
 @_skip
 def test_generate_memory_guard(fastapi_client):
     """POST /generate returns 503 when memory is low."""
@@ -326,7 +326,7 @@ def test_generate_memory_guard(fastapi_client):
     assert "insufficient_memory" in str(response.json()["detail"])
 
 
-@pytest.mark.unit
+
 @_skip
 def test_generate_stream_no_text(fastapi_client):
     """POST /generate-stream with no text returns 400."""
@@ -336,7 +336,7 @@ def test_generate_stream_no_text(fastapi_client):
     assert response.status_code == 400
 
 
-@pytest.mark.unit
+
 @_skip
 def test_generate_stream_empty_text(fastapi_client):
     """POST /generate-stream with empty text returns 400."""
@@ -346,7 +346,7 @@ def test_generate_stream_empty_text(fastapi_client):
     assert response.status_code == 400
 
 
-@pytest.mark.unit
+
 @_skip
 def test_generate_stream_model_not_loaded(fastapi_client):
     """POST /generate-stream when model is None returns 503."""
@@ -358,7 +358,7 @@ def test_generate_stream_model_not_loaded(fastapi_client):
     assert response.status_code == 503
 
 
-@pytest.mark.unit
+
 @_skip
 def test_generate_stream_memory_guard(fastapi_client):
     """POST /generate-stream returns 503 when memory is low."""
@@ -372,7 +372,7 @@ def test_generate_stream_memory_guard(fastapi_client):
     assert response.status_code == 503
 
 
-@pytest.mark.unit
+
 @_skip
 def test_load_model_invalid_type(fastapi_client):
     """POST /load-model with invalid model_type returns 400."""
@@ -383,7 +383,7 @@ def test_load_model_invalid_type(fastapi_client):
     assert "Unknown model type" in response.json()["detail"]
 
 
-@pytest.mark.unit
+
 @_skip
 def test_load_model_already_loaded(fastapi_client):
     """POST /load-model when model is already loaded returns already_loaded."""
@@ -398,7 +398,7 @@ def test_load_model_already_loaded(fastapi_client):
         app.state.models["clone"] = None
 
 
-@pytest.mark.unit
+
 @_skip
 def test_unload_model_invalid_type(fastapi_client):
     """POST /unload-model with invalid model_type returns 400."""
@@ -408,7 +408,7 @@ def test_unload_model_invalid_type(fastapi_client):
     assert response.status_code == 400
 
 
-@pytest.mark.unit
+
 @_skip
 def test_unload_model_already_unloaded(fastapi_client):
     """POST /unload-model when model is None returns already_unloaded."""
@@ -419,7 +419,7 @@ def test_unload_model_already_unloaded(fastapi_client):
     assert response.json()["status"] == "already_unloaded"
 
 
-@pytest.mark.unit
+
 @_skip
 def test_unload_model_active_generation_conflict(fastapi_client):
     """POST /unload-model during active generation on that mode returns 409."""
@@ -438,7 +438,7 @@ def test_unload_model_active_generation_conflict(fastapi_client):
         app.state.generation_state["mode"] = ""
 
 
-@pytest.mark.unit
+
 @_skip
 def test_update_model_config_no_params(fastapi_client):
     """POST /update-model-config with no params returns 400."""
@@ -449,7 +449,7 @@ def test_update_model_config_no_params(fastapi_client):
     assert "At least one" in response.json()["detail"]
 
 
-@pytest.mark.unit
+
 @_skip
 def test_update_model_config_invalid_size(fastapi_client):
     """POST /update-model-config with bad model_size returns 400."""
@@ -460,7 +460,7 @@ def test_update_model_config_invalid_size(fastapi_client):
     assert "Invalid model_size" in response.json()["detail"]
 
 
-@pytest.mark.unit
+
 @_skip
 def test_update_model_config_invalid_quant(fastapi_client):
     """POST /update-model-config with bad mlx_quantization returns 400."""
@@ -471,7 +471,7 @@ def test_update_model_config_invalid_quant(fastapi_client):
     assert "Invalid mlx_quantization" in response.json()["detail"]
 
 
-@pytest.mark.unit
+
 @_skip
 def test_update_model_config_valid(fastapi_client):
     """POST /update-model-config with valid params succeeds."""
@@ -487,7 +487,7 @@ def test_update_model_config_valid(fastapi_client):
     assert "model_size=0.6B" in data["changes"]
 
 
-@pytest.mark.unit
+
 @_skip
 def test_update_startup_config_no_types(fastapi_client):
     """POST /update-startup-config with no model types returns 400."""
@@ -497,7 +497,7 @@ def test_update_startup_config_no_types(fastapi_client):
     assert response.status_code == 400
 
 
-@pytest.mark.unit
+
 @_skip
 def test_update_startup_config_valid(fastapi_client):
     """POST /update-startup-config saves config correctly."""
@@ -517,7 +517,7 @@ def test_update_startup_config_valid(fastapi_client):
     mock_save.assert_called_once()
 
 
-@pytest.mark.unit
+
 @_skip
 def test_generate_stream_text_too_long(fastapi_client):
     """POST /generate-stream with text exceeding limit returns 400."""

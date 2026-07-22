@@ -39,7 +39,7 @@ except ImportError:
     pytest = _DummyPytest()
 
 
-@pytest.mark.unit
+
 class TestPackageMetadata(unittest.TestCase):
     """Test package metadata and entry points."""
 
