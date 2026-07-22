@@ -21,9 +21,12 @@ from fastapi.responses import StreamingResponse
 
 from qwen3_tts.core.config import get_generation_cache_max
 from qwen3_tts.server.app_lifespan import _check_memory_available
-from qwen3_tts.server.validation import (MAX_SEED, _error_response,
-                                         _gen_cache_key,
-                                         _validate_generation_request)
+from qwen3_tts.server.validation import (
+    MAX_SEED,
+    _error_response,
+    _gen_cache_key,
+    _validate_generation_request,
+)
 
 logger = logging.getLogger("tts")
 
@@ -439,8 +442,7 @@ async def handle_generate(request, state, req, security, config_provider):
                     "seed": used_seed,
                 }
 
-            from qwen3_tts.core.engine.audio_processing import \
-                calculate_waveform_peaks
+            from qwen3_tts.core.engine.audio_processing import calculate_waveform_peaks
 
             peaks = await asyncio.to_thread(
                 calculate_waveform_peaks, wav, num_peaks=500
