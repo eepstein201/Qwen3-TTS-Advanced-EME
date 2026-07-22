@@ -89,6 +89,15 @@ async def websocket_tts_handler(
     try:
         auth_msg = await asyncio.wait_for(websocket.receive_text(), timeout=10.0)
         auth_data = json.loads(auth_msg)
+        # A valid-JSON non-object payload (e.g. "42", "[1]") must be rejected
+        # explicitly. Without this guard, auth_data.get() below raised
+        # AttributeError, which escaped the (previously narrow) except clause
+        # and skipped _ws_release — leaking a connection slot. Repeating 50x
+        # exhausted _WS_MAX_TOTAL (unauthenticated slot-exhaustion DoS).
+        if not isinstance(auth_data, dict):
+            await websocket.close(code=4001, reason="Authentication failed")
+            _ws_release(app_state, client_ip)
+            return
         token = auth_data.get("token", "")
         if not verify_token_fn(token):
             await websocket.send_json({"error": "Authentication failed"})
@@ -96,7 +105,11 @@ async def websocket_tts_handler(
             _ws_release(app_state, client_ip)
             return
         await websocket.send_json({"status": "authenticated"})
-    except (asyncio.TimeoutError, json.JSONDecodeError, WebSocketDisconnect):
+    except Exception:
+        # Any auth-path failure (timeout, malformed JSON, disconnect, or an
+        # unexpected error) must release the reserved slot. Broad catch
+        # guarantees no leak regardless of payload shape.
+        logger.debug("WebSocket auth failed; releasing slot", exc_info=True)
         await websocket.close(code=4001, reason="Authentication failed")
         _ws_release(app_state, client_ip)
         return
@@ -125,9 +138,13 @@ async def websocket_tts_handler(
             # Handle control messages
             action = data.get("action")
             if action == "cancel":
+                # Set the flag and leave it set. Clearing it here (as this once
+                # did) raced the inference thread's stop_event.is_set() check:
+                # the flag could be cleared microseconds after being set,
+                # before inference observed it — losing the cancel. The flag is
+                # cleared at the start of the next generation instead.
                 stop_event.set()
                 await websocket.send_json({"status": "cancelled"})
-                stop_event.clear()
                 continue
 
             # Handle generation request
@@ -215,20 +232,47 @@ async def _stream_generation(
     # Validate request (path traversal, speaker, mode) — same checks as HTTP endpoints
     try:
         from fastapi import HTTPException
+        from pydantic import ValidationError
 
         from qwen3_tts.server.validation import (
             GenerateRequest,
             _validate_generation_request,
         )
 
-        req = GenerateRequest(
-            text=text,
-            mode=mode,
-            prompt_file=data.get("prompt_file"),
-            speaker=data.get("speaker"),
-            voice_description=data.get("voice_description", ""),
-            instruct=data.get("instruct", ""),
-        )
+        # Construct the FULL request so Pydantic validates every generation
+        # parameter (types + ranges). Pre-fix, only 6 fields were validated and
+        # temperature/top_k/top_p/repetition_penalty/max_new_tokens/seed flowed
+        # from the raw `data` dict unvalidated — letting a client send
+        # max_new_tokens=2_147_483_647 and monopolize the inference_lock.
+        try:
+            req = GenerateRequest(
+                text=text,
+                mode=mode,
+                prompt_file=data.get("prompt_file"),
+                speaker=data.get("speaker"),
+                voice_description=data.get("voice_description", ""),
+                instruct=data.get("instruct", ""),
+                temperature=data.get("temperature", 0.7),
+                top_k=data.get("top_k", 50),
+                top_p=data.get("top_p", 0.95),
+                repetition_penalty=data.get("repetition_penalty", 1.05),
+                max_new_tokens=data.get("max_new_tokens", 2048),
+                seed=data.get("seed"),
+                language=data.get("language", "English"),
+                max_chunk_chars=data.get("max_chunk_chars"),
+                x_vector_only_mode=data.get("x_vector_only_mode", False),
+                seed_lock_chunks=data.get("seed_lock_chunks", False),
+            )
+        except ValidationError as e:
+            first = e.errors()[0] if e.errors() else {}
+            field = ".".join(str(p) for p in first.get("loc", ())) or "parameter"
+            await websocket.send_json(
+                {
+                    "error": f"Invalid {field}: "
+                    f"{first.get('msg', 'validation failed')}"
+                }
+            )
+            return
         security = (
             app_state.server_config.get("security", {})
             if hasattr(app_state, "server_config")
@@ -247,7 +291,7 @@ async def _stream_generation(
     # Resolve the actual seed (server-generated when the client sends none) so it
     # can be applied to inference and reported in the completion message,
     # matching the /generate and /generate-stream paths.
-    used_seed = _resolve_generation_seed(data.get("seed"))
+    used_seed = _resolve_generation_seed(req.seed)
 
     await websocket.send_json({"status": "generating", "text_length": len(text)})
 
@@ -258,12 +302,13 @@ async def _stream_generation(
         try:
             from qwen3_tts.core.engine import run_inference_streaming
 
+            # Derive gen_params from the validated request, never from raw data.
             gen_params = {
-                "temperature": data.get("temperature", 0.7),
-                "top_k": data.get("top_k", 50),
-                "top_p": data.get("top_p", 0.95),
-                "repetition_penalty": data.get("repetition_penalty", 1.05),
-                "max_new_tokens": data.get("max_new_tokens", 2048),
+                "temperature": req.temperature,
+                "top_k": req.top_k,
+                "top_p": req.top_p,
+                "repetition_penalty": req.repetition_penalty,
+                "max_new_tokens": req.max_new_tokens,
                 "seed": used_seed,
             }
 
@@ -271,7 +316,7 @@ async def _stream_generation(
             if mode == "clone":
                 from qwen3_tts.core.engine import load_voice_prompt
 
-                prompt_file = data.get("prompt_file")
+                prompt_file = req.prompt_file
                 if prompt_file:
                     voice_prompt = load_voice_prompt(prompt_file)
 
@@ -280,12 +325,12 @@ async def _stream_generation(
                 text=text,
                 mode=mode,
                 gen_params=gen_params,
-                language=data.get("language", "English"),
+                language=req.language,
                 voice_prompt=voice_prompt,
-                voice_description=data.get("voice_description"),
-                speaker=data.get("speaker"),
-                instruct=data.get("instruct"),
-                x_vector_only_mode=data.get("x_vector_only_mode", False),
+                voice_description=req.voice_description,
+                speaker=req.speaker,
+                instruct=req.instruct,
+                x_vector_only_mode=req.x_vector_only_mode,
             ):
                 if stop_event.is_set():
                     break
