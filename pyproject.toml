@@ -33,7 +33,7 @@ mlx = [
 
 # FastAPI server
 server = [
-    "fastapi>=0.110.0",
+    "fastapi>=0.139.2",
     "slowapi>=0.1.10",
     "uvicorn[standard]>=0.51.0",
     "soundfile>=0.12.1",
@@ -87,7 +87,7 @@ test = [
     "httpx>=0.28.1",            # HTTP client for testing
     "pytest-cov>=5.0",        # Coverage reporting
     "playwright>=1.40.0",     # E2E testing (if not already in main deps)
-    "fastapi>=0.110.0",       # Server dependencies for integration tests
+    "fastapi>=0.139.2",       # Server dependencies for integration tests
     "slowapi>=0.1.10",         # Rate limiting for server tests
     "uvicorn[standard]>=0.51.0",
     "soundfile>=0.12.1",

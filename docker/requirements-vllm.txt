@@ -12,7 +12,7 @@ httpx>=0.28.1
 
 # Optional: monitoring and logging
 uvicorn[standard]>=0.51.0
-fastapi>=0.115.0
+fastapi>=0.139.2
 
 # Optional: development tools (comment out for production)
 # pytest>=8.0.0
