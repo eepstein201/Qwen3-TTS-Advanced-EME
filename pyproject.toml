@@ -17,7 +17,7 @@ dependencies = [
 [project.optional-dependencies]
 # PyTorch backend (Linux, Intel Mac, Colab/CUDA)
 torch = [
-    "torch>=2.0",
+    "torch>=2.13.0",
     "torchaudio>=2.0",
     "qwen-tts",
     "transformers>=4.57.3",
