@@ -183,6 +183,10 @@ async def handle_generate(request, state, req, security, config_provider):
                 voice_description=voice_description,
                 speaker=speaker,
                 instruct=instruct,
+                language=language,
+                x_vector_only_mode=x_vector_only_mode,
+                max_chunk_chars=max_chunk_chars,
+                seed_lock_chunks=req.seed_lock_chunks,
             )
             pre_lock_cache_keys[i] = cache_key
             with state.gen_cache_lock:

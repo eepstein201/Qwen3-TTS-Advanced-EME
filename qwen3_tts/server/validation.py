@@ -237,8 +237,23 @@ def _gen_cache_key(
     voice_description: str | None = None,
     speaker: str | None = None,
     instruct: str | None = None,
+    language: str | None = None,
+    x_vector_only_mode: bool = False,
+    max_chunk_chars: int | None = None,
+    seed_lock_chunks: bool = False,
 ) -> str:
-    """Generate a hash key for generation cache lookup."""
+    """Generate a hash key for generation cache lookup.
+
+    The key must include EVERY input that changes the generated audio. Pre-fix
+    it omitted language, x_vector_only_mode, max_chunk_chars, and
+    seed_lock_chunks, so two requests differing only in one of those fields
+    collided and served stale audio from the wrong configuration (e.g. an
+    English request hitting a Spanish cache entry for the same text/voice).
+
+    Note: the actual ``seed`` value is intentionally excluded (see
+    app_generation.handle_generate) so blank-seed requests still cache-hit —
+    only the seeding *strategy* (seed_lock_chunks) matters for correctness.
+    """
     key_parts = [text, mode, str(sorted(gen_params.items()))]
     if prompt_file:
         key_parts.append(prompt_file)
@@ -248,6 +263,12 @@ def _gen_cache_key(
         key_parts.append(speaker)
     if instruct:
         key_parts.append(instruct)
+    # Behavior toggles that alter output audio.
+    key_parts.append(f"lang={language}")
+    key_parts.append(f"xvo={x_vector_only_mode}")
+    if max_chunk_chars is not None:
+        key_parts.append(f"mcc={max_chunk_chars}")
+    key_parts.append(f"slc={seed_lock_chunks}")
     raw = "|".join(key_parts)
     return hashlib.sha256(raw.encode(), usedforsecurity=False).hexdigest()[:16]
 
