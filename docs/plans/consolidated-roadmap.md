@@ -103,7 +103,7 @@ Long tail tracked in `docs/reviews/e2e-review-2026-07-01.md`. Highest-value item
 
 ---
 
-## Repo Review 2026-07-23 (comprehensive sweep — Open)
+## Repo Review 2026-07-23 (comprehensive sweep — 7/8 done; HYG-1 open)
 
 Four-agent review across dead code, tests, static gates, E2E, structure, and UI/UX +
 user-facing text. Repo is healthy (CI green, ruff clean, 2163+ tests, CLAUDE.md 287/300).
@@ -111,22 +111,24 @@ New actionable findings below; two UI bugs reproduced directly.
 
 | ID | Task | Sev | Effort | Files |
 |----|------|-----|--------|-------|
-| **UI-1** | "Unload" button crashes first click — `on_unload_click` imports `get_model_table_data` from `.shared`, but it lives in `.model_management` → `ImportError`. Handler wired live at `:1004`. | HIGH | Low | `interface/ui/_facade.py:951` |
-| **UI-2** | Dead startup-reload warning — checks `startup == "default"` but table only emits `"Yes"`/`"No"`; warning never fires. Also fabricated "~3-5 seconds" reload estimate. | MED | Low | `interface/ui/_facade.py:972,981` |
-| **DOC-1** | Typo in coverage command `--cov=qwen3_tss` → `qwen3_tts`. | LOW | Trivial | `docs/CONTRIBUTING.md` |
-| **DEDUP-1** | `process_batch` duplicated (both live + independently tested); dedup needs lazy import to avoid circular import with `cli/batch.py`. | MED | Med | `interface/generate.py:90`, `interface/cli/batch.py:25` |
-| **UI-3** | UI slider defaults + Model-Settings/Tips prose hardcoded instead of read from config constants (`VALID_MODEL_SIZES`, `generation` defaults) — silent drift + user config ignored. | MED | Med | `interface/ui/generation.py:300-303,396-399`, `_facade.py:1097,1103,1218` |
-| **UI-4** | CLI model-size `choices` hardcoded instead of `VALID_MODEL_SIZES`. | LOW | Low | `interface/generate.py:246`, `cli.py:221` |
-| **A11Y-1** | Per-action status Textboxes unlabeled, no `aria-live`; "Stop"/"Confirm Cancel?" vocab drift. | LOW-MED | Med | `interface/ui/generation.py`, `_facade.py` |
+| ✅ **UI-1** (#83) | "Unload" button crashes first click — `on_unload_click` imports `get_model_table_data` from `.shared`, but it lives in `.model_management` → `ImportError`. Handler wired live at `:1004`. | HIGH | Low | `interface/ui/_facade.py:951` |
+| ✅ **UI-2** (#83) | Dead startup-reload warning — checks `startup == "default"` but table only emits `"Yes"`/`"No"`; warning never fires. Also fabricated "~3-5 seconds" reload estimate. | MED | Low | `interface/ui/_facade.py:972,981` |
+| ✅ **DOC-1** (#83) | Typo in coverage command `--cov=qwen3_tss` → `qwen3_tts`. | LOW | Trivial | `docs/CONTRIBUTING.md` |
+| ✅ **DEDUP-1** (#85) | `process_batch` duplicated (both live + independently tested); dedup needs lazy import to avoid circular import with `cli/batch.py`. | MED | Med | `interface/generate.py:90`, `interface/cli/batch.py:25` |
+| ✅ **UI-3** (#84) | UI slider defaults + Model-Settings/Tips prose hardcoded instead of read from config constants (`VALID_MODEL_SIZES`, `generation` defaults) — silent drift + user config ignored. | MED | Med | `interface/ui/generation.py:300-303,396-399`, `_facade.py:1097,1103,1218` |
+| ✅ **UI-4** (#84) | CLI model-size `choices` hardcoded instead of `VALID_MODEL_SIZES`. | LOW | Low | `interface/generate.py:246`, `cli.py:221` |
+| ✅ **A11Y-1** (#86) | Per-action status Textboxes unlabeled, no `aria-live`; "Stop"/"Confirm Cancel?" vocab drift. | LOW-MED | Med | `interface/ui/generation.py`, `_facade.py` |
 | **HYG-1** | Working-tree clutter (untracked): `.voice_server.log.old`, `.tts_server*.log`, stray `test/` dir, loose media, empty scratch `.md`. Confirm per category before deleting. | LOW | Low | repo root |
 
 **Structural debt** (extends the CI & Quality Debt list above): `config.py` 1399, `_facade.py`
 1293, `inference.py` 1110, `generate.py` 864, `app.py` 821, `wavesurfer_js.py` 814 (543-line
 embedded JS in `get_streaming_player_js`) all exceed the 800-line limit.
 
-**Execution:** Phase 1 (UI-1, UI-2, DOC-1, this doc's CI-status fix) on branch
-`feature/repo-review-safe-fixes`. Phases 2–4 (DEDUP-1, UI-3/4, A11Y-1, HYG-1, file splits)
-staged behind it. Full plan: `~/.claude/plans/run-comprehensive-review-of-merry-gadget.md`.
+**Execution:** Phases 1–2 complete and merged 2026-07-23 (#83 UI-1/UI-2/DOC-1, #84 UI-3/UI-4,
+#85 DEDUP-1, #86 A11Y-1). **Remaining:** HYG-1 (working-tree clutter cleanup — confirm per
+category before deleting) + the structural-debt file splits noted above (`config.py`,
+`_facade.py`, `inference.py`, `generate.py`, `app.py`, `wavesurfer_js.py`). Full plan:
+`~/.claude/plans/run-comprehensive-review-of-merry-gadget.md`.
 
 ---
 
