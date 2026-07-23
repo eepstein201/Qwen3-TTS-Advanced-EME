@@ -948,7 +948,7 @@ def _build_manage_models_tab(
     )
 
     def on_unload_click(state, mt):
-        from qwen3_tts.interface.ui.shared import get_model_table_data
+        from qwen3_tts.interface.ui.model_management import get_model_table_data
 
         # First click: show metadata
         if not state.get("armed", False):
@@ -967,9 +967,9 @@ def _build_manage_models_tab(
             memory_mb = model[2] if len(model) > 2 else "N/A"
             startup = model[3] if len(model) > 3 else "unknown"
 
-            # Warning if model is startup=default
+            # Warning if model is set to load at startup (table emits "Yes"/"No")
             startup_warning = ""
-            if startup == "default":
+            if startup == "Yes":
                 startup_warning = (
                     "\n⚠️ Loaded at startup - will reload on server restart!"
                 )
@@ -977,8 +977,7 @@ def _build_manage_models_tab(
             banner_msg = (
                 f"Unload {model_type.upper()} model?\n"
                 f"Current memory: {memory_mb}\n"
-                f"Startup config: {startup}\n"
-                f"Reload time: ~3-5 seconds"
+                f"Startup config: {startup}"
                 f"{startup_warning}"
             )
 
