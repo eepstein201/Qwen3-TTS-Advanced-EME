@@ -44,7 +44,7 @@ class TestCancelStreamingGeneration(unittest.TestCase):
              patch("qwen3_tts.core.http_client.server_request", return_value=mock_resp), \
              patch(f"{_MOD}.format_status_display", return_value="<html>"):
             msg, html = cancel_streaming_generation()
-        self.assertIn("cancelled", msg)
+        self.assertIn("stopped", msg)
 
     def test_cancel_failure(self):
         from qwen3_tts.interface.ui.generation import cancel_streaming_generation
@@ -225,7 +225,7 @@ class TestGenerateServerSide(unittest.TestCase):
         from qwen3_tts.interface.ui.generation import _generate_server_side
         with patch(f"{_MOD}.format_status_display", return_value="<html>"):
             result = _generate_server_side("clone", "hi", [], {"payload": {}})
-        self.assertEqual(result[1], "Cancelled")
+        self.assertEqual(result[1], "Generation stopped")
 
     def test_server_side_success(self):
         from qwen3_tts.interface.ui.generation import _generate_server_side

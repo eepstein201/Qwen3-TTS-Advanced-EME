@@ -113,7 +113,7 @@ class TestUICancelFunction(unittest.TestCase):
             result = cancel_streaming_generation()
 
         # First element is status text
-        self.assertIn("cancelled", result[0].lower())
+        self.assertIn("stopped", result[0].lower())
 
 
 @_skip_ui
