@@ -17,7 +17,7 @@ dependencies = [
 [project.optional-dependencies]
 # PyTorch backend (Linux, Intel Mac, Colab/CUDA)
 torch = [
-    "torch>=2.0",
+    "torch>=2.13.0",
     "torchaudio>=2.0",
     "qwen-tts",
     "transformers>=4.57.3",
@@ -33,11 +33,11 @@ mlx = [
 
 # FastAPI server
 server = [
-    "fastapi>=0.110.0",
+    "fastapi>=0.139.2",
     "slowapi>=0.1.10",
-    "uvicorn[standard]>=0.29.0",
-    "soundfile>=0.12.1",
-    "psutil>=5.9",
+    "uvicorn[standard]>=0.51.0",
+    "soundfile>=0.14.0",
+    "psutil>=7.2.2",
 ]
 
 # Gradio web UI
@@ -48,9 +48,9 @@ ui = [
 # Audio processing extras
 audio = [
     "librosa>=0.11.0",
-    "soundfile>=0.12.1",
+    "soundfile>=0.14.0",
     "pyrubberband",
-    "pyloudnorm>=0.1.1",
+    "pyloudnorm>=0.2.0",
     "pydub",
 ]
 
@@ -62,7 +62,7 @@ cuda = [
 
 # Rich CLI progress bars
 rich = [
-    "rich>=13.7.1",
+    "rich>=15.0.0",
 ]
 
 # Development tools (for development workflow, not required for testing)
@@ -73,8 +73,8 @@ dev = [
     "pytest-xdist>=3.0",      # parallel execution
     "pytest-timeout>=2.4.0",    # catch hanging tests
     "pytest-random-order>=1.2.0", # find interdependent tests
-    "pytest-cov>=5.0",        # coverage reporting
-    "ruff>=0.6",              # linting + formatting
+    "pytest-cov>=7.1.0",        # coverage reporting
+    "ruff>=0.15.22",              # linting + formatting
     "mypy>=2.3.0",             # static type checking
     "bandit>=1.7",            # security static analysis
 ]
@@ -85,13 +85,13 @@ test = [
     "pytest>=9.1.1",            # Core testing framework
     "pytest-asyncio>=0.23",   # Async test support
     "httpx>=0.28.1",            # HTTP client for testing
-    "pytest-cov>=5.0",        # Coverage reporting
-    "playwright>=1.40.0",     # E2E testing (if not already in main deps)
-    "fastapi>=0.110.0",       # Server dependencies for integration tests
+    "pytest-cov>=7.1.0",        # Coverage reporting
+    "playwright>=1.61.0",     # E2E testing (if not already in main deps)
+    "fastapi>=0.139.2",       # Server dependencies for integration tests
     "slowapi>=0.1.10",         # Rate limiting for server tests
-    "uvicorn[standard]>=0.29.0",
-    "soundfile>=0.12.1",
-    "psutil>=5.9",
+    "uvicorn[standard]>=0.51.0",
+    "soundfile>=0.14.0",
+    "psutil>=7.2.2",
 ]
 
 # AI voice-description enhancement (Design mode)

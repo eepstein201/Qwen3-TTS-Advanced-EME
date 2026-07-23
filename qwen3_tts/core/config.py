@@ -171,8 +171,11 @@ def validate_config(config: dict) -> tuple[dict, list[str]]:
         corrected_gen = dict(gen)
         temp = gen.get("temperature")
         if temp is not None and not (0.0 <= temp <= 2.0):
-            corrected_gen["temperature"] = 0.7
-            issues.append(f"corrected temperature from {temp} to 0.7")
+            corrected_gen["temperature"] = DEFAULT_GENERATION_PARAMS["temperature"]
+            issues.append(
+                f"corrected temperature from {temp} to "
+                f"{DEFAULT_GENERATION_PARAMS['temperature']}"
+            )
         if corrected_gen != gen:
             result["generation"] = corrected_gen
     sec = config.get("security")
@@ -343,10 +346,9 @@ def get_default_config(current_config: dict | None = None) -> dict:
             "dtype": "bfloat16",
         },
         "generation": {
-            "temperature": 0.7,
-            "top_k": 50,
-            "top_p": 0.95,
-            "repetition_penalty": 1.05,
+            # temperature/top_k/top_p/repetition_penalty come from the shared
+            # DEFAULT_GENERATION_PARAMS constant (single source of truth).
+            **DEFAULT_GENERATION_PARAMS,
             "seed": None,
             "max_chunk_chars": 500,
             "max_new_tokens": 2048,
@@ -722,6 +724,17 @@ VALID_MLX_QUANTIZATIONS = ("4bit", "5bit", "6bit", "8bit", "bf16")
 VALID_TORCH_QUANTIZATIONS = ("none", "8bit", "4bit")
 VALID_MODEL_SIZES = ("1.7B", "0.6B")
 
+# Single source of truth for the four generation sampling-parameter defaults.
+# Drives get_default_config()["generation"], the validate_config temperature
+# clamp, and the Gradio UI sliders/payload fallbacks (via get_generation_defaults)
+# so these values can never drift apart across those surfaces.
+DEFAULT_GENERATION_PARAMS = {
+    "temperature": 0.7,
+    "top_k": 50,
+    "top_p": 0.95,
+    "repetition_penalty": 1.05,
+}
+
 
 def get_torch_dtype_name() -> str:
     """Read the configured dtype from config.json (advanced.dtype).
@@ -807,6 +820,31 @@ def get_model_size() -> str:
     if size not in VALID_MODEL_SIZES:
         size = "1.7B"
     return size
+
+
+def get_generation_defaults() -> dict[str, float | int]:
+    """Return the configured generation sampling defaults for the UI.
+
+    Reads the "generation" section from config.json and returns the four
+    sampling parameters the Gradio UI exposes (temperature, top_k, top_p,
+    repetition_penalty). Any key missing from the user's config falls back to
+    DEFAULT_GENERATION_PARAMS; a corrupt or unreadable config falls back
+    entirely to the canonical defaults. This keeps the UI sliders and payload
+    fallbacks in lockstep with the user's config instead of hardcoded values.
+
+    Returns:
+        A dict with keys temperature (float), top_k (int), top_p (float),
+        and repetition_penalty (float).
+    """
+    try:
+        config = load_config()
+    except (json.JSONDecodeError, ValueError, OSError):
+        config = {}
+    generation = config.get("generation", {}) if isinstance(config, dict) else {}
+    return {
+        key: generation.get(key, DEFAULT_GENERATION_PARAMS[key])
+        for key in DEFAULT_GENERATION_PARAMS
+    }
 
 
 def get_torch_quantization() -> str:

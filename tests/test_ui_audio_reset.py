@@ -236,7 +236,7 @@ class TestGenerateColabFallback(unittest.TestCase):
         audio_path, status, _, _ = _generate_server_side(
             "clone", "hello", [], config)
         self.assertIsNone(audio_path)
-        self.assertEqual(status, "Cancelled")
+        self.assertEqual(status, "Generation stopped")
 
     @skip_if_no_gradio
     def test_client_error_returns_error_status(self):

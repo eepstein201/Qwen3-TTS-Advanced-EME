@@ -2,28 +2,26 @@
 """Batch processing for Qwen3-TTS CLI.
 
 This module handles batch processing of multiple texts from JSON files.
+
+``process_batch`` is a thin delegator to the canonical, path-traversal-hardened
+implementation in :mod:`qwen3_tts.interface.generate`. It is kept here so the
+``qwen3_tts.interface.cli.batch`` import path continues to work; the lazy
+in-function import mirrors the delegator pattern used by ``process_dialogue``
+and ``process_srt_file`` and keeps the heavy import out of module top level.
 """
 
 import json
-import logging
 import os
-
-from qwen3_tts.core.config import (
-    get_default_clone_prompt,
-)
-from qwen3_tts.interface.generate import (
-    _decode_base64_result,
-    _save_base64_result,
-    generate_local,
-    generate_via_server,
-    process_audio_args,
-)
-
-logger = logging.getLogger("tts.cli.batch")
 
 
 def process_batch(texts, args, config, gen_params, use_server):
     """Process multiple texts.
+
+    Delegates to :func:`qwen3_tts.interface.generate.process_batch`, which owns
+    the single canonical implementation (hardened with :func:`safe_path_join`).
+    This wrapper exists only for import-path compatibility — the previous
+    duplicate copy had drifted to plain ``os.path.join`` (a path-traversal
+    regression) and is now removed in favor of the shared implementation.
 
     Args:
         texts: List of text strings to synthesize
@@ -35,63 +33,9 @@ def process_batch(texts, args, config, gen_params, use_server):
     Returns:
         List of output file paths
     """
-    import soundfile as sf  # lazy — heavy import
+    from qwen3_tts.interface.generate import process_batch as _impl
 
-    output_dir = os.path.expanduser(
-        args.output or config.get("output_directory", "~/Downloads")
-    )
-    if not os.path.isdir(output_dir):
-        os.makedirs(output_dir, exist_ok=True)
-
-    language = config.get("language", "English")
-    mode = args.mode or "clone"
-    prompt_file = args.prompt or get_default_clone_prompt(config)
-    voice_description = args.description or config.get("default_voice_description", "")
-
-    output_paths = []
-    needs_processing = args.trim_silence or args.normalize or args.speed or args.pitch
-
-    if use_server:
-        logger.info("Using TTS server for batch of %d texts...", len(texts))
-        print(f"Using TTS server for batch of {len(texts)} texts...")
-        results = generate_via_server(
-            texts,
-            mode,
-            config,
-            gen_params,
-            prompt_file=prompt_file if mode == "clone" else None,
-            voice_description=voice_description if mode == "design" else None,
-        )
-
-        for i, result in enumerate(results):
-            output_path = os.path.join(output_dir, f"output_{i + 1}.wav")
-            if needs_processing:
-                wav, sr = _decode_base64_result(result)
-                wav = process_audio_args(wav, sr, args)
-                sf.write(output_path, wav, sr)
-            else:
-                _save_base64_result(result, output_path)
-            output_paths.append(output_path)
-            print(f"Saved: {output_path}")
-    else:
-        for i, text in enumerate(texts):
-            print(f"\nProcessing {i + 1}/{len(texts)}...")
-            wav, sr = generate_local(
-                text,
-                mode,
-                gen_params,
-                language,
-                prompt_file=prompt_file,
-                voice_description=voice_description,
-            )
-            wav = process_audio_args(wav, sr, args)
-
-            output_path = os.path.join(output_dir, f"output_{i + 1}.wav")
-            sf.write(output_path, wav, sr)
-            output_paths.append(output_path)
-            print(f"Saved: {output_path}")
-
-    return output_paths
+    return _impl(texts, args, config, gen_params, use_server)
 
 
 def load_batch_file(batch_path):

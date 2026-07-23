@@ -13,6 +13,8 @@ after repeated failures and closing after a cooldown period.
 """
 
 import asyncio
+import base64
+import io
 import logging
 import os
 import time
@@ -195,6 +197,15 @@ class AsyncVLLMClient:
             await self._client.aclose()
             self._client = None
 
+    @staticmethod
+    def _decode_audio(audio_base64: str) -> tuple[int, Any]:
+        """Decode base64 audio and read it using soundfile."""
+        import soundfile as sf
+
+        audio_bytes = base64.b64decode(audio_base64)
+        audio, sr = sf.read(io.BytesIO(audio_bytes))
+        return sr, audio
+
     async def generate(
         self,
         text: str,
@@ -261,17 +272,11 @@ class AsyncVLLMClient:
                         data = response.json()
                         audio_base64 = data.get("data", [{}])[0].get("audio")
 
-                        # Decode base64 audio
-                        import base64
-
-                        audio_bytes = base64.b64decode(audio_base64)
-
-                        # Load audio bytes into numpy array
-                        import io
-
-                        import soundfile as sf
-
-                        audio, sr = sf.read(io.BytesIO(audio_bytes))
+                        # Decode base64 audio in a threadpool to avoid
+                        # blocking the event loop on CPU-bound decode + I/O.
+                        sr, audio = await asyncio.to_thread(
+                            self._decode_audio, audio_base64
+                        )
                         return sr, audio
 
                     except httpx.HTTPStatusError as e:

@@ -22,6 +22,7 @@ import gradio as gr
 _history_lock = threading.Lock()
 
 from qwen3_tts.core.config import (  # noqa: E402 (intentional lazy import after lock initialization)
+    get_generation_defaults,
     get_generation_presets,
     get_prosody_presets,
     is_server_running,
@@ -38,6 +39,34 @@ from qwen3_tts.interface.voice_helpers import (  # noqa: E402, F401 (intentional
 )
 
 logger = logging.getLogger("tts.ui")
+
+# Unified stop/cancel vocabulary (single source of truth — A11Y-1).
+STATUS_STOP_LABEL = "Stop"
+STATUS_STOP_CONFIRM_ARM = "Stop — click again to confirm"
+STATUS_STOP_CONFIRM_HINT = "Click again within 5s to confirm stop."
+STATUS_GENERATION_STOPPING = "Stopping generation…"
+STATUS_GENERATION_STOPPED = "Generation stopped"
+STATUS_STOP_CANCELED = "Stop canceled"
+
+
+def _announce_status(msg: str | None) -> str:
+    """Visually-hidden screen-reader live region for an action status message.
+
+    gr.Textbox (the visible Status field) has no aria-live in Gradio 6, so action
+    outcomes would go unannounced. Returns an sr-only role=status aria-live=polite
+    block. Inline styles (no external CSS) + kept in DOM (visible=False is removed
+    from the DOM in Gradio 6, which would defeat the live region).
+    """
+    import html as html_mod
+
+    text = html_mod.escape(str(msg)) if msg else ""
+    return (
+        '<div role="status" aria-live="polite" '
+        'style="position:absolute;width:1px;height:1px;padding:0;'
+        'margin:-1px;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap;'
+        'border:0">'
+        f"{text}</div>"
+    )
 
 
 def generate_guard_check(gen_guard_state: dict | None) -> tuple:
@@ -60,7 +89,7 @@ def generate_guard_check(gen_guard_state: dict | None) -> tuple:
 
     new_state, _, confirmed = confirm_step(
         gen_guard_state,
-        arm_label="Cancel & restart? (click again)",
+        arm_label=STATUS_STOP_CONFIRM_ARM,
         original_label="Generate",
     )
     if not confirmed:
@@ -71,7 +100,7 @@ def generate_guard_check(gen_guard_state: dict | None) -> tuple:
         )
 
     cancel_streaming_generation()
-    return {**new_state, "generating": False}, "Cancelling current generation...", False
+    return {**new_state, "generating": False}, STATUS_GENERATION_STOPPING, False
 
 
 def cancel_streaming_generation():
@@ -89,7 +118,7 @@ def cancel_streaming_generation():
             timeout=5,
         )
         if resp.status_code == 200:
-            return "Generation cancelled", format_status_display()
+            return STATUS_GENERATION_STOPPED, format_status_display()
         else:
             return (
                 f"Cancel failed: {resp.json().get('error', 'Unknown')}",
@@ -135,7 +164,7 @@ def _prepare_cancel_confirmation():
 
         # Full confirmation required
         return (
-            f"Cancel generation?\nProgress: {progress_pct}%\nChunks: {chunks}\nETA: {eta}s",
+            f"Stop generation?\nProgress: {progress_pct}%\nChunks: {chunks}\nETA: {eta}s",
             False,  # requires confirmation
             progress_pct,
             chunks,
@@ -157,7 +186,7 @@ def _cancel_if_confirmed(confirmed: bool):
         Tuple of (status_message, status_html)
     """
     if not confirmed:
-        return "Cancel aborted", format_status_display()
+        return STATUS_STOP_CANCELED, format_status_display()
     return cancel_streaming_generation()
 
 
@@ -279,7 +308,7 @@ def _generate_server_side(mode, text, history_list, stream_config):
         return None, gr.update(), format_status_display(), history_list
 
     if not isinstance(stream_config, dict) or not stream_config.get("server_side"):
-        return None, "Cancelled", format_status_display(), history_list
+        return None, STATUS_GENERATION_STOPPED, format_status_display(), history_list
 
     try:
         from qwen3_tts.server.client import TTSClient
@@ -289,6 +318,9 @@ def _generate_server_side(mode, text, history_list, stream_config):
         # Save to temp dir (Gradio always allows tempdir paths)
         temp_path = os.path.join(tempfile.gettempdir(), filename)
         client = TTSClient()
+        # Generation sampling defaults come from config.json (single source of
+        # truth) so the fallbacks here can't drift from the slider defaults.
+        _defaults = get_generation_defaults()
         client.generate(
             text=payload.get("text", ""),
             output=temp_path,
@@ -297,10 +329,12 @@ def _generate_server_side(mode, text, history_list, stream_config):
             description=payload.get("voice_description"),
             speaker=payload.get("speaker"),
             instruct=payload.get("instruct"),
-            temperature=payload.get("temperature", 0.7),
-            top_k=payload.get("top_k", 50),
-            top_p=payload.get("top_p", 0.95),
-            repetition_penalty=payload.get("repetition_penalty", 1.05),
+            temperature=payload.get("temperature", _defaults["temperature"]),
+            top_k=payload.get("top_k", _defaults["top_k"]),
+            top_p=payload.get("top_p", _defaults["top_p"]),
+            repetition_penalty=payload.get(
+                "repetition_penalty", _defaults["repetition_penalty"]
+            ),
             seed=payload.get("seed"),
             preset=payload.get("preset"),
             x_vector_only_mode=payload.get("x_vector_only_mode", False),
@@ -392,11 +426,14 @@ def _build_common_controls():
     Audio processing (trim, normalize, speed, pitch) is not supported
     in streaming mode and has been removed from the WaveSurfer UI.
     """
+    # Slider defaults are driven by config.json (single source of truth) so the
+    # UI tracks the user's configured generation defaults, not hardcoded values.
+    _defaults = get_generation_defaults()
     with gr.Accordion("Advanced Settings", open=False):
-        temp = gr.Slider(0.1, 1.5, value=0.7, step=0.05, label="Temperature")
-        top_k = gr.Slider(1, 100, value=50, step=1, label="Top-K")
-        top_p = gr.Slider(0.1, 1.0, value=0.95, step=0.01, label="Top-P")
-        rep = gr.Slider(1.0, 2.0, value=1.05, step=0.01, label="Repetition Penalty")
+        temp = gr.Slider(0.1, 1.5, value=_defaults["temperature"], step=0.05, label="Temperature")
+        top_k = gr.Slider(1, 100, value=_defaults["top_k"], step=1, label="Top-K")
+        top_p = gr.Slider(0.1, 1.0, value=_defaults["top_p"], step=0.01, label="Top-P")
+        rep = gr.Slider(1.0, 2.0, value=_defaults["repetition_penalty"], step=0.01, label="Repetition Penalty")
         seed = gr.Textbox(label="Seed (empty for random)", value="")
         seed_lock = gr.Checkbox(
             label="Lock voice across chunks",
@@ -440,6 +477,9 @@ def _build_generate_buttons_and_output(tab_id):
     # data flow in .then() chains.
     audio_url_converter = gr.Audio(elem_classes=["gr-hidden"])
     status = gr.Textbox(label="Status", interactive=False)
+    # Visually-hidden aria-live region mirroring `status` (Textbox has no
+    # aria-live in Gradio 6). In-DOM + sr-only inline styles — NOT visible=False.
+    status_announcer = gr.HTML(value=_announce_status(""))
     # Hidden components for JS<->Python data flow
     stream_config = gr.JSON(elem_classes=["gr-hidden"])
     result_data = gr.Textbox(
@@ -456,6 +496,7 @@ def _build_generate_buttons_and_output(tab_id):
         "mode_hidden": mode_hidden,
         "text_hidden": text_hidden,
         "status": status,
+        "status_announcer": status_announcer,
     }
 
 
@@ -478,6 +519,7 @@ def _wire_generation_tab(
     history_state=None,
     audio_url_converter=None,
     gen_guard_state=None,
+    status_announcer=None,
 ):
     """Wire up the generation flow: Python validates → JS streams → Python saves/fallback.
 
@@ -499,6 +541,7 @@ def _wire_generation_tab(
         api_name: Optional API name for the endpoint.
         history_state: Optional history state component.
         audio_url_converter: Hidden gr.Audio for server-side file URL conversion.
+        status_announcer: Optional sr-only gr.HTML mirroring `status` for SR users.
 
     Returns:
         The final event chain object so callers can append further .then() steps
@@ -580,14 +623,23 @@ def _wire_generation_tab(
             outputs=[gen_guard_state],
         )
 
+    # Mirror the visible status into the sr-only aria-live announcer so screen
+    # readers announce generation outcomes (Textbox has no aria-live in Gradio 6).
+    if status_announcer is not None:
+        chain = chain.then(
+            fn=_announce_status,
+            inputs=[status],
+            outputs=[status_announcer],
+        )
+
     # Cancel button — with confirmation for >10% progress
     from qwen3_tts.interface.ui.components import ConfirmButton
 
     cancel_confirm_btn = ConfirmButton(
-        arm_label="Confirm Cancel? (click again)",
-        original_label="Stop",
+        arm_label=STATUS_STOP_CONFIRM_ARM,
+        original_label=STATUS_STOP_LABEL,
         timeout_s=5.0,
-        status_message="Click again within 5s to confirm cancel.",
+        status_message=STATUS_STOP_CONFIRM_HINT,
     )
 
     cancel_confirm_state = gr.State({"armed": False, "ts": 0.0})
@@ -606,7 +658,7 @@ def _wire_generation_tab(
             new_state = cancel_confirm_btn.click(state)
             return (
                 new_state,
-                gr.update(value="Confirm Cancel? (click again)"),
+                gr.update(value=STATUS_STOP_CONFIRM_ARM),
                 banner_msg,
             )
 
@@ -615,12 +667,12 @@ def _wire_generation_tab(
             state
         )
         if not confirmed:
-            return new_state, gr.update(value="Stop"), "Cancel aborted"
+            return new_state, gr.update(value=STATUS_STOP_LABEL), STATUS_STOP_CANCELED
 
         status_msg, status_html_msg = cancel_streaming_generation()
-        return new_state, gr.update(value="Stop"), status_msg, status_html_msg
+        return new_state, gr.update(value=STATUS_STOP_LABEL), status_msg, status_html_msg
 
-    cancel_btn.click(
+    cancel_chain = cancel_btn.click(
         fn=on_cancel_click,
         inputs=[cancel_confirm_state],
         outputs=[cancel_confirm_state, cancel_btn, status, status_html],
@@ -631,6 +683,14 @@ def _wire_generation_tab(
         inputs=[stream_config],
         outputs=[status],
     )
+
+    # Mirror the cancel outcome into the sr-only aria-live announcer.
+    if status_announcer is not None:
+        cancel_chain = cancel_chain.then(
+            fn=_announce_status,
+            inputs=[status],
+            outputs=[status_announcer],
+        )
 
     text.change(fn=update_text_info, inputs=text, outputs=text_info)
 

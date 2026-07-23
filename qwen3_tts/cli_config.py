@@ -9,7 +9,12 @@ import sys
 
 import click
 
-from qwen3_tts.core.config import VALID_MLX_QUANTIZATIONS as _VALID_MLX_Q
+from qwen3_tts.core.config import (
+    VALID_MLX_QUANTIZATIONS as _VALID_MLX_Q,
+)
+from qwen3_tts.core.config import (
+    VALID_MODEL_SIZES as _VALID_MODEL_SIZES,
+)
 
 # ---------------------------------------------------------------------------
 # config group
@@ -46,7 +51,7 @@ def show():
     help="Set backend (mlx/torch/vllm)",
 )
 @click.option(
-    "--model-size", type=click.Choice(["1.7B", "0.6B"]), help="Set model size"
+    "--model-size", type=click.Choice(list(_VALID_MODEL_SIZES)), help="Set model size"
 )
 @click.option(
     "--mlx-quantization",

@@ -346,35 +346,34 @@ class TestAutoIncrementFilename(unittest.TestCase):
 
     def test_conflict_increments(self):
         from qwen3_tts.interface.generate import auto_increment_filename
-        # Create a temp file that definitely exists
-        with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as f:
-            path = f.name
-            f.write(b"test")  # Write some content to ensure file exists
-        try:
-            # Verify file exists before calling
+        # Use a private temp dir so leftover numbered files in the shared /tmp
+        # from other runs/tests can't push the increment past _2 (this made the
+        # test intermittently red on CI). Assert on the FILENAME component, not
+        # the full path — the directory may legitimately contain "_<digits>".
+        with tempfile.TemporaryDirectory() as d:
+            path = os.path.join(d, "voice.wav")
+            with open(path, "wb") as f:
+                f.write(b"test")
             self.assertTrue(os.path.exists(path), "Temp file should exist")
             result = auto_increment_filename(path)
             self.assertNotEqual(result, path)
-            # Check that result has _2 before the extension
-            base, ext = os.path.splitext(result)
-            self.assertTrue(base.endswith("_2"), f"Expected '_2' suffix in {base}")
-        finally:
-            os.unlink(path)
-            # Also clean up the incremented file if it was created
-            if os.path.exists(result):
-                os.unlink(result)
+            name, ext = os.path.splitext(os.path.basename(result))
+            self.assertEqual(ext, ".wav")
+            self.assertTrue(name.endswith("_2"), f"Expected '_2' suffix in {result}")
 
     def test_already_numbered(self):
         from qwen3_tts.interface.generate import auto_increment_filename
-        # Create files with _2 suffix
-        with tempfile.NamedTemporaryFile(suffix="_2.wav", delete=False, dir=tempfile.gettempdir(), prefix="test_") as f:
-            path = f.name
-        try:
+        # Pre-numbered file increments to the next free number. Same hardening
+        # as test_conflict_increments: private dir + basename assertion.
+        with tempfile.TemporaryDirectory() as d:
+            path = os.path.join(d, "voice_2.wav")
+            with open(path, "wb") as f:
+                f.write(b"test")
             result = auto_increment_filename(path)
             self.assertNotEqual(result, path)
-            self.assertIn("_3", result)
-        finally:
-            os.unlink(path)
+            name, ext = os.path.splitext(os.path.basename(result))
+            self.assertEqual(ext, ".wav")
+            self.assertTrue(name.endswith("_3"), f"Expected '_3' suffix in {result}")
 
 
 if __name__ == "__main__":

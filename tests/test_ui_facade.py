@@ -713,5 +713,50 @@ class TestConfirmButton(unittest.TestCase):
         self.assertTrue(confirmed)
 
 
+class TestUnloadHandlerImport(unittest.TestCase):
+    """Regression tests for the Manage Models 'Unload' handler (UI-1, UI-2).
+
+    The on_unload_click closure previously imported get_model_table_data from
+    qwen3_tts.interface.ui.shared, where it does not exist, so the first click
+    on 'Unload' raised ImportError at runtime. It lives in model_management.
+    """
+
+    def test_get_model_table_data_importable_from_model_management(self):
+        """The handler's import path must resolve (would catch the ImportError)."""
+        from qwen3_tts.interface.ui.model_management import get_model_table_data
+        self.assertTrue(callable(get_model_table_data))
+
+    def test_get_model_table_data_not_in_shared(self):
+        """Document that .shared does NOT provide it — the source of the old bug."""
+        import qwen3_tts.interface.ui.shared as shared
+        self.assertFalse(
+            hasattr(shared, "get_model_table_data"),
+            "get_model_table_data unexpectedly in .shared; update the handler import",
+        )
+
+    def test_facade_imports_from_correct_submodule(self):
+        """Pin the fix: _facade source imports get_model_table_data from model_management."""
+        import inspect
+
+        from qwen3_tts.interface.ui import _facade
+        src = inspect.getsource(_facade)
+        self.assertIn(
+            "from qwen3_tts.interface.ui.model_management import get_model_table_data",
+            src,
+        )
+        self.assertNotIn(
+            "from qwen3_tts.interface.ui.shared import get_model_table_data", src
+        )
+
+    def test_startup_warning_matches_table_values(self):
+        """UI-2: startup warning compares against 'Yes' (what the table emits), not 'default'."""
+        import inspect
+
+        from qwen3_tts.interface.ui import _facade
+        src = inspect.getsource(_facade)
+        self.assertNotIn('if startup == "default":', src)
+        self.assertIn('if startup == "Yes":', src)
+
+
 if __name__ == "__main__":
     unittest.main()

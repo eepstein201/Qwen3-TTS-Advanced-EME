@@ -84,6 +84,15 @@ from qwen3_tts.server.client import TTSClient
 
 logger = logging.getLogger("tts.ui")
 
+# Human description for each model size, shown in the Model Settings info
+# tooltip. Keys must cover every entry in VALID_MODEL_SIZES (asserted in
+# tests/test_ui_facade_model_sizes.py) so the tooltip text can't go stale when
+# the canonical size list changes.
+_MODEL_SIZE_DESCRIPTIONS = {
+    "1.7B": "higher quality",
+    "0.6B": "~40% faster, lower memory",
+}
+
 
 def stop_server():
     """Stop the TTS server from the UI."""
@@ -295,6 +304,7 @@ def _build_clone_tab(status_html, history_state):
             clone_ctrls["seed_lock"],
         ],
         status_html=status_html,
+        status_announcer=clone_btns["status_announcer"],
         config_handler=clone_config_handler,
         api_name="generate_clone",
         history_state=history_state,
@@ -451,6 +461,7 @@ def _build_design_tab(status_html, history_state, clone_prompt):
             design_ctrls["seed_lock"],
         ],
         status_html=status_html,
+        status_announcer=design_btns["status_announcer"],
         config_handler=design_config_handler,
         history_state=history_state,
         audio_url_converter=design_btns["audio_url_converter"],
@@ -627,6 +638,7 @@ def _build_custom_tab(status_html, history_state):
             custom_ctrls["seed_lock"],
         ],
         status_html=status_html,
+        status_announcer=custom_btns["status_announcer"],
         config_handler=custom_config_handler,
         history_state=history_state,
         audio_url_converter=custom_btns["audio_url_converter"],
@@ -948,7 +960,7 @@ def _build_manage_models_tab(
     )
 
     def on_unload_click(state, mt):
-        from qwen3_tts.interface.ui.shared import get_model_table_data
+        from qwen3_tts.interface.ui.model_management import get_model_table_data
 
         # First click: show metadata
         if not state.get("armed", False):
@@ -967,9 +979,9 @@ def _build_manage_models_tab(
             memory_mb = model[2] if len(model) > 2 else "N/A"
             startup = model[3] if len(model) > 3 else "unknown"
 
-            # Warning if model is startup=default
+            # Warning if model is set to load at startup (table emits "Yes"/"No")
             startup_warning = ""
-            if startup == "default":
+            if startup == "Yes":
                 startup_warning = (
                     "\n⚠️ Loaded at startup - will reload on server restart!"
                 )
@@ -977,8 +989,7 @@ def _build_manage_models_tab(
             banner_msg = (
                 f"Unload {model_type.upper()} model?\n"
                 f"Current memory: {memory_mb}\n"
-                f"Startup config: {startup}\n"
-                f"Reload time: ~3-5 seconds"
+                f"Startup config: {startup}"
                 f"{startup_warning}"
             )
 
@@ -1094,7 +1105,10 @@ def build_ui():
                     label="Model Size",
                     choices=list(VALID_MODEL_SIZES),
                     value=current_size,
-                    info="1.7B: higher quality | 0.6B: ~40% faster, lower memory",
+                    info=" | ".join(
+                        f"{size}: {_MODEL_SIZE_DESCRIPTIONS[size]}"
+                        for size in VALID_MODEL_SIZES
+                    ),
                 )
                 mlx_quant_dropdown = gr.Dropdown(
                     label="MLX Quantization",
@@ -1210,12 +1224,16 @@ def build_ui():
             ],
         )
 
-        gr.Markdown("""
+        # Size/quantization lists in the tips text are derived from the
+        # canonical constants so they can't drift from the actual choices.
+        model_size_choices = "/".join(sorted(VALID_MODEL_SIZES))
+        mlx_quant_choices = "/".join(VALID_MLX_QUANTIZATIONS)
+        gr.Markdown(f"""
         ---
         **Tips:**
         - Start the TTS server first: `tts server start`
         - Models auto-load on first use — no need to pre-load all three
-        - Use **Model Settings** above to switch between model sizes (0.6B/1.7B) and MLX quantizations (4bit/5bit/6bit/8bit/bf16)
+        - Use **Model Settings** above to switch between model sizes ({model_size_choices}) and MLX quantizations ({mlx_quant_choices})
         - Clone mode uses a voice prompt (.pt for PyTorch, .wav+.txt for MLX)
         - Design mode creates voices from text descriptions
         - Custom mode uses premium pre-trained speakers

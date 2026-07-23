@@ -25,6 +25,7 @@ from qwen3_tts.core.config import (  # noqa: E402
     CUSTOM_VOICE_SPEAKERS,
     MODEL_INFO,
     VALID_BACKENDS,
+    VALID_MODEL_SIZES,
     get_backend,
     get_default_clone_prompt,
     get_mlx_model_name,
@@ -243,7 +244,7 @@ def _build_parser():
     )
     parser.add_argument(
         "--model-size",
-        choices=["1.7B", "0.6B"],
+        choices=list(VALID_MODEL_SIZES),
         help="Override model size for this run (default: from config.json)",
     )
     parser.add_argument(
