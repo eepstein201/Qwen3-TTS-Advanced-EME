@@ -145,7 +145,7 @@ pytest tests/test_server_app_generation.py -v
 
 **Run with coverage:**
 ```bash
-pytest --cov=qwen3_tss --cov-report=term-missing --cov-report=html
+pytest --cov=qwen3_tts --cov-report=term-missing --cov-report=html
 open htmlcov/index.html
 ```
 
@@ -189,8 +189,8 @@ The project uses:
 ```bash
 make format
 # Or manually
-black qwen3_tss/
-ruff check --fix qwen3_tss/
+black qwen3_tts/
+ruff check --fix qwen3_tts/
 ```
 
 ### Type Checking

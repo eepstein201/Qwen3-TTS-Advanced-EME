@@ -94,12 +94,39 @@ Every ✅ below was confirmed against current source on 2026-07-21 (`file:line` 
 
 Long tail tracked in `docs/reviews/e2e-review-2026-07-01.md`. Highest-value items:
 
-- **CI gates:** only batches 1–3 are gated; add batches 4 + 5 + `tests/security/*` + `tests/evaluations/*`. Add `ruff` / `mypy` / `bandit` to CI (currently local-only). Add `--cov-fail-under=80`.
+- ~~**CI gates:** only batches 1–3 are gated; add batches 4 + 5 + `tests/security/*` + `tests/evaluations/*`. Add `ruff` / `mypy` / `bandit` to CI (currently local-only). Add `--cov-fail-under=80`.~~ ✅ **Resolved** — `.github/workflows/test.yml` now runs batches 1–5, the `lint` job runs `ruff` + `mypy qwen3_tts/{core,server,interface}` + `bandit -r qwen3_tts --severity-level high`, and the `coverage` job enforces `--cov-fail-under=80`.
 - **Docker:** `docker-compose.yml` vLLM build `context: ..` → `.`; reconcile `Dockerfile.vllm` vs `docker/vllm.Dockerfile`.
 - **MLX model-config matrix:** run 1.7B + 0.6B across bf16 / 8bit / 4bit with smoke generation + `/health` `model_size`/`mlx_quantization` verification.
 - **Manage-Models table refresh latency:** load/unload handlers must re-emit table update (test_09/10 issue).
 - **Structural debt:** `config.py` 1432 lines, `_facade.py` 1293, `inference.py` 1097, `generate.py` 864; `handle_generate` 395 lines; broad `except Exception` at `inference.py:627,637`; f-string logging; duplicate logger `engine_vllm.py:34/76`; unguarded file handle `engine_vllm.py:268`.
 - **LOW cleanups:** dead `# nosec` (`generate.py:538`, `generate_interactive.py:346`, `generate_server.py:336`, `_facade.py:114`, `shared.py:556-559`); dead `return` after `_error_response()`; audit-log WS auth failures (`websocket.py:51`); `_sanitize_error` regex over-strip; name-length mismatch 128 vs 255 (`config.py:592` vs `validation.py:19`).
+
+---
+
+## Repo Review 2026-07-23 (comprehensive sweep — Open)
+
+Four-agent review across dead code, tests, static gates, E2E, structure, and UI/UX +
+user-facing text. Repo is healthy (CI green, ruff clean, 2163+ tests, CLAUDE.md 287/300).
+New actionable findings below; two UI bugs reproduced directly.
+
+| ID | Task | Sev | Effort | Files |
+|----|------|-----|--------|-------|
+| **UI-1** | "Unload" button crashes first click — `on_unload_click` imports `get_model_table_data` from `.shared`, but it lives in `.model_management` → `ImportError`. Handler wired live at `:1004`. | HIGH | Low | `interface/ui/_facade.py:951` |
+| **UI-2** | Dead startup-reload warning — checks `startup == "default"` but table only emits `"Yes"`/`"No"`; warning never fires. Also fabricated "~3-5 seconds" reload estimate. | MED | Low | `interface/ui/_facade.py:972,981` |
+| **DOC-1** | Typo in coverage command `--cov=qwen3_tss` → `qwen3_tts`. | LOW | Trivial | `docs/CONTRIBUTING.md` |
+| **DEDUP-1** | `process_batch` duplicated (both live + independently tested); dedup needs lazy import to avoid circular import with `cli/batch.py`. | MED | Med | `interface/generate.py:90`, `interface/cli/batch.py:25` |
+| **UI-3** | UI slider defaults + Model-Settings/Tips prose hardcoded instead of read from config constants (`VALID_MODEL_SIZES`, `generation` defaults) — silent drift + user config ignored. | MED | Med | `interface/ui/generation.py:300-303,396-399`, `_facade.py:1097,1103,1218` |
+| **UI-4** | CLI model-size `choices` hardcoded instead of `VALID_MODEL_SIZES`. | LOW | Low | `interface/generate.py:246`, `cli.py:221` |
+| **A11Y-1** | Per-action status Textboxes unlabeled, no `aria-live`; "Stop"/"Confirm Cancel?" vocab drift. | LOW-MED | Med | `interface/ui/generation.py`, `_facade.py` |
+| **HYG-1** | Working-tree clutter (untracked): `.voice_server.log.old`, `.tts_server*.log`, stray `test/` dir, loose media, empty scratch `.md`. Confirm per category before deleting. | LOW | Low | repo root |
+
+**Structural debt** (extends the CI & Quality Debt list above): `config.py` 1399, `_facade.py`
+1293, `inference.py` 1110, `generate.py` 864, `app.py` 821, `wavesurfer_js.py` 814 (543-line
+embedded JS in `get_streaming_player_js`) all exceed the 800-line limit.
+
+**Execution:** Phase 1 (UI-1, UI-2, DOC-1, this doc's CI-status fix) on branch
+`feature/repo-review-safe-fixes`. Phases 2–4 (DEDUP-1, UI-3/4, A11Y-1, HYG-1, file splits)
+staged behind it. Full plan: `~/.claude/plans/run-comprehensive-review-of-merry-gadget.md`.
 
 ---
 
