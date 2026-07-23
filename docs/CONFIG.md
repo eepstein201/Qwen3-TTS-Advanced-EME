@@ -1,299 +1,236 @@
 # Qwen3-TTS Configuration Reference
 
-> **AUTO-GENERATED** from `config.json` and `qwen3_tts/core/config.py`. Do not edit manually.
+> **AUTO-GENERATED** from `qwen3_tts/core/config.py` (`get_default_config()` / `validate_config()`) and `config.json`. Do not edit generated tables by hand — update the code and regenerate.
 
 ## Configuration File Location
 
-The main configuration file is located at:
-- **Default**: `~/Qwen3-TTS_UserFiles/config.json`
-- **Custom**: Set `QWEN3_TTS_CONFIG` environment variable to override
+The main configuration file lives at the repository root: `config.json`.
+
+The on-disk `config.json` is a **sparse override** — it only needs the keys you want to change. Any key it omits falls back to the built-in default from `get_default_config()`. On load, `validate_config()` fills in missing sections (for example, it adds a default `security.rate_limits` block).
+
+> **Note:** There is intentionally **no** environment-variable override for the config-file path. `_resolve_config_path()` resolves the path in code and deliberately ignores any `QWEN3_TTS_CONFIG`-style override (a path-injection hardening choice).
 
 ## Environment Variables
 
-### Server Authentication
+These are the environment variables actually read by the TTS code.
+
+### Backend / model overrides
 
 | Variable | Required | Description | Example |
 |----------|----------|-------------|---------|
-| `QWEN3_TTS_CONFIG` | No | Path to custom config.json | `/path/to/config.json` |
-| `VOICE_SERVER_TOKEN` | No | Path to server auth token file | `~/.voice_server_token` (deprecated) |
-| `VOICE_CONFIG_DIR` | No | Directory for server config | `~/.config/qwen3-tts/` |
+| `TTS_BACKEND` | No | Override `advanced.backend` for a single run (set by the `--backend` CLI flag; also forced to `torch` during `tts voice rebuild`). | `torch` |
+| `TTS_MODEL_SIZE` | No | Override `advanced.model_size` for a single run (set by `--model-size`). | `0.6B` |
+| `QWEN3_TTS_BACKEND` | No | Test-runner-only backend override, distinct from `TTS_BACKEND`. | `mlx` |
+| `CUDA_VISIBLE_DEVICES` | No | Standard CUDA device-selection signal used during device detection. | `0` |
 
-### Model Cache
-
-| Variable | Required | Description | Example |
-|----------|----------|-------------|---------|
-| `HF_HOME` | No | HuggingFace cache directory | `~/.cache/huggingface` |
-| `HUGGINGFACE_HUB_CACHE` | No | Alternative cache directory | `~/cache/huggingface` |
-
-### Prompt Enhancer
+### Server
 
 | Variable | Required | Description | Example |
 |----------|----------|-------------|---------|
-| `ANTHROPIC_API_KEY` | No* | API key for AI description enhancement | `sk-ant-xxx` |
+| `TTS_LOG_LEVEL` | No | Server/log verbosity (default `INFO`). | `DEBUG` |
+| `TTS_TRUSTED_PROXIES` | No | Comma-separated IP allowlist; `X-Forwarded-For` is honored only when the direct peer is in this list (default: loopback). Set this behind a reverse proxy. | `10.0.0.1,10.0.0.2` |
 
-*Required only if `prompt_enhancer.enabled=true` in config
-
-### Development
+### Web UI
 
 | Variable | Required | Description | Example |
 |----------|----------|-------------|---------|
-| `TTS_LOG_LEVEL` | No | Logging level (DEBUG, INFO, WARNING, ERROR) | `INFO` |
+| `TTS_UI_PORT` | No | Gradio UI port override. | `8080` |
+| `TTS_UI_SHARE` | No | Enable a public Gradio share link. | `1` |
+| `TTS_UI_NO_BROWSER` | No | Suppress auto-opening the browser when launching the UI. | `1` |
+
+### Prompt enhancer
+
+| Variable | Required | Description | Example |
+|----------|----------|-------------|---------|
+| `ANTHROPIC_API_KEY` | No* | API key for the AI voice-description enhancer. The variable *name* is itself configurable via `prompt_enhancer.api_key_env`. | `sk-ant-...` |
+
+*Required only when `prompt_enhancer.enabled` is `true`.
+
+### HuggingFace cache (external)
+
+`HF_HOME` and `HUGGINGFACE_HUB_CACHE` are **not** read by the TTS code, but they are honored transitively by the `huggingface_hub` library that downloads models. Set them to relocate the model cache. They are documented here only for completeness.
 
 ## Configuration Structure
 
-### Models Section
+Every table below reflects `get_default_config()` defaults.
+
+### Top-level keys
+
+| Key | Type | Default | Description |
+|-----|------|---------|-------------|
+| `default_voice_description` | string | `"A calm, friendly male voice with clear articulation and moderate pace."` | Default description used in Design mode. |
+| `default_clone_prompt` | string | `"default_clone.pt"` | Default voice-clone prompt filename. |
+| `default_speaker` | string | `"ryan"` | Default premium speaker for Custom mode. |
+| `output_directory` | string | `"~/Downloads"` | Default output directory for generated audio. |
+| `language` | string | `"English"` | Language for text processing / tokenization. |
+
+### `server`
+
+| Key | Type | Default | Description |
+|-----|------|---------|-------------|
+| `server.host` | string | `"127.0.0.1"` | Bind address (localhost only by default). |
+| `server.port` | integer | `5123` | Server port. |
+| `server.auto_shutdown_minutes` | integer | `0` | Auto-shutdown after N idle minutes. `0` disables auto-shutdown. |
+
+### `models`
+
+| Key | Type | Default | Description |
+|-----|------|---------|-------------|
+| `models.clone.load_at_startup` | boolean | `true` | Load the Clone model at server start. |
+| `models.design.load_at_startup` | boolean | `false` | Load the Design model at server start. |
+| `models.custom.load_at_startup` | boolean | `false` | Load the Custom model at server start. |
+| `models.<type>.revision` | string | *(unset → `"main"`)* | Pin a HuggingFace branch/tag/SHA per model (`clone`/`design`/`custom`). Falls back to the model's `MODEL_INFO` revision, then `"main"`. |
+
+### `security`
+
+| Key | Type | Default | Description |
+|-----|------|---------|-------------|
+| `security.max_text_length` | integer | `50000` | Max characters accepted per generation request. |
+| `security.max_batch_size` | integer | `20` | Max number of texts per batch request. |
+| `security.rate_limits.generate` | string | `"20/minute"` | Rate limit for `/generate`, `/generate-stream`. |
+| `security.rate_limits.model_ops` | string | `"3/minute"` | Rate limit for model load/unload/config endpoints. |
+| `security.rate_limits.transcribe` | string | `"15/minute"` | Rate limit for `/transcribe`. |
+| `security.rate_limits.prompt_ops` | string | `"10/minute"` | Rate limit for prompt create/delete/rename. |
+| `security.rate_limits.config_ops` | string | `"1/minute"` | Rate limit for `/update-startup-config`. |
+
+Rate-limit values use slowapi's `"<count>/<unit>"` format (`second`/`minute`/`hour`/`day`). See [`rate-limiting.md`](rate-limiting.md) for strategy details.
+
+### `advanced`
+
+| Key | Type | Default | Description |
+|-----|------|---------|-------------|
+| `advanced.backend` | string | `"mlx"` (Apple Silicon), `"torch"` elsewhere | Inference backend: `"mlx"`, `"torch"`, or `"vllm"`. |
+| `advanced.model_size` | string | `"1.7B"` | `"1.7B"` (full) or `"0.6B"` (fast/light). |
+| `advanced.mlx_quantization` | string | `"8bit"` | MLX quantization: `"4bit"`, `"5bit"`, `"6bit"`, `"8bit"`, or `"bf16"`. |
+| `advanced.torch_quantization` | string | `"none"` | Torch quantization: `"none"`, `"8bit"`, or `"4bit"`. |
+| `advanced.dtype` | string | `"bfloat16"` | Torch compute dtype. |
+| `advanced.audio_loader` | string | `"torchaudio"` | Audio I/O library: `"torchaudio"` or `"librosa"`. |
+| `advanced.vllm_enabled` | boolean | `false` | Mirror of `vllm.enabled` (see below). |
+| `advanced.vllm_fallback_to_torch` | boolean | `true` | Fall back to torch if vLLM init fails. |
+
+### `vllm`
+
+vLLM-Omni backend settings (Linux/NVIDIA). Only relevant when `advanced.backend` is `"vllm"`.
+
+| Key | Type | Default | Description |
+|-----|------|---------|-------------|
+| `vllm.enabled` | boolean | `false` | Enable the vLLM backend. |
+| `vllm.fallback_to_torch` | boolean | `true` | Fall back to torch on vLLM failure. |
+| `vllm.max_model_len` | integer | `8192` | Max model context length. |
+| `vllm.audio_sample_rate` | integer | `24000` | Output sample rate (Hz). |
+| `vllm.audio_chunk_size` | integer | `2000` | Audio chunk size for streaming. |
+| `vllm.gpu_memory_utilization` | float | `0.9` | Fraction of VRAM to reserve (0.1–1.0). |
+| `vllm.tensor_parallel_size` | integer | `1` | Number of GPUs for tensor parallelism. |
+| `vllm.mm_processor_name` | string | `"Qwen/Qwen2-Audio-7B-Instruct"` | Multimodal processor model id. |
+| `vllm.port` | integer/null | `null` | Optional dedicated vLLM port. |
+| `vllm.dtype` | string | `"bfloat16"` | vLLM compute dtype. |
+
+### `generation`
+
+| Key | Type | Default | Description |
+|-----|------|---------|-------------|
+| `generation.temperature` | float | `0.7` | Sampling temperature (higher = more varied). |
+| `generation.top_k` | integer | `50` | Top-k sampling. |
+| `generation.top_p` | float | `0.95` | Top-p (nucleus) sampling. |
+| `generation.repetition_penalty` | float | `1.05` | Repetition penalty. |
+| `generation.seed` | integer/null | `null` | Fixed RNG seed (null = random per request). |
+| `generation.max_chunk_chars` | integer | `500` | Max characters per chunk before splitting (`0` disables chunking). |
+| `generation.max_chunk_tokens` | integer | `200` | Max tokens per chunk (torch backend). |
+| `generation.max_new_tokens` | integer | `2048` | Hard cap on generated tokens per `model.generate()` call. |
+| `generation.compile_model` | boolean | `true` | Enable model compilation (torch). |
+| `generation.lufs_normalize` | boolean | `false` | Apply EBU R128 loudness normalization. |
+| `generation.lufs_target` | float | `-16.0` | Target loudness in LUFS (used when `lufs_normalize` is true). |
+| `generation.silence_gap_seconds` | float | `0.0` | Silence between chunks (0–5s). `0.0` uses a 50 ms crossfade instead. |
+
+### `presets`
+
+`config.json`'s `presets` are **merged over** 8 built-in presets at runtime (`{**DEFAULT_GENERATION_PRESETS, **user_presets}`). Built-ins: `stable`, `natural`, `expressive`, `audiobook`, `conversational`, `broadcast`, `dramatic`, `whisper`. The default config also ships two user presets:
 
 ```json
 {
-  "models": {
-    "clone": {
-      "load_at_startup": true
-    },
-    "design": {
-      "load_at_startup": false
-    },
-    "custom": {}
+  "presets": {
+    "consistent": { "temperature": 0.5, "top_k": 30, "seed": 42 },
+    "creative":   { "temperature": 0.9, "top_p": 0.98 }
   }
 }
 ```
 
-| Key | Type | Default | Description |
-|-----|------|---------|-------------|
-| `models.clone.load_at_startup` | boolean | `true` | Load clone model at server start |
-| `models.design.load_at_startup` | boolean | `false` | Load design model at server start |
-| `models.custom` | object | `{}` | Custom model configuration (reserved) |
+Use a preset with `tts "..." --preset creative`. List them with `tts list presets`.
 
-### Advanced Section
+### `prosody_presets`
 
-```json
-{
-  "advanced": {
-    "model_size": "1.7B",
-    "mlx_quantization": "8bit",
-    "backend": "mlx",
-    "audio_loader": "librosa"
-  }
-}
-```
-
-| Key | Type | Default | Description |
-|-----|------|---------|-------------|
-| `advanced.backend` | string | `"mlx"` (Apple Silicon), `"torch"` elsewhere | Inference backend |
-| `advanced.model_size` | string | `"1.7B"` | Model size: `"1.7B"` (full) or `"0.6B"` (fast) |
-| `advanced.mlx_quantization` | string | `"8bit"` | MLX quantization: `"4bit"`, `"8bit"`, `"bf16"` |
-| `advanced.torch_quantization` | string | `"none"` | Torch quantization: `"none"`, `"8bit"`, `"4bit"` |
-| `advanced.audio_loader` | string | `"librosa"` | Audio library: `"torchaudio"`, `"librosa"` |
-
-**Backend Selection:**
-- **MLX**: Apple Silicon only, faster inference, lower memory
-- **Torch**: Cross-platform, more features, slower inference
-- **VLLM**: Production server with vLLM backend (experimental)
-
-### Generation Section
-
-```json
-{
-  "generation": {
-    "silence_gap_seconds": 0.0,
-    "max_chunk_chars": 500,
-    "lufs_normalize": false,
-    "lufs_target": -16.0
-  }
-}
-```
-
-| Key | Type | Default | Description |
-|-----|------|---------|-------------|
-| `generation.silence_gap_seconds` | float | `0.0` | Silence gap between chunks (0-5 seconds) |
-| `generation.max_chunk_chars` | integer | `500` | Max characters per chunk (0=disable chunking) |
-| `generation.lufs_normalize` | boolean | `false` | Apply EBU R128 loudness normalization |
-| `generation.lufs_target` | float | `-16.0` | Target loudness in LUFS (used when `lufs_normalize` is true) |
-
-### Language Setting
-
-```json
-{
-  "language": "English"
-}
-```
-
-| Key | Type | Default | Description |
-|-----|------|---------|-------------|
-| `language` | string | `"English"` | Language for text processing (affects tokenization) |
-
-### Rate Limiting (Server)
-
-```json
-{
-  "rate_limiting": {
-    "enabled": true,
-    "requests_per_minute": 10,
-    "burst": 2
-  }
-}
-```
-
-| Key | Type | Default | Description |
-|-----|------|---------|-------------|
-| `rate_limiting.enabled` | boolean | `true` | Enable rate limiting on server endpoints |
-| `rate_limiting.requests_per_minute` | integer | `10` | Max requests per minute per client |
-| `rate_limiting.burst` | integer | `2` | Burst allowance for rate limiter |
-
-### Server Settings
-
-```json
-{
-  "server": {
-    "host": "127.0.0.1",
-    "port": 5123,
-    "auto_shutdown_minutes": 30
-  }
-}
-```
-
-| Key | Type | Default | Description |
-|-----|------|---------|-------------|
-| `server.host` | string | `"127.0.0.1"` | Server bind address |
-| `server.port` | integer | `5123` | Server port |
-| `server.auto_shutdown_minutes` | integer | `30` | Auto-shutdown after N minutes idle |
-
-### Prompt Enhancer (AI Description Enhancement)
-
-**Install:** `pip install -e ".[prompt-enhancer]"` (adds the `anthropic` SDK).
-
-```json
-{
-  "prompt_enhancer": {
-    "enabled": false,
-    "provider": "anthropic",
-    "model": "claude-haiku-4-5-20251001",
-    "api_key_env": "ANTHROPIC_API_KEY"
-  }
-}
-```
-
-| Key | Type | Default | Description |
-|-----|------|---------|-------------|
-| `prompt_enhancer.enabled` | boolean | `false` | Enable AI voice description enhancement |
-| `prompt_enhancer.provider` | string | `"anthropic"` | AI provider (anthropic only) |
-| `prompt_enhancer.model` | string | `"claude-haiku-4-5-20251001"` | Model to use for enhancement |
-| `prompt_enhancer.api_key_env` | string | `"ANTHROPIC_API_KEY"` | Environment variable containing API key |
-
-### Generation Presets
-
-```json
-{
-  "generation_presets": {
-    "stable": {
-      "temperature": 0.7,
-      "top_k": 20,
-      "top_p": 0.8,
-      "repetition_penalty": 1.0
-    }
-  }
-}
-```
-
-Presets define reusable generation parameter sets. See `CLAUDE.md` for default presets.
-
-### Prosody Presets
+A dict of **plain instruction strings** (not parameter dicts) injected into Custom/Design generation. Defaults:
 
 ```json
 {
   "prosody_presets": {
-    "neutral": {},
-    "energetic": {
-      "speed": 1.1
-    }
+    "excited": "Speak with excitement and high energy",
+    "calm": "Speak in a calm, soothing, relaxed manner",
+    "whisper": "Speak in a soft whisper",
+    "authoritative": "Speak in a confident, authoritative tone",
+    "slow": "Speak slowly and deliberately with clear enunciation",
+    "fast": "Speak quickly with urgency",
+    "dramatic": "Speak with dramatic flair and emotional intensity",
+    "conversational": "Speak in a casual, natural conversational style"
   }
 }
 ```
 
-Presets for voice prosody adjustments (speed, pitch, etc.).
+Use with `tts "..." --prosody excited`. List them with `tts list prosody`.
 
-### Cache Settings
+### `aliases`
+
+Named shortcuts bundling a prompt and preset. Default:
 
 ```json
-{
-  "cache": {
-    "voice_prompts_dir": "voice_prompts",
-    "models_unused_days": 30
-  }
-}
+{ "aliases": { "default": { "prompt": "default_clone.pt", "preset": "consistent" } } }
 ```
+
+Use with `tts "..." -v default`. List them with `tts list aliases`.
+
+### `cache`
 
 | Key | Type | Default | Description |
 |-----|------|---------|-------------|
-| `cache.voice_prompts_dir` | string | `"voice_prompts"` | Directory for voice clone prompts |
-| `cache.models_unused_days` | integer | `30` | Days before pruning unused models |
+| `cache.voice_prompt_max` | integer | `10` | Max voice prompts held in the in-memory LRU cache. |
+| `cache.generation_max` | integer | `5` | Max generation results cached (keyed by SHA-256 of output-affecting fields). |
+| `cache.eta_ttl_seconds` | integer | `30` | ETA cache TTL in seconds. |
 
-### UI Settings
-
-```json
-{
-  "ui": {
-    "theme": "soft",
-    "share": false,
-    "allowed_paths": ["~/Downloads"]
-  }
-}
-```
+### `ui`
 
 | Key | Type | Default | Description |
 |-----|------|---------|-------------|
-| `ui.theme` | string | `"soft"` | Gradio theme: `soft`, `default`, `glass` |
-| `ui.share` | boolean | `false` | Enable public sharing via Gradio link |
-| `ui.allowed_paths` | array | `["~/Downloads"]` | Paths Gradio can access for file I/O |
+| `ui.port` | integer | `7860` | Gradio UI port (overridable via `TTS_UI_PORT` or `tts ui --port`). |
 
-## Default Configuration
+### `prompt_enhancer`
 
-A minimal `config.json` with defaults:
+| Key | Type | Default | Description |
+|-----|------|---------|-------------|
+| `prompt_enhancer.enabled` | boolean | `false` | Enable AI voice-description enhancement. |
+| `prompt_enhancer.provider` | string | `"anthropic"` | AI provider (anthropic). |
+| `prompt_enhancer.model` | string | `"claude-haiku-4-5-20251001"` | Model used for enhancement. |
+| `prompt_enhancer.api_key_env` | string | `"ANTHROPIC_API_KEY"` | Name of the env var holding the API key. |
 
-```json
-{
-  "models": {
-    "clone": {
-      "load_at_startup": true
-    },
-    "design": {
-      "load_at_startup": false
-    },
-    "custom": {}
-  },
-  "advanced": {
-    "model_size": "1.7B",
-    "mlx_quantization": "8bit",
-    "backend": "mlx",
-    "audio_loader": "librosa"
-  },
-  "language": "English",
-  "generation": {
-    "silence_gap_seconds": 0.0,
-    "max_chunk_chars": 500,
-    "lufs_normalize": false,
-    "lufs_target": -16.0
-  }
-}
-```
+**Install:** `pip install -e ".[prompt-enhancer]"` (adds the `anthropic` SDK).
 
 ## Config Validation
 
-The config is validated on load. Invalid values will raise errors with specific guidance.
+`validate_config()` checks values on load and fills in missing sections. Rules:
 
-**Validation rules:**
-- `backend` must be `"mlx"`, `"torch"`, or `"vllm"`
-- `model_size` must be `"1.7B"` or `"0.6B"`
-- `mlx_quantization` must be `"4bit"`, `"8bit"`, or `"bf16"`
-- `torch_quantization` must be `"none"`, `"8bit"`, or `"4bit"`
-- `max_chunk_chars` must be between `0` and `10000`
-- `rate_limiting.requests_per_minute` must be positive
+- `advanced.backend` ∈ `{"mlx", "torch", "vllm"}`
+- `advanced.model_size` ∈ `{"1.7B", "0.6B"}`
+- `advanced.mlx_quantization` ∈ `{"4bit", "5bit", "6bit", "8bit", "bf16"}`
+- `advanced.torch_quantization` ∈ `{"none", "8bit", "4bit"}`
+- `advanced.audio_loader` ∈ `{"torchaudio", "librosa"}`
+- `generation.max_chunk_chars` in `0`–`10000`
+- Rate-limit strings must match `<count>/<unit>` with a positive count.
 
 ## Runtime Config Overrides
 
-Some settings can be overridden per-generation via CLI flags:
+Some settings can be overridden per-generation via CLI flags without persisting to `config.json`:
 
 ```bash
 tts "Hello" --backend torch --model-size 0.6B --temperature 0.9
 ```
 
-These overrides do NOT persist to `config.json`.
+Environment-variable overrides (`TTS_BACKEND`, `TTS_MODEL_SIZE`) apply for the duration of the process only.
