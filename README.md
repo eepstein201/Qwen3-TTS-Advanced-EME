@@ -227,7 +227,7 @@ tts "Hello" -m custom -s ryan --prosody excited -o output
 
 You can configure your backend permanently via `tts config` or `config.json`. 
 
-1.  **MLX (Apple Silicon):** Native macOS backend. Uses `.wav` + `.txt` file pairs for cloning. Quantization options: `4bit`, `8bit` (default), `bf16`.
+1.  **MLX (Apple Silicon):** Native macOS backend. Uses `.wav` + `.txt` file pairs for cloning. Quantization options: `4bit`, `5bit`, `6bit`, `8bit` (default), `bf16`.
 2.  **PyTorch:** Standard backend. Auto-detects Flash Attention 2 on Ampere+ GPUs.
 3.  **vLLM-Omni (Linux/NVIDIA):** 3-4x faster throughput. Safely managed via POSIX process groups to prevent zombie VRAM leaks.
     * *Usage:* `tts server start --backend vllm`
@@ -289,7 +289,7 @@ tts config edit                          # Interactive voice description editor
 | `advanced.backend` | Auto | `mlx`, `torch`, or `vllm` |
 | `advanced.model_size` | `1.7B` | `1.7B` (High fidelity) or `0.6B` (Fast/Light) |
 | `advanced.torch_quantization` | `none` | PyTorch backend quantization: `none`, `8bit`, `4bit` |
-| `advanced.mlx_quantization` | `8bit` | MLX backend quantization: `4bit`, `8bit`, `bf16` |
+| `advanced.mlx_quantization` | `8bit` | MLX backend quantization: `4bit`, `5bit`, `6bit`, `8bit`, `bf16` |
 | `advanced.vllm_gpu_memory_utilization`| `0.7` | VRAM reservation for vLLM (0.1 - 1.0) |
 | `cache.voice_prompt_max` | `10` | Max voice prompts cached in memory (LRU) |
 | `cache.generation_max` | `5` | Max generation results cached (SHA256 key) |
@@ -438,7 +438,7 @@ The FastAPI server (port 5123) provides the following endpoints:
 | `POST /cancel-generation` | Yes | Cancel active generation |
 | `POST /shutdown` | Yes | Graceful server shutdown |
 
-Authentication uses Bearer tokens from `~/.voice_server_token`.
+Authentication uses Bearer tokens from `~/.config/qwen3-tts/.voice_server_token` (legacy fallback: `~/.voice_server_token`).
 
 ### `POST /generate` Response
 
@@ -483,7 +483,7 @@ with httpx.stream("POST", url, json=payload, headers=headers) as r:
 
 ## Documentation
 
-For detailed documentation on specific aspects of Qwen3-TTS, see the following auto-generated reference guides:
+Start at the **[documentation index](docs/README.md)**, which links every reference guide, the live roadmaps, and historical plans. Key guides:
 
 ### [Command Reference](docs/COMMANDS.md)
 Complete CLI command reference for all `tts` commands, including:
@@ -531,6 +531,9 @@ Deployment and operational procedures, including:
 - Upgrade procedures
 - Security considerations
 - Performance tuning
+
+### [Rate Limiting Guide](docs/rate-limiting.md)
+Deep dive on the slowapi-based rate-limiting architecture: per-IP / per-token / hybrid strategies, the `security.rate_limits` config format, and testing rate limits.
 
 ---
 
@@ -620,7 +623,6 @@ pip install -e ".[test]"
 # Run from project root directory
 cd /path/to/Qwen3-TTS_UserFiles
 python -m unittest tests.test_module_name -v
-```
 ```
 
 ## License

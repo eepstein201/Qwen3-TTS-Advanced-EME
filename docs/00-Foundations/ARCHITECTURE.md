@@ -57,7 +57,7 @@ This document contains detailed architectural reference extracted from CLAUDE.md
 ## Security
 
 - Bearer token auth on all endpoints except `/health`, `/ready`, `/generation-status`, and `/queue-status`
-- Token: `~/.voice_server_token` (0o600 perms), auto-cleaned on shutdown
+- Token: `~/.config/qwen3-tts/.voice_server_token` (0o600 perms; legacy fallback `~/.voice_server_token`), auto-cleaned on shutdown
 - Input validation: text length, batch size, path traversal prevention, symlink resolution, mode/speaker validation
 - Rate limiting via `slowapi` (optional) with X-Forwarded-For IP resolution for reverse proxies
 - Audit logging for auth failures with client IP

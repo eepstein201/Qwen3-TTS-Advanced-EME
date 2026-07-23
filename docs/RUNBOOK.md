@@ -48,14 +48,20 @@ tts config edit
   },
   "server": {
     "port": 5123,
-    "auto_shutdown_minutes": 30
+    "auto_shutdown_minutes": 0
   },
-  "rate_limiting": {
-    "enabled": true,
-    "requests_per_minute": 10
+  "security": {
+    "rate_limits": {
+      "generate": "20/minute",
+      "model_ops": "3/minute"
+    }
   }
 }
 ```
+
+Rate limits use slowapi's `"<count>/<unit>"` string form under `security.rate_limits`
+(see [rate-limiting.md](rate-limiting.md)). `auto_shutdown_minutes: 0` disables idle
+auto-shutdown — set a positive value for ephemeral/cloud runs.
 
 #### 3. Verify Installation
 
@@ -76,20 +82,27 @@ tts server start
 
 **Production mode with PM2 (recommended):**
 
+The repo ships an `ecosystem.config.cjs` defining the `tts-server-5123` app (runs `start.cjs`).
+
 ```bash
 # Install PM2
 npm install -g pm2
 
-# Start server with PM2
-pm2 start ~/.local/bin/tts --name "tts-server" -- server start
+# First time: start from the ecosystem file
+pm2 start ecosystem.config.cjs
 
-# Check status
+# Subsequent starts / lifecycle
+pm2 start tts-server-5123
+pm2 restart tts-server-5123
+pm2 stop tts-server-5123
+
+# Check status and logs
 pm2 status
-pm2 logs tts-server
+pm2 logs tts-server-5123
 
-# Stop server
-pm2 stop tts-server
-pm2 delete tts-server
+# Persist / restore the process list across reboots
+pm2 save
+pm2 resurrect
 ```
 
 #### Server Health Checks
@@ -104,15 +117,22 @@ tts server status
 curl http://127.0.0.1:5123/health
 ```
 
-Expected response:
+Expected response (once models are loaded):
 ```json
 {
-  "status": "ready",
+  "status": "ok",
+  "backend": "mlx",
+  "model_size": "1.7B",
   "clone_model_loaded": true,
   "design_model_loaded": false,
-  "custom_model_loaded": false
+  "custom_model_loaded": false,
+  "model_load_times": {},
+  "model_load_errors": {},
+  "mlx_quantization": "8bit"
 }
 ```
+
+While models are still loading, `/health` returns `503` with `{"status": "loading", ...}`.
 
 **Readiness probe (for load balancers):**
 ```bash
@@ -143,30 +163,23 @@ pm2 logs tts-server --lines 100
 
 #### Loading Models
 
-**Load individual models:**
-```bash
-# Via CLI
-tts server load clone
-tts server load design
-tts server load custom
+Models load automatically at startup based on `models.<type>.load_at_startup` in
+`config.json`, and on demand when a request needs them. To load a model
+explicitly, use the API (there is no `tts server load` CLI subcommand):
 
-# Via API
+```bash
 curl -X POST http://127.0.0.1:5123/load-model \
-  -H "Authorization: Bearer $(cat ~/.voice_server_token)" \
+  -H "Authorization: Bearer $(cat ~/.config/qwen3-tts/.voice_server_token)" \
   -H "Content-Type: application/json" \
   -d '{"model_type": "clone"}'
 ```
 
 #### Unloading Models
 
-**Unload models to free memory:**
+**Unload models to free memory (API only):**
 ```bash
-# Via CLI
-tts server unload clone
-
-# Via API
 curl -X POST http://127.0.0.1:5123/unload-model \
-  -H "Authorization: Bearer $(cat ~/.voice_server_token)" \
+  -H "Authorization: Bearer $(cat ~/.config/qwen3-tts/.voice_server_token)" \
   -H "Content-Type: application/json" \
   -d '{"model_type": "clone"}'
 ```
@@ -181,7 +194,7 @@ tts list models
 **Get detailed model info:**
 ```bash
 curl http://127.0.0.1:5123/models \
-  -H "Authorization: Bearer $(cat ~/.voice_server_token)"
+  -H "Authorization: Bearer $(cat ~/.config/qwen3-tts/.voice_server_token)"
 ```
 
 ### Backup and Recovery
@@ -224,7 +237,7 @@ tts stats
 **Via API:**
 ```bash
 curl http://127.0.0.1:5123/stats \
-  -H "Authorization: Bearer $(cat ~/.voice_server_token)"
+  -H "Authorization: Bearer $(cat ~/.config/qwen3-tts/.voice_server_token)"
 ```
 
 Returns:
@@ -332,9 +345,9 @@ tts server log
 
 **Fix:**
 ```bash
-# Clear cache and retry
+# Clear cache and retry (models re-download and reload on next request)
 tts cache clear
-tts server load clone
+tts server restart
 ```
 
 #### Issue: Generation Fails with 429
@@ -345,7 +358,7 @@ tts server load clone
 ```bash
 # Check rate limit status
 curl http://127.0.0.1:5123/stats \
-  -H "Authorization: Bearer $(cat ~/.voice_server_token)"
+  -H "Authorization: Bearer $(cat ~/.config/qwen3-tts/.voice_server_token)"
 ```
 
 **Fix:**
@@ -369,8 +382,10 @@ vm_stat
 
 **Fix:**
 ```bash
-# Unload unused models
-tts server unload design
+# Unload unused models (API)
+curl -X POST http://127.0.0.1:5123/unload-model \
+  -H "Authorization: Bearer $(cat ~/.config/qwen3-tts/.voice_server_token)" \
+  -H "Content-Type: application/json" -d '{"model_type": "design"}'
 
 # Switch to 4-bit quantization
 tts config edit
@@ -425,11 +440,8 @@ tts server stop
 # Clear models
 tts cache clear
 
-# Restart server
+# Restart server (models with load_at_startup=true reload automatically)
 tts server start
-
-# Load required models
-tts server load clone
 ```
 
 #### Configuration Reset
@@ -459,7 +471,7 @@ tts config
 #### Monthly
 
 - Prune unused models: `tts cache prune`
-- Update dependencies: `pip install -e ".[mlx,server,ui] --upgrade"`
+- Update dependencies: `pip install --upgrade -e ".[mlx,server,ui]"`
 - Review rate limiting effectiveness
 
 #### Quarterly
@@ -489,8 +501,8 @@ tts cache clear
 
 **Rebuild cache:**
 ```bash
-# Models will be re-downloaded on first use
-tts server load clone
+# Models will be re-downloaded on the next generation request or server restart
+tts server restart
 ```
 
 ### Log Rotation
@@ -537,7 +549,7 @@ gzip .voice_server.log.old
 3. **Update dependencies**
    ```bash
    conda activate qwen3-tts-mlx
-   pip install -e ".[mlx,server,ui] --upgrade"
+   pip install --upgrade -e ".[mlx,server,ui]"
    ```
 
 4. **Run health check**
@@ -591,18 +603,26 @@ chmod 600 ~/.config/qwen3-tts/.voice_server_token
 
 ### Rate Limiting
 
-**Default rate limit:** 10 requests per minute
+**Default limits** are per-endpoint-group (slowapi), e.g. generation `20/minute`,
+model ops `3/minute`.
 
-**Adjust in config.json:**
+**Adjust in config.json** under `security.rate_limits` (values are `"<count>/<unit>"` strings):
 ```json
 {
-  "rate_limiting": {
-    "enabled": true,
-    "requests_per_minute": 10,
-    "burst": 2
+  "security": {
+    "rate_limits": {
+      "generate": "20/minute",
+      "model_ops": "3/minute",
+      "transcribe": "15/minute",
+      "prompt_ops": "10/minute",
+      "config_ops": "1/minute"
+    }
   }
 }
 ```
+
+Behind a reverse proxy, set `TTS_TRUSTED_PROXIES` so per-IP limits see the real
+client IP. See [rate-limiting.md](rate-limiting.md) for strategies (per-IP / per-token / hybrid).
 
 **For production deployment:** Increase based on capacity requirements.
 

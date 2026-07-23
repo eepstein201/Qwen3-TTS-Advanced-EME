@@ -11,7 +11,8 @@
 | `pip install -e ".[mlx]"` | Install with MLX backend support (Apple Silicon) |
 | `pip install -e ".[server]"` | Install with FastAPI server dependencies |
 | `pip install -e ".[ui]"` | Install with Gradio web UI dependencies |
-| `pip install -e ".[dev]"` | Install with development tools (pytest, black, ruff, mypy) |
+| `pip install -e ".[dev]"` | Install with development tools (pytest, ruff, mypy, bandit) |
+| `pip install -e ".[test]"` | Install test dependencies (works in any Python env) |
 | `make install` | Quick install with all dependencies |
 | `tts doctor` | Check installation health and dependencies |
 
@@ -37,6 +38,8 @@
 | `tts voice delete NAME` | Delete voice prompt |
 | `tts voice rename OLD NEW` | Rename voice prompt |
 | `tts voice preview NAME` | Play voice prompt |
+| `tts voice rebuild NAME` | Regenerate a prompt's `.pt` (torch-only; forces `TTS_BACKEND=torch`) |
+| `tts voice info NAME` | Show prompt metadata (formats, size, duration) via server |
 | `tts list speakers` | List premium speakers (Custom mode) |
 | `tts list presets` | List generation presets |
 | `tts list prosody` | List prosody presets (Custom/Design mode) |
@@ -100,18 +103,22 @@
 | `python tests/run_batches.py --batch N` | Run specific batch (1-6) |
 | `python tests/run_full_suite.py --full` | Full suite with multi-environment testing |
 
+> The package also installs console-script wrappers around pytest: `test`,
+> `test-unit`, `test-integration`, `test-quick`, `test-parallel`, `test-cov`.
+> These are convenience entry points, not `tts` subcommands.
+
 ## Code Quality Commands
 
 | Command | Description |
 |---------|-------------|
-| `make lint` | Run ruff linter |
-| `make format` | Format code with black and ruff |
-| `make type-check` | Run mypy type checker |
+| `make lint` | Run ruff linter (`ruff check qwen3_tts/ tests/`) |
+| `make format` | Format code (`ruff format qwen3_tts/ tests/`) |
 | `make coverage` | Run test coverage analysis |
-| `ruff check .` | Fast linting with ruff |
-| `ruff check --fix .` | Auto-fix linting issues |
-| `black .` | Format code with black |
-| `mypy qwen3_tts/` | Type check with mypy |
+| `make solid-score` | SOLID-compliance analyzer report |
+| `ruff check qwen3_tts/ tests/` | Fast linting with ruff |
+| `ruff format qwen3_tts/ tests/` | Format code with ruff |
+| `mypy qwen3_tts/{core,server,interface}` | Type check with mypy |
+| `bandit -r qwen3_tts -c pyproject.toml` | Security scan (target: 0 HIGH) |
 
 ## Generation Options
 
