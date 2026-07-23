@@ -22,6 +22,7 @@ import gradio as gr
 _history_lock = threading.Lock()
 
 from qwen3_tts.core.config import (  # noqa: E402 (intentional lazy import after lock initialization)
+    get_generation_defaults,
     get_generation_presets,
     get_prosody_presets,
     is_server_running,
@@ -289,6 +290,9 @@ def _generate_server_side(mode, text, history_list, stream_config):
         # Save to temp dir (Gradio always allows tempdir paths)
         temp_path = os.path.join(tempfile.gettempdir(), filename)
         client = TTSClient()
+        # Generation sampling defaults come from config.json (single source of
+        # truth) so the fallbacks here can't drift from the slider defaults.
+        _defaults = get_generation_defaults()
         client.generate(
             text=payload.get("text", ""),
             output=temp_path,
@@ -297,10 +301,12 @@ def _generate_server_side(mode, text, history_list, stream_config):
             description=payload.get("voice_description"),
             speaker=payload.get("speaker"),
             instruct=payload.get("instruct"),
-            temperature=payload.get("temperature", 0.7),
-            top_k=payload.get("top_k", 50),
-            top_p=payload.get("top_p", 0.95),
-            repetition_penalty=payload.get("repetition_penalty", 1.05),
+            temperature=payload.get("temperature", _defaults["temperature"]),
+            top_k=payload.get("top_k", _defaults["top_k"]),
+            top_p=payload.get("top_p", _defaults["top_p"]),
+            repetition_penalty=payload.get(
+                "repetition_penalty", _defaults["repetition_penalty"]
+            ),
             seed=payload.get("seed"),
             preset=payload.get("preset"),
             x_vector_only_mode=payload.get("x_vector_only_mode", False),
@@ -392,11 +398,14 @@ def _build_common_controls():
     Audio processing (trim, normalize, speed, pitch) is not supported
     in streaming mode and has been removed from the WaveSurfer UI.
     """
+    # Slider defaults are driven by config.json (single source of truth) so the
+    # UI tracks the user's configured generation defaults, not hardcoded values.
+    _defaults = get_generation_defaults()
     with gr.Accordion("Advanced Settings", open=False):
-        temp = gr.Slider(0.1, 1.5, value=0.7, step=0.05, label="Temperature")
-        top_k = gr.Slider(1, 100, value=50, step=1, label="Top-K")
-        top_p = gr.Slider(0.1, 1.0, value=0.95, step=0.01, label="Top-P")
-        rep = gr.Slider(1.0, 2.0, value=1.05, step=0.01, label="Repetition Penalty")
+        temp = gr.Slider(0.1, 1.5, value=_defaults["temperature"], step=0.05, label="Temperature")
+        top_k = gr.Slider(1, 100, value=_defaults["top_k"], step=1, label="Top-K")
+        top_p = gr.Slider(0.1, 1.0, value=_defaults["top_p"], step=0.01, label="Top-P")
+        rep = gr.Slider(1.0, 2.0, value=_defaults["repetition_penalty"], step=0.01, label="Repetition Penalty")
         seed = gr.Textbox(label="Seed (empty for random)", value="")
         seed_lock = gr.Checkbox(
             label="Lock voice across chunks",
