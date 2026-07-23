@@ -121,13 +121,15 @@ New actionable findings below; two UI bugs reproduced directly.
 | **HYG-1** | Working-tree clutter (untracked): `.voice_server.log.old`, `.tts_server*.log`, stray `test/` dir, loose media, empty scratch `.md`. Confirm per category before deleting. | LOW | Low | repo root |
 
 **Structural debt** (extends the CI & Quality Debt list above): `config.py` 1399, `_facade.py`
-1293, `inference.py` 1110, `generate.py` 864, `app.py` 821, `wavesurfer_js.py` 814 (543-line
-embedded JS in `get_streaming_player_js`) all exceed the 800-line limit.
+1293, `inference.py` 1110, `generate.py` 864, `app.py` 821 exceed the 800-line limit.
+✅ **JS-EXTRACT** (#88): the 543-line embedded JS in `get_streaming_player_js` moved to
+`interface/static/streaming_player.js` via a cached loader; `wavesurfer_js.py` 814 → 309 lines
+(now under the limit). Behavior-preserving — verified by 74 existing wavesurfer tests + 3 new guards.
 
 **Execution:** Phases 1–2 complete and merged 2026-07-23 (#83 UI-1/UI-2/DOC-1, #84 UI-3/UI-4,
-#85 DEDUP-1, #86 A11Y-1). **Remaining:** HYG-1 (working-tree clutter cleanup — confirm per
-category before deleting) + the structural-debt file splits noted above (`config.py`,
-`_facade.py`, `inference.py`, `generate.py`, `app.py`, `wavesurfer_js.py`). Full plan:
+#85 DEDUP-1, #86 A11Y-1); JS-EXTRACT merged 2026-07-23 (#88). **Remaining:** HYG-1 (working-tree
+clutter cleanup — confirm per category before deleting) + the structural-debt file splits noted
+above (`config.py`, `_facade.py`, `inference.py`, `generate.py`, `app.py`). Full plan:
 `~/.claude/plans/run-comprehensive-review-of-merry-gadget.md`.
 
 ---
