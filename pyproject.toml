@@ -36,7 +36,7 @@ server = [
     "fastapi>=0.139.2",
     "slowapi>=0.1.10",
     "uvicorn[standard]>=0.51.0",
-    "soundfile>=0.12.1",
+    "soundfile>=0.14.0",
     "psutil>=7.2.2",
 ]
 
@@ -48,7 +48,7 @@ ui = [
 # Audio processing extras
 audio = [
     "librosa>=0.11.0",
-    "soundfile>=0.12.1",
+    "soundfile>=0.14.0",
     "pyrubberband",
     "pyloudnorm>=0.2.0",
     "pydub",
@@ -90,7 +90,7 @@ test = [
     "fastapi>=0.139.2",       # Server dependencies for integration tests
     "slowapi>=0.1.10",         # Rate limiting for server tests
     "uvicorn[standard]>=0.51.0",
-    "soundfile>=0.12.1",
+    "soundfile>=0.14.0",
     "psutil>=7.2.2",
 ]
 
