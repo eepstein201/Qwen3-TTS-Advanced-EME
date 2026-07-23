@@ -41,6 +41,7 @@ Features: pyrubberband audio processing (with librosa fallback), prosody presets
 | `tts [TEXT]` | Generate audio (default command) |
 | `tts server start` | Start persistent model server |
 | `tts server stop` | Graceful shutdown |
+| `tts server restart` | Stop then start |
 | `tts server status` | Health + models + memory |
 | `tts server log` | Tail server log |
 | `tts voice list` | List voice prompts |
