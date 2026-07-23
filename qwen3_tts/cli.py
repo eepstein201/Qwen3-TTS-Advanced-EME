@@ -32,6 +32,7 @@ from qwen3_tts.cli_voice import (  # noqa: F401
     list_group,
     voice,
 )
+from qwen3_tts.core.config import VALID_MODEL_SIZES
 
 # ---------------------------------------------------------------------------
 # Custom Group class — routes bare `tts "Hello"` to generate
@@ -218,7 +219,7 @@ def _generation_options(f):
         ),
         click.option(
             "--model-size",
-            type=click.Choice(["1.7B", "0.6B"]),
+            type=click.Choice(list(VALID_MODEL_SIZES)),
             help="Override model size for this run",
         ),
         click.option("--_server-mode", "server_mode", is_flag=True, hidden=True),
