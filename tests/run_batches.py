@@ -135,7 +135,7 @@ BATCHES = {
             "tests.test_wavesurfer_selfhost",
             "tests.test_model_loader_extended",
         ],
-        "timeout": 240,  # Longest timeout
+        "timeout": 480,  # Engine & UI — macos CI runners run ~3-4x slower than linux
     },
     # Optional batch (requires additional dependencies)
     5: {

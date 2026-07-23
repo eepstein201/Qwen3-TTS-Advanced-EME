@@ -100,7 +100,7 @@ class TestLoadBatchFile(unittest.TestCase):
 class TestProcessBatch(unittest.TestCase):
     """Tests for process_batch()."""
 
-    @patch("qwen3_tts.interface.cli.batch.generate_via_server")
+    @patch("qwen3_tts.interface.generate.generate_via_server")
     @patch("soundfile.write")
     def test_server_mode_no_processing(self, mock_sf, mock_gen):
         """Server mode without audio processing saves base64 results directly."""
@@ -111,15 +111,15 @@ class TestProcessBatch(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmpdir:
             args = _make_args(output=tmpdir)
             config = {"language": "English", "default_clone_prompt": "voice.pt"}
-            with patch("qwen3_tts.interface.cli.batch._save_base64_result") as mock_save:
+            with patch("qwen3_tts.interface.generate._save_base64_result") as mock_save:
                 result = process_batch(["hello", "world"], args, config, {}, use_server=True)
             self.assertEqual(len(result), 2)
             self.assertEqual(mock_save.call_count, 2)
 
-    @patch("qwen3_tts.interface.cli.batch.generate_via_server")
+    @patch("qwen3_tts.interface.generate.generate_via_server")
     @patch("soundfile.write")
-    @patch("qwen3_tts.interface.cli.batch._decode_base64_result")
-    @patch("qwen3_tts.interface.cli.batch.process_audio_args")
+    @patch("qwen3_tts.interface.generate._decode_base64_result")
+    @patch("qwen3_tts.interface.generate.process_audio_args")
     def test_server_mode_with_processing(self, mock_proc, mock_decode, mock_sf, mock_gen):
         """Server mode with trim_silence triggers audio processing pipeline."""
         import numpy as np
@@ -134,8 +134,8 @@ class TestProcessBatch(unittest.TestCase):
             mock_decode.assert_called_once()
             mock_proc.assert_called_once()
 
-    @patch("qwen3_tts.interface.cli.batch.generate_local")
-    @patch("qwen3_tts.interface.cli.batch.process_audio_args")
+    @patch("qwen3_tts.interface.generate.generate_local")
+    @patch("qwen3_tts.interface.generate.process_audio_args")
     @patch("soundfile.write")
     def test_local_mode(self, mock_sf, mock_proc, mock_gen):
         """Local mode calls generate_local for each text."""
@@ -149,7 +149,7 @@ class TestProcessBatch(unittest.TestCase):
             self.assertEqual(len(result), 2)
             self.assertEqual(mock_gen.call_count, 2)
 
-    @patch("qwen3_tts.interface.cli.batch.generate_via_server")
+    @patch("qwen3_tts.interface.generate.generate_via_server")
     @patch("soundfile.write")
     def test_creates_output_dir(self, mock_sf, mock_gen):
         """Missing output directory is created automatically."""
@@ -158,11 +158,11 @@ class TestProcessBatch(unittest.TestCase):
             new_dir = os.path.join(tmpdir, "new_subdir")
             args = _make_args(output=new_dir)
             config = {"language": "English", "default_clone_prompt": "voice.pt"}
-            with patch("qwen3_tts.interface.cli.batch._save_base64_result"):
+            with patch("qwen3_tts.interface.generate._save_base64_result"):
                 process_batch(["hello"], args, config, {}, use_server=True)
             self.assertTrue(os.path.isdir(new_dir))
 
-    @patch("qwen3_tts.interface.cli.batch.generate_via_server")
+    @patch("qwen3_tts.interface.generate.generate_via_server")
     @patch("soundfile.write")
     def test_design_mode_passes_description(self, mock_sf, mock_gen):
         """Design mode passes voice_description to server."""
@@ -170,7 +170,7 @@ class TestProcessBatch(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmpdir:
             args = _make_args(output=tmpdir, mode="design", description="warm voice")
             config = {"language": "English", "default_voice_description": "fallback"}
-            with patch("qwen3_tts.interface.cli.batch._save_base64_result"):
+            with patch("qwen3_tts.interface.generate._save_base64_result"):
                 process_batch(["hello"], args, config, {}, use_server=True)
             call_kwargs = mock_gen.call_args
             self.assertEqual(call_kwargs.kwargs.get("voice_description"), "warm voice")
