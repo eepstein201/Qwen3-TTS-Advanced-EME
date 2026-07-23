@@ -19,7 +19,7 @@
 
 ```bash
 git clone https://github.com/eepstein201/Qwen3-TTS-Advanced-EME.git
-cd Qwen3-TTS
+cd Qwen3-TTS-Advanced-EME
 ```
 
 #### 2. Create Conda Environments
@@ -65,9 +65,9 @@ tts ui
 make test
 python -m pytest tests/ -v
 
-# Format code
-make format
-black . ruff check --fix .
+# Format and lint code (ruff)
+make format          # ruff format qwen3_tts/ tests/
+make lint            # ruff check qwen3_tts/ tests/
 ```
 
 ### Development Scripts
@@ -77,9 +77,10 @@ black . ruff check --fix .
 | `make install` | Install all dependencies |
 | `make test-batch` | Run all test batches (1-6) |
 | `make test-quick` | Run quick subset of tests |
-| `make lint` | Run ruff linter |
-| `make format` | Format code with black and ruff |
+| `make lint` | Run ruff linter (`ruff check`) |
+| `make format` | Format code with `ruff format` |
 | `make coverage` | Run test coverage analysis |
+| `make solid-score` | SOLID-compliance analyzer report |
 
 See [`docs/COMMANDS.md`](COMMANDS.md) for complete command reference.
 
@@ -92,7 +93,7 @@ qwen3-tts/
 │   ├── server/            # FastAPI server and client
 │   ├── interface/         # CLI and Gradio UI
 │   └── tools/             # Utilities (healthcheck, cache, voice)
-├── tests/                  # Test suite (1970+ tests)
+├── tests/                  # Test suite (2300+ tests)
 ├── docs/                   # Documentation
 ├── config.json             # Configuration file
 └── pyproject.toml          # Package metadata
@@ -102,16 +103,17 @@ qwen3-tts/
 
 ### Test Suite Overview
 
-The project has **1970+ tests** across 83 modules, organized into 6 batches:
+The project has **2300+ tests** across 100+ modules, organized into 6 batches
+(module counts from `tests/run_batches.py`):
 
-| Batch | Name | Tests | Description | Server Required |
-|-------|------|-------|-------------|-----------------|
-| 1 | Core | ~300 | Core utilities, config, validation | No |
-| 2 | Voice | ~400 | Voice prompts, CLI commands | No |
-| 3 | Server | ~500 | Server infrastructure, API endpoints | No |
-| 4 | Engine | ~400 | Engine components, UI logic | No |
-| 5 | Optional | ~200 | Pytest-dependent features | No |
-| 6 | E2E | ~170 | End-to-end Playwright tests | **Yes** |
+| Batch | Name | Modules | Description | Server Required |
+|-------|------|---------|-------------|-----------------|
+| 1 | Core | 10 | Core utilities, config, validation | No |
+| 2 | Voice | 19 | Voice prompts, CLI commands | No |
+| 3 | Server | 29 | Server infrastructure, API endpoints | No |
+| 4 | Engine | 20 | Engine components, UI logic | No |
+| 5 | Optional | 13 | Pytest-dependent features | No |
+| 6 | E2E | 1 | End-to-end Playwright tests | **Yes** |
 
 ### Running Tests
 
@@ -145,7 +147,7 @@ pytest tests/test_server_app_generation.py -v
 
 **Run with coverage:**
 ```bash
-pytest --cov=qwen3_tss --cov-report=term-missing --cov-report=html
+pytest --cov=qwen3_tts --cov-report=term-missing --cov-report=html
 open htmlcov/index.html
 ```
 
@@ -178,39 +180,36 @@ python tests/run_batches.py --batch 6
 
 ## Code Style Enforcement
 
-### Formatting
+### Formatting & Linting
 
-The project uses:
-- **black**: Code formatting (line length 100)
-- **isort**: Import sorting
-- **ruff**: Fast Python linter
+The project uses **ruff** for both formatting and linting (config in `.ruff.toml`):
 
-**Format code before committing:**
 ```bash
-make format
-# Or manually
-black qwen3_tss/
-ruff check --fix qwen3_tss/
+make format          # ruff format qwen3_tts/ tests/
+make lint            # ruff check qwen3_tts/ tests/
+# Or directly:
+ruff format qwen3_tts/ tests/
+ruff check --fix qwen3_tts/ tests/
 ```
 
 ### Type Checking
 
-The project uses **mypy** for static type checking:
+Static typing is checked with **mypy** (config in `pyproject.toml`; FastAPI
+`app.py` and vLLM modules are excluded):
 
 ```bash
-make type-check
-# Or manually
-mypy qwen3_tts/
+mypy qwen3_tts/{core,server,interface}
 ```
 
-### Pre-commit Hooks (Recommended)
-
-Install pre-commit hooks for automatic formatting:
+### Security Scan
 
 ```bash
-pip install pre-commit
-pre-commit install
+bandit -r qwen3_tts -c pyproject.toml   # target: 0 HIGH findings
 ```
+
+All three tools (`ruff`, `mypy`, `bandit`) ship in the `dev` extra
+(`pip install -e ".[dev]"`). There is no pre-commit config; run these gates
+manually (or wire your own local hooks) before pushing.
 
 ## Development Workflow
 
@@ -292,7 +291,7 @@ tts server stop && tts server start
 tts server status
 
 # Ensure clone model is loaded
-curl -H "Authorization: Bearer $(cat ~/.voice_server_token)" http://127.0.0.1:5123/models
+curl -H "Authorization: Bearer $(cat ~/.config/qwen3-tts/.voice_server_token)" http://127.0.0.1:5123/models
 
 # Check models
 tts list models
@@ -302,7 +301,7 @@ tts list models
 ```bash
 # Ensure correct environment
 conda activate qwen3-tts-mlx  # for MLX
-conda activate qwen3-tss     # for Torch
+conda activate qwen3-tts     # for Torch
 
 # Reinstall dependencies
 pip install -e ".[mlx,dev]"  # or ".[torch,dev]"
