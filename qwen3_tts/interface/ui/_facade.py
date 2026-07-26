@@ -79,6 +79,7 @@ from qwen3_tts.interface.voice_helpers import (
     get_prosody_choices,
 )
 from qwen3_tts.interface.wavesurfer_js import (
+    get_clear_player_js,
     get_copy_transcript_js,
     get_load_into_player_js,
     get_player_html,
@@ -288,9 +289,11 @@ def on_clear_history_click(clear_state, history_list):
     the table. Disk files (``.wav``/``.json`` sidecars) are never touched, so
     entries re-appear after an app restart.
 
-    Returns a 6-tuple mapped to:
+    Returns a 7-tuple mapped to:
       [clear_history_confirm_state, clear_all_btn, history_df, history_state,
-       history_audio_url, history_status_html]
+       history_audio_url, history_status_html, history_select_payload]
+    The payload carries action "clear" on confirm so the shared
+    get_clear_player_js chain also resets the waveform.
     """
     if not isinstance(clear_state, dict):
         clear_state = {"armed": False, "ts": 0.0}
@@ -307,6 +310,7 @@ def on_clear_history_click(clear_state, history_list):
             gr.update(),  # history_state unchanged
             gr.update(),  # audio unchanged
             _announce_status("Click again within 5s to clear all generations."),
+            {"action": "replay"},  # no waveform clear on arm
         )
     with history_lock:
         new_list = clear_history(history_list)
@@ -317,6 +321,7 @@ def on_clear_history_click(clear_state, history_list):
         new_list,  # []
         "",  # clear the player
         _announce_status("Recent generations cleared."),
+        {"action": "clear"},  # triggers get_clear_player_js
     )
 
 
@@ -1335,6 +1340,12 @@ def build_ui():
             js=get_copy_transcript_js(),
             inputs=[history_select_payload, history_status_html],
             outputs=[history_status_html],
+        ).then(
+            # Clear the waveform when a row is removed (payload action
+            # 'delete'); no-op for replay/copy. js-only; passthrough payload.
+            js=get_clear_player_js("history"),
+            inputs=[history_select_payload],
+            outputs=[history_select_payload],
         )
 
         clear_all_btn.click(
@@ -1347,7 +1358,13 @@ def build_ui():
                 history_state,
                 history_audio_url,
                 history_status_html,
+                history_select_payload,
             ],
+        ).then(
+            # Clear the waveform on confirmed Clear All (payload action 'clear').
+            js=get_clear_player_js("history"),
+            inputs=[history_select_payload],
+            outputs=[history_select_payload],
         )
 
         # Wire history_df updates from each tab's generation chain

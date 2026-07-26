@@ -262,6 +262,33 @@ def get_copy_transcript_js():
     """
 
 
+def get_clear_player_js(tab_id):
+    """JS that clears the WaveSurfer waveform + player state for ``tab_id``.
+
+    Wired as a js-only ``.then()`` after history actions. Clears the waveform
+    only when ``payload.action`` is ``'delete'`` (row removed) or ``'clear'``
+    (Clear All), so replay and copy clicks leave the current waveform touched.
+    Passthrough return (the payload) so the hidden component is unchanged.
+    """
+    return f"""
+    (payload) => {{
+        try {{
+            if (payload && (payload.action === 'delete' || payload.action === 'clear')) {{
+                if (typeof window.getOrCreatePlayer === 'function') {{
+                    const player = window.getOrCreatePlayer('{tab_id}');
+                    if (player && typeof player.reset === 'function') {{
+                        player.reset();
+                    }}
+                }}
+            }}
+        }} catch (e) {{
+            console.warn('[ClearPlayer] Error:', e);
+        }}
+        return payload;
+    }}
+    """
+
+
 def get_streaming_trigger_js(tab_id):
     """Return JS function that reads the config JSON and starts streaming.
 

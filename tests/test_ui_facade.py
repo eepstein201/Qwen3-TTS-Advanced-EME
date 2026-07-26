@@ -667,11 +667,12 @@ class TestOnClearHistoryClick(unittest.TestCase):
 
         state = {"armed": False, "ts": 0.0}
         history = [{"text": "a", "path": "/tmp/a.wav"}, {"text": "b", "path": "/tmp/b.wav"}]
-        new_state, _btn, df, hist, _audio, status = on_clear_history_click(state, history)
+        new_state, _btn, df, hist, _audio, status, payload = on_clear_history_click(state, history)
         self.assertTrue(new_state["armed"])  # armed on first click
         self.assertEqual(df, gr.update())  # table unchanged
         self.assertEqual(hist, gr.update())  # history_state unchanged
         self.assertIn("Click again", status)
+        self.assertEqual(payload["action"], "replay")  # no waveform clear on arm
 
     def test_second_click_within_timeout_clears_history(self):
         import time
@@ -681,12 +682,13 @@ class TestOnClearHistoryClick(unittest.TestCase):
         # Armed + recent timestamp -> confirm_step confirms within 5s window.
         state = {"armed": True, "ts": time.time()}
         history = [{"text": "a", "path": "/tmp/a.wav"}, {"text": "b", "path": "/tmp/b.wav"}]
-        new_state, _btn, df, hist, audio, status = on_clear_history_click(state, history)
+        new_state, _btn, df, hist, audio, status, payload = on_clear_history_click(state, history)
         self.assertFalse(new_state["armed"])  # disarmed after action
         self.assertEqual(hist, [])  # history_state cleared
         self.assertEqual(df, [])  # table re-rendered empty
         self.assertEqual(audio, "")  # player cleared
         self.assertIn("cleared", status)
+        self.assertEqual(payload["action"], "clear")  # triggers waveform clear
 
     def test_second_click_clears_even_when_history_none(self):
         import time
@@ -694,7 +696,7 @@ class TestOnClearHistoryClick(unittest.TestCase):
         from qwen3_tts.interface.ui._facade import on_clear_history_click
 
         state = {"armed": True, "ts": time.time()}
-        _new_state, _btn, df, hist, _audio, _status = on_clear_history_click(state, None)
+        _new_state, _btn, df, hist, _audio, _status, _payload = on_clear_history_click(state, None)
         self.assertEqual(hist, [])
         self.assertEqual(df, [])
 
