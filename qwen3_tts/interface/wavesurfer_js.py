@@ -231,6 +231,37 @@ def get_load_into_player_js(tab_id):
     """
 
 
+def get_copy_transcript_js():
+    """JS that copies a transcript to the clipboard when action === 'copy'.
+
+    Wired as the ``js`` of a ``.then()`` chained after ``on_history_select``.
+    Receives the hidden select-payload JSON and the current history-status HTML.
+    When the payload action is ``'copy'``, writes ``payload.text`` to the
+    clipboard (the UI runs on 127.0.0.1, a secure context, so
+    ``navigator.clipboard`` is available) and returns ``payload.ok`` — or
+    ``payload.fail`` on rejection / missing clipboard API. For any other action
+    (replay/delete) returns the current status HTML unchanged (passthrough), so
+    this chain is a no-op for non-copy clicks. No eval / no inline handlers.
+    """
+    return """
+    async (payload, currentStatusHtml) => {
+        try {
+            if (!payload || payload.action !== 'copy') {
+                return currentStatusHtml;
+            }
+            if (!navigator.clipboard || typeof navigator.clipboard.writeText !== 'function') {
+                return payload.fail || '';
+            }
+            await navigator.clipboard.writeText(payload.text || '');
+            return payload.ok || '';
+        } catch (e) {
+            console.warn('[CopyTranscript] Error:', e);
+            return payload.fail || '';
+        }
+    }
+    """
+
+
 def get_streaming_trigger_js(tab_id):
     """Return JS function that reads the config JSON and starts streaming.
 
