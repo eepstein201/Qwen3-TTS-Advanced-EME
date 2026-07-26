@@ -657,6 +657,48 @@ class TestOnHistorySelectColumnRouting(unittest.TestCase):
         self.assertEqual(result[6]["action"], "replay")
 
 
+class TestOnClearHistoryClick(unittest.TestCase):
+    """Two-step confirm for Clear All (list-only; disk files untouched)."""
+
+    def test_first_click_arms_and_leaves_history_untouched(self):
+        import time  # noqa: F401  (kept for parity with the confirm test below)
+
+        from qwen3_tts.interface.ui._facade import on_clear_history_click
+
+        state = {"armed": False, "ts": 0.0}
+        history = [{"text": "a", "path": "/tmp/a.wav"}, {"text": "b", "path": "/tmp/b.wav"}]
+        new_state, _btn, df, hist, _audio, status = on_clear_history_click(state, history)
+        self.assertTrue(new_state["armed"])  # armed on first click
+        self.assertEqual(df, gr.update())  # table unchanged
+        self.assertEqual(hist, gr.update())  # history_state unchanged
+        self.assertIn("Click again", status)
+
+    def test_second_click_within_timeout_clears_history(self):
+        import time
+
+        from qwen3_tts.interface.ui._facade import on_clear_history_click
+
+        # Armed + recent timestamp -> confirm_step confirms within 5s window.
+        state = {"armed": True, "ts": time.time()}
+        history = [{"text": "a", "path": "/tmp/a.wav"}, {"text": "b", "path": "/tmp/b.wav"}]
+        new_state, _btn, df, hist, audio, status = on_clear_history_click(state, history)
+        self.assertFalse(new_state["armed"])  # disarmed after action
+        self.assertEqual(hist, [])  # history_state cleared
+        self.assertEqual(df, [])  # table re-rendered empty
+        self.assertEqual(audio, "")  # player cleared
+        self.assertIn("cleared", status)
+
+    def test_second_click_clears_even_when_history_none(self):
+        import time
+
+        from qwen3_tts.interface.ui._facade import on_clear_history_click
+
+        state = {"armed": True, "ts": time.time()}
+        _new_state, _btn, df, hist, _audio, _status = on_clear_history_click(state, None)
+        self.assertEqual(hist, [])
+        self.assertEqual(df, [])
+
+
 class TestFormatStatusDisplayEscaping(unittest.TestCase):
     """Tests for HTML escaping in format_status_display."""
 

@@ -53,6 +53,7 @@ from qwen3_tts.interface.ui.model_management import (
 from qwen3_tts.interface.ui.shared import (
     SPEAKER_CHOICES,
     apply_model_settings,
+    clear_history,
     enhance_description_with_ai,
     format_status_display,
     get_current_model_settings,
@@ -277,6 +278,46 @@ def on_history_select(evt: gr.SelectData, history_list):
     if not os.path.exists(temp_path):
         shutil.copy2(resolved, temp_path)
     return temp_path, seed_str, seed_str, seed_str, update(), update(), replay_payload, update()
+
+
+def on_clear_history_click(clear_state, history_list):
+    """Two-step confirm to clear the Recent Generations list (list-only).
+
+    First click arms the button (status: "Click again within 5s…"); second
+    click within the timeout clears ``history_state`` to ``[]`` and re-renders
+    the table. Disk files (``.wav``/``.json`` sidecars) are never touched, so
+    entries re-appear after an app restart.
+
+    Returns a 6-tuple mapped to:
+      [clear_history_confirm_state, clear_all_btn, history_df, history_state,
+       history_audio_url, history_status_html]
+    """
+    if not isinstance(clear_state, dict):
+        clear_state = {"armed": False, "ts": 0.0}
+    new_state, btn_update, confirmed = confirm_step(
+        clear_state,
+        "Confirm Clear All? (click again)",
+        "Clear All",
+    )
+    if not confirmed:
+        return (
+            new_state,
+            btn_update,
+            gr.update(),  # history_df unchanged
+            gr.update(),  # history_state unchanged
+            gr.update(),  # audio unchanged
+            _announce_status("Click again within 5s to clear all generations."),
+        )
+    with history_lock:
+        new_list = clear_history(history_list)
+    return (
+        new_state,
+        btn_update,
+        get_history_data(new_list),  # empty rows
+        new_list,  # []
+        "",  # clear the player
+        _announce_status("Recent generations cleared."),
+    )
 
 
 def _build_clone_tab(status_html, history_state):
@@ -1247,6 +1288,10 @@ def build_ui():
 
         # History panel below tabs (renders after tabs in the page layout)
         gr.Markdown("### Recent Generations")
+        with gr.Row():
+            clear_all_btn = gr.Button("Clear All", size="sm", variant="stop")
+        # Two-step confirm state for Clear All (mirrors voice-delete wiring).
+        clear_history_confirm_state = gr.State({"armed": False, "ts": 0.0})
         history_df = gr.Dataframe(
             headers=["Time", "Mode", "Text Preview", "Seed", "Chunks", "Remove"],
             value=[],
@@ -1290,6 +1335,19 @@ def build_ui():
             js=get_copy_transcript_js(),
             inputs=[history_select_payload, history_status_html],
             outputs=[history_status_html],
+        )
+
+        clear_all_btn.click(
+            fn=on_clear_history_click,
+            inputs=[clear_history_confirm_state, history_state],
+            outputs=[
+                clear_history_confirm_state,
+                clear_all_btn,
+                history_df,
+                history_state,
+                history_audio_url,
+                history_status_html,
+            ],
         )
 
         # Wire history_df updates from each tab's generation chain
