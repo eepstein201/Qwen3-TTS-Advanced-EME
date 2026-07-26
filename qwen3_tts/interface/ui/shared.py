@@ -10,6 +10,7 @@ This module contains:
 
 import logging
 import os
+import threading
 import time
 
 import gradio as gr
@@ -28,6 +29,15 @@ logger = logging.getLogger("tts.ui")
 
 # Constants
 MAX_HISTORY_SIZE = 10
+
+# Glyph shown in the "Remove" column of the Recent Generations table. Clicking
+# that cell routes through on_history_select (column-aware) to delete the row.
+HISTORY_REMOVE_GLYPH = "✕"
+
+# Thread-safe lock for history state updates. Shared by add_to_history
+# (generation.py) and the clear/remove handlers (_facade.py) so concurrent
+# generations and UI clicks can't race on history_state.
+history_lock = threading.Lock()
 
 # Derive speaker choices from canonical source
 SPEAKER_CHOICES = [
@@ -411,12 +421,34 @@ def add_to_history(history_list, mode, text, output_path, duration_chunks, seed=
         "timestamp": time.time(),
         "mode": mode.capitalize() if mode else mode,
         "text": text[:40] + "..." if len(text) > 40 else text,
+        # Full transcript retained for copy-to-clipboard (text above is the
+        # truncated display form). Not persisted by add_to_history itself; the
+        # .json sidecar already stores the full text and repopulates this on load.
+        "full_text": text,
         "path": output_path,
         "chunks": duration_chunks if isinstance(duration_chunks, int) else 0,
         "seed": seed,
     }
     new_list = [entry] + list(history_list)
     return new_list[:MAX_HISTORY_SIZE]
+
+
+def remove_history_row(history_list, row_index):
+    """Return a new history list with the row at row_index removed.
+
+    Immutable: the input list is never mutated. Out-of-range or negative
+    indices return an unchanged copy. Non-list input returns [].
+    """
+    if not isinstance(history_list, list):
+        return []
+    if isinstance(row_index, int) and 0 <= row_index < len(history_list):
+        return history_list[:row_index] + history_list[row_index + 1 :]
+    return list(history_list)
+
+
+def clear_history(history_list=None):
+    """Return a fresh empty history list (list-only clear; disk files untouched)."""
+    return []
 
 
 def get_history_data(history_list):
@@ -445,6 +477,7 @@ def get_history_data(history_list):
                 entry.get("text", ""),
                 seed_str,
                 entry.get("chunks", 0),
+                HISTORY_REMOVE_GLYPH,
             ]
         )
 
@@ -544,6 +577,9 @@ def load_history_from_disk(output_dir: str) -> list:
                     "timestamp": data.get("timestamp", 0),
                     "mode": (data.get("mode") or "?").capitalize(),
                     "text": text[:40] + "..." if len(text) > 40 else text,
+                    # Sidecar stores the full transcript under "text"; retain it
+                    # verbatim for copy-to-clipboard (falls back to display text).
+                    "full_text": text,
                     "path": wav_path,
                     "chunks": data.get("chunks", 0),
                     "seed": data.get("seed"),
