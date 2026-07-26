@@ -568,8 +568,9 @@ class TestOnHistorySelectSeedBroadcast(unittest.TestCase):
         # Use a path outside safe_roots so audio returns None but seed still broadcasts
         history = [{"seed": 12345, "path": "/etc/passwd"}]
         result = on_history_select(evt, history)
-        self.assertEqual(len(result), 4)
-        _audio, c, d, cu = result
+        # 8-tuple: audio, clone_seed, design_seed, custom_seed, df, state, payload, status
+        self.assertEqual(len(result), 8)
+        _audio, c, d, cu, *_rest = result
         self.assertEqual((c, d, cu), ("12345", "12345", "12345"))
 
     def test_broadcasts_empty_when_no_seed(self):
@@ -578,9 +579,82 @@ class TestOnHistorySelectSeedBroadcast(unittest.TestCase):
         evt.index = [0]
         history = [{"path": "/tmp/test.wav"}]
         result = on_history_select(evt, history)
-        self.assertEqual(len(result), 4)
-        _audio, c, d, cu = result
+        self.assertEqual(len(result), 8)
+        _audio, c, d, cu, *_rest = result
         self.assertEqual((c, d, cu), ("", "", ""))
+
+
+class TestOnHistorySelectColumnRouting(unittest.TestCase):
+    """Column-aware routing in on_history_select: copy / delete / replay.
+
+    on_history_select returns an 8-tuple; the payload at index 6 carries the
+    action ("copy"|"delete"|"replay") consumed by the copy .then(js=...) chain.
+    """
+
+    def _evt(self, row, col):
+        evt = MagicMock()
+        evt.index = [row, col]
+        return evt
+
+    def test_text_preview_column_copies_full_transcript(self):
+        from qwen3_tts.interface.ui._facade import on_history_select
+
+        full = "The quick brown fox jumps over the lazy dog."
+        history = [
+            {"text": full[:40], "full_text": full, "path": "/tmp/x.wav", "seed": 1}
+        ]
+        result = on_history_select(self._evt(0, 2), history)
+        payload = result[6]
+        self.assertEqual(payload["action"], "copy")
+        self.assertEqual(payload["text"], full)
+        self.assertIn("Copied", payload["ok"])
+        self.assertIn("Copy failed", payload["fail"])
+
+    def test_remove_column_deletes_row_and_clears_audio(self):
+        from qwen3_tts.interface.ui._facade import HISTORY_COL_DELETE, on_history_select
+
+        history = [
+            {"text": "a", "full_text": "a", "path": "/tmp/a.wav", "seed": 1},
+            {"text": "b", "full_text": "b", "path": "/tmp/b.wav", "seed": 2},
+            {"text": "c", "full_text": "c", "path": "/tmp/c.wav", "seed": 3},
+        ]
+        result = on_history_select(self._evt(1, HISTORY_COL_DELETE), history)
+        audio, _c, _d, _cu, df, state, payload, status = result
+        self.assertEqual(audio, "")  # player cleared on delete
+        self.assertEqual(payload["action"], "delete")
+        self.assertEqual(len(state), 2)  # middle row removed
+        self.assertEqual([e["text"] for e in state], ["a", "c"])
+        self.assertEqual(len(df), 2)  # dataframe re-rendered from new list
+        self.assertIn("Entry removed", status)
+
+    def test_remove_column_does_not_mutate_input(self):
+        from qwen3_tts.interface.ui._facade import HISTORY_COL_DELETE, on_history_select
+
+        history = [
+            {"text": "a", "path": "/tmp/a.wav"},
+            {"text": "b", "path": "/tmp/b.wav"},
+        ]
+        on_history_select(self._evt(0, HISTORY_COL_DELETE), history)
+        self.assertEqual(len(history), 2)  # input list not mutated
+
+    def test_other_column_is_replay_and_broadcasts_seed(self):
+        from qwen3_tts.interface.ui._facade import on_history_select
+
+        history = [{"text": "hi", "full_text": "hi", "seed": 99, "path": "/tmp/x.wav"}]
+        # Column 0 (Time) -> replay branch; path is outside safe roots so audio
+        # is None, but the seed still broadcasts and action is "replay".
+        result = on_history_select(self._evt(0, 0), history)
+        self.assertEqual(result[6]["action"], "replay")
+        self.assertEqual(result[1], "99")  # clone seed
+
+    def test_legacy_row_only_event_treated_as_replay(self):
+        from qwen3_tts.interface.ui._facade import on_history_select
+
+        evt = MagicMock()
+        evt.index = [0]  # no column dimension -> legacy select event
+        history = [{"text": "hi", "full_text": "hi", "seed": 7, "path": "/tmp/x.wav"}]
+        result = on_history_select(evt, history)
+        self.assertEqual(result[6]["action"], "replay")
 
 
 class TestFormatStatusDisplayEscaping(unittest.TestCase):
