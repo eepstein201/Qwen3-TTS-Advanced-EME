@@ -154,6 +154,67 @@ class TestLoadIntoPlayerJS(unittest.TestCase):
         self.assertIn("if (!audioData)", js)
 
 
+class TestCopyTranscriptJS(unittest.TestCase):
+    """Test the JS function that copies a transcript to the clipboard."""
+
+    def _get_js(self):
+        from qwen3_tts.interface.wavesurfer_js import get_copy_transcript_js
+
+        return get_copy_transcript_js()
+
+    def test_uses_clipboard_write_text(self):
+        self.assertIn("navigator.clipboard.writeText", self._get_js())
+
+    def test_guards_on_copy_action(self):
+        js = self._get_js()
+        self.assertIn("payload", js)
+        self.assertIn("action", js)
+        self.assertIn("'copy'", js)
+
+    def test_is_async(self):
+        self.assertIn("async", self._get_js())
+
+    def test_passthrough_for_non_copy(self):
+        # Must return the current status HTML unchanged when not a copy action,
+        # so replay/delete clicks are unaffected by this .then() chain.
+        self.assertIn("return currentStatusHtml", self._get_js())
+
+    def test_returns_ok_or_fail_payload(self):
+        js = self._get_js()
+        self.assertIn("payload.ok", js)
+        self.assertIn("payload.fail", js)
+
+    def test_has_error_guard(self):
+        # Must catch clipboard failures and surface the fail status, not throw.
+        self.assertIn("catch", self._get_js())
+
+
+class TestClearPlayerJS(unittest.TestCase):
+    """Test the JS function that clears the WaveSurfer waveform on delete/clear."""
+
+    def _get_js(self):
+        from qwen3_tts.interface.wavesurfer_js import get_clear_player_js
+
+        return get_clear_player_js("history")
+
+    def test_calls_player_reset(self):
+        self.assertIn("player.reset", self._get_js())
+
+    def test_guards_on_delete_or_clear_actions(self):
+        js = self._get_js()
+        self.assertIn("action === 'delete'", js)
+        self.assertIn("action === 'clear'", js)
+
+    def test_uses_get_or_create_player(self):
+        self.assertIn("getOrCreatePlayer", self._get_js())
+
+    def test_uses_history_tab_id(self):
+        self.assertIn("'history'", self._get_js())
+
+    def test_returns_payload_passthrough(self):
+        self.assertIn("return payload", self._get_js())
+
+
 class TestPlayerConstants(unittest.TestCase):
     """Test that magic numbers are replaced with named constants."""
 

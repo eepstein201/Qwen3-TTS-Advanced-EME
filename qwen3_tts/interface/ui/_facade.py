@@ -33,6 +33,7 @@ from qwen3_tts.core.config import (
 # contract verified by tests/test_ui_confirm_patterns.py.
 from qwen3_tts.interface.ui.components import ConfirmButton, confirm_step  # noqa: F401
 from qwen3_tts.interface.ui.generation import (
+    _announce_status,
     _build_common_controls,
     _build_generate_buttons_and_output,
     _prepare_streaming_config,
@@ -52,12 +53,16 @@ from qwen3_tts.interface.ui.model_management import (
 from qwen3_tts.interface.ui.shared import (
     SPEAKER_CHOICES,
     apply_model_settings,
+    clear_history,
     enhance_description_with_ai,
     format_status_display,
     get_current_model_settings,
+    get_history_data,
     get_presets,
     get_voice_prompts,
+    history_lock,
     is_enhancer_available,
+    remove_history_row,
 )
 from qwen3_tts.interface.ui.voice_management import (
     auto_transcribe_audio,
@@ -74,6 +79,8 @@ from qwen3_tts.interface.voice_helpers import (
     get_prosody_choices,
 )
 from qwen3_tts.interface.wavesurfer_js import (
+    get_clear_player_js,
+    get_copy_transcript_js,
     get_load_into_player_js,
     get_player_html,
     get_script_reexecutor_fn,
@@ -167,28 +174,91 @@ def extract_seed_from_history(evt: gr.SelectData, history_list):
     return str(seed) if seed is not None else ""
 
 
-def on_history_select(evt: gr.SelectData, history_list):
-    """Handle click on a history row — return (audio_path, seed, seed, seed).
+# Column indices in the Recent Generations dataframe. Routing in
+# on_history_select keys off evt.index[1] (the clicked column).
+HISTORY_COL_TEXT_PREVIEW = 2  # "Text Preview" — click copies the transcript
+HISTORY_COL_DELETE = 5  # "Remove" (✕) — click removes the row (list-only)
 
-    Emits four outputs in one call: the audio file path for WaveSurfer playback
-    plus the seed value broadcast to all three tab seed textboxes.
+
+def on_history_select(evt: gr.SelectData, history_list):
+    """Handle click on a history row — column-aware router.
+
+    Routes by ``evt.index[1]`` (the clicked column):
+      - HISTORY_COL_TEXT_PREVIEW (2): copy the full transcript to the clipboard
+        via the copy .then(js=...) chain (payload action ``'copy'``). No audio
+        replay, no seed change (copy-only).
+      - HISTORY_COL_DELETE (5): remove the row from history (list-only; the
+        .wav/.json files on disk are untouched) and re-render the table.
+      - any other column, or a legacy ``[row]``-only event: today's behavior —
+        load the row's audio into the WaveSurfer player and broadcast its seed
+        to all three tab seed textboxes.
+
+    Returns an 8-tuple mapped to outputs:
+      [history_audio_url, clone_seed, design_seed, custom_seed,
+       history_df, history_state, history_select_payload, history_status_html]
 
     Defense-in-depth: validates path against safe roots and copies to tempdir
     so Gradio can always serve it (tempdir is always in allowed_paths).
     """
-    seed_str = extract_seed_from_history(evt, history_list)
+    update = gr.update
+    replay_payload = {"action": "replay"}
+
     if not (isinstance(history_list, list) and history_list):
-        return None, seed_str, seed_str, seed_str
+        return None, "", "", "", update(), [], replay_payload, update()
     if not (
         hasattr(evt, "index")
         and isinstance(evt.index, (list, tuple))
         and len(evt.index) >= 1
         and 0 <= evt.index[0] < len(history_list)
     ):
-        return None, seed_str, seed_str, seed_str
-    path = history_list[evt.index[0]].get("path", "")
+        return None, "", "", "", update(), list(history_list), replay_payload, update()
+
+    row = evt.index[0]
+    col = evt.index[1] if len(evt.index) >= 2 else None
+    entry = history_list[row]
+
+    # --- Remove column: delete the row (list-only; disk files untouched) ---
+    if col == HISTORY_COL_DELETE:
+        with history_lock:
+            new_list = remove_history_row(history_list, row)
+        # Clear audio so the player doesn't keep replaying the removed entry.
+        return (
+            "",
+            update(),
+            update(),
+            update(),
+            get_history_data(new_list),
+            new_list,
+            {"action": "delete"},
+            _announce_status("Entry removed."),
+        )
+
+    seed_str = extract_seed_from_history(evt, history_list)
+
+    # --- Text Preview column: copy full transcript to clipboard (copy-only) ---
+    if col == HISTORY_COL_TEXT_PREVIEW:
+        full_text = entry.get("full_text") or entry.get("text", "")
+        payload = {
+            "action": "copy",
+            "text": full_text,
+            "ok": _announce_status("Copied transcript to clipboard."),
+            "fail": _announce_status("Copy failed — copy the text manually."),
+        }
+        return (
+            update(),
+            update(),
+            update(),
+            update(),
+            update(),
+            update(),
+            payload,
+            update(),
+        )
+
+    # --- Default: replay audio + broadcast seed (today's behavior) ---
+    path = entry.get("path", "")
     if not path:
-        return None, seed_str, seed_str, seed_str
+        return None, seed_str, seed_str, seed_str, update(), update(), replay_payload, update()
     resolved = os.path.realpath(path)
     # Containment check: only serve files from known-safe directories
     from qwen3_tts.interface.ui.shared import _resolve_output_dir
@@ -201,14 +271,58 @@ def on_history_select(evt: gr.SelectData, history_list):
         output_dir,
     }
     if not any(resolved == r or resolved.startswith(r + os.sep) for r in safe_roots):
-        return None, seed_str, seed_str, seed_str
+        return None, seed_str, seed_str, seed_str, update(), update(), replay_payload, update()
     if not os.path.exists(resolved):
-        return None, seed_str, seed_str, seed_str
+        return None, seed_str, seed_str, seed_str, update(), update(), replay_payload, update()
     # Copy to temp for Gradio compatibility (tempdir always in allowed_paths)
     temp_path = os.path.join(tempfile.gettempdir(), os.path.basename(resolved))
     if not os.path.exists(temp_path):
         shutil.copy2(resolved, temp_path)
-    return temp_path, seed_str, seed_str, seed_str
+    return temp_path, seed_str, seed_str, seed_str, update(), update(), replay_payload, update()
+
+
+def on_clear_history_click(clear_state, history_list):
+    """Two-step confirm to clear the Recent Generations list (list-only).
+
+    First click arms the button (status: "Click again within 5s…"); second
+    click within the timeout clears ``history_state`` to ``[]`` and re-renders
+    the table. Disk files (``.wav``/``.json`` sidecars) are never touched, so
+    entries re-appear after an app restart.
+
+    Returns a 7-tuple mapped to:
+      [clear_history_confirm_state, clear_all_btn, history_df, history_state,
+       history_audio_url, history_status_html, history_select_payload]
+    The payload carries action "clear" on confirm so the shared
+    get_clear_player_js chain also resets the waveform.
+    """
+    if not isinstance(clear_state, dict):
+        clear_state = {"armed": False, "ts": 0.0}
+    new_state, btn_update, confirmed = confirm_step(
+        clear_state,
+        "Confirm Clear All? (click again)",
+        "Clear All",
+    )
+    if not confirmed:
+        return (
+            new_state,
+            btn_update,
+            gr.update(),  # history_df unchanged
+            gr.update(),  # history_state unchanged
+            gr.update(),  # audio unchanged
+            _announce_status("Click again within 5s to clear all generations."),
+            {"action": "replay"},  # no waveform clear on arm
+        )
+    with history_lock:
+        new_list = clear_history(history_list)
+    return (
+        new_state,
+        btn_update,
+        get_history_data(new_list),  # empty rows
+        new_list,  # []
+        "",  # clear the player
+        _announce_status("Recent generations cleared."),
+        {"action": "clear"},  # triggers get_clear_player_js
+    )
 
 
 def _build_clone_tab(status_html, history_state):
@@ -1179,24 +1293,78 @@ def build_ui():
 
         # History panel below tabs (renders after tabs in the page layout)
         gr.Markdown("### Recent Generations")
+        with gr.Row():
+            clear_all_btn = gr.Button("Clear All", size="sm", variant="stop")
+        # Two-step confirm state for Clear All (mirrors voice-delete wiring).
+        clear_history_confirm_state = gr.State({"armed": False, "ts": 0.0})
         history_df = gr.Dataframe(
-            headers=["Time", "Mode", "Text Preview", "Seed", "Chunks"],
+            headers=["Time", "Mode", "Text Preview", "Seed", "Chunks", "Remove"],
             value=[],
             interactive=False,
             wrap=True,
         )
         gr.HTML(value=get_player_html("history"))
         history_audio_url = gr.Audio(elem_classes=["gr-hidden"])
+        # Hidden bridge for copy-to-clipboard: on_history_select writes the
+        # action payload ({"action": "copy"|"delete"|"replay", ...}) here, and
+        # get_copy_transcript_js reads it in the browser. Kept in the DOM
+        # (gr-hidden, not visible=False) so the JS<->Python chain stays live.
+        history_select_payload = gr.JSON(elem_classes=["gr-hidden"])
+        # sr-only aria-live region for "Copied" / "Entry removed." flashes.
+        history_status_html = gr.HTML(value=_announce_status(""))
 
         history_df.select(
             fn=on_history_select,
             inputs=[history_state],
-            outputs=[history_audio_url, clone_seed, design_seed, custom_seed],
+            outputs=[
+                history_audio_url,
+                clone_seed,
+                design_seed,
+                custom_seed,
+                history_df,
+                history_state,
+                history_select_payload,
+                history_status_html,
+            ],
         ).then(
             fn=lambda x: x,
             js=get_load_into_player_js("history"),
             inputs=[history_audio_url],
             outputs=[history_audio_url],
+        ).then(
+            # Copy the transcript to the clipboard when payload.action ===
+            # 'copy' (returns the "Copied" status HTML); passthrough — returns
+            # the current status HTML unchanged — for replay/delete clicks.
+            # js-only: the status depends on the browser clipboard result, so
+            # the JS return value (not a Python fn) drives this output.
+            js=get_copy_transcript_js(),
+            inputs=[history_select_payload, history_status_html],
+            outputs=[history_status_html],
+        ).then(
+            # Clear the waveform when a row is removed (payload action
+            # 'delete'); no-op for replay/copy. js-only; passthrough payload.
+            js=get_clear_player_js("history"),
+            inputs=[history_select_payload],
+            outputs=[history_select_payload],
+        )
+
+        clear_all_btn.click(
+            fn=on_clear_history_click,
+            inputs=[clear_history_confirm_state, history_state],
+            outputs=[
+                clear_history_confirm_state,
+                clear_all_btn,
+                history_df,
+                history_state,
+                history_audio_url,
+                history_status_html,
+                history_select_payload,
+            ],
+        ).then(
+            # Clear the waveform on confirmed Clear All (payload action 'clear').
+            js=get_clear_player_js("history"),
+            inputs=[history_select_payload],
+            outputs=[history_select_payload],
         )
 
         # Wire history_df updates from each tab's generation chain

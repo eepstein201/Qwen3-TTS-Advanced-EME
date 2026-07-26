@@ -12,25 +12,22 @@ import logging
 import os
 import shutil
 import tempfile
-import threading
 import time
 import uuid
 
 import gradio as gr
 
-# Thread-safe lock for history state updates (prevents race condition in concurrent generations)
-_history_lock = threading.Lock()
-
-from qwen3_tts.core.config import (  # noqa: E402 (intentional lazy import after lock initialization)
+from qwen3_tts.core.config import (
     get_generation_defaults,
     get_generation_presets,
     get_prosody_presets,
     is_server_running,
     load_config,
 )
-from qwen3_tts.interface.ui.shared import (  # noqa: E402 (intentional lazy import after lock initialization)
+from qwen3_tts.interface.ui.shared import (
     add_to_history,
     format_status_display,
+    history_lock,
     save_generation_metadata,
 )
 from qwen3_tts.interface.voice_helpers import (  # noqa: E402, F401 (intentional lazy import, re-exported via ui/__init__.py)
@@ -395,7 +392,7 @@ def _generate_server_side(mode, text, history_list, stream_config):
 
         # History tracks persistent path; Gradio gets temp path
         # Use lock to prevent concurrent modification issues
-        with _history_lock:
+        with history_lock:
             history_list = add_to_history(
                 history_list,
                 mode,

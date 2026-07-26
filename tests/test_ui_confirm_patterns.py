@@ -166,6 +166,11 @@ class TestConfirmWiringStructural(unittest.TestCase):
         src = self._read_source("qwen3_tts/interface/ui/_facade.py")
         self.assertIn("gen_guard_state", src)
 
+    def test_18b_clear_history_confirm_state_in_facade(self):
+        """`clear_history_confirm_state` gr.State is present in _facade.py."""
+        src = self._read_source("qwen3_tts/interface/ui/_facade.py")
+        self.assertIn("clear_history_confirm_state", src)
+
     def test_19_wire_generation_tab_accepts_gen_guard_state(self):
         """`_wire_generation_tab` signature includes `gen_guard_state` parameter."""
         src = self._read_source("qwen3_tts/interface/ui/generation.py")

@@ -231,6 +231,64 @@ def get_load_into_player_js(tab_id):
     """
 
 
+def get_copy_transcript_js():
+    """JS that copies a transcript to the clipboard when action === 'copy'.
+
+    Wired as the ``js`` of a ``.then()`` chained after ``on_history_select``.
+    Receives the hidden select-payload JSON and the current history-status HTML.
+    When the payload action is ``'copy'``, writes ``payload.text`` to the
+    clipboard (the UI runs on 127.0.0.1, a secure context, so
+    ``navigator.clipboard`` is available) and returns ``payload.ok`` — or
+    ``payload.fail`` on rejection / missing clipboard API. For any other action
+    (replay/delete) returns the current status HTML unchanged (passthrough), so
+    this chain is a no-op for non-copy clicks. No eval / no inline handlers.
+    """
+    return """
+    async (payload, currentStatusHtml) => {
+        try {
+            if (!payload || payload.action !== 'copy') {
+                return currentStatusHtml;
+            }
+            if (!navigator.clipboard || typeof navigator.clipboard.writeText !== 'function') {
+                return payload.fail || '';
+            }
+            await navigator.clipboard.writeText(payload.text || '');
+            return payload.ok || '';
+        } catch (e) {
+            console.warn('[CopyTranscript] Error:', e);
+            return payload.fail || '';
+        }
+    }
+    """
+
+
+def get_clear_player_js(tab_id):
+    """JS that clears the WaveSurfer waveform + player state for ``tab_id``.
+
+    Wired as a js-only ``.then()`` after history actions. Clears the waveform
+    only when ``payload.action`` is ``'delete'`` (row removed) or ``'clear'``
+    (Clear All), so replay and copy clicks leave the current waveform touched.
+    Passthrough return (the payload) so the hidden component is unchanged.
+    """
+    return f"""
+    (payload) => {{
+        try {{
+            if (payload && (payload.action === 'delete' || payload.action === 'clear')) {{
+                if (typeof window.getOrCreatePlayer === 'function') {{
+                    const player = window.getOrCreatePlayer('{tab_id}');
+                    if (player && typeof player.reset === 'function') {{
+                        player.reset();
+                    }}
+                }}
+            }}
+        }} catch (e) {{
+            console.warn('[ClearPlayer] Error:', e);
+        }}
+        return payload;
+    }}
+    """
+
+
 def get_streaming_trigger_js(tab_id):
     """Return JS function that reads the config JSON and starts streaming.
 
