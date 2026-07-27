@@ -10,6 +10,9 @@ Modules:
 - generation: Generation tab logic and wiring
 - voice_management: Voice prompt creation and management
 - model_management: Model load/unload and status
+- history_panel: Recent Generations click routing and Clear All confirm
+- tabs_generation: Clone / Design / Custom tab builders
+- tabs_management: Create Voice / Manage Voices / Manage Models tab builders
 
 Usage:
     from qwen3_tts.interface.ui import build_ui, main
@@ -141,6 +144,9 @@ _SUBMODULES = {
     "generation",
     "voice_management",
     "model_management",
+    "history_panel",
+    "tabs_generation",
+    "tabs_management",
 }
 
 

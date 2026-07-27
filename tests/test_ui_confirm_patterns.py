@@ -138,7 +138,11 @@ class TestGenerateGuardCheck(unittest.TestCase):
 
 
 class TestConfirmWiringStructural(unittest.TestCase):
-    """Structural tests: confirm wiring present in _facade.py and generation.py."""
+    """Structural tests: confirm wiring present across the ui package.
+
+    The tab builders live in tabs_generation.py / tabs_management.py; the
+    Clear All confirm and the confirm_step contract stay in _facade.py.
+    """
 
     def _read_source(self, rel_path):
         import os
@@ -152,18 +156,18 @@ class TestConfirmWiringStructural(unittest.TestCase):
         self.assertIn("confirm_step", src)
 
     def test_16_delete_confirm_state_in_manage_voices_tab(self):
-        """`delete_confirm_state` gr.State is present in _facade.py."""
-        src = self._read_source("qwen3_tts/interface/ui/_facade.py")
+        """`delete_confirm_state` gr.State is present in tabs_management.py."""
+        src = self._read_source("qwen3_tts/interface/ui/tabs_management.py")
         self.assertIn("delete_confirm_state", src)
 
     def test_17_unload_confirm_state_in_manage_models_tab(self):
-        """`unload_confirm_state` gr.State is present in _facade.py."""
-        src = self._read_source("qwen3_tts/interface/ui/_facade.py")
+        """`unload_confirm_state` gr.State is present in tabs_management.py."""
+        src = self._read_source("qwen3_tts/interface/ui/tabs_management.py")
         self.assertIn("unload_confirm_state", src)
 
-    def test_18_gen_guard_state_in_facade(self):
-        """`gen_guard_state` is present in _facade.py for generate guard."""
-        src = self._read_source("qwen3_tts/interface/ui/_facade.py")
+    def test_18_gen_guard_state_in_generation_tabs(self):
+        """`gen_guard_state` is present in tabs_generation.py for generate guard."""
+        src = self._read_source("qwen3_tts/interface/ui/tabs_generation.py")
         self.assertIn("gen_guard_state", src)
 
     def test_18b_clear_history_confirm_state_in_facade(self):
