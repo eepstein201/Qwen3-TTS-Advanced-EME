@@ -31,9 +31,12 @@ from qwen3_tts.core.config import (
 
 # confirm_step is re-exported here as part of the UI confirm-pattern wiring
 # contract verified by tests/test_ui_confirm_patterns.py.
-from qwen3_tts.interface.ui.components import ConfirmButton, confirm_step  # noqa: F401
+from qwen3_tts.interface.ui.components import (  # noqa: F401
+    ConfirmButton,
+    StatusBanner,
+    confirm_step,
+)
 from qwen3_tts.interface.ui.generation import (
-    _announce_status,
     _build_common_controls,
     _build_generate_buttons_and_output,
     _prepare_streaming_config,
@@ -222,15 +225,20 @@ def on_history_select(evt: gr.SelectData, history_list):
         with history_lock:
             new_list = remove_history_row(history_list, row)
         # Clear audio so the player doesn't keep replaying the removed entry.
+        # NOTE: must be None, not "" — gr.Audio.postprocess turns "" into a
+        # FileData(path="") whose abspath is the CWD, and Gradio's
+        # move_files_to_cache then tries hash_file(CWD) → IsADirectoryError,
+        # which discards the whole handler output (row never removed, no
+        # status). None short-circuits postprocess (returns None) safely.
         return (
-            "",
+            None,
             update(),
             update(),
             update(),
             get_history_data(new_list),
             new_list,
             {"action": "delete"},
-            _announce_status("Entry removed."),
+            StatusBanner().render("Entry removed.", "info"),
         )
 
     seed_str = extract_seed_from_history(evt, history_list)
@@ -241,9 +249,12 @@ def on_history_select(evt: gr.SelectData, history_list):
         payload = {
             "action": "copy",
             "text": full_text,
-            "ok": _announce_status("Copied transcript to clipboard."),
-            "fail": _announce_status("Copy failed — copy the text manually."),
         }
+        # Optimistic visible "Copied" banner. Gradio's fn-return→output model
+        # means a JS return value cannot drive this output, so the status is set
+        # here and the clipboard write happens as a JS side-effect in the chained
+        # .then(get_copy_transcript_js). (127.0.0.1 is a secure context, so the
+        # clipboard write essentially always succeeds.)
         return (
             update(),
             update(),
@@ -252,7 +263,7 @@ def on_history_select(evt: gr.SelectData, history_list):
             update(),
             update(),
             payload,
-            update(),
+            StatusBanner().render("Copied transcript to clipboard.", "success"),
         )
 
     # --- Default: replay audio + broadcast seed (today's behavior) ---
@@ -309,7 +320,7 @@ def on_clear_history_click(clear_state, history_list):
             gr.update(),  # history_df unchanged
             gr.update(),  # history_state unchanged
             gr.update(),  # audio unchanged
-            _announce_status("Click again within 5s to clear all generations."),
+            StatusBanner().render("Click again within 5s to clear all generations.", "warning"),
             {"action": "replay"},  # no waveform clear on arm
         )
     with history_lock:
@@ -319,8 +330,8 @@ def on_clear_history_click(clear_state, history_list):
         btn_update,
         get_history_data(new_list),  # empty rows
         new_list,  # []
-        "",  # clear the player
-        _announce_status("Recent generations cleared."),
+        None,  # clear player (None is safe; "" crashes Audio postprocess)
+        StatusBanner().render("Recent generations cleared.", "success"),
         {"action": "clear"},  # triggers get_clear_player_js
     )
 
@@ -1310,8 +1321,10 @@ def build_ui():
         # get_copy_transcript_js reads it in the browser. Kept in the DOM
         # (gr-hidden, not visible=False) so the JS<->Python chain stays live.
         history_select_payload = gr.JSON(elem_classes=["gr-hidden"])
-        # sr-only aria-live region for "Copied" / "Entry removed." flashes.
-        history_status_html = gr.HTML(value=_announce_status(""))
+        # Visible status surface for "Copied" / "Entry removed." / clear-all
+        # flashes. StatusBanner carries role=status + aria-live=polite, so it
+        # is announced to screen readers AND visible to sighted users.
+        history_status_html = gr.HTML(value=StatusBanner().render(""))
 
         history_df.select(
             fn=on_history_select,
@@ -1332,17 +1345,20 @@ def build_ui():
             inputs=[history_audio_url],
             outputs=[history_audio_url],
         ).then(
-            # Copy the transcript to the clipboard when payload.action ===
-            # 'copy' (returns the "Copied" status HTML); passthrough — returns
-            # the current status HTML unchanged — for replay/delete clicks.
-            # js-only: the status depends on the browser clipboard result, so
-            # the JS return value (not a Python fn) drives this output.
+            # Copy the transcript to the clipboard (JS side-effect) when
+            # payload.action === 'copy'. The visible "Copied" status is set
+            # optimistically by on_history_select; this .then only performs the
+            # clipboard write. NOTE: fn=lambda p: p is required — a js-only
+            # .then (fn=None) is NOT executed by Gradio 6.14. fn's return
+            # (passthrough payload) is what writes the output; js is side-effect.
+            fn=lambda p: p,
             js=get_copy_transcript_js(),
-            inputs=[history_select_payload, history_status_html],
-            outputs=[history_status_html],
+            inputs=[history_select_payload],
+            outputs=[history_select_payload],
         ).then(
             # Clear the waveform when a row is removed (payload action
-            # 'delete'); no-op for replay/copy. js-only; passthrough payload.
+            # 'delete'); no-op for replay/copy. fn=lambda required (see above).
+            fn=lambda p: p,
             js=get_clear_player_js("history"),
             inputs=[history_select_payload],
             outputs=[history_select_payload],
@@ -1362,6 +1378,8 @@ def build_ui():
             ],
         ).then(
             # Clear the waveform on confirmed Clear All (payload action 'clear').
+            # fn=lambda required — a js-only .then is not executed by Gradio 6.14.
+            fn=lambda p: p,
             js=get_clear_player_js("history"),
             inputs=[history_select_payload],
             outputs=[history_select_payload],

@@ -155,7 +155,7 @@ class TestLoadIntoPlayerJS(unittest.TestCase):
 
 
 class TestCopyTranscriptJS(unittest.TestCase):
-    """Test the JS function that copies a transcript to the clipboard."""
+    """Test the JS side-effect that copies a transcript to the clipboard."""
 
     def _get_js(self):
         from qwen3_tts.interface.wavesurfer_js import get_copy_transcript_js
@@ -174,18 +174,19 @@ class TestCopyTranscriptJS(unittest.TestCase):
     def test_is_async(self):
         self.assertIn("async", self._get_js())
 
-    def test_passthrough_for_non_copy(self):
-        # Must return the current status HTML unchanged when not a copy action,
-        # so replay/delete clicks are unaffected by this .then() chain.
-        self.assertIn("return currentStatusHtml", self._get_js())
+    def test_returns_payload_passthrough(self):
+        # Pure side-effect: returns the payload unchanged so the chained .then
+        # (fn=lambda p: p) is a no-op for the output. The visible "Copied"
+        # status is set optimistically by the Python handler, not by this JS.
+        self.assertIn("return payload", self._get_js())
 
-    def test_returns_ok_or_fail_payload(self):
-        js = self._get_js()
-        self.assertIn("payload.ok", js)
-        self.assertIn("payload.fail", js)
+    def test_takes_single_payload_arg(self):
+        # 1-arg (payload only) — no currentStatusHtml passthrough (the status is
+        # not driven by this JS).
+        self.assertIn("async (payload)", self._get_js())
 
     def test_has_error_guard(self):
-        # Must catch clipboard failures and surface the fail status, not throw.
+        # Must catch clipboard failures and not throw (logs a warning instead).
         self.assertIn("catch", self._get_js())
 
 
