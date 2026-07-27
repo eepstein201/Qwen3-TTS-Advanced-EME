@@ -17,8 +17,21 @@ from qwen3_tts.interface.ui import generation, model_management, shared
 
 _SAFE_NAME_RE = re.compile(r"^[a-zA-Z0-9_\-]{1,64}$")
 
+# Sentinel shown as the "nothing selected" entry in every preset/prosody
+# dropdown. Handlers compare against it, so it must stay a single literal.
+NONE_CHOICE = "(none)"
 
-def _sanitize_voice_name(raw: str) -> tuple:
+
+def _new_gen_guard_state() -> dict:
+    """Fresh per-tab generate-guard state.
+
+    Each tab owns its own ``gen_guard_state`` (double-submit guard); returning a
+    new dict per call keeps the tabs from sharing one mutable default.
+    """
+    return {"generating": False, "armed": False, "ts": 0.0}
+
+
+def _sanitize_voice_name(raw: str) -> tuple[str, str | None]:
     """Validate and sanitize a voice name using allowlist.
 
     Returns (sanitized_name, error_or_None).
@@ -69,7 +82,7 @@ def _build_clone_tab(status_html, history_state):
                 else (_prompts[0] if _prompts else None),
             )
             clone_preset = gr.Dropdown(
-                label="Preset", choices=shared.get_presets(), value="(none)"
+                label="Preset", choices=shared.get_presets(), value=NONE_CHOICE
             )
 
         with gr.Column(scale=1):
@@ -81,7 +94,7 @@ def _build_clone_tab(status_html, history_state):
             )
 
     clone_btns = generation._build_generate_buttons_and_output("clone")
-    gen_guard_state = gr.State({"generating": False, "armed": False, "ts": 0.0})
+    gen_guard_state = gr.State(_new_gen_guard_state())
 
     def clone_config_handler(
         text, prompt, preset, temp, top_k, top_p, rep, seed, no_transcript, seed_lock
@@ -166,7 +179,7 @@ def _build_design_tab(status_html, history_state, clone_prompt):
                 design_prosody = gr.Dropdown(
                     label="Style Preset",
                     choices=voice_helpers.get_prosody_choices(),
-                    value="(none)",
+                    value=NONE_CHOICE,
                     info="Appends style to description",
                     scale=2,
                 )
@@ -181,53 +194,53 @@ def _build_design_tab(status_html, history_state, clone_prompt):
 
             with gr.Accordion("Description Builder", open=False):
                 gr.Markdown("Build a voice description from attributes:")
-                _none_opt = ["(none)"]
+                _none_opt = [NONE_CHOICE]
                 with gr.Row():
                     db_gender = gr.Dropdown(
                         label="Gender",
                         choices=_none_opt + core_config.VOICE_DESCRIPTION_ATTRIBUTES["gender"],
-                        value="(none)",
+                        value=NONE_CHOICE,
                     )
                     db_age = gr.Dropdown(
                         label="Age",
                         choices=_none_opt + core_config.VOICE_DESCRIPTION_ATTRIBUTES["age"],
-                        value="(none)",
+                        value=NONE_CHOICE,
                     )
                 with gr.Row():
                     db_tone = gr.Dropdown(
                         label="Tone",
                         choices=_none_opt + core_config.VOICE_DESCRIPTION_ATTRIBUTES["tone"],
-                        value="(none)",
+                        value=NONE_CHOICE,
                     )
                     db_texture = gr.Dropdown(
                         label="Texture",
                         choices=_none_opt + core_config.VOICE_DESCRIPTION_ATTRIBUTES["texture"],
-                        value="(none)",
+                        value=NONE_CHOICE,
                     )
                 with gr.Row():
                     db_pace = gr.Dropdown(
                         label="Pace",
                         choices=_none_opt + core_config.VOICE_DESCRIPTION_ATTRIBUTES["pace"],
-                        value="(none)",
+                        value=NONE_CHOICE,
                     )
                     db_accent = gr.Dropdown(
                         label="Accent",
                         choices=_none_opt + core_config.VOICE_DESCRIPTION_ATTRIBUTES["accent"],
-                        value="(none)",
+                        value=NONE_CHOICE,
                     )
                 db_compose_btn = gr.Button(
                     "Compose Description", size="sm", variant="secondary"
                 )
 
             design_preset = gr.Dropdown(
-                label="Preset", choices=shared.get_presets(), value="(none)"
+                label="Preset", choices=shared.get_presets(), value=NONE_CHOICE
             )
 
         with gr.Column(scale=1):
             design_ctrls = generation._build_common_controls()
 
     design_btns = generation._build_generate_buttons_and_output("design")
-    gen_guard_state = gr.State({"generating": False, "armed": False, "ts": 0.0})
+    gen_guard_state = gr.State(_new_gen_guard_state())
 
     # Save as Voice Prompt (Design-then-Clone pipeline)
     with gr.Accordion("Save as Voice Prompt", open=False):
@@ -397,7 +410,7 @@ def _build_custom_tab(status_html, history_state):
             custom_prosody = gr.Dropdown(
                 label="Style Preset",
                 choices=voice_helpers.get_prosody_choices(),
-                value="(none)",
+                value=NONE_CHOICE,
                 info="Select a preset to fill the instruction field, or type your own below",
             )
             custom_instruct = gr.Textbox(
@@ -406,14 +419,14 @@ def _build_custom_tab(status_html, history_state):
                 lines=1,
             )
             custom_preset = gr.Dropdown(
-                label="Preset", choices=shared.get_presets(), value="(none)"
+                label="Preset", choices=shared.get_presets(), value=NONE_CHOICE
             )
 
         with gr.Column(scale=1):
             custom_ctrls = generation._build_common_controls()
 
     custom_btns = generation._build_generate_buttons_and_output("custom")
-    gen_guard_state = gr.State({"generating": False, "armed": False, "ts": 0.0})
+    gen_guard_state = gr.State(_new_gen_guard_state())
 
     def custom_config_handler(
         text, speaker, instruct, preset, temp, top_k, top_p, rep, seed, seed_lock

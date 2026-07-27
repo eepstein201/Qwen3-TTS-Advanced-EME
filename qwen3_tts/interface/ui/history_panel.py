@@ -9,7 +9,6 @@ Collaborators are imported module-style (``shared.get_history_data()``, not
 ``get_history_data()``) so tests can patch them at their definition site.
 """
 
-import logging
 import os
 import shutil
 import tempfile
@@ -20,33 +19,41 @@ from qwen3_tts.core import config as core_config
 from qwen3_tts.interface.ui import shared
 from qwen3_tts.interface.ui.components import StatusBanner, confirm_step
 
-logger = logging.getLogger("tts.ui")
-
 # Column indices in the Recent Generations dataframe. Routing in
 # on_history_select keys off evt.index[1] (the clicked column).
 HISTORY_COL_TEXT_PREVIEW = 2  # "Text Preview" — click copies the transcript
 HISTORY_COL_DELETE = 5  # "Remove" (✕) — click removes the row (list-only)
 
 
-def extract_seed_from_history(evt: gr.SelectData, history_list):
+def _is_valid_row(evt: gr.SelectData, history_list) -> bool:
+    """True when *evt* carries a row index addressable in *history_list*.
+
+    Gradio hands the handler whatever the browser sent, so neither the event
+    shape nor the row index can be trusted — both are validated here rather
+    than duplicated at each call site.
+    """
+    return (
+        hasattr(evt, "index")
+        and isinstance(evt.index, (list, tuple))
+        and len(evt.index) >= 1
+        and 0 <= evt.index[0] < len(history_list)
+    )
+
+
+def extract_seed_from_history(evt: gr.SelectData, history_list) -> str:
     """Extract seed value from clicked history row for reuse.
 
     Returns the seed as a string (for Textbox), or "" if unavailable.
     """
     if not (isinstance(history_list, list) and history_list):
         return ""
-    if not (
-        hasattr(evt, "index")
-        and isinstance(evt.index, (list, tuple))
-        and len(evt.index) >= 1
-        and 0 <= evt.index[0] < len(history_list)
-    ):
+    if not _is_valid_row(evt, history_list):
         return ""
     seed = history_list[evt.index[0]].get("seed")
     return str(seed) if seed is not None else ""
 
 
-def on_history_select(evt: gr.SelectData, history_list):
+def on_history_select(evt: gr.SelectData, history_list) -> tuple:
     """Handle click on a history row — column-aware router.
 
     Routes by ``evt.index[1]`` (the clicked column):
@@ -71,12 +78,7 @@ def on_history_select(evt: gr.SelectData, history_list):
 
     if not (isinstance(history_list, list) and history_list):
         return None, "", "", "", update(), [], replay_payload, update()
-    if not (
-        hasattr(evt, "index")
-        and isinstance(evt.index, (list, tuple))
-        and len(evt.index) >= 1
-        and 0 <= evt.index[0] < len(history_list)
-    ):
+    if not _is_valid_row(evt, history_list):
         return None, "", "", "", update(), list(history_list), replay_payload, update()
 
     row = evt.index[0]
@@ -153,7 +155,7 @@ def on_history_select(evt: gr.SelectData, history_list):
     return temp_path, seed_str, seed_str, seed_str, update(), update(), replay_payload, update()
 
 
-def on_clear_history_click(clear_state, history_list):
+def on_clear_history_click(clear_state, history_list) -> tuple:
     """Two-step confirm to clear the Recent Generations list (list-only).
 
     First click arms the button (status: "Click again within 5s…"); second

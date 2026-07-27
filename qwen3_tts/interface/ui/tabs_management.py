@@ -15,6 +15,21 @@ import gradio as gr
 from qwen3_tts.interface.ui import model_management, shared, voice_management
 from qwen3_tts.interface.ui.components import ConfirmButton
 
+# Seconds a two-step confirm stays armed before it re-arms instead of firing.
+CONFIRM_TIMEOUT_S = 5.0
+
+# A voice prompt created within this window is flagged in the delete banner, so
+# an accidental delete right after creation is harder to do by reflex.
+RECENT_VOICE_WARN_SECONDS = 300
+
+
+def _new_confirm_state() -> dict:
+    """Fresh two-step confirm state (unarmed).
+
+    Returned per call so the two ConfirmButton flows never share one dict.
+    """
+    return {"armed": False, "ts": 0.0}
+
 
 def _build_create_voice_tab(clone_prompt):
     """Build Create Voice tab components and wiring."""
@@ -102,7 +117,7 @@ def _build_manage_voices_tab(clone_prompt):
                 manage_delete_btn = gr.Button(
                     "Delete", size="sm", variant="stop", interactive=False
                 )
-            delete_confirm_state = gr.State({"armed": False, "ts": 0.0})
+            delete_confirm_state = gr.State(_new_confirm_state())
             manage_status = gr.Textbox(
                 label="",
                 show_label=False,
@@ -165,7 +180,7 @@ def _build_manage_voices_tab(clone_prompt):
     delete_confirm_btn = ConfirmButton(
         arm_label="Confirm Delete? (click again)",
         original_label="Delete",
-        timeout_s=5.0,
+        timeout_s=CONFIRM_TIMEOUT_S,
         status_message="Click again within 5s to confirm deletion.",
     )
 
@@ -191,7 +206,7 @@ def _build_manage_voices_tab(clone_prompt):
             recent_warning = ""
             if created:
                 age_seconds = time.time() - created
-                if age_seconds < 300:
+                if age_seconds < RECENT_VOICE_WARN_SECONDS:
                     recent_warning = "\n⚠️ Recently created!"
 
             banner_msg = (
@@ -260,7 +275,7 @@ def _build_manage_models_tab(
             with gr.Row():
                 model_load_btn = gr.Button("Load", size="sm", variant="primary")
                 model_unload_btn = gr.Button("Unload", size="sm", variant="stop")
-            unload_confirm_state = gr.State({"armed": False, "ts": 0.0})
+            unload_confirm_state = gr.State(_new_confirm_state())
             model_manage_status = gr.Textbox(
                 label="",
                 show_label=False,
@@ -325,7 +340,7 @@ def _build_manage_models_tab(
     unload_confirm_btn = ConfirmButton(
         arm_label="Confirm Unload? (click again)",
         original_label="Unload",
-        timeout_s=5.0,
+        timeout_s=CONFIRM_TIMEOUT_S,
         status_message="Click again within 5s to confirm unload.",
     )
 
