@@ -988,7 +988,9 @@ class TestE2EPlaywright(unittest.TestCase):
                 f"No recent .json sidecar found in {output_dir}",
             )
 
-        # History table (outside tab panels) must have exactly 5 columns
+        # History table (outside tab panels) must have exactly 6 columns:
+        # Time, Mode, Text Preview, Seed, Chunks, Remove (the ✕ column added
+        # for per-row delete via column-aware on_history_select).
         col_count = self.page.evaluate("""() => {
             var tables = document.querySelectorAll('table');
             for (var i = 0; i < tables.length; i++) {
@@ -1002,8 +1004,8 @@ class TestE2EPlaywright(unittest.TestCase):
             return 0;
         }""")
         self.assertEqual(
-            col_count, 5,
-            f"History table should have 5 columns (text, voice, seed, duration, file), got {col_count}",
+            col_count, 6,
+            f"History table should have 6 columns (Time, Mode, Text Preview, Seed, Chunks, Remove), got {col_count}",
         )
 
         # History table must have a "Seed" column header.

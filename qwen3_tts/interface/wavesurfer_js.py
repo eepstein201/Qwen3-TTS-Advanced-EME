@@ -232,32 +232,32 @@ def get_load_into_player_js(tab_id):
 
 
 def get_copy_transcript_js():
-    """JS that copies a transcript to the clipboard when action === 'copy'.
+    """JS side-effect: copy the transcript to the clipboard when action === 'copy'.
 
-    Wired as the ``js`` of a ``.then()`` chained after ``on_history_select``.
-    Receives the hidden select-payload JSON and the current history-status HTML.
-    When the payload action is ``'copy'``, writes ``payload.text`` to the
-    clipboard (the UI runs on 127.0.0.1, a secure context, so
-    ``navigator.clipboard`` is available) and returns ``payload.ok`` — or
-    ``payload.fail`` on rejection / missing clipboard API. For any other action
-    (replay/delete) returns the current status HTML unchanged (passthrough), so
-    this chain is a no-op for non-copy clicks. No eval / no inline handlers.
+    Wired as the ``js`` of a ``.then(fn=lambda p: p, ...)`` chained after
+    ``on_history_select`` (the ``fn`` is required — a js-only ``.then`` with
+    ``fn=None`` is not executed by Gradio 6.14). Receives the hidden
+    select-payload JSON. When ``payload.action === 'copy'``, writes
+    ``payload.text`` to the clipboard (the UI runs on 127.0.0.1, a secure
+    context, so ``navigator.clipboard`` is available).
+
+    The visible "Copied" status is set optimistically by the Python handler
+    (``on_history_select`` copy branch): Gradio's fn-return→output model means a
+    JS return value cannot drive the status output, so this stays a pure
+    side-effect and returns the payload unchanged. No eval / no inline handlers.
     """
     return """
-    async (payload, currentStatusHtml) => {
+    async (payload) => {
         try {
-            if (!payload || payload.action !== 'copy') {
-                return currentStatusHtml;
+            if (payload && payload.action === 'copy'
+                    && navigator.clipboard
+                    && typeof navigator.clipboard.writeText === 'function') {
+                await navigator.clipboard.writeText(payload.text || '');
             }
-            if (!navigator.clipboard || typeof navigator.clipboard.writeText !== 'function') {
-                return payload.fail || '';
-            }
-            await navigator.clipboard.writeText(payload.text || '');
-            return payload.ok || '';
         } catch (e) {
             console.warn('[CopyTranscript] Error:', e);
-            return payload.fail || '';
         }
+        return payload;
     }
     """
 

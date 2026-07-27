@@ -607,8 +607,12 @@ class TestOnHistorySelectColumnRouting(unittest.TestCase):
         payload = result[6]
         self.assertEqual(payload["action"], "copy")
         self.assertEqual(payload["text"], full)
-        self.assertIn("Copied", payload["ok"])
-        self.assertIn("Copy failed", payload["fail"])
+        # The visible "Copied" status is set optimistically by the handler (8th
+        # element), not carried in the payload — the clipboard write is a JS
+        # side-effect and Gradio's fn-return→output model forbids a JS return
+        # from driving the status output.
+        status = result[7]
+        self.assertIn("Copied", status)
 
     def test_remove_column_deletes_row_and_clears_audio(self):
         from qwen3_tts.interface.ui._facade import HISTORY_COL_DELETE, on_history_select
@@ -620,7 +624,9 @@ class TestOnHistorySelectColumnRouting(unittest.TestCase):
         ]
         result = on_history_select(self._evt(1, HISTORY_COL_DELETE), history)
         audio, _c, _d, _cu, df, state, payload, status = result
-        self.assertEqual(audio, "")  # player cleared on delete
+        # Player cleared on delete via None (NOT "" — "" makes gr.Audio
+        # postprocess abspath "" to the CWD and crash; see on_history_select).
+        self.assertIsNone(audio)
         self.assertEqual(payload["action"], "delete")
         self.assertEqual(len(state), 2)  # middle row removed
         self.assertEqual([e["text"] for e in state], ["a", "c"])
@@ -686,7 +692,7 @@ class TestOnClearHistoryClick(unittest.TestCase):
         self.assertFalse(new_state["armed"])  # disarmed after action
         self.assertEqual(hist, [])  # history_state cleared
         self.assertEqual(df, [])  # table re-rendered empty
-        self.assertEqual(audio, "")  # player cleared
+        self.assertIsNone(audio)  # player cleared via None ("" crashes Audio postprocess)
         self.assertIn("cleared", status)
         self.assertEqual(payload["action"], "clear")  # triggers waveform clear
 
