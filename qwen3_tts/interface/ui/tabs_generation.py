@@ -342,7 +342,11 @@ def _build_design_tab(status_html, history_state, clone_prompt):
                 else:
                     safe_audio_path = core_config.safe_path_join(os.getcwd(), audio_expanded)
 
-                # Verify path is under home directory
+                # Verify path is under home directory. `resolved` is the
+                # canonical, symlink-free path — everything downstream uses it
+                # rather than safe_audio_path, so the path that was validated is
+                # the exact path that gets opened (no validate-one/use-another
+                # gap in the absolute-path branch above).
                 home = os.path.realpath(os.path.expanduser("~"))
                 resolved = os.path.realpath(safe_audio_path)
                 if not (resolved == home or resolved.startswith(home + os.sep)):
@@ -351,7 +355,7 @@ def _build_design_tab(status_html, history_state, clone_prompt):
                         gr.update(),
                     )
 
-                if os.path.exists(safe_audio_path):
+                if os.path.exists(resolved):
                     try:
                         from qwen3_tts.tools.create_voice import (
                             create_and_save_voice_prompt,
@@ -360,7 +364,7 @@ def _build_design_tab(status_html, history_state, clone_prompt):
                         backend = core_config.get_backend()
                         mlx_only = (backend == "mlx") or core_config.IN_COLAB
                         create_and_save_voice_prompt(
-                            safe_audio_path,
+                            resolved,
                             "",
                             voice_name,
                             test_generation=False,
