@@ -43,6 +43,7 @@ from qwen3_tts.interface.ui.history_panel import (  # noqa: F401
     on_history_select,
 )
 from qwen3_tts.interface.ui.model_management import (
+    get_all_model_status_html,
     get_model_status_html,
 )
 
@@ -86,6 +87,10 @@ _MODEL_SIZE_DESCRIPTIONS = {
     "1.7B": "higher quality",
     "0.6B": "~40% faster, lower memory",
 }
+
+# How often the UI polls the server for the status bar and the per-mode model
+# badges. Both are driven by the same gr.Timer so a tick costs two requests.
+STATUS_POLL_SECONDS = 5
 
 
 def stop_server():
@@ -167,8 +172,11 @@ def build_ui():
             refresh_btn = gr.Button("Refresh Status", size="sm")
             stop_btn = gr.Button("Stop Server", size="sm", variant="stop")
         refresh_btn.click(fn=format_status_display, outputs=status_html)
-        if hasattr(gr, "Timer"):
-            gr.Timer(value=5).tick(fn=format_status_display, outputs=status_html)
+        status_timer = (
+            gr.Timer(value=STATUS_POLL_SECONDS) if hasattr(gr, "Timer") else None
+        )
+        if status_timer is not None:
+            status_timer.tick(fn=format_status_display, outputs=status_html)
         stop_btn.click(fn=stop_server, outputs=status_html)
 
         # Model Settings (MLX-first architecture)
@@ -217,30 +225,18 @@ def build_ui():
 
         # Tabs for different modes
         with gr.Tabs():
-            with gr.Tab("Clone Mode") as clone_tab:
+            with gr.Tab("Clone Mode"):
                 clone_prompt, clone_model_indicator, clone_chain, clone_seed = (
                     _build_clone_tab(status_html, history_state)
                 )
-            with gr.Tab("Design Mode") as design_tab:
+            with gr.Tab("Design Mode"):
                 design_model_indicator, design_chain, design_seed = _build_design_tab(
                     status_html, history_state, clone_prompt
                 )
-            with gr.Tab("Custom Mode") as custom_tab:
+            with gr.Tab("Custom Mode"):
                 custom_model_indicator, custom_chain, custom_seed = _build_custom_tab(
                     status_html, history_state
                 )
-
-            clone_tab.select(
-                fn=lambda: get_model_status_html("clone"), outputs=clone_model_indicator
-            )
-            design_tab.select(
-                fn=lambda: get_model_status_html("design"),
-                outputs=design_model_indicator,
-            )
-            custom_tab.select(
-                fn=lambda: get_model_status_html("custom"),
-                outputs=custom_model_indicator,
-            )
 
             with gr.Tab("Create Voice"):
                 _build_create_voice_tab(clone_prompt)
@@ -253,6 +249,27 @@ def build_ui():
                     design_model_indicator,
                     custom_model_indicator,
                 )
+
+        # Keep the per-mode model badges fresh.
+        #
+        # These used to be refreshed by a ``select`` listener on each ``gr.Tab``.
+        # That is not safe: with a ``select`` listener attached to a ``gr.Tab``,
+        # Gradio 6.14+ recurses infinitely inside the Dataframe frontend
+        # ("RangeError: Maximum call stack size exceeded" in
+        # ``Object.get [as groupedColumnMode]``) as soon as a tab containing a
+        # ``gr.Dataframe`` is opened afterwards, which kills the whole page.
+        # The crash follows the listener, not its outputs, and ``gr.Tabs.select``
+        # never fires, so polling on the existing status timer is the only
+        # wiring that keeps the badges live. See tests/test_ui_tab_select_wiring.py.
+        if status_timer is not None:
+            status_timer.tick(
+                fn=get_all_model_status_html,
+                outputs=[
+                    clone_model_indicator,
+                    design_model_indicator,
+                    custom_model_indicator,
+                ],
+            )
 
         # History panel below tabs (renders after tabs in the page layout)
         gr.Markdown("### Recent Generations")

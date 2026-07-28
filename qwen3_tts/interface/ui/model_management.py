@@ -228,6 +228,26 @@ def update_startup_defaults(clone_startup, design_startup, custom_startup):
     return "Startup config updated (restart server to apply)", get_model_table_data()
 
 
+#: Model types that carry a status badge in the UI, in display order.
+MODEL_INDICATOR_TYPES = ("clone", "design", "custom")
+
+
+def _badge_from_models_payload(data, model_type):
+    """Render the status badge for *model_type* from a ``/models`` payload."""
+    from qwen3_tts.interface.ui.components import status_badge
+
+    info = data.get("models", {}).get(model_type, {}) or {}
+    loaded = info.get("loaded", False)
+    loading = info.get("loading", False)
+    memory = info.get("memory_mb", 0)
+
+    if loaded:
+        return status_badge(f"Loaded ({memory:.0f}MB)", severity="success")
+    if loading:
+        return status_badge(f"Loading {model_type}...", severity="loading")
+    return status_badge("Not loaded", severity="info")
+
+
 def get_model_status_html(model_type):
     """Get HTML status indicator for a specific model.
 
@@ -256,21 +276,50 @@ def get_model_status_html(model_type):
         if resp.status_code != 200:
             return status_badge("Error", severity="error")
 
-        data = resp.json()
-        info = data.get("models", {}).get(model_type, {}) or {}
-        loaded = info.get("loaded", False)
-        loading = info.get("loading", False)
-        memory = info.get("memory_mb", 0)
-
-        if loaded:
-            return status_badge(f"Loaded ({memory:.0f}MB)", severity="success")
-        if loading:
-            return status_badge(f"Loading {model_type}...", severity="loading")
-        return status_badge("Not loaded", severity="info")
+        return _badge_from_models_payload(resp.json(), model_type)
 
     except Exception as e:
         logger.error("Failed to get model status: %s", e)
         return status_badge("Error", severity="error")
+
+
+def get_all_model_status_html():
+    """Status badges for every mode indicator, from a single ``/models`` call.
+
+    Equivalent to calling :func:`get_model_status_html` once per model type but
+    issues one HTTP request instead of three — it is polled by the UI's refresh
+    timer, so the request count matters.
+
+    Returns:
+        tuple: one HTML badge per entry in :data:`MODEL_INDICATOR_TYPES`.
+    """
+    from qwen3_tts.interface.ui.components import status_badge
+
+    config = load_config()
+
+    if not is_server_running(config):
+        badge = status_badge("Server not running", severity="warning")
+        return tuple(badge for _ in MODEL_INDICATOR_TYPES)
+
+    try:
+        from qwen3_tts.core.http_client import server_request
+
+        resp = server_request("GET", "/models", timeout=5)
+
+        if resp.status_code != 200:
+            badge = status_badge("Error", severity="error")
+            return tuple(badge for _ in MODEL_INDICATOR_TYPES)
+
+        data = resp.json()
+        return tuple(
+            _badge_from_models_payload(data, model_type)
+            for model_type in MODEL_INDICATOR_TYPES
+        )
+
+    except Exception as e:
+        logger.error("Failed to get model status: %s", e)
+        badge = status_badge("Error", severity="error")
+        return tuple(badge for _ in MODEL_INDICATOR_TYPES)
 
 
 def get_audio_loader_setting():
