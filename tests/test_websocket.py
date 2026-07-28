@@ -266,6 +266,49 @@ class TestWebSocketGeneration(unittest.TestCase):
             self.assertIn("error", resp)
             self.assertIn("path traversal", resp["error"].lower())
 
+    def test_validation_error_names_offending_field(self):
+        """A pydantic failure should surface the field name in the error."""
+        fake_model = MagicMock()
+        _setup_app_state(
+            models={"clone": fake_model, "design": None, "custom": None},
+            server_config={"security": {}},
+        )
+        with TestClient(app).websocket_connect("/ws") as ws:
+            self._authenticate(ws)
+            # temperature must be a number; a string fails type validation.
+            ws.send_text(json.dumps({
+                "text": "Hello",
+                "mode": "clone",
+                "temperature": "not-a-number",
+            }))
+            resp = ws.receive_json()
+            self.assertIn("error", resp)
+            self.assertIn("temperature", resp["error"].lower())
+
+    def test_validation_error_with_no_details_uses_generic_message(self):
+        """An empty ``errors()`` list must not crash — fall back to a generic message.
+
+        Guards the branch that previously used a bare ``{}`` fallback.
+        """
+        from pydantic import ValidationError
+
+        fake_model = MagicMock()
+        _setup_app_state(
+            models={"clone": fake_model, "design": None, "custom": None},
+            server_config={"security": {}},
+        )
+        empty = ValidationError.from_exception_data("GenerateRequest", [])
+        with patch(
+            "qwen3_tts.server.validation.GenerateRequest", side_effect=empty
+        ):
+            with TestClient(app).websocket_connect("/ws") as ws:
+                self._authenticate(ws)
+                ws.send_text(json.dumps({"text": "Hello", "mode": "clone"}))
+                resp = ws.receive_json()
+                self.assertEqual(
+                    resp["error"], "Invalid parameter: validation failed"
+                )
+
 
 @_skip
 class TestWebSocketWireFormat(unittest.TestCase):

@@ -264,14 +264,16 @@ async def _stream_generation(
                 seed_lock_chunks=data.get("seed_lock_chunks", False),
             )
         except ValidationError as e:
-            first = e.errors()[0] if e.errors() else {}
-            field = ".".join(str(p) for p in first.get("loc", ())) or "parameter"
-            await websocket.send_json(
-                {
-                    "error": f"Invalid {field}: "
-                    f"{first.get('msg', 'validation failed')}"
-                }
-            )
+            # Keep the details in locals rather than falling back to a bare {},
+            # which mypy rejects as an incomplete pydantic ``ErrorDetails``.
+            errors = e.errors()
+            field = "parameter"
+            reason = "validation failed"
+            if errors:
+                first = errors[0]
+                field = ".".join(str(p) for p in first.get("loc", ())) or field
+                reason = first.get("msg", reason)
+            await websocket.send_json({"error": f"Invalid {field}: {reason}"})
             return
         security = (
             app_state.server_config.get("security", {})
