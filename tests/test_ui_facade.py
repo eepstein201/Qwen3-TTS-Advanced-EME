@@ -166,7 +166,7 @@ class TestOnHistorySelect(unittest.TestCase):
             evt = MagicMock()
             evt.index = [0]
             history = [{"path": src}]
-            with patch("qwen3_tts.interface.ui._facade.load_config", return_value={}):
+            with patch("qwen3_tts.core.config.load_config", return_value={}):
                 audio, *_ = on_history_select(evt, history)
             self.assertIsNotNone(audio)
             self.assertTrue(audio.startswith(tempfile.gettempdir()))
@@ -197,7 +197,7 @@ class TestOnHistorySelect(unittest.TestCase):
         # Path is in a safe root (tempdir) but file doesn't exist
         import tempfile
         history = [{"path": tempfile.gettempdir() + "/nonexistent_file_xyz.wav"}]
-        with patch("qwen3_tts.interface.ui._facade.load_config", return_value={}):
+        with patch("qwen3_tts.core.config.load_config", return_value={}):
             audio, *_ = on_history_select(evt, history)
         self.assertIsNone(audio)
 
@@ -215,16 +215,17 @@ class TestBuildUI(unittest.TestCase):
 
     @patch("qwen3_tts.interface.ui._facade.TTSClient")
     @patch("qwen3_tts.interface.ui._facade.format_status_display", return_value="<html></html>")
+    @patch("qwen3_tts.interface.ui.model_management.get_model_status_html", return_value="<html></html>")
     @patch("qwen3_tts.interface.ui._facade.get_model_status_html", return_value="<html></html>")
-    @patch("qwen3_tts.interface.ui._facade.get_model_table_data", return_value=[])
-    @patch("qwen3_tts.interface.ui._facade.get_prompt_table_data", return_value=[])
-    @patch("qwen3_tts.interface.ui._facade.get_voice_prompts", return_value=["default.wav"])
-    @patch("qwen3_tts.interface.ui._facade.get_presets", return_value=["(none)"])
-    @patch("qwen3_tts.interface.ui._facade.get_prosody_choices", return_value=["(none)"])
-    @patch("qwen3_tts.interface.ui._facade.is_enhancer_available", return_value=False)
+    @patch("qwen3_tts.interface.ui.model_management.get_model_table_data", return_value=[])
+    @patch("qwen3_tts.interface.ui.voice_management.get_prompt_table_data", return_value=[])
+    @patch("qwen3_tts.interface.ui.shared.get_voice_prompts", return_value=["default.wav"])
+    @patch("qwen3_tts.interface.ui.shared.get_presets", return_value=["(none)"])
+    @patch("qwen3_tts.interface.voice_helpers.get_prosody_choices", return_value=["(none)"])
+    @patch("qwen3_tts.interface.ui.shared.is_enhancer_available", return_value=False)
     @patch("qwen3_tts.interface.ui._facade.get_current_model_settings", return_value=("1.7B", "8bit", "mlx"))
-    @patch("qwen3_tts.interface.ui._facade.get_audio_loader_setting", return_value="torchaudio")
-    @patch("qwen3_tts.interface.ui._facade.get_default_clone_prompt", return_value="default.wav")
+    @patch("qwen3_tts.interface.ui.model_management.get_audio_loader_setting", return_value="torchaudio")
+    @patch("qwen3_tts.core.config.get_default_clone_prompt", return_value="default.wav")
     def test_build_ui_returns_blocks(self, *mocks):
         from qwen3_tts.interface.ui._facade import build_ui
         # Suppress ASR preload
@@ -234,16 +235,17 @@ class TestBuildUI(unittest.TestCase):
 
     @patch("qwen3_tts.interface.ui._facade.TTSClient")
     @patch("qwen3_tts.interface.ui._facade.format_status_display", return_value="<html></html>")
+    @patch("qwen3_tts.interface.ui.model_management.get_model_status_html", return_value="<html></html>")
     @patch("qwen3_tts.interface.ui._facade.get_model_status_html", return_value="<html></html>")
-    @patch("qwen3_tts.interface.ui._facade.get_model_table_data", return_value=[])
-    @patch("qwen3_tts.interface.ui._facade.get_prompt_table_data", return_value=[])
-    @patch("qwen3_tts.interface.ui._facade.get_voice_prompts", return_value=["default.wav"])
-    @patch("qwen3_tts.interface.ui._facade.get_presets", return_value=["(none)"])
-    @patch("qwen3_tts.interface.ui._facade.get_prosody_choices", return_value=["(none)"])
-    @patch("qwen3_tts.interface.ui._facade.is_enhancer_available", return_value=False)
+    @patch("qwen3_tts.interface.ui.model_management.get_model_table_data", return_value=[])
+    @patch("qwen3_tts.interface.ui.voice_management.get_prompt_table_data", return_value=[])
+    @patch("qwen3_tts.interface.ui.shared.get_voice_prompts", return_value=["default.wav"])
+    @patch("qwen3_tts.interface.ui.shared.get_presets", return_value=["(none)"])
+    @patch("qwen3_tts.interface.voice_helpers.get_prosody_choices", return_value=["(none)"])
+    @patch("qwen3_tts.interface.ui.shared.is_enhancer_available", return_value=False)
     @patch("qwen3_tts.interface.ui._facade.get_current_model_settings", return_value=("1.7B", "8bit", "mlx"))
-    @patch("qwen3_tts.interface.ui._facade.get_audio_loader_setting", return_value="torchaudio")
-    @patch("qwen3_tts.interface.ui._facade.get_default_clone_prompt", return_value="default.wav")
+    @patch("qwen3_tts.interface.ui.model_management.get_audio_loader_setting", return_value="torchaudio")
+    @patch("qwen3_tts.core.config.get_default_clone_prompt", return_value="default.wav")
     def test_build_ui_has_title(self, *mocks):
         from qwen3_tts.interface.ui._facade import build_ui
         with patch("qwen3_tts.core.engine.is_asr_available", side_effect=ImportError):
@@ -421,7 +423,7 @@ class TestOnHistorySelectHardened(unittest.TestCase):
         evt.index = [0]
         history = [{"path": "/etc/passwd", "mode": "Clone", "text": "test"}]
         with patch("os.path.exists", return_value=True), \
-             patch("qwen3_tts.interface.ui._facade.load_config", return_value={}):
+             patch("qwen3_tts.core.config.load_config", return_value={}):
             audio, *_ = on_history_select(evt, history)
         self.assertIsNone(audio)
 
@@ -438,7 +440,7 @@ class TestOnHistorySelectHardened(unittest.TestCase):
             evt = MagicMock()
             evt.index = [0]
             history = [{"path": src}]
-            with patch("qwen3_tts.interface.ui._facade.load_config", return_value={}):
+            with patch("qwen3_tts.core.config.load_config", return_value={}):
                 audio, *_ = on_history_select(evt, history)
             self.assertIsNotNone(audio)
             self.assertTrue(audio.startswith(tempfile.gettempdir()))
@@ -858,16 +860,18 @@ class TestUnloadHandlerImport(unittest.TestCase):
             "get_model_table_data unexpectedly in .shared; update the handler import",
         )
 
-    def test_facade_imports_from_correct_submodule(self):
-        """Pin the fix: _facade source imports get_model_table_data from model_management."""
+    def test_handler_resolves_from_correct_submodule(self):
+        """Pin the fix: the Unload handler resolves get_model_table_data via model_management.
+
+        The tab builder lives in tabs_management.py and reaches the helper
+        module-style, so the name can never be resolved from .shared (where it
+        does not exist — the original ImportError).
+        """
         import inspect
 
-        from qwen3_tts.interface.ui import _facade
-        src = inspect.getsource(_facade)
-        self.assertIn(
-            "from qwen3_tts.interface.ui.model_management import get_model_table_data",
-            src,
-        )
+        from qwen3_tts.interface.ui import tabs_management
+        src = inspect.getsource(tabs_management)
+        self.assertIn("model_management.get_model_table_data()", src)
         self.assertNotIn(
             "from qwen3_tts.interface.ui.shared import get_model_table_data", src
         )
@@ -876,8 +880,8 @@ class TestUnloadHandlerImport(unittest.TestCase):
         """UI-2: startup warning compares against 'Yes' (what the table emits), not 'default'."""
         import inspect
 
-        from qwen3_tts.interface.ui import _facade
-        src = inspect.getsource(_facade)
+        from qwen3_tts.interface.ui import tabs_management
+        src = inspect.getsource(tabs_management)
         self.assertNotIn('if startup == "default":', src)
         self.assertIn('if startup == "Yes":', src)
 
