@@ -46,7 +46,7 @@ USER root
 # Copy source code and tests
 COPY --chown=testuser:testuser qwen3_tts/ ./qwen3_tts/
 COPY --chown=testuser:testuser tests/ ./tests/
-COPY --chown=testuser:testuser config.json ./
+COPY --chown=testuser:testuser config.json pytest.ini ./
 
 # Repo-root files referenced by guard/drift tests (CLAUDE.md size guard,
 # ARCHITECTURE.md companion, colab notebook drift, docker config drift)

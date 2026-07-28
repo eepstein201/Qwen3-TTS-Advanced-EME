@@ -173,7 +173,7 @@ jobs:
 
     - name: Verify container health
       run: |
-        docker run --rm --health-cmd="python -c 'import qwen3_tts'" qwen3-tts:test
+        docker run --rm qwen3-tts:test python -c "import pytest; import gradio; import qwen3_tts"
 
   test-minimal:
     # Minimal test job for quick feedback
