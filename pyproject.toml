@@ -10,7 +10,7 @@ requires-python = ">=3.10"
 dependencies = [
     "click>=8.4.2",
     "pySBD>=0.3.4",
-    "num2words>=0.5.13",
+    "num2words>=0.5.14",
     "requests>=2.34.2",
 ]
 
