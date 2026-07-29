@@ -8,7 +8,7 @@ version = "3.0.0"
 description = "Text-to-speech with voice cloning, built on Qwen3-TTS"
 requires-python = ">=3.10"
 dependencies = [
-    "click>=8.0",
+    "click>=8.4.2",
     "pySBD>=0.3.4",
     "num2words>=0.5.13",
     "requests>=2.34.2",
