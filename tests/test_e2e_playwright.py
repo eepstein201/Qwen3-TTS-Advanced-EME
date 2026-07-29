@@ -58,28 +58,12 @@ PROJECT_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 GEN_TIMEOUT_MS = 240_000
 MODEL_TIMEOUT_MS = 180_000
 
-# JS to re-execute scripts that Gradio injected via innerHTML.
-# Gradio's gr.HTML() sets innerHTML, which per HTML5 spec does NOT execute
-# <script> tags. We re-inject them so StreamingPlayer and WaveSurfer work.
-_INJECT_SCRIPTS_JS = """() => {
-    var moduleScripts = document.querySelectorAll('script[type="module"]');
-    moduleScripts.forEach(function(s) {
-        if (s.textContent && s.textContent.length > 100 && !s.src) {
-            var blob = new Blob([s.textContent], { type: 'application/javascript' });
-            var url = URL.createObjectURL(blob);
-            var ns = document.createElement('script');
-            ns.type = 'module';
-            ns.src = url;
-            document.head.appendChild(ns);
-        }
-    });
-    var inlineScripts = document.querySelectorAll('script:not([type]):not([src])');
-    inlineScripts.forEach(function(s) {
-        if (s.textContent && s.textContent.indexOf('createElement') >= 0) {
-            try { eval(s.textContent); } catch(e) {}
-        }
-    });
-}"""
+# NOTE: this module used to re-execute Gradio's innerHTML <script> tags itself
+# (a _INJECT_SCRIPTS_JS helper called from GradioPage.navigate). That made every
+# test here exercise the harness's own injector instead of the app's
+# demo.load(js=get_script_reexecutor_fn()) re-injection, so a dead production
+# player would have left this suite green. The injector is gone; the production
+# path is asserted directly in tests/test_e2e_wavesurfer_live.py.
 
 
 def _is_server_running():
@@ -192,20 +176,21 @@ class GradioPage:
         self.base_url = base_url
 
     def navigate(self):
-        """Navigate to the Gradio UI and wait for it to load."""
+        """Navigate to the Gradio UI and wait for it to load.
+
+        Deliberately does NOT re-inject scripts — the app's own
+        ``demo.load(js=get_script_reexecutor_fn())`` is what makes the
+        StreamingPlayer module execute, and a harness doing that job itself
+        would mask a dead production path.
+        """
         self.page.goto(self.base_url, wait_until="domcontentloaded", timeout=60_000)
         self.page.wait_for_selector("button[role='tab']", timeout=30_000)
-        # Re-inject scripts that Gradio's innerHTML didn't execute
-        self.page.evaluate(_INJECT_SCRIPTS_JS)
-        self.page.wait_for_timeout(2000)
-        # Wait for StreamingPlayer module to be available (async load race fix)
-        try:
-            self.page.wait_for_function(
-                "() => typeof window.getOrCreatePlayer === 'function'",
-                timeout=10_000,
-            )
-        except Exception:
-            pass  # Non-fatal — player may not exist on non-generation tabs
+        # Every audio control calls window.getOrCreatePlayer. If it never
+        # appears the downstream failures are unreadable, so fail here instead.
+        self.page.wait_for_function(
+            "() => typeof window.getOrCreatePlayer === 'function'",
+            timeout=30_000,
+        )
 
     def click_tab(self, tab_name):
         """Click a Gradio tab by its button text."""
