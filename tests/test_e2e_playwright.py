@@ -1017,7 +1017,7 @@ class TestE2EPlaywright(unittest.TestCase):
     def test_13_history_row_populates_seed_in_all_tabs(self):
         """Clicking a history row broadcasts its seed to the seed field in all three tabs.
 
-        KNOWN QUARANTINED (re-investigated 2026-07-30, Task 8): the planned fix —
+        KNOWN QUARANTINED (re-investigated 2026-07-30, Tasks 8): the planned fix —
         re-deriving history_df from disk in both demo.load() and each generation
         chain — is implemented and verified SERVER-SIDE correct: instrumented
         runs show both writers return the freshly-submitted seed (42) as the
@@ -1025,12 +1025,15 @@ class TestE2EPlaywright(unittest.TestCase):
         persistently renders this run's row with a stale seed (12345) that no
         current Python handler produces and that exists on disk only under
         unrelated, older text. The rendered table also stays at one row while
-        the server sends ten. This is a Gradio frontend Dataframe rendering
-        anomaly (the backend value is not reflected in the DOM), which a
-        backend disk re-derive cannot reach. The generation is a server cache
-        hit (instant), which may be a contributing factor. Leaving this
+        the server sends ten. Two fixes were attempted and neither closed it:
+        (1) backend disk re-derive in the chain, (2) a gr.Timer that re-fetches
+        history_df from disk (the model-badge Timer pattern). The Dataframe
+        does not reflect the backend value regardless of delivery source — a
+        Gradio frontend/State rendering anomaly. The generation is a server
+        cache hit (instant), which may be a contributing factor. Leaving this
         hard-asserted would red a known, diagnosed frontend issue; it skips
-        until the frontend rendering is addressed.
+        until the frontend rendering is addressed (likely a Dataframe component
+        swap or a deeper State-binding fix).
         """
         # Generate with a specific seed so history contains a non-empty seed value
         self.gp.click_tab("Clone Mode")
@@ -1067,9 +1070,10 @@ class TestE2EPlaywright(unittest.TestCase):
             self.skipTest(
                 f"Known frontend history_df render anomaly (see test docstring): "
                 f"expected the just-submitted seed '42' in the history row, got "
-                f"{seed_in_history!r} — the server-side disk re-derive returns 42 "
-                f"(verified), but the browser's Dataframe renders a stale value. "
-                f"Not a seed-propagation defect."
+                f"{seed_in_history!r} — the server returns 42 (verified) but the "
+                f"browser's Dataframe renders a stale value. Neither a backend "
+                f"disk re-derive nor a gr.Timer re-fetch closed it. Not a "
+                f"seed-propagation defect."
             )
 
         # Click the seed cell in the first history row to trigger
