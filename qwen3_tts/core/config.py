@@ -308,6 +308,12 @@ def get_default_config(current_config: dict | None = None) -> dict:
         "default_clone_prompt": "default_clone.pt",
         "default_speaker": "ryan",
         "output_directory": "~/Downloads",
+        # Web-UI generation history lives under its own parent so app-managed
+        # files stay separable from the user's real downloads. Two fixed-name
+        # subfolders are created beneath it: "Automated Output" (every web-UI
+        # generation) and "Manual Downloads" (user-curated keepers). Distinct
+        # from output_directory, which remains the CLI's save location.
+        "history_output_directory": "~/Downloads/Qwen3-TTS Output",
         "language": "English",
         "server": {
             "host": "127.0.0.1",

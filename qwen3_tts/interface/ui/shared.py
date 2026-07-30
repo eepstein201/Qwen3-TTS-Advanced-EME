@@ -501,6 +501,55 @@ def _resolve_output_dir(config: dict) -> str:
     return resolved
 
 
+# Fixed subfolder names beneath history_output_directory. Deliberately not
+# configurable: only their shared parent is, so one setting moves both.
+AUTOMATED_OUTPUT_SUBDIR = "Automated Output"
+MANUAL_DOWNLOADS_SUBDIR = "Manual Downloads"
+DEFAULT_HISTORY_OUTPUT_DIR = "~/Downloads/Qwen3-TTS Output"
+
+
+def resolve_history_output_dir(config: dict) -> str:
+    """Resolve the parent folder for web-UI generation output.
+
+    Falls back to the default when the configured path escapes the home
+    directory (traversal or an absolute path elsewhere). Does not create
+    anything — callers that need the directory to exist call
+    ``ensure_history_dirs``.
+    """
+    raw = config.get("history_output_directory", DEFAULT_HISTORY_OUTPUT_DIR)
+    resolved = os.path.realpath(os.path.expanduser(raw))
+    home = os.path.realpath(os.path.expanduser("~"))
+    if not (resolved == home or resolved.startswith(home + os.sep)):
+        logger.warning(
+            "history_output_directory %r resolves outside home; using default",
+            raw,
+        )
+        return os.path.realpath(os.path.expanduser(DEFAULT_HISTORY_OUTPUT_DIR))
+    return resolved
+
+
+def resolve_automated_output_dir(config: dict) -> str:
+    """Resolve the subfolder every web-UI generation is saved into."""
+    return os.path.join(resolve_history_output_dir(config), AUTOMATED_OUTPUT_SUBDIR)
+
+
+def resolve_manual_downloads_dir(config: dict) -> str:
+    """Resolve the subfolder the per-row Download action copies into."""
+    return os.path.join(resolve_history_output_dir(config), MANUAL_DOWNLOADS_SUBDIR)
+
+
+def ensure_history_dirs(config: dict) -> tuple:
+    """Create both history subfolders if absent. Idempotent.
+
+    Returns (automated_output_dir, manual_downloads_dir).
+    """
+    automated = resolve_automated_output_dir(config)
+    manual = resolve_manual_downloads_dir(config)
+    os.makedirs(automated, exist_ok=True)
+    os.makedirs(manual, exist_ok=True)
+    return automated, manual
+
+
 def save_generation_metadata(wav_path: str, metadata: dict) -> None:
     """Save generation metadata as JSON sidecar alongside a .wav file.
 
