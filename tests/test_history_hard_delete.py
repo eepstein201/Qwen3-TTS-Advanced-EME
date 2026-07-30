@@ -12,8 +12,11 @@ Covers:
 The two-step confirm is keyed by path (not row index): a generation landing
 between the two clicks prepends a row and shifts every index, so an
 index-keyed confirm could delete the wrong entry. on_history_select's
-signature is (evt, history_list, delete_confirm_state=None) — the state is a
-trailing input/output so existing 2-arg call sites keep working unchanged.
+signature is (evt, history_list, delete_confirm_state=None,
+download_confirm_state=None). The 10-tuple return is
+[audio, clone, design, custom, df, state, payload, status,
+ delete_confirm_state(8), download_confirm_state(9)] — so the delete state
+these tests inspect is result[8].
 
 Run: conda run -n qwen3-tts-mlx python -m pytest tests/test_history_hard_delete.py -q
 """
@@ -132,7 +135,7 @@ class TestDeleteConfirmStateMachine(unittest.TestCase):
             self.assertTrue(
                 os.path.exists(entry["path"]), "first click must not delete"
             )
-            new_state = result[-1]
+            new_state = result[8]
             self.assertEqual(new_state.get("armed_path"), entry["path"])
 
     def test_second_click_same_path_deletes(self):
@@ -140,7 +143,7 @@ class TestDeleteConfirmStateMachine(unittest.TestCase):
             automated = os.path.join(tmp, "Automated Output")
             os.makedirs(automated)
             entry = _make_entry(automated, "voice_ui_confirm")
-            armed = self._click({}, [entry], 0, config_dir=automated)[-1]
+            armed = self._click({}, [entry], 0, config_dir=automated)[8]
             self._click(armed, [entry], 0, config_dir=automated)
             self.assertFalse(os.path.exists(entry["path"]))
 
@@ -150,11 +153,11 @@ class TestDeleteConfirmStateMachine(unittest.TestCase):
             os.makedirs(automated)
             a = _make_entry(automated, "voice_ui_a")
             b = _make_entry(automated, "voice_ui_b")
-            armed_a = self._click({}, [a, b], 0, config_dir=automated)[-1]
+            armed_a = self._click({}, [a, b], 0, config_dir=automated)[8]
             result = self._click(armed_a, [a, b], 1, config_dir=automated)
             self.assertTrue(os.path.exists(a["path"]), "row A must survive")
             self.assertTrue(os.path.exists(b["path"]), "row B must only be armed")
-            self.assertEqual(result[-1].get("armed_path"), b["path"])
+            self.assertEqual(result[8].get("armed_path"), b["path"])
 
     def test_expired_arm_rearms_instead_of_deleting(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -164,7 +167,7 @@ class TestDeleteConfirmStateMachine(unittest.TestCase):
             stale = {"armed_path": entry["path"], "ts": 0.0}  # epoch → long expired
             result = self._click(stale, [entry], 0, config_dir=automated)
             self.assertTrue(os.path.exists(entry["path"]))
-            self.assertEqual(result[-1].get("armed_path"), entry["path"])
+            self.assertEqual(result[8].get("armed_path"), entry["path"])
 
 
 if __name__ == "__main__":

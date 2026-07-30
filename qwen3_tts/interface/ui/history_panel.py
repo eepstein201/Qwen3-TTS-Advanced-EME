@@ -59,7 +59,7 @@ def extract_seed_from_history(evt: gr.SelectData, history_list) -> str:
     return str(seed) if seed is not None else ""
 
 
-def on_history_select(evt: gr.SelectData, history_list, delete_confirm_state=None) -> tuple:
+def on_history_select(evt: gr.SelectData, history_list, delete_confirm_state=None, download_confirm_state=None) -> tuple:
     """Handle click on a history row — column-aware router.
 
     Routes by ``evt.index[1]`` (the clicked column):
@@ -71,21 +71,24 @@ def on_history_select(evt: gr.SelectData, history_list, delete_confirm_state=Non
         click on the SAME path within ``DELETE_CONFIRM_TIMEOUT_S`` hard-deletes
         the .wav/.json from Automated Output and drops the row. A click on a
         different row, or after the timeout, re-arms instead of deleting.
+      - HISTORY_COL_DOWNLOAD (6): copy the file into Manual Downloads. With no
+        name collision it copies at once; a collision arms the row (cell shows
+        "Overwrite?") and a second click on the SAME path overwrites.
       - any other column, or a legacy ``[row]``-only event: today's behavior —
         load the row's audio into the WaveSurfer player and broadcast its seed
         to all three tab seed textboxes.
 
-    The confirm is keyed by path, not row index: a generation arriving between
+    Both confirms are keyed by path, not row index: a generation arriving between
     the two clicks prepends a row and shifts every index, so an index-keyed
-    confirm could delete the wrong entry.
+    confirm could act on the wrong entry.
 
-    Returns a 9-tuple mapped to outputs:
+    Returns a 10-tuple mapped to outputs:
       [history_audio_url, clone_seed, design_seed, custom_seed,
        history_df, history_state, history_select_payload, history_status_html,
-       delete_confirm_state]
+       delete_confirm_state, download_confirm_state]
 
-    ``delete_confirm_state`` defaults to None so existing 2-arg callers (tests,
-    the pre-confirm wiring) keep working unchanged.
+    Both states default to None so existing 2-arg callers (tests, the
+    pre-confirm wiring) keep working unchanged.
 
     Defense-in-depth: validates path against safe roots and copies to tempdir
     so Gradio can always serve it (tempdir is always in allowed_paths).
@@ -104,6 +107,7 @@ def on_history_select(evt: gr.SelectData, history_list, delete_confirm_state=Non
             replay_payload,
             update(),
             delete_confirm_state,
+            download_confirm_state,
         )
     if not _is_valid_row(evt, history_list):
         return (
@@ -116,6 +120,7 @@ def on_history_select(evt: gr.SelectData, history_list, delete_confirm_state=Non
             replay_payload,
             update(),
             delete_confirm_state,
+            download_confirm_state,
         )
 
     row = evt.index[0]
@@ -158,6 +163,7 @@ def on_history_select(evt: gr.SelectData, history_list, delete_confirm_state=Non
                     "success" if deleted else "info",
                 ),
                 {"armed_path": None, "ts": 0.0},
+                download_confirm_state,
             )
 
         # Arm: render "Confirm?" on this row's cell and remember the path.
@@ -174,6 +180,70 @@ def on_history_select(evt: gr.SelectData, history_list, delete_confirm_state=Non
                 "warning",
             ),
             {"armed_path": path, "ts": now},
+            download_confirm_state,
+        )
+
+    # --- Download column: copy to Manual Downloads (confirm only on collision) ---
+    if col == HISTORY_COL_DOWNLOAD:
+        path = entry.get("path", "")
+        now = time.time()
+        dl_armed_path = None
+        dl_ts = 0.0
+        if isinstance(download_confirm_state, dict):
+            dl_armed_path = download_confirm_state.get("armed_path")
+            dl_ts = download_confirm_state.get("ts", 0.0)
+        # Overwrite only on a fresh arm of the SAME path (the second click after
+        # a collision armed the row). Otherwise copy without overwrite, which
+        # refuses to clobber an existing Manual Downloads file.
+        overwrite = (
+            bool(path)
+            and dl_armed_path == path
+            and (now - dl_ts) <= DELETE_CONFIRM_TIMEOUT_S
+        )
+        config = core_config.load_config()
+        result = shared.copy_to_manual_downloads(path, config, overwrite=overwrite)
+        if result == "copied":
+            return (
+                update(),
+                update(),
+                update(),
+                update(),
+                shared.get_history_data(history_list, armed_download_path=None),
+                list(history_list),
+                replay_payload,
+                StatusBanner().render("Saved to Manual Downloads.", "success"),
+                delete_confirm_state,
+                {"armed_path": None, "ts": 0.0},
+            )
+        if result == "exists":
+            return (
+                update(),
+                update(),
+                update(),
+                update(),
+                shared.get_history_data(history_list, armed_download_path=path),
+                list(history_list),
+                replay_payload,
+                StatusBanner().render(
+                    "A file with that name already exists in Manual Downloads. "
+                    "Click ⭳ again within 5s to overwrite.",
+                    "warning",
+                ),
+                delete_confirm_state,
+                {"armed_path": path, "ts": now},
+            )
+        # refused: source outside Automated Output — don't arm.
+        return (
+            update(),
+            update(),
+            update(),
+            update(),
+            shared.get_history_data(history_list),
+            list(history_list),
+            replay_payload,
+            StatusBanner().render("Cannot download this entry.", "error"),
+            delete_confirm_state,
+            {"armed_path": None, "ts": 0.0},
         )
 
     seed_str = extract_seed_from_history(evt, history_list)
@@ -200,6 +270,7 @@ def on_history_select(evt: gr.SelectData, history_list, delete_confirm_state=Non
             payload,
             StatusBanner().render("Copied transcript to clipboard.", "success"),
             delete_confirm_state,
+            download_confirm_state,
         )
 
     # --- Default: replay audio + broadcast seed (today's behavior) ---
@@ -215,6 +286,7 @@ def on_history_select(evt: gr.SelectData, history_list, delete_confirm_state=Non
             replay_payload,
             update(),
             delete_confirm_state,
+            download_confirm_state,
         )
     resolved = os.path.realpath(path)
     # Containment check: only serve files from known-safe directories
@@ -236,6 +308,7 @@ def on_history_select(evt: gr.SelectData, history_list, delete_confirm_state=Non
             replay_payload,
             update(),
             delete_confirm_state,
+            download_confirm_state,
         )
     if not os.path.exists(resolved):
         return (
@@ -248,6 +321,7 @@ def on_history_select(evt: gr.SelectData, history_list, delete_confirm_state=Non
             replay_payload,
             update(),
             delete_confirm_state,
+            download_confirm_state,
         )
     # Copy to temp for Gradio compatibility (tempdir always in allowed_paths)
     temp_path = os.path.join(tempfile.gettempdir(), os.path.basename(resolved))
@@ -263,6 +337,7 @@ def on_history_select(evt: gr.SelectData, history_list, delete_confirm_state=Non
         replay_payload,
         update(),
         delete_confirm_state,
+        download_confirm_state,
     )
 
 

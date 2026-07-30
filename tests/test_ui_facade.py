@@ -620,9 +620,9 @@ class TestExtractSeedFromHistory(unittest.TestCase):
 class TestOnHistorySelectSeedBroadcast(unittest.TestCase):
     """Tests that on_history_select emits seed to all three tab outputs.
 
-    on_history_select returns a 9-tuple; elements 1-3 (clone/design/custom seed)
-    are identical — broadcast to every tab's seed textbox. Element 8 is the
-    trailing delete_confirm_state.
+    on_history_select returns a 10-tuple; elements 1-3 (clone/design/custom seed)
+    are identical — broadcast to every tab's seed textbox. Element 8 is
+    delete_confirm_state, element 9 is download_confirm_state.
     """
 
     def test_broadcasts_seed_to_three_outputs(self):
@@ -632,9 +632,9 @@ class TestOnHistorySelectSeedBroadcast(unittest.TestCase):
         # Use a path outside safe_roots so audio returns None but seed still broadcasts
         history = [{"seed": 12345, "path": "/etc/passwd"}]
         result = on_history_select(evt, history)
-        # 9-tuple: audio, clone_seed, design_seed, custom_seed, df, state,
-        # payload, status, delete_confirm_state
-        self.assertEqual(len(result), 9)
+        # 10-tuple: audio, clone_seed, design_seed, custom_seed, df, state,
+        # payload, status, delete_confirm_state, download_confirm_state
+        self.assertEqual(len(result), 10)
         _audio, c, d, cu, *_rest = result
         self.assertEqual((c, d, cu), ("12345", "12345", "12345"))
 
@@ -644,7 +644,7 @@ class TestOnHistorySelectSeedBroadcast(unittest.TestCase):
         evt.index = [0]
         history = [{"path": "/tmp/test.wav"}]
         result = on_history_select(evt, history)
-        self.assertEqual(len(result), 9)
+        self.assertEqual(len(result), 10)
         _audio, c, d, cu, *_rest = result
         self.assertEqual((c, d, cu), ("", "", ""))
 
@@ -652,9 +652,9 @@ class TestOnHistorySelectSeedBroadcast(unittest.TestCase):
 class TestOnHistorySelectColumnRouting(unittest.TestCase):
     """Column-aware routing in on_history_select: copy / delete / replay.
 
-    on_history_select returns a 9-tuple; the payload at index 6 carries the
+    on_history_select returns a 10-tuple; the payload at index 6 carries the
     action ("copy"|"delete"|"replay") consumed by the copy .then(js=...) chain,
-    and index 8 is the trailing delete_confirm_state.
+    index 8 is delete_confirm_state, and index 9 is download_confirm_state.
     """
 
     def _evt(self, row, col):
@@ -698,7 +698,7 @@ class TestOnHistorySelectColumnRouting(unittest.TestCase):
         result = on_history_select(
             self._evt(1, HISTORY_COL_DELETE), history, armed_state
         )
-        audio, _c, _d, _cu, df, state, payload, _status, _dcs = result
+        audio, _c, _d, _cu, df, state, payload, _status, _dcs, _dls = result
         # Player cleared on delete via None (NOT "" — "" makes gr.Audio
         # postprocess abspath "" to the CWD and crash; see on_history_select).
         self.assertIsNone(audio)

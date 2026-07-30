@@ -310,6 +310,9 @@ def build_ui():
         # shifts every row index) can't redirect the per-row Remove confirm at
         # another row. ``ts`` bounds the arm to DELETE_CONFIRM_TIMEOUT_S.
         delete_confirm_state = gr.State({"armed_path": None, "ts": 0.0})
+        # Mirror state for the per-row Download action: arms only on a name
+        # collision in Manual Downloads, so the second click overwrites.
+        download_confirm_state = gr.State({"armed_path": None, "ts": 0.0})
         history_df = gr.Dataframe(
             headers=[
                 "Time",
@@ -338,7 +341,7 @@ def build_ui():
 
         history_df.select(
             fn=on_history_select,
-            inputs=[history_state, delete_confirm_state],
+            inputs=[history_state, delete_confirm_state, download_confirm_state],
             outputs=[
                 history_audio_url,
                 clone_seed,
@@ -349,6 +352,7 @@ def build_ui():
                 history_select_payload,
                 history_status_html,
                 delete_confirm_state,
+                download_confirm_state,
             ],
         ).then(
             fn=lambda x: x,

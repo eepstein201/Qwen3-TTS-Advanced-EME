@@ -10,6 +10,7 @@ This module contains:
 
 import logging
 import os
+import shutil
 import threading
 import time
 
@@ -617,6 +618,33 @@ def delete_generation_files(path: str, config: dict) -> bool:
         except OSError as exc:
             logger.warning("Could not delete %r: %s", target, exc)
     return True
+
+
+def copy_to_manual_downloads(path: str, config: dict, overwrite: bool = False) -> str:
+    """Copy a generation into Manual Downloads under its original filename.
+
+    Returns:
+        "copied"  — the file was written (new, or overwrite=True)
+        "exists"  — a file of that name is already there and overwrite is False
+        "refused" — the source is outside Automated Output
+
+    Same strict containment as delete_generation_files: the source must live
+    strictly beneath the resolved Automated Output root, so a crafted history
+    row can't exfiltrate an arbitrary file into the user's Downloads.
+    """
+    automated = os.path.realpath(resolve_automated_output_dir(config))
+    resolved = os.path.realpath(os.path.expanduser(path))
+    if not resolved.startswith(automated + os.sep):
+        logger.warning("Refusing to copy %r: outside Automated Output", path)
+        return "refused"
+
+    manual = resolve_manual_downloads_dir(config)
+    os.makedirs(manual, exist_ok=True)
+    dest = os.path.join(manual, os.path.basename(resolved))
+    if os.path.exists(dest) and not overwrite:
+        return "exists"
+    shutil.copy2(resolved, dest)
+    return "copied"
 
 
 def save_generation_metadata(wav_path: str, metadata: dict) -> None:
