@@ -1,0 +1,39 @@
+# Monthly upstream change-detector for the Qwen3-TTS performance/quality/accuracy work.
+#
+# Watches the public-API signals that gate roadmap items R-28 / FUTURE-* / HIGH-*
+# (speculative-decoding blockers, SageAttention native HF support, vLLM TTS support,
+# qwen_tts / mlx-audio / MLX / vLLM-omni releases, new Qwen3-TTS model uploads) and
+# posts a comment to a single tracking issue ONLY when something upstream moved.
+#
+# No secrets, no LLM — pure public-API diffing against the last-known state, which is
+# stored in the tracking issue's own body. Run it any time from the Actions tab
+# ("Run workflow"); it is otherwise silent when nothing changed. The heavier quarterly
+# deep-research sweep is handled separately (not by this workflow).
+
+name: Upstream Watch
+
+on:
+  schedule:
+    # 1st of each month at 09:13 UTC (off the round minute to avoid fleet congestion)
+    - cron: "13 9 1 * *"
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+  issues: write
+
+concurrency:
+  group: upstream-watch
+  cancel-in-progress: false
+
+jobs:
+  watch:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+      - name: Detect upstream changes
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: bash scripts/upstream_watch.sh
