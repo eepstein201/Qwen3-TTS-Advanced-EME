@@ -131,8 +131,21 @@ def _find_available_port(preferred, max_tries=10):
     return None
 
 
-def _load_initial_history():
+def _load_initial_history(current_history):
     """Load persistent history from disk on UI startup.
+
+    ``demo.load()`` and a Generate button's chain are separate Gradio events
+    with no guaranteed delivery order. If a generation completes and pushes a
+    fresh entry into ``history_state``/``history_df`` before this disk scan's
+    result is delivered to the browser, an unconditional overwrite here would
+    clobber that fresh entry with the scan's now-stale view (the scan reflects
+    disk state as of whenever *this* call started, which can predate the new
+    generation's sidecar file). Comparing top-entry timestamps and keeping
+    whichever is newer makes the outcome independent of delivery order.
+
+    Args:
+        current_history: The browser session's current ``history_state`` value
+            (empty list on a fresh page load, the input Gradio wires here).
 
     Returns:
         tuple: (clone_status_html, design_status_html, custom_status_html,
@@ -142,7 +155,17 @@ def _load_initial_history():
 
     config = load_config()
     output_dir = os.path.expanduser(config.get("output_directory", "~/Downloads"))
-    history = load_history_from_disk(output_dir)
+    disk_history = load_history_from_disk(output_dir)
+
+    history = disk_history
+    if (
+        isinstance(current_history, list)
+        and current_history
+        and disk_history
+        and current_history[0].get("timestamp", 0) > disk_history[0].get("timestamp", 0)
+    ):
+        history = current_history
+
     return (
         get_model_status_html("clone"),
         get_model_status_html("design"),
@@ -370,6 +393,7 @@ def build_ui():
         demo.load(
             fn=_load_initial_history,
             js=get_script_reexecutor_fn(),
+            inputs=[history_state],
             outputs=[
                 clone_model_indicator,
                 design_model_indicator,

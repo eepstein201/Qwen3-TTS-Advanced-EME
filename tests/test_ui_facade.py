@@ -463,6 +463,67 @@ class TestOnHistorySelectHardened(unittest.TestCase):
         self.assertIsNone(audio)
 
 
+class TestLoadInitialHistoryNeverRegresses(unittest.TestCase):
+    """Tests for _load_initial_history's race guard against a fresher
+    generation that completed before this disk scan's result was delivered.
+
+    demo.load() and a Generate button's chain are independent Gradio events
+    with no guaranteed delivery order. Without the guard, whichever event's
+    output reaches the browser last wins outright — even if it's the disk
+    scan reporting older data than what a just-finished generation already
+    wrote into history_state/history_df.
+    """
+
+    @patch("qwen3_tts.interface.ui._facade.get_model_status_html", return_value="<html></html>")
+    @patch("qwen3_tts.interface.ui.shared.get_history_data", side_effect=lambda h: h)
+    @patch("qwen3_tts.interface.ui.shared.load_history_from_disk")
+    @patch("qwen3_tts.interface.ui._facade.load_config", return_value={})
+    def test_keeps_fresher_current_history_over_stale_disk_scan(
+        self, _config, mock_disk, _get_data, _status
+    ):
+        from qwen3_tts.interface.ui._facade import _load_initial_history
+
+        mock_disk.return_value = [{"seed": 999, "timestamp": 100.0, "text": "old"}]
+        current_history = [{"seed": 42, "timestamp": 200.0, "text": "fresh"}]
+
+        _, _, _, history, _ = _load_initial_history(current_history)
+
+        self.assertEqual(history, current_history)
+
+    @patch("qwen3_tts.interface.ui._facade.get_model_status_html", return_value="<html></html>")
+    @patch("qwen3_tts.interface.ui.shared.get_history_data", side_effect=lambda h: h)
+    @patch("qwen3_tts.interface.ui.shared.load_history_from_disk")
+    @patch("qwen3_tts.interface.ui._facade.load_config", return_value={})
+    def test_uses_disk_scan_on_a_fresh_page_load(
+        self, _config, mock_disk, _get_data, _status
+    ):
+        from qwen3_tts.interface.ui._facade import _load_initial_history
+
+        disk_history = [{"seed": 42, "timestamp": 100.0, "text": "from disk"}]
+        mock_disk.return_value = disk_history
+
+        _, _, _, history, _ = _load_initial_history([])
+
+        self.assertEqual(history, disk_history)
+
+    @patch("qwen3_tts.interface.ui._facade.get_model_status_html", return_value="<html></html>")
+    @patch("qwen3_tts.interface.ui.shared.get_history_data", side_effect=lambda h: h)
+    @patch("qwen3_tts.interface.ui.shared.load_history_from_disk")
+    @patch("qwen3_tts.interface.ui._facade.load_config", return_value={})
+    def test_uses_disk_scan_when_it_is_the_fresher_one(
+        self, _config, mock_disk, _get_data, _status
+    ):
+        from qwen3_tts.interface.ui._facade import _load_initial_history
+
+        disk_history = [{"seed": 42, "timestamp": 300.0, "text": "newer on disk"}]
+        mock_disk.return_value = disk_history
+        current_history = [{"seed": 999, "timestamp": 100.0, "text": "stale"}]
+
+        _, _, _, history, _ = _load_initial_history(current_history)
+
+        self.assertEqual(history, disk_history)
+
+
 class TestSanitizeVoiceName(unittest.TestCase):
     """Tests for _sanitize_voice_name allowlist."""
 

@@ -8,9 +8,9 @@ version = "3.0.0"
 description = "Text-to-speech with voice cloning, built on Qwen3-TTS"
 requires-python = ">=3.10"
 dependencies = [
-    "click>=8.0",
+    "click>=8.4.2",
     "pySBD>=0.3.4",
-    "num2words>=0.5.13",
+    "num2words>=0.5.14",
     "requests>=2.34.2",
 ]
 
@@ -18,14 +18,14 @@ dependencies = [
 # PyTorch backend (Linux, Intel Mac, Colab/CUDA)
 torch = [
     "torch>=2.13.0",
-    "torchaudio>=2.0",
+    "torchaudio>=2.11.0",
     "qwen-tts",
     "transformers>=4.57.3",
 ]
 
 # MLX backend (Apple Silicon only)
 mlx = [
-    "mlx>=0.30.3",
+    "mlx>=0.32.0",
     "mlx-audio>=0.4.5",
     "mlx-lm>=0.30.5",
     "huggingface_hub",
@@ -35,7 +35,7 @@ mlx = [
 server = [
     "fastapi>=0.139.2",
     "slowapi>=0.1.10",
-    "uvicorn[standard]>=0.51.0",
+    "uvicorn[standard]>=0.52.0",
     "soundfile>=0.14.0",
     "psutil>=7.2.2",
 ]
@@ -74,7 +74,7 @@ dev = [
     "pytest-timeout>=2.4.0",    # catch hanging tests
     "pytest-random-order>=1.2.0", # find interdependent tests
     "pytest-cov>=7.1.0",        # coverage reporting
-    "ruff>=0.15.22",              # linting + formatting
+    "ruff>=0.16.0",              # linting + formatting
     "mypy>=2.3.0",             # static type checking
     "bandit>=1.7",            # security static analysis
 ]
@@ -89,14 +89,14 @@ test = [
     "playwright>=1.61.0",     # E2E testing (if not already in main deps)
     "fastapi>=0.139.2",       # Server dependencies for integration tests
     "slowapi>=0.1.10",         # Rate limiting for server tests
-    "uvicorn[standard]>=0.51.0",
+    "uvicorn[standard]>=0.52.0",
     "soundfile>=0.14.0",
     "psutil>=7.2.2",
 ]
 
 # AI voice-description enhancement (Design mode)
 prompt-enhancer = [
-    "anthropic>=0.25",
+    "anthropic>=0.120.2",
 ]
 
 # vLLM-Omni backend (Linux/CUDA only)
