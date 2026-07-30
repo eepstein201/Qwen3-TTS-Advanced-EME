@@ -27,7 +27,7 @@ torch = [
 mlx = [
     "mlx>=0.32.0",
     "mlx-audio>=0.4.5",
-    "mlx-lm>=0.30.5",
+    "mlx-lm>=0.31.3",
     "huggingface_hub",
 ]
 
