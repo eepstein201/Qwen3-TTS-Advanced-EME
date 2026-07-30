@@ -100,7 +100,7 @@ def test_get_history_data_includes_seed_column():
     history = [{"timestamp": time.time(), "mode": "Clone", "text": "Hi",
                 "path": "/tmp/x.wav", "chunks": 1, "seed": 42}]
     rows = get_history_data(history)
-    assert len(rows[0]) == 6  # Time, Mode, Text, Seed, Chunks, Remove
+    assert len(rows[0]) == 7  # Time, Mode, Text, Seed, Chunks, Remove, Download
     assert rows[0][3] == "42"
 
 

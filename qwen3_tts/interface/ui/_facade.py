@@ -306,8 +306,20 @@ def build_ui():
             clear_all_btn = gr.Button("Clear All", size="sm", variant="stop")
         # Two-step confirm state for Clear All (mirrors voice-delete wiring).
         clear_history_confirm_state = gr.State({"armed": False, "ts": 0.0})
+        # Path-keyed so a generation arriving between the two clicks (which
+        # shifts every row index) can't redirect the per-row Remove confirm at
+        # another row. ``ts`` bounds the arm to DELETE_CONFIRM_TIMEOUT_S.
+        delete_confirm_state = gr.State({"armed_path": None, "ts": 0.0})
         history_df = gr.Dataframe(
-            headers=["Time", "Mode", "Text Preview", "Seed", "Chunks", "Remove"],
+            headers=[
+                "Time",
+                "Mode",
+                "Text Preview",
+                "Seed",
+                "Chunks",
+                "Remove",
+                "Download",
+            ],
             value=[],
             interactive=False,
             wrap=True,
@@ -326,7 +338,7 @@ def build_ui():
 
         history_df.select(
             fn=on_history_select,
-            inputs=[history_state],
+            inputs=[history_state, delete_confirm_state],
             outputs=[
                 history_audio_url,
                 clone_seed,
@@ -336,6 +348,7 @@ def build_ui():
                 history_state,
                 history_select_payload,
                 history_status_html,
+                delete_confirm_state,
             ],
         ).then(
             fn=lambda x: x,

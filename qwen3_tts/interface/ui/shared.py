@@ -33,6 +33,15 @@ MAX_HISTORY_SIZE = 10
 # Glyph shown in the "Remove" column of the Recent Generations table. Clicking
 # that cell routes through on_history_select (column-aware) to delete the row.
 HISTORY_REMOVE_GLYPH = "✕"
+# Glyph for the "Download" column — copies the row's file into Manual Downloads
+# (wired in Task 4; the column exists so get_history_data's row shape is built
+# once). Clicking it currently falls through to the default replay branch.
+HISTORY_DOWNLOAD_GLYPH = "⭳"
+# Cell text shown while a row's action is armed (waiting for the confirming
+# second click within DELETE_CONFIRM_TIMEOUT_S). Distinct from the resting
+# glyph so the user sees the armed state without an extra status read.
+HISTORY_REMOVE_ARMED_LABEL = "Confirm?"
+HISTORY_DOWNLOAD_ARMED_LABEL = "Overwrite?"
 
 # Thread-safe lock for history state updates. Shared by add_to_history
 # (generation.py) and the clear/remove handlers (_facade.py) so concurrent
@@ -446,16 +455,35 @@ def remove_history_row(history_list, row_index):
     return list(history_list)
 
 
+def remove_history_row_by_path(history_list, path):
+    """Return a new history list with the entry whose "path" matches removed.
+
+    Keyed by path rather than row index: a generation completing between a
+    two-step confirm's two clicks prepends a row and shifts every index, so an
+    index-keyed confirm could delete the wrong entry. Immutable — the input
+    list is never mutated; a fresh list is always returned.
+    """
+    if not isinstance(history_list, list):
+        return []
+    return [e for e in history_list if e.get("path") != path]
+
+
 def clear_history(history_list=None):
     """Return a fresh empty history list (list-only clear; disk files untouched)."""
     return []
 
 
-def get_history_data(history_list):
+def get_history_data(history_list, armed_delete_path=None, armed_download_path=None):
     """Convert history list to list-of-lists format.
 
+    Args:
+        armed_delete_path: when set, the matching row's "Remove" cell renders
+            HISTORY_REMOVE_ARMED_LABEL ("Confirm?") instead of the glyph, so the
+            user sees the armed two-step state inline.
+        armed_download_path: same idea for the "Download" cell (Task 4).
+
     Returns:
-        List of [time, mode, text, seed, chunks] rows.
+        List of [time, mode, text, seed, chunks, remove, download] rows.
     """
     import datetime
 
@@ -470,6 +498,13 @@ def get_history_data(history_list):
         )
         seed_val = entry.get("seed")
         seed_str = str(seed_val) if seed_val is not None else "-"
+        is_armed_delete = (
+            armed_delete_path is not None and entry.get("path") == armed_delete_path
+        )
+        is_armed_download = (
+            armed_download_path is not None
+            and entry.get("path") == armed_download_path
+        )
         rows.append(
             [
                 time_str,
@@ -477,7 +512,12 @@ def get_history_data(history_list):
                 entry.get("text", ""),
                 seed_str,
                 entry.get("chunks", 0),
-                HISTORY_REMOVE_GLYPH,
+                HISTORY_REMOVE_ARMED_LABEL if is_armed_delete else HISTORY_REMOVE_GLYPH,
+                (
+                    HISTORY_DOWNLOAD_ARMED_LABEL
+                    if is_armed_download
+                    else HISTORY_DOWNLOAD_GLYPH
+                ),
             ]
         )
 
@@ -548,6 +588,35 @@ def ensure_history_dirs(config: dict) -> tuple:
     os.makedirs(automated, exist_ok=True)
     os.makedirs(manual, exist_ok=True)
     return automated, manual
+
+
+def delete_generation_files(path: str, config: dict) -> bool:
+    """Delete a generation's .wav and .json sidecar from Automated Output.
+
+    Returns True when the path was inside Automated Output (whether or not the
+    files still existed), False when it was refused for being outside. Refusing
+    rather than raising keeps a stale history row from breaking the UI: a row
+    whose file is already gone, or whose path somehow escaped the folder, must
+    not raise and leave the panel wedged.
+
+    The containment check is the only thing standing between a user click and an
+    ``os.remove``, so it is strict: the resolved path must live strictly beneath
+    the resolved Automated Output root (``root + os.sep``), never the root itself.
+    """
+    automated = resolve_automated_output_dir(config)
+    resolved = os.path.realpath(os.path.expanduser(path))
+    root = os.path.realpath(automated)
+    if not resolved.startswith(root + os.sep):
+        logger.warning("Refusing to delete %r: outside Automated Output", path)
+        return False
+    for target in (resolved, resolved.replace(".wav", ".json")):
+        try:
+            os.remove(target)
+        except FileNotFoundError:
+            pass
+        except OSError as exc:
+            logger.warning("Could not delete %r: %s", target, exc)
+    return True
 
 
 def save_generation_metadata(wav_path: str, metadata: dict) -> None:
