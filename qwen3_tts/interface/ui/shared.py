@@ -647,6 +647,19 @@ def load_history_from_disk(output_dir: str) -> list:
     return entries[:MAX_HISTORY_SIZE]
 
 
+def load_history_from_disk_for_config(config: dict) -> list:
+    """Load history from the configured Automated Output subfolder.
+
+    Thin wrapper over load_history_from_disk that resolves the directory from
+    config, so callers don't each re-derive the path. Returns [] when the
+    folder does not exist yet (fresh install, before the first generation).
+    """
+    automated = resolve_automated_output_dir(config)
+    if not os.path.isdir(automated):
+        return []
+    return load_history_from_disk(automated)
+
+
 def get_gradio_launch_kwargs(config: dict) -> dict:
     """Shared Gradio launch() kwargs -- single source of truth for all UI entry points."""
     import tempfile

@@ -13,7 +13,6 @@ The tab builders and the Recent Generations handlers live in sibling modules
 """
 
 import logging
-import os
 import sys
 import time
 
@@ -151,11 +150,13 @@ def _load_initial_history(current_history):
         tuple: (clone_status_html, design_status_html, custom_status_html,
                 history_list, history_df_data)
     """
-    from qwen3_tts.interface.ui.shared import get_history_data, load_history_from_disk
+    from qwen3_tts.interface.ui.shared import (
+        get_history_data,
+        load_history_from_disk_for_config,
+    )
 
     config = load_config()
-    output_dir = os.path.expanduser(config.get("output_directory", "~/Downloads"))
-    disk_history = load_history_from_disk(output_dir)
+    disk_history = load_history_from_disk_for_config(config)
 
     history = disk_history
     if (
@@ -177,6 +178,11 @@ def _load_initial_history(current_history):
 
 def build_ui():
     """Build the Gradio interface."""
+    # Covers installs that skip install.sh (Colab, Docker, pip-only).
+    # Idempotent — exist_ok=True.
+    from qwen3_tts.interface.ui.shared import ensure_history_dirs
+
+    ensure_history_dirs(load_config())
 
     with gr.Blocks(title="Qwen3-TTS Web Interface") as demo:
         gr.Markdown("# Qwen3-TTS Web Interface")
