@@ -25,6 +25,10 @@ import urllib.request
 # Auto-toggle helper for universal E2E test support
 from tests.e2e_helpers import playwright_enabled
 
+# Web-UI generations land in the Automated Output subfolder, not flat in
+# ~/Downloads — must track qwen3_tts/interface/ui/shared.py's resolver.
+HISTORY_OUTPUT_DIR = os.path.expanduser("~/Downloads/Qwen3-TTS Output/Automated Output")
+
 # E2E browser tests require a live server + Gradio UI + Chromium.
 # Gated behind the `e2e` marker so plain `pytest tests/` skips them (no hang).
 # Opt in with: pytest tests/ -m e2e. The unittest batch runner (batch 6)
@@ -953,7 +957,7 @@ class TestE2EPlaywright(unittest.TestCase):
         # Derive JSON sidecar path from status "Generated: <basename.wav>"
         # Status contains only the basename; prepend the config output directory.
         basename = status.replace("Generated:", "").strip().split("\n")[0].strip()
-        output_dir = os.path.expanduser("~/Downloads")  # default; matches generation.py
+        output_dir = HISTORY_OUTPUT_DIR  # web-UI saves to Automated Output (shared.py)
         self.page.wait_for_timeout(1000)
         if basename and os.path.splitext(basename)[1] in (".wav", ".mp3", ".flac"):
             json_path = os.path.join(output_dir, os.path.splitext(basename)[0] + ".json")
@@ -973,9 +977,9 @@ class TestE2EPlaywright(unittest.TestCase):
                 f"No recent .json sidecar found in {output_dir}",
             )
 
-        # History table (outside tab panels) must have exactly 6 columns:
-        # Time, Mode, Text Preview, Seed, Chunks, Remove (the ✕ column added
-        # for per-row delete via column-aware on_history_select).
+        # History table (outside tab panels) must have exactly 7 columns:
+        # Time, Mode, Text Preview, Seed, Chunks, Remove (✕), Download (⭳) —
+        # the action columns added via column-aware on_history_select.
         col_count = self.page.evaluate("""() => {
             var tables = document.querySelectorAll('table');
             for (var i = 0; i < tables.length; i++) {
@@ -989,8 +993,8 @@ class TestE2EPlaywright(unittest.TestCase):
             return 0;
         }""")
         self.assertEqual(
-            col_count, 6,
-            f"History table should have 6 columns (Time, Mode, Text Preview, Seed, Chunks, Remove), got {col_count}",
+            col_count, 7,
+            f"History table should have 7 columns (Time, Mode, Text Preview, Seed, Chunks, Remove, Download), got {col_count}",
         )
 
         # History table must have a "Seed" column header.
