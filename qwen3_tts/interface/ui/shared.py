@@ -757,6 +757,29 @@ def load_history_from_disk_for_config(config: dict) -> list:
     return load_history_from_disk(automated)
 
 
+def refresh_history_from_disk(
+    history_list, config, armed_delete_path=None, armed_download_path=None
+):
+    """Return ``history_df`` rows derived from disk rather than ``history_list``.
+
+    ``demo.load()``'s preload and a generation chain's refresh are independent
+    Gradio events with no guaranteed delivery order, so a stale in-memory list
+    could previously win and render an unrelated row. Both paths now re-derive
+    from the same source of truth (the Automated Output sidecars), making the
+    outcome order-independent. ``history_list`` is accepted for API symmetry
+    with :func:`get_history_data` but intentionally ignored — disk wins.
+
+    Safe only because Remove hard-deletes the file: a soft delete would let a
+    removed row reappear on the next re-read.
+    """
+    entries = load_history_from_disk_for_config(config)
+    return get_history_data(
+        entries,
+        armed_delete_path=armed_delete_path,
+        armed_download_path=armed_download_path,
+    )
+
+
 def get_gradio_launch_kwargs(config: dict) -> dict:
     """Shared Gradio launch() kwargs -- single source of truth for all UI entry points."""
     import tempfile

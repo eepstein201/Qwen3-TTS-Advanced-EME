@@ -400,18 +400,33 @@ def build_ui():
             outputs=[history_select_payload],
         )
 
-        # Wire history_df updates from each tab's generation chain
-        from qwen3_tts.interface.ui.shared import get_history_data
+        # Wire history_df updates from each tab's generation chain.
+        #
+        # Each chain's final step re-derives BOTH history_state and history_df
+        # from disk rather than from the in-memory history_state. demo.load()'s
+        # preload and a generation chain's refresh are independent Gradio events
+        # with no guaranteed delivery order; deriving the table from
+        # history_state let a stale list win and render an unrelated row
+        # (test_13's render race). Re-reading disk makes the outcome
+        # order-independent — the sidecar is written before this .then fires, so
+        # the fresh entry is always present. Safe only because Remove
+        # hard-deletes the file.
+        from qwen3_tts.interface.ui.shared import (
+            get_history_data,
+            load_history_from_disk_for_config,
+        )
 
-        clone_chain.then(
-            fn=get_history_data, inputs=[history_state], outputs=[history_df]
-        )
-        design_chain.then(
-            fn=get_history_data, inputs=[history_state], outputs=[history_df]
-        )
-        custom_chain.then(
-            fn=get_history_data, inputs=[history_state], outputs=[history_df]
-        )
+        def _refresh_history(history_list):
+            config = load_config()
+            entries = load_history_from_disk_for_config(config)
+            return entries, get_history_data(entries)
+
+        for _chain in (clone_chain, design_chain, custom_chain):
+            _chain.then(
+                fn=_refresh_history,
+                inputs=[history_state],
+                outputs=[history_state, history_df],
+            )
 
         demo.load(
             fn=_load_initial_history,
