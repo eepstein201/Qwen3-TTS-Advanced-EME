@@ -2,7 +2,7 @@
 
 Text-to-speech system with voice cloning, built on Qwen3-TTS. Three modes: clone (from audio), design (from description), custom (9 premium speakers). Runs on Mac (MLX/torch), Linux, and Google Colab (CUDA).
 
-Features: pyrubberband audio processing (with librosa fallback), prosody presets for Custom/Design modes, x_vector_only_mode for transcript-free cloning.
+Features: pyrubberband audio processing (with librosa fallback), prosody presets for Custom/Design modes, x_vector_only_mode for transcript-free cloning, web-UI output folders (Automated Output for generations, Manual Downloads for kept files) with per-row Remove (hard-deletes the file, path-keyed two-step confirm) and Download (copies to Manual Downloads).
 
 ## Rules
 
@@ -196,6 +196,7 @@ All other endpoints require `Authorization: Bearer <token>` (token from `~/.conf
 | `generation.lufs_target` | float (LUFS) | `-16.0` (used only when `lufs_normalize` is `true`) |
 | `generation.silence_gap_seconds` | `0.0`-`5.0` | `0.0` (silence between chunks; `0.0` uses a 50 ms crossfade) |
 | `models.<type>.revision` | HF branch/tag/SHA for `clone`/`design`/`custom` downloads | `"main"` (unpinned) |
+| `history_output_directory` | path (home-contained) | `~/Downloads/Qwen3-TTS Output` — root for web-UI output: `Automated Output/` holds generations (Remove hard-deletes the file), `Manual Downloads/` holds kept files |
 
 For full config.json structure, see `docs/00-Foundations/ARCHITECTURE.md`.
 
