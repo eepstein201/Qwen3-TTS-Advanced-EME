@@ -620,6 +620,11 @@ run_config_wizard() {
     echo ""
 }
 
+# Default output folder for web-UI generations. Overridden by the prompt in
+# customize_settings(); kept at top level so the recommended-settings path
+# (which skips customize_settings) still has a value for the config heredoc.
+HISTORY_OUTPUT_DIR="~/Downloads/Qwen3-TTS Output"
+
 customize_settings() {
     echo ""
 
@@ -695,6 +700,14 @@ customize_settings() {
             *) SELECTED_QUANT="8bit" ;;
         esac
     fi
+
+    # Output folder for web-UI generations
+    echo ""
+    echo -e "${BOLD}Output Folder${NC}"
+    echo "  Web-UI generations are saved under here, in two subfolders:"
+    echo "    'Automated Output' (every generation) and 'Manual Downloads' (kept files)."
+    read -p "Location [~/Downloads/Qwen3-TTS Output]: " HISTORY_OUTPUT_DIR
+    HISTORY_OUTPUT_DIR=${HISTORY_OUTPUT_DIR:-"~/Downloads/Qwen3-TTS Output"}
 }
 
 # =============================================================================
@@ -1101,6 +1114,7 @@ PYTHON_EOF
   "default_clone_prompt": "default_clone.pt",
   "default_speaker": "ryan",
   "output_directory": "~/Downloads",
+  "history_output_directory": "$HISTORY_OUTPUT_DIR",
   "language": "English",
   "server": {
     "host": "127.0.0.1",
@@ -1189,6 +1203,12 @@ PYTHON_EOF
   }
 }
 EOF
+
+    # Create the web-UI output folder structure: two fixed-name subfolders.
+    # Bash doesn't expand ~ inside quotes, so swap a leading ~ for $HOME.
+    HISTORY_DIR_EXPANDED="${HISTORY_OUTPUT_DIR/#\~/$HOME}"
+    mkdir -p "$HISTORY_DIR_EXPANDED/Automated Output" "$HISTORY_DIR_EXPANDED/Manual Downloads"
+    info "  Output folders created at: $HISTORY_DIR_EXPANDED"
 
     success "Created config.json with selected settings:"
     info "  Backend: $SELECTED_BACKEND"
