@@ -442,5 +442,127 @@ class TestSafePathJoin(unittest.TestCase):
         self.assertEqual(result, os.path.realpath("/tmp/base/file.txt"))
 
 
+# =========================================================================
+# Shipped prompt references (regression guard — repo-audit-2026-07-31 P0-1)
+# =========================================================================
+
+@pytest.mark.unit
+class TestDefaultConfigPromptReferences(unittest.TestCase):
+    """Every prompt named by get_default_config() must resolve on a fresh install.
+
+    No voice prompt ships with the package, so any filename seeded into
+    get_default_config() is a dangling reference on a new machine. The two
+    seeds are NOT equally safe, and that asymmetry is the whole finding:
+
+    - ``default_clone_prompt`` degrades gracefully. get_default_clone_prompt()
+      checks the configured file and falls through to a backend-aware scan when
+      it is missing, so a dangling value is harmless.
+    - ``aliases[*]["prompt"]`` does **not**. interface/generate.py resolves
+      ``alias_prompt or get_default_clone_prompt(config)``, and a truthy
+      alias_prompt short-circuits the fallback entirely — a dangling alias
+      raises FileNotFoundError.
+
+    Historically the shipped ``default`` alias pointed at ``default_clone.pt``,
+    which existed nowhere, so the one alias ``tts list aliases`` advertised was
+    the one that failed on every fresh install (fixed in b98501a; both seeds are
+    now empty). These tests exist so re-seeding a dangling alias fails loudly
+    here instead of silently in a new user's first command.
+    """
+
+    def _prompt_exists(self, name):
+        """True if *name* is usable as a prompt, in either backend's format.
+
+        Accepts all three spellings a prompt name appears in: a bare base, a
+        torch ``.pt``, or an MLX ``.wav``. get_default_clone_prompt() strips only
+        ``.pt`` in its existence check while its MLX fallback *returns* a
+        ``.wav`` filename, so a stricter helper here would reject a name the
+        production code just handed back as valid.
+        """
+        from qwen3_tts.core.config import VOICE_PROMPTS_DIR, safe_path_join
+
+        base = name
+        for suffix in (".pt", ".wav"):
+            if base.endswith(suffix):
+                base = base[: -len(suffix)]
+                break
+        prompts_dir = str(VOICE_PROMPTS_DIR)
+        pt_exists = os.path.exists(safe_path_join(prompts_dir, f"{base}.pt"))
+        mlx_exists = os.path.exists(
+            safe_path_join(prompts_dir, f"{base}.wav")
+        ) and os.path.exists(safe_path_join(prompts_dir, f"{base}.txt"))
+        return pt_exists or mlx_exists
+
+    def test_seeded_aliases_reference_resolvable_prompts(self):
+        """A seeded alias prompt must exist — the alias path has no fallback."""
+        from qwen3_tts.core.config import get_default_config
+
+        dangling = [
+            (alias_name, spec["prompt"])
+            for alias_name, spec in get_default_config().get("aliases", {}).items()
+            if isinstance(spec, dict) and spec.get("prompt")
+            and not self._prompt_exists(spec["prompt"])
+        ]
+        self.assertEqual(
+            dangling,
+            [],
+            "get_default_config() seeds an alias whose prompt does not exist. "
+            "interface/generate.py does `alias_prompt or get_default_clone_prompt"
+            "(config)`, so a truthy alias prompt short-circuits the missing-prompt "
+            "fallback and `tts --alias <name>` raises FileNotFoundError on a fresh "
+            f"install. Ship no alias, or ship the prompt file: {dangling}",
+        )
+
+    def test_seeded_default_clone_prompt_resolves_or_falls_back(self):
+        """A seeded default_clone_prompt must exist or leave the fallback intact."""
+        from qwen3_tts.core.config import get_default_config
+
+        configured = get_default_config().get("default_clone_prompt")
+        if not configured:
+            self.skipTest("no default_clone_prompt seeded — fallback path applies")
+        self.assertTrue(
+            self._prompt_exists(configured),
+            f"get_default_config() seeds default_clone_prompt={configured!r}, "
+            "which does not exist. This one degrades safely today, but seeding a "
+            "name that never resolves is misleading — prefer None so the "
+            "backend-aware scan is the single source of truth.",
+        )
+
+    def test_default_clone_prompt_resolution_never_raises(self):
+        """Resolving the shipped config must not raise, whatever is on disk."""
+        from qwen3_tts.core.config import get_default_clone_prompt, get_default_config
+
+        resolved = get_default_clone_prompt(get_default_config())
+        # None (no prompts installed) is a valid outcome; a name is not required.
+        if resolved is not None:
+            self.assertIsInstance(resolved, str)
+            self.assertTrue(
+                self._prompt_exists(resolved),
+                f"fallback returned {resolved!r}, which does not exist on disk",
+            )
+
+    def test_pt_prompt_is_not_seeded_for_mlx_default(self):
+        """A .pt seed is torch-only and wrong for the default Apple-Silicon path."""
+        from qwen3_tts.core.config import get_default_config
+
+        config = get_default_config()
+        pt_seeds = [
+            f"default_clone_prompt={value}"
+            for value in [config.get("default_clone_prompt")]
+            if isinstance(value, str) and value.endswith(".pt")
+        ] + [
+            f"aliases.{name}.prompt={spec['prompt']}"
+            for name, spec in config.get("aliases", {}).items()
+            if isinstance(spec, dict)
+            and isinstance(spec.get("prompt"), str)
+            and spec["prompt"].endswith(".pt")
+        ]
+        self.assertEqual(
+            pt_seeds,
+            [],
+            "a .pt prompt is torch-only; MLX needs a .wav + .txt pair, and MLX is "
+            f"the default backend on Apple Silicon: {pt_seeds}",
+        )
+
+
 if __name__ == "__main__":
     unittest.main()

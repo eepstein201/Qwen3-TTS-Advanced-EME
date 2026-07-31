@@ -35,9 +35,23 @@ legitimate optional-dependency gates, not disabled tests.
 Ranked by **severity × blast radius**, then tie-broken by **inverse risk-of-fix** —
 i.e. cheap, safe, high-value work first.
 
-### P0-1 — Shipped `default` alias is broken on every fresh install
+### P0-1 — Shipped `default` alias is broken on every fresh install — ✅ DONE (2026-07-31)
 
 **Severity: Medium-High · Blast radius: every new user · Risk to fix: Very low · Effort: 15 min**
+
+**Resolved:** the config fix landed in `b98501a` (option 1 — both seeds emptied). That
+commit shipped no test, so the regression guard the finding asked for was added separately
+as `TestDefaultConfigPromptReferences` in `tests/test_config.py` (batch 1). It encodes the
+asymmetry that makes this finding non-obvious: a dangling `default_clone_prompt` is safe
+(the backend-aware scan catches it) while a dangling `aliases[*]["prompt"]` is not
+(`generate.py` short-circuits the fallback). Proven non-vacuous by running it against the
+exact pre-fix seeds — 3 of its 4 tests go red, covering the alias failure, the misleading
+seed, and the `.pt`-on-MLX secondary problem.
+
+**Residual (not fixed, tracked below as P1-3):** option 3 was not applied, so the
+short-circuit at `generate.py:711` still means a *user-created* alias pointing at a
+deleted prompt raises an unhandled `FileNotFoundError`. The shipped config can no longer
+trigger it, but the sharp edge remains for hand-written aliases.
 
 `get_default_config()` ships exactly one alias, and it points at a file that does not
 exist anywhere in the repo:
@@ -138,6 +152,29 @@ disk-derive logic.
 return), or delete the shared one and let the test target the closure. Wiring is preferred
 — it keeps the unit test meaningful and removes the duplication.
 
+### P1-3 — Alias prompt resolution has no fallback and no friendly error
+
+**Severity: Low-Medium · Blast radius: users with hand-written aliases · Risk to fix: Low · Effort: 15 min**
+
+Split out of P0-1, whose config fix removed the *shipped* trigger without addressing the
+underlying sharp edge. At `qwen3_tts/interface/generate.py:711`:
+
+```python
+prompt_file = alias_prompt or get_default_clone_prompt(config)
+```
+
+A truthy `alias_prompt` short-circuits the missing-prompt fallback, and `prompt_file` is
+passed straight downstream with no existence check — so an alias pointing at a prompt the
+user later renamed or deleted surfaces as an unhandled `FileNotFoundError`. Note the
+sibling paths in the same file *do* handle this politely: `Error: SRT file not found: …`
+(line 609), and the same for dialogue (616) and batch (661) inputs. The alias path is the
+odd one out.
+
+**Fix:** resolve-and-verify — fall back when the aliased prompt is missing, and print a
+`Error: alias '<name>' points at a missing prompt: <file>` in the style of the neighbouring
+handlers rather than raising. Guarded seed-side already by
+`TestDefaultConfigPromptReferences`; this would close the user-config half.
+
 ### P2-1 — Four files breach the 800-line hard limit
 
 **Severity: Medium (maintainability) · Risk to fix: HIGH · Effort: Large**
@@ -195,7 +232,7 @@ CLI command bodies and split cleanly into validate / apply / report phases.
 ## Recommended sequence
 
 1. **P0-2** (delete the false-green test + add the `async def` meta-guard) — 5 min, zero risk, immediately makes the suite honest.
-2. **P0-1** (fix the shipped alias + regression test) — the only real user-facing defect found.
+2. ~~**P0-1** (fix the shipped alias + regression test)~~ — ✅ done 2026-07-31 (fix in `b98501a`, guard added after). Residual split out as **P1-3**.
 3. **P1-2** (dead code / DRY) — small, self-contained, clears a known wart.
 4. **P1-1** (E2E sleep conversion) — highest ongoing payoff; do it before the next feature so future failures are trustworthy.
 5. **P2-1 / P2-2** — only as deliberate, isolated PRs. Not alongside feature work.
@@ -208,8 +245,12 @@ the one that most improves day-to-day signal quality.
 
 - After every item: `conda run -n qwen3-tts-mlx ruff check qwen3_tts tests` and the
   non-E2E suite (baseline **2500 passed, 4 skipped**).
-- P0-1: assert `tts --alias default` succeeds on a config derived from
-  `get_default_config()`, on both backends.
+- P0-1: ✅ met differently and more strongly. `tts --alias default` is no longer
+  assertable — the shipped config now seeds **no** aliases, so there is no `default` alias
+  to invoke. The guard instead asserts the invariant behind that command (every prompt
+  `get_default_config()` names must resolve), which holds for any future seed rather than
+  one hardcoded alias name, and is backend-agnostic. Non-vacuity was proven by replaying
+  the pre-fix seeds: 3 of 4 tests go red.
 - P0-2: suite count must **drop by 1** (2499) — a count that stays at 2500 means the
   no-op test is still being counted.
 - P1-1: run each converted E2E test 5× consecutively; flakiness shows up in repetition,
