@@ -103,9 +103,9 @@ class TestClearHistory(unittest.TestCase):
 
 
 class TestGetHistoryDataRemoveColumn(unittest.TestCase):
-    """get_history_data rows now carry a 6th 'Remove' (✕) column."""
+    """get_history_data rows carry a 6th 'Remove' (✕) and 7th 'Download' (⭳) column."""
 
-    def test_row_has_six_columns_ending_in_remove_glyph(self):
+    def test_row_has_seven_columns_ending_in_remove_and_download_glyphs(self):
         from qwen3_tts.interface.ui.shared import get_history_data
 
         history = [
@@ -120,8 +120,9 @@ class TestGetHistoryDataRemoveColumn(unittest.TestCase):
         ]
         rows = get_history_data(history)
         self.assertEqual(len(rows), 1)
-        self.assertEqual(len(rows[0]), 6)
+        self.assertEqual(len(rows[0]), 7)
         self.assertEqual(rows[0][5], "✕")
+        self.assertEqual(rows[0][6], "⭳")
         # Earlier columns are unchanged.
         self.assertEqual(rows[0][2], "Hello")
         self.assertEqual(rows[0][3], "42")

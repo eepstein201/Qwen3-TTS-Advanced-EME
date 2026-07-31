@@ -2,7 +2,7 @@
 
 Text-to-speech system with voice cloning, built on Qwen3-TTS. Three modes: clone (from audio), design (from description), custom (9 premium speakers). Runs on Mac (MLX/torch), Linux, and Google Colab (CUDA).
 
-Features: pyrubberband audio processing (with librosa fallback), prosody presets for Custom/Design modes, x_vector_only_mode for transcript-free cloning.
+Features: pyrubberband audio processing (with librosa fallback), prosody presets for Custom/Design modes, x_vector_only_mode for transcript-free cloning, web-UI output folders (Automated Output for generations, Manual Downloads for kept files) with per-row Remove (hard-deletes the file, path-keyed two-step confirm) and Download (copies to Manual Downloads).
 
 ## Rules
 
@@ -115,7 +115,7 @@ config.json → qwen3_tts.core.config → qwen3_tts.core.engine (dispatch)
 | `qwen3_tts/tools/model_cache.py` | HuggingFace cache management (list, size, prune, clear) | No |
 | `qwen3_tts/tools/healthcheck.py` | Installation health checks (deps, config, server) | No |
 | `qwen3_tts/tools/uninstall.py` | Uninstall utilities (models, voices, config, all) | No |
-| `qwen3_tts/tools/solid_analyzer.py` | SOLID-principle compliance analyzer; scores each principle with line-number violations (`tts solid-score`) | No |
+| `qwen3_tts/tools/solid_analyzer.py` | SOLID-principle compliance analyzer; scores each principle with line-number violations (`make solid-score` → `python -m qwen3_tts.tools.solid_analyzer`) | No |
 | `qwen3_tts/cli.py` | Click entry point — imports command groups from sibling modules | No (all lazy) |
 | `qwen3_tts/cli_server.py` | Server CLI group: start, stop, restart, status, log, stats | No |
 | `qwen3_tts/cli_voice.py` | Voice CLI group + list group: voice CRUD, list speakers/presets | No |
@@ -196,6 +196,7 @@ All other endpoints require `Authorization: Bearer <token>` (token from `~/.conf
 | `generation.lufs_target` | float (LUFS) | `-16.0` (used only when `lufs_normalize` is `true`) |
 | `generation.silence_gap_seconds` | `0.0`-`5.0` | `0.0` (silence between chunks; `0.0` uses a 50 ms crossfade) |
 | `models.<type>.revision` | HF branch/tag/SHA for `clone`/`design`/`custom` downloads | `"main"` (unpinned) |
+| `history_output_directory` | path (home-contained) | `~/Downloads/Qwen3-TTS Output` — root for web-UI output: `Automated Output/` holds generations (Remove hard-deletes the file), `Manual Downloads/` holds kept files |
 
 For full config.json structure, see `docs/00-Foundations/ARCHITECTURE.md`.
 

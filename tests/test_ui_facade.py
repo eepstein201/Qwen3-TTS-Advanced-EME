@@ -620,8 +620,9 @@ class TestExtractSeedFromHistory(unittest.TestCase):
 class TestOnHistorySelectSeedBroadcast(unittest.TestCase):
     """Tests that on_history_select emits seed to all three tab outputs.
 
-    on_history_select returns a 4-tuple: (audio_path, clone_seed, design_seed, custom_seed).
-    The last three are identical — broadcast to every tab's seed textbox.
+    on_history_select returns a 10-tuple; elements 1-3 (clone/design/custom seed)
+    are identical — broadcast to every tab's seed textbox. Element 8 is
+    delete_confirm_state, element 9 is download_confirm_state.
     """
 
     def test_broadcasts_seed_to_three_outputs(self):
@@ -631,8 +632,9 @@ class TestOnHistorySelectSeedBroadcast(unittest.TestCase):
         # Use a path outside safe_roots so audio returns None but seed still broadcasts
         history = [{"seed": 12345, "path": "/etc/passwd"}]
         result = on_history_select(evt, history)
-        # 8-tuple: audio, clone_seed, design_seed, custom_seed, df, state, payload, status
-        self.assertEqual(len(result), 8)
+        # 10-tuple: audio, clone_seed, design_seed, custom_seed, df, state,
+        # payload, status, delete_confirm_state, download_confirm_state
+        self.assertEqual(len(result), 10)
         _audio, c, d, cu, *_rest = result
         self.assertEqual((c, d, cu), ("12345", "12345", "12345"))
 
@@ -642,7 +644,7 @@ class TestOnHistorySelectSeedBroadcast(unittest.TestCase):
         evt.index = [0]
         history = [{"path": "/tmp/test.wav"}]
         result = on_history_select(evt, history)
-        self.assertEqual(len(result), 8)
+        self.assertEqual(len(result), 10)
         _audio, c, d, cu, *_rest = result
         self.assertEqual((c, d, cu), ("", "", ""))
 
@@ -650,8 +652,9 @@ class TestOnHistorySelectSeedBroadcast(unittest.TestCase):
 class TestOnHistorySelectColumnRouting(unittest.TestCase):
     """Column-aware routing in on_history_select: copy / delete / replay.
 
-    on_history_select returns an 8-tuple; the payload at index 6 carries the
-    action ("copy"|"delete"|"replay") consumed by the copy .then(js=...) chain.
+    on_history_select returns a 10-tuple; the payload at index 6 carries the
+    action ("copy"|"delete"|"replay") consumed by the copy .then(js=...) chain,
+    index 8 is delete_confirm_state, and index 9 is download_confirm_state.
     """
 
     def _evt(self, row, col):
@@ -677,7 +680,7 @@ class TestOnHistorySelectColumnRouting(unittest.TestCase):
         status = result[7]
         self.assertIn("Copied", status)
 
-    def test_remove_column_deletes_row_and_clears_audio(self):
+    def test_remove_column_two_step_confirm_deletes_row(self):
         from qwen3_tts.interface.ui._facade import HISTORY_COL_DELETE, on_history_select
 
         history = [
@@ -685,8 +688,17 @@ class TestOnHistorySelectColumnRouting(unittest.TestCase):
             {"text": "b", "full_text": "b", "path": "/tmp/b.wav", "seed": 2},
             {"text": "c", "full_text": "c", "path": "/tmp/c.wav", "seed": 3},
         ]
-        result = on_history_select(self._evt(1, HISTORY_COL_DELETE), history)
-        audio, _c, _d, _cu, df, state, payload, status = result
+        # First click arms the row: the list is unchanged and the trailing
+        # state records the armed path.
+        first = on_history_select(self._evt(1, HISTORY_COL_DELETE), history)
+        self.assertEqual(len(first[5]), 3)  # history_state unchanged on arm
+        armed_state = first[8]
+        self.assertEqual(armed_state["armed_path"], "/tmp/b.wav")
+        # Second click on the same row confirms and removes it.
+        result = on_history_select(
+            self._evt(1, HISTORY_COL_DELETE), history, armed_state
+        )
+        audio, _c, _d, _cu, df, state, payload, _status, _dcs, _dls = result
         # Player cleared on delete via None (NOT "" — "" makes gr.Audio
         # postprocess abspath "" to the CWD and crash; see on_history_select).
         self.assertIsNone(audio)
@@ -694,7 +706,6 @@ class TestOnHistorySelectColumnRouting(unittest.TestCase):
         self.assertEqual(len(state), 2)  # middle row removed
         self.assertEqual([e["text"] for e in state], ["a", "c"])
         self.assertEqual(len(df), 2)  # dataframe re-rendered from new list
-        self.assertIn("Entry removed", status)
 
     def test_remove_column_does_not_mutate_input(self):
         from qwen3_tts.interface.ui._facade import HISTORY_COL_DELETE, on_history_select

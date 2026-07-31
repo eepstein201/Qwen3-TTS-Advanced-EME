@@ -13,7 +13,6 @@ The tab builders and the Recent Generations handlers live in sibling modules
 """
 
 import logging
-import os
 import sys
 import time
 
@@ -151,11 +150,13 @@ def _load_initial_history(current_history):
         tuple: (clone_status_html, design_status_html, custom_status_html,
                 history_list, history_df_data)
     """
-    from qwen3_tts.interface.ui.shared import get_history_data, load_history_from_disk
+    from qwen3_tts.interface.ui.shared import (
+        get_history_data,
+        load_history_from_disk_for_config,
+    )
 
     config = load_config()
-    output_dir = os.path.expanduser(config.get("output_directory", "~/Downloads"))
-    disk_history = load_history_from_disk(output_dir)
+    disk_history = load_history_from_disk_for_config(config)
 
     history = disk_history
     if (
@@ -177,6 +178,11 @@ def _load_initial_history(current_history):
 
 def build_ui():
     """Build the Gradio interface."""
+    # Covers installs that skip install.sh (Colab, Docker, pip-only).
+    # Idempotent — exist_ok=True.
+    from qwen3_tts.interface.ui.shared import ensure_history_dirs
+
+    ensure_history_dirs(load_config())
 
     with gr.Blocks(title="Qwen3-TTS Web Interface") as demo:
         gr.Markdown("# Qwen3-TTS Web Interface")
@@ -300,8 +306,23 @@ def build_ui():
             clear_all_btn = gr.Button("Clear All", size="sm", variant="stop")
         # Two-step confirm state for Clear All (mirrors voice-delete wiring).
         clear_history_confirm_state = gr.State({"armed": False, "ts": 0.0})
+        # Path-keyed so a generation arriving between the two clicks (which
+        # shifts every row index) can't redirect the per-row Remove confirm at
+        # another row. ``ts`` bounds the arm to DELETE_CONFIRM_TIMEOUT_S.
+        delete_confirm_state = gr.State({"armed_path": None, "ts": 0.0})
+        # Mirror state for the per-row Download action: arms only on a name
+        # collision in Manual Downloads, so the second click overwrites.
+        download_confirm_state = gr.State({"armed_path": None, "ts": 0.0})
         history_df = gr.Dataframe(
-            headers=["Time", "Mode", "Text Preview", "Seed", "Chunks", "Remove"],
+            headers=[
+                "Time",
+                "Mode",
+                "Text Preview",
+                "Seed",
+                "Chunks",
+                "Remove",
+                "Download",
+            ],
             value=[],
             interactive=False,
             wrap=True,
@@ -320,7 +341,7 @@ def build_ui():
 
         history_df.select(
             fn=on_history_select,
-            inputs=[history_state],
+            inputs=[history_state, delete_confirm_state, download_confirm_state],
             outputs=[
                 history_audio_url,
                 clone_seed,
@@ -330,6 +351,8 @@ def build_ui():
                 history_state,
                 history_select_payload,
                 history_status_html,
+                delete_confirm_state,
+                download_confirm_state,
             ],
         ).then(
             fn=lambda x: x,
@@ -377,18 +400,33 @@ def build_ui():
             outputs=[history_select_payload],
         )
 
-        # Wire history_df updates from each tab's generation chain
-        from qwen3_tts.interface.ui.shared import get_history_data
+        # Wire history_df updates from each tab's generation chain.
+        #
+        # Each chain's final step re-derives BOTH history_state and history_df
+        # from disk rather than from the in-memory history_state. demo.load()'s
+        # preload and a generation chain's refresh are independent Gradio events
+        # with no guaranteed delivery order; deriving the table from
+        # history_state let a stale list win and render an unrelated row
+        # (test_13's render race). Re-reading disk makes the outcome
+        # order-independent — the sidecar is written before this .then fires, so
+        # the fresh entry is always present. Safe only because Remove
+        # hard-deletes the file.
+        from qwen3_tts.interface.ui.shared import (
+            get_history_data,
+            load_history_from_disk_for_config,
+        )
 
-        clone_chain.then(
-            fn=get_history_data, inputs=[history_state], outputs=[history_df]
-        )
-        design_chain.then(
-            fn=get_history_data, inputs=[history_state], outputs=[history_df]
-        )
-        custom_chain.then(
-            fn=get_history_data, inputs=[history_state], outputs=[history_df]
-        )
+        def _refresh_history(history_list):
+            config = load_config()
+            entries = load_history_from_disk_for_config(config)
+            return entries, get_history_data(entries)
+
+        for _chain in (clone_chain, design_chain, custom_chain):
+            _chain.then(
+                fn=_refresh_history,
+                inputs=[history_state],
+                outputs=[history_state, history_df],
+            )
 
         demo.load(
             fn=_load_initial_history,

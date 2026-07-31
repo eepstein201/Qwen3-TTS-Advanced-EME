@@ -60,9 +60,9 @@ class TestUIHistoryFunctions(unittest.TestCase):
         self.assertIsInstance(data, list)
         self.assertEqual(len(data), 1)
         self.assertIsInstance(data[0], list)
-        # [time, mode, text, seed, chunks, remove] — Remove (✕) column added for
-        # per-row delete via column-aware on_history_select.
-        self.assertEqual(len(data[0]), 6)
+        # [time, mode, text, seed, chunks, remove, download] — Remove (✕) and
+        # Download (⭳) columns for per-row actions via column-aware on_history_select.
+        self.assertEqual(len(data[0]), 7)
 
     def test_history_text_truncation(self):
         """Long text is truncated in history entries."""

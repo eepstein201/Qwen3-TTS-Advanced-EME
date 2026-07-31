@@ -344,31 +344,13 @@ def _generate_server_side(mode, text, history_list, stream_config):
         if used_seed is None:
             used_seed = payload.get("seed")
 
-        # Copy to user's output directory for persistent access
-        from qwen3_tts.core.config import safe_path_join
-
+        # Copy to the web-UI Automated Output folder for persistent access.
         config = load_config()
-        # Security: validate output_directory against traversal
-        output_raw = config.get("output_directory", "~/Downloads")
-        output_expanded = os.path.expanduser(output_raw)
-        if os.path.isabs(output_expanded):
-            if ".." in output_expanded:
-                raise ValueError(
-                    f"Path traversal detected in output_directory config: {output_raw}"
-                )
-            output_dir = output_expanded
-        else:
-            output_dir = safe_path_join(os.getcwd(), output_expanded)
+        from qwen3_tts.interface.ui.shared import ensure_history_dirs
 
-        # Verify output_dir is under home directory
-        home = os.path.realpath(os.path.expanduser("~"))
-        resolved = os.path.realpath(output_dir)
-        if not (resolved == home or resolved.startswith(home + os.sep)):
-            raise ValueError(
-                f"output_directory must be under home directory: {output_raw}"
-            )
-
-        os.makedirs(output_dir, exist_ok=True)
+        # Web-UI generations go to Automated Output so Remove can safely delete
+        # them; resolve_* already enforces home containment and rejects traversal.
+        output_dir, _ = ensure_history_dirs(config)
         persistent_path = os.path.join(output_dir, filename)
         shutil.copy2(temp_path, persistent_path)
 

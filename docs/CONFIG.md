@@ -61,7 +61,8 @@ Every table below reflects `get_default_config()` defaults.
 | `default_voice_description` | string | `"A calm, friendly male voice with clear articulation and moderate pace."` | Default description used in Design mode. |
 | `default_clone_prompt` | string | `"default_clone.pt"` | Default voice-clone prompt filename. |
 | `default_speaker` | string | `"ryan"` | Default premium speaker for Custom mode. |
-| `output_directory` | string | `"~/Downloads"` | Default output directory for generated audio. |
+| `output_directory` | string | `"~/Downloads"` | Default output directory for **CLI**-generated audio. |
+| `history_output_directory` | string | `"~/Downloads/Qwen3-TTS Output"` | Parent for **web-UI** output. Generations land in its `Automated Output/` subfolder (with `.json` sidecars); per-row Download copies land in `Manual Downloads/`. Distinct from `output_directory`. |
 | `language` | string | `"English"` | Language for text processing / tokenization. |
 
 ### `server`
@@ -215,15 +216,21 @@ Use with `tts "..." -v default`. List them with `tts list aliases`.
 
 ## Config Validation
 
-`validate_config()` checks values on load and fills in missing sections. Rules:
+`validate_config()` runs on load: it returns a **corrected copy** (the input is never mutated) and fills in any missing `security.rate_limits` block. It only corrects these fields:
 
-- `advanced.backend` ∈ `{"mlx", "torch", "vllm"}`
-- `advanced.model_size` ∈ `{"1.7B", "0.6B"}`
-- `advanced.mlx_quantization` ∈ `{"4bit", "5bit", "6bit", "8bit", "bf16"}`
-- `advanced.torch_quantization` ∈ `{"none", "8bit", "4bit"}`
-- `advanced.audio_loader` ∈ `{"torchaudio", "librosa"}`
-- `generation.max_chunk_chars` in `0`–`10000`
-- Rate-limit strings must match `<count>/<unit>` with a positive count.
+- `advanced.backend` ∈ `{"mlx", "torch", "vllm"}` — else the platform default
+- `advanced.model_size` ∈ `{"1.7B", "0.6B"}` — else `"1.7B"`
+- `advanced.vllm_gpu_memory_utilization` in `(0.0, 1.0]` — else `0.7`
+- `advanced.vllm_port` an int in `[1024, 65535]` — else `null`
+- `generation.temperature` in `[0.0, 2.0]` — else the built-in default
+- `security.max_text_length` a positive int — else `50000`
+- `security.rate_limits.*` must match `<count>/<unit>` with a positive count — else the per-key default; a missing `rate_limits` block is added.
+
+These related values are **not** handled by `validate_config()` — they are resolved elsewhere:
+
+- `advanced.mlx_quantization` / `advanced.torch_quantization`: read through `get_mlx_quantization()` / `get_torch_quantization()`, which fall back to the default (`"8bit"` / `"none"`) when unset or invalid.
+- `advanced.audio_loader` ∈ `{"torchaudio", "librosa"}`: validated by `set_audio_loader()` when changed via `/update-model-config` (raises on any other value), not at config load.
+- `generation.max_chunk_chars`: no config-time clamp; `0` disables chunking. The intended input range is `0`–`10000`.
 
 ## Runtime Config Overrides
 

@@ -230,7 +230,7 @@ You can configure your backend permanently via `tts config` or `config.json`.
 1.  **MLX (Apple Silicon):** Native macOS backend. Uses `.wav` + `.txt` file pairs for cloning. Quantization options: `4bit`, `5bit`, `6bit`, `8bit` (default), `bf16`.
 2.  **PyTorch:** Standard backend. Auto-detects Flash Attention 2 on Ampere+ GPUs.
 3.  **vLLM-Omni (Linux/NVIDIA):** 3-4x faster throughput. Safely managed via POSIX process groups to prevent zombie VRAM leaks.
-    * *Usage:* `tts server start --backend vllm`
+    * *Usage:* set the backend first — `tts config edit --backend vllm` (or `TTS_BACKEND=vllm`) — then `tts server start` (`tts server start` accepts only `--public` / `--foreground`).
 
 ---
 
@@ -251,6 +251,8 @@ Run `tts ui` to launch a local browser interface with tabs for Cloning, Designin
 ```bash
 tts ui --port 8080 --share  # Run on custom port and generate public URL
 ```
+
+**Where web-UI output goes:** generations are saved under `history_output_directory` (default `~/Downloads/Qwen3-TTS Output`) in an `Automated Output/` subfolder, each with a `.json` sidecar. In Recent Generations, **Remove** permanently deletes the file from disk (two-step, path-keyed confirm), and **Download** copies the `.wav` into a `Manual Downloads/` subfolder (confirm only on a name collision). CLI generation output (`output_directory`, default `~/Downloads`) is unaffected.
 
 ### Python API
 You can integrate Qwen3-TTS directly into your Python apps.
@@ -408,7 +410,7 @@ tts uninstall models    # Remove downloaded models (~10GB)
 tts uninstall voices    # Remove voice prompts
 tts uninstall config    # Remove config.json
 tts uninstall all       # Full cleanup (everything above)
-tts uninstall environment  # Remove conda envs
+tts uninstall environment  # Print conda-env removal commands (does not remove them)
 ```
 
 ---

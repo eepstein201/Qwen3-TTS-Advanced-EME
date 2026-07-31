@@ -314,5 +314,34 @@ class TestEdgeCases(unittest.TestCase):
         self.assertIsNone(result[0])
 
 
+class TestGenerationSavesIntoAutomatedOutput(unittest.TestCase):
+    """Web-UI generations must land in Automated Output, not flat in ~/Downloads."""
+
+    def test_history_scan_reads_the_automated_output_subdir(self):
+        import os
+        import tempfile
+        from unittest.mock import patch
+
+        from qwen3_tts.interface.ui import shared
+
+        with tempfile.TemporaryDirectory(dir=os.path.expanduser("~")) as tmp:
+            automated = os.path.join(tmp, "Automated Output")
+            os.makedirs(automated)
+            wav = os.path.join(automated, "voice_ui_abc123.wav")
+            with open(wav, "wb") as f:
+                f.write(b"RIFF" + b"\x00" * 40)
+            with open(os.path.join(automated, "voice_ui_abc123.json"), "w") as f:
+                f.write('{"timestamp": 1.0, "mode": "clone", "text": "hi", "seed": 42}')
+
+            with patch.object(
+                shared, "resolve_automated_output_dir", return_value=automated
+            ):
+                history = shared.load_history_from_disk_for_config({})
+
+        self.assertEqual(len(history), 1)
+        self.assertEqual(history[0]["seed"], 42)
+        self.assertTrue(history[0]["path"].endswith("voice_ui_abc123.wav"))
+
+
 if __name__ == "__main__":
     unittest.main()
