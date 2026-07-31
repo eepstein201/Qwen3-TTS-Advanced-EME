@@ -100,6 +100,26 @@ def _find_start_server_cell() -> str:
     raise AssertionError("Start-server cell not found")
 
 
+def _find_launch_cell() -> str:
+    """Return the Gradio launch cell source (calls demo.launch with share=True)."""
+    cells = _load_notebook_cells()
+    for cell in cells:
+        src = _cell_source(cell)
+        if "demo.launch" in src and "share=True" in src:
+            return src
+    raise AssertionError("Launch cell (demo.launch + share=True) not found")
+
+
+def _find_voice_clone_cell() -> str:
+    """Return the voice-clone cell source (calls create_and_save_voice_prompt)."""
+    cells = _load_notebook_cells()
+    for cell in cells:
+        src = _cell_source(cell)
+        if "create_and_save_voice_prompt" in src:
+            return src
+    raise AssertionError("Voice-clone cell (create_and_save_voice_prompt) not found")
+
+
 def _pyproject_dep_universe() -> set[str]:
     """Return the union of base deps + required extras from pyproject.toml.
 
@@ -203,6 +223,35 @@ class TestDepsDrift:
         for dep in ("slowapi", "psutil", "pyloudnorm", "rich"):
             assert dep in universe, f"{dep!r} must be declared in pyproject.toml extras"
 
+    def test_fallback_deps_gradio_floor(self):
+        """The hand-curated fallback DEPS must pin gradio >=6 and exclude 6.14.*.
+
+        Targets the multi-line ``DEPS = ( ... )`` literal (the except-branch
+        fallback), not the primary ``DEPS = " ".join(...)`` path. Catches the
+        stale-fallback regression where a broken pyproject parse would install
+        gradio 5.x (wrong major) instead of 6.x.
+        """
+        src = _find_setup_cell()
+        fallback = re.search(r"DEPS\s*=\s*\((.*?)\)", src, re.DOTALL)
+        if not fallback:
+            pytest.skip("No fallback DEPS literal (primary path derives from pyproject.toml)")
+        block = fallback.group(1)
+        gradio = re.search(r'gradio([^"]*)', block)
+        assert gradio, "Fallback DEPS must pin gradio"
+        spec = gradio.group(1)
+        assert ">=6" in spec, f"Fallback gradio pin must require >=6 (got 'gradio{spec}')"
+        assert "6.14" in spec, (
+            "Fallback gradio pin must exclude 6.14.* (Dataframe recursion build)"
+        )
+
+    def test_setup_cell_installs_rubberband(self):
+        """The apt line must install rubberband-cli (pyrubberband shells out to it)."""
+        src = _find_setup_cell()
+        assert "rubberband-cli" in src, (
+            "Setup cell apt line must install rubberband-cli "
+            "(pyrubberband needs the binary; without it the librosa fallback is used)."
+        )
+
 
 # ---------------------------------------------------------------------------
 # Settings surface tests
@@ -292,6 +341,47 @@ class TestFailureDiagnostics:
                 f"Setup cell's verification block must import {name!r} "
                 f"so a missing install is caught immediately."
             )
+
+
+# ---------------------------------------------------------------------------
+# Voice-clone cell tests
+# ---------------------------------------------------------------------------
+
+
+class TestVoiceCloneCell:
+    def test_transcript_not_passed_as_none(self):
+        """The clone cell must not coerce transcript to None.
+
+        ``transcript=<x> or None`` passes None when the transcript is empty,
+        crashing ``create_voice.py`` (``f.write(transcript)`` ->
+        ``TypeError: write() argument must be str, not None``). The cell is
+        broken by default until the user types a transcript.
+        """
+        src = _find_voice_clone_cell()
+        assert not re.search(r"transcript\s*=\s*\w+\s+or\s+None", src), (
+            "Voice-clone cell passes `transcript=<x> or None`, which crashes when "
+            "the transcript is empty. Pass transcript=<x> directly."
+        )
+
+
+# ---------------------------------------------------------------------------
+# Launch cell tests
+# ---------------------------------------------------------------------------
+
+
+class TestLaunchCell:
+    def test_allowed_paths_covers_history_output(self):
+        """Launch allowed_paths must include the web-UI output root.
+
+        Generations save under ``~/Downloads/Qwen3-TTS Output/`` (the
+        ``history_output_directory`` default). Gradio only serves files under an
+        explicit allowed_path, so the root must be listed.
+        """
+        src = _find_launch_cell()
+        assert "Qwen3-TTS Output" in src, (
+            "Launch cell allowed_paths must include '~/Downloads/Qwen3-TTS Output' "
+            "(the history_output_directory root) so generations are served."
+        )
 
 
 # ---------------------------------------------------------------------------
