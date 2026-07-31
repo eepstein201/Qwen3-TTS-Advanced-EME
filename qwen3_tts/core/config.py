@@ -305,7 +305,12 @@ def get_default_config(current_config: dict | None = None) -> dict:
     current = current_config or {}
     return {
         "default_voice_description": "A calm, friendly male voice with clear articulation and moderate pace.",
-        "default_clone_prompt": "default_clone.pt",
+        # None, not a filename: no prompt ships with the package, so any seeded
+        # name is a dangling reference. get_default_clone_prompt() treats a
+        # falsy value and a missing file identically — both fall through to the
+        # backend-aware scan for the first usable prompt on disk — so None is
+        # behaviour-preserving and honest about shipping no default.
+        "default_clone_prompt": None,
         "default_speaker": "ryan",
         "output_directory": "~/Downloads",
         # Web-UI generation history lives under its own parent so app-managed
@@ -369,9 +374,14 @@ def get_default_config(current_config: dict | None = None) -> dict:
             "creative": {"temperature": 0.9, "top_p": 0.98},
         },
         "ui": {"port": 7860},
-        "aliases": {
-            "default": {"prompt": "default_clone.pt", "preset": "consistent"},
-        },
+        # Ship no aliases. The former seeded "default" alias pointed at
+        # default_clone.pt, which does not exist in any install, and the alias
+        # path (interface/generate.py: `alias_prompt or get_default_clone_prompt`)
+        # short-circuits the missing-prompt fallback — so `tts --alias default`
+        # raised FileNotFoundError on every fresh install. A .pt prompt is also
+        # torch-only and wrong for the default MLX backend. Users create their
+        # own aliases; an empty table cannot mislead.
+        "aliases": {},
         "cache": {
             "voice_prompt_max": 10,
             "generation_max": 5,
