@@ -23,7 +23,7 @@ import urllib.error
 import urllib.request
 
 # Auto-toggle helper for universal E2E test support
-from tests.e2e_helpers import playwright_enabled
+from tests.e2e_helpers import assert_supported_gradio, playwright_enabled
 
 # Web-UI generations land in the Automated Output subfolder, not flat in
 # ~/Downloads — must track qwen3_tts/interface/ui/shared.py's resolver.
@@ -454,6 +454,10 @@ class TestE2EPlaywright(unittest.TestCase):
 
     @classmethod
     def setUpClass(cls):
+        # The UI subprocess below inherits sys.executable, so guard the gradio
+        # version BEFORE anything is measured against it.
+        assert_supported_gradio()
+
         if not _is_server_running():
             raise unittest.SkipTest("TTS server not running on port 5123")
 
@@ -1017,27 +1021,48 @@ class TestE2EPlaywright(unittest.TestCase):
     def test_13_history_row_populates_seed_in_all_tabs(self):
         """Clicking a history row broadcasts its seed to the seed field in all three tabs.
 
-        KNOWN QUARANTINED (re-investigated 2026-07-30, Tasks 8): the planned fix —
-        re-deriving history_df from disk in both demo.load() and each generation
-        chain — is implemented and verified SERVER-SIDE correct: instrumented
-        runs show both writers return the freshly-submitted seed (42) as the
-        newest row, and the on-disk sidecar carries seed 42. Yet the BROWSER
-        persistently renders this run's row with a stale seed (12345) that no
-        current Python handler produces and that exists on disk only under
-        unrelated, older text. The rendered table also stays at one row while
-        the server sends ten. Two fixes were attempted and neither closed it:
-        (1) backend disk re-derive in the chain, (2) a gr.Timer that re-fetches
-        history_df from disk (the model-badge Timer pattern). The Dataframe
-        does not reflect the backend value regardless of delivery source — a
-        Gradio frontend/State rendering anomaly. The generation is a server
-        cache hit (instant), which may be a contributing factor. Leaving this
-        hard-asserted would red a known, diagnosed frontend issue; it skips
-        until the frontend rendering is addressed (likely a Dataframe component
-        swap or a deeper State-binding fix).
+        This test was quarantined 2026-07-30 as a "Gradio renders a stale seed"
+        product bug. That diagnosis was wrong, and the record is kept here so it
+        is not repeated: the test was reading the WRONG TABLE.
+
+        Gradio 6 renders a phantom stale ``<table>`` from previous component
+        state, and the real history grid is div-based -- its cells carry
+        ``data-row``/``data-col`` attributes and it is NOT a ``<table>`` element
+        at all. The old read walked ``document.querySelectorAll('table')`` and
+        took ``rows[0]``, which could only ever find the phantom. An
+        instrumented probe settled it: the sole ``<table>`` in the DOM had 1 row
+        and no ``data-row`` cells and showed the stale ``12345``, while
+        ``[data-row="0"][data-col="3"]`` in the real 10-row grid showed the
+        freshly-submitted ``42``. The backend was correct all along -- which is
+        why the three backend "fixes" (chain disk re-derive, demo.load
+        re-derive, gr.Timer re-fetch) all appeared to fail; they were being
+        graded against the phantom.
+
+        Two sibling helpers in this file already documented the phantom and
+        defend against it (``get_table_data`` de-dupes keeping the last row,
+        ``wait_for_table_row`` matches the last occurrence), as does
+        ``tests/test_e2e_history_clear_copy.py``, which counts
+        ``[data-col="0"][data-row]`` cells precisely because they exist only in
+        the real table. This test now uses that same selector family for both
+        its read and its click.
+
+        Row identity is the composite key timestamp + text, taken from the
+        on-disk JSON sidecar. Text alone is not a key: the same text can be
+        regenerated with different prosody and an identical seed, producing
+        rows that differ only by timestamp (and several older rows on disk
+        already share this test's former fixed text AND seed 42). The Seed is
+        excluded from the lookup and asserted against the sidecar instead --
+        if it were part of the wait, the assertion would be tautological.
         """
+        import datetime as _datetime
+
+        # Unique per run so the row lookup cannot be satisfied by an older row
+        # that happens to share this test's text and seed (several do on disk).
+        marker = f"Seed broadcast row click test {int(time.time())}."
+
         # Generate with a specific seed so history contains a non-empty seed value
         self.gp.click_tab("Clone Mode")
-        self.gp.fill_textbox("Text Input", "Seed broadcast row click test.")
+        self.gp.fill_textbox("Text Input", marker)
         self._open_advanced_settings()
         self._fill_seed_field(42)  # Use 42 as a traceable seed
         self.gp.click_button("Generate")
@@ -1047,34 +1072,46 @@ class TestE2EPlaywright(unittest.TestCase):
         status = self.gp.get_status_text()
         self.assertIn("Generated:", status, f"Generation failed: {status}")
 
-        # Wait for the history table to update (generation chain has .then() for history)
-        self.page.wait_for_timeout(3000)
+        # The on-disk sidecar is the source of truth for what the row SHOULD
+        # show. Comparing the rendered row against it (rather than against
+        # hardcoded literals) is what makes this a real UI-vs-backend check.
+        sidecar = self._read_sidecar_for_status(status)
+        self.assertIsNotNone(
+            sidecar, f"No JSON sidecar found for status {status!r}"
+        )
+        expected_time = _datetime.datetime.fromtimestamp(
+            sidecar["timestamp"]
+        ).strftime("%H:%M:%S")
+        expected_seed = str(sidecar["seed"])
 
-        # Read the actual seed stored in the history row (column index 3: Time, Mode, Text, Seed, Chunks)
-        seed_in_history = self.page.evaluate("""() => {
-            var tables = document.querySelectorAll('table');
-            for (var i = 0; i < tables.length; i++) {
-                if (!tables[i].closest('[role="tabpanel"]')) {
-                    var rows = tables[i].querySelectorAll('tbody tr');
-                    if (rows.length > 0) {
-                        var cells = rows[0].querySelectorAll('td');
-                        return cells.length > 3 ? cells[3].textContent.trim() : null;
-                    }
-                }
-            }
-            return null;
-        }""")
-        self.assertIsNotNone(seed_in_history, "No history row found after generation")
+        # Identify THIS run's row by the composite key timestamp + text. Text
+        # alone is not a key: the same text can be regenerated with different
+        # prosody and an identical seed, producing several indistinguishable
+        # rows. The seed is deliberately NOT part of the lookup -- waiting on
+        # it would make the assertion below tautological.
+        self._wait_for_history_row(expected_time, marker)
 
-        if seed_in_history != "42":
-            self.skipTest(
-                f"Known frontend history_df render anomaly (see test docstring): "
-                f"expected the just-submitted seed '42' in the history row, got "
-                f"{seed_in_history!r} — the server returns 42 (verified) but the "
-                f"browser's Dataframe renders a stale value. Neither a backend "
-                f"disk re-derive nor a gr.Timer re-fetch closed it. Not a "
-                f"seed-propagation defect."
-            )
+        # Read the whole row from the REAL grid. Must use [data-row]/[data-col]:
+        # Gradio 6 also renders a phantom stale <table> with no such attributes
+        # -- see this test's docstring.
+        row0 = self._read_history_row(0)
+        self.assertIsNotNone(row0[0], "No history row found after generation")
+
+        # Assert the full identity, then the value under test.
+        self.assertEqual(
+            row0[0], expected_time,
+            f"History row 0 Time should be {expected_time!r}, got {row0[0]!r}",
+        )
+        self.assertIn(
+            marker, row0[2] or "",
+            f"History row 0 Text should contain {marker!r}, got {row0[2]!r}",
+        )
+        seed_in_history = row0[3]
+        self.assertEqual(
+            seed_in_history, expected_seed,
+            f"History row 0 Seed should match the sidecar ({expected_seed!r}), "
+            f"got {seed_in_history!r}",
+        )
 
         # Click the seed cell in the first history row to trigger
         # on_history_select, which emits (audio_path, seed, seed, seed) into
@@ -1109,6 +1146,73 @@ class TestE2EPlaywright(unittest.TestCase):
         cell.scroll_into_view_if_needed()
         cell.click(force=True)
         self.page.wait_for_timeout(1000)
+
+    def _read_history_cell(self, row=0, col=0):
+        """Read one cell of the REAL history grid.
+
+        Deliberately uses the same [data-row]/[data-col] selector family as
+        _click_history_cell. Gradio 6 renders a phantom stale <table> from
+        previous component state; it carries no data-row/data-col attributes,
+        so this selector can only ever match the real grid. Reading via
+        document.querySelectorAll('table') instead is what made this test
+        report a nonexistent "stale seed" bug for two sessions.
+        """
+        cell = self.page.query_selector(f'[data-row="{row}"][data-col="{col}"]')
+        return cell.inner_text().strip() if cell else None
+
+    def _read_history_row(self, row=0, cols=7):
+        """Read a whole history row as a list of cell strings (None if absent)."""
+        return [self._read_history_cell(row=row, col=c) for c in range(cols)]
+
+    def _wait_for_history_row(self, expected_time, expected_text, row=0,
+                              timeout=30_000):
+        """Wait for a history row matching the composite key time + text.
+
+        Text alone does not identify a row: the same text can be regenerated
+        with different prosody and an identical seed, yielding several rows
+        that differ only by timestamp. Callers pass the timestamp from the
+        on-disk sidecar (formatted %H:%M:%S to match the Time column).
+
+        The Seed cell is intentionally excluded so that callers asserting on
+        the seed are not merely re-checking their own wait condition.
+        """
+        self.page.wait_for_function(
+            """([rowIdx, wantTime, wantText]) => {
+                var t = document.querySelector(
+                    '[data-row="' + rowIdx + '"][data-col="0"]'
+                );
+                var x = document.querySelector(
+                    '[data-row="' + rowIdx + '"][data-col="2"]'
+                );
+                return !!t && !!x
+                    && t.textContent.trim() === wantTime
+                    && x.textContent.indexOf(wantText) !== -1;
+            }""",
+            arg=[str(row), expected_time, expected_text],
+            timeout=timeout,
+        )
+
+    def _read_sidecar_for_status(self, status):
+        """Load the JSON sidecar for the generation named in a status line.
+
+        Status reads "Generated: <basename.wav>"; the sidecar is the same
+        basename with a .json suffix under HISTORY_OUTPUT_DIR. Returns None if
+        the basename is unusable or the file is missing.
+        """
+        import json as _json
+
+        basename = status.replace("Generated:", "").strip().split("\n")[0].strip()
+        if not basename or os.path.splitext(basename)[1] not in (
+            ".wav", ".mp3", ".flac"
+        ):
+            return None
+        json_path = os.path.join(
+            HISTORY_OUTPUT_DIR, os.path.splitext(basename)[0] + ".json"
+        )
+        if not os.path.exists(json_path):
+            return None
+        with open(json_path) as fh:
+            return _json.load(fh)
 
 
 if __name__ == "__main__":

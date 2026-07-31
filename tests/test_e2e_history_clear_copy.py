@@ -24,6 +24,8 @@ import unittest
 import urllib.error
 import urllib.request
 
+from tests.e2e_helpers import assert_supported_gradio
+
 try:
     import pytest
     pytestmark = pytest.mark.e2e
@@ -109,6 +111,10 @@ class TestE2EHistoryClearCopy(unittest.TestCase):
 
     @classmethod
     def setUpClass(cls):
+        # The UI subprocess below inherits sys.executable, so guard the gradio
+        # version BEFORE anything is measured against it.
+        assert_supported_gradio()
+
         # Kill any stale UI on our port
         import socket
         with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
@@ -294,15 +300,55 @@ class TestE2EHistoryClearCopy(unittest.TestCase):
         self.assertEqual(self._reset_calls(), 0)
 
     def test_02_remove_row_shows_status_and_clears_waveform(self):
-        """Clicking ✕ removes the row, shows a VISIBLE 'removed' status, and
-        resets the waveform."""
+        """Removing a row is a path-keyed TWO-STEP confirm.
+
+        The first ✕ click only arms it (cell relabels to "Confirm?", warning
+        status, row still present); a second click on the SAME row within
+        DELETE_CONFIRM_TIMEOUT_S hard-deletes the file and drops the row.
+
+        This test previously clicked once and asserted the row was gone, which
+        was correct before the output-folder feature introduced the confirm
+        step — test_03 below was updated for Clear All's two-step, this one was
+        missed. Status assertions are read non-blockingly between the clicks so
+        the 5s confirm window is not spent waiting on a poll.
+        """
         before = self._history_row_count()
         self.assertGreaterEqual(before, 1)
+
+        # --- step 1: arm ---
         self._click_history_cell(row=0, col=5)  # Remove (✕)
 
+        self.assertIn(
+            "within 5s", self._visible_status_text(),
+            "first ✕ click should show the arming warning, not delete",
+        )
+        self.assertEqual(
+            self._history_row_count(), before,
+            "arming must not remove the row",
+        )
+        self.assertEqual(
+            self._remove_cell_label(row=0), "Confirm?",
+            "armed row's Remove cell should relabel to Confirm?",
+        )
+
+        # --- step 2: confirm (inside the 5s window) ---
+        self._click_history_cell(row=0, col=5)
+
         self.assertEqual(self._history_row_count(), before - 1, "row was not removed")
-        self._wait_for_visible_status("removed", timeout=10_000)
+        self._wait_for_visible_status("Deleted", timeout=10_000)
         self.assertGreater(self._reset_calls(), 0, "waveform was not reset on delete")
+
+    def _remove_cell_label(self, row=0):
+        """Text of a row's Remove cell — the glyph, or 'Confirm?' when armed."""
+        return self.page.evaluate(
+            """(rowIdx) => {
+                var c = document.querySelector(
+                    '[data-row="' + rowIdx + '"][data-col="5"]'
+                );
+                return c ? c.textContent.trim() : null;
+            }""",
+            str(row),
+        )
 
     def test_03_clear_all_two_step_with_visible_status(self):
         """Clear All is a two-step confirm with VISIBLE hints, then empties the

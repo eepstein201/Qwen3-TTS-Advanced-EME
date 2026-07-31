@@ -19,11 +19,48 @@ Usage:
 
 import contextlib
 import json
+import sys
 from collections.abc import Callable
 from functools import wraps
 from pathlib import Path
 
 MCP_CONFIG_PATH = Path(".claude/.mcp.json")
+
+# Gradio versions whose Dataframe frontend is known-broken. pyproject.toml
+# already excludes 6.14.* from the dependency resolution, but that pin only
+# governs managed installs — see assert_supported_gradio().
+BANNED_GRADIO_PREFIXES = ("6.14.",)
+
+
+def assert_supported_gradio() -> None:
+    """Fail fast if the interpreter about to launch the UI has a banned gradio.
+
+    E2E harnesses start the Gradio UI as ``subprocess.Popen([sys.executable, ...])``,
+    so the version actually under test is whichever interpreter ran pytest — NOT
+    whatever the project pins. A bare ``python -m pytest`` can resolve to a pyenv
+    shim carrying gradio 6.14.x, whose Dataframe frontend recurses infinitely
+    (see CLAUDE.md); any Dataframe result gathered there is untrustworthy. This
+    cost two sessions once, chasing a phantom "stale seed" bug.
+
+    Raises:
+        RuntimeError: if the resolved gradio version is known-broken.
+    """
+    try:
+        import gradio
+    except ImportError:
+        # Nothing to launch with; each harness has its own skip path for that.
+        return
+
+    version = getattr(gradio, "__version__", "")
+    if version.startswith(BANNED_GRADIO_PREFIXES):
+        raise RuntimeError(
+            f"E2E would launch the Gradio UI under gradio {version} via "
+            f"{sys.executable}, which pyproject.toml excludes (!=6.14.*) because "
+            f"its Dataframe frontend recurses infinitely. The UI subprocess "
+            f"inherits this interpreter, so results here are not trustworthy. "
+            f"Re-run naming the environment explicitly, e.g.:\n"
+            f"    conda run -n qwen3-tts-mlx python -m pytest <target> -m e2e"
+        )
 
 
 def _set_playwright(enabled: bool) -> None:
