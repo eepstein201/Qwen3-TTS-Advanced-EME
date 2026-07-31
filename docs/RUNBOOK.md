@@ -212,6 +212,14 @@ cp config.json config.json.backup
 tar -czf voice_prompts_backup.tar.gz voice_prompts/
 ```
 
+**Web-UI output backup:**
+```bash
+# Web-UI generations land in <history_output_directory>/Automated Output/
+# (default ~/Downloads/Qwen3-TTS Output). User-curated "Download" copies
+# land in Manual Downloads/. Back up the parent to cover both.
+tar -czf tts_output_backup.tar.gz ~/Downloads/"Qwen3-TTS Output"/
+```
+
 #### Model Cache Backup
 
 **List cached models:**

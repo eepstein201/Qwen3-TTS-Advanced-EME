@@ -115,7 +115,7 @@ config.json → qwen3_tts.core.config → qwen3_tts.core.engine (dispatch)
 | `qwen3_tts/tools/model_cache.py` | HuggingFace cache management (list, size, prune, clear) | No |
 | `qwen3_tts/tools/healthcheck.py` | Installation health checks (deps, config, server) | No |
 | `qwen3_tts/tools/uninstall.py` | Uninstall utilities (models, voices, config, all) | No |
-| `qwen3_tts/tools/solid_analyzer.py` | SOLID-principle compliance analyzer; scores each principle with line-number violations (`tts solid-score`) | No |
+| `qwen3_tts/tools/solid_analyzer.py` | SOLID-principle compliance analyzer; scores each principle with line-number violations (`make solid-score` → `python -m qwen3_tts.tools.solid_analyzer`) | No |
 | `qwen3_tts/cli.py` | Click entry point — imports command groups from sibling modules | No (all lazy) |
 | `qwen3_tts/cli_server.py` | Server CLI group: start, stop, restart, status, log, stats | No |
 | `qwen3_tts/cli_voice.py` | Voice CLI group + list group: voice CRUD, list speakers/presets | No |

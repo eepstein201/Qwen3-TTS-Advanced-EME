@@ -6,50 +6,55 @@ This document contains detailed architectural reference extracted from CLAUDE.md
 
 ```json
 {
-  "default_voice_description": "...",
-  "default_clone_prompt": "my_voice.pt",
+  "default_voice_description": "A calm, friendly male voice ...",
+  "default_clone_prompt": "default_clone.pt",
+  "default_speaker": "ryan",
   "output_directory": "~/Downloads",
+  "history_output_directory": "~/Downloads/Qwen3-TTS Output",
   "language": "English",
   "server": { "host": "127.0.0.1", "port": 5123, "auto_shutdown_minutes": 0 },
   "models": {
-    "clone": { "load_at_startup": true },
-    "design": { "load_at_startup": false },
-    "custom": { "load_at_startup": false }
+    "clone":  { "load_at_startup": true,  "revision": "main" },
+    "design": { "load_at_startup": false, "revision": "main" },
+    "custom": { "load_at_startup": false, "revision": "main" }
   },
-  "security": { "max_text_length": 50000, "max_batch_size": 20 },
+  "security": {
+    "max_text_length": 50000, "max_batch_size": 20,
+    "rate_limits": { "generate": "20/minute", "model_ops": "3/minute",
+                     "transcribe": "15/minute", "prompt_ops": "10/minute",
+                     "config_ops": "1/minute" }
+  },
+  "advanced": {
+    "dtype": "bfloat16", "backend": "mlx", "model_size": "1.7B",
+    "mlx_quantization": "8bit", "torch_quantization": "none",
+    "audio_loader": "torchaudio",
+    "vllm_enabled": false, "vllm_fallback_to_torch": true
+  },
+  "vllm": {
+    "enabled": false, "fallback_to_torch": true, "max_model_len": 8192,
+    "audio_sample_rate": 24000, "audio_chunk_size": 2000,
+    "gpu_memory_utilization": 0.9, "tensor_parallel_size": 1,
+    "mm_processor_name": "Qwen/Qwen2-Audio-7B-Instruct",
+    "port": null, "dtype": "bfloat16"
+  },
   "generation": {
     "temperature": 0.7, "top_k": 50, "top_p": 0.95,
-    "repetition_penalty": 1.05, "seed": null, "max_chunk_chars": 500,
-    "max_new_tokens": 2048, "compile_model": true
-  },
-  "prompt_enhancer": {
-    "enabled": false, "provider": "anthropic",
-    "api_key_env": "ANTHROPIC_API_KEY", "model": "claude-haiku-4-5-20251001"
+    "repetition_penalty": 1.05, "seed": null,
+    "max_chunk_chars": 500, "max_chunk_tokens": 200, "max_new_tokens": 2048,
+    "compile_model": true,
+    "lufs_normalize": false, "lufs_target": -16.0, "silence_gap_seconds": 0.0
   },
   "presets": {
     "consistent": { "temperature": 0.5, "top_k": 30, "seed": 42 },
-    "creative": { "temperature": 0.9, "top_p": 0.98 }
+    "creative":   { "temperature": 0.9, "top_p": 0.98 }
   },
-  "prosody_presets": {
-    "excited": "Speak with excitement and high energy",
-    "calm": "Speak in a calm, soothing, relaxed manner",
-    "whisper": "Speak in a soft whisper", ...
-  },
+  "prosody_presets": { "excited": "...", "calm": "...", "whisper": "...", ... },
   "ui": { "port": 7860 },
   "aliases": { "default": { "prompt": "default_clone.pt", "preset": "consistent" } },
-  "cache": {
-    "voice_prompt_max": 10, "generation_max": 5, "eta_ttl_seconds": 30
-  },
-  "default_speaker": "ryan",
-  "advanced": {
-    "dtype": "bfloat16",
-    "backend": "mlx",
-    "mlx_quantization": "8bit",
-    "torch_quantization": "none",
-    "model_size": "1.7B",
-    "audio_loader": "torchaudio",
-    "vllm_gpu_memory_utilization": 0.7,
-    "vllm_port": null
+  "cache": { "voice_prompt_max": 10, "generation_max": 5, "eta_ttl_seconds": 30 },
+  "prompt_enhancer": {
+    "enabled": false, "provider": "anthropic",
+    "api_key_env": "ANTHROPIC_API_KEY", "model": "claude-haiku-4-5-20251001"
   }
 }
 ```
@@ -233,7 +238,6 @@ Multi-agent review (8 agents, 56 deduplicated findings). **P1+P2 implemented** (
 - Audit logging for auth failures (R-26)
 - Configurable silence gap between chunks (R-27)
 - `_normalize_text` logs warnings instead of bare except:pass
-- `torch.load` deprecation warning for TTS_ALLOW_UNSAFE_PICKLE
 - `_expand_currency` handles decimals ($5.99 → five dollars and ninety-nine cents)
 
 ### TDD Code Audit fixes (2026-03-07)

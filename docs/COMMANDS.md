@@ -1,6 +1,6 @@
 # Qwen3-TTS Command Reference
 
-> **AUTO-GENERATED** from `pyproject.toml` and `Makefile`. Do not edit manually.
+> Install, testing, and code-quality tables are derived from `pyproject.toml` and the `Makefile`; the `tts` command tables are curated against the Click CLI (`qwen3_tts/cli*.py`). Reconcile against `tts --help` when the CLI changes.
 
 ## Installation & Setup Commands
 
@@ -23,10 +23,6 @@
 | `tts "TEXT"` | Generate audio from text (default command) |
 | `tts generate "TEXT"` | Explicit generate command |
 | `tts ui` | Launch Gradio web interface |
-| `tts server start` | Start persistent model server (port 5123) |
-| `tts server stop` | Graceful server shutdown |
-| `tts server status` | Show server health, models, and memory usage |
-| `tts server log` | Tail server log file |
 | `tts stats` | Show server statistics (memory, cache, history) |
 
 ## Voice Management Commands
@@ -51,7 +47,7 @@
 |---------|-------------|
 | `tts config` | Run interactive configuration wizard |
 | `tts config show` | Show current settings |
-| `tts config edit` | Edit config.json directly |
+| `tts config edit` | Set individual settings via flags (`--backend`, `--model-size`, `--mlx-quantization`, `--torch-quantization`, `--language`, `--output-dir`, `--voice-description`); with no flags, interactively prompts for the voice description only. Does not open `config.json` in an editor — use `tts config path` to locate it. |
 | `tts config path` | Print config.json file path |
 | `tts list models` | Show models and load status |
 | `tts list backends` | Show available backends (torch, mlx, vllm) |
@@ -147,6 +143,15 @@ All generation commands support these options (use `tts generate --help` for ful
 | `--backend` | Override backend (torch, mlx) |
 | `--model-size` | Override model size (1.7B, 0.6B) |
 | `--local` | Force local generation (skip server) |
+| `--normalize` | Normalize audio to -3dB peak |
+| `--trim-silence` | Trim leading/trailing silence |
+| `--repetition-penalty` | Repetition penalty |
+| `--max-chunk-chars` | Max chars per chunk (0 disables chunking) |
+| `--max-new-tokens` | Max new tokens per chunk |
+| `--ssml` | Enable SSML markup parsing |
+| `--clipboard` | Read text from clipboard |
+| `--no-open` | Don't open the output file |
+| `--dry-run` | Show what would be generated without running |
 
 ## Server Commands
 
