@@ -184,7 +184,7 @@ class TestClientCapturesSeed(unittest.TestCase):
             client._generate_via_server(
                 text="hello",
                 mode="clone",
-                prompt="lsmith.pt",
+                prompt="sample_voice.pt",
                 description=None,
                 speaker=None,
                 instruct=None,
