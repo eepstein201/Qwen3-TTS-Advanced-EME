@@ -76,9 +76,16 @@ Option 1 is recommended: the shipped alias adds no value and its only effect tod
 hard failure. Add a regression test asserting every prompt referenced by
 `get_default_config()` either exists or resolves through the fallback.
 
-### P0-2 — `test_vllm_concurrent_integration.py` is a false green
+### P0-2 — `test_vllm_concurrent_integration.py` is a false green — ✅ DONE (2026-07-31)
 
 **Severity: Medium · Blast radius: test signal integrity · Risk to fix: Very low · Effort: 5 min**
+
+**Resolved:** file deleted; guard added as `tests/test_async_test_hygiene.py` (registered in
+`BATCHES` batch 1). Suite went 2500 → 2499 excluding the guard, 2502 including its 3 tests;
+`RuntimeWarning: coroutine ... was never awaited` count is now 0 under `-W error::RuntimeWarning`.
+The guard covers both false-green shapes — `async def test_*` on a plain `TestCase`, and unmarked
+bare coroutine tests (pytest-asyncio `strict` mode) — and was verified to fire on a synthetic probe
+for each while ignoring `IsolatedAsyncioTestCase`, `@pytest.mark.asyncio`, and nested `asyncio.run`.
 
 The file is a no-op **twice over**:
 
@@ -194,7 +201,7 @@ CLI command bodies and split cleanly into validate / apply / report phases.
 
 ## Recommended sequence
 
-1. **P0-2** (delete the false-green test + add the `async def` meta-guard) — 5 min, zero risk, immediately makes the suite honest.
+1. ~~**P0-2** (delete the false-green test + add the `async def` meta-guard)~~ — ✅ done 2026-07-31.
 2. **P0-1** (fix the shipped alias + regression test) — the only real user-facing defect found.
 3. **P1-2** (dead code / DRY) — small, self-contained, clears a known wart.
 4. **P1-1** (E2E sleep conversion) — highest ongoing payoff; do it before the next feature so future failures are trustworthy.

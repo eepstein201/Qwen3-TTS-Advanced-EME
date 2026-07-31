@@ -262,6 +262,8 @@ python tests/run_batches.py --list     # List batches
 
 2163+ tests across 108 modules. No GPU, models, or running server required (except E2E). Tests auto-skip when optional deps are missing.
 
+**`async def test_*` must never sit on a plain `unittest.TestCase`** — unittest does not await it, so the body never runs yet the test reports **ok** (it also emits `RuntimeWarning: coroutine ... was never awaited`). Use `unittest.IsolatedAsyncioTestCase`, or `@pytest.mark.asyncio` outside a TestCase (pytest-asyncio is in `strict` mode; unmarked coroutine tests are skipped). Both false-green shapes are guarded statically by `tests/test_async_test_hygiene.py`. New test modules must also be added to `BATCHES` in `tests/run_batches.py` — that list is explicit, not discovery-based, so an unregistered module silently never runs in the batch gates.
+
 **Static gates:** `ruff check qwen3_tts tests` (config in `.ruff.toml`), `mypy qwen3_tts/{core,server,interface}` (config in `pyproject.toml`; FastAPI `app.py` + vLLM modules excluded), `bandit -r qwen3_tts -c pyproject.toml` (target: 0 HIGH). All ship in the `dev` extra.
 
 **Log level:** Controlled by `TTS_LOG_LEVEL` env var (default `INFO`). Set `TTS_LOG_LEVEL=DEBUG` for verbose output.
