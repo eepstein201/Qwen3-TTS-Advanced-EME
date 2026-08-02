@@ -114,9 +114,16 @@ Option 1 is recommended: the shipped alias adds no value and its only effect tod
 hard failure. Add a regression test asserting every prompt referenced by
 `get_default_config()` either exists or resolves through the fallback.
 
-### P0-2 — `test_vllm_concurrent_integration.py` is a false green
+### P0-2 — `test_vllm_concurrent_integration.py` is a false green — ✅ DONE (2026-07-31)
 
 **Severity: Medium · Blast radius: test signal integrity · Risk to fix: Very low · Effort: 5 min**
+
+**Resolved:** file deleted; guard added as `tests/test_async_test_hygiene.py` (registered in
+`BATCHES` batch 1). Suite went 2500 → 2499 excluding the guard, 2502 including its 3 tests;
+`RuntimeWarning: coroutine ... was never awaited` count is now 0 under `-W error::RuntimeWarning`.
+The guard covers both false-green shapes — `async def test_*` on a plain `TestCase`, and unmarked
+bare coroutine tests (pytest-asyncio `strict` mode) — and was verified to fire on a synthetic probe
+for each while ignoring `IsolatedAsyncioTestCase`, `@pytest.mark.asyncio`, and nested `asyncio.run`.
 
 The file is a no-op **twice over**:
 
