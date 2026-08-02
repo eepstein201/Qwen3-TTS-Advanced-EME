@@ -694,6 +694,7 @@ class TestMainEntryPoint(unittest.TestCase):
             "/fake/audio.wav", "Test transcript", "my_voice",
             test_generation=False,
             mlx_only=False,
+            x_vector_only_mode=False,
         )
 
     @mock.patch("qwen3_tts.tools.create_voice.create_and_save_voice_prompt")
@@ -769,6 +770,93 @@ class TestMainEntryPoint(unittest.TestCase):
 # R-43: main() argv testability
 # ---------------------------------------------------------------------------
 
+@_skip
+class TestXVectorOnlyModeCreation(unittest.TestCase):
+    """x_vector_only_mode must flow through the voice-prompt-creation stack.
+
+    Proves the gating answer for task #15: qwen_tts.create_voice_clone_prompt
+    accepts empty ref_text under x_vector_only_mode (the speaker embedding is
+    still extracted from the audio; ref_code is set to None upstream). The flag
+    must therefore be plumbed from create_voice_prompt through
+    create_and_save_voice_prompt to the --no-transcript CLI path.
+    """
+
+    def test_create_voice_prompt_forwards_x_vector_only_mode(self):
+        """create_voice_prompt forwards x_vector_only_mode to the upstream API."""
+        from qwen3_tts.core.engine.inference import create_voice_prompt
+
+        mock_model = mock.MagicMock()
+        mock_model.create_voice_clone_prompt.return_value = ["PROMPT"]
+        ref_audio = np.zeros(24000, dtype=np.float32)
+
+        create_voice_prompt(
+            mock_model, ref_audio, 24000, transcript="", x_vector_only_mode=True
+        )
+
+        mock_model.create_voice_clone_prompt.assert_called_once()
+        kwargs = mock_model.create_voice_clone_prompt.call_args.kwargs
+        self.assertIs(
+            kwargs.get("x_vector_only_mode"),
+            True,
+            "x_vector_only_mode=True must reach the upstream model API",
+        )
+
+    def test_create_voice_prompt_defaults_to_false(self):
+        """Without the flag, create_voice_prompt must not enable x-vector-only mode."""
+        from qwen3_tts.core.engine.inference import create_voice_prompt
+
+        mock_model = mock.MagicMock()
+        mock_model.create_voice_clone_prompt.return_value = ["PROMPT"]
+        ref_audio = np.zeros(24000, dtype=np.float32)
+
+        create_voice_prompt(mock_model, ref_audio, 24000, transcript="hi")
+
+        kwargs = mock_model.create_voice_clone_prompt.call_args.kwargs
+        self.assertFalse(kwargs.get("x_vector_only_mode", False))
+
+    @mock.patch("qwen3_tts.core.engine.run_inference")
+    @mock.patch("qwen3_tts.core.engine.create_voice_prompt")
+    @mock.patch("qwen3_tts.core.engine.load_model")
+    def test_create_and_save_forwards_x_vector_only_mode(
+        self, mock_load, mock_create_vp, mock_inference
+    ):
+        """create_and_save_voice_prompt forwards the flag to create_voice_prompt."""
+        from qwen3_tts.tools.create_voice import create_and_save_voice_prompt
+
+        mock_load.return_value = mock.MagicMock()
+        mock_create_vp.return_value = mock.MagicMock()
+        mock_torch = mock.MagicMock()
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            audio_path = os.path.join(tmpdir, "ref.wav")
+            import soundfile as sf  # noqa: F401  — exercise the real loader path
+            sf.write(audio_path, np.zeros(16000, dtype=np.float32), 16000)
+            prompts_dir = os.path.join(tmpdir, "prompts")
+            os.makedirs(prompts_dir)
+
+            with mock.patch(
+                "qwen3_tts.tools.create_voice.VOICE_PROMPTS_DIR", prompts_dir
+            ), mock.patch(
+                "qwen3_tts.tools.create_voice.USER_FILES_DIR", tmpdir
+            ), mock.patch.dict(sys.modules, {"torch": mock_torch}):
+                create_and_save_voice_prompt(
+                    audio_path,
+                    "",
+                    "xvec_voice",
+                    test_generation=False,
+                    mlx_only=False,
+                    x_vector_only_mode=True,
+                )
+
+            mock_create_vp.assert_called_once()
+            _, kwargs = mock_create_vp.call_args
+            self.assertIs(
+                kwargs.get("x_vector_only_mode"),
+                True,
+                "x_vector_only_mode=True must reach create_voice_prompt",
+            )
+
+
 class TestCreateVoiceMainArgv:
     """R-43: main() must accept optional argv param (pytest-style)."""
 
@@ -805,6 +893,32 @@ class TestCreateVoiceMainArgv:
 
         result = main(argv=["nonexistent_file.wav", "-n", "x", "--no-transcript"])
         assert isinstance(result, int)
+
+    def test_main_passes_x_vector_only_mode_when_no_transcript(self, tmp_path):
+        """--no-transcript must set x_vector_only_mode=True on the creator.
+
+        Previously --no-transcript printed "Using x-vector only mode" but never
+        passed the flag, so upstream raised 'ref_text is required when
+        x_vector_only_mode=False' — the path was silently broken.
+        """
+        from qwen3_tts.tools import create_voice
+
+        audio = tmp_path / "ref.wav"
+        import numpy as np
+        import soundfile as sf
+        sf.write(str(audio), np.zeros(16000, dtype=np.float32), 16000)
+
+        with mock.patch.object(create_voice, "create_and_save_voice_prompt") as mock_save:
+            mock_save.return_value = str(audio)
+            rc = create_voice.main(
+                argv=[str(audio), "-n", "xv", "--no-test", "--no-transcript"]
+            )
+
+        assert rc == 0
+        mock_save.assert_called_once()
+        assert mock_save.call_args.kwargs.get("x_vector_only_mode") is True, (
+            "--no-transcript must flow to x_vector_only_mode=True"
+        )
 
 
 if __name__ == "__main__":

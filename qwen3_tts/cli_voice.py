@@ -71,10 +71,15 @@ def voice_list():
 @click.option("-t", "--transcript", help="Transcript text")
 @click.option("--mlx-only", is_flag=True, help="Save only MLX format (no torch needed)")
 @click.option(
+    "--force-torch",
+    is_flag=True,
+    help="Force .pt creation (torch) even when MLX backend is active",
+)
+@click.option(
     "--no-transcript", is_flag=True, help="Skip transcript (use speaker embedding only)"
 )
 @click.option("--auto-transcribe", is_flag=True, help="Auto-transcribe with ASR")
-def create(audio, name, transcript, mlx_only, no_transcript, auto_transcribe):
+def create(audio, name, transcript, mlx_only, force_torch, no_transcript, auto_transcribe):
     """Create a voice clone from reference audio."""
     argv = []
     if audio:
@@ -85,6 +90,8 @@ def create(audio, name, transcript, mlx_only, no_transcript, auto_transcribe):
         argv.extend(["-t", transcript])
     if mlx_only:
         argv.append("--mlx-only")
+    if force_torch:
+        argv.append("--force-torch")
     if no_transcript:
         argv.append("--no-transcript")
     if auto_transcribe:
@@ -222,7 +229,9 @@ def rebuild(name):
                 import torch
 
                 ref_audio, ref_sr = load_audio_for_cloning(wav_path)
-                voice_prompt = create_voice_prompt(model, ref_audio, ref_sr, transcript)
+                voice_prompt = create_voice_prompt(
+                    model, ref_audio, ref_sr, transcript, x_vector_only_mode=not transcript
+                )
                 torch.save(voice_prompt, pt_path)
                 click.echo(f"  {base}: rebuilt ({os.path.getsize(pt_path)} bytes)")
                 rebuilt += 1

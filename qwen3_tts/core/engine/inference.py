@@ -1066,7 +1066,11 @@ def run_inference_streaming(
 
 
 def create_voice_prompt(
-    model: Any, ref_audio: Any, ref_sr: int, transcript: str
+    model: Any,
+    ref_audio: Any,
+    ref_sr: int,
+    transcript: str,
+    x_vector_only_mode: bool = False,
 ) -> Any:
     """Create a reusable voice-clone prompt from reference audio.
 
@@ -1074,7 +1078,12 @@ def create_voice_prompt(
         model: Loaded clone (Base) model.
         ref_audio: numpy array of reference audio (mono).
         ref_sr: Sample rate of reference audio.
-        transcript: Text transcript of the reference audio.
+        transcript: Text transcript of the reference audio. Ignored by the
+            upstream API when x_vector_only_mode=True (speaker-embedding-only).
+        x_vector_only_mode: If True, build a transcript-free prompt using only
+            the speaker embedding (x-vector). ref_text may be empty; upstream
+            sets ref_code=None and stores the flag inside the prompt so later
+            generation runs in x-vector-only mode.
 
     Returns:
         Voice prompt tensor (suitable for torch.save / generate_voice_clone).
@@ -1086,14 +1095,16 @@ def create_voice_prompt(
         ref_audio = np.mean(ref_audio, axis=-1).astype(np.float32)
 
     logger.info(
-        "Creating voice prompt: %.1fs audio, %d char transcript",
+        "Creating voice prompt: %.1fs audio, %d char transcript (x_vector_only_mode=%s)",
         len(ref_audio) / ref_sr,
         len(transcript),
+        x_vector_only_mode,
     )
 
     voice_prompt = model.create_voice_clone_prompt(
         ref_audio=(ref_audio, ref_sr),
         ref_text=transcript,
+        x_vector_only_mode=x_vector_only_mode,
     )
     return voice_prompt
 

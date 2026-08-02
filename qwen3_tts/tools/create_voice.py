@@ -25,7 +25,12 @@ from qwen3_tts.core.config import (
 
 
 def create_and_save_voice_prompt(
-    audio_path, transcript, prompt_name, test_generation=True, mlx_only=False
+    audio_path,
+    transcript,
+    prompt_name,
+    test_generation=True,
+    mlx_only=False,
+    x_vector_only_mode=False,
 ):
     """Create a voice clone prompt from audio and transcript.
 
@@ -35,6 +40,9 @@ def create_and_save_voice_prompt(
         prompt_name: Name for the prompt (with or without .pt extension).
         test_generation: Run a test generation after creating the prompt.
         mlx_only: If True, only save .wav + .txt (no .pt, no torch needed).
+        x_vector_only_mode: If True, create a transcript-free
+            (speaker-embedding-only) prompt. The .txt is written empty and the
+            torch .pt stores the flag so generation runs in x-vector-only mode.
     """
     import soundfile as sf  # lazy — not needed at module import time
     from pydub import AudioSegment  # lazy — only used for non-wav format fallback
@@ -97,7 +105,9 @@ def create_and_save_voice_prompt(
     model = load_model("clone")
 
     print("\nCreating voice clone prompt...")
-    voice_prompt = create_voice_prompt(model, ref_audio, ref_sr, transcript)
+    voice_prompt = create_voice_prompt(
+        model, ref_audio, ref_sr, transcript, x_vector_only_mode=x_vector_only_mode
+    )
 
     output_path = safe_path_join(VOICE_PROMPTS_DIR, prompt_name)
     torch.save(voice_prompt, output_path)
@@ -120,6 +130,7 @@ def create_and_save_voice_prompt(
             },
             language="English",
             voice_prompt=voice_prompt,
+            x_vector_only_mode=x_vector_only_mode,
         )
 
         test_output = safe_path_join(USER_FILES_DIR, f"test_{base_name}.wav")
@@ -332,6 +343,7 @@ def main(argv=None):
             prompt_name,
             test_generation=not args.no_test and not use_mlx_only,
             mlx_only=use_mlx_only,
+            x_vector_only_mode=args.no_transcript,
         )
         return 0
     except SystemExit as e:
