@@ -252,6 +252,27 @@ class TestDepsDrift:
             "(pyrubberband needs the binary; without it the librosa fallback is used)."
         )
 
+    def test_setup_cell_does_not_reinstall_torch(self):
+        """Colab's CUDA-matched torch must not be reinstalled from PyPI.
+
+        Colab ships a torch built for its CUDA driver (e.g. ``2.13.0+cu130``).
+        Passing an explicit ``torch>=...`` to ``uv pip install --system``
+        overwrites the ``+cuXXX`` wheel and corrupts torch internals
+        (``ImportError: cannot import name '_chunk_or_narrow_cat' from
+        'torch._utils'`` → ``import transformers`` fails). The Setup cell must
+        filter torch/torchaudio out of the install set so uv resolves torch
+        transitively (keeping a consistent CUDA build) instead of forcing a
+        reinstall. Regression observed live on Colab 2026-07-31.
+        """
+        src = _find_setup_cell()
+        assert re.search(
+            r'startswith\(\(\s*["\']torch["\']\s*,\s*["\']torchaudio["\']',
+            src,
+        ), (
+            "Setup cell must filter torch/torchaudio out of DEPS before install "
+            "(reinstalling from PyPI corrupts Colab's CUDA-matched torch)."
+        )
+
 
 # ---------------------------------------------------------------------------
 # Settings surface tests
