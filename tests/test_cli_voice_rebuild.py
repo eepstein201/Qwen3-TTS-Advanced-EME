@@ -108,6 +108,31 @@ def test_rebuild_empty_transcript_uses_x_vector_only_mode(tmp_path):
     )
 
 
+def test_voice_create_click_forwards_force_torch():
+    """The Click 'voice create' wrapper must accept and forward --force-torch.
+
+    Previously --force-torch was rejected by Click ('No such option') even
+    though the argparse main() accepts it, so users on the MLX backend could
+    not force .pt creation via `tts voice create`.
+    """
+    from qwen3_tts.tools import create_voice
+
+    captured = {}
+
+    def fake_main():
+        captured["argv"] = sys.argv[:]
+        return 0
+
+    runner = CliRunner()
+    with patch.object(create_voice, "main", side_effect=fake_main):
+        result = runner.invoke(voice, ["create", "audio.wav", "-n", "x", "--force-torch"])
+
+    assert result.exit_code == 0, result.output
+    assert "--force-torch" in captured["argv"], (
+        "Click 'voice create' must forward --force-torch to create_voice.main()"
+    )
+
+
 def test_is_pt_valid_registers_safe_globals(tmp_path):
     """_is_pt_valid must add VoiceClonePromptItem to torch safe globals.
 
