@@ -25,6 +25,7 @@ import urllib.error
 import urllib.request
 
 from tests.e2e_helpers import assert_supported_gradio
+from tests.e2e_helpers import poll_until as _poll_until
 
 try:
     import pytest
@@ -229,8 +230,17 @@ class TestE2EHistoryClearCopy(unittest.TestCase):
         """
         cell = self.page.locator(f'[data-row="{row}"][data-col="{col}"]').first
         cell.scroll_into_view_if_needed(timeout=10_000)
+        before = self._visible_status_text()
         cell.click(force=True)
-        self.page.wait_for_timeout(1500)
+        # Every caller of this helper (Text Preview, and both halves of the
+        # Remove two-step confirm) reads the visible status straight after,
+        # so "status differs from before the click" is the shared completion
+        # signal — the 1.5s sleep was a guess at the same thing.
+        #
+        # Tolerated on timeout: a click that legitimately leaves the status
+        # unchanged must not fail here, and the caller's own assertion gives
+        # the better message.
+        _poll_until(lambda: self._visible_status_text() != before, timeout=10.0)
 
     def _visible_status_text(self):
         """Return concatenated text of all VISIBLE role=status regions.
@@ -288,6 +298,13 @@ class TestE2EHistoryClearCopy(unittest.TestCase):
         # truncated distinction is asserted in test_ui_facade.py
         # (test_text_preview_column_copies_full_transcript) — here we only
         # confirm the JS side-effect actually wrote to the clipboard.
+        #
+        # Wait for the write explicitly. The clipboard call is a *separate*
+        # async effect from the status update that _click_history_cell waits
+        # on, and it can land after it — this read used to be covered only by
+        # that helper's blind 1.5s sleep, which is exactly the coupling P1-1
+        # set out to remove.
+        _poll_until(lambda: self._clipboard_values(), timeout=10.0)
         clips = self._clipboard_values()
         self.assertGreater(len(clips), 0, "clipboard.writeText was not called")
         self.assertTrue(clips[-1], f"copied text is empty: {clips[-1]!r}")
