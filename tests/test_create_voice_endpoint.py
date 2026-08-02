@@ -156,6 +156,13 @@ class TestCreateVoicePromptEndpoint(unittest.TestCase):
         self.assertEqual(resp.status_code, 200)
         data = resp.json()
         self.assertEqual(data["status"], "created")
+        # no_transcript must flow to x_vector_only_mode so upstream doesn't
+        # raise 'ref_text is required when x_vector_only_mode=False'.
+        mock_create.assert_called_once()
+        self.assertEqual(mock_create.call_args.args[3], "")  # transcript
+        self.assertIs(
+            mock_create.call_args.kwargs.get("x_vector_only_mode"), True
+        )
 
 
 @pytest.mark.unit

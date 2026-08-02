@@ -393,6 +393,7 @@ def handle_create_voice_prompt(state, req):
             ref_audio,
             ref_sr,
             transcript,
+            x_vector_only_mode=req.no_transcript,
         )
 
         # Save the .pt file

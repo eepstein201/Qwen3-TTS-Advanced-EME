@@ -73,7 +73,9 @@ def _auto_create_pt_from_wav(
     from qwen3_tts.core.engine.model_loader import load_model
 
     model = load_model("clone")
-    voice_prompt = create_voice_prompt(model, ref_audio, ref_sr, transcript)
+    voice_prompt = create_voice_prompt(
+        model, ref_audio, ref_sr, transcript, x_vector_only_mode=not transcript
+    )
     torch.save(voice_prompt, prompt_path)
     logger.info("Auto-created and saved %s", sanitize_log(prompt_path))
     _store_in_torch_cache(prompt_file, voice_prompt)
@@ -247,7 +249,9 @@ def migrate_orphan_mlx_prompts(clone_model=None):
                 # Lazy import to avoid circular dependency
                 from qwen3_tts.core.engine.inference import create_voice_prompt
 
-                voice_prompt = create_voice_prompt(model, ref_audio, ref_sr, transcript)
+                voice_prompt = create_voice_prompt(
+                    model, ref_audio, ref_sr, transcript, x_vector_only_mode=not transcript
+                )
                 import torch  # lazy: only needed when saving .pt
 
                 torch.save(voice_prompt, pt_path)

@@ -369,6 +369,7 @@ def _build_design_tab(status_html, history_state, clone_prompt):
                             voice_name,
                             test_generation=False,
                             mlx_only=mlx_only,
+                            x_vector_only_mode=True,
                         )
                         prompts = shared.get_voice_prompts()
                         return f"Saved voice prompt: {voice_name}", gr.update(

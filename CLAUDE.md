@@ -2,7 +2,7 @@
 
 Text-to-speech system with voice cloning, built on Qwen3-TTS. Three modes: clone (from audio), design (from description), custom (9 premium speakers). Runs on Mac (MLX/torch), Linux, and Google Colab (CUDA).
 
-Features: pyrubberband audio processing (with librosa fallback), prosody presets for Custom/Design modes, x_vector_only_mode for transcript-free cloning, web-UI output folders (Automated Output for generations, Manual Downloads for kept files) with per-row Remove (hard-deletes the file, path-keyed two-step confirm) and Download (copies to Manual Downloads).
+Features: pyrubberband audio processing (with librosa fallback), prosody presets for Custom/Design modes, x_vector_only_mode for transcript-free cloning (generation + voice-prompt creation), web-UI output folders (Automated Output for generations, Manual Downloads for kept files) with per-row Remove (hard-deletes the file, path-keyed two-step confirm) and Download (copies to Manual Downloads).
 
 ## Rules
 

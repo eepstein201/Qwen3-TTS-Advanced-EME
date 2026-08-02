@@ -222,7 +222,9 @@ def rebuild(name):
                 import torch
 
                 ref_audio, ref_sr = load_audio_for_cloning(wav_path)
-                voice_prompt = create_voice_prompt(model, ref_audio, ref_sr, transcript)
+                voice_prompt = create_voice_prompt(
+                    model, ref_audio, ref_sr, transcript, x_vector_only_mode=not transcript
+                )
                 torch.save(voice_prompt, pt_path)
                 click.echo(f"  {base}: rebuilt ({os.path.getsize(pt_path)} bytes)")
                 rebuilt += 1

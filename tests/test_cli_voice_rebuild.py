@@ -72,6 +72,42 @@ def test_rebuild_mlx_with_qwen_tts_forces_torch_backend(tmp_path):
     assert os.environ.get("TTS_BACKEND") == env_before
 
 
+def test_rebuild_empty_transcript_uses_x_vector_only_mode(tmp_path):
+    """A prompt with an empty .txt must rebuild with x_vector_only_mode=True.
+
+    Otherwise upstream raises 'ref_text is required when
+    x_vector_only_mode=False' — rebuilding an x-vector-only prompt would crash.
+    """
+    (tmp_path / "foo.wav").write_bytes(b"RIFF")
+    (tmp_path / "foo.txt").write_text("")  # empty → x-vector-only
+    prompts_dir = str(tmp_path)
+
+    captured = {}
+
+    def fake_create(*args, **kwargs):
+        captured["kwargs"] = kwargs
+        return MagicMock()
+
+    runner = CliRunner()
+    with patch("qwen3_tts.core.config.VOICE_PROMPTS_DIR", prompts_dir), \
+         patch("qwen3_tts.core.config.get_backend", return_value="mlx"), \
+         patch("qwen3_tts.cli_voice._torch_available", return_value=True), \
+         patch("qwen3_tts.core.engine.model_loader.load_model",
+               return_value=MagicMock()), \
+         patch("qwen3_tts.core.engine.inference.create_voice_prompt",
+               side_effect=fake_create), \
+         patch("qwen3_tts.core.engine.audio_processing.load_audio_for_cloning",
+               return_value=(MagicMock(), 16000)), \
+         patch.dict(sys.modules, {"torch": _fake_torch()}):
+        result = runner.invoke(voice, ["rebuild"])
+
+    assert result.exit_code == 0, result.output
+    assert captured["kwargs"].get("x_vector_only_mode") is True, (
+        "empty transcript must rebuild as x_vector_only_mode=True "
+        "(otherwise upstream raises ref_text required)"
+    )
+
+
 def test_is_pt_valid_registers_safe_globals(tmp_path):
     """_is_pt_valid must add VoiceClonePromptItem to torch safe globals.
 
