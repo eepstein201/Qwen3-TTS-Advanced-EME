@@ -20,9 +20,35 @@ Usage:
 import contextlib
 import json
 import sys
+import time
 from collections.abc import Callable
 from functools import wraps
 from pathlib import Path
+
+
+def poll_until(predicate, timeout=15.0, interval=0.25):
+    """Poll *predicate* until it returns truthy. Returns the value, or None.
+
+    The Python-side counterpart to ``page.wait_for_function`` for conditions
+    the browser cannot observe — files appearing on disk, or Gradio component
+    contents simpler to read through a page object than to re-express as JS.
+    Prefer ``wait_for_function`` when the condition IS in the DOM; a fixed
+    ``page.wait_for_timeout`` is neither, and is the flakiness source this
+    exists to replace (see docs/plans/repo-audit-2026-07-31.md, P1-1).
+
+    Swallows predicate exceptions so a not-yet-rendered element polls rather
+    than aborting; callers assert on the outcome.
+    """
+    deadline = time.time() + timeout
+    while time.time() < deadline:
+        try:
+            result = predicate()
+            if result:
+                return result
+        except Exception:
+            pass
+        time.sleep(interval)
+    return None
 
 MCP_CONFIG_PATH = Path(".claude/.mcp.json")
 

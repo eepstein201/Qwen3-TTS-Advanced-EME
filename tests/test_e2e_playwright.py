@@ -23,7 +23,13 @@ import urllib.error
 import urllib.request
 
 # Auto-toggle helper for universal E2E test support
-from tests.e2e_helpers import assert_supported_gradio, playwright_enabled
+from tests.e2e_helpers import (
+    assert_supported_gradio,
+    playwright_enabled,
+)
+from tests.e2e_helpers import (
+    poll_until as _poll_until,
+)
 
 # Web-UI generations land in the Automated Output subfolder, not flat in
 # ~/Downloads — must track qwen3_tts/interface/ui/shared.py's resolver.
@@ -197,9 +203,32 @@ class GradioPage:
         )
 
     def click_tab(self, tab_name):
-        """Click a Gradio tab by its button text."""
+        """Click a Gradio tab by its button text, then wait for it to activate.
+
+        Both halves of the condition matter. The button flips aria-selected
+        synchronously, but Gradio 6 mounts tabpanels lazily, so the panel
+        appears a frame or more later — and every downstream locator here
+        scopes to ``div[role='tabpanel']:visible``. Waiting on the button
+        alone would still race the panel.
+        """
         self.page.locator("button[role='tab']").filter(has_text=tab_name).first.click()
-        self.page.wait_for_timeout(500)
+        self.page.wait_for_function(
+            """(name) => {
+                var btns = document.querySelectorAll('button[role="tab"]');
+                for (var i = 0; i < btns.length; i++) {
+                    if (btns[i].textContent.indexOf(name) === -1) continue;
+                    if (btns[i].getAttribute('aria-selected') !== 'true') return false;
+                    var panels = document.querySelectorAll('div[role="tabpanel"]');
+                    for (var j = 0; j < panels.length; j++) {
+                        if (panels[j].offsetParent !== null) return true;
+                    }
+                    return false;
+                }
+                return false;
+            }""",
+            arg=tab_name,
+            timeout=15_000,
+        )
 
     def _get_visible_tab_panel(self):
         """Get the currently visible tab panel."""
@@ -295,6 +324,62 @@ class GradioPage:
             timeout=timeout,
         )
 
+    def _wait_for_listbox_open(self, timeout=10_000):
+        """Wait for a dropdown listbox to be mounted, visible and populated.
+
+        ``children.length > 0`` matters: Gradio mounts the <ul> before filling
+        it, so a bare presence check can pass while the options are still
+        empty and the next fill() types into a dead list.
+
+        Visibility is ``getClientRects()``, NOT ``offsetParent``. Gradio 6
+        renders this listbox with ``position: fixed``, and offsetParent is
+        null for fixed elements — so an offsetParent check reads a perfectly
+        visible dropdown as hidden and times out every time (it did: it broke
+        test_09_unload_model, which passes on main).
+        """
+        self.page.wait_for_function(
+            """() => {
+                var lb = document.querySelector('ul[role="listbox"]');
+                return !!lb && lb.getClientRects().length > 0
+                    && lb.children.length > 0;
+            }""",
+            timeout=timeout,
+        )
+
+    def _wait_for_listbox_option(self, value, timeout=10_000):
+        """Wait for an option matching *value* to survive the type-ahead filter."""
+        self.page.wait_for_function(
+            """(want) => {
+                var lis = document.querySelectorAll('ul[role="listbox"] li');
+                if (lis.length === 0) lis = document.querySelectorAll('li');
+                for (var i = 0; i < lis.length; i++) {
+                    if (lis[i].textContent.indexOf(want) !== -1) return true;
+                }
+                return false;
+            }""",
+            arg=value,
+            timeout=timeout,
+        )
+
+    def _wait_for_listbox_closed(self, timeout=10_000):
+        """Wait for the dropdown to collapse, i.e. the selection committed.
+
+        Deliberately checks the listbox rather than the input's value: Gradio
+        dropdowns may display a human label distinct from the submitted value,
+        so asserting the value here would couple the harness to presentation.
+
+        Same ``getClientRects()`` rule as _wait_for_listbox_open — with
+        offsetParent this check would be vacuously true for a fixed-position
+        listbox and wait for nothing.
+        """
+        self.page.wait_for_function(
+            """() => {
+                var lb = document.querySelector('ul[role="listbox"]');
+                return !lb || lb.getClientRects().length === 0;
+            }""",
+            timeout=timeout,
+        )
+
     def select_dropdown(self, label, value):
         """Select a value in a Gradio Dropdown by label."""
         panel = self._get_visible_tab_panel()
@@ -304,15 +389,15 @@ class GradioPage:
             container = panel.locator("label").filter(has_text=label).locator("..").first
             input_el = container.locator("input").first
         input_el.click()
-        self.page.wait_for_timeout(300)
+        self._wait_for_listbox_open()
         input_el.fill(value)
-        self.page.wait_for_timeout(300)
+        self._wait_for_listbox_option(value)
         option = self.page.locator("ul[role='listbox'] li").filter(has_text=value).first
         if option.count() > 0:
             option.click()
         else:
             self.page.locator("li").filter(has_text=value).first.click()
-        self.page.wait_for_timeout(300)
+        self._wait_for_listbox_closed()
 
     def select_dropdown_by_value(self, current_value, new_value):
         """Select a dropdown option by finding the input with a known current value.
@@ -329,15 +414,15 @@ class GradioPage:
                     input_el = inp
                     break
         input_el.click()
-        self.page.wait_for_timeout(300)
+        self._wait_for_listbox_open()
         input_el.fill(new_value)
-        self.page.wait_for_timeout(300)
+        self._wait_for_listbox_option(new_value)
         option = self.page.locator("ul[role='listbox'] li").filter(has_text=new_value).first
         if option.count() > 0:
             option.click()
         else:
             self.page.locator("li").filter(has_text=new_value).first.click()
-        self.page.wait_for_timeout(300)
+        self._wait_for_listbox_closed()
 
     def wait_for_any_textarea_contains(self, substrings, timeout=GEN_TIMEOUT_MS):
         """Wait until ANY textarea in the visible panel contains a substring."""
@@ -687,7 +772,31 @@ class TestE2EPlaywright(unittest.TestCase):
         current_status = self.gp.get_status_text()
         if "Generating" in current_status:
             self.gp.click_button("Stop")
-            self.page.wait_for_timeout(3000)
+            # Wait for the cancel to actually land — status leaves "Generating"
+            # for cancelled/complete/error. Tolerating the timeout is
+            # deliberate: this test only asserts the page stayed responsive,
+            # so a slow cancel must not turn into a failure here.
+            try:
+                self.page.wait_for_function(
+                    """() => {
+                        var panels = document.querySelectorAll('div[role="tabpanel"]');
+                        for (var i = 0; i < panels.length; i++) {
+                            if (panels[i].offsetParent === null) continue;
+                            var labels = panels[i].querySelectorAll('label');
+                            for (var j = 0; j < labels.length; j++) {
+                                if (labels[j].textContent.indexOf('Status') < 0) continue;
+                                var c = labels[j].parentElement;
+                                var ta = c.querySelector('textarea')
+                                      || c.querySelector('input');
+                                if (ta) return ta.value.indexOf('Generating') === -1;
+                            }
+                        }
+                        return false;
+                    }""",
+                    timeout=15_000,
+                )
+            except Exception:
+                pass
 
         # Page should be responsive
         status = self.gp.get_status_text()
@@ -805,12 +914,25 @@ class TestE2EPlaywright(unittest.TestCase):
         _wait_for_model_state("design", loaded=False, timeout=30)
 
         self.gp.click_button("Refresh")
-        self.page.wait_for_timeout(1000)
-        table = self.gp.get_table_data()
-        design_row = [r for r in table if r and r[0].lower().strip() == "design"]
+
+        # This sleep gated the assertion below: a 1s guess that the refreshed
+        # table had rendered. Poll for the row instead — the server already
+        # confirmed unloaded above, so the only thing outstanding is the table
+        # re-render, and a stale row is a real failure rather than a slow one.
+        def _design_row():
+            rows = [
+                r for r in self.gp.get_table_data()
+                if r and r[0].lower().strip() == "design"
+            ]
+            return rows[0] if rows else None
+
+        design_row = _poll_until(
+            lambda: (lambda r: r if r and "Loaded" not in r[1] else None)(_design_row())
+        ) or _design_row()
+
         if design_row:
-            self.assertNotIn("Loaded", design_row[0][1],
-                             f"Design model still loaded. Row: {design_row[0]}")
+            self.assertNotIn("Loaded", design_row[1],
+                             f"Design model still loaded. Row: {design_row}")
 
     def test_10_load_unload_cycle(self):
         """Load then unload a model to verify no state corruption."""
@@ -870,13 +992,26 @@ class TestE2EPlaywright(unittest.TestCase):
         btn = panel.locator("button").filter(has_text="Advanced Settings").first
         if btn.count() == 0:
             return
+        def _wait_expanded():
+            # The accordion's own state, not a guess at animation length.
+            # Tolerated on timeout: some builds omit aria-expanded, and the
+            # seed-field helpers below fail loudly if the panel really is shut.
+            try:
+                self.page.wait_for_function(
+                    """(el) => el.getAttribute('aria-expanded') === 'true'""",
+                    arg=btn.element_handle(),
+                    timeout=10_000,
+                )
+            except Exception:
+                pass
+
         try:
             if btn.get_attribute("aria-expanded") != "true":
                 btn.click()
-                self.page.wait_for_timeout(500)
+                _wait_expanded()
         except Exception:
             btn.click()
-            self.page.wait_for_timeout(500)
+            _wait_expanded()
 
     def _fill_seed_field(self, value):
         """Set the Seed (empty for random) textbox in the current visible tab.
@@ -893,7 +1028,10 @@ class TestE2EPlaywright(unittest.TestCase):
             inp.click(click_count=3)  # select all existing text
             inp.fill(str(value))
             inp.press("Tab")  # commit value via blur/change event
-            self.page.wait_for_timeout(300)
+            # Wait for the Svelte binding to actually hold the value rather
+            # than assuming 300ms was enough — every seed assertion downstream
+            # depends on this having committed.
+            _poll_until(lambda: inp.input_value().strip() == str(value), timeout=10.0)
 
     def _read_seed_field(self):
         """Read the Seed textbox value in the current visible tab.
@@ -962,9 +1100,13 @@ class TestE2EPlaywright(unittest.TestCase):
         # Status contains only the basename; prepend the config output directory.
         basename = status.replace("Generated:", "").strip().split("\n")[0].strip()
         output_dir = HISTORY_OUTPUT_DIR  # web-UI saves to Automated Output (shared.py)
-        self.page.wait_for_timeout(1000)
         if basename and os.path.splitext(basename)[1] in (".wav", ".mp3", ".flac"):
             json_path = os.path.join(output_dir, os.path.splitext(basename)[0] + ".json")
+            # The sidecar is written just after the status flips to
+            # "Generated:", so poll the filesystem for it. wait_for_function
+            # cannot see disk; the old 1s sleep was the only thing standing
+            # between a slow write and a spurious "sidecar not found".
+            _poll_until(lambda: os.path.exists(json_path), timeout=15.0)
             self.assertTrue(
                 os.path.exists(json_path),
                 f"JSON sidecar not found: {json_path}",
@@ -1118,8 +1260,30 @@ class TestE2EPlaywright(unittest.TestCase):
         # the hidden audio component and all three tab seed textboxes.
         self._click_history_cell(row=0, col=3)
 
-        # Wait for the handler + JS player .then() to complete
-        self.page.wait_for_timeout(3000)
+        # Wait for the broadcast itself, not a guess at how long it takes.
+        # on_history_select emits the seed into all three tabs' seed textboxes
+        # at once, so "at least three fields now hold it" is the completion
+        # signal. Counting three (rather than one) keeps this non-vacuous:
+        # the generating tab's field may already contain that seed.
+        #
+        # The timeout is tolerated on purpose — the per-tab assertions below
+        # name the offending tab and both values, which is a far better
+        # failure message than a bare wait timeout.
+        try:
+            self.page.wait_for_function(
+                """(want) => {
+                    var els = document.querySelectorAll('textarea, input');
+                    var n = 0;
+                    for (var i = 0; i < els.length; i++) {
+                        if ((els[i].value || '').trim() === want) n++;
+                    }
+                    return n >= 3;
+                }""",
+                arg=str(seed_in_history),
+                timeout=15_000,
+            )
+        except Exception:
+            pass
 
         # Verify seed was broadcast to all three tabs
         for tab_name in ("Clone Mode", "Design Mode", "Custom Mode"):
@@ -1145,7 +1309,9 @@ class TestE2EPlaywright(unittest.TestCase):
         ).first
         cell.scroll_into_view_if_needed()
         cell.click(force=True)
-        self.page.wait_for_timeout(1000)
+        # No settle here on purpose. The caller knows which effect of
+        # on_history_select it depends on and waits for that condition; a
+        # blind sleep would only add latency to a wait that already polls.
 
     def _read_history_cell(self, row=0, col=0):
         """Read one cell of the REAL history grid.
