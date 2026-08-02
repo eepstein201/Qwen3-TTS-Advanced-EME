@@ -4,6 +4,30 @@ Evidence-based audit of `main` @ `e94b806` (post output-folder merge), run again
 systematic-debugging, e2e-testing, test-coverage, python-testing and python-patterns
 skill checklists. Every finding below was **measured**, not inferred.
 
+## Status — all five P0/P1 findings closed (2026-08-02)
+
+| Finding | Branch | Commit |
+| --- | --- | --- |
+| P0-1 broken shipped alias | `fix/p0-1-default-config-prompt-refs` | `bf5a90b` (fix was already on `main` in `b98501a`; this adds the missing guard) |
+| P0-2 false-green async test | `fix/p0-2-false-green-async-test` | `04377d3` |
+| P1-1 E2E arbitrary sleeps | `fix/p1-1-e2e-condition-polls` | `475617a` |
+| P1-2 dead code + DRY | `fix/p1-2-history-refresh-dry` | `3eb7114` |
+| P1-3 alias prompt resolution | `fix/p1-3-missing-prompt-error` | `1286dd7` |
+
+Each branch is cut from `main` and was verified **standalone**, not merely as part of a
+stack — they merge in any order. Remaining: **P2-1**, **P2-2**, **P3** (untouched).
+
+Two findings surfaced *by* this work and are not yet written up as sections:
+1. **`/health` returns `"status":"ok"` for an unusable server.** During P1-1 the server
+   logged `Inference complete: 22 chars, 7314.2s` — a two-hour generation — while still
+   reporting ok. Every generation-bearing E2E test blew `GEN_TIMEOUT_MS`, which read
+   exactly like a code regression. A health signal that cannot distinguish healthy from
+   catatonic costs real debugging time.
+2. **`test_e2e_playwright._get_auth_token()` reads the legacy `~/.voice_server_token`**,
+   not the canonical `~/.config/qwen3-tts/.voice_server_token`; `.voice_server.log` shows
+   `Auth failure: missing_token ... on POST /unload-model`. Likely contributes to
+   model-management test flakiness. Uninvestigated.
+
 ## Headline
 
 The repo is in good health. All static gates pass, coverage is above target, and the
@@ -123,7 +147,37 @@ guard. Deleting is recommended — an honest absence beats a fake pass.
 `unittest.TestCase` subclass in `tests/` declares an `async def test_*`. This is a
 recurring, silent failure mode.
 
-### P1-1 — E2E leans on arbitrary sleeps
+### P1-1 — E2E leans on arbitrary sleeps — ✅ DONE (2026-08-02)
+
+**Resolved** on `fix/p1-1-e2e-condition-polls` (`475617a`). All **16** call sites
+converted; `grep -c wait_for_timeout` is now 0 in both E2E suites. Each sleep was replaced
+by the condition it stood in for — tab activation, listbox open/option/closed (6 sleeps
+factored into 3 shared helpers), cancel, model-table refresh, accordion state, seed-field
+commit, sidecar-on-disk, and the seed broadcast. `poll_until()` landed in
+`tests/e2e_helpers.py` for conditions the browser cannot see (disk).
+
+Verified on a **freshly restarted** server: full `test_e2e_playwright.py` = 9 passed,
+2 failed, 2 skipped, where the 2 are exactly `test_08` / `test_10` — this doc's own
+known-red set, re-confirmed red on clean `main` the same day.
+`test_e2e_history_clear_copy.py` went 5/5 consecutive green at ~6 s vs 10.5 s before,
+because polls return on the condition instead of always sleeping.
+
+**Two regressions were introduced during the conversion and fixed**, both proven mine by
+stash + re-running the identical command on clean `main`:
+`test_01` read the clipboard with no wait of its own (the clipboard write is a *separate*
+async effect from the status update a status-poll would catch); and `offsetParent` is
+`null` for `position: fixed` elements, which Gradio 6 uses for the dropdown listbox — so
+that check read an open dropdown as hidden and made the mirror "closed" check vacuously
+true. Use `getClientRects().length`.
+
+**Caveat on the 5× criterion below:** met for `test_e2e_history_clear_copy.py` (5/5) and
+for `test_12`+`test_13` (3/3, the contested pair). The remaining `test_e2e_playwright.py`
+tests ran once each in full-suite context — each pass costs ~4.5 min *and* degrades the
+server. If a converted wait flakes later, that is the gap it came through.
+
+The known-red `test_08` / `test_10` were reassessed as this finding suggested: they are
+**not** part of the sleep cluster. Both fail on a 15 s `wait_for_function` on clean `main`,
+independent of this change.
 
 **Severity: Medium · Blast radius: CI trust / wasted sessions · Risk to fix: Low-Medium · Effort: Medium**
 
@@ -139,7 +193,25 @@ assertion (as opposed to cosmetic settle-time after a click). `_wait_for_history
 `test_08_load_model` / `test_10_load_unload_cycle` 15s `wait_for_function` timeouts likely
 belong to this cluster — reassess them after the conversion.
 
-### P1-2 — Dead production code + a DRY violation
+### P1-2 — Dead production code + a DRY violation — ✅ DONE (2026-08-02)
+
+**Resolved** on `fix/p1-2-history-refresh-dry` (`3eb7114`), taking the preferred option
+(wire the facade to the shared function). The two were not quite interchangeable, which is
+*why* they had diverged: the `_facade` closure returned `(history_state, history_df)`
+because the generation chains write both in one step, while the shared function returned
+rows only. `refresh_history_from_disk` now returns both halves, so the duplication has
+nowhere left to hide.
+
+`_facade` calls it module-style (`_shared.refresh_history_from_disk`) so `mock.patch` keeps
+targeting the definition site, per CLAUDE.md on moved-module patch seams — and no `@patch`
+anywhere referenced the old name, checked before moving anything.
+
+The unit test gained an assertion on the **state** half: `_facade` wires it straight into
+`history_state`, so a stale list leaking through would resurrect the exact render race
+`test_13` exists to prevent, and the rows-only assertion would not have caught it.
+
+Verified: full non-E2E suite **2500 passed, 4 skipped — identical to `main`'s baseline**,
+so the refactor is behaviour-preserving.
 
 **Severity: Low · Risk to fix: Very low · Effort: 10 min**
 
@@ -152,7 +224,30 @@ disk-derive logic.
 return), or delete the shared one and let the test target the closure. Wiring is preferred
 — it keeps the unit test meaningful and removes the duplication.
 
-### P1-3 — Alias prompt resolution has no fallback and no friendly error
+### P1-3 — Alias prompt resolution has no fallback and no friendly error — ✅ DONE (2026-08-02)
+
+**Resolved** on `fix/p1-3-missing-prompt-error` (`1286dd7`), but **not** by the
+"fall back" option sketched below — deliberately. Falling back for a prompt the user
+*named* would generate in a different voice than they asked for, with nothing in the
+output saying so. That is worse than failing. `_resolve_prompt_file()` therefore keeps the
+two cases apart:
+
+- **implicit** (nothing named anywhere) → fall back to the backend-aware scan, as before;
+- **explicit** (`--prompt`, or an alias's prompt) → verify it exists, and on a miss print
+  which source named it and `sys.exit(1)`, matching the unknown-alias handler directly
+  above it in the same file.
+
+The existence check moved to `config.prompt_file_exists()` and is now **shared** with
+`get_default_clone_prompt()` rather than copied — applying P1-2's own lesson so the two
+cannot drift. It also now accepts the `.wav` spelling, which `get_default_clone_prompt()`'s
+MLX fallback returns but its check did not recognise (harmless before, since the scan
+returned the same name anyway, but wrong).
+
+Verified: 5 new tests, proven non-vacuous by replaying the old one-liner — **3 of the 5 go
+red**. The other 2 cover the preserved fallback path and correctly pass either way. Full
+suite 2505 passed, 4 skipped; ruff and mypy clean. `test_voice_alias_resolution` needed its
+*fixture* fixed rather than the implementation weakened: it asserts alias dispatch using a
+fake `narrator.pt`, so the new check correctly exited before its assertion ran.
 
 **Severity: Low-Medium · Blast radius: users with hand-written aliases · Risk to fix: Low · Effort: 15 min**
 
@@ -233,13 +328,16 @@ CLI command bodies and split cleanly into validate / apply / report phases.
 
 1. **P0-2** (delete the false-green test + add the `async def` meta-guard) — 5 min, zero risk, immediately makes the suite honest.
 2. ~~**P0-1** (fix the shipped alias + regression test)~~ — ✅ done 2026-07-31 (fix in `b98501a`, guard added after). Residual split out as **P1-3**.
-3. **P1-2** (dead code / DRY) — small, self-contained, clears a known wart.
-4. **P1-1** (E2E sleep conversion) — highest ongoing payoff; do it before the next feature so future failures are trustworthy.
-5. **P2-1 / P2-2** — only as deliberate, isolated PRs. Not alongside feature work.
-6. **P3** — opportunistic.
+3. ~~**P1-2** (dead code / DRY)~~ — ✅ done 2026-08-02 (`3eb7114`).
+4. ~~**P1-1** (E2E sleep conversion)~~ — ✅ done 2026-08-02 (`475617a`). Also closed
+   **P1-3** (`1286dd7`), which was split out of P0-1 mid-sweep.
+5. **P2-1 / P2-2** — only as deliberate, isolated PRs. Not alongside feature work. **Still open.**
+6. **P3** — opportunistic. **Still open.**
 
-Items 1-3 together are well under an hour and carry near-zero regression risk. Item 4 is
-the one that most improves day-to-day signal quality.
+Items 1-4 are complete. The estimate held for P1-2 and P1-3; **P1-1 ran well over** — the
+conversion itself was quick, but two self-inflicted regressions and a degraded server that
+still reported `"status":"ok"` accounted for most of the time. Budget E2E conversions by
+verification cost, not diff size.
 
 ## Verification for each change
 
@@ -254,7 +352,20 @@ the one that most improves day-to-day signal quality.
 - P0-2: suite count must **drop by 1** (2499) — a count that stays at 2500 means the
   no-op test is still being counted.
 - P1-1: run each converted E2E test 5× consecutively; flakiness shows up in repetition,
-  not a single pass.
+  not a single pass. **Partially met — see the caveat in the P1-1 section.** 5/5 for
+  `test_e2e_history_clear_copy.py`, 3/3 for `test_12`+`test_13`, once each in full-suite
+  context for the rest.
+- P1-2: non-E2E suite must stay at exactly the baseline (**2500 passed, 4 skipped**) — a
+  behaviour-preserving refactor that changes the count changed behaviour.
+- P1-3: replay the old `alias_prompt or get_default_clone_prompt(config)` one-liner against
+  the new tests; **3 of 5 must go red**. A guard written against already-fixed code proves
+  nothing — the failure mode P0-2 exists to punish.
 - Always spell out `conda run -n qwen3-tts-mlx` for E2E — a bare `python -m pytest`
   launches the UI under the banned gradio 6.14.0 (now guarded by
   `tests/e2e_helpers.py::assert_supported_gradio`).
+- **Before trusting ANY E2E failure, check `.voice_server.log` inference times, not just
+  `curl /health`.** A server can report `"status":"ok"` while taking 7314 s to synthesise
+  22 characters; every generation-bearing test then blows `GEN_TIMEOUT_MS` and looks like
+  a code regression. Restart the server between full E2E passes — degradation accumulates
+  across load/unload tests, so the failures cluster in the *later* tests and get
+  misattributed to whatever changed most recently.
