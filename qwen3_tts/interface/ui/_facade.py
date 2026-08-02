@@ -411,15 +411,12 @@ def build_ui():
         # order-independent — the sidecar is written before this .then fires, so
         # the fresh entry is always present. Safe only because Remove
         # hard-deletes the file.
-        from qwen3_tts.interface.ui.shared import (
-            get_history_data,
-            load_history_from_disk_for_config,
-        )
+        from qwen3_tts.interface.ui import shared as _shared
 
         def _refresh_history(history_list):
-            config = load_config()
-            entries = load_history_from_disk_for_config(config)
-            return entries, get_history_data(entries)
+            # Module-style call so unittest.mock.patch targets the definition
+            # site (see CLAUDE.md on moved-module patch seams).
+            return _shared.refresh_history_from_disk(history_list, load_config())
 
         for _chain in (clone_chain, design_chain, custom_chain):
             _chain.then(

@@ -28,8 +28,14 @@ def test_refresh_reflects_disk_not_a_stale_in_memory_list(tmp_path, monkeypatch)
     monkeypatch.setattr(
         shared, "resolve_automated_output_dir", lambda config: str(automated)
     )
-    rows = shared.refresh_history_from_disk(stale, {})
+    entries, rows = shared.refresh_history_from_disk(stale, {})
 
     seeds = [r[3] for r in rows]
     assert "42" in seeds, "fresh on-disk entry must appear"
     assert "111" not in seeds, "stale in-memory-only entry must not"
+
+    # The state half must be re-derived from disk too — _facade wires it
+    # straight into history_state, so a stale list leaking through here would
+    # resurrect the render race on the very next event.
+    assert [e.get("seed") for e in entries] == [42]
+    assert all(e.get("path") != "/gone.wav" for e in entries)

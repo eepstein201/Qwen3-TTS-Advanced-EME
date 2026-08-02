@@ -760,7 +760,7 @@ def load_history_from_disk_for_config(config: dict) -> list:
 def refresh_history_from_disk(
     history_list, config, armed_delete_path=None, armed_download_path=None
 ):
-    """Return ``history_df`` rows derived from disk rather than ``history_list``.
+    """Re-derive ``(history_state, history_df)`` from disk, not ``history_list``.
 
     ``demo.load()``'s preload and a generation chain's refresh are independent
     Gradio events with no guaranteed delivery order, so a stale in-memory list
@@ -769,11 +769,16 @@ def refresh_history_from_disk(
     outcome order-independent. ``history_list`` is accepted for API symmetry
     with :func:`get_history_data` but intentionally ignored — disk wins.
 
+    Returns both halves because every caller needs both: the generation chains
+    write them to ``[history_state, history_df]`` in one step. Returning only
+    the rows is what left ``_facade._refresh_history`` open-coding the same
+    two lines (repo-audit-2026-07-31 P1-2).
+
     Safe only because Remove hard-deletes the file: a soft delete would let a
     removed row reappear on the next re-read.
     """
     entries = load_history_from_disk_for_config(config)
-    return get_history_data(
+    return entries, get_history_data(
         entries,
         armed_delete_path=armed_delete_path,
         armed_download_path=armed_download_path,
