@@ -326,7 +326,7 @@ CLI command bodies and split cleanly into validate / apply / report phases.
 
 ## Recommended sequence
 
-1. **P0-2** (delete the false-green test + add the `async def` meta-guard) — 5 min, zero risk, immediately makes the suite honest.
+1. ~~**P0-2** (delete the false-green test + add the `async def` meta-guard)~~ — ✅ done 2026-07-31.
 2. ~~**P0-1** (fix the shipped alias + regression test)~~ — ✅ done 2026-07-31 (fix in `b98501a`, guard added after). Residual split out as **P1-3**.
 3. ~~**P1-2** (dead code / DRY)~~ — ✅ done 2026-08-02 (`3eb7114`).
 4. ~~**P1-1** (E2E sleep conversion)~~ — ✅ done 2026-08-02 (`475617a`). Also closed
