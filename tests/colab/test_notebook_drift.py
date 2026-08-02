@@ -384,6 +384,23 @@ class TestVoiceCloneCell:
             "the transcript is empty. Pass transcript=<x> directly."
         )
 
+    def test_voice_clone_cell_passes_x_vector_for_empty_transcript(self):
+        """The clone cell must pass x_vector_only_mode for empty transcripts.
+
+        The default ``TRANSCRIPT=""`` with no flag makes
+        ``create_and_save_voice_prompt`` raise ``ref_text is required when
+        x_vector_only_mode=False``. The cell must derive ``x_vector_only_mode``
+        from the transcript so the default works (requires PR #117).
+        """
+        src = _find_voice_clone_cell()
+        call = re.search(r"create_and_save_voice_prompt\((.*?)\)", src, re.DOTALL)
+        assert call, "create_and_save_voice_prompt(...) call not found in clone cell"
+        assert "x_vector_only_mode" in call.group(1), (
+            "Voice-clone cell must pass x_vector_only_mode to "
+            "create_and_save_voice_prompt; an empty transcript otherwise "
+            "raises 'ref_text is required when x_vector_only_mode=False'."
+        )
+
 
 # ---------------------------------------------------------------------------
 # Launch cell tests
