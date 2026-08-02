@@ -1,7 +1,7 @@
 # Qwen3-TTS Consolidated Development Roadmap
 
-> **Status:** All P0–P2 items complete. Priority 2 enhancements (R-23/27/29/43) complete. GEN-1 (inference_lock release) shipped (#59, 2026-07-21). Open work is: response-model coverage (GEN-2), the `load_at_startup` default decision (FOLLOWUP-1), vLLM-backend performance (HIGH-1/2, MED-2), and upstream-blocked research.
-> **Last Updated:** 2026-07-21 — GEN-1 shipped (#59); reconciled against code at `main` @ `752e265`
+> **Status:** All P0–P2 items complete. Priority 2 enhancements (R-23/27/29/43) complete. GEN-1 (inference_lock release) shipped (#59, 2026-07-21). Open work is: response-model coverage (GEN-2), the `load_at_startup` default decision (FOLLOWUP-1), vLLM-backend performance (HIGH-1/2, MED-2), the **PRF-1..10 PQA batch** (2026-07-30 research), and upstream-blocked research.
+> **Last Updated:** 2026-08-02 — adopted the 2026-07-30 PQA research as PRF-1..10; reconciled against code at `main` @ `e94b806` (PRF-4 FA2→SDPA confirmed **still open** — code auto-selects FA2 on Ampere+)
 
 ---
 
@@ -69,6 +69,43 @@ Every ✅ below was confirmed against current source on 2026-07-21 (`file:line` 
 
 ---
 
+## Performance / Quality / Accuracy — 2026-07-30 research (Open)
+
+Adopted from [`perf-research-2026-07-30.md`](perf-research-2026-07-30.md) (five-track sweep; ~40 primary sources). That file is the **baseline the quarterly upstream sweep diffs against** — keep the `PRF-*` IDs stable for cross-reference. Cites below reconciled against `main` @ `e94b806` (paths drifted from the research doc's indicative values; corrected here). Context on the underlying upstream defects lives in the research doc's "Upstream quality/accuracy notes."
+
+**Upstream is frozen:** all six Qwen3-TTS models unchanged since 2026-01-29, `qwen_tts` 0.1.1 with zero merged PRs since mid-March. Every remediation below is **local or third-party** — there is no upgrade target.
+
+| ID | Task | Axis | Impact | Effort | Files (reconciled) |
+|----|------|------|--------|--------|--------------------|
+| **PRF-1** | **Fix Chinese number normalization** — `num2words(…, lang='zh')` raises `NotImplementedError`, swallowed by `_safe_transform()`; cardinal/ordinal/date/currency normalization **silently no-ops for all Chinese input**. Add a `zh` branch (digits→汉字; borrow Coqui `chinese_mandarin_cleaners`). | Accuracy | **High** (primary language) | **Trivial** | `core/engine/text_processing.py:108` (`_safe_transform`), `:150-185,250-283` (norm steps) |
+| **PRF-2** | **Phase-aligned chunk splices** — zero-crossing snap + RMS level-match *before* the existing raised-cosine crossfade (fade shape is already correct for correlated speech; phase/level is the gap). | Quality | High (dominant chunk artifact) | Low | `core/engine/inference.py:563-613` (`_crossfade_chunks`), `:834-837` (concat) |
+| **PRF-3** | **Normalize HH:MM:SS time strings** (regex + num2words) — proven failure (upstream #328: `15:16:36` seconds garbled). | Accuracy | Med | Low | `core/engine/text_processing.py` |
+| **PRF-4** | **Torch default FA2 → SDPA** — **NOT yet shipped**: `_apply_cuda_optimizations` still auto-selects `flash_attention_2` on Ampere+ whenever `flash_attn` is installed (`model_loader.py:110-122`); SDPA is only the T4/non-CUDA fallback. Upstream #333 reports NaN logits with `flash_attention_2` on exactly these GPUs (L4/A100). Make SDPA the default; keep FA2 opt-in behind an explicit config/env flag. Also update `docs/00-Foundations/ARCHITECTURE.md:160-161` (still lists FA2 for L4/A100). Reverses the 2026-03-23 conclusion. | Correctness | **High** | Low | `core/engine/model_loader.py:110-122`, `docs/00-Foundations/ARCHITECTURE.md:160-161` |
+| **PRF-5** | **Defensive server restart on model-swap OOM** — mlx-audio #827: Base cloning goes ~2.4× slower after a failed swap. Likely the known-red "server dies under repeated load/unload." | Robustness | High | Low | `server/app_models.py:163` (`handle_load_model`), `:243` (`handle_unload_model`), `server/app_lifespan.py` |
+| **PRF-6** | **Clone rate control via post-hoc pyrubberband time-stretch** (not via `instruct`) — upstream #290: model rate-control broken in clone (output always 41–48 s). `time_stretch` helper already exists. | Robustness | Med | Low | `core/engine/audio_processing.py:163-195`, `core/engine/inference.py` |
+| **PRF-7** | **Bump mlx-audio 0.4.5 → 0.4.6** — ICL cache (clone TTFT ~−300 ms), streaming leak fix (#852/v0.4.2), continuous batching (v0.4.3), ~13% RTF (v0.4.6). | Speed | High | Low (dep bump) | `pyproject.toml:29`; **validate in MLX env** (dep knot — see `pyproject.toml:45`) |
+| **PRF-8** | **ASR-trim the ICL echo-tail** (upstream #341) — reuse existing ASR to detect/clip any reference-tail echo at the head of cloned output. (`x_vector_only_mode` likely sidesteps #341 already.) | Quality | Med | Low–Med | `core/engine/inference.py:117-128`, `core/engine/voice_prompt.py`, `core/engine/asr.py` |
+| **PRF-9** | **Investigate raising MLX `max_new_tokens=2048` cap** — model natively supports 32,768 tokens (~40 min); chunking is a *backend* limit. Fewer chunks → fewer seams. **Validate-first:** 12 Hz long-form stability + M2 Pro memory before shipping. | Quality | High (structural) | Low to test / Med to ship | `core/engine/inference.py:185-186,318-319,324` (`_run_inference_mlx`), `server/client/generator.py:39` (`_generation_timeout`), `CLAUDE.md` |
+| **PRF-10** | *(Optional)* **Task-Vector emotion control** (arXiv:2606.05367) — training-free inference-time interpolation between neutral↔emotional **x-vectors** (emotional prosody lives in the speaker embedding). Exploits `x_vector_only_mode`; torch path. | Quality (new capability) | Med | Med | `core/engine/voice_prompt.py`, `core/engine/inference.py` |
+
+**Execution order (low-risk quick wins first):** PRF-1 → PRF-4 → PRF-3 → PRF-2 → PRF-5 → PRF-6 → PRF-7 → PRF-8 → PRF-9 → PRF-10.
+
+**Acceptance criteria (test-first — red → green → refactor):**
+- **PRF-1:** a test asserting Chinese cardinals/ordinals/dates/currency normalize to汉字 (not a silent no-op); regression test that `_safe_transform` no longer swallows the `zh` path.
+- **PRF-2:** a test asserting spliced chunk boundaries snap to a zero crossing and RMS-match within tolerance; existing crossfade tests still green.
+- **PRF-4:** a test asserting `_apply_cuda_optimizations` returns `sdpa` by default on Ampere+ (FA2 only when the opt-in flag is set), even with `flash_attn` installed; ARCHITECTURE.md hardware table updated to match.
+- **PRF-3:** a test asserting `15:16:36` and similar HH:MM:SS strings expand to spoken time, not garbled digits.
+- **PRF-5:** a test asserting a failed model swap triggers recovery (restart/reset) rather than a persistent slowdown; load/unload handlers re-emit consistent state.
+- **PRF-6:** a test asserting clone output honors a requested rate via post-hoc time-stretch (duration changes with the rate factor).
+- **PRF-7:** MLX-env install resolves with `mlx-audio>=0.4.6` and the `transformers`/`gradio`/`hub` pins intact (`pip check` clean); a smoke generation passes. **Do not** touch `requirements.lock` (mlx excluded by policy).
+- **PRF-8:** a test asserting a reference-tail echo at the head of cloned output is detected and clipped; `x_vector_only_mode` path unaffected.
+- **PRF-9:** *validation gate, not a ship gate* — a documented long-form stability + peak-memory measurement on M2 Pro before any cap change; ship only if both pass.
+- **PRF-10:** a test asserting neutral↔emotional x-vector interpolation produces a bounded, monotonic prosody shift; torch-only, gated behind `x_vector_only_mode`.
+
+**Deferred (do not act — watched by the upstream GHA + crons):** speculative decoding (see R-28 below), vLLM prefix-caching the voice-prompt prefix (deployment decision), SageAttention (monkey-patch only), vLLM mainline TTS (absent), FlashAttention-4 (not a native HF value), Qwen3-ASR-1.7B as Whisper replacement (MLX availability unverified), new Qwen3-TTS models (upstream frozen). **Dropped:** EAGLE-3 for TTS, G2P/phoneme frontend, FA3/FA4/SageAttention on T4, full NeMo Text Processing (Pynini won't pip-install on macOS). Rationale in the research doc's KEEP-MONITORING / DROP sections.
+
+---
+
 ## Priority 2: Enhancements (Open)
 
 | ID | Task | Impact | Effort | Files |
@@ -83,10 +120,18 @@ Every ✅ below was confirmed against current source on 2026-07-21 (`file:line` 
 
 | ID | Task | Blocker | Effort |
 |----|------|---------|--------|
-| **R-28** | Speculative decoding (1.5-3x speedup; 0.6B as draft for 1.7B). See `2026-03-23-speculative-decoding-research.md`. Phase 1 = monitor upstream. | Upstream library support | High |
+| **R-28** | Speculative decoding (1.5-3x speedup; 0.6B as draft for 1.7B). See `2026-03-23-speculative-decoding-research.md`. Phase 1 = monitor upstream. **2026-07-30 update:** PCG (arXiv:2511.13732) is now ICASSP-2026–accepted but ships **zero code, zero adopters**; closest analogue SSD (arXiv:2505.15380) is 1.4×/lossy/code-less. Blocker moved "no theory → theory exists, nothing reusable." Re-check ~2027-01. | Upstream library support | High |
 | **FUTURE-1** | Entropy-based hallucination monitoring | vLLM forward-pass modification | High |
 | **FUTURE-2** | GFlowNet distribution alignment | Research integration | High |
 | **FUTURE-3** | Adaptive attention head deactivation | Per-model profiling | High |
+
+**Trigger-gated watches (2026-07-30 sweep — no action until the trigger fires):**
+- **vLLM prefix-caching the voice-prompt prefix** — lossless, exact, lowest-effort speed win, but only if the talker is served through vLLM (it isn't). Deployment decision, not a research dependency.
+- **SageAttention** — monkey-patch only, no TTS benchmarks. Trigger: becomes a native HF `attn_implementation`.
+- **vLLM mainline TTS** — absent; vLLM-omni separate/unmerged. Trigger: TTS lands in mainline vLLM.
+- **FlashAttention-4** — active beta (Hopper/Blackwell only), not a native HF value. Trigger: native HF wiring + stability.
+- **Qwen3-ASR-1.7B** as Whisper replacement — beats Whisper-large-v3 (zh especially), MLX availability unverified. Trigger: confirm `mlx-community/Qwen3-ASR*`.
+- **New Qwen3-TTS models** — upstream frozen since 2026-01-29. Trigger: new model ID under `Qwen/`.
 
 ---
 
@@ -147,6 +192,18 @@ above (`config.py`, `_facade.py`, `inference.py`, `generate.py`, `app.py`). Full
 ### Sprint 3 — vLLM backend (only if vLLM is deployed)
 5. **HIGH-1 + MED-2:** vLLM params
 6. **HIGH-2:** decouple FastAPI from vLLM
+
+### Sprint 4 — PQA adoptions (2026-07-30 research; default backends)
+7. **PRF-1:** Chinese number normalization (High/Trivial — top ROI)
+8. **PRF-4:** FA2→SDPA default on Ampere+ (Correctness/High; #333 NaN logits)
+9. **PRF-3:** HH:MM:SS time normalization
+10. **PRF-2:** phase-aligned chunk splices
+11. **PRF-5:** defensive restart on model-swap OOM
+12. **PRF-6:** clone rate control via post-hoc time-stretch
+13. **PRF-7:** bump mlx-audio → 0.4.6 (validate in MLX env)
+14. **PRF-8:** ASR-trim the ICL echo-tail
+15. **PRF-9:** validate raising the MLX `max_new_tokens` cap (measure before shipping)
+16. **PRF-10:** *(optional)* task-vector emotion control
 
 ---
 
