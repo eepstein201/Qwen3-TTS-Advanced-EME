@@ -258,6 +258,36 @@ class TestGenerateServerSide(unittest.TestCase):
         self.assertIsNone(result[0])
         self.assertIn("Error", result[1])
 
+    def test_server_side_model_not_loaded_is_actionable(self):
+        """When the server rejects with model_not_loaded, the UI must surface a
+        clear, actionable message naming the Manage Models tab — not the bare,
+        easy-to-miss "model is not loaded" string that previously read as a
+        silent failure.
+
+        Previously the client raised a generic GenerationError carrying only
+        "The 'design' model is not loaded." and the UI echoed it verbatim, with
+        no guidance on how to recover. This test pins the actionable message.
+        """
+        from qwen3_tts.core.config import ModelNotLoadedError
+        from qwen3_tts.interface.ui.generation import _generate_server_side
+        stream_config = {
+            "server_side": True,
+            "payload": {"text": "hi", "mode": "design"},
+        }
+        with patch(f"{_MOD}.format_status_display", return_value="<html>"), \
+             patch(
+                 "qwen3_tts.server.client.TTSClient",
+                 side_effect=ModelNotLoadedError("design"),
+             ), \
+             patch("qwen3_tts.interface.ui.shared.get_history_data", return_value=[]):
+            result = _generate_server_side("design", "hi", [], stream_config)
+        # audio_path is None (no audio generated)
+        self.assertIsNone(result[0])
+        status = result[1]
+        # Actionable: names the model AND points the user to Manage Models
+        self.assertIn("design", status)
+        self.assertIn("Manage Models", status)
+
 
 @unittest.skipUnless(HAS_GRADIO, "requires gradio")
 class TestEdgeCases(unittest.TestCase):

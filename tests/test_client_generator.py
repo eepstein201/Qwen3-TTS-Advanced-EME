@@ -284,6 +284,37 @@ class TestGenerateViaServer(unittest.TestCase):
                 "hello", "clone", "default.pt", None, None, None, {}
             )
 
+    def test_model_not_loaded_raises_model_not_loaded_error(self):
+        """A 503 model_not_loaded response raises ModelNotLoadedError (carrying
+        model_type), not a generic GenerationError, so callers can present an
+        actionable recovery path instead of a bare "not loaded" string.
+
+        The server (app_generation.handle_generate) returns this exact envelope
+        when the requested mode's model is absent. Previously the client
+        collapsed it to a plain string and lost the structured fields.
+        """
+        from qwen3_tts.core.config import ModelNotLoadedError
+
+        client, session = _client_with_server(self.cfg)
+        # Mirror the FastAPI HTTPException envelope: {"detail": { ... }}
+        resp = MagicMock()
+        resp.status_code = 503
+        resp.json.return_value = {
+            "detail": {
+                "error": "model_not_loaded",
+                "detail": "The 'design' model is not loaded.",
+                "recovery": "restart",
+                "model_type": "design",
+            }
+        }
+        session.post.return_value = resp
+
+        with self.assertRaises(ModelNotLoadedError) as ctx:
+            client._generate_via_server(
+                "hello", "design", None, "a warm voice", None, None, {}
+            )
+        self.assertEqual(ctx.exception.model_type, "design")
+
     def test_x_vector_only_mode_in_payload(self):
         """x_vector_only_mode=True adds flag to payload."""
         client, session = _client_with_server(self.cfg)

@@ -18,6 +18,7 @@ import uuid
 import gradio as gr
 
 from qwen3_tts.core.config import (
+    ModelNotLoadedError,
     get_generation_defaults,
     get_generation_presets,
     get_prosody_presets,
@@ -391,6 +392,22 @@ def _generate_server_side(mode, text, history_list, stream_config):
             format_status_display(),
             history_list_copy,
         )
+    except ModelNotLoadedError as e:
+        # Surface a clear, actionable message instead of the bare "model is not
+        # loaded" string the server returns — the latter previously read as a
+        # silent failure because it gave the user no recovery path. Names the
+        # Manage Models tab and the load_at_startup config key directly.
+        model_type = e.model_type or mode
+        logger.warning("Generation blocked: '%s' model not loaded", model_type)
+        safe_history_list = (
+            list(history_list) if isinstance(history_list, list) else []
+        )
+        status_msg = (
+            f"The '{model_type}' model is not loaded. "
+            "Load it in the 'Manage Models' tab, or enable "
+            f"'models.{model_type}.load_at_startup' in config to auto-load it."
+        )
+        return None, status_msg, format_status_display(), safe_history_list
     except Exception as e:
         logger.error("Server-side generation failed: %s", e)
         # Ensure we always return a valid list even on error

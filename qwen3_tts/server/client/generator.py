@@ -21,6 +21,7 @@ from qwen3_tts.core.config import (
 from qwen3_tts.server.client._base import (
     MAX_BUFFER_SIZE,
     _build_gen_params,
+    _error_payload,
     _extract_error_message,
     _normalize_speaker_name,
     _require_server,
@@ -238,6 +239,22 @@ class GeneratorMixin:
             headers=auth_headers(),
         )
         if resp.status_code != 200:
+            # Surface a structured ModelNotLoadedError when the server reports
+            # the requested model is absent, so callers (notably the Gradio UI)
+            # can present an actionable recovery path instead of the bare,
+            # easy-to-miss "model is not loaded" string. The server's 503
+            # envelope is {"detail": {"error": "model_not_loaded", ...}}.
+            err_obj = _error_payload(resp)
+            if (
+                resp.status_code == 503
+                and err_obj.get("error") == "model_not_loaded"
+            ):
+                from qwen3_tts.core.config import ModelNotLoadedError
+
+                raise ModelNotLoadedError(
+                    err_obj.get("model_type", mode),
+                    detail=err_obj.get("detail"),
+                )
             raise GenerationError(_extract_error_message(resp))
 
         import base64
