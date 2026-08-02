@@ -92,11 +92,15 @@ def load_audio_for_cloning(
         try:
             import torchaudio
 
-            info = torchaudio.info(file_path)
-            max_frames = int(max_duration * info.sample_rate)
-            waveform, sr = torchaudio.load(file_path, num_frames=max_frames)
+            # torchaudio.info() was removed in torchaudio >=2.11 (pyproject's
+            # own floor). Load the full clip, then truncate to max_duration —
+            # voice-clone sources are short, so this is cheap and avoids the
+            # removed API (which raised AttributeError and aborted the build).
+            waveform, sr = torchaudio.load(file_path)
             if waveform.shape[0] > 1:
                 waveform = waveform.mean(dim=0, keepdim=True)
+            max_frames = int(max_duration * sr)
+            waveform = waveform[:, :max_frames]
             if sr != target_sr:
                 resampler = torchaudio.transforms.Resample(sr, target_sr)
                 waveform = resampler(waveform)

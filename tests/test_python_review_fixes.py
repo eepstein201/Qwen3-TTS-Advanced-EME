@@ -410,6 +410,65 @@ class TestAudioProcessingNarrowExcept(unittest.TestCase):
 
 
 # ---------------------------------------------------------------------------
+# Modern-torchaudio compat: torchaudio.info was removed in torchaudio>=2.11
+# ---------------------------------------------------------------------------
+
+class TestLoadAudioForCloningModernTorchaudio(unittest.TestCase):
+    """load_audio_for_cloning must work on modern torchaudio (>=2.11), which
+    removed ``torchaudio.info``. Regression for the silent voice-prompt-build
+    failure: ``module 'torchaudio' has no attribute 'info'`` aborted cloning on
+    every modern-torchaudio environment (Docker, Colab, install.sh, local)."""
+
+    def test_does_not_call_removed_torchaudio_info(self):
+        """Must not call torchaudio.info (removed in torchaudio>=2.11).
+
+        A fake torchaudio exposes load/transforms but no info attribute
+        (mimicking modern torchaudio). Before the fix, torchaudio.info(...)
+        raised AttributeError that escaped the narrow except and aborted the
+        build; after the fix .info is never touched and the OSError from load
+        falls through to the soundfile fallback.
+        """
+        import sys as _sys
+        import tempfile
+        import types
+
+        from qwen3_tts.core.engine.audio_processing import load_audio_for_cloning
+
+        def _raise_oserror(*_a, **_k):
+            raise OSError("force soundfile fallback")
+
+        fake_ta = types.SimpleNamespace(
+            load=_raise_oserror,
+            transforms=types.SimpleNamespace(
+                Resample=lambda *_a, **_k: (lambda x: x)
+            ),
+        )
+        # SimpleNamespace genuinely lacks .info -> AttributeError on access.
+        with self.assertRaises(AttributeError):
+            _ = fake_ta.info
+
+        with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as f:
+            tmp_path = f.name
+        try:
+            import numpy as _np
+            import soundfile as _sf
+            _sf.write(tmp_path, _np.zeros(24000, dtype=_np.float32), 24000)
+
+            with patch(
+                "qwen3_tts.core.engine.audio_processing.get_audio_loader",
+                return_value="torchaudio",
+            ):
+                with patch.dict(_sys.modules, {"torchaudio": fake_ta}):
+                    audio, sr = load_audio_for_cloning(tmp_path)
+            self.assertEqual(sr, 24000)
+            self.assertEqual(len(audio), 24000)
+        except ImportError:
+            self.skipTest("soundfile not available")
+        finally:
+            os.unlink(tmp_path)
+
+
+# ---------------------------------------------------------------------------
 # H-5: cli_config edit must not mutate original config dict
 # ---------------------------------------------------------------------------
 
