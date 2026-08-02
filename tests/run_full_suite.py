@@ -19,10 +19,27 @@ Usage:
 
 import argparse
 import platform
+import shlex
 import subprocess
 import sys
 import time
 from pathlib import Path
+
+
+def _read_auth_token_for_suite() -> str:
+    """Return the server auth token, or "test" if none is installed.
+
+    Delegates to the production reader so the canonical-then-legacy resolution
+    lives in exactly one place. Falls back to the previous placeholder rather
+    than raising: this runner is also used on machines with no server set up,
+    and load_models() only warns on failure.
+    """
+    try:
+        from qwen3_tts.core.config import read_auth_token
+
+        return read_auth_token() or "test"
+    except Exception:
+        return "test"
 
 # Configuration
 PROJECT_ROOT = Path(__file__).parent.parent
@@ -210,14 +227,26 @@ def load_models(env: str, dry_run: bool = False) -> bool:
             print(f"   [DRY RUN] Would load: {model}")
         return True
 
+    # Two bugs lived in the previous curl invocation, both silent because this
+    # loop only warns on failure:
+    #   1. It read the LEGACY token path (~/.voice_server_token) rather than the
+    #      canonical ~/.config/qwen3-tts/.voice_server_token, so on a normal
+    #      install every request was unauthenticated.
+    #   2. conda_run() does `' '.join(cmd)` into `bash -lc` with no quoting, so
+    #      "Content-Type: application/json" split into two shell words and curl
+    #      never received a valid header at all.
+    # Reading the token in-process via the production reader fixes (1) and
+    # cannot drift; shlex.quote on every argument fixes (2).
+    token = _read_auth_token_for_suite()
+
     for model in REQUIRED_MODELS:
         print(f"   Loading {model}...")
         result = conda_run(env, [
             "curl", "-s", "-X", "POST",
-            f"http://127.0.0.1:{SERVER_PORT}/load-model",
-            "-H", "Content-Type: application/json",
-            "-H", "Authorization: Bearer $(cat ~/.voice_server_token 2>/dev/null || echo test)",
-            "-d", f'{{"mode": "{model}"}}'
+            shlex.quote(f"http://127.0.0.1:{SERVER_PORT}/load-model"),
+            "-H", shlex.quote("Content-Type: application/json"),
+            "-H", shlex.quote(f"Authorization: Bearer {token}"),
+            "-d", shlex.quote(f'{{"mode": "{model}"}}'),
         ], check=False)
         if result.returncode != 0:
             print(f"   ⚠️  Failed to load {model}")

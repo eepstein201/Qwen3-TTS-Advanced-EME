@@ -40,6 +40,7 @@ BATCHES = {
             "tests.test_package_metadata",
             "tests.test_deprecated_refs",
             "tests.test_async_test_hygiene",
+            "tests.test_e2e_harness_hygiene",
             "tests.test_config",
             "tests.test_p3_p4_remediation",
             "tests.test_healthcheck",

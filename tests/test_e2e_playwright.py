@@ -113,13 +113,24 @@ def _wait_for_model_state(model_name, loaded, timeout=60):
 
 
 def _get_auth_token():
-    """Read the server auth token."""
-    token_path = os.path.expanduser("~/.voice_server_token")
-    try:
-        with open(token_path) as f:
-            return f.read().strip()
-    except FileNotFoundError:
-        return ""
+    """Read the server auth token, delegating to the production reader.
+
+    This used to open ``~/.voice_server_token`` directly — the *legacy* path.
+    The canonical location has been ``~/.config/qwen3-tts/.voice_server_token``
+    for some time, so on any install without the legacy file this returned ""
+    and every authenticated call here failed. `.voice_server.log` showed
+    `Auth failure: missing_token ... on POST /unload-model` during E2E runs,
+    which silently degraded the model-management tests
+    (repo-audit-2026-07-31, follow-up finding).
+
+    Delegating rather than adding a fourth copy of the path list: `config.py`
+    already owns canonical-then-legacy resolution including the deprecation
+    warning, and a copy here is what let this drift in the first place.
+    `core.config` is import-safe — no torch/mlx at module scope.
+    """
+    from qwen3_tts.core.config import read_auth_token
+
+    return read_auth_token() or ""
 
 
 def _ensure_model_unloaded(model_name, timeout=30):
