@@ -425,6 +425,34 @@ class DefaultConfigLoader:
         return load_config()
 
 
+def prompt_file_exists(name: str | None) -> bool:
+    """True if *name* resolves to a usable voice prompt on disk.
+
+    A prompt is usable as ``<base>.pt`` (torch) or as the ``<base>.wav`` +
+    ``<base>.txt`` pair (MLX). Accepts all three spellings a prompt name
+    travels in — a bare base, a ``.pt``, or a ``.wav`` — because callers get
+    names from config, from ``--prompt``, and from this module's own scan,
+    which returns the ``.wav`` filename.
+
+    Extracted from get_default_clone_prompt() so the CLI's explicit-prompt
+    check cannot drift from the default-prompt check (repo-audit-2026-07-31
+    P1-2's lesson applied to P1-3's fix).
+    """
+    if not name:
+        return False
+    base = name
+    for suffix in (".pt", ".wav"):
+        if base.endswith(suffix):
+            base = base[: -len(suffix)]
+            break
+    prompts_dir = str(VOICE_PROMPTS_DIR)
+    pt_exists = os.path.exists(safe_path_join(prompts_dir, f"{base}.pt"))
+    mlx_exists = os.path.exists(
+        safe_path_join(prompts_dir, f"{base}.wav")
+    ) and os.path.exists(safe_path_join(prompts_dir, f"{base}.txt"))
+    return pt_exists or mlx_exists
+
+
 def get_default_clone_prompt(config: dict | None = None) -> str | None:
     """Return the default clone prompt filename.
 
@@ -439,16 +467,8 @@ def get_default_clone_prompt(config: dict | None = None) -> str | None:
             config = {}
 
     configured = config.get("default_clone_prompt")
-    if configured:
-        # Check it exists (as .pt or as MLX .wav/.txt pair)
-        base = configured[:-3] if configured.endswith(".pt") else configured
-        prompts_dir = str(VOICE_PROMPTS_DIR)
-        pt_exists = os.path.exists(safe_path_join(prompts_dir, f"{base}.pt"))
-        mlx_exists = os.path.exists(
-            safe_path_join(prompts_dir, f"{base}.wav")
-        ) and os.path.exists(safe_path_join(prompts_dir, f"{base}.txt"))
-        if pt_exists or mlx_exists:
-            return configured
+    if configured and prompt_file_exists(configured):
+        return configured
 
     # Fallback: first prompt matching current backend
     backend = get_backend()

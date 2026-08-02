@@ -594,6 +594,43 @@ def _handle_stats(config):
 # ---------------------------------------------------------------------------
 
 
+def _resolve_prompt_file(alias_prompt, args, config):
+    """Resolve the clone prompt, verifying an explicitly-named one exists.
+
+    An *implicit* default may fall back: with no prompt named anywhere,
+    get_default_clone_prompt() scans for the first backend-appropriate prompt
+    on disk. An *explicit* request must not — silently generating in a
+    different voice than the one asked for is worse than failing, because
+    nothing in the output tells the caller it happened.
+
+    This line used to read ``alias_prompt or get_default_clone_prompt(config)``.
+    A truthy-but-missing alias prompt short-circuited the fallback and the
+    missing file surfaced as an unhandled FileNotFoundError from the engine —
+    the odd one out among this module's input handlers, which print
+    ``Error: <thing> not found: <path>`` and exit (see the SRT, dialogue and
+    batch paths). repo-audit-2026-07-31 P1-3.
+    """
+    if not alias_prompt:
+        return get_default_clone_prompt(config)
+
+    from qwen3_tts.core.config import prompt_file_exists
+
+    if prompt_file_exists(alias_prompt):
+        return alias_prompt
+
+    # Name the actual source so the user knows where to look. --prompt wins
+    # over an alias's prompt upstream, so it takes precedence here too.
+    if getattr(args, "prompt", None):
+        source = "--prompt"
+    elif getattr(args, "voice", None):
+        source = f"voice alias '{args.voice}'"
+    else:
+        source = "configured prompt"
+    print(f"Error: {source} points at a missing voice prompt: {alias_prompt}")
+    print("Use 'tts voice list' to see available prompts.")
+    sys.exit(1)
+
+
 def _handle_generation(args, config, gen_params, use_server, max_chunk_chars):
     """Handle all generation: special modes, text resolution, and single-text output."""
     # Special modes
@@ -709,7 +746,7 @@ def _handle_generation(args, config, gen_params, use_server, max_chunk_chars):
 
     language = config.get("language", "English")
     mode = alias_mode or "clone"
-    prompt_file = alias_prompt or get_default_clone_prompt(config)
+    prompt_file = _resolve_prompt_file(alias_prompt, args, config)
     voice_description = alias_description or config.get("default_voice_description", "")
 
     # Resolve prosody preset into local instruct (do not mutate args)
