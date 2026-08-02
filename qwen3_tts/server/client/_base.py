@@ -146,6 +146,28 @@ def _extract_error_message(resp, default: str = "Unknown error") -> str:
         return f"Server returned HTTP {resp.status_code}"
 
 
+def _error_payload(resp) -> dict:
+    """Return the structured error object from an HTTP error response.
+
+    FastAPI wraps ``HTTPException(detail={...})`` bodies as
+    ``{"detail": { ... }}``; non-FastAPI errors may put the fields at the top
+    level. This unwraps both shapes and returns the inner dict (or ``{}`` on
+    parse failure) so callers can inspect structured fields like ``error`` or
+    ``model_type`` without re-implementing the unwrap logic. The string
+    rendering is still handled by :func:`_extract_error_message`.
+    """
+    try:
+        data = resp.json()
+    except (ValueError, requests.exceptions.JSONDecodeError):
+        return {}
+    if not isinstance(data, dict):
+        return {}
+    detail = data.get("detail")
+    if isinstance(detail, dict):
+        return detail
+    return data
+
+
 def _require_server(func):
     """Decorator that checks server is running before method execution."""
 
