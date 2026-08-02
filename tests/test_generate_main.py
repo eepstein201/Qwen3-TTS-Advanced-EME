@@ -463,11 +463,15 @@ class TestHandleGeneration(unittest.TestCase):
         _handle_generation(args, config, {}, True, None)
         mock_gen.assert_called_once()
 
+    # narrator.pt is a fixture name with no file behind it. This test is about
+    # alias *dispatch*, so make the prompt resolve — otherwise _resolve_prompt_file
+    # correctly exits first (P1-3) and the assertion below never runs.
+    @patch("qwen3_tts.core.config.prompt_file_exists", return_value=True)
     @patch("qwen3_tts.interface.generate.get_voice_alias")
     @patch("qwen3_tts.interface.generate._run_single_generation", return_value=True)
     @patch("builtins.open", mock_open())
     @patch("builtins.print")
-    def test_voice_alias_resolution(self, _print, mock_gen, mock_alias):
+    def test_voice_alias_resolution(self, _print, mock_gen, mock_alias, _mock_exists):
         from qwen3_tts.interface.generate import _handle_generation
         mock_alias.return_value = {"prompt": "narrator.pt", "mode": "clone"}
         args = self._make_args(text=["Hello"], voice="narrator")
@@ -533,6 +537,72 @@ class TestMain(unittest.TestCase):
         result = main()
         mock_gen.assert_called_once()
         self.assertTrue(result)
+
+
+class TestResolvePromptFile(unittest.TestCase):
+    """_resolve_prompt_file: explicit prompts verified, implicit ones fall back.
+
+    The asymmetry is the point (repo-audit-2026-07-31 P1-3). Falling back for
+    an *implicit* default is helpful; falling back for a prompt the user named
+    would generate in a different voice than they asked for, and nothing in
+    the output would say so. A missing explicit prompt used to reach the
+    engine and raise an unhandled FileNotFoundError.
+    """
+
+    def _args(self, **kwargs):
+        defaults = {"prompt": None, "voice": None}
+        defaults.update(kwargs)
+        return argparse.Namespace(**defaults)
+
+    @patch("qwen3_tts.interface.generate.get_default_clone_prompt",
+           return_value="fallback.wav")
+    def test_no_explicit_prompt_uses_fallback(self, _mock_default):
+        from qwen3_tts.interface.generate import _resolve_prompt_file
+        self.assertEqual(
+            _resolve_prompt_file(None, self._args(), {}), "fallback.wav"
+        )
+
+    @patch("qwen3_tts.core.config.prompt_file_exists", return_value=True)
+    def test_existing_explicit_prompt_is_returned(self, _mock_exists):
+        from qwen3_tts.interface.generate import _resolve_prompt_file
+        self.assertEqual(
+            _resolve_prompt_file("real.pt", self._args(prompt="real.pt"), {}),
+            "real.pt",
+        )
+
+    @patch("qwen3_tts.core.config.prompt_file_exists", return_value=False)
+    def test_missing_explicit_prompt_exits_instead_of_raising(self, _mock_exists):
+        """Must exit(1) with a message, not fall back and not raise."""
+        from qwen3_tts.interface.generate import _resolve_prompt_file
+        with patch("builtins.print") as mock_print:
+            with self.assertRaises(SystemExit) as ctx:
+                _resolve_prompt_file("gone.pt", self._args(prompt="gone.pt"), {})
+        self.assertEqual(ctx.exception.code, 1)
+        printed = " ".join(str(c) for c in mock_print.call_args_list)
+        self.assertIn("gone.pt", printed)
+        self.assertIn("--prompt", printed)
+
+    @patch("qwen3_tts.core.config.prompt_file_exists", return_value=False)
+    def test_missing_alias_prompt_names_the_alias(self, _mock_exists):
+        """The message must point at the alias, not a generic path error."""
+        from qwen3_tts.interface.generate import _resolve_prompt_file
+        with patch("builtins.print") as mock_print:
+            with self.assertRaises(SystemExit):
+                _resolve_prompt_file("gone.pt", self._args(voice="myvoice"), {})
+        printed = " ".join(str(c) for c in mock_print.call_args_list)
+        self.assertIn("myvoice", printed)
+
+    @patch("qwen3_tts.core.config.prompt_file_exists", return_value=False)
+    @patch("qwen3_tts.interface.generate.get_default_clone_prompt",
+           return_value="fallback.wav")
+    def test_missing_explicit_prompt_does_not_silently_substitute(
+        self, _mock_default, _mock_exists
+    ):
+        """The regression that matters: never swap in a different voice."""
+        from qwen3_tts.interface.generate import _resolve_prompt_file
+        with patch("builtins.print"):
+            with self.assertRaises(SystemExit):
+                _resolve_prompt_file("gone.pt", self._args(prompt="gone.pt"), {})
 
 
 if __name__ == "__main__":
