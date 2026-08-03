@@ -492,5 +492,37 @@ class TestAddModeParams(unittest.TestCase):
         self.assertEqual(result["mode"], "clone")
 
 
+@pytest.mark.unit
+class TestModuleLevelGenerate(unittest.TestCase):
+    """Test the qwen3_tts.server.client.generate() convenience wrapper."""
+
+    @patch("qwen3_tts.server.client.TTSClient")
+    def test_delegates_to_client_and_closes(self, mock_cls):
+        from qwen3_tts.server.client import generate
+
+        mock_client = MagicMock()
+        mock_client.generate.return_value = "/tmp/out.wav"
+        mock_cls.return_value = mock_client
+
+        result = generate("hello world", output="out.wav")
+
+        mock_client.generate.assert_called_once_with("hello world", output="out.wav")
+        mock_client.close.assert_called_once()
+        self.assertEqual(result, "/tmp/out.wav")
+
+    @patch("qwen3_tts.server.client.TTSClient")
+    def test_closes_client_even_on_error(self, mock_cls):
+        from qwen3_tts.server.client import generate
+
+        mock_client = MagicMock()
+        mock_client.generate.side_effect = RuntimeError("boom")
+        mock_cls.return_value = mock_client
+
+        with self.assertRaises(RuntimeError):
+            generate("hello world")
+
+        mock_client.close.assert_called_once()
+
+
 if __name__ == "__main__":
     unittest.main()
