@@ -37,10 +37,12 @@ def _scan_file(path: Path) -> list[tuple[int, str]]:
 _SCAN_EXCEPTIONS = frozenset({
     # http_client.py — owns the choke-point itself (no f-string usage there anyway)
     "http_client.py",
-    # config.py — Rule B exception: cannot import http_client (circular import).
-    # is_server_running() applies _validate_server_url() inline before the
-    # requests.get call, which satisfies the trust-boundary requirement.
-    "config.py",
+    # core/config/runtime.py (formerly core/config.py, split into a package
+    # per repo-audit-2026-07-31 P2-1) — Rule B exception: cannot import
+    # http_client (circular import). is_server_running() applies
+    # _validate_server_url() inline before the requests.get call, which
+    # satisfies the trust-boundary requirement.
+    "runtime.py",
     # server/client/ — uses requests.Session (not bare requests.get/post) routed
     # through TTSClient which validates the URL via the server_url property
     # (calls get_server_url() → _validate_server_url() internally). This
