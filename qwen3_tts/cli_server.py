@@ -96,23 +96,13 @@ def start(public, foreground):
         click.echo(f"Logs: {LOG_FILE}")
 
 
-@server.command()
-def stop():
-    """Stop the TTS server."""
-    import signal
+def _reject_if_not_stoppable(state):
+    """Exit early when the server is already down.
 
-    from qwen3_tts.core.config import (
-        cleanup_pid_file,
-        detect_server_state,
-        find_pid_by_port,
-        is_pid_alive,
-        is_server_running,
-        load_config,
-    )
-
-    config = load_config()
-    port = config.get("server", {}).get("port", 5123)
-    state = detect_server_state(config)
+    Not running at all: exit(1). Only a stale PID file: clean it up and
+    exit(0). Otherwise (server actually running) return normally.
+    """
+    from qwen3_tts.core.config import cleanup_pid_file
 
     if not state["running"] and not state["stale_pid"]:
         click.echo("TTS Server is not running.")
@@ -123,40 +113,57 @@ def stop():
         click.echo("TTS Server is not running (cleaned stale PID file).")
         sys.exit(0)
 
-    # Server is running — attempt graceful shutdown via /shutdown
+
+def _attempt_graceful_shutdown(state, config):
+    """POST /shutdown and poll for the server to exit.
+
+    Exits the process with code 0 if the server confirms it stopped.
+    Returns normally (falling through to the SIGTERM/SIGKILL fallback)
+    if shutdown wasn't accepted or polling timed out.
+    """
+    from qwen3_tts.core.config import cleanup_pid_file, is_server_running
+
+    if not state["health_ok"]:
+        return
+
     shutdown_accepted = False
-    if state["health_ok"]:
-        try:
-            import requests
+    try:
+        import requests
 
-            from qwen3_tts.core.http_client import server_request
+        from qwen3_tts.core.http_client import server_request
 
-            resp = server_request("POST", "/shutdown", timeout=5)
-            if resp.status_code == 200:
-                shutdown_accepted = True
-                click.echo("TTS Server shutdown signal sent.")
-            elif resp.status_code == 401:
-                click.echo("Shutdown rejected: 401 Unauthorized (token mismatch).")
-            else:
-                click.echo(f"Shutdown returned HTTP {resp.status_code}.")
-        except (
-            requests.ConnectionError,
-            requests.Timeout,
-            requests.RequestException,
-            OSError,
-        ):
-            click.echo("Server did not respond to shutdown request.")
+        resp = server_request("POST", "/shutdown", timeout=5)
+        if resp.status_code == 200:
+            shutdown_accepted = True
+            click.echo("TTS Server shutdown signal sent.")
+        elif resp.status_code == 401:
+            click.echo("Shutdown rejected: 401 Unauthorized (token mismatch).")
+        else:
+            click.echo(f"Shutdown returned HTTP {resp.status_code}.")
+    except (
+        requests.ConnectionError,
+        requests.Timeout,
+        requests.RequestException,
+        OSError,
+    ):
+        click.echo("Server did not respond to shutdown request.")
 
-        # Only poll if shutdown was accepted
-        if shutdown_accepted:
-            for _ in range(10):
-                time.sleep(0.5)
-                if not is_server_running(config):
-                    cleanup_pid_file()
-                    click.echo("TTS Server stopped.")
-                    sys.exit(0)
+    # Only poll if shutdown was accepted
+    if shutdown_accepted:
+        for _ in range(10):
+            time.sleep(0.5)
+            if not is_server_running(config):
+                cleanup_pid_file()
+                click.echo("TTS Server stopped.")
+                sys.exit(0)
 
-    # Fallback: SIGTERM if PID is known and still alive
+
+def _kill_server_process(state, port):
+    """Fallback termination: SIGTERM, then SIGKILL, then clean up the PID file."""
+    import signal
+
+    from qwen3_tts.core.config import cleanup_pid_file, find_pid_by_port, is_pid_alive
+
     pid = state["pid"]
 
     # Discover PID by port if PID file was missing
@@ -186,13 +193,37 @@ def stop():
 
     cleanup_pid_file()
 
-    # Verify server is actually stopped before claiming success
+
+def _report_stop_result(config, port):
+    """Verify the server actually stopped and report the outcome."""
+    from qwen3_tts.core.config import is_server_running
+
     if is_server_running(config):
         click.echo(f"Error: TTS Server is still running on port {port}.")
         click.echo(f"Manual kill: kill -9 $(lsof -ti :{port})")
         sys.exit(1)
 
     click.echo("TTS Server stopped.")
+
+
+@server.command()
+def stop():
+    """Stop the TTS server."""
+    from qwen3_tts.core.config import detect_server_state, load_config
+
+    config = load_config()
+    port = config.get("server", {}).get("port", 5123)
+    state = detect_server_state(config)
+
+    _reject_if_not_stoppable(state)
+
+    # Server is running — attempt graceful shutdown via /shutdown
+    _attempt_graceful_shutdown(state, config)
+
+    # Fallback: SIGTERM/SIGKILL if the shutdown request didn't stop it
+    _kill_server_process(state, port)
+
+    _report_stop_result(config, port)
 
 
 @server.command()
