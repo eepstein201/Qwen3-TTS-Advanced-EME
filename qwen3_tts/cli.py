@@ -160,9 +160,9 @@ def cli():
 # ---------------------------------------------------------------------------
 
 
-def _generation_options(f):
-    """Apply all generation-related options to a command."""
-    decorators = [
+def _voice_selection_options():
+    """Options that choose the voice/mode and how it's driven."""
+    return [
         click.option(
             "-m",
             "--mode",
@@ -178,12 +178,24 @@ def _generation_options(f):
         click.option(
             "--no-transcript", is_flag=True, help="Clone using speaker embedding only"
         ),
+    ]
+
+
+def _playback_output_options():
+    """Options that control where/how the generated audio is delivered."""
+    return [
         click.option("-o", "--output", help="Output filename or directory"),
         click.option("--play", is_flag=True, help="Play audio after generation"),
         click.option(
             "--stream", is_flag=True, help="Stream audio playback as it generates"
         ),
         click.option("--no-open", is_flag=True, help="Don't open the output file"),
+    ]
+
+
+def _audio_shaping_options():
+    """Options that post-process the generated waveform."""
+    return [
         click.option(
             "--speed", type=float, help="Speed factor (1.2=faster, 0.8=slower)"
         ),
@@ -192,6 +204,12 @@ def _generation_options(f):
             "--trim-silence", is_flag=True, help="Trim leading/trailing silence"
         ),
         click.option("--normalize", is_flag=True, help="Normalize audio to -3dB peak"),
+    ]
+
+
+def _sampling_options():
+    """Options that control model sampling/generation parameters."""
+    return [
         click.option("--preset", help="Named preset from config"),
         click.option("--temperature", type=float, help="Sampling temperature"),
         click.option("--top-k", type=int, help="Top-k sampling"),
@@ -202,6 +220,12 @@ def _generation_options(f):
             "--max-chunk-chars", type=int, help="Max chars per chunk (0=disable)"
         ),
         click.option("--max-new-tokens", type=int, help="Max new tokens per chunk"),
+    ]
+
+
+def _misc_and_hidden_options():
+    """Remaining generation flags, including internal/hidden ones."""
+    return [
         click.option("--clipboard", is_flag=True, help="Read text from clipboard"),
         click.option("--ssml", is_flag=True, help="Enable SSML markup parsing"),
         click.option(
@@ -224,6 +248,17 @@ def _generation_options(f):
         ),
         click.option("--_server-mode", "server_mode", is_flag=True, hidden=True),
         click.option("--text-override", hidden=True),
+    ]
+
+
+def _generation_options(f):
+    """Apply all generation-related options to a command."""
+    decorators = [
+        *_voice_selection_options(),
+        *_playback_output_options(),
+        *_audio_shaping_options(),
+        *_sampling_options(),
+        *_misc_and_hidden_options(),
     ]
     for decorator in reversed(decorators):
         f = decorator(f)

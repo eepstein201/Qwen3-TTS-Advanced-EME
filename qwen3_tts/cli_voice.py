@@ -136,42 +136,44 @@ def preview(name):
     preview_voice_prompt(name, load_config())
 
 
-@voice.command()
-@click.argument("name", required=False)
-def rebuild(name):
-    """Rebuild .pt voice prompts from .wav+.txt pairs.
-
-    Loads the clone model once and regenerates all corrupt or missing .pt files.
-    Run before uploading voice_prompts/ to Colab to avoid OOM from the server-side
-    fallback loading a second model instance.
-
-    With NAME, rebuild only that prompt. Without, rebuild all.
-    """
+def _require_voice_prompts_dir(voice_prompts_dir):
+    """Exit if the voice_prompts directory does not exist."""
     import os
 
-    from qwen3_tts.core.config import VOICE_PROMPTS_DIR
-
-    if not os.path.isdir(VOICE_PROMPTS_DIR):
-        click.echo(f"Voice prompts directory not found: {VOICE_PROMPTS_DIR}")
+    if not os.path.isdir(voice_prompts_dir):
+        click.echo(f"Voice prompts directory not found: {voice_prompts_dir}")
         sys.exit(1)
+
+
+def _resolve_rebuild_targets(name, voice_prompts_dir):
+    """Determine which prompt basenames are candidates for rebuild."""
+    import os
 
     if name:
         base = name.removesuffix(".pt").removesuffix(".wav").removesuffix(".txt")
-        targets = [base]
-    else:
-        targets = sorted(
-            {f.removesuffix(".wav") for f in os.listdir(VOICE_PROMPTS_DIR) if f.endswith(".wav")}
-        )
+        return [base]
+    return sorted(
+        {
+            f.removesuffix(".wav")
+            for f in os.listdir(voice_prompts_dir)
+            if f.endswith(".wav")
+        }
+    )
 
-    if not targets:
-        click.echo("No .wav files found in voice_prompts/.")
-        return
 
-    # .pt prompts can only be created (or even validated) with the torch
-    # backend — both create_voice_clone_prompt and the safe-globals
-    # registration in _is_pt_valid need the qwen_tts package, which has no
-    # MLX equivalent. Check before scanning so an MLX-only env fails fast
-    # instead of misclassifying valid prompts as corrupt.
+def _ensure_torch_backend_for_rebuild():
+    """Force the torch backend for .pt creation, exiting if torch is unavailable.
+
+    .pt prompts can only be created (or even validated) with the torch backend —
+    both create_voice_clone_prompt and the safe-globals registration in
+    _is_pt_valid need the qwen_tts package, which has no MLX equivalent. Check
+    before scanning so an MLX-only env fails fast instead of misclassifying
+    valid prompts as corrupt.
+
+    Returns the prior TTS_BACKEND env value (or None) so it can be restored.
+    """
+    import os
+
     from qwen3_tts.core.config import get_backend
 
     backend_env_before = os.environ.get("TTS_BACKEND")
@@ -187,62 +189,109 @@ def rebuild(name):
             sys.exit(1)
         click.echo("Forcing torch backend (.pt prompts cannot be built with MLX).")
         os.environ["TTS_BACKEND"] = "torch"
+    return backend_env_before
+
+
+def _restore_backend_env(backend_env_before):
+    """Restore TTS_BACKEND to its pre-rebuild value."""
+    import os
+
+    if backend_env_before is None:
+        os.environ.pop("TTS_BACKEND", None)
+    else:
+        os.environ["TTS_BACKEND"] = backend_env_before
+
+
+def _classify_rebuild_targets(targets, voice_prompts_dir):
+    """Partition targets into those needing rebuild vs already-valid/skippable."""
+    import os
+
+    to_rebuild = []
+    skipped = 0
+    for base in targets:
+        wav_path = os.path.join(voice_prompts_dir, f"{base}.wav")
+        pt_path = os.path.join(voice_prompts_dir, f"{base}.pt")
+        if not os.path.exists(wav_path):
+            click.echo(f"  {base}: no .wav file, skipping")
+            skipped += 1
+            continue
+        if os.path.exists(pt_path) and _is_pt_valid(pt_path):
+            click.echo(f"  {base}: .pt valid, skipping")
+            skipped += 1
+            continue
+        to_rebuild.append(base)
+    return to_rebuild, skipped
+
+
+def _rebuild_voice_prompts(to_rebuild, voice_prompts_dir):
+    """Load the clone model once and rebuild each target .pt prompt."""
+    import os
+
+    click.echo(f"\nLoading clone model to rebuild {len(to_rebuild)} prompt(s)...")
+    from qwen3_tts.core.engine.audio_processing import load_audio_for_cloning
+    from qwen3_tts.core.engine.inference import create_voice_prompt
+    from qwen3_tts.core.engine.model_loader import load_model
+
+    model = load_model("clone")
+
+    rebuilt = 0
+    failed = 0
+    for base in to_rebuild:
+        wav_path = os.path.join(voice_prompts_dir, f"{base}.wav")
+        txt_path = os.path.join(voice_prompts_dir, f"{base}.txt")
+        pt_path = os.path.join(voice_prompts_dir, f"{base}.pt")
+        transcript = ""
+        if os.path.exists(txt_path):
+            with open(txt_path) as f:
+                transcript = f.read().strip()
+        try:
+            import torch
+
+            ref_audio, ref_sr = load_audio_for_cloning(wav_path)
+            voice_prompt = create_voice_prompt(
+                model, ref_audio, ref_sr, transcript, x_vector_only_mode=not transcript
+            )
+            torch.save(voice_prompt, pt_path)
+            click.echo(f"  {base}: rebuilt ({os.path.getsize(pt_path)} bytes)")
+            rebuilt += 1
+        except Exception as e:
+            click.echo(f"  {base}: FAILED — {e}", err=True)
+            failed += 1
+    return rebuilt, failed
+
+
+@voice.command()
+@click.argument("name", required=False)
+def rebuild(name):
+    """Rebuild .pt voice prompts from .wav+.txt pairs.
+
+    Loads the clone model once and regenerates all corrupt or missing .pt files.
+    Run before uploading voice_prompts/ to Colab to avoid OOM from the server-side
+    fallback loading a second model instance.
+
+    With NAME, rebuild only that prompt. Without, rebuild all.
+    """
+    from qwen3_tts.core.config import VOICE_PROMPTS_DIR
+
+    _require_voice_prompts_dir(VOICE_PROMPTS_DIR)
+    targets = _resolve_rebuild_targets(name, VOICE_PROMPTS_DIR)
+
+    if not targets:
+        click.echo("No .wav files found in voice_prompts/.")
+        return
+
+    backend_env_before = _ensure_torch_backend_for_rebuild()
 
     try:
-        to_rebuild = []
-        skipped = 0
-        for base in targets:
-            wav_path = os.path.join(VOICE_PROMPTS_DIR, f"{base}.wav")
-            pt_path = os.path.join(VOICE_PROMPTS_DIR, f"{base}.pt")
-            if not os.path.exists(wav_path):
-                click.echo(f"  {base}: no .wav file, skipping")
-                skipped += 1
-                continue
-            if os.path.exists(pt_path) and _is_pt_valid(pt_path):
-                click.echo(f"  {base}: .pt valid, skipping")
-                skipped += 1
-                continue
-            to_rebuild.append(base)
+        to_rebuild, skipped = _classify_rebuild_targets(targets, VOICE_PROMPTS_DIR)
 
         if not to_rebuild:
             click.echo(f"All {skipped} prompt(s) already valid.")
             return
 
-        click.echo(f"\nLoading clone model to rebuild {len(to_rebuild)} prompt(s)...")
-        from qwen3_tts.core.engine.audio_processing import load_audio_for_cloning
-        from qwen3_tts.core.engine.inference import create_voice_prompt
-        from qwen3_tts.core.engine.model_loader import load_model
-
-        model = load_model("clone")
-
-        rebuilt = 0
-        failed = 0
-        for base in to_rebuild:
-            wav_path = os.path.join(VOICE_PROMPTS_DIR, f"{base}.wav")
-            txt_path = os.path.join(VOICE_PROMPTS_DIR, f"{base}.txt")
-            pt_path = os.path.join(VOICE_PROMPTS_DIR, f"{base}.pt")
-            transcript = ""
-            if os.path.exists(txt_path):
-                with open(txt_path) as f:
-                    transcript = f.read().strip()
-            try:
-                import torch
-
-                ref_audio, ref_sr = load_audio_for_cloning(wav_path)
-                voice_prompt = create_voice_prompt(
-                    model, ref_audio, ref_sr, transcript, x_vector_only_mode=not transcript
-                )
-                torch.save(voice_prompt, pt_path)
-                click.echo(f"  {base}: rebuilt ({os.path.getsize(pt_path)} bytes)")
-                rebuilt += 1
-            except Exception as e:
-                click.echo(f"  {base}: FAILED — {e}", err=True)
-                failed += 1
+        rebuilt, failed = _rebuild_voice_prompts(to_rebuild, VOICE_PROMPTS_DIR)
     finally:
-        if backend_env_before is None:
-            os.environ.pop("TTS_BACKEND", None)
-        else:
-            os.environ["TTS_BACKEND"] = backend_env_before
+        _restore_backend_env(backend_env_before)
 
     click.echo(f"\nDone: {rebuilt} rebuilt, {skipped} skipped, {failed} failed.")
     if failed:

@@ -44,6 +44,91 @@ def show():
     click.echo(json.dumps(load_config(), indent=2))
 
 
+def _apply_advanced_edits(adv, backend, model_size, mlx_quantization, torch_quantization):
+    """Apply advanced-section option overrides. Returns (new_adv, change_descriptions)."""
+    changes = []
+
+    if backend:
+        old = adv.get("backend")
+        if backend != old:
+            adv = {**adv, "backend": backend}
+            changes.append(f"backend: {old} → {backend}")
+
+    if model_size:
+        old = adv.get("model_size")
+        if model_size != old:
+            adv = {**adv, "model_size": model_size}
+            changes.append(f"model_size: {old} → {model_size}")
+
+    if mlx_quantization:
+        old = adv.get("mlx_quantization")
+        if mlx_quantization != old:
+            adv = {**adv, "mlx_quantization": mlx_quantization}
+            changes.append(f"mlx_quantization: {old} → {mlx_quantization}")
+
+    if torch_quantization:
+        old = adv.get("torch_quantization")
+        if torch_quantization != old:
+            adv = {**adv, "torch_quantization": torch_quantization}
+            changes.append(f"torch_quantization: {old} → {torch_quantization}")
+
+    return adv, changes
+
+
+def _apply_top_level_edits(top, language, output_dir, voice_description):
+    """Apply top-level option overrides. Returns (new_top, change_descriptions)."""
+    changes = []
+
+    if language:
+        old = top.get("language")
+        if language != old:
+            top = {**top, "language": language}
+            changes.append(f"language: {old} → {language}")
+
+    if output_dir:
+        old = top.get("output_directory")
+        if output_dir != old:
+            top = {**top, "output_directory": output_dir}
+            changes.append(f"output_directory: {old} → {output_dir}")
+
+    if voice_description:
+        old = top.get("default_voice_description")
+        if voice_description != old:
+            top = {**top, "default_voice_description": voice_description}
+            changes.append("default_voice_description updated")
+
+    return top, changes
+
+
+def _run_interactive_voice_description_edit(config_data):
+    """Prompt for a new voice description and save it if changed."""
+    from qwen3_tts.core.config import save_config
+
+    current = config_data.get("default_voice_description", "")
+    click.echo(f"Current voice description:\n  {current}\n")
+    new_desc = click.prompt("New description (or Enter to keep)", default=current)
+    if new_desc != current:
+        save_config({**config_data, "default_voice_description": new_desc})
+        click.echo("Voice description updated.")
+    else:
+        click.echo("No changes.")
+
+
+def _save_config_edits(top, adv, changes):
+    """Persist accumulated top/advanced changes and report the outcome."""
+    from qwen3_tts.core.config import save_config
+
+    if not changes:
+        click.echo("No changes.")
+        return
+
+    updated = {**top, "advanced": adv}
+    save_config(updated)
+    click.echo("Configuration updated:")
+    for change in changes:
+        click.echo(f"  • {change}")
+
+
 @config.command()
 @click.option(
     "--backend",
@@ -85,65 +170,19 @@ def edit(
         tts config edit --model-size 0.6B --mlx-quantization 4bit
         tts config edit --language Spanish
     """
-    from qwen3_tts.core.config import load_config, save_config
+    from qwen3_tts.core.config import load_config
 
     config_data = load_config()
-
-    # Track if any changes were made
-    changes = []
 
     # Build immutable updates — never mutate config_data in-place
     adv = dict(config_data.get("advanced", {}))
     top = dict(config_data)
 
-    # Handle backend
-    if backend:
-        old = adv.get("backend")
-        if backend != old:
-            adv = {**adv, "backend": backend}
-            changes.append(f"backend: {old} → {backend}")
-
-    # Handle model size
-    if model_size:
-        old = adv.get("model_size")
-        if model_size != old:
-            adv = {**adv, "model_size": model_size}
-            changes.append(f"model_size: {old} → {model_size}")
-
-    # Handle MLX quantization
-    if mlx_quantization:
-        old = adv.get("mlx_quantization")
-        if mlx_quantization != old:
-            adv = {**adv, "mlx_quantization": mlx_quantization}
-            changes.append(f"mlx_quantization: {old} → {mlx_quantization}")
-
-    # Handle Torch quantization
-    if torch_quantization:
-        old = adv.get("torch_quantization")
-        if torch_quantization != old:
-            adv = {**adv, "torch_quantization": torch_quantization}
-            changes.append(f"torch_quantization: {old} → {torch_quantization}")
-
-    # Handle language
-    if language:
-        old = top.get("language")
-        if language != old:
-            top = {**top, "language": language}
-            changes.append(f"language: {old} → {language}")
-
-    # Handle output directory
-    if output_dir:
-        old = top.get("output_directory")
-        if output_dir != old:
-            top = {**top, "output_directory": output_dir}
-            changes.append(f"output_directory: {old} → {output_dir}")
-
-    # Handle voice description (direct setting or interactive)
-    if voice_description:
-        old = top.get("default_voice_description")
-        if voice_description != old:
-            top = {**top, "default_voice_description": voice_description}
-            changes.append("default_voice_description updated")
+    adv, adv_changes = _apply_advanced_edits(
+        adv, backend, model_size, mlx_quantization, torch_quantization
+    )
+    top, top_changes = _apply_top_level_edits(top, language, output_dir, voice_description)
+    changes = adv_changes + top_changes
 
     # If no options provided, fall back to interactive voice description editor
     if not any(
@@ -157,25 +196,10 @@ def edit(
             voice_description,
         ]
     ):
-        current = config_data.get("default_voice_description", "")
-        click.echo(f"Current voice description:\n  {current}\n")
-        new_desc = click.prompt("New description (or Enter to keep)", default=current)
-        if new_desc != current:
-            save_config({**config_data, "default_voice_description": new_desc})
-            click.echo("Voice description updated.")
-        else:
-            click.echo("No changes.")
+        _run_interactive_voice_description_edit(config_data)
         return
 
-    # Save if there were changes
-    if changes:
-        updated = {**top, "advanced": adv}
-        save_config(updated)
-        click.echo("Configuration updated:")
-        for change in changes:
-            click.echo(f"  • {change}")
-    else:
-        click.echo("No changes.")
+    _save_config_edits(top, adv, changes)
 
 
 @config.command()
