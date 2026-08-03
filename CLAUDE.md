@@ -16,24 +16,15 @@ Features: pyrubberband audio processing (with librosa fallback), prosody presets
 
 ## Git Workflow
 
-**Feature Branch Policy (MANDATORY):**
-- Claude MUST create feature branches for all work: `git checkout -b feature/description`
-- Claude commits to feature branch, NEVER directly to main
-- Claude pushes feature branch to origin: `git push -u origin feature/xxx`
-- User reviews changes and merges to main via PR or manual merge
-- Claude NEVER pushes directly to main without explicit user approval
-
-**Workflow:**
+**Feature Branch Policy (MANDATORY)** — Claude never commits or pushes directly to main:
 ```
 1. Claude: git checkout -b feature/xxx
 2. Claude: git add [files] && git commit -m "message"
 3. Claude: git push -u origin feature/xxx
-4. User: Review diff/commits
-5. User: Merge to main (PR or direct)
-6. Claude: git checkout main && git pull origin main
+4. User:   reviews diff/commits, merges to main (PR or direct)
+5. Claude: git checkout main && git pull origin main
 ```
-
-**Rationale:** Protected branch workflow prevents accidental main branch corruption, enables review before merging, and maintains clean git history.
+**Rationale:** protects main from accidental corruption, enables review before merging, keeps history clean.
 
 ## Commands
 

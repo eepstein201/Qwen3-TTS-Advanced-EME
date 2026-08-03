@@ -72,13 +72,3 @@ def generate(text, **kwargs):
         return client.generate(text, **kwargs)
     finally:
         client.close()
-
-
-if __name__ == "__main__":
-    # Example usage
-    client = TTSClient()
-    print("TTS Client Library")
-    print(f"Server running: {client.is_server_running()}")
-    print(f"Available prompts: {client.list_prompts()}")
-    print(f"Available presets: {list(client.list_presets().keys())}")
-    print(f"Available aliases: {list(client.list_aliases().keys())}")
