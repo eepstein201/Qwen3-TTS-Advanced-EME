@@ -98,6 +98,69 @@ def _estimate_eta(app_state, text_length: int, elapsed_sec: float) -> float | No
     return round(remaining, 1)
 
 
+# Degradation thresholds for the IN-FLIGHT generation.
+#
+# Measured on an M2 Pro / MLX 1.7B-8bit: a healthy generation runs roughly
+# 1-4 seconds per character. A wedged server was observed completing
+# "22 chars, 7314.2s" — about 332 s/char — while /health still answered
+# "status": "ok" and every model was reported loaded. Every generation-bearing
+# E2E test then blew its timeout and read as a code regression.
+#
+# 30 s/char sits ~10x above healthy and ~10x below the observed pathology, so
+# it will not fire on a merely slow generation. The elapsed floor exists
+# because s/char is meaningless early: a 5-character request is "1 s/char"
+# after five seconds without anything being wrong.
+_DEGRADED_MIN_ELAPSED_SEC = 300.0
+_DEGRADED_SEC_PER_CHAR = 30.0
+
+
+def detect_degraded_generation(app_state, now: float | None = None) -> dict:
+    """Report whether the IN-FLIGHT generation is pathologically slow.
+
+    Deliberately measures the *active* request rather than completed history.
+    The failure this exists to catch ran for two hours before completing, so a
+    completed-samples design would not have raised anything until long after
+    every dependent caller had already timed out and misattributed the failure.
+
+    No new state is tracked: ``generation_state`` already carries ``active``,
+    ``start_time`` and ``text_length``, and ``/generation-status`` already
+    derives ``elapsed_sec`` the same way.
+
+    Returns a dict with ``degraded`` plus the supporting numbers. Callers on
+    public endpoints must take **only** the boolean — ``text_length`` and
+    ``sec_per_char`` reveal the in-flight request's size, which is exactly what
+    ``/generation-status`` strips for unauthenticated callers.
+    """
+    gen_state = app_state.generation_state
+    now = time.time() if now is None else now
+
+    result = {
+        "degraded": False,
+        "elapsed_sec": None,
+        "sec_per_char": None,
+        "threshold_sec_per_char": _DEGRADED_SEC_PER_CHAR,
+    }
+    if not gen_state.get("active"):
+        return result
+
+    elapsed = now - gen_state.get("start_time", 0.0)
+    result["elapsed_sec"] = round(elapsed, 1)
+    if elapsed < _DEGRADED_MIN_ELAPSED_SEC:
+        return result
+
+    text_length = gen_state.get("text_length") or 0
+    if text_length <= 0:
+        # Unknown size — fall back to elapsed time alone rather than dividing
+        # by zero or silently declaring health.
+        result["degraded"] = True
+        return result
+
+    sec_per_char = elapsed / text_length
+    result["sec_per_char"] = round(sec_per_char, 2)
+    result["degraded"] = sec_per_char > _DEGRADED_SEC_PER_CHAR
+    return result
+
+
 _MEMORY_THRESHOLD_BYTES = 1024 * 1024 * 1024  # 1 GB
 
 

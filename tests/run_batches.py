@@ -88,6 +88,7 @@ BATCHES = {
             "tests.test_client_voices",
             "tests.test_websocket",
             "tests.test_websocket_rate_limit",
+            "tests.test_health_degraded",
             "tests.test_auth_token_write",
             "tests.test_streaming_cancel",
             "tests.test_generation_offload",

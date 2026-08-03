@@ -41,10 +41,16 @@ def handle_stats(state, server_config):
 
     cache_info = voice_prompt_cache_info()
 
+    from qwen3_tts.server.app_lifespan import detect_degraded_generation
+
     backend = get_backend()
     stats_data = {
         "status": "ok",
         "backend": backend,
+        # Full detail is safe here — /stats requires auth, so exposing the
+        # in-flight request's size (via sec_per_char) is not the information
+        # leak it would be on the public /health, which gets the bool only.
+        "generation_health": detect_degraded_generation(state),
         "model_size": get_model_size(),
         "clone_model_loaded": state.models.get("clone") is not None,
         "design_model_loaded": state.models.get("design") is not None,
