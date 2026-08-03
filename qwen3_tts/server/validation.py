@@ -143,6 +143,11 @@ class HealthResponse(BaseModel):
     """Response model for /health endpoint."""
 
     status: str
+    # True when the in-flight generation is pathologically slow. `status` stays
+    # "ok" in that case for compatibility, so this is the field to check for
+    # usability rather than mere liveness. Boolean only — the supporting numbers
+    # are on the authenticated /stats, since they reveal in-flight request size.
+    degraded: bool | None = None
     backend: str | None = None
     model_size: str | None = None
     clone_model_loaded: bool | None = None

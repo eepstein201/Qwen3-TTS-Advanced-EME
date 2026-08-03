@@ -81,6 +81,7 @@ from qwen3_tts.server.app_lifespan import (  # noqa: E402
     auto_shutdown,  # noqa: F401 (re-exported for test backward compat)
     cleanup_pid,  # noqa: F401 (re-exported for test backward compat)
     cleanup_resources,
+    detect_degraded_generation,
     lifespan,
     reset_activity_timer,
 )
@@ -374,6 +375,15 @@ async def health(request: Request) -> dict:
     backend = get_backend()
     data = {
         "status": "ok",
+        # Liveness alone is not usability: a wedged server answers "ok" with
+        # every model loaded while taking minutes per character. `status` stays
+        # "ok" because real consumers (/ready probes, tests, shell checks) match
+        # on it; this is an additive flag they can start honouring.
+        #
+        # BOOLEAN ONLY on this public endpoint — the supporting numbers reveal
+        # the in-flight request's size, which /generation-status deliberately
+        # strips for unauthenticated callers. They are on /stats, behind auth.
+        "degraded": detect_degraded_generation(state)["degraded"],
         "backend": backend,
         "model_size": get_model_size(),
         "clone_model_loaded": state.models.get("clone") is not None,
