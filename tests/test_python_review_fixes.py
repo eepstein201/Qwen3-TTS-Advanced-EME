@@ -265,16 +265,23 @@ class TestWebSocketInferenceLock(unittest.IsolatedAsyncioTestCase):
         def mock_run_inference_streaming(**kwargs):
             return iter([])  # no chunks
 
-        with patch("qwen3_tts.core.engine.run_inference_streaming", mock_run_inference_streaming):
-            with patch("qwen3_tts.server.validation._validate_generation_request", return_value=None):
-                await _stream_generation(
-                    websocket=ws,
-                    app_state=app_state,
-                    text="hello",
-                    mode="clone",
-                    data={},
-                    stop_event=stop_event,
-                )
+        # Provide a valid clone prompt so the request passes H5's pre-lock
+        # prompt validation and actually reaches inference (and the lock).
+        # Pre-H5 clone validation happened inside the inference thread (under
+        # the lock); H5 moved it before the lock, so a missing prompt now
+        # correctly short-circuits WITHOUT acquiring the lock. This test must
+        # therefore supply a prompt to exercise the lock-acquisition path.
+        with patch("qwen3_tts.core.engine.run_inference_streaming", mock_run_inference_streaming), \
+             patch("qwen3_tts.server.validation._validate_generation_request", return_value=None), \
+             patch("qwen3_tts.core.engine.load_voice_prompt", return_value=MagicMock()):
+            await _stream_generation(
+                websocket=ws,
+                app_state=app_state,
+                text="hello",
+                mode="clone",
+                data={"prompt_file": "voice.pt"},
+                stop_event=stop_event,
+            )
 
         self.assertTrue(
             len(acquired) > 0,
