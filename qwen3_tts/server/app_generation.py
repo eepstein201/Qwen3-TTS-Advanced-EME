@@ -177,6 +177,13 @@ async def handle_generate(request, state, req, security, config_provider):
     with state.request_queue_lock:
         state.request_queue.add(request_id)
 
+    # Stamp a per-batch ownership id so the finally can check whether this
+    # batch still owns generation_state before resetting it.  Without this,
+    # an all-cache-hit batch (which never sets active=True) or a batch whose
+    # state was since overwritten by a concurrent stream would clobber the
+    # stream's generation_state.  Mirrors the streaming guard at :729.
+    batch_gen_id = str(uuid.uuid4())[:8]
+
     try:
         import soundfile as sf
 
@@ -292,6 +299,7 @@ async def handle_generate(request, state, req, security, config_provider):
                             "mode": mode,
                             "batch_index": i,
                             "batch_total": len(texts),
+                            "generation_id": batch_gen_id,
                         }
                     )
 
@@ -498,19 +506,25 @@ async def handle_generate(request, state, req, security, config_provider):
             "retry",
         )
     finally:
-        # Clear generation state
-        state.generation_state.update(
-            {
-                "active": False,
-                "start_time": 0.0,
-                "text_length": 0,
-                "mode": "",
-                "batch_index": 0,
-                "batch_total": 0,
-                "chunk_index": 0,
-                "chunk_total": 0,
-            }
-        )
+        # Reset generation_state ONLY if this batch still owns it.  A
+        # concurrent stream may have overwritten generation_id mid-batch;
+        # an all-cache-hit batch never stamped one at all.  In either case
+        # resetting would clobber the other request's state.  Mirrors the
+        # streaming-path guard at :729.
+        if state.generation_state.get("generation_id") == batch_gen_id:
+            state.generation_state.update(
+                {
+                    "active": False,
+                    "start_time": 0.0,
+                    "text_length": 0,
+                    "mode": "",
+                    "batch_index": 0,
+                    "batch_total": 0,
+                    "chunk_index": 0,
+                    "chunk_total": 0,
+                    "generation_id": None,
+                }
+            )
         with state.request_queue_lock:
             state.request_queue.discard(request_id)
 
