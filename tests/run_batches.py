@@ -110,6 +110,8 @@ BATCHES = {
             "tests.test_fastapi_app_ext3",
             "tests.test_silent_failure_logging",
             "tests.test_silent_failure_logging_part2",
+            "tests.test_streaming_thread_lifecycle",
+            "tests.test_batch_generation_state_ownership",
         ],
         "timeout": 180,  # Higher timeout for async operations
     },

@@ -13,6 +13,7 @@ Wire format (client → server):
 """
 
 import asyncio
+import contextlib
 import json
 import logging
 import struct
@@ -20,7 +21,10 @@ import threading
 
 from fastapi import WebSocket, WebSocketDisconnect
 
-from qwen3_tts.server.app_generation import _resolve_generation_seed
+from qwen3_tts.server.app_generation import (
+    _await_inference_thread_done,
+    _resolve_generation_seed,
+)
 
 logger = logging.getLogger("tts.server.websocket")
 
@@ -169,6 +173,33 @@ async def websocket_tts_handler(
             mode = data.get("mode", "clone")
             stop_event.clear()
 
+            # Concurrent cancel-watcher: the main loop is blocked inside
+            # _stream_generation for the duration of generation, so without a
+            # watcher a {"action":"cancel"} frame sent mid-generation is never
+            # read until generation finishes.  The watcher is the SOLE
+            # receive_text reader during generation (the main loop is blocked
+            # in the await below), so there is no concurrent-reader race.  On
+            # normal completion the finally cancels and reaps the watcher.
+            async def _cancel_watcher() -> None:
+                try:
+                    while True:
+                        msg = await websocket.receive_text()
+                        try:
+                            frame = json.loads(msg)
+                        except json.JSONDecodeError:
+                            continue
+                        if isinstance(frame, dict) and frame.get("action") == "cancel":
+                            stop_event.set()
+                            return
+                        # Other frames mid-generation: ignore (client protocol
+                        # violation) — the main loop will resume after gen.
+                except WebSocketDisconnect:
+                    stop_event.set()
+                    return
+                except Exception:
+                    return  # a watcher error must never abort generation
+
+            watcher = asyncio.create_task(_cancel_watcher())
             try:
                 await _stream_generation(
                     websocket=websocket,
@@ -192,6 +223,10 @@ async def websocket_tts_handler(
                 from qwen3_tts.server.app_lifespan import _sanitize_error
 
                 await websocket.send_json({"error": _sanitize_error(str(e))})
+            finally:
+                watcher.cancel()
+                with contextlib.suppress(asyncio.CancelledError, Exception):
+                    await watcher
 
     except WebSocketDisconnect:
         logger.info("WebSocket client disconnected")
@@ -290,10 +325,37 @@ async def _stream_generation(
         await websocket.send_json({"error": detail})
         return
 
+    # Clone-mode prompt validation — mirror HTTP 400/404 (app_generation.py).
+    # MUST precede the "generating" frame so a missing prompt never looks like
+    # generation started (false success). Loads the prompt here so the inference
+    # thread can consume it via closure without a redundant load.
+    voice_prompt = None
+    if mode == "clone":
+        from qwen3_tts.core.engine import load_voice_prompt
+
+        if not req.prompt_file:
+            await websocket.send_json(
+                {"error": "prompt_file required for clone mode"}
+            )
+            return
+        voice_prompt = await asyncio.to_thread(load_voice_prompt, req.prompt_file)
+        if voice_prompt is None:
+            await websocket.send_json(
+                {"error": f"Voice prompt not found: {req.prompt_file}"}
+            )
+            return
+
     # Resolve the actual seed (server-generated when the client sends none) so it
     # can be applied to inference and reported in the completion message,
     # matching the /generate and /generate-stream paths.
     used_seed = _resolve_generation_seed(req.seed)
+
+    from qwen3_tts.server.app_lifespan import _check_memory_available
+    mem_ok, available_mb = _check_memory_available()
+    if not mem_ok:
+        await websocket.send_json({"status": "error",
+            "detail": f"Insufficient memory: only {available_mb}MB available. Unload unused models to free memory."})
+        return
 
     await websocket.send_json({"status": "generating", "text_length": len(text)})
 
@@ -314,14 +376,8 @@ async def _stream_generation(
                 "seed": used_seed,
             }
 
-            voice_prompt = None
-            if mode == "clone":
-                from qwen3_tts.core.engine import load_voice_prompt
-
-                prompt_file = req.prompt_file
-                if prompt_file:
-                    voice_prompt = load_voice_prompt(prompt_file)
-
+            # voice_prompt is loaded and validated before the "generating"
+            # frame (above); the thread consumes it via closure.
             for wav_chunk, sr in run_inference_streaming(
                 model=model,
                 text=text,
@@ -344,19 +400,36 @@ async def _stream_generation(
         except (RuntimeError, ValueError, AttributeError, OSError) as e:
             # Model inference, audio processing, or file operation errors
             logger.error("WebSocket inference thread error: %s", e, exc_info=True)
+            thread_error[0] = str(e)
         except Exception as e:
             # Unexpected errors in inference thread
             logger.error(
                 "WebSocket inference thread unexpected error: %s", e, exc_info=True
             )
+            thread_error[0] = str(e)
         finally:
+            # Signal the consumer that the thread has fully stopped BEFORE the
+            # queue-None sentinel. done is separate from None (None = "no more
+            # chunks"; done = "thread finished"); the consumer awaits done in
+            # its finally to hold inference_lock until the thread stops.
+            done.set()
             loop.call_soon_threadsafe(queue.put_nowait, None)
 
     async with app_state.inference_lock:
+        # Event signals the inference thread has fully stopped; the consumer
+        # awaits it in its finally BEFORE releasing inference_lock so an
+        # in-flight model.generate() cannot race the next request.
+        done = threading.Event()
+        # Holder for an exception string captured by the inference thread's
+        # except clauses. None = no error; non-None = terminal frame reports
+        # status=="error" instead of false success.
+        thread_error: list[str | None] = [None]
         thread = threading.Thread(target=inference_thread, daemon=True)
         thread.start()
 
         chunk_count = 0
+        was_cancelled = False
+        disconnected = False
         try:
             while True:
                 chunk = await queue.get()
@@ -365,13 +438,46 @@ async def _stream_generation(
                 await websocket.send_bytes(chunk)
                 chunk_count += 1
         except WebSocketDisconnect:
+            disconnected = True
+        finally:
+            # Detect cancel: stop_event set externally (by the /ws cancel
+            # action or, in future, the concurrent cancel-watcher) before the
+            # consumer's own cleanup. Checked before the unconditional set
+            # below so a normal completion isn't misread as a cancel.
+            if stop_event.is_set() and not disconnected:
+                was_cancelled = True
+            # stop_event must be set BEFORE awaiting done so the thread breaks
+            # out of its generate loop; awaiting done first risks deadlock if
+            # the thread is mid-chunk and waiting for the stop signal.
             stop_event.set()
-            return
+            await _await_inference_thread_done(done)
 
-    await websocket.send_json(
-        {
-            "status": "complete",
-            "chunks": chunk_count,
-            "seed": used_seed,
-        }
-    )
+    # Terminal frame — branch on outcome (outside inference_lock so the lock
+    # isn't held while sending the final JSON). Pre-fix this was an
+    # unconditional {"status": "complete"} that reported false success even
+    # when the inference thread excepted or the prompt was missing.
+    if disconnected:
+        return
+    if was_cancelled:
+        await websocket.send_json(
+            {"status": "cancelled", "chunks": chunk_count, "seed": used_seed}
+        )
+    elif thread_error[0] is not None:
+        from qwen3_tts.server.app_lifespan import _sanitize_error
+
+        await websocket.send_json(
+            {
+                "status": "error",
+                "detail": _sanitize_error(thread_error[0]),
+                "chunks": chunk_count,
+                "seed": used_seed,
+            }
+        )
+    else:
+        await websocket.send_json(
+            {
+                "status": "complete",
+                "chunks": chunk_count,
+                "seed": used_seed,
+            }
+        )

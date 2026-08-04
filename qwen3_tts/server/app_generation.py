@@ -54,6 +54,22 @@ def _should_stop_streaming(stop_event, generation_state) -> bool:
     return stop_event.is_set() or bool(generation_state.get("cancelled"))
 
 
+_STREAM_THREAD_JOIN_TIMEOUT_SEC: float = 90.0  # one <=500-char chunk on slow macOS CI ~30-60s; 90s margin
+
+
+async def _await_inference_thread_done(
+    done_event: threading.Event,
+    timeout: float = _STREAM_THREAD_JOIN_TIMEOUT_SEC,
+) -> bool:
+    """Block (threadpool worker) until the streaming inference thread sets
+    done_event or timeout elapses. Call ONLY in a streaming consumer's finally,
+    BEFORE the `async with inference_lock` block exits, so an in-flight
+    model.generate() cannot race the next request's GPU access. Returns True if
+    the thread signaled done; False on timeout (lock released anyway -> the
+    daemon thread finishes its chunk and self-terminates)."""
+    return await asyncio.to_thread(done_event.wait, timeout)
+
+
 async def handle_generate(request, state, req, security, config_provider):
     """Core logic for the /generate endpoint.
 
@@ -160,6 +176,13 @@ async def handle_generate(request, state, req, security, config_provider):
     request_id = id(request)
     with state.request_queue_lock:
         state.request_queue.add(request_id)
+
+    # Stamp a per-batch ownership id so the finally can check whether this
+    # batch still owns generation_state before resetting it.  Without this,
+    # an all-cache-hit batch (which never sets active=True) or a batch whose
+    # state was since overwritten by a concurrent stream would clobber the
+    # stream's generation_state.  Mirrors the streaming guard at :729.
+    batch_gen_id = str(uuid.uuid4())[:8]
 
     try:
         import soundfile as sf
@@ -276,6 +299,7 @@ async def handle_generate(request, state, req, security, config_provider):
                             "mode": mode,
                             "batch_index": i,
                             "batch_total": len(texts),
+                            "generation_id": batch_gen_id,
                         }
                     )
 
@@ -482,19 +506,25 @@ async def handle_generate(request, state, req, security, config_provider):
             "retry",
         )
     finally:
-        # Clear generation state
-        state.generation_state.update(
-            {
-                "active": False,
-                "start_time": 0.0,
-                "text_length": 0,
-                "mode": "",
-                "batch_index": 0,
-                "batch_total": 0,
-                "chunk_index": 0,
-                "chunk_total": 0,
-            }
-        )
+        # Reset generation_state ONLY if this batch still owns it.  A
+        # concurrent stream may have overwritten generation_id mid-batch;
+        # an all-cache-hit batch never stamped one at all.  In either case
+        # resetting would clobber the other request's state.  Mirrors the
+        # streaming-path guard at :729.
+        if state.generation_state.get("generation_id") == batch_gen_id:
+            state.generation_state.update(
+                {
+                    "active": False,
+                    "start_time": 0.0,
+                    "text_length": 0,
+                    "mode": "",
+                    "batch_index": 0,
+                    "batch_total": 0,
+                    "chunk_index": 0,
+                    "chunk_total": 0,
+                    "generation_id": None,
+                }
+            )
         with state.request_queue_lock:
             state.request_queue.discard(request_id)
 
@@ -672,13 +702,33 @@ async def handle_generate_stream(request, state, req, security, config_provider)
                             queue.put_nowait, header + audio_bytes
                         )
 
-                except (RuntimeError, OSError, ValueError, MemoryError, TypeError) as e:
+                except Exception as e:
+                    # Broad catch: any exception outside the old narrow tuple
+                    # (e.g. AttributeError) would otherwise kill the thread
+                    # without the None sentinel, deadlocking the consumer.
+                    thread_error[0] = str(e)
                     logger.error("Streaming inference failed: %s", e, exc_info=True)
-                    loop.call_soon_threadsafe(queue.put_nowait, None)
-                else:
-                    # Signal completion
+                finally:
+                    # Signal the consumer that the thread has fully stopped.
+                    # Separate from the queue-None sentinel (which means "no
+                    # more chunks"); done means "thread finished" and is awaited
+                    # by the consumer's finally BEFORE releasing inference_lock.
+                    done.set()
+                    # Always send the completion sentinel so the consumer never
+                    # blocks forever on queue.get() — even on unexpected errors
+                    # (deadlock fix, H3).
                     loop.call_soon_threadsafe(queue.put_nowait, None)
 
+            # thread_error holds the stringified failure if the thread caught one
+            # (closure-captured by the thread and read by the consumer after it
+            # awaits done). chunk_count tracks delivered chunks so a pre-chunk
+            # error can be surfaced instead of a silent empty 200.
+            thread_error: list[str | None] = [None]
+            chunk_count = 0
+            # Event signals the inference thread has fully stopped; the consumer
+            # awaits it in its finally BEFORE releasing inference_lock so an
+            # in-flight model.generate() cannot race the next request.
+            done = threading.Event()
             # Start inference thread
             thread = threading.Thread(target=inference_thread, daemon=True)
             thread.start()
@@ -690,8 +740,16 @@ async def handle_generate_stream(request, state, req, security, config_provider)
                     if chunk is None:
                         break
                     yield chunk
+                    chunk_count += 1
             finally:
                 stop_event.set()
+                await _await_inference_thread_done(done)
+                if not done.is_set():
+                    logger.error(
+                        "streaming inference thread did not stop within %ss; "
+                        "releasing inference_lock",
+                        _STREAM_THREAD_JOIN_TIMEOUT_SEC,
+                    )
                 # Reset generation state if still our generation
                 if state.generation_state.get("generation_id") == gen_id:
                     state.generation_state.update(
@@ -706,6 +764,14 @@ async def handle_generate_stream(request, state, req, security, config_provider)
                             "cancelled": False,
                         }
                     )
+            # False-success guard (H3): if the thread errored before delivering
+            # any chunk, raise so the client sees a broken connection instead of
+            # a silent empty 200 (Starlette commits 200 headers before iterating
+            # the body). Only fires on the normal-completion path (sentinel
+            # received -> break); on client disconnect the finally returns early
+            # via GeneratorExit/aclose and this code is skipped.
+            if thread_error[0] is not None and chunk_count == 0:
+                raise RuntimeError(thread_error[0])
 
     return StreamingResponse(
         audio_stream_generator(),
