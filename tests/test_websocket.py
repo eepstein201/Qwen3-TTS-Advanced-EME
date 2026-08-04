@@ -211,10 +211,12 @@ class TestWebSocketGeneration(unittest.TestCase):
             return_value=iter(fake_chunks),
         ), patch(
             "qwen3_tts.server.validation._validate_generation_request"
+        ), patch(
+            "qwen3_tts.core.engine.load_voice_prompt", return_value=MagicMock(),
         ):
             with TestClient(app).websocket_connect("/ws") as ws:
                 self._authenticate(ws)
-                ws.send_text(json.dumps({"text": "Hello", "mode": "clone"}))
+                ws.send_text(json.dumps({"text": "Hello", "mode": "clone", "prompt_file": "test.pt"}))
 
                 # First JSON: "generating" status
                 status = ws.receive_json()
@@ -337,10 +339,12 @@ class TestWebSocketWireFormat(unittest.TestCase):
             return_value=iter(fake_chunks),
         ), patch(
             "qwen3_tts.server.validation._validate_generation_request"
+        ), patch(
+            "qwen3_tts.core.engine.load_voice_prompt", return_value=MagicMock(),
         ):
             with TestClient(app).websocket_connect("/ws") as ws:
                 self._authenticate(ws)
-                ws.send_text(json.dumps({"text": "Test", "mode": "clone"}))
+                ws.send_text(json.dumps({"text": "Test", "mode": "clone", "prompt_file": "test.pt"}))
 
                 # Skip "generating" status
                 ws.receive_json()
@@ -382,10 +386,12 @@ class TestWebSocketWireFormat(unittest.TestCase):
             return_value=iter(chunks),
         ), patch(
             "qwen3_tts.server.validation._validate_generation_request"
+        ), patch(
+            "qwen3_tts.core.engine.load_voice_prompt", return_value=MagicMock(),
         ):
             with TestClient(app).websocket_connect("/ws") as ws:
                 self._authenticate(ws)
-                ws.send_text(json.dumps({"text": "Test", "mode": "clone"}))
+                ws.send_text(json.dumps({"text": "Test", "mode": "clone", "prompt_file": "test.pt"}))
                 ws.receive_json()  # "generating"
 
                 for expected_audio, expected_sr in chunks:
@@ -560,10 +566,12 @@ class TestWebSocketOOMGuard(unittest.TestCase):
         # (pre-fix). Validation is patched so the request reaches the guard.
         with patch(
             "qwen3_tts.server.validation._validate_generation_request"
-        ), patch("qwen3_tts.core.engine.run_inference_streaming"):
+        ), patch("qwen3_tts.core.engine.run_inference_streaming"), patch(
+            "qwen3_tts.core.engine.load_voice_prompt", return_value=MagicMock(),
+        ):
             with TestClient(app).websocket_connect("/ws") as ws:
                 self._authenticate(ws)
-                ws.send_text(json.dumps({"text": "Hello", "mode": "clone"}))
+                ws.send_text(json.dumps({"text": "Hello", "mode": "clone", "prompt_file": "test.pt"}))
 
                 # The error frame must be the FIRST message received. If a
                 # "generating" frame had been sent first (the pre-fix behavior),
@@ -574,6 +582,107 @@ class TestWebSocketOOMGuard(unittest.TestCase):
                 self.assertIn("Insufficient memory", resp["detail"])
                 self.assertIn("500", resp["detail"])
                 mock_mem.assert_called_once()
+
+
+@_skip
+class TestWebSocketErrorReporting(unittest.TestCase):
+    """H5: WebSocket generation errors and missing prompts must not report
+    false success. Pre-fix, an inference exception was logged but the client
+    still received {"status":"complete"}, and a clone request with a missing
+    or not-found prompt_file proceeded and also reported complete.
+    """
+
+    def _authenticate(self, ws):
+        """Helper to complete auth handshake."""
+        ws.send_text(json.dumps({"token": _TEST_TOKEN}))
+        resp = ws.receive_json()
+        self.assertEqual(resp["status"], "authenticated")
+
+    @patch("qwen3_tts.server.app_lifespan._check_memory_available")
+    def test_inference_exception_returns_status_error_not_complete(self, mock_mem):
+        """When run_inference_streaming raises, the terminal frame must report
+        status=="error" with a sanitized detail — NOT false success.
+
+        Pre-fix the thread excepted silently and the terminal frame sent
+        {"status":"complete"} (false success).
+        """
+        mock_mem.return_value = (True, 4096)
+        _setup_app_state(
+            models={
+                "clone": MagicMock(),
+                "design": MagicMock(),
+                "custom": None,
+            },
+            server_config={"security": {}},
+        )
+
+        with patch(
+            "qwen3_tts.core.engine.run_inference_streaming",
+            side_effect=RuntimeError("test inference failure"),
+        ), patch(
+            "qwen3_tts.server.validation._validate_generation_request"
+        ):
+            with TestClient(app).websocket_connect("/ws") as ws:
+                self._authenticate(ws)
+                ws.send_text(json.dumps({"text": "Hello", "mode": "design"}))
+
+                # "generating" frame is expected (validation + memory passed)
+                generating = ws.receive_json()
+                self.assertEqual(generating["status"], "generating")
+
+                # Terminal frame must be an error, not false success
+                error = ws.receive_json()
+                self.assertEqual(error["status"], "error")
+                self.assertNotEqual(error["status"], "complete")
+                self.assertIn("test inference failure", error["detail"])
+                self.assertEqual(error["chunks"], 0)
+
+    @patch("qwen3_tts.core.engine.run_inference_streaming", return_value=iter([]))
+    def test_missing_prompt_file_returns_error_not_empty_complete(self, _mock_inf):
+        """Clone mode without a prompt_file must return an error frame BEFORE
+        the "generating" frame — a missing prompt must never look like
+        generation started (false success).
+        """
+        _setup_app_state(
+            models={"clone": MagicMock(), "design": None, "custom": None},
+            server_config={"security": {}},
+        )
+        with TestClient(app).websocket_connect("/ws") as ws:
+            self._authenticate(ws)
+            ws.send_text(json.dumps({"text": "Hello", "mode": "clone"}))
+
+            resp = ws.receive_json()
+            self.assertEqual(resp["error"], "prompt_file required for clone mode")
+            # No "generating" frame should precede this error
+            self.assertNotEqual(resp.get("status"), "generating")
+
+    @patch("qwen3_tts.core.engine.run_inference_streaming", return_value=iter([]))
+    @patch("qwen3_tts.server.validation._validate_generation_request")
+    def test_prompt_not_found_returns_error(self, _mock_validate, _mock_inf):
+        """Clone mode with a prompt_file whose load_voice_prompt returns None
+        must return a 'Voice prompt not found' error — NOT proceed with
+        voice_prompt=None and report false success.
+        """
+        _setup_app_state(
+            models={"clone": MagicMock(), "design": None, "custom": None},
+            server_config={"security": {}},
+        )
+        with patch(
+            "qwen3_tts.core.engine.load_voice_prompt", return_value=None
+        ):
+            with TestClient(app).websocket_connect("/ws") as ws:
+                self._authenticate(ws)
+                ws.send_text(json.dumps({
+                    "text": "Hello",
+                    "mode": "clone",
+                    "prompt_file": "missing.pt",
+                }))
+
+                resp = ws.receive_json()
+                self.assertEqual(
+                    resp["error"], "Voice prompt not found: missing.pt"
+                )
+                self.assertNotEqual(resp.get("status"), "generating")
 
 
 if __name__ == "__main__":
