@@ -4,13 +4,13 @@ Provides convenient pytest shortcuts via 'test-*' commands.
 """
 
 import sys
-from subprocess import run
+from subprocess import run  # nosec B404  # pytest launch via sys.executable
 
 
 def _run_pytest(args: list[str]) -> int:
     """Run pytest as a module using the current Python interpreter."""
     cmd = [sys.executable, "-m", "pytest"] + args
-    result = run(cmd)
+    result = run(cmd)  # nosec B603  # runs the pytest module; cmd is a hardcoded [sys.executable, -m, pytest] list
     return result.returncode
 
 

@@ -23,7 +23,7 @@ import os
 import re
 import signal
 import socket
-import subprocess
+import subprocess  # nosec B404  # vLLM server process management (launch/stop GPU subprocess)
 import sys
 import tempfile
 from collections.abc import AsyncIterator, Callable
@@ -53,7 +53,7 @@ def log_gpu_memory_usage():
     except ImportError:
         # GPUtil not available, use nvidia-smi
         try:
-            result = subprocess.run(
+            result = subprocess.run(  # nosec B603, B607  # hardcoded "nvidia-smi" GPU memory query; no user input
                 [
                     "nvidia-smi",
                     "--query-gpu=memory.used,memory.total",
@@ -274,7 +274,7 @@ class VLLMAdapter:
         self._log_fh = open(log_path, "w")  # noqa: PTH123
 
         # Start subprocess with POSIX process group
-        self._process = subprocess.Popen(
+        self._process = subprocess.Popen(  # nosec B603  # launches vLLM server; cmd is a hardcoded list, no user input
             cmd,
             stdout=self._log_fh,
             stderr=self._log_fh,

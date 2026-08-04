@@ -73,8 +73,8 @@ def enhance_description_with_ai(description):
     progress = ProgressIndicator(mode="indeterminate", message="Enhancing description…")
     try:
         gr.Info(progress.message)
-    except Exception:
-        pass  # gr.Info raises in non-event contexts (e.g. unit tests); ignore
+    except Exception:  # nosec B110  # gr.Info raises in non-event contexts (e.g. tests); cosmetic UI toast, safe to swallow
+        pass
 
     config = load_config()
     enhancer_config = config.get("prompt_enhancer", {})

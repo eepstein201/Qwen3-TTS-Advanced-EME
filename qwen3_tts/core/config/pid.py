@@ -11,7 +11,7 @@ qwen3_tts/core/config/__init__.py for the rationale.
 """
 
 import os
-import subprocess
+import subprocess  # nosec B404  # server PID discovery via lsof (hardcoded command, int port)
 
 
 def read_pid_file() -> int | None:
@@ -50,7 +50,7 @@ def find_pid_by_port(port: int) -> int | None:
     Works on macOS and Linux. Returns int PID or None.
     """
     try:
-        result = subprocess.run(
+        result = subprocess.run(  # nosec B603, B607  # hardcoded "lsof" lookup of an int port; no user input
             ["lsof", "-ti", f":{port}"],
             capture_output=True,
             text=True,
