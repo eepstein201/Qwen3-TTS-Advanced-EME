@@ -73,6 +73,12 @@ def _make_state():
     return state
 
 
+async def _drain_streaming_response(response):
+    """Iterate a StreamingResponse body iterator to completion or first error."""
+    async for _ in response.body_iterator:
+        pass
+
+
 def _reset_state(state):
     """Reset mutable state attributes between tests to avoid cross-pollution."""
     state.inference_lock = asyncio.Lock()
@@ -295,6 +301,107 @@ class TestStreamingThreadLifecycle(unittest.IsolatedAsyncioTestCase):
                     await release_task
                 except asyncio.CancelledError:
                     pass
+        finally:
+            _reset_state(state)
+
+
+    async def test_http_stream_unknown_exception_does_not_deadlock(self):
+        """H3: an exception outside the old narrow catch tuple (e.g.
+        ``AttributeError``) must not deadlock the streaming response.
+
+        Pre-fix the uncaught exception kills the inference thread WITHOUT
+        queueing the ``None`` completion sentinel, so the consumer blocks
+        forever on ``await queue.get()`` (deadlock).
+        Post-fix the broad ``except Exception`` captures it and the ``finally``
+        always sends the sentinel, so the response completes — the
+        false-success guard raises ``RuntimeError`` because zero chunks were
+        delivered.
+        """
+        from qwen3_tts.server.app_generation import handle_generate_stream
+        from qwen3_tts.server.validation import GenerateRequest
+
+        state = _make_state()
+
+        def raising_inference(**kwargs):
+            raise AttributeError("simulated unknown exception")
+
+        req = GenerateRequest(text="Hello world", mode="custom")
+
+        try:
+            with patch(
+                "qwen3_tts.core.engine.run_inference_streaming",
+                side_effect=raising_inference,
+            ), patch(
+                "qwen3_tts.server.validation._validate_generation_request"
+            ), patch(
+                "qwen3_tts.server.app_generation._check_memory_available",
+                return_value=(True, 4096),
+            ):
+                response = await handle_generate_stream(
+                    request=MagicMock(),
+                    state=state,
+                    req=req,
+                    security={"max_text_length": 50000},
+                    config_provider=None,
+                )
+
+                # Pre-fix: consumer deadlocks on queue.get() -> wait_for times
+                # out -> asyncio.TimeoutError (not RuntimeError) = RED.
+                # Post-fix: thread captures error, sends sentinel, consumer
+                # breaks, false-success guard raises RuntimeError = GREEN.
+                with self.assertRaises(RuntimeError):
+                    await asyncio.wait_for(
+                        _drain_streaming_response(response), timeout=5
+                    )
+        finally:
+            _reset_state(state)
+
+    async def test_http_stream_pre_chunk_error_aborts_response(self):
+        """H3: a caught-tuple error before any chunk must NOT produce a silent
+        empty 200 response.
+
+        Pre-fix the narrow ``except`` captures the error and sends the ``None``
+        sentinel, but the consumer completes cleanly with zero chunks —
+        Starlette has already committed 200 status headers, so the client sees
+        a silent empty 200.
+        Post-fix the false-success guard raises ``RuntimeError`` so the client
+        sees a broken connection instead.
+        """
+        from qwen3_tts.server.app_generation import handle_generate_stream
+        from qwen3_tts.server.validation import GenerateRequest
+
+        state = _make_state()
+
+        def raising_inference(**kwargs):
+            raise RuntimeError("boom")
+
+        req = GenerateRequest(text="Hello world", mode="custom")
+
+        try:
+            with patch(
+                "qwen3_tts.core.engine.run_inference_streaming",
+                side_effect=raising_inference,
+            ), patch(
+                "qwen3_tts.server.validation._validate_generation_request"
+            ), patch(
+                "qwen3_tts.server.app_generation._check_memory_available",
+                return_value=(True, 4096),
+            ):
+                response = await handle_generate_stream(
+                    request=MagicMock(),
+                    state=state,
+                    req=req,
+                    security={"max_text_length": 50000},
+                    config_provider=None,
+                )
+
+                # Pre-fix: body drains cleanly (empty 200) -> assertRaises
+                # fails because no RuntimeError is raised = RED.
+                # Post-fix: false-success guard raises RuntimeError = GREEN.
+                with self.assertRaises(RuntimeError):
+                    await asyncio.wait_for(
+                        _drain_streaming_response(response), timeout=5
+                    )
         finally:
             _reset_state(state)
 

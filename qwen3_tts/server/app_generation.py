@@ -688,19 +688,29 @@ async def handle_generate_stream(request, state, req, security, config_provider)
                             queue.put_nowait, header + audio_bytes
                         )
 
-                except (RuntimeError, OSError, ValueError, MemoryError, TypeError) as e:
+                except Exception as e:
+                    # Broad catch: any exception outside the old narrow tuple
+                    # (e.g. AttributeError) would otherwise kill the thread
+                    # without the None sentinel, deadlocking the consumer.
+                    thread_error[0] = str(e)
                     logger.error("Streaming inference failed: %s", e, exc_info=True)
-                    loop.call_soon_threadsafe(queue.put_nowait, None)
-                else:
-                    # Signal completion
-                    loop.call_soon_threadsafe(queue.put_nowait, None)
                 finally:
                     # Signal the consumer that the thread has fully stopped.
                     # Separate from the queue-None sentinel (which means "no
                     # more chunks"); done means "thread finished" and is awaited
                     # by the consumer's finally BEFORE releasing inference_lock.
                     done.set()
+                    # Always send the completion sentinel so the consumer never
+                    # blocks forever on queue.get() — even on unexpected errors
+                    # (deadlock fix, H3).
+                    loop.call_soon_threadsafe(queue.put_nowait, None)
 
+            # thread_error holds the stringified failure if the thread caught one
+            # (closure-captured by the thread and read by the consumer after it
+            # awaits done). chunk_count tracks delivered chunks so a pre-chunk
+            # error can be surfaced instead of a silent empty 200.
+            thread_error: list[str | None] = [None]
+            chunk_count = 0
             # Event signals the inference thread has fully stopped; the consumer
             # awaits it in its finally BEFORE releasing inference_lock so an
             # in-flight model.generate() cannot race the next request.
@@ -716,6 +726,7 @@ async def handle_generate_stream(request, state, req, security, config_provider)
                     if chunk is None:
                         break
                     yield chunk
+                    chunk_count += 1
             finally:
                 stop_event.set()
                 await _await_inference_thread_done(done)
@@ -739,6 +750,14 @@ async def handle_generate_stream(request, state, req, security, config_provider)
                             "cancelled": False,
                         }
                     )
+            # False-success guard (H3): if the thread errored before delivering
+            # any chunk, raise so the client sees a broken connection instead of
+            # a silent empty 200 (Starlette commits 200 headers before iterating
+            # the body). Only fires on the normal-completion path (sentinel
+            # received -> break); on client disconnect the finally returns early
+            # via GeneratorExit/aclose and this code is skipped.
+            if thread_error[0] is not None and chunk_count == 0:
+                raise RuntimeError(thread_error[0])
 
     return StreamingResponse(
         audio_stream_generator(),
