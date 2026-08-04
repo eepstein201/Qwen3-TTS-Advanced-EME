@@ -525,5 +525,56 @@ class TestWebSocketDefaultMode(unittest.TestCase):
             self.assertIn("clone", resp["error"])
 
 
+@_skip
+class TestWebSocketOOMGuard(unittest.TestCase):
+    """OOM memory guard on the WebSocket streaming path (H1).
+
+    The HTTP /generate and /generate-stream paths enforce _check_memory_available
+    before generating; the WS path historically bypassed it, so a low-memory
+    request still spawned an inference thread that could OOM-crash the server.
+    """
+
+    def _authenticate(self, ws):
+        """Helper to complete auth handshake."""
+        ws.send_text(json.dumps({"token": _TEST_TOKEN}))
+        resp = ws.receive_json()
+        self.assertEqual(resp["status"], "authenticated")
+
+    @patch("qwen3_tts.server.app_lifespan._check_memory_available")
+    def test_low_memory_sends_status_error(self, mock_mem):
+        """When the OOM guard reports insufficient memory, the WS path must send
+        a status=='error' frame and must NOT proceed to status=='generating'.
+
+        Patches the app_lifespan seam (where websocket.py imports the guard
+        inline), NOT the app_generation (HTTP) seam — patching the wrong one
+        leaves the real check in place and the test passes vacuously.
+        """
+        mock_mem.return_value = (False, 500)
+        fake_model = MagicMock()
+        _setup_app_state(
+            models={"clone": fake_model, "design": None, "custom": None},
+            server_config={"security": {}},
+        )
+
+        # Guard against real inference in case execution flows past the guard
+        # (pre-fix). Validation is patched so the request reaches the guard.
+        with patch(
+            "qwen3_tts.server.validation._validate_generation_request"
+        ), patch("qwen3_tts.core.engine.run_inference_streaming"):
+            with TestClient(app).websocket_connect("/ws") as ws:
+                self._authenticate(ws)
+                ws.send_text(json.dumps({"text": "Hello", "mode": "clone"}))
+
+                # The error frame must be the FIRST message received. If a
+                # "generating" frame had been sent first (the pre-fix behavior),
+                # this receive would return it and the assertion would fail —
+                # proving no "generating" frame precedes the error.
+                resp = ws.receive_json()
+                self.assertEqual(resp["status"], "error")
+                self.assertIn("Insufficient memory", resp["detail"])
+                self.assertIn("500", resp["detail"])
+                mock_mem.assert_called_once()
+
+
 if __name__ == "__main__":
     unittest.main()

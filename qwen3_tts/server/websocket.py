@@ -295,6 +295,13 @@ async def _stream_generation(
     # matching the /generate and /generate-stream paths.
     used_seed = _resolve_generation_seed(req.seed)
 
+    from qwen3_tts.server.app_lifespan import _check_memory_available
+    mem_ok, available_mb = _check_memory_available()
+    if not mem_ok:
+        await websocket.send_json({"status": "error",
+            "detail": f"Insufficient memory: only {available_mb}MB available. Unload unused models to free memory."})
+        return
+
     await websocket.send_json({"status": "generating", "text_length": len(text)})
 
     queue: asyncio.Queue = asyncio.Queue()
