@@ -20,7 +20,10 @@ import threading
 
 from fastapi import WebSocket, WebSocketDisconnect
 
-from qwen3_tts.server.app_generation import _resolve_generation_seed
+from qwen3_tts.server.app_generation import (
+    _await_inference_thread_done,
+    _resolve_generation_seed,
+)
 
 logger = logging.getLogger("tts.server.websocket")
 
@@ -357,9 +360,18 @@ async def _stream_generation(
                 "WebSocket inference thread unexpected error: %s", e, exc_info=True
             )
         finally:
+            # Signal the consumer that the thread has fully stopped BEFORE the
+            # queue-None sentinel. done is separate from None (None = "no more
+            # chunks"; done = "thread finished"); the consumer awaits done in
+            # its finally to hold inference_lock until the thread stops.
+            done.set()
             loop.call_soon_threadsafe(queue.put_nowait, None)
 
     async with app_state.inference_lock:
+        # Event signals the inference thread has fully stopped; the consumer
+        # awaits it in its finally BEFORE releasing inference_lock so an
+        # in-flight model.generate() cannot race the next request.
+        done = threading.Event()
         thread = threading.Thread(target=inference_thread, daemon=True)
         thread.start()
 
@@ -374,6 +386,12 @@ async def _stream_generation(
         except WebSocketDisconnect:
             stop_event.set()
             return
+        finally:
+            # stop_event must be set BEFORE awaiting done so the thread breaks
+            # out of its generate loop; awaiting done first risks deadlock if
+            # the thread is mid-chunk and waiting for the stop signal.
+            stop_event.set()
+            await _await_inference_thread_done(done)
 
     await websocket.send_json(
         {

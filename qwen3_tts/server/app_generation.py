@@ -694,7 +694,17 @@ async def handle_generate_stream(request, state, req, security, config_provider)
                 else:
                     # Signal completion
                     loop.call_soon_threadsafe(queue.put_nowait, None)
+                finally:
+                    # Signal the consumer that the thread has fully stopped.
+                    # Separate from the queue-None sentinel (which means "no
+                    # more chunks"); done means "thread finished" and is awaited
+                    # by the consumer's finally BEFORE releasing inference_lock.
+                    done.set()
 
+            # Event signals the inference thread has fully stopped; the consumer
+            # awaits it in its finally BEFORE releasing inference_lock so an
+            # in-flight model.generate() cannot race the next request.
+            done = threading.Event()
             # Start inference thread
             thread = threading.Thread(target=inference_thread, daemon=True)
             thread.start()
@@ -708,6 +718,13 @@ async def handle_generate_stream(request, state, req, security, config_provider)
                     yield chunk
             finally:
                 stop_event.set()
+                await _await_inference_thread_done(done)
+                if not done.is_set():
+                    logger.error(
+                        "streaming inference thread did not stop within %ss; "
+                        "releasing inference_lock",
+                        _STREAM_THREAD_JOIN_TIMEOUT_SEC,
+                    )
                 # Reset generation state if still our generation
                 if state.generation_state.get("generation_id") == gen_id:
                     state.generation_state.update(
