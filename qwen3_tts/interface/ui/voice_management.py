@@ -182,7 +182,7 @@ def auto_transcribe_audio(audio_path):
     progress = ProgressIndicator(mode="indeterminate", message="Transcribing audio…")
     try:
         gr.Info(progress.message)
-    except Exception:
+    except Exception:  # nosec B110  # gr.Info raises in non-event contexts (e.g. tests); cosmetic UI toast, safe to swallow
         pass
 
     try:

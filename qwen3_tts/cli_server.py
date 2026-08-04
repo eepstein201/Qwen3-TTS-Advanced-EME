@@ -5,7 +5,7 @@ Contains: server group (start, stop, status, log, restart) and stats command.
 """
 
 import os
-import subprocess
+import subprocess  # nosec B404  # server PID/daemon management (launches app, tails logs via hardcoded commands)
 import sys
 import time
 
@@ -27,7 +27,7 @@ def _start_server_daemon(public=False):
     if public:
         cmd.append("--public")
 
-    proc = subprocess.Popen(
+    proc = subprocess.Popen(  # nosec B603  # launches local server via sys.executable; cmd is a hardcoded list, no user input
         cmd,
         stdout=subprocess.DEVNULL,
         stderr=subprocess.DEVNULL,
@@ -85,7 +85,7 @@ def start(public, foreground):
 
         host = config.get("server", {}).get("host", "127.0.0.1")
         if public:
-            host = "0.0.0.0"
+            host = "0.0.0.0"  # nosec B104  # intentional --public network bind
         port = config.get("server", {}).get("port", 5123)
         uvicorn.run(app, host=host, port=port, log_level="info")
     else:
@@ -323,7 +323,7 @@ def log():
     # Tail the log file
     try:
         # Use tail command if available, otherwise Python fallback
-        result = subprocess.run(
+        result = subprocess.run(  # nosec B603, B607  # hardcoded "tail -f" on a validated log path; no user input
             ["tail", "-f", str(log_file)],
             text=True,
         )

@@ -62,7 +62,7 @@ import os  # noqa: F401
 import pathlib  # noqa: F401
 import platform  # noqa: F401
 import re  # noqa: F401
-import subprocess  # noqa: F401
+import subprocess  # noqa: F401  # nosec B404  # re-exported for pid.py server PID management
 import sys  # noqa: F401
 import tempfile  # noqa: F401
 import threading  # noqa: F401

@@ -227,9 +227,9 @@ def check_audio_dependencies() -> tuple:
 
     # Check for ffmpeg
     try:
-        import subprocess
+        import subprocess  # nosec B404  # local import to check ffmpeg/rubberband presence
 
-        result = subprocess.run(["ffmpeg", "-version"], capture_output=True, timeout=5)
+        result = subprocess.run(["ffmpeg", "-version"], capture_output=True, timeout=5)  # nosec B603, B607  # hardcoded "ffmpeg -version" probe; no user input
         if result.returncode == 0:
             has_ffmpeg = True
         else:
@@ -242,7 +242,7 @@ def check_audio_dependencies() -> tuple:
 
     # Check for rubberband (optional but recommended)
     try:
-        result = subprocess.run(
+        result = subprocess.run(  # nosec B603, B607  # hardcoded "rubberband --version" probe; no user input
             ["rubberband", "--version"], capture_output=True, timeout=5
         )
         has_rubberband = result.returncode == 0

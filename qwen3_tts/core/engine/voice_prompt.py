@@ -7,7 +7,7 @@ Uses lazy imports for model_loader and inference to avoid circular dependencies.
 
 import logging
 import os
-import pickle
+import pickle  # nosec B403  # only pickle.UnpicklingError (corrupted-.pt fallback); prompts are local trusted artifacts created by create_voice.py, torch.load does the unpickling
 import threading
 from collections import OrderedDict
 

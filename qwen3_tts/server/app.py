@@ -776,11 +776,11 @@ def run_server(host: str = "127.0.0.1", port: int = 5123, public: bool = False) 
     logging.getLogger("tts").addHandler(stderr_handler)
 
     if public:
-        host = "0.0.0.0"
+        host = "0.0.0.0"  # nosec B104  # intentional network bind via --public; logged on the next line
         logger.warning("Binding to 0.0.0.0 — server is accessible from the network.")
 
     if IN_COLAB:
-        host = "0.0.0.0"
+        host = "0.0.0.0"  # nosec B104  # Colab requires 0.0.0.0 for tunnel access; logged on next line
         logger.info("Colab detected — binding to 0.0.0.0 for tunnel access.")
 
     # Handle shutdown signals
