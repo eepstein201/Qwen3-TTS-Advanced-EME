@@ -54,6 +54,22 @@ def _should_stop_streaming(stop_event, generation_state) -> bool:
     return stop_event.is_set() or bool(generation_state.get("cancelled"))
 
 
+_STREAM_THREAD_JOIN_TIMEOUT_SEC: float = 90.0  # one <=500-char chunk on slow macOS CI ~30-60s; 90s margin
+
+
+async def _await_inference_thread_done(
+    done_event: threading.Event,
+    timeout: float = _STREAM_THREAD_JOIN_TIMEOUT_SEC,
+) -> bool:
+    """Block (threadpool worker) until the streaming inference thread sets
+    done_event or timeout elapses. Call ONLY in a streaming consumer's finally,
+    BEFORE the `async with inference_lock` block exits, so an in-flight
+    model.generate() cannot race the next request's GPU access. Returns True if
+    the thread signaled done; False on timeout (lock released anyway -> the
+    daemon thread finishes its chunk and self-terminates)."""
+    return await asyncio.to_thread(done_event.wait, timeout)
+
+
 async def handle_generate(request, state, req, security, config_provider):
     """Core logic for the /generate endpoint.
 
