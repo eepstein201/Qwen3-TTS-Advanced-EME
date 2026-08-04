@@ -13,6 +13,7 @@ Wire format (client → server):
 """
 
 import asyncio
+import contextlib
 import json
 import logging
 import struct
@@ -172,6 +173,33 @@ async def websocket_tts_handler(
             mode = data.get("mode", "clone")
             stop_event.clear()
 
+            # Concurrent cancel-watcher: the main loop is blocked inside
+            # _stream_generation for the duration of generation, so without a
+            # watcher a {"action":"cancel"} frame sent mid-generation is never
+            # read until generation finishes.  The watcher is the SOLE
+            # receive_text reader during generation (the main loop is blocked
+            # in the await below), so there is no concurrent-reader race.  On
+            # normal completion the finally cancels and reaps the watcher.
+            async def _cancel_watcher() -> None:
+                try:
+                    while True:
+                        msg = await websocket.receive_text()
+                        try:
+                            frame = json.loads(msg)
+                        except json.JSONDecodeError:
+                            continue
+                        if isinstance(frame, dict) and frame.get("action") == "cancel":
+                            stop_event.set()
+                            return
+                        # Other frames mid-generation: ignore (client protocol
+                        # violation) — the main loop will resume after gen.
+                except WebSocketDisconnect:
+                    stop_event.set()
+                    return
+                except Exception:
+                    return  # a watcher error must never abort generation
+
+            watcher = asyncio.create_task(_cancel_watcher())
             try:
                 await _stream_generation(
                     websocket=websocket,
@@ -195,6 +223,10 @@ async def websocket_tts_handler(
                 from qwen3_tts.server.app_lifespan import _sanitize_error
 
                 await websocket.send_json({"error": _sanitize_error(str(e))})
+            finally:
+                watcher.cancel()
+                with contextlib.suppress(asyncio.CancelledError, Exception):
+                    await watcher
 
     except WebSocketDisconnect:
         logger.info("WebSocket client disconnected")

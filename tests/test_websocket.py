@@ -17,6 +17,8 @@ Run: pytest tests/test_websocket.py -v --tb=short
 import asyncio
 import json
 import struct
+import threading
+import time
 import unittest
 from unittest.mock import MagicMock, patch
 
@@ -683,6 +685,107 @@ class TestWebSocketErrorReporting(unittest.TestCase):
                     resp["error"], "Voice prompt not found: missing.pt"
                 )
                 self.assertNotEqual(resp.get("status"), "generating")
+
+
+@_skip
+class TestWebSocketCancelMidGeneration(unittest.TestCase):
+    """H6: a cancel sent during in-flight generation must stop the stream.
+
+    Pre-fix, the main message loop is blocked inside _stream_generation, so a
+    mid-generation {"action":"cancel"} frame is never read until generation
+    finishes — the stream runs to completion and reports "complete".
+    Post-fix, a concurrent cancel-watcher reads frames during generation and
+    sets stop_event, which the inference thread observes (it checks between
+    chunks), stopping the stream and yielding a "cancelled" terminal frame.
+    """
+
+    def _authenticate(self, ws):
+        """Helper to complete auth handshake."""
+        ws.send_text(json.dumps({"token": _TEST_TOKEN}))
+        resp = ws.receive_json()
+        self.assertEqual(resp["status"], "authenticated")
+
+    def test_cancel_mid_generation_stops_stream_and_sends_cancelled(self):
+        """Cancel sent after the first chunk must stop the stream and produce
+        a {"status":"cancelled"} terminal frame — not run to completion.
+
+        The mock generator yields one chunk then blocks on a test-controlled
+        ``proceed`` event, mirroring how real inference blocks inside
+        model.generate() between chunk yields.  The test unblocks the
+        generator only after sending cancel and giving the concurrent watcher
+        time to process it.  Without the watcher (pre-fix) stop_event is never
+        set, so the terminal frame is "complete"; with the watcher it is
+        "cancelled".
+        """
+        _setup_app_state(
+            models={"clone": MagicMock(), "design": None, "custom": None},
+            server_config={"security": {}},
+        )
+
+        chunk = np.zeros(2400, dtype=np.float32)
+        sample_rate = 24000
+
+        # proceed gates the mock generator: it blocks after the first chunk
+        # until the test signals it.  This decouples generator unblocking
+        # from the handler's internal stop_event (which the test cannot
+        # access directly).
+        proceed = threading.Event()
+
+        def fake_streaming(*args, **kwargs):
+            yield (chunk, sample_rate)
+            # Block until the test signals proceed — mirroring real inference
+            # blocking inside model.generate() between chunk yields.  Without
+            # the watcher, stop_event is never set regardless of when this
+            # returns.
+            proceed.wait(timeout=5.0)
+            # Return without yielding more — cancel must stop generation here.
+
+        with patch(
+            "qwen3_tts.core.engine.run_inference_streaming",
+            side_effect=fake_streaming,
+        ), patch(
+            "qwen3_tts.server.validation._validate_generation_request"
+        ), patch(
+            "qwen3_tts.core.engine.load_voice_prompt", return_value=MagicMock(),
+        ), patch(
+            "qwen3_tts.server.app_lifespan._check_memory_available",
+            return_value=(True, 4096),
+        ):
+            with TestClient(app).websocket_connect("/ws") as ws:
+                self._authenticate(ws)
+                ws.send_text(json.dumps({
+                    "text": "Hello",
+                    "mode": "clone",
+                    "prompt_file": "test.pt",
+                }))
+
+                # "generating" status frame
+                generating = ws.receive_json()
+                self.assertEqual(generating["status"], "generating")
+
+                # First (and only) binary chunk arrives at the client
+                bin1 = ws.receive_bytes()
+                self.assertIsInstance(bin1, bytes)
+
+                # Send cancel mid-generation while the stream is in-flight
+                ws.send_text(json.dumps({"action": "cancel"}))
+
+                # Give the concurrent watcher (if present) time to read the
+                # cancel frame and set stop_event.  The watcher runs in the
+                # server's event loop (portal thread); sub-millisecond work.
+                time.sleep(0.3)
+
+                # Unblock the generator so the inference thread can finish.
+                # GREEN: stop_event already set by watcher -> "cancelled".
+                # RED:   stop_event never set -> "complete".
+                proceed.set()
+
+                # Terminal frame — must be "cancelled", not "complete".
+                final = ws.receive_json()
+                self.assertEqual(final["status"], "cancelled")
+                # Exactly one chunk was streamed before the cancel took effect
+                self.assertEqual(final["chunks"], 1)
+                self.assertIn("seed", final)
 
 
 if __name__ == "__main__":
