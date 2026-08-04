@@ -357,6 +357,10 @@ def _run_inference_mlx(
     config = load_config()
     params = _get_mlx_gen_params(gen_params, config)
 
+    seed = gen_params.get("seed")
+    if seed is not None:
+        _set_seed_for_backend(seed)
+
     if mode == "clone":
         # MLX clone mode uses ref_audio (wav path) + ref_text directly.
         # voice_prompt should be a dict {"ref_audio": path, "ref_text": str}
