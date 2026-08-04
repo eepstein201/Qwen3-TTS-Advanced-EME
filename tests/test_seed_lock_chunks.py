@@ -230,6 +230,92 @@ class TestMLXSeedApplication(unittest.TestCase):
         self.assertNotIn("seed", params)
 
 
+class TestMLXStreamingSeedApplication(unittest.TestCase):
+    """Tests that MLX streaming applies seed per text chunk (H7 streaming)."""
+
+    def _make_mock_model(self):
+        """Build a mock MLX model whose generate_custom_voice returns one result.
+
+        Using a list (not an iterator) as return_value so it is re-iterable
+        across multiple text-chunk calls in the multi-chunk test.
+        """
+        import numpy as np
+
+        mock_model = MagicMock()
+        fake_result = MagicMock()
+        fake_result.audio = np.zeros(1000, dtype=np.float32)
+        fake_result.sample_rate = 24000
+        mock_model.generate_custom_voice.return_value = [fake_result]
+        return mock_model
+
+    @patch("qwen3_tts.core.engine.inference._set_seed_for_backend")
+    @patch("qwen3_tts.core.engine.inference.get_backend", return_value="mlx")
+    @patch("qwen3_tts.core.engine.inference._prepare_text_chunks")
+    def test_mlx_streaming_seeds(
+        self, mock_chunks, _backend, mock_set_seed
+    ):
+        """MLX streaming with a single text-chunk calls _set_seed_for_backend once."""
+        from qwen3_tts.core.engine.inference import run_inference_streaming
+
+        mock_chunks.return_value = ["test text"]
+        mock_model = self._make_mock_model()
+        config_provider = MagicMock()
+        config_provider.load.return_value = {}
+
+        list(
+            run_inference_streaming(
+                mock_model,
+                "test text",
+                "custom",
+                {
+                    "seed": 42,
+                    "temperature": 0.7,
+                    "top_k": 50,
+                    "top_p": 0.95,
+                    "max_new_tokens": 2048,
+                },
+                max_chunk_chars=500,
+                config_provider=config_provider,
+            )
+        )
+
+        mock_set_seed.assert_called_once_with(42)
+
+    @patch("qwen3_tts.core.engine.inference._set_seed_for_backend")
+    @patch("qwen3_tts.core.engine.inference.get_backend", return_value="mlx")
+    @patch("qwen3_tts.core.engine.inference._prepare_text_chunks")
+    def test_mlx_streaming_multi_chunk_seeds_each(
+        self, mock_chunks, _backend, mock_set_seed
+    ):
+        """MLX streaming with multiple text-chunks seeds once per chunk."""
+        from qwen3_tts.core.engine.inference import run_inference_streaming
+
+        mock_chunks.return_value = ["chunk1", "chunk2", "chunk3"]
+        mock_model = self._make_mock_model()
+        config_provider = MagicMock()
+        config_provider.load.return_value = {}
+
+        list(
+            run_inference_streaming(
+                mock_model,
+                "long text that splits into multiple chunks",
+                "custom",
+                {
+                    "seed": 42,
+                    "temperature": 0.7,
+                    "top_k": 50,
+                    "top_p": 0.95,
+                    "max_new_tokens": 2048,
+                },
+                max_chunk_chars=500,
+                config_provider=config_provider,
+            )
+        )
+
+        self.assertEqual(mock_set_seed.call_count, 3)
+        mock_set_seed.assert_has_calls([call(42), call(42), call(42)])
+
+
 class TestGenerateRequestSeedLock(unittest.TestCase):
     """Tests that GenerateRequest accepts seed_lock_chunks."""
 

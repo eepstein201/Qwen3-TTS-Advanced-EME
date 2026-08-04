@@ -492,6 +492,10 @@ def _run_inference_mlx_streaming(
         config = load_config()
     params = _get_mlx_gen_params(gen_params, config)
 
+    seed = gen_params.get("seed")
+    if seed is not None:
+        _set_seed_for_backend(seed)
+
     if mode == "clone":
         if voice_prompt is None:
             raise ValueError("voice_prompt is required for clone mode")
