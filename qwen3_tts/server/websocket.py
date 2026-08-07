@@ -120,6 +120,11 @@ async def websocket_tts_handler(
 
     # Step 2: Message loop
     stop_event = threading.Event()
+    # Distinct from stop_event: set ONLY when the concurrent cancel-watcher
+    # observes a WebSocketDisconnect, so the consumer can tell a real cancel
+    # (stop_event alone) from a client disconnect (stop_event + disconnect_event)
+    # and avoid emitting a terminal "cancelled" frame on the dead socket.
+    disconnect_event = threading.Event()
 
     try:
         while True:
@@ -194,6 +199,11 @@ async def websocket_tts_handler(
                         # Other frames mid-generation: ignore (client protocol
                         # violation) — the main loop will resume after gen.
                 except WebSocketDisconnect:
+                    # The client went away. Signal disconnect BEFORE stop_event
+                    # so the consumer can distinguish a real cancel (stop_event
+                    # alone) from a disconnect and skip the terminal frame it
+                    # would otherwise send on the dead socket.
+                    disconnect_event.set()
                     stop_event.set()
                     return
                 except Exception:
@@ -208,6 +218,7 @@ async def websocket_tts_handler(
                     mode=mode,
                     data=data,
                     stop_event=stop_event,
+                    disconnect_event=disconnect_event,
                 )
             except (ValueError, KeyError, json.JSONDecodeError) as e:
                 # Client validation errors - bad request data
@@ -248,6 +259,7 @@ async def _stream_generation(
     mode: str,
     data: dict,
     stop_event: threading.Event,
+    disconnect_event: threading.Event,
 ) -> None:
     """Run TTS generation and stream audio chunks over WebSocket.
 
@@ -258,6 +270,9 @@ async def _stream_generation(
         mode: Generation mode (clone/design/custom).
         data: Full request data dict.
         stop_event: Event to signal cancellation.
+        disconnect_event: Event set by the concurrent cancel-watcher when the
+            client disconnects, so the outcome is reported as a disconnect
+            rather than misread as a cancel.
     """
     model = app_state.models.get(mode)
     if model is None:
@@ -440,10 +455,14 @@ async def _stream_generation(
         except WebSocketDisconnect:
             disconnected = True
         finally:
-            # Detect cancel: stop_event set externally (by the /ws cancel
-            # action or, in future, the concurrent cancel-watcher) before the
-            # consumer's own cleanup. Checked before the unconditional set
-            # below so a normal completion isn't misread as a cancel.
+            # A disconnect may be observed two ways: this consumer's own
+            # send_bytes raising WebSocketDisconnect (local ``disconnected``),
+            # or the concurrent cancel-watcher, which signals via
+            # disconnect_event. Either way a disconnect must NOT be reported as
+            # a cancel — checked before the unconditional set below so a normal
+            # completion isn't misread either.
+            if disconnect_event.is_set():
+                disconnected = True
             if stop_event.is_set() and not disconnected:
                 was_cancelled = True
             # stop_event must be set BEFORE awaiting done so the thread breaks

@@ -94,7 +94,7 @@ config.json → qwen3_tts.core.config → qwen3_tts.core.engine (dispatch)
 | `qwen3_tts/server/app_models.py` | Model/stats endpoint handlers: `/stats`, `/models`, `/load-model`, `/unload-model`, `/update-model-config`, `/update-startup-config`, `/load-asr`, `/unload-asr`, `/transcribe` | No |
 | `qwen3_tts/server/app_prompts.py` | Prompt endpoint handlers: `/prompts`, `/delete-prompt`, `/rename-prompt`, `/preview-prompt`, `/prompt-details`, `/create-voice-prompt` | No |
 | `qwen3_tts/server/validation.py` | Canonical validation: `_validate_generation_request`, `_VALID_SPEAKER_NAMES` — do not re-define in app.py | No |
-| `qwen3_tts/server/websocket.py` | WebSocket endpoint for bidirectional real-time TTS streaming (`/ws`). Handles auth, cancel, and binary audio chunk delivery. | No |
+| `qwen3_tts/server/websocket.py` | WebSocket endpoint for bidirectional real-time TTS streaming (`/ws`). Handles auth, cancel, and binary audio chunk delivery. Concurrent cancel-watcher reads frames during generation and signals client disconnect distinctly from cancel (`disconnect_event`) so the consumer skips the terminal frame on a dead socket. | No |
 | `qwen3_tts/server/client/` | Package with 5 submodules: `_base`, `generator`, `models`, `voices`, `config_fetcher`. `__init__.py` facade re-exports TTSClient and generate. After `generate()`, `client.last_chunk_count` holds the chunk count for the last generation. | No |
 | `qwen3_tts/interface/generate.py` | CLI generation main entry point (`main()`); delegates to helper modules | No (lazy) |
 | `qwen3_tts/interface/generate_helpers.py` | Voice prompt helpers, audio playback, SSML, file-open utilities | No (lazy) |

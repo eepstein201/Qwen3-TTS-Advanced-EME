@@ -281,6 +281,7 @@ class TestWebSocketInferenceLock(unittest.IsolatedAsyncioTestCase):
                 mode="clone",
                 data={"prompt_file": "voice.pt"},
                 stop_event=stop_event,
+                disconnect_event=threading.Event(),
             )
 
         self.assertTrue(

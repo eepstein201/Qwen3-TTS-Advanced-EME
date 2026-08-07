@@ -242,6 +242,7 @@ class TestStreamingThreadLifecycle(unittest.IsolatedAsyncioTestCase):
                         mode="custom",
                         data={"text": "Hello world", "mode": "custom"},
                         stop_event=stop_event,
+                        disconnect_event=threading.Event(),
                     )
                 )
 
