@@ -19,12 +19,14 @@ import json
 import struct
 import threading
 import time
+import types
 import unittest
 from unittest.mock import MagicMock, patch
 
 try:
     import numpy as np
     from fastapi.testclient import TestClient
+    from starlette.websockets import WebSocketDisconnect
 
     from qwen3_tts.server.app import app
     from qwen3_tts.server.websocket import websocket_tts_handler  # noqa: F401
@@ -786,6 +788,115 @@ class TestWebSocketCancelMidGeneration(unittest.TestCase):
                 # Exactly one chunk was streamed before the cancel took effect
                 self.assertEqual(final["chunks"], 1)
                 self.assertIn("seed", final)
+
+
+class _FakeDisconnectWebSocket:
+    """Minimal async WebSocket double for handler-level disconnect tests.
+
+    Scripts ``receive_text`` from a fed queue and raises
+    ``WebSocketDisconnect`` once the queue is empty — modelling a client that
+    has gone away mid-stream.  Records every JSON/binary send so the test can
+    assert on the terminal frame without a running server or TestClient.
+    """
+
+    def __init__(self):
+        self._rx: list[str] = []
+        self.sent_json: list[dict] = []
+        self.sent_bytes: list[bytes] = []
+        self.client = types.SimpleNamespace(host="127.0.0.1")
+
+    def feed(self, message: str) -> None:
+        """Queue an inbound text frame for the next ``receive_text`` call."""
+        self._rx.append(message)
+
+    async def accept(self) -> None:
+        pass
+
+    async def receive_text(self) -> str:
+        if self._rx:
+            return self._rx.pop(0)
+        # Queue drained → the client has disconnected.
+        raise WebSocketDisconnect(1001)
+
+    async def send_json(self, obj: dict) -> None:
+        self.sent_json.append(obj)
+
+    async def send_bytes(self, data: bytes) -> None:
+        self.sent_bytes.append(data)
+
+    async def close(self, code: int = 1000, reason: str = "") -> None:
+        pass
+
+
+@_skip
+class TestWebSocketDisconnectDuringGeneration(unittest.IsolatedAsyncioTestCase):
+    """I1: a client disconnect observed by the concurrent cancel-watcher during
+    in-flight generation must NOT be misclassified as a cancel.
+
+    Pre-fix the watcher signals a disconnect with the same ``stop_event`` it
+    uses for a cancel, so the consumer cannot tell them apart: on disconnect it
+    sets ``was_cancelled`` and emits a ``{"status": "cancelled"}`` terminal
+    frame on the dead socket (a redundant send that raises a noisy server-side
+    error log).  Post-fix the watcher also sets a distinct ``disconnect_event``;
+    the consumer treats the outcome as a disconnect and returns WITHOUT any
+    terminal status frame.
+    """
+
+    async def test_watcher_disconnect_emits_no_terminal_status_frame(self):
+        """A disconnect read by the watcher mid-generation produces no terminal
+        status frame — not cancelled, complete, or error.
+
+        The fake generator yields chunks until the inference thread breaks out
+        of its for-loop on ``stop_event`` (set by the watcher once it reads the
+        disconnect), exactly as real ``model.generate()`` is checked between
+        chunk yields.  Deterministic: no test-path sleeps, no driver thread.
+        """
+        # Arrange — auth frame, then a generation request; the fake socket
+        # disconnects (WebSocketDisconnect) on the very next receive, which the
+        # concurrent cancel-watcher reads while generation is in flight.
+        ws = _FakeDisconnectWebSocket()
+        ws.feed(json.dumps({"token": _TEST_TOKEN}))
+        ws.feed(json.dumps({"text": "Hello", "mode": "custom"}))
+
+        state = types.SimpleNamespace(
+            models={"custom": MagicMock()},
+            server_config={"security": {"max_text_length": 10000}},
+            inference_lock=asyncio.Lock(),
+        )
+
+        def fake_streaming(*args, **kwargs):
+            chunk = np.zeros(100, dtype=np.float32)
+            # Yield until the inference thread observes stop_event (set by the
+            # watcher once it reads the disconnect) and breaks out of its
+            # for-loop — mirroring real generation checked between chunks.
+            while True:
+                yield (chunk, 24000)
+                time.sleep(0.01)
+
+        with patch(
+            "qwen3_tts.core.engine.run_inference_streaming",
+            side_effect=fake_streaming,
+        ), patch(
+            "qwen3_tts.server.validation._validate_generation_request"
+        ), patch(
+            "qwen3_tts.server.app_lifespan._check_memory_available",
+            return_value=(True, 4096),
+        ):
+            # Act — drive the real handler end-to-end against the fake socket.
+            await asyncio.wait_for(
+                websocket_tts_handler(
+                    ws, state, lambda token: token == _TEST_TOKEN
+                ),
+                timeout=5.0,
+            )
+
+        # Assert — auth + "generating" are expected; a disconnect must NOT be
+        # reported as a cancel (or any other terminal status) on the dead
+        # socket.  Pre-fix this fails: "cancelled" is present.
+        statuses = [msg.get("status") for msg in ws.sent_json]
+        self.assertNotIn("cancelled", statuses)
+        self.assertNotIn("complete", statuses)
+        self.assertNotIn("error", statuses)
 
 
 if __name__ == "__main__":
