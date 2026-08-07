@@ -85,7 +85,7 @@ config.json → qwen3_tts.core.config → qwen3_tts.core.engine (dispatch)
 | Module | Purpose | Heavy imports? |
 |--------|---------|----------------|
 | `qwen3_tts/core/http_client.py` | `server_request()` — single choke-point for all HTTP calls to the local server; URL re-validated inline for CodeQL | No |
-| `qwen3_tts/core/config.py` | Constants, config I/O (`save_config` writes atomically via temp file + `os.replace`), error classes, `MODEL_INFO`, `get_model_revision` (HF revision per model, default `"main"`), auth, platform detection, CUDA capability detection, voice description attributes, PID lifecycle (`read_pid_file`, `write_pid_file`, `cleanup_pid_file`, `is_pid_alive`, `find_pid_by_port`, `detect_server_state`) | No |
+| `qwen3_tts/core/config/` | Package (split per P2-1; `__init__` facade re-exports): `io` (`save_config` atomic via temp file + `os.replace`), `errors`, `models` (`MODEL_INFO`, `get_model_revision` — HF revision per model, default `"main"`), `auth`, `runtime` (platform + CUDA-capability detection, `detect_server_state`, voice-description attrs), `pid` (lifecycle: `read_pid_file`/`write_pid_file`/`cleanup_pid_file`, `is_pid_alive`, `find_pid_by_port`), `paths`, `presets` | No |
 | `qwen3_tts/core/engine/` | Package with 6 submodules: `text_processing`, `audio_processing`, `voice_prompt`, `model_loader`, `inference`, `asr`. `__init__.py` facade re-exports all public names. | No (all lazy) |
 | `qwen3_tts/core/protocols.py` | Abstract protocols for engine components. `FileConfigProvider` and `DefaultPromptManager` removed (dead code). | No |
 | `qwen3_tts/server/app.py` | FastAPI server: auth, endpoint wrappers, CORS, rate limiting. Thin wrappers delegate to handler modules. | No (lazy via engine) |
@@ -122,7 +122,7 @@ config.json → qwen3_tts.core.config → qwen3_tts.core.engine (dispatch)
 
 ```
 qwen3_tts/
-├── core/config.py, engine/{text_processing,audio_processing,voice_prompt,model_loader,inference,asr}.py
+├── core/config/ (pkg), engine/{text_processing,audio_processing,voice_prompt,model_loader,inference,asr}.py
 ├── server/app.py, app_lifespan.py, app_generation.py, app_models.py, app_prompts.py, websocket.py, validation.py, client/
 ├── interface/generate.py, generate_helpers.py, generate_interactive.py, generate_server.py, ui/, cli/
 └── tools/create_voice.py, model_cache.py, healthcheck.py, uninstall.py

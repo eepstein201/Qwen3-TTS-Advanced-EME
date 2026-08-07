@@ -15,7 +15,12 @@ skill checklists. Every finding below was **measured**, not inferred.
 | P1-3 alias prompt resolution | `fix/p1-3-missing-prompt-error` | `1286dd7` |
 
 Each branch is cut from `main` and was verified **standalone**, not merely as part of a
-stack — they merge in any order. Remaining: **P2-1**, **P2-2**, **P3** (untouched).
+stack — they merge in any order. **Update 2026-08-07:** **P3 closed** — housekeeping landed in
+`3979881` (CLAUDE.md headroom compaction, `server/client/__init__.py` `__main__` block removed
++ wrapper test, test-run log isolation via `tests/__init__.py`). **P2-1 partly closed** — the
+worst offender `config.py` (1473 lines) was split into the `core/config/` package (`5a22d58`,
+largest submodule `models.py` 464 lines); `inference.py`, `generate.py`, `app.py`, and
+`shared.py` still breach (counts refreshed below). **P2-2** still open.
 
 Two findings surfaced *by* this work and are not yet written up as sections:
 1. **`/health` returns `"status":"ok"` for an unusable server.** During P1-1 the server
@@ -285,11 +290,15 @@ CLAUDE.md and the global coding-style rule both cap files at 800 lines.
 
 | File | Lines | Over |
 | --- | --- | --- |
-| `qwen3_tts/core/config.py` | **1443** | +80% |
-| `qwen3_tts/core/engine/inference.py` | **1110** | +39% |
-| `qwen3_tts/interface/generate.py` | **865** | +8% |
-| `qwen3_tts/server/app.py` | **821** | +3% |
-| `qwen3_tts/interface/ui/shared.py` | 798 | **2 lines from breach** |
+| ~~`qwen3_tts/core/config.py`~~ | ~~1473~~ | ✅ **DONE** — split into `core/config/` package (`5a22d58`); largest submodule `models.py` 464 lines |
+| `qwen3_tts/core/engine/inference.py` | **1129** | +41% |
+| `qwen3_tts/interface/generate.py` | **902** | +13% |
+| `qwen3_tts/server/app.py` | **831** | +4% |
+| `qwen3_tts/server/app_generation.py` | 788 | 12 lines under |
+| `qwen3_tts/interface/ui/shared.py` | **803** | **breached** (was 798/"2 lines from breach" — now over) |
+
+*Counts re-measured at `main` @ `2e42e05` (2026-08-07). `app_generation.py` added as a
+near-breach watch item.*
 
 **This is ranked P2 despite real value, because the risk is documented and high.** Two
 prior incidents are on record: mock patch seams silently break on file splits (tests go
@@ -321,7 +330,10 @@ which is a good result for a codebase this size:
 **Fix:** extract cohesive blocks. Natural companions to P2-1 — `edit` and `rebuild` are
 CLI command bodies and split cleanly into validate / apply / report phases.
 
-### P3 — Housekeeping
+### P3 — Housekeeping — ✅ DONE (2026-08-02, `3979881`)
+
+All three items addressed in the housekeeping commit `3979881` (plus `tests/test_client.py`
+for the wrapper coverage):
 
 | Item | Detail | Effort |
 | --- | --- | --- |
@@ -338,8 +350,8 @@ CLI command bodies and split cleanly into validate / apply / report phases.
 3. ~~**P1-2** (dead code / DRY)~~ — ✅ done 2026-08-02 (`3eb7114`).
 4. ~~**P1-1** (E2E sleep conversion)~~ — ✅ done 2026-08-02 (`475617a`). Also closed
    **P1-3** (`1286dd7`), which was split out of P0-1 mid-sweep.
-5. **P2-1 / P2-2** — only as deliberate, isolated PRs. Not alongside feature work. **Still open.**
-6. **P3** — opportunistic. **Still open.**
+5. **P2-1 / P2-2** — only as deliberate, isolated PRs. Not alongside feature work. **P2-1 partly done** (`config.py` split, `5a22d58`); `inference.py`/`generate.py`/`app.py`/`shared.py` + P2-2 still open.
+6. ~~**P3**~~ — ✅ done (`3979881`).
 
 Items 1-4 are complete. The estimate held for P1-2 and P1-3; **P1-1 ran well over** — the
 conversion itself was quick, but two self-inflicted regressions and a degraded server that

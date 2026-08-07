@@ -1,7 +1,7 @@
 # Qwen3-TTS Consolidated Development Roadmap
 
-> **Status:** All P0–P2 items complete. Priority 2 enhancements (R-23/27/29/43) complete. GEN-1 (inference_lock release) shipped (#59, 2026-07-21). Open work is: response-model coverage (GEN-2), the `load_at_startup` default decision (FOLLOWUP-1), vLLM-backend performance (HIGH-1/2, MED-2), the **PRF-1..10 PQA batch** (2026-07-30 research), and upstream-blocked research.
-> **Last Updated:** 2026-08-02 — adopted the 2026-07-30 PQA research as PRF-1..10; reconciled against code at `main` @ `e94b806` (PRF-4 FA2→SDPA confirmed **still open** — code auto-selects FA2 on Ampere+)
+> **Status:** All P0–P2 items complete. Priority 2 enhancements (R-23/27/29/43) complete. GEN-1 (inference_lock release) shipped (#59, 2026-07-21). **2026-08-03 Santa audit (24 defects) resolved at HIGH severity**: H7 (#125), H1–H6 (#126), and the deferred Important I1 — WS client-disconnect misclassified as cancel (#137, `2e42e05`) — all merged to `main`; 13 MEDIUM + 4 LOW remain (see `audit_2026_08_03_ws_concurrency_cluster` memory). **P2-1 `config.py` split shipped** (`5a22d58` → `core/config/` package, largest submodule 464 lines); **P3 housekeeping shipped** (`3979881`). Open work is: response-model coverage (GEN-2), the `load_at_startup` default decision (FOLLOWUP-1), vLLM-backend performance (HIGH-1/2, MED-2), the **PRF-1..10 PQA batch** (2026-07-30 research), P2-1 residuals (`inference.py`/`generate.py`/`app.py`/`shared.py`), P2-2, and upstream-blocked research.
+> **Last Updated:** 2026-08-07 — reconciled against `main` @ `2e42e05`; recorded the 08-03 audit HIGH-resolution + I1 (#137), the `config.py` split (`5a22d58`), P3 closure (`3979881`), and refreshed structural-debt line counts. PRF-4 FA2→SDPA still open (code auto-selects FA2 on Ampere+).
 
 ---
 
@@ -143,7 +143,7 @@ Long tail tracked in `docs/reviews/e2e-review-2026-07-01.md`. Highest-value item
 - **Docker:** `docker-compose.yml` vLLM build `context: ..` → `.`; reconcile `Dockerfile.vllm` vs `docker/vllm.Dockerfile`.
 - **MLX model-config matrix:** run 1.7B + 0.6B across bf16 / 8bit / 4bit with smoke generation + `/health` `model_size`/`mlx_quantization` verification.
 - **Manage-Models table refresh latency:** load/unload handlers must re-emit table update (test_09/10 issue).
-- **Structural debt:** `config.py` 1432 lines, `_facade.py` 1293, `inference.py` 1097, `generate.py` 864; `handle_generate` 395 lines; broad `except Exception` at `inference.py:627,637`; f-string logging; duplicate logger `engine_vllm.py:34/76`; unguarded file handle `engine_vllm.py:268`.
+- **Structural debt** (re-measured `main` @ `2e42e05`): ~~`config.py` 1432~~ ✅ split → `core/config/` package (`5a22d58`); ~~`_facade.py` 1293~~ ✅ split to 525 (`#92`); `inference.py` **1129**, `generate.py` **902**, `app.py` **831**, `shared.py` **803** (newly breached); `handle_generate` 395 lines; broad `except Exception` at `inference.py:627,637`; f-string logging; duplicate logger `engine_vllm.py:34/76`; unguarded file handle `engine_vllm.py:268`.
 - **LOW cleanups:** dead `# nosec` (`generate.py:538`, `generate_interactive.py:346`, `generate_server.py:336`, `_facade.py:114`, `shared.py:556-559`); dead `return` after `_error_response()`; audit-log WS auth failures (`websocket.py:51`); `_sanitize_error` regex over-strip; name-length mismatch 128 vs 255 (`config.py:592` vs `validation.py:19`).
 
 ---
@@ -165,8 +165,10 @@ New actionable findings below; two UI bugs reproduced directly.
 | ✅ **A11Y-1** (#86) | Per-action status Textboxes unlabeled, no `aria-live`; "Stop"/"Confirm Cancel?" vocab drift. | LOW-MED | Med | `interface/ui/generation.py`, `_facade.py` |
 | **HYG-1** | Working-tree clutter (untracked): `.voice_server.log.old`, `.tts_server*.log`, stray `test/` dir, loose media, empty scratch `.md`. Confirm per category before deleting. | LOW | Low | repo root |
 
-**Structural debt** (extends the CI & Quality Debt list above): `config.py` 1399, `_facade.py`
-1293, `inference.py` 1110, `generate.py` 864, `app.py` 821 exceed the 800-line limit.
+**Structural debt** (extends the CI & Quality Debt list above; re-measured `main` @ `2e42e05`):
+`config.py` ✅ split → `core/config/` package (`5a22d58`); `_facade.py` ✅ split to 525 (`#92`);
+`inference.py` **1129**, `generate.py` **902**, `app.py` **831**, `shared.py` **803** exceed the
+800-line limit.
 ✅ **JS-EXTRACT** (#88): the 543-line embedded JS in `get_streaming_player_js` moved to
 `interface/static/streaming_player.js` via a cached loader; `wavesurfer_js.py` 814 → 309 lines
 (now under the limit). Behavior-preserving — verified by 74 existing wavesurfer tests + 3 new guards.
@@ -210,7 +212,7 @@ above (`config.py`, `_facade.py`, `inference.py`, `generate.py`, `app.py`). Full
 ## Success Criteria
 
 - [x] R-29/R-30 validation gaps closed (2026-07-21)
-- [x] Full test suite passes — 2258 tests (2026-07-01 e2e review; maintained baseline)
+- [x] Full test suite passes — ~2555 tests (2026-08-07 maintained baseline)
 - [x] **GEN-1:** concurrent generations interleave during encode — shipped #59, 2026-07-21 (`tests/test_generation_lock_scope.py`)
 - [ ] **GEN-2:** ≥80% of routes carry `response_model`
 - [ ] **HIGH-1/MED-2:** vLLM params validated in a Docker environment
