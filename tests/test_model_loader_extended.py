@@ -462,6 +462,45 @@ def test_cuda_optimizations_turing():
     assert compile_ is False
 
 
+@pytest.mark.unit
+def test_cuda_optimizations_ampere_defaults_to_sdpa():
+    """PRF-4: Ampere+ defaults to sdpa even when flash_attn is installed."""
+    from qwen3_tts.core.engine.model_loader import _apply_cuda_optimizations
+
+    mock_torch = MagicMock()
+    mock_torch.cuda.is_available.return_value = True
+    mock_torch.cuda.get_device_capability.return_value = (8, 0)
+    mock_torch.bfloat16 = "bfloat16"
+    mock_torch.backends.cudnn = MagicMock()
+
+    with patch.dict(sys.modules, {"torch": mock_torch}):
+        with patch("qwen3_tts.core.config._has_flash_attn", return_value=True):
+            attn, dtype, compile_ = _apply_cuda_optimizations({})
+
+    assert attn == "sdpa"
+    assert dtype == "bfloat16"
+
+
+@pytest.mark.unit
+def test_cuda_optimizations_ampere_fa2_optin():
+    """PRF-4: flash_attention_2 only when advanced.attn_implementation opts in."""
+    from qwen3_tts.core.engine.model_loader import _apply_cuda_optimizations
+
+    mock_torch = MagicMock()
+    mock_torch.cuda.is_available.return_value = True
+    mock_torch.cuda.get_device_capability.return_value = (8, 9)
+    mock_torch.bfloat16 = "bfloat16"
+    mock_torch.backends.cudnn = MagicMock()
+
+    config = {"advanced": {"attn_implementation": "flash_attention_2"}}
+    with patch.dict(sys.modules, {"torch": mock_torch}):
+        with patch("qwen3_tts.core.config._has_flash_attn", return_value=True):
+            attn, dtype, compile_ = _apply_cuda_optimizations(config)
+
+    assert attn == "flash_attention_2"
+    assert dtype == "bfloat16"
+
+
 # ---- _retry_model_load ----
 
 

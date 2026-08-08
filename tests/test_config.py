@@ -288,15 +288,23 @@ class TestConfigFunctions(unittest.TestCase):
             self.assertEqual(dtype, "float32")
             self.assertFalse(load_8bit)
 
-    def test_get_optimal_attn_config_ampere(self):
-        """get_optimal_attn_config returns flash_attention_2 for Ampere+ GPU with flash_attn installed."""
+    def test_get_optimal_attn_config_ampere_defaults_to_sdpa(self):
+        """PRF-4: Ampere+ defaults to sdpa even with flash_attn installed (#333 NaN risk)."""
         from qwen3_tts.core.config import get_optimal_attn_config
         with patch("qwen3_tts.core.config.get_cuda_capability", return_value=(8, 0)):
             with patch("qwen3_tts.core.config._has_flash_attn", return_value=True):
                 attn, dtype, load_8bit = get_optimal_attn_config()
-                self.assertEqual(attn, "flash_attention_2")
+                self.assertEqual(attn, "sdpa")
                 self.assertEqual(dtype, "bfloat16")
                 self.assertFalse(load_8bit)
+
+    def test_get_optimal_attn_config_ampere_fa2_optin(self):
+        """PRF-4: flash_attention_2 is honoured only when explicitly requested."""
+        from qwen3_tts.core.config import get_optimal_attn_config
+        with patch("qwen3_tts.core.config.get_cuda_capability", return_value=(8, 0)):
+            with patch("qwen3_tts.core.config._has_flash_attn", return_value=True):
+                attn, _, _ = get_optimal_attn_config("flash_attention_2")
+                self.assertEqual(attn, "flash_attention_2")
 
     def test_get_optimal_attn_config_ampere_no_flash_attn(self):
         """get_optimal_attn_config falls back to sdpa when flash_attn not installed."""

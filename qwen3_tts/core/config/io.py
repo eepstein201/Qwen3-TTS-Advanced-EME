@@ -301,6 +301,7 @@ def get_default_config(current_config: dict | None = None) -> dict:
             "model_size": current.get("advanced", {}).get("model_size", "1.7B"),
             "torch_quantization": "none",
             "audio_loader": "torchaudio",
+            "attn_implementation": "auto",
             "vllm_enabled": False,
             "vllm_fallback_to_torch": True,
         },

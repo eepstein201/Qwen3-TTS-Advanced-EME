@@ -168,6 +168,7 @@ from qwen3_tts.core.config.runtime import (
     ConfigLoader,
     DefaultConfigLoader,
     _has_flash_attn,  # noqa: F401
+    _resolve_attn_implementation,
     _validate_server_url,  # noqa: F401
     get_cuda_capability,
     get_default_clone_prompt,
@@ -239,6 +240,7 @@ __all__ = [
     "get_device",
     "get_cuda_capability",
     "get_optimal_attn_config",
+    "_resolve_attn_implementation",
     "get_server_url",
     "sanitize_log",
     "safe_path_join",

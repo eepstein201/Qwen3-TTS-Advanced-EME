@@ -166,11 +166,28 @@ def _has_flash_attn() -> bool:
         return False
 
 
-def get_optimal_attn_config() -> tuple[str, str, bool]:
+def _resolve_attn_implementation(preference, has_flash: bool) -> str:
+    """Pick the torch attention implementation from a user preference.
+
+    SDPA is the safe default — upstream #333 reports NaN logits with
+    flash_attention_2 for Qwen3-TTS on L4/A100. FA2 is opt-in only and
+    silently falls back to SDPA when flash_attn isn't installed.
+    """
+    pref = (preference or "auto").lower()
+    if pref in ("flash_attention_2", "fa2", "flash"):
+        return "flash_attention_2" if has_flash else "sdpa"
+    if pref == "eager":
+        return "eager"
+    return "sdpa"  # auto / sdpa / unknown → safe default
+
+
+def get_optimal_attn_config(preference: str = "auto") -> tuple[str, str, bool]:
     """Return (attn_implementation, torch_dtype_name, load_in_8bit) based on GPU.
 
+    SDPA is the default everywhere; flash_attention_2 is opt-in via
+    ``preference`` and only honoured on Ampere+ with flash_attn installed.
     Turing (T4, CC 7.5): sdpa, float16, True (8-bit via bitsandbytes)
-    Ampere+ (L4/A100, CC >= 8.0): flash_attention_2 (if installed) or sdpa, bfloat16, False
+    Ampere+ (L4/A100, CC >= 8.0): sdpa by default, bfloat16, False
     Non-CUDA: sdpa, float32, False
     """
     from qwen3_tts.core.config import _has_flash_attn as has_flash_attn
@@ -180,7 +197,7 @@ def get_optimal_attn_config() -> tuple[str, str, bool]:
     if cap is None:
         return "sdpa", "float32", False
     if cap[0] >= 8:
-        attn = "flash_attention_2" if has_flash_attn() else "sdpa"
+        attn = _resolve_attn_implementation(preference, has_flash_attn())
         return attn, "bfloat16", False
     return "sdpa", "float16", True
 
