@@ -138,6 +138,106 @@ class TestGenerationCache(unittest.TestCase):
         self.assertEqual(result, 5)
 
 
+@_skip_server
+class TestGenerationCacheHitPath(unittest.TestCase):
+    """Cover the generation cache-hit serving path (app_generation.py 250-283).
+
+    The post-lock check serves a disk-cached result without running inference —
+    a race-condition defense (the cache was populated between the pre- and
+    post-lock checks). This branch was previously uncovered.
+    """
+
+    def test_post_lock_cache_hit_serves_cached_audio_without_inference(self):
+        from qwen3_tts.server.app import app
+
+        client = _make_test_client(
+            app,
+            server_config={"security": {"max_text_length": 100}, "auto_shutdown_minutes": 0},
+        )
+        app.state.models_loaded.set()
+        app.state.models = {"clone": MagicMock(), "design": None, "custom": None}
+        auth = {"Authorization": "Bearer test_token"}
+
+        # A real temp file stands in for the cached audio on disk.
+        fd, cache_file = tempfile.mkstemp(suffix=".wav")
+        os.write(fd, b"data")
+        os.close(fd)
+        entry = {"main_file": cache_file, "sample_rate": 24000, "chunks": 1, "seed": 12345}
+
+        # gen_cache.get is called pre-lock (miss) then post-lock (hit) -> the
+        # post-lock serving branch runs and inference is never reached.
+        calls = {"n": 0}
+
+        def fake_get(_key):
+            calls["n"] += 1
+            return None if calls["n"] == 1 else entry
+
+        cache_mock = MagicMock()
+        cache_mock.get.side_effect = fake_get
+        original_cache = app.state.gen_cache
+        app.state.gen_cache = cache_mock
+        import base64
+        expected_b64 = base64.b64encode(b"data").decode("utf-8")
+        try:
+            # The cache hit short-circuits before inference/voice-prompt load;
+            # _read_cache_file_b64 is a closure that base64-encodes the file.
+            resp = client.post(
+                "/generate",
+                json={"texts": ["hi"], "mode": "clone", "prompt_file": "v.pt"},
+                headers=auth,
+            )
+        finally:
+            app.state.gen_cache = original_cache
+            os.unlink(cache_file)
+
+        self.assertEqual(resp.status_code, 200, resp.text)
+        result = resp.json()["results"][0]
+        self.assertEqual(result["audio_base64"], expected_b64)
+        self.assertEqual(result["sample_rate"], 24000)
+        self.assertEqual(result["chunks"], 1)
+        self.assertEqual(result["seed"], 12345)
+
+    def test_pre_lock_cache_hit_serves_cached_audio(self):
+        """The pre-lock cache check (app_generation.py 250-258) serves a cached
+        result early, so neither the post-lock check nor inference is reached."""
+        from qwen3_tts.server.app import app
+
+        client = _make_test_client(
+            app,
+            server_config={"security": {"max_text_length": 100}, "auto_shutdown_minutes": 0},
+        )
+        app.state.models_loaded.set()
+        app.state.models = {"clone": MagicMock(), "design": None, "custom": None}
+        auth = {"Authorization": "Bearer test_token"}
+
+        fd, cache_file = tempfile.mkstemp(suffix=".wav")
+        os.write(fd, b"prelock")
+        os.close(fd)
+        entry = {"main_file": cache_file, "sample_rate": 22050, "chunks": 2, "seed": 99}
+
+        cache_mock = MagicMock()
+        cache_mock.get.return_value = entry  # hit on the pre-lock check
+        original_cache = app.state.gen_cache
+        app.state.gen_cache = cache_mock
+        import base64
+        expected_b64 = base64.b64encode(b"prelock").decode("utf-8")
+        try:
+            resp = client.post(
+                "/generate",
+                json={"texts": ["hi"], "mode": "clone", "prompt_file": "v.pt"},
+                headers=auth,
+            )
+        finally:
+            app.state.gen_cache = original_cache
+            os.unlink(cache_file)
+
+        self.assertEqual(resp.status_code, 200, resp.text)
+        result = resp.json()["results"][0]
+        self.assertEqual(result["audio_base64"], expected_b64)
+        self.assertEqual(result["sample_rate"], 22050)
+        self.assertEqual(result["seed"], 99)
+
+
 @_skip_client
 class TestClientUpdateModelConfig(unittest.TestCase):
     """Test TTSClient.update_model_config method."""

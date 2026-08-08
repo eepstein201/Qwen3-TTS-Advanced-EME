@@ -899,5 +899,61 @@ class TestWebSocketDisconnectDuringGeneration(unittest.IsolatedAsyncioTestCase):
         self.assertNotIn("error", statuses)
 
 
+@_skip
+class TestWebSocketStreamErrorCascade(unittest.TestCase):
+    """Cover the handler try/except around ``_stream_generation`` (websocket.py
+    223-236).
+
+    ``_stream_generation`` is ``await``ed directly inside the handler's
+    try/except, so an exception it raises reaches the error cascade and
+    produces the right client-facing frame. These branches were previously
+    uncovered (the existing tests exercise the happy path and message-loop
+    validation, not the streaming-error cascade).
+    """
+
+    def _authenticate(self, ws):
+        ws.send_text(json.dumps({"token": _TEST_TOKEN}))
+        resp = ws.receive_json()
+        self.assertEqual(resp["status"], "authenticated")
+
+    def _first_frame_when_stream_raises(self, exc):
+        """Auth + post a clone request; return the first frame received when
+        ``_stream_generation`` raises *exc* before sending anything."""
+        _setup_app_state(
+            models={"clone": MagicMock(), "design": None, "custom": None},
+            server_config={"security": {}},
+        )
+        with patch(
+            "qwen3_tts.server.validation._validate_generation_request"
+        ), patch(
+            "qwen3_tts.core.engine.load_voice_prompt", return_value=MagicMock()
+        ), patch(
+            "qwen3_tts.server.app_lifespan._check_memory_available",
+            return_value=(True, 4096),
+        ), patch(
+            "qwen3_tts.server.websocket._stream_generation", side_effect=exc
+        ):
+            with TestClient(app).websocket_connect("/ws") as ws:
+                self._authenticate(ws)
+                ws.send_text(
+                    json.dumps({"text": "Hello", "mode": "clone", "prompt_file": "test.pt"})
+                )
+                return ws.receive_json()
+
+    def test_value_error_sends_invalid_request(self):
+        resp = self._first_frame_when_stream_raises(ValueError("bad payload"))
+        self.assertIn("Invalid request", resp["error"])
+
+    def test_connection_error_sends_connection_error(self):
+        resp = self._first_frame_when_stream_raises(ConnectionError("broken pipe"))
+        self.assertEqual(resp["error"], "Connection error")
+
+    def test_generic_exception_sends_sanitized_error(self):
+        # A non-validation, non-connection exception is sanitized so the client
+        # gets a clean error frame (and the handler does not crash).
+        resp = self._first_frame_when_stream_raises(RuntimeError("internal boom"))
+        self.assertIn("error", resp)
+
+
 if __name__ == "__main__":
     unittest.main()
