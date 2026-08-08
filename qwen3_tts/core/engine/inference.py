@@ -658,7 +658,10 @@ def _maybe_apply_lufs(audio, sample_rate, config=None):
     if not gen.get("lufs_normalize", False):
         return audio, sample_rate
     target = gen.get("lufs_target", LUFS_TARGET)
-    return process_audio(audio, sample_rate, lufs_target=target)
+    # process_audio returns the array only — callers unpack (audio, sample_rate),
+    # so returning it bare made every generation raise "too many values to
+    # unpack" as soon as lufs_normalize was turned on.
+    return process_audio(audio, sample_rate, lufs_target=target), sample_rate
 
 
 def _prepare_text_chunks(

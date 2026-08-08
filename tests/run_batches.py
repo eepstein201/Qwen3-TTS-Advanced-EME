@@ -43,6 +43,7 @@ BATCHES = {
             "tests.test_e2e_harness_hygiene",
             "tests.test_config",
             "tests.test_p3_p4_remediation",
+            "tests.test_lufs_return_shape",
             "tests.test_healthcheck",
             "tests.test_healthcheck_ext",
             "tests.test_model_cache",
