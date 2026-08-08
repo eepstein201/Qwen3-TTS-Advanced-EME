@@ -170,5 +170,98 @@ class TestDeleteConfirmStateMachine(unittest.TestCase):
             self.assertEqual(result[8].get("armed_path"), entry["path"])
 
 
+class TestClearAllHardDelete(unittest.TestCase):
+    """Clear All must delete the underlying files, not just empty the list.
+
+    The generation chain re-derives the table from disk
+    (``refresh_history_from_disk`` ignores the in-memory list), so a list-only
+    clear resurrects every row on the next Generate. This regressed when commit
+    e42bce0 wired the disk re-derive into the generation chain; Clear All's
+    list-only behavior predates it. These tests drive the real resolvers (HOME
+    under a temp dir, real config) — NOT patched — so the production path is
+    exercised end to end.
+    """
+
+    def _seed(self, automated, count=3):
+        import json as json_mod
+
+        for i in range(1, count + 1):
+            wav = os.path.join(automated, f"voice_ui_{i}.wav")
+            with open(wav, "wb") as f:
+                f.write(b"RIFF" + b"\x00" * 40)
+            with open(wav.replace(".wav", ".json"), "w") as f:
+                json_mod.dump(
+                    {
+                        "timestamp": float(i),
+                        "mode": "clone",
+                        "text": f"t{i}",
+                        "seed": i * 100,
+                    },
+                    f,
+                )
+
+    def test_clear_all_deletes_files_so_rows_do_not_resurrect(self):
+        from qwen3_tts.interface.ui import history_panel, shared
+
+        with tempfile.TemporaryDirectory() as tmp:
+            # history_output_directory == HOME so resolve_*'s home-containment
+            # guard passes without patching the resolvers (real production path).
+            automated = os.path.join(tmp, "Automated Output")
+            os.makedirs(automated)
+            self._seed(automated, count=3)
+            config = {"history_output_directory": tmp}
+
+            with patch.dict(os.environ, {"HOME": tmp}), patch(
+                "qwen3_tts.core.config.load_config", return_value=config
+            ):
+                history = shared.load_history_from_disk_for_config(config)
+                self.assertEqual(len(history), 3)
+
+                # First click arms; second click confirms + deletes. The arm
+                # branch returns gr.update() for history_state (output [3]),
+                # i.e. "leave unchanged", so the confirming call receives the
+                # same list the browser still holds — not armed[3].
+                armed = history_panel.on_clear_history_click(
+                    {"armed": False, "ts": 0.0}, history
+                )
+                self.assertTrue(armed[0].get("armed"))  # armed, no delete yet
+                self.assertEqual(
+                    len(os.listdir(automated)), 6, "arming must not delete"
+                )
+                result = history_panel.on_clear_history_click(armed[0], history)
+
+                # Files actually removed from disk (.wav + .json sidecars).
+                self.assertEqual(sorted(os.listdir(automated)), [])
+
+                # In-memory list cleared.
+                self.assertEqual(result[3], [])  # history_state
+
+                # CRITICAL: the next generation's disk re-derive must NOT
+                # resurrect the cleared rows.
+                entries, rows = shared.refresh_history_from_disk([], config)
+                self.assertEqual(entries, [])
+                self.assertEqual(rows, [])
+
+    def test_clear_all_on_empty_list_is_a_safe_noop(self):
+        from qwen3_tts.interface.ui import history_panel
+
+        with tempfile.TemporaryDirectory() as tmp:
+            automated = os.path.join(tmp, "Automated Output")
+            os.makedirs(automated)
+            config = {"history_output_directory": tmp}
+
+            with patch.dict(os.environ, {"HOME": tmp}), patch(
+                "qwen3_tts.core.config.load_config", return_value=config
+            ):
+                armed = history_panel.on_clear_history_click(
+                    {"armed": False, "ts": 0.0}, []
+                )
+                # See note above: confirming call receives the unchanged list.
+                result = history_panel.on_clear_history_click(armed[0], [])
+
+                self.assertEqual(result[3], [])
+                self.assertEqual(sorted(os.listdir(automated)), [])
+
+
 if __name__ == "__main__":
     unittest.main()

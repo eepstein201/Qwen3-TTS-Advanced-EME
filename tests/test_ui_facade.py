@@ -738,7 +738,7 @@ class TestOnHistorySelectColumnRouting(unittest.TestCase):
 
 
 class TestOnClearHistoryClick(unittest.TestCase):
-    """Two-step confirm for Clear All (list-only; disk files untouched)."""
+    """Two-step confirm for Clear All (hard-deletes each listed file)."""
 
     def test_first_click_arms_and_leaves_history_untouched(self):
         import time  # noqa: F401  (kept for parity with the confirm test below)
@@ -762,12 +762,21 @@ class TestOnClearHistoryClick(unittest.TestCase):
         # Armed + recent timestamp -> confirm_step confirms within 5s window.
         state = {"armed": True, "ts": time.time()}
         history = [{"text": "a", "path": "/tmp/a.wav"}, {"text": "b", "path": "/tmp/b.wav"}]
-        new_state, _btn, df, hist, audio, status, payload = on_clear_history_click(state, history)
+        # Clear All now hard-deletes each listed file (delete_generation_files)
+        # before clearing the list; patch it so the unit test stays off-disk and
+        # can assert the per-entry delete wiring.
+        with patch(
+            "qwen3_tts.core.config.load_config", return_value={}
+        ), patch(
+            "qwen3_tts.interface.ui.shared.delete_generation_files", return_value=True
+        ) as mock_delete:
+            new_state, _btn, df, hist, audio, status, payload = on_clear_history_click(state, history)
         self.assertFalse(new_state["armed"])  # disarmed after action
         self.assertEqual(hist, [])  # history_state cleared
         self.assertEqual(df, [])  # table re-rendered empty
         self.assertIsNone(audio)  # player cleared via None ("" crashes Audio postprocess)
-        self.assertIn("cleared", status)
+        self.assertEqual(mock_delete.call_count, 2)  # one delete per listed entry
+        self.assertIn("Deleted", status)  # reflects the hard-delete, not a list-only clear
         self.assertEqual(payload["action"], "clear")  # triggers waveform clear
 
     def test_second_click_clears_even_when_history_none(self):
