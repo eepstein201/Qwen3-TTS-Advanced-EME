@@ -342,12 +342,17 @@ def on_history_select(evt: gr.SelectData, history_list, delete_confirm_state=Non
 
 
 def on_clear_history_click(clear_state, history_list) -> tuple:
-    """Two-step confirm to clear the Recent Generations list (list-only).
+    """Two-step confirm to clear the Recent Generations list.
 
     First click arms the button (status: "Click again within 5s…"); second
-    click within the timeout clears ``history_state`` to ``[]`` and re-renders
-    the table. Disk files (``.wav``/``.json`` sidecars) are never touched, so
-    entries re-appear after an app restart.
+    click within the timeout hard-deletes every listed generation's ``.wav``/
+    ``.json`` from Automated Output (the same ``delete_generation_files``
+    per-row Remove uses), then clears ``history_state`` to ``[]`` and
+    re-renders the table.
+
+    The hard-delete is required, not optional: the generation chain re-derives
+    the table from disk (``refresh_history_from_disk`` ignores the in-memory
+    list), so a list-only clear would resurrect every row on the next Generate.
 
     Returns a 7-tuple mapped to:
       [clear_history_confirm_state, clear_all_btn, history_df, history_state,
@@ -372,14 +377,40 @@ def on_clear_history_click(clear_state, history_list) -> tuple:
             StatusBanner().render("Click again within 5s to clear all generations.", "warning"),
             {"action": "replay"},  # no waveform clear on arm
         )
+    # Hard-delete every listed generation's files BEFORE clearing the list.
+    # The generation chain re-derives the table from disk
+    # (refresh_history_from_disk ignores the in-memory list), so a list-only
+    # clear would resurrect every row on the next Generate. Deleting the files
+    # — the same delete_generation_files per-row Remove uses — makes "Clear All"
+    # actually clear. Web-UI generations always live under Automated Output;
+    # any entry whose path is outside it is skipped by the containment check
+    # (delete_generation_files returns False) and would still reappear, but
+    # that cannot happen for rows this UI produced.
+    #
+    # history_list is capped at MAX_HISTORY_SIZE. If more generations exist on
+    # disk than are shown, the off-list older files survive and may surface
+    # after the next refresh; the user can clear again. Deleting the whole
+    # folder would be more aggressive than "clear what's shown".
+    config = core_config.load_config()
+    deleted = 0
+    if isinstance(history_list, list):
+        for entry in history_list:
+            path = entry.get("path", "") if isinstance(entry, dict) else ""
+            if path and shared.delete_generation_files(path, config):
+                deleted += 1
     with shared.history_lock:
         new_list = shared.clear_history(history_list)
+    banner = (
+        StatusBanner().render(f"Deleted {deleted} generation(s).", "success")
+        if deleted
+        else StatusBanner().render("Nothing to clear.", "info")
+    )
     return (
         new_state,
         btn_update,
         shared.get_history_data(new_list),  # empty rows
         new_list,  # []
         None,  # clear player (None is safe; "" crashes Audio postprocess)
-        StatusBanner().render("Recent generations cleared.", "success"),
+        banner,
         {"action": "clear"},  # triggers get_clear_player_js
     )
