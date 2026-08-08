@@ -26,6 +26,7 @@ from tests.e2e_helpers import (
     assert_rejected as _assert_rejected,
 )
 from tests.e2e_helpers import (
+    first_available_voice_prompt,
     wait_for_rate_limit_reset,
 )
 
@@ -139,6 +140,9 @@ class TestE2EStressTesting:
         import threading
 
         token = _get_auth_token()
+        prompt = first_available_voice_prompt(SERVER_URL, token)
+        if not prompt:
+            pytest.skip("No voice prompts available for clone generation")
         results = []
         errors = []
 
@@ -147,7 +151,7 @@ class TestE2EStressTesting:
             try:
                 status, data = _make_request(
                     "/generate",
-                    {"text": f"Stress test {request_id}", "mode": "clone"},
+                    {"text": f"Stress test {request_id}", "mode": "clone", "prompt_file": prompt},
                     method="POST",
                     token=token,
                 )
@@ -231,13 +235,17 @@ class TestE2EStressTesting:
         # Get stats before
         status_before, data_before = _make_request("/stats", method="GET")
 
+        prompt = first_available_voice_prompt(SERVER_URL, _get_auth_token())
+        if not prompt:
+            pytest.skip("No voice prompts available for clone generation")
+
         # Make 5 generation requests — at least one must produce real audio,
         # otherwise this only checks liveness, not memory behavior under load.
         audio_produced = 0
         for i in range(5):
             status, data = _make_request(
                 "/generate",
-                {"text": f"Memory stress {i}", "mode": "clone"},
+                {"text": f"Memory stress {i}", "mode": "clone", "prompt_file": prompt},
                 method="POST",
             )
             if status == 200 and (data or {}).get("results", [{}])[0].get("audio_base64"):
