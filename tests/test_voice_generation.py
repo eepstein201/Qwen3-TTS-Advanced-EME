@@ -147,6 +147,19 @@ class TestGenerationCacheHitPath(unittest.TestCase):
     post-lock checks). This branch was previously uncovered.
     """
 
+    def setUp(self):
+        # The unittest batch runner (CI) does not apply pytest autouse
+        # fixtures, so the in-process rate limiters are NOT reset between
+        # tests and earlier /generate tests in the batch can exhaust the
+        # window — making our POST return 429. Reset them explicitly here
+        # (mirrors tests/conftest.py::reset_rate_limiters).
+        from qwen3_tts.server.app import app
+        for attr in ("limiter", "limiter_hybrid", "limiter_ip", "limiter_token"):
+            limiter = getattr(app.state, attr, None)
+            if limiter is not None and hasattr(limiter, "reset"):
+                limiter.reset()
+        app.state.gen_cache.clear()
+
     def test_post_lock_cache_hit_serves_cached_audio_without_inference(self):
         from qwen3_tts.server.app import app
 
