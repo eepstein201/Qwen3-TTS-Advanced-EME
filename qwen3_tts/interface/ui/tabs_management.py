@@ -434,3 +434,5 @@ def _build_manage_models_tab(
         inputs=[audio_loader_select],
         outputs=audio_loader_status,
     )
+
+    return model_table

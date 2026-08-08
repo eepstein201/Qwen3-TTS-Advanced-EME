@@ -44,6 +44,7 @@ from qwen3_tts.interface.ui.history_panel import (  # noqa: F401
 from qwen3_tts.interface.ui.model_management import (
     get_all_model_status_html,
     get_model_status_html,
+    get_model_table_data,
 )
 
 # Import from sibling modules
@@ -272,7 +273,7 @@ def build_ui():
             with gr.Tab("Manage Voices"):
                 _build_manage_voices_tab(clone_prompt)
             with gr.Tab("Manage Models"):
-                _build_manage_models_tab(
+                model_table = _build_manage_models_tab(
                     status_html,
                     clone_model_indicator,
                     design_model_indicator,
@@ -298,6 +299,14 @@ def build_ui():
                     design_model_indicator,
                     custom_model_indicator,
                 ],
+            )
+            # Keep the Manage Models table fresh too. The Load/Unload handlers
+            # already return refreshed table data, but that Dataframe re-render
+            # is occasionally dropped by the Gradio frontend; polling on the
+            # timer self-heals it within one tick (see I4).
+            status_timer.tick(
+                fn=get_model_table_data,
+                outputs=model_table,
             )
 
         # History panel below tabs (renders after tabs in the page layout)

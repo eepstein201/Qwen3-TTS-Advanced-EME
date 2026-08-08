@@ -503,6 +503,22 @@ class GradioPage:
             timeout=timeout,
         )
 
+    def wait_for_table_row_refreshed(self, row_name, column_text, timeout=30_000):
+        """Wait for a table row, clicking Refresh up to twice if it lags.
+
+        The Manage Models Dataframe occasionally drops the Load/Unload handler's
+        re-render; the status timer self-heals it within ~5s and an explicit
+        Refresh forces it immediately. This wraps both retries (see I4).
+        """
+        for _attempt in range(2):
+            try:
+                self.wait_for_table_row(row_name, column_text, timeout=timeout)
+                return
+            except Exception:
+                self.click_button("Refresh")
+        # Final attempt: let any exception propagate.
+        self.wait_for_table_row(row_name, column_text, timeout=timeout)
+
 
 def setUpModule():
     """Auto-enable Playwright MCP server before any E2E tests run.
@@ -887,12 +903,7 @@ class TestE2EPlaywright(unittest.TestCase):
 
         # The Load handler already returns updated table data via its outputs.
         # Wait for Gradio to render the update in the DOM (avoids race condition).
-        try:
-            self.gp.wait_for_table_row("design", "Loaded", timeout=10_000)
-        except Exception:
-            # Fallback: click Refresh to force a fresh table render
-            self.gp.click_button("Refresh")
-            self.gp.wait_for_table_row("design", "Loaded", timeout=15_000)
+        self.gp.wait_for_table_row_refreshed("design", "Loaded")
 
         table = self.gp.get_table_data()
         design_row = [r for r in table if r and r[0].lower().strip() == "design"]
@@ -961,11 +972,7 @@ class TestE2EPlaywright(unittest.TestCase):
             pass
         _wait_for_model_state("design", loaded=True, timeout=60)
 
-        try:
-            self.gp.wait_for_table_row("design", "Loaded", timeout=10_000)
-        except Exception:
-            self.gp.click_button("Refresh")
-            self.gp.wait_for_table_row("design", "Loaded", timeout=15_000)
+        self.gp.wait_for_table_row_refreshed("design", "Loaded")
 
         table = self.gp.get_table_data()
         design_row = [r for r in table if r and r[0].lower().strip() == "design"]
@@ -982,11 +989,7 @@ class TestE2EPlaywright(unittest.TestCase):
             pass
         _wait_for_model_state("design", loaded=False, timeout=30)
 
-        try:
-            self.gp.wait_for_table_row("design", "Not loaded", timeout=10_000)
-        except Exception:
-            self.gp.click_button("Refresh")
-            self.gp.wait_for_table_row("design", "Not loaded", timeout=15_000)
+        self.gp.wait_for_table_row_refreshed("design", "Not loaded")
 
         table = self.gp.get_table_data()
         design_row = [r for r in table if r and r[0].lower().strip() == "design"]
