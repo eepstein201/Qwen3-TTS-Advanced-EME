@@ -308,12 +308,35 @@ async def security_headers(request: Request, call_next) -> dict:
 
 
 # Rate limiting (R-13)
+#
+# Limits are read once at import from config.json (security.rate_limits) and
+# can be overridden per-limit via env vars (TTS_RATE_LIMIT_GENERATE, ...).
+# Set TTS_DISABLE_RATE_LIMITING=1 to bypass rate limiting entirely — intended
+# for local E2E/CI servers where the /generate cap would otherwise starve test
+# suites that fire many requests. Production deployments leave it unset.
 _rate_config = load_config().get("security", {}).get("rate_limits", {})
-_generate_limit = _rate_config.get("generate", "10/minute")
-_model_limit = _rate_config.get("model_ops", "5/minute")
-_transcribe_limit = _rate_config.get("transcribe", "10/minute")
-_prompt_ops_limit = _rate_config.get("prompt_ops", "10/minute")
-_config_ops_limit = _rate_config.get("config_ops", "2/minute")
+
+_RATE_LIMITING_DISABLED = os.environ.get("TTS_DISABLE_RATE_LIMITING", "").lower() in (
+    "1",
+    "true",
+    "yes",
+    "on",
+)
+
+
+def _rate_limit_from_env(env_key: str, config_key: str, default: str) -> str:
+    """Resolve a limit string: env override > config value > literal default.
+
+    Format is the slowapi ``<count>/<unit>`` string, e.g. ``"10/minute"``.
+    """
+    return os.environ.get(env_key) or _rate_config.get(config_key, default)
+
+
+_generate_limit = _rate_limit_from_env("TTS_RATE_LIMIT_GENERATE", "generate", "10/minute")
+_model_limit = _rate_limit_from_env("TTS_RATE_LIMIT_MODEL_OPS", "model_ops", "5/minute")
+_transcribe_limit = _rate_limit_from_env("TTS_RATE_LIMIT_TRANSCRIBE", "transcribe", "10/minute")
+_prompt_ops_limit = _rate_limit_from_env("TTS_RATE_LIMIT_PROMPT_OPS", "prompt_ops", "10/minute")
+_config_ops_limit = _rate_limit_from_env("TTS_RATE_LIMIT_CONFIG_OPS", "config_ops", "2/minute")
 
 # Create separate limiters for different strategies
 limiter_hybrid = Limiter(key_func=_get_rate_limit_key)
@@ -331,6 +354,9 @@ app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 def _rate_limit(limit_string: str, strategy: str = "hybrid") -> callable:
     """Return a slowapi rate limit decorator with specified strategy.
 
+    When ``TTS_DISABLE_RATE_LIMITING`` is set, returns a no-op decorator so
+    every protected endpoint runs unthrottled (local E2E/CI only).
+
     Args:
         limit_string: Rate limit string (e.g., "10/minute")
         strategy: "hybrid" (both IP+token), "ip" (IP only), "token" (token only)
@@ -338,6 +364,13 @@ def _rate_limit(limit_string: str, strategy: str = "hybrid") -> callable:
     Returns:
         Decorator function.
     """
+    if _RATE_LIMITING_DISABLED:
+
+        def _noop(func):
+            return func
+
+        return _noop
+
     limiter_map = {
         "hybrid": limiter_hybrid,
         "ip": limiter_ip,

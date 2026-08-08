@@ -144,6 +144,8 @@ All other endpoints require `Authorization: Bearer <token>` (token from `~/.conf
 
 **Reverse proxies:** `X-Forwarded-For` is honored for client-IP / rate-limit keying only when the direct TCP peer is in the `TTS_TRUSTED_PROXIES` allowlist (comma-separated IPs; loopback by default). Set it when running behind a reverse proxy so per-IP rate limiting sees the real client.
 
+**Rate-limit overrides (test/CI):** `TTS_DISABLE_RATE_LIMITING=1` makes every rate-limit decorator a no-op — for local E2E/CI servers only; production leaves it unset. Per-limit env vars (`TTS_RATE_LIMIT_GENERATE`, `TTS_RATE_LIMIT_MODEL_OPS`, `TTS_RATE_LIMIT_TRANSCRIBE`, `TTS_RATE_LIMIT_PROMPT_OPS`, `TTS_RATE_LIMIT_CONFIG_OPS`) override individual limits. All are read once at server import (`qwen3_tts/server/app.py`); restart to apply.
+
 | Endpoint | Method | Purpose |
 |----------|--------|---------|
 | `/ready` | GET | Readiness probe (503 while loading, 200 when ready) |
@@ -241,6 +243,8 @@ python -m pytest tests/ -m e2e                  # opt-in: run E2E (needs live se
 > deselects them by default (`-m "not e2e"`) because they make real `/generate` calls and
 > hang plain `pytest tests/` when a server is up. Opt in with `-m e2e`. The batch runner
 > uses `unittest` (ignores markers), so all batches are unaffected.
+
+> **E2E + rate limiting:** the live server's `/generate` limit (default 10–20/min, in-process) is shared across e2e modules and starves suites that fire many requests, causing false 429 skips. `run_full_suite.py` starts its test server with `TTS_DISABLE_RATE_LIMITING=1`; for a manual run do the same (`TTS_DISABLE_RATE_LIMITING=1 tts server start`, or raise one limit via `TTS_RATE_LIMIT_GENERATE=120/minute`). The performance/stress e2e tests assert real audio output, so they now perform actual (slow) generation.
 
 **Batch runner** (prevents hangs from cascading failures):
 ```bash

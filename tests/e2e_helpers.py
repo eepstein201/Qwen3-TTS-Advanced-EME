@@ -183,3 +183,54 @@ def is_playwright_enabled() -> bool:
     with open(MCP_CONFIG_PATH) as f:
         config = json.load(f)
         return config.get("mcpServers", {}).get("playwright", False)
+
+
+# ---------------------------------------------------------------------------
+# Rate-limit helpers for live-server E2E tests
+#
+# The live server's /generate rate limit (default 10-20/min, in-process
+# MemoryStorage, fixed-window) is shared across every e2e module that talks
+# to :5123. Run the server with TTS_DISABLE_RATE_LIMITING=1 for the e2e
+# profile so suites that fire many requests aren't starved (the helpers below
+# then return immediately through their non-429 probes). Against an un-flagged
+# server they are best-effort: assert_rejected skips on 429 rather than
+# failing, since a 429 is a test-environment issue, not a product regression.
+# ---------------------------------------------------------------------------
+
+
+def wait_for_rate_limit_reset(server_url, token, timeout=70):
+    """Block until /generate is no longer rate-limited, up to *timeout* seconds.
+
+    Probes /generate once; sleeps ~one window only if a 429 is observed. With
+    TTS_DISABLE_RATE_LIMITING on the server the probe returns a non-429 and this
+    returns immediately. The probe itself consumes one /generate request.
+    """
+    import urllib.error
+    import urllib.request
+
+    url = f"{server_url}/generate"
+    headers = {"Content-Type": "application/json", "Authorization": f"Bearer {token}"}
+    body = json.dumps({"text": "rate-limit-probe", "mode": "custom"}).encode()
+    req = urllib.request.Request(url, data=body, headers=headers, method="POST")
+    try:
+        urllib.request.urlopen(req, timeout=10)
+    except urllib.error.HTTPError as e:
+        if e.code == 429:
+            retry_after = int(e.headers.get("Retry-After", 65))
+            time.sleep(min(retry_after + 1, timeout))
+    except Exception:
+        pass  # Network error / non-429 — assume not rate-limited and proceed.
+
+
+def assert_rejected(status, expected_codes, context):
+    """Assert a request was rejected with an expected code; skip if rate-limited.
+
+    A 429 means the shared live-server limit was hit before the request could
+    be evaluated — that is a test-environment issue, not a product regression,
+    so it becomes a ``pytest.skip`` rather than a failure.
+    """
+    import pytest
+
+    if status == 429:
+        pytest.skip(f"Rate limit exceeded before '{context}' could be verified")
+    assert status in expected_codes, f"{context}, got {status}"

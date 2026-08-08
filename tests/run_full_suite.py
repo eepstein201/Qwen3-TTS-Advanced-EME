@@ -180,7 +180,9 @@ def stop_server(env: str, dry_run: bool = False) -> None:
 def start_server(env: str, dry_run: bool = False) -> bool:
     """Start the TTS server and wait for readiness.
 
-    Sets QWEN3_TTS_BACKEND env var based on environment to ensure correct backend.
+    Sets QWEN3_TTS_BACKEND env var based on environment to ensure correct backend,
+    and disables rate limiting (TTS_DISABLE_RATE_LIMITING=1) so E2E suites that
+    fire many /generate requests aren't starved by the default 10-20/min cap.
     """
     print("\n🚀 Starting TTS server...")
 
@@ -193,11 +195,13 @@ def start_server(env: str, dry_run: bool = False) -> bool:
         print("   [DRY RUN] Would wait for server ready on port 5123")
         return True
 
-    # Start server in background with correct backend env var
+    # Start server in background with correct backend env var and rate limiting
+    # disabled (this server exists only to be exercised by the test suite).
     subprocess.Popen(
         ["bash", "-lc",
          f"source {CONDA_BASE}/etc/profile.d/conda.sh && conda activate {env} && "
-         f"export QWEN3_TTS_BACKEND={backend} && tts server start"],
+         f"export QWEN3_TTS_BACKEND={backend} && "
+         f"export TTS_DISABLE_RATE_LIMITING=1 && tts server start"],
         stdout=subprocess.DEVNULL,
         stderr=subprocess.DEVNULL,
     )
