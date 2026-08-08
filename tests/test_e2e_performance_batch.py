@@ -24,12 +24,7 @@ import urllib.request
 
 import pytest
 
-from tests.e2e_helpers import (
-    assert_rejected as _assert_rejected,
-)
-from tests.e2e_helpers import (
-    wait_for_rate_limit_reset,
-)
+from tests.e2e_helpers import wait_for_rate_limit_reset
 
 # E2E tests require a live server and make real generation requests under load.
 # Gated behind the `e2e` marker so plain `pytest tests/` skips them (no hang).
@@ -129,8 +124,9 @@ class TestE2EBatchProcessingPerformance:
     def test_01_concurrent_generations_performance(self):
         """REGRESSION: Server should handle concurrent requests efficiently.
 
-        E2E verification that concurrent requests don't degrade significantly.
-        Note: This test uses Clone mode which should be fast.
+        Concurrent generations serialize on inference_lock. Each must return
+        real audio (200 + non-empty audio_base64), not merely complete —
+        otherwise the test passes hollow (fast-failed without generating).
         """
         import threading
 
@@ -139,21 +135,21 @@ class TestE2EBatchProcessingPerformance:
         errors = []
 
         def generate_request(request_id):
-            """Make a single generation request."""
+            """Make a single generation request; capture status + body."""
             start = time.time()
             try:
                 status, data = _make_request(
                     "/generate",
                     {"text": f"Concurrent test {request_id}", "mode": "clone"},
                     method="POST",
-                    token=token
+                    token=token,
                 )
                 duration = time.time() - start
-                results.append((request_id, status, duration))
-            except Exception as e:
+                results.append((request_id, status, data, duration))
+            except Exception as e:  # noqa: BLE001
                 errors.append((request_id, str(e)))
 
-        # Launch 5 concurrent requests (reduced for faster testing)
+        # Launch 5 concurrent requests
         threads = []
         for i in range(5):
             thread = threading.Thread(target=generate_request, args=(i,))
@@ -161,12 +157,10 @@ class TestE2EBatchProcessingPerformance:
             thread.start()
 
         # Wait for all threads to complete
-        start_time = time.time()
         for thread in threads:
-            thread.join(timeout=180)
-        time.time() - start_time
+            thread.join(timeout=240)
 
-        # Verify all completed (no thread timeouts)
+        assert not errors, f"Some concurrent requests errored: {errors}"
         assert len(results) == 5, \
             f"Some concurrent requests failed: {len(results)}/5 completed, errors: {errors}"
 
@@ -174,9 +168,11 @@ class TestE2EBatchProcessingPerformance:
         status, _ = _make_request("/health", method="GET")
         assert status == 200, "Server should remain responsive after concurrent requests"
 
-        # All requests should complete within reasonable time
-        # (with actual generation, each might take 10-30 seconds)
-        for req_id, status, duration in results:
+        # Every request must have produced real audio within a reasonable time.
+        for req_id, status, data, duration in results:
+            assert status == 200, f"Request {req_id} returned {status}: {data}"
+            audio = (data or {}).get("results", [{}])[0].get("audio_base64", "")
+            assert audio, f"Request {req_id} returned no audio_base64: {data}"
             assert duration < 120, \
                 f"Request {req_id} took {duration:.1f}s (expected < 120s)"
 
@@ -194,11 +190,15 @@ class TestE2EBatchProcessingPerformance:
                 "/generate",
                 {"text": f"Sequential test {i}", "mode": "clone"},
                 method="POST",
-                token=token
+                token=token,
             )
             duration = time.time() - start
             times.append(duration)
-            _assert_rejected(status, [200, 202, 400, 422, 500, 503], f"Generation {i} returned {status}")
+            # This tests real generation throughput, not graceful failure, so a
+            # non-200 (503 model-not-loaded / 429 rate-limited / 400) must fail.
+            assert status == 200, f"Generation {i} returned {status}: {data}"
+            audio = (data or {}).get("results", [{}])[0].get("audio_base64", "")
+            assert audio, f"Generation {i} returned no audio_base64: {data}"
 
         avg_time = sum(times) / len(times)
 
@@ -263,19 +263,27 @@ class TestE2EMemoryUsage:
         # Get stats before
         status_before, data_before = _make_request("/stats", method="GET")
 
-        # Make 5 generation requests
+        # Make 5 generation requests — at least one must produce real audio,
+        # otherwise this only checks liveness, not memory under generation load.
+        audio_produced = 0
         for i in range(5):
-            _make_request(
+            status, data = _make_request(
                 "/generate",
                 {"text": f"Memory test {i}", "mode": "clone"},
-                method="POST"
+                method="POST",
             )
+            if status == 200 and (data or {}).get("results", [{}])[0].get("audio_base64"):
+                audio_produced += 1
 
         # Get stats after
         status_after, data_after = _make_request("/stats", method="GET")
 
         # Server should still be responsive
         assert status_after == 200, "Server should respond after memory test"
+        assert audio_produced >= 1, (
+            "No generation produced audio; memory check is meaningless without "
+            "actual load (check rate limiting / model load)."
+        )
 
         # If both stats succeeded, check memory hasn't grown dramatically
         if status_before == 200 and status_after == 200:

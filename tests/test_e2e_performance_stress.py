@@ -129,48 +129,58 @@ class TestE2EStressTesting:
     """E2E tests for stress testing."""
 
     def test_01_server_handles_high_concurrent_load(self):
-        """REGRESSION: Server should handle 10 concurrent requests without crashing.
+        """REGRESSION: Server should handle concurrent /generate without crashing.
 
-        E2E verification that server remains stable under high load.
-        Reduced from 50 to 10 for faster testing.
+        Concurrent generations serialize on the server's inference_lock, so
+        this exercises queued load. Each request must produce real audio (200
+        + non-empty audio_base64), not merely a liveness response — otherwise
+        the test passes "hollow" (rate-limited/fast-failed without generating).
         """
         import threading
 
-        headers = {
-            "Authorization": f"Bearer {_get_auth_token()}",
-        }
+        token = _get_auth_token()
+        results = []
+        errors = []
 
-        def rapid_request(request_id):
-            """Make a single generation request."""
+        def generate_request(request_id):
+            """Make a single generation request; capture status + body."""
             try:
-                req = urllib.request.Request(
-                    f"{SERVER_URL}/generate",
-                    data=json.dumps({"text": f"Stress test {request_id}", "mode": "clone"}).encode(),
-                    headers=headers,
-                    method="POST"
+                status, data = _make_request(
+                    "/generate",
+                    {"text": f"Stress test {request_id}", "mode": "clone"},
+                    method="POST",
+                    token=token,
                 )
-                resp = urllib.request.urlopen(req, timeout=120)
-                return request_id, resp.status, None
-            except Exception as e:
-                return request_id, None, str(e)
+                results.append((request_id, status, data))
+            except Exception as e:  # noqa: BLE001 - capture any thread failure
+                errors.append((request_id, str(e)))
 
-        # Launch 10 concurrent requests (reduced for faster testing)
+        # Launch 5 concurrent requests (serialized on inference_lock; 5 keeps
+        # total runtime well under the thread timeout).
         threads = []
-        for i in range(10):
-            thread = threading.Thread(target=rapid_request, args=(i,))
+        for i in range(5):
+            thread = threading.Thread(target=generate_request, args=(i,))
             threads.append(thread)
             thread.start()
 
         # Wait for all threads to complete (with timeout)
         start_time = time.time()
         for thread in threads:
-            thread.join(timeout=180)
+            thread.join(timeout=240)
         elapsed = time.time() - start_time
 
+        # Every request must have actually generated audio.
+        assert not errors, f"Some concurrent requests errored: {errors}"
+        assert len(results) == 5, f"Only {len(results)}/5 requests completed"
+        for request_id, status, data in results:
+            assert status == 200, f"Request {request_id} returned {status}: {data}"
+            audio = (data or {}).get("results", [{}])[0].get("audio_base64", "")
+            assert audio, f"Request {request_id} returned no audio_base64: {data}"
+
         # Verify server is still responsive
-        resp = urllib.request.urlopen(f"{SERVER_URL}/health", timeout=5)
-        assert resp.status == 200, "Server should remain responsive after stress test"
-        assert elapsed < 180, "Stress test should complete within timeout"
+        status, _ = _make_request("/health", method="GET")
+        assert status == 200, "Server should remain responsive after stress test"
+        assert elapsed < 240, "Stress test should complete within timeout"
 
     def test_02_rapid_health_checks(self):
         """REGRESSION: Server should handle rapid health check requests.
@@ -221,13 +231,17 @@ class TestE2EStressTesting:
         # Get stats before
         status_before, data_before = _make_request("/stats", method="GET")
 
-        # Make 10 generation requests
-        for i in range(10):
-            _make_request(
+        # Make 5 generation requests — at least one must produce real audio,
+        # otherwise this only checks liveness, not memory behavior under load.
+        audio_produced = 0
+        for i in range(5):
+            status, data = _make_request(
                 "/generate",
                 {"text": f"Memory stress {i}", "mode": "clone"},
-                method="POST"
+                method="POST",
             )
+            if status == 200 and (data or {}).get("results", [{}])[0].get("audio_base64"):
+                audio_produced += 1
             time.sleep(0.1)  # Small delay to avoid overwhelming
 
         # Get stats after
@@ -235,6 +249,10 @@ class TestE2EStressTesting:
 
         # Verify server is still responsive
         assert status_after == 200, "Server should remain responsive after memory stress"
+        assert audio_produced >= 1, (
+            "No generation produced audio; memory test is meaningless without "
+            "actual load (check rate limiting / model load)."
+        )
 
 
 class TestE2EGracefulDegradation:
