@@ -647,6 +647,71 @@ def _get_max_chunk_tokens() -> int:
         return 200
 
 
+# PRF-6: clone mode ignores the model's own rate control (upstream #290 —
+# output lands at 41-48 s whatever is requested), so rate is applied after
+# generation. Bounds keep a fat-fingered factor from destroying the audio
+# instead of speeding it up.
+_CLONE_SPEED_MIN = 0.5
+_CLONE_SPEED_MAX = 2.0
+
+
+def _resolve_clone_speed(gen_params: dict, config: dict | None) -> float | None:
+    """Return the clone rate factor to apply, or None when there is nothing to do.
+
+    Precedence: an explicit ``gen_params["speed"]`` beats
+    ``generation.clone_speed`` in config. Unusable values are ignored with a
+    warning rather than failing the generation.
+    """
+    speed = (gen_params or {}).get("speed")
+    if speed is None:
+        cfg = config if config is not None else load_config()
+        speed = cfg.get("generation", {}).get("clone_speed")
+    if speed is None:
+        return None
+
+    try:
+        speed = float(speed)
+    except (TypeError, ValueError):
+        logger.warning("Ignoring non-numeric clone speed: %s", sanitize_log(speed))
+        return None
+    if speed <= 0:
+        logger.warning("Ignoring non-positive clone speed: %s", speed)
+        return None
+    if speed == 1.0:
+        return None
+
+    clamped = min(max(speed, _CLONE_SPEED_MIN), _CLONE_SPEED_MAX)
+    if clamped != speed:
+        logger.warning("Clamped clone speed %s to %s", speed, clamped)
+    return clamped
+
+
+def _maybe_apply_speed(audio, sample_rate, gen_params, mode, config=None):
+    """Apply post-hoc rate control for clone mode (PRF-6).
+
+    Design and custom modes keep the model's native ``instruct`` rate control,
+    so they are left alone — stretching them here would apply it twice.
+    Returns (audio, sample_rate); the sample rate never changes.
+    """
+    if mode != "clone":
+        return audio, sample_rate
+
+    speed = _resolve_clone_speed(gen_params, config)
+    if speed is None:
+        return audio, sample_rate
+
+    try:
+        return process_audio(audio, sample_rate, speed=speed), sample_rate
+    except Exception as e:
+        # A missing rubberband CLI or a librosa failure must not lose audio we
+        # already spent minutes generating.
+        logger.warning(
+            "Clone rate control failed, returning unstretched audio: %s",
+            sanitize_log(e),
+        )
+        return audio, sample_rate
+
+
 def _maybe_apply_lufs(audio, sample_rate, config=None):
     """Apply LUFS normalization if generation.lufs_normalize is True.
 
@@ -787,6 +852,8 @@ def run_inference(
             x_vector_only_mode=x_vector_only_mode,
         )
         config = (config_provider or _DEFAULT_CONFIG_LOADER).load()
+        # Rate first, then loudness — LUFS must measure the audio that ships.
+        wav, sr = _maybe_apply_speed(wav, sr, gen_params, mode, config=config)
         wav, sr = _maybe_apply_lufs(wav, sr, config=config)
         return wav, sr
 
@@ -852,6 +919,10 @@ def run_inference(
     else:
         result = _crossfade_chunks(all_audio, sample_rate, crossfade_ms=50)
 
+    # Rate first, then loudness — LUFS must measure the audio that ships.
+    result, sample_rate = _maybe_apply_speed(
+        result, sample_rate, gen_params, mode, config=config
+    )
     result, sample_rate = _maybe_apply_lufs(result, sample_rate, config=config)
 
     logger.info(
