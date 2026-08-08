@@ -341,3 +341,63 @@ class TestAIRegressionRateLimitErrors:
             assert response is not None
         except Exception as e:
             assert False, f"Error handler crashed: {e}"
+
+
+class TestRateLimitEnvOverride:
+    """Tests for TTS_DISABLE_RATE_LIMITING / TTS_RATE_LIMIT_* env overrides.
+
+    These let a local E2E/CI server bypass the default caps so suites that fire
+    many /generate requests aren't starved by the 10-20/min limit (I2 fix).
+    Fixture-free so the unittest batch runner can execute them too.
+    """
+
+    def test_rate_limit_from_env_prefers_env_over_default(self):
+        import os
+
+        from qwen3_tts.server.app import _rate_limit_from_env
+
+        old = os.environ.get("TTS_RATE_LIMIT_GENERATE")
+        os.environ["TTS_RATE_LIMIT_GENERATE"] = "999/hour"
+        try:
+            resolved = _rate_limit_from_env(
+                "TTS_RATE_LIMIT_GENERATE", "generate", "10/minute"
+            )
+            assert resolved == "999/hour"
+        finally:
+            if old is None:
+                os.environ.pop("TTS_RATE_LIMIT_GENERATE", None)
+            else:
+                os.environ["TTS_RATE_LIMIT_GENERATE"] = old
+
+    def test_rate_limit_from_env_falls_back_to_default(self):
+        import os
+
+        from qwen3_tts.server.app import _rate_limit_from_env
+
+        old = os.environ.get("TTS_RATE_LIMIT_GENERATE")
+        os.environ.pop("TTS_RATE_LIMIT_GENERATE", None)
+        try:
+            resolved = _rate_limit_from_env(
+                "TTS_RATE_LIMIT_GENERATE", "__no_such_key__", "10/minute"
+            )
+            assert resolved == "10/minute"
+        finally:
+            if old is not None:
+                os.environ["TTS_RATE_LIMIT_GENERATE"] = old
+
+    def test_disable_rate_limiting_makes_decorator_a_noop(self):
+        import qwen3_tts.server.app as app_module
+
+        original = app_module._RATE_LIMITING_DISABLED
+        app_module._RATE_LIMITING_DISABLED = True
+        try:
+            decorator = app_module._rate_limit("10/minute")
+
+            def _handler():
+                return "ok"
+
+            # No-op: the handler is returned unchanged and still callable.
+            assert decorator(_handler) is _handler
+            assert _handler() == "ok"
+        finally:
+            app_module._RATE_LIMITING_DISABLED = original

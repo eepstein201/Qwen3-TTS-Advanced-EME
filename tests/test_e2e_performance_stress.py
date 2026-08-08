@@ -22,6 +22,13 @@ import urllib.request
 
 import pytest
 
+from tests.e2e_helpers import (
+    assert_rejected as _assert_rejected,
+)
+from tests.e2e_helpers import (
+    wait_for_rate_limit_reset,
+)
+
 # E2E tests require a live server and make real generation requests under load.
 # Gated behind the `e2e` marker so plain `pytest tests/` skips them (no hang).
 # Opt in with: pytest tests/ -m e2e
@@ -34,36 +41,10 @@ AUTH_TOKEN_PATHS = [
 ]
 
 
-def _wait_for_rate_limit_reset(timeout: int = 70) -> None:
-    """Block until /generate is no longer rate-limited, up to timeout seconds."""
-    url = f"{SERVER_URL}/generate"
-    token = _get_auth_token()
-    headers = {"Content-Type": "application/json", "Authorization": f"Bearer {token}"}
-    body = json.dumps({"text": "rate-limit-probe", "mode": "custom"}).encode()
-    req = urllib.request.Request(url, data=body, headers=headers, method="POST")
-    try:
-        urllib.request.urlopen(req, timeout=10)
-        # Not rate limited — window is fresh, proceed
-    except urllib.error.HTTPError as e:
-        if e.code == 429:
-            retry_after = int(e.headers.get("Retry-After", 65))
-            time.sleep(min(retry_after + 1, timeout))
-        # Any other error (400, 503) means not rate-limited — proceed
-    except Exception:
-        pass  # Network error — proceed
-
-
-def _assert_rejected(status: int, expected_codes: list, context: str) -> None:
-    """Assert request was rejected with an expected code; skip if rate-limited."""
-    if status == 429:
-        pytest.skip(f"Rate limit exceeded before '{context}' could be verified")
-    assert status in expected_codes, f"{context}, got {status}"
-
-
 @pytest.fixture(scope="module", autouse=True)
 def ensure_fresh_rate_limit(check_server):
     """Ensure the rate limit window is fresh before this module's tests run."""
-    _wait_for_rate_limit_reset()
+    wait_for_rate_limit_reset(SERVER_URL, _get_auth_token())
     yield
 
 
