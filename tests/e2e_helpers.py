@@ -234,3 +234,23 @@ def assert_rejected(status, expected_codes, context):
     if status == 429:
         pytest.skip(f"Rate limit exceeded before '{context}' could be verified")
     assert status in expected_codes, f"{context}, got {status}"
+
+
+def first_available_voice_prompt(server_url, token):
+    """Return the first available voice-prompt name (for clone mode), or None.
+
+    Clone-mode ``/generate`` requires a ``prompt_file``; performance tests that
+    exercise real clone generation must supply one, so they don't 400 on the
+    missing field (which the old hollow assertions silently accepted).
+    """
+    import urllib.request
+
+    req = urllib.request.Request(
+        f"{server_url}/prompts", headers={"Authorization": f"Bearer {token}"}
+    )
+    try:
+        with urllib.request.urlopen(req, timeout=10) as resp:
+            prompts = json.loads(resp.read().decode()).get("prompts", [])
+            return prompts[0] if prompts else None
+    except Exception:
+        return None

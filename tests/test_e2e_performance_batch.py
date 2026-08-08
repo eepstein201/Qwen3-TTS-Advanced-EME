@@ -24,7 +24,10 @@ import urllib.request
 
 import pytest
 
-from tests.e2e_helpers import wait_for_rate_limit_reset
+from tests.e2e_helpers import (
+    first_available_voice_prompt,
+    wait_for_rate_limit_reset,
+)
 
 # E2E tests require a live server and make real generation requests under load.
 # Gated behind the `e2e` marker so plain `pytest tests/` skips them (no hang).
@@ -131,6 +134,9 @@ class TestE2EBatchProcessingPerformance:
         import threading
 
         token = _get_auth_token()
+        prompt = first_available_voice_prompt(SERVER_URL, token)
+        if not prompt:
+            pytest.skip("No voice prompts available for clone generation")
         results = []
         errors = []
 
@@ -140,7 +146,7 @@ class TestE2EBatchProcessingPerformance:
             try:
                 status, data = _make_request(
                     "/generate",
-                    {"text": f"Concurrent test {request_id}", "mode": "clone"},
+                    {"text": f"Concurrent test {request_id}", "mode": "clone", "prompt_file": prompt},
                     method="POST",
                     token=token,
                 )
@@ -182,13 +188,16 @@ class TestE2EBatchProcessingPerformance:
         E2E verification that generation throughput is acceptable.
         """
         token = _get_auth_token()
+        prompt = first_available_voice_prompt(SERVER_URL, token)
+        if not prompt:
+            pytest.skip("No voice prompts available for clone generation")
 
         times = []
         for i in range(3):
             start = time.time()
             status, data = _make_request(
                 "/generate",
-                {"text": f"Sequential test {i}", "mode": "clone"},
+                {"text": f"Sequential test {i}", "mode": "clone", "prompt_file": prompt},
                 method="POST",
                 token=token,
             )
@@ -263,13 +272,17 @@ class TestE2EMemoryUsage:
         # Get stats before
         status_before, data_before = _make_request("/stats", method="GET")
 
+        prompt = first_available_voice_prompt(SERVER_URL, _get_auth_token())
+        if not prompt:
+            pytest.skip("No voice prompts available for clone generation")
+
         # Make 5 generation requests — at least one must produce real audio,
         # otherwise this only checks liveness, not memory under generation load.
         audio_produced = 0
         for i in range(5):
             status, data = _make_request(
                 "/generate",
-                {"text": f"Memory test {i}", "mode": "clone"},
+                {"text": f"Memory test {i}", "mode": "clone", "prompt_file": prompt},
                 method="POST",
             )
             if status == 200 and (data or {}).get("results", [{}])[0].get("audio_base64"):
