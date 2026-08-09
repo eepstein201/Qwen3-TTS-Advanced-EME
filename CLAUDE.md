@@ -188,6 +188,7 @@ All other endpoints require `Authorization: Bearer <token>` (token from `~/.conf
 | `generation.lufs_normalize` | `true`, `false` | `false` (off; applies EBU R128 loudness normalization when on) |
 | `generation.lufs_target` | float (LUFS) | `-16.0` (used only when `lufs_normalize` is `true`) |
 | `generation.silence_gap_seconds` | `0.0`-`5.0` | `0.0` (silence between chunks; `0.0` uses a 50 ms crossfade) |
+| `generation.clone_speed` | `0.5`-`2.0` | unset (**PRF-6** clone-only post-hoc rate; the model's own rate control is broken for cloning — upstream #290 — so `run_inference` time-stretches after generation via `process_audio(speed=…)`. `gen_params["speed"]` overrides this key; out-of-range values are clamped, unusable ones ignored, and a stretch failure returns the unstretched audio rather than losing the generation. Design/custom keep native `instruct` rate control and are never stretched) |
 | `models.<type>.revision` | HF branch/tag/SHA for `clone`/`design`/`custom` downloads | `"main"` (unpinned) |
 | `history_output_directory` | path (home-contained) | `~/Downloads/Qwen3-TTS Output` — root for web-UI output: `Automated Output/` holds generations (Remove hard-deletes the file), `Manual Downloads/` holds kept files |
 
