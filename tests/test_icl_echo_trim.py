@@ -376,5 +376,76 @@ class TestWiredIntoRunInference(unittest.TestCase):
         )
 
 
+@pytest.mark.unit
+class TestPostProcessingOrder(unittest.TestCase):
+    """The three post-processing stages must run echo-trim → speed → LUFS.
+
+    Each stage is independently correct and independently tested, so nothing
+    else in the suite would notice a reorder — but the order carries meaning:
+
+    * the trim deletes generated audio, so it has to happen before the signal
+      is time-stretched (PRF-6), or the stretch is applied to samples that are
+      about to be thrown away;
+    * LUFS has to run last, because loudness must be measured on the audio
+      that actually ships, not on a longer/faster intermediate.
+
+    These assert the runtime call order rather than the order of names in the
+    source, so both the single-chunk and multi-chunk paths are covered — a
+    source-index check only ever sees the first occurrence and would miss a
+    reorder in the second path.
+    """
+
+    SR = 24000
+
+    def _record_order(self, chunk_count):
+        """Run run_inference with every stage stubbed, return the call order."""
+        import qwen3_tts.core.engine.inference as inf
+
+        calls = []
+        audio = np.zeros(self.SR, dtype=np.float32)
+
+        def _stage(name):
+            def _fn(a, sample_rate, *args, **kwargs):
+                calls.append(name)
+                return a, sample_rate
+
+            return _fn
+
+        class _ConfigProvider:
+            def load(self):
+                return {"generation": {}}
+
+        with (
+            patch.object(inf, "_prepare_text_chunks", return_value=["x"] * chunk_count),
+            patch.object(inf, "_run_inference_single", return_value=(audio, self.SR)),
+            patch.object(inf, "_crossfade_chunks", return_value=audio),
+            patch.object(inf, "_trim_icl_echo", side_effect=_stage("trim")),
+            patch.object(inf, "_maybe_apply_speed", side_effect=_stage("speed")),
+            patch.object(inf, "_maybe_apply_lufs", side_effect=_stage("lufs")),
+        ):
+            inf.run_inference(
+                object(),
+                "some text",
+                "clone",
+                {},
+                config_provider=_ConfigProvider(),
+            )
+        return calls
+
+    def test_single_chunk_path_order(self):
+        self.assertEqual(self._record_order(1), ["trim", "speed", "lufs"])
+
+    def test_multi_chunk_path_order(self):
+        self.assertEqual(self._record_order(3), ["trim", "speed", "lufs"])
+
+    def test_every_stage_runs_exactly_once_per_generation(self):
+        """A stage applied twice would double-stretch or double-normalize."""
+        for chunk_count in (1, 3):
+            with self.subTest(chunks=chunk_count):
+                calls = self._record_order(chunk_count)
+                self.assertEqual(len(calls), 3)
+                self.assertEqual(len(set(calls)), 3)
+
+
 if __name__ == "__main__":
     unittest.main()
