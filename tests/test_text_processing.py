@@ -50,6 +50,15 @@ except ImportError:
 
 _skip_generate = unittest.skipUnless(HAS_SOUNDFILE, "requires soundfile (voice_generate)")
 
+# num2words drives English number/time speech; Chinese uses an inline renderer.
+try:
+    import num2words  # noqa: F401
+    HAS_NUM2WORDS = True
+except ImportError:
+    HAS_NUM2WORDS = False
+
+_skip_n2w = unittest.skipUnless(HAS_NUM2WORDS, "requires num2words (English time speech)")
+
 
 # =========================================================================
 # SSML Edge Cases
@@ -273,6 +282,115 @@ class TestChineseNormalization(unittest.TestCase):
 
         out = _normalize_text("I have 3 apples", language="english")
         self.assertIn("three", out)
+
+
+# =========================================================================
+# Time (HH:MM / HH:MM:SS) normalization — PRF-3
+# =========================================================================
+
+
+class TestTimeNormalization(unittest.TestCase):
+    """HH:MM and HH:MM:SS strings must expand to spoken time, not garbled digits.
+
+    Without time normalization the colons flow through to the model and the
+    time is read back digit-by-digit (upstream #328). These tests pin the
+    spoken form for English (num2words) and Chinese (inline renderer).
+    """
+
+    # --- English (requires num2words) -------------------------------------
+
+    @_skip_n2w
+    def test_hh_mm_ss_expands_to_spoken_time(self):
+        """15:16:36 → 'fifteen hours sixteen minutes and thirty-six seconds'."""
+        from qwen3_tts.core.engine.text_processing import _normalize_text
+
+        result = _normalize_text("The time is 15:16:36 now.", language="English")
+        self.assertNotIn("15:16:36", result)
+        self.assertIn("fifteen hours sixteen minutes and thirty-six seconds", result)
+
+    @_skip_n2w
+    def test_hh_mm_clock_reading(self):
+        """9:05 → 'nine oh five'; 3:45 → 'three forty-five'."""
+        from qwen3_tts.core.engine.text_processing import _normalize_text
+
+        self.assertIn("nine oh five", _normalize_text("at 9:05 sharp", "English"))
+        self.assertIn("three forty-five", _normalize_text("at 3:45 sharp", "English"))
+
+    @_skip_n2w
+    def test_hh_mm_o_clock_on_the_hour(self):
+        """9:00 → 'nine o'clock' (on-the-hour clock reading)."""
+        from qwen3_tts.core.engine.text_processing import _normalize_text
+
+        self.assertIn("nine o'clock", _normalize_text("at 9:00 sharp", "English"))
+
+    @_skip_n2w
+    def test_hh_mm_tens_minutes(self):
+        """12:30 → 'twelve thirty'."""
+        from qwen3_tts.core.engine.text_processing import _normalize_text
+
+        self.assertIn("twelve thirty", _normalize_text("at 12:30 sharp", "English"))
+
+    # --- Chinese (inline renderer, no num2words) --------------------------
+
+    def test_zh_hh_mm_ss_uses_chinese(self):
+        """15:16:36 → '十五点十六分三十六秒'."""
+        from qwen3_tts.core.engine.text_processing import _normalize_text
+
+        result = _normalize_text("时间是15:16:36。", language="Chinese")
+        self.assertNotIn("15:16:36", result)
+        self.assertIn("十五点十六分三十六秒", result)
+
+    def test_zh_hh_mm_minutes(self):
+        """9:05 → '九点五分'; 3:45 → '三点四十五分'."""
+        from qwen3_tts.core.engine.text_processing import _normalize_text
+
+        self.assertIn("九点五分", _normalize_text("在9:05开始", "Chinese"))
+        self.assertIn("三点四十五分", _normalize_text("在3:45开始", "Chinese"))
+
+    # --- Boundaries / negatives -------------------------------------------
+
+    @_skip_n2w
+    def test_time_not_confused_with_dates_or_phones(self):
+        """Colons don't bleed into slash/dash dates or dash phones."""
+        from qwen3_tts.core.engine.text_processing import _normalize_text
+
+        result = _normalize_text("Meet 01/02/2024 at 10:00 or call 555-123-4567.", "English")
+        # The time expands; the US date and phone are handled by their own steps.
+        self.assertIn("ten o'clock", result)
+
+    def test_ratio_with_single_digit_minute_not_matched(self):
+        """'3:1' is not a clock time (minutes must be two digits) → not expanded."""
+        from qwen3_tts.core.engine.text_processing import _normalize_text
+
+        # The standalone digits may be cardinal-expanded by a later step, but the
+        # key assertion is that the colon pair is never treated as a time.
+        result = _normalize_text("ratio 3:1 here", "English")
+        self.assertNotIn("hours", result)  # not HH:MM:SS
+        self.assertNotIn("oh", result)     # not a clock reading
+
+    @_skip_n2w
+    def test_time_mid_sentence_preserves_surrounding_text(self):
+        """A time inside a sentence expands without eating surrounding words."""
+        from qwen3_tts.core.engine.text_processing import _normalize_text
+
+        result = _normalize_text("Train leaves at 8:30 AM today.", "English")
+        self.assertIn("eight thirty", result)
+        self.assertIn("today", result)
+
+    # --- Unit-level helper ------------------------------------------------
+
+    def test_zh_under_hundred(self):
+        """_zh_under_hundred renders clock components 0..59 correctly."""
+        from qwen3_tts.core.engine.text_processing import _zh_under_hundred
+
+        self.assertEqual(_zh_under_hundred(0), "零")
+        self.assertEqual(_zh_under_hundred(5), "五")
+        self.assertEqual(_zh_under_hundred(10), "十")
+        self.assertEqual(_zh_under_hundred(15), "十五")
+        self.assertEqual(_zh_under_hundred(20), "二十")
+        self.assertEqual(_zh_under_hundred(25), "二十五")
+        self.assertEqual(_zh_under_hundred(45), "四十五")
+        self.assertEqual(_zh_under_hundred(59), "五十九")
 
 
 if __name__ == "__main__":

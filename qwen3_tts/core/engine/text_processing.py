@@ -95,6 +95,14 @@ _ORDINAL_RE = re.compile(r"\b(\d+)(?:st|nd|rd|th)\b")
 _ISO_DATE_RE = re.compile(r"\b(\d{4})-(\d{2})-(\d{2})\b")
 _US_DATE_RE = re.compile(r"\b(\d{1,2})/(\d{1,2})/(\d{4})\b")
 _CARDINAL_RE = re.compile(r"(?<![.\w])\b\d+\b(?![.\w])")
+# Clock time: HH:MM or HH:MM:SS (upstream #328 — without this the colons reach
+# the model and the time is read back digit-by-digit). Minutes must be exactly
+# two digits so ratios like "3:1" are not mistaken for times.
+# Delimiters use digit/colon lookarounds rather than \b: under Python's default
+# Unicode flag, CJK characters count as word chars, so \b sees no boundary
+# between e.g. "在" and "9" — a time following Chinese text would not match
+# (or would slide to a wrong substring). Lookarounds work in both ASCII and CJK.
+_TIME_RE = re.compile(r"(?<![\d:])(\d{1,2}):(\d{2})(?::(\d{2}))?(?![\d:])")
 
 # Pre-compile abbreviation table
 _ABBREV_TABLE_COMPILED = [(re.compile(pat), repl) for pat, repl in _ABBREV_TABLE]
@@ -226,6 +234,61 @@ def _expand_us_date_match(m, n2w, lang: str) -> str:
     except Exception as e:
         logger.debug("US date expansion failed for '%s': %s", m.group(), e)
         return m.group()
+
+
+# Digits 0..9 in Chinese, used for clock-component rendering (PRF-3). This is a
+# focused 0..99 renderer for time only; it intentionally stays independent of
+# the full integer→汉字 converter so PRF-3 is correct standalone.
+_ZH_TIME_DIGITS = "零一二三四五六七八九"
+
+
+def _zh_under_hundred(n: int) -> str:
+    """Render an integer 0..99 in Chinese (clock component form).
+
+    Used for hours/minutes/seconds: 0→零, 5→五, 10→十, 15→十五, 20→二十,
+    25→二十五, 45→四十五, 59→五十九. Values outside 0..99 fall back to str(n).
+    """
+    if not 0 <= n <= 99:
+        return str(n)
+    if n < 10:
+        return _ZH_TIME_DIGITS[n]
+    if n < 20:
+        return "十" if n == 10 else "十" + _ZH_TIME_DIGITS[n - 10]
+    tens, units = divmod(n, 10)
+    return _ZH_TIME_DIGITS[tens] + "十" + (_ZH_TIME_DIGITS[units] if units else "")
+
+
+def _expand_time_match(m, n2w, lang: str) -> str:
+    """Replace a clock-time match (HH:MM or HH:MM:SS) with spoken form.
+
+    English (num2words): "9:05"→"nine oh five", "3:45"→"three forty-five",
+    "9:00"→"nine o'clock", "15:16:36"→"fifteen hours sixteen minutes and
+    thirty-six seconds".
+
+    Chinese (inline renderer, no num2words): "9:05"→"九点五分",
+    "3:45"→"三点四十五分", "15:16:36"→"十五点十六分三十六秒".
+    """
+    hour = int(m.group(1))
+    minute = int(m.group(2))
+    has_seconds = m.group(3) is not None
+
+    if lang == "zh":
+        parts = [f"{_zh_under_hundred(hour)}点{_zh_under_hundred(minute)}分"]
+        if has_seconds:
+            parts.append(f"{_zh_under_hundred(int(m.group(3)))}秒")
+        return "".join(parts)
+
+    def say(n):
+        return n2w(n, lang=lang) if n2w else str(n)
+
+    if has_seconds:
+        second = int(m.group(3))
+        return f"{say(hour)} hours {say(minute)} minutes and {say(second)} seconds"
+    if minute == 0:
+        return f"{say(hour)} o'clock"
+    if minute < 10:
+        return f"{say(hour)} oh {say(minute)}"
+    return f"{say(hour)} {say(minute)}"
 
 
 def _apply_abbreviations(t: str) -> str:
@@ -391,6 +454,11 @@ def _normalize_text(text, language="English"):
         text,
         "us_date",
         lambda t: _US_DATE_RE.sub(lambda m: _expand_us_date_match(m, _say_number, lang), t),
+    )
+    text = _safe_transform(
+        text,
+        "time",
+        lambda t: _TIME_RE.sub(lambda m: _expand_time_match(m, _n2w, lang), t),
     )
     text = _safe_transform(text, "abbreviation", _apply_abbreviations)
     if _n2w or lang == "zh":
