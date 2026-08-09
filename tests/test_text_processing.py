@@ -165,5 +165,115 @@ class TestSafeTransform(unittest.TestCase):
         self.assertEqual(result, "unchanged")
 
 
+# =========================================================================
+# Chinese number normalization (PRF-1)
+# =========================================================================
+
+
+@pytest.mark.unit
+class TestChineseNormalization(unittest.TestCase):
+    """PRF-1: Chinese cardinal/ordinal/currency/date normalization.
+
+    num2words(lang='zh') raises NotImplementedError, which _safe_transform
+    swallowed — so all Chinese number normalization silently no-op'd. These
+    tests pin the local digits→汉字 converter and the normalized output.
+    """
+
+    # --- _num_to_chinese: the pure converter ---
+    def test_num_to_chinese_small(self):
+        from qwen3_tts.core.engine.text_processing import _num_to_chinese
+
+        cases = {
+            0: "零", 1: "一", 9: "九", 10: "十", 12: "十二", 20: "二十",
+            100: "一百", 101: "一百零一", 110: "一百一十", 111: "一百一十一",
+            1000: "一千", 1001: "一千零一", 1010: "一千零一十", 1100: "一千一百",
+            1234: "一千二百三十四",
+        }
+        for n, expected in cases.items():
+            self.assertEqual(_num_to_chinese(n), expected, msg=f"failed for {n}")
+
+    def test_num_to_chinese_large(self):
+        from qwen3_tts.core.engine.text_processing import _num_to_chinese
+
+        cases = {
+            10000: "一万", 10001: "一万零一", 10010: "一万零一十",
+            10100: "一万零一百", 11000: "一万一千",
+            12345: "一万二千三百四十五", 100000: "十万", 100001: "十万零一",
+            1000000: "一百万", 10010000: "一千零一万", 100000000: "一亿",
+            100001000: "一亿零一千", 110000000: "一亿一千万",
+            101000000: "一亿零一百万",
+            123456789: "一亿二千三百四十五万六千七百八十九",
+        }
+        for n, expected in cases.items():
+            self.assertEqual(_num_to_chinese(n), expected, msg=f"failed for {n}")
+
+    def test_num_to_chinese_negative(self):
+        from qwen3_tts.core.engine.text_processing import _num_to_chinese
+
+        self.assertEqual(_num_to_chinese(-5), "负五")
+
+    # --- _normalize_text: Chinese paths ---
+    def test_chinese_cardinal_delimited(self):
+        from qwen3_tts.core.engine.text_processing import _normalize_text
+
+        out = _normalize_text("我有 3 个苹果", language="chinese")
+        self.assertIn("三", out)
+        self.assertNotIn("3", out)
+
+    def test_chinese_cardinal_cjk_adjacent(self):
+        """Digits directly between CJK chars (no \b) must still convert."""
+        from qwen3_tts.core.engine.text_processing import _normalize_text
+
+        out = _normalize_text("我有3个苹果", language="chinese")
+        self.assertIn("三", out)
+        self.assertNotIn("3", out)
+
+    def test_chinese_ordinal(self):
+        from qwen3_tts.core.engine.text_processing import _normalize_text
+
+        out = _normalize_text("the 3rd one", language="chinese")
+        self.assertIn("第三", out)
+        self.assertNotIn("3", out)
+
+    def test_chinese_currency(self):
+        from qwen3_tts.core.engine.text_processing import _normalize_text
+
+        out = _normalize_text("¥5", language="chinese")
+        self.assertIn("五元", out)
+        self.assertNotIn("5", out)
+
+    def test_chinese_date(self):
+        from qwen3_tts.core.engine.text_processing import _normalize_text
+
+        out = _normalize_text("2024-01-02", language="chinese")
+        self.assertIn("年", out)
+        self.assertIn("月", out)
+        self.assertIn("日", out)
+        self.assertNotRegex(out, r"\d")  # no raw digits remain
+
+    def test_zh_input_not_silently_no_op(self):
+        """Regression for the core PRF-1 bug: zh number must change the text."""
+        from qwen3_tts.core.engine.text_processing import _normalize_text
+
+        before = "我有3个苹果"
+        after = _normalize_text(before, language="chinese")
+        self.assertNotEqual(before, after)
+        self.assertIn("三", after)
+
+    def test_cardinal_does_not_abort_wholesale_for_zh(self):
+        """Multiple zh numbers in one string all convert (no wholesale abort)."""
+        from qwen3_tts.core.engine.text_processing import _normalize_text
+
+        out = _normalize_text("count 3 apples 我有 12 个", language="chinese")
+        self.assertIn("三", out)
+        self.assertIn("十二", out)
+
+    def test_english_baseline_unchanged(self):
+        from qwen3_tts.core.engine.text_processing import _normalize_text
+
+        out = _normalize_text("I have 3 apples", language="english")
+        self.assertIn("three", out)
+
+
 if __name__ == "__main__":
     unittest.main()

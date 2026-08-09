@@ -148,6 +148,17 @@ def _expand_currency_match(m, n2w, lang: str) -> str:
     amount_str = m.group(2)
     singular, plural = _CURRENCY_MAP.get(symbol, ("unit", "units"))
     try:
+        if lang == "zh":
+            amount = float(amount_str)
+            whole = int(amount)
+            frac = round((amount - whole) * 100)
+            zh_name = {"$": "美元", "€": "欧元", "£": "英镑", "¥": "元"}.get(
+                symbol, "元"
+            )
+            out = f"{_num_to_chinese(whole)}{zh_name}"
+            if frac > 0 and symbol != "¥":
+                out += f"{_num_to_chinese(frac)}分"
+            return out
         amount = float(amount_str)
         whole = int(amount)
         frac = round((amount - whole) * 100)
@@ -177,6 +188,12 @@ def _expand_ordinal_match(m, n2w, lang: str) -> str:
 
 def _expand_date_components(month: int, day: int, year: int, n2w, lang: str) -> str:
     """Format date components into spoken form: 'March third, two thousand one'."""
+    if lang == "zh":
+        return (
+            f"{_year_to_chinese(year)}年"
+            f"{_num_to_chinese(month)}月"
+            f"{_num_to_chinese(day)}日"
+        )
     import calendar
 
     month_name = calendar.month_name[month]
@@ -218,6 +235,107 @@ def _apply_abbreviations(t: str) -> str:
     return t
 
 
+# ---------------------------------------------------------------------------
+# Chinese number conversion (PRF-1)
+#
+# num2words(lang='zh') raises NotImplementedError, which _safe_transform
+# swallowed — silently no-op'ing ALL Chinese number normalization. Route
+# Chinese through a local digits→汉字 converter instead.
+# ---------------------------------------------------------------------------
+
+_ZH_DIGITS = "零一二三四五六七八九"
+_ZH_YEAR_DIGITS = "〇一二三四五六七八九"  # years read digit-by-digit; 0 → 〇
+_ZH_NUM_RE = re.compile(r"\d+")
+
+
+def _zh_four_digits(value: int, drop_leading_one: bool = True) -> str:
+    """Render 0..9999 as 汉字 (1234→一千二百三十四, 1001→一千零一, 10→十)."""
+    if value == 0:
+        return ""
+    thousands, rest = divmod(value, 1000)
+    hundreds, rest = divmod(rest, 100)
+    tens, ones = divmod(rest, 10)
+    out = []
+    if thousands:
+        out.append(_ZH_DIGITS[thousands] + "千")
+        if not hundreds and (tens or ones):
+            out.append("零")
+    if hundreds:
+        out.append(_ZH_DIGITS[hundreds] + "百")
+        if not tens and ones:
+            out.append("零")
+    if tens:
+        # 10..19 reads as 十 only when leading (standalone or a multiplier like
+        # 十万); a lower section keeps the 一 (一万零一十).
+        if tens == 1 and not thousands and not hundreds and drop_leading_one:
+            out.append("十")
+        else:
+            out.append(_ZH_DIGITS[tens] + "十")
+    if ones:
+        out.append(_ZH_DIGITS[ones])
+    return "".join(out)
+
+
+def _num_to_chinese(num: int) -> str:
+    """Convert an integer to Chinese characters (cardinal form).
+
+    Handles negatives and values up to the 万亿 (10**12) scale.
+    """
+    if num == 0:
+        return "零"
+    if num < 0:
+        return "负" + _num_to_chinese(-num)
+    section_names = ["", "万", "亿", "万亿"]
+    sections: list = []
+    remaining = num
+    while remaining > 0:
+        sections.append(remaining % 10000)
+        remaining //= 10000
+    result = ""
+    seen_significant = False
+    for idx in range(len(sections) - 1, -1, -1):
+        section = sections[idx]
+        seg = _zh_four_digits(section, drop_leading_one=not seen_significant)
+        if seg:
+            if result and not result.endswith("零"):
+                higher_zero = (
+                    idx + 1 < len(sections) and sections[idx + 1] == 0
+                )
+                if section < 1000 or higher_zero:
+                    result += "零"
+            result += seg + section_names[idx]
+            seen_significant = True
+        elif result and not result.endswith("零") and any(
+            sections[j] for j in range(idx)
+        ):
+            result += "零"
+    return result.rstrip("零")
+
+
+def _year_to_chinese(year: int) -> str:
+    """Read a year digit-by-digit (2024→二〇二四)."""
+    if year == 0:
+        return "零"
+    return "".join(_ZH_YEAR_DIGITS[int(ch)] for ch in str(abs(year)))
+
+
+def _say_number(n, lang="en", to=None) -> str:
+    """Number → spoken words, Chinese-aware.
+
+    num2words has no Chinese support, so route zh through _num_to_chinese.
+    Never raises: falls back to str(n) when num2words is missing or errors.
+    """
+    if lang == "zh":
+        words = _num_to_chinese(int(n))
+        return "第" + words if to == "ordinal" else words
+    if _n2w_cached is None:
+        return str(n)
+    try:
+        return _n2w_cached(n, lang=lang, to=to) if to else _n2w_cached(n, lang=lang)
+    except Exception:
+        return str(n)
+
+
 def _normalize_text(text, language="English"):
     """Normalize text for TTS: expand numbers, dates, abbreviations, and URLs.
 
@@ -257,31 +375,40 @@ def _normalize_text(text, language="English"):
     text = _safe_transform(
         text,
         "currency",
-        lambda t: _CURRENCY_RE.sub(lambda m: _expand_currency_match(m, _n2w, lang), t),
+        lambda t: _CURRENCY_RE.sub(lambda m: _expand_currency_match(m, _say_number, lang), t),
     )
     text = _safe_transform(
         text,
         "ordinal",
-        lambda t: _ORDINAL_RE.sub(lambda m: _expand_ordinal_match(m, _n2w, lang), t),
+        lambda t: _ORDINAL_RE.sub(lambda m: _expand_ordinal_match(m, _say_number, lang), t),
     )
     text = _safe_transform(
         text,
         "iso_date",
-        lambda t: _ISO_DATE_RE.sub(lambda m: _expand_iso_date_match(m, _n2w, lang), t),
+        lambda t: _ISO_DATE_RE.sub(lambda m: _expand_iso_date_match(m, _say_number, lang), t),
     )
     text = _safe_transform(
         text,
         "us_date",
-        lambda t: _US_DATE_RE.sub(lambda m: _expand_us_date_match(m, _n2w, lang), t),
+        lambda t: _US_DATE_RE.sub(lambda m: _expand_us_date_match(m, _say_number, lang), t),
     )
     text = _safe_transform(text, "abbreviation", _apply_abbreviations)
-    if _n2w:
+    if _n2w or lang == "zh":
         text = _safe_transform(
             text,
             "cardinal",
             lambda t: _CARDINAL_RE.sub(
-                lambda m: _n2w(int(m.group()), lang=lang) if _n2w else m.group(), t
+                lambda m: _say_number(int(m.group()), lang=lang), t
             ),
+        )
+
+    if lang == "zh":
+        # Mop up digits the cardinal regex missed (e.g. CJK-adjacent "我有3个")
+        # so Chinese input never reaches the model with raw Arabic digits.
+        text = _safe_transform(
+            text,
+            "zh_cardinal_mopup",
+            lambda t: _ZH_NUM_RE.sub(lambda m: _num_to_chinese(int(m.group())), t),
         )
 
     return text
