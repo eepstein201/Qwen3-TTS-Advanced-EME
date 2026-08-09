@@ -833,6 +833,195 @@ def _maybe_apply_speed(audio, sample_rate, gen_params, mode, config=None):
         return audio, sample_rate
 
 
+# PRF-8: ICL cloning sometimes re-speaks the tail of the reference transcript
+# before the requested text (upstream #341). Probe only the head — the echo is
+# a prefix, and transcribing the whole output would cost as much as generating
+# it.
+_ICL_PROBE_SECONDS = 4.0
+_ICL_MIN_ECHO_WORDS = 3
+# Never clip more than this fraction of the output, whatever ASR claims.
+_ICL_MAX_TRIM_FRACTION = 0.5
+
+
+def _normalize_for_match(text: str | None) -> list[str]:
+    """Lowercase, drop punctuation, split to words — for loose text comparison."""
+    if not text:
+        return []
+    cleaned = "".join(c if c.isalnum() or c.isspace() else " " for c in text.lower())
+    return cleaned.split()
+
+
+def _detect_echo_prefix(
+    head_text: str | None,
+    reference_text: str | None,
+    min_words: int = _ICL_MIN_ECHO_WORDS,
+) -> str | None:
+    """Return the echoed phrase when the output head repeats the reference tail.
+
+    Matches the *longest* suffix of the reference that the head starts with, so
+    a long echo isn't under-trimmed. Requires ``min_words`` words so an
+    incidental shared word isn't mistaken for an echo.
+    """
+    head = _normalize_for_match(head_text)
+    reference = _normalize_for_match(reference_text)
+    if len(head) < min_words or len(reference) < min_words:
+        return None
+
+    limit = min(len(head), len(reference))
+    for size in range(limit, min_words - 1, -1):
+        if reference[-size:] == head[:size]:
+            return " ".join(head[:size])
+    return None
+
+
+def _find_silence_boundary(audio, sample_rate, near_sample, window_s: float = 0.4):
+    """Index of the quietest short frame near ``near_sample``.
+
+    Cutting on the pause after an echo avoids clipping mid-word. Falls back to
+    ``near_sample`` when the region has no clear gap.
+    """
+    import numpy as np  # lazy — heavy import
+
+    n = len(audio)
+    if n == 0:
+        return 0
+    near_sample = int(min(max(near_sample, 0), n))
+
+    half = int(window_s * sample_rate)
+    start = max(0, near_sample - half)
+    end = min(n, near_sample + half)
+    if end - start < 2:
+        return near_sample
+
+    frame = max(1, int(0.01 * sample_rate))  # 10 ms
+    region = np.asarray(audio[start:end], dtype=np.float64)
+    usable = (len(region) // frame) * frame
+    if usable < frame:
+        return near_sample
+
+    frames = region[:usable].reshape(-1, frame)
+    energies = np.sqrt(np.mean(frames**2, axis=1))
+    return start + int(np.argmin(energies)) * frame
+
+
+def _transcribe_probe(audio, sample_rate) -> str:
+    """Transcribe an in-memory probe with the existing ASR.
+
+    transcribe_audio() takes a path, so the probe goes through a temp WAV.
+    """
+    import os
+    import tempfile
+    import wave
+
+    import numpy as np
+
+    from qwen3_tts.core.engine.asr import transcribe_audio
+
+    clipped = np.clip(np.asarray(audio, dtype=np.float32), -1.0, 1.0)
+    pcm = (clipped * 32767.0).astype("<i2")
+
+    fd, path = tempfile.mkstemp(suffix=".wav", prefix="icl_probe_")
+    os.close(fd)
+    try:
+        with wave.open(path, "wb") as wav_file:
+            wav_file.setnchannels(1)
+            wav_file.setsampwidth(2)
+            wav_file.setframerate(int(sample_rate))
+            wav_file.writeframes(pcm.tobytes())
+        return transcribe_audio(path) or ""
+    finally:
+        try:
+            os.remove(path)
+        except OSError:
+            pass
+
+
+# Attribute names a voice-prompt object may use for its reference transcript.
+# The prompt is built by the upstream model, so this is best-effort: callers
+# that know the transcript should pass reference_text explicitly.
+_PROMPT_TEXT_ATTRS = ("transcript", "text", "prompt_text", "ref_text", "reference_text")
+
+
+def _reference_text_from_prompt(voice_prompt) -> str | None:
+    """Best-effort read of the reference transcript off a voice prompt."""
+    if voice_prompt is None:
+        return None
+    if isinstance(voice_prompt, dict):
+        candidates = (voice_prompt.get(key) for key in _PROMPT_TEXT_ATTRS)
+    else:
+        candidates = (getattr(voice_prompt, attr, None) for attr in _PROMPT_TEXT_ATTRS)
+    for value in candidates:
+        if isinstance(value, str) and value.strip():
+            return value.strip()
+    return None
+
+
+def _trim_icl_echo(
+    audio,
+    sample_rate,
+    reference_text,
+    mode,
+    x_vector_only_mode,
+    config=None,
+):
+    """Clip a reference-transcript echo from the head of cloned output (PRF-8).
+
+    Returns (audio, sample_rate). Any failure returns the audio untouched — a
+    missed trim is a cosmetic problem, losing a generation is not.
+    """
+    if mode != "clone" or x_vector_only_mode or not reference_text:
+        return audio, sample_rate
+
+    cfg = config if config is not None else load_config()
+    if not cfg.get("generation", {}).get("trim_icl_echo", True):
+        return audio, sample_rate
+
+    from qwen3_tts.core.engine import asr
+
+    # Only opportunistic: pulling a heavy ASR model into a generation that
+    # never asked for one would cost more than the artifact it removes.
+    if not asr.is_asr_loaded():
+        return audio, sample_rate
+
+    try:
+        probe_len = min(len(audio), int(_ICL_PROBE_SECONDS * sample_rate))
+        if probe_len <= 0:
+            return audio, sample_rate
+
+        head_text = _transcribe_probe(audio[:probe_len], sample_rate)
+        echo = _detect_echo_prefix(head_text, reference_text)
+        if not echo:
+            return audio, sample_rate
+
+        # No word timestamps available, so estimate the echo's share of the
+        # probe by character count, then snap to the pause that follows it.
+        head_words = _normalize_for_match(head_text)
+        echo_words = _normalize_for_match(echo)
+        if not head_words:
+            return audio, sample_rate
+        share = min(1.0, len(echo_words) / len(head_words))
+        estimate = int(probe_len * share)
+
+        cut = _find_silence_boundary(audio, sample_rate, estimate)
+        max_cut = int(len(audio) * _ICL_MAX_TRIM_FRACTION)
+        cut = min(cut, max_cut)
+        if cut <= 0:
+            return audio, sample_rate
+
+        logger.info(
+            "Trimmed %.2fs ICL reference echo from cloned output: %s",
+            cut / sample_rate,
+            sanitize_log(echo),
+        )
+        return audio[cut:], sample_rate
+    except Exception as e:
+        logger.warning(
+            "ICL echo trim skipped (%s) — returning untrimmed audio",
+            sanitize_log(e),
+        )
+        return audio, sample_rate
+
+
 def _maybe_apply_lufs(audio, sample_rate, config=None):
     """Apply LUFS normalization if generation.lufs_normalize is True.
 
@@ -928,6 +1117,7 @@ def run_inference(
     x_vector_only_mode: bool = False,
     config_provider: Any = None,
     seed_lock_chunks: bool = False,
+    reference_text: str | None = None,
 ) -> tuple:
     """Run TTS inference, dispatching to the configured backend.
 
@@ -973,7 +1163,16 @@ def run_inference(
             x_vector_only_mode=x_vector_only_mode,
         )
         config = (config_provider or _DEFAULT_CONFIG_LOADER).load()
-        # Rate first, then loudness — LUFS must measure the audio that ships.
+        # Echo trim first (it removes generated content), then rate, then
+        # loudness — LUFS must measure the audio that actually ships.
+        wav, sr = _trim_icl_echo(
+            wav,
+            sr,
+            reference_text or _reference_text_from_prompt(voice_prompt),
+            mode,
+            x_vector_only_mode,
+            config=config,
+        )
         wav, sr = _maybe_apply_speed(wav, sr, gen_params, mode, config=config)
         wav, sr = _maybe_apply_lufs(wav, sr, config=config)
         return wav, sr
@@ -1040,7 +1239,16 @@ def run_inference(
     else:
         result = _crossfade_chunks(all_audio, sample_rate, crossfade_ms=50)
 
-    # Rate first, then loudness — LUFS must measure the audio that ships.
+    # Echo trim first (it removes generated content), then rate, then
+    # loudness — LUFS must measure the audio that actually ships.
+    result, sample_rate = _trim_icl_echo(
+        result,
+        sample_rate,
+        reference_text or _reference_text_from_prompt(voice_prompt),
+        mode,
+        x_vector_only_mode,
+        config=config,
+    )
     result, sample_rate = _maybe_apply_speed(
         result, sample_rate, gen_params, mode, config=config
     )

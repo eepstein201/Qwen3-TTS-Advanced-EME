@@ -45,6 +45,7 @@ BATCHES = {
             "tests.test_p3_p4_remediation",
             "tests.test_lufs_return_shape",
             "tests.test_clone_rate_control",
+            "tests.test_icl_echo_trim",
             "tests.test_healthcheck",
             "tests.test_healthcheck_ext",
             "tests.test_model_cache",
