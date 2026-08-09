@@ -166,6 +166,33 @@ def handle_list_models(state, server_config):
     }
 
 
+def _recover_from_failed_load(state, model_type: str) -> None:
+    """Reclaim backend memory and reset state after a failed model swap (PRF-5).
+
+    A partially-constructed model leaves allocations behind that slow down
+    every later generation (upstream mlx-audio #827 reports ~2.4x on Base
+    cloning, and the server has a known-red "dies under repeated
+    load/unload"). Recording the error is not enough — this mirrors the
+    cleanup the unload path runs and drops the state that would otherwise let
+    /models describe the model as healthy.
+
+    Never raises: the caller still has to surface the original load failure.
+    """
+    try:
+        state.models[model_type] = None
+        state.model_load_times.pop(model_type, None)
+
+        from qwen3_tts.core.engine import unload_model_cleanup
+
+        unload_model_cleanup()
+    except Exception as e:
+        logger.warning(
+            "Recovery after failed %s load did not complete: %s",
+            sanitize_log(model_type),
+            sanitize_log(e),
+        )
+
+
 def handle_load_model(state, req):
     """Load a model on demand.
 
@@ -217,6 +244,7 @@ def handle_load_model(state, req):
             exc_info=True,
         )
         state.model_load_errors[model_type] = str(e)
+        _recover_from_failed_load(state, model_type)
         _error_response(500, "import_error", _sanitize_error(str(e)), "config")
         return  # explicit guard — _error_response raises, but this ensures no fall-through
     except (RuntimeError, OSError, ValueError) as e:
@@ -227,6 +255,7 @@ def handle_load_model(state, req):
             exc_info=True,
         )
         state.model_load_errors[model_type] = str(e)
+        _recover_from_failed_load(state, model_type)
         _error_response(500, "load_failed", _sanitize_error(str(e)), "restart")
         return
     except Exception as e:
@@ -237,6 +266,7 @@ def handle_load_model(state, req):
             exc_info=True,
         )
         state.model_load_errors[model_type] = str(e)
+        _recover_from_failed_load(state, model_type)
         _error_response(500, "unknown_error", _sanitize_error(str(e)), "bug")
         return
     finally:

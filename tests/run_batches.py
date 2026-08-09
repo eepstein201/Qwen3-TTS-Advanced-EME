@@ -114,6 +114,7 @@ BATCHES = {
             "tests.test_silent_failure_logging_part2",
             "tests.test_streaming_thread_lifecycle",
             "tests.test_batch_generation_state_ownership",
+            "tests.test_model_swap_recovery",
         ],
         "timeout": 180,  # Higher timeout for async operations
     },
