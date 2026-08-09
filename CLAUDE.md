@@ -184,6 +184,7 @@ All other endpoints require `Authorization: Bearer <token>` (token from `~/.conf
 | `advanced.mlx_quantization` | `"4bit"`, `"5bit"`, `"6bit"`, `"8bit"`, `"bf16"` | `"8bit"` |
 | `advanced.torch_quantization` | `"none"`, `"8bit"`, `"4bit"` | `"none"` |
 | `advanced.audio_loader` | `"torchaudio"`, `"librosa"` | `"torchaudio"` |
+| `advanced.attn_implementation` | `"auto"`, `"sdpa"`, `"flash_attention_2"`, `"eager"` | `"auto"` (SDPA; FA2 opt-in — upstream #333 NaN risk) |
 | `generation.max_chunk_chars` | `0`-`10000` | `500` (0 disables chunking) |
 | `generation.lufs_normalize` | `true`, `false` | `false` (off; applies EBU R128 loudness normalization when on) |
 | `generation.lufs_target` | float (LUFS) | `-16.0` (used only when `lufs_normalize` is `true`) |

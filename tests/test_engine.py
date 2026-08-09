@@ -86,8 +86,12 @@ class TestEngineFunctions(unittest.TestCase):
                 self.assertEqual(dtype, "bfloat16_sentinel")
                 self.assertTrue(compile_)
 
-    def test_cuda_optimizations_uses_flash_attn_when_available(self):
-        """_apply_cuda_optimizations uses flash_attention_2 when flash_attn installed on Ampere+."""
+    def test_cuda_optimizations_prefers_sdpa_even_with_flash_attn(self):
+        """PRF-4: Ampere+ stays on sdpa when flash_attn is installed but not opted in.
+
+        Upstream #333 reports NaN logits with flash_attention_2 for Qwen3-TTS on
+        L4/A100, so installing flash_attn must no longer flip the default.
+        """
         from qwen3_tts.core.engine import model_loader
         mock_torch = MagicMock()
         mock_torch.cuda.is_available.return_value = True
@@ -97,6 +101,25 @@ class TestEngineFunctions(unittest.TestCase):
         with patch("qwen3_tts.core.config._has_flash_attn", return_value=True):
             with patch.dict(sys.modules, {"torch": mock_torch}):
                 config = {"generation": {"compile_model": True}}
+                attn, dtype, compile_ = model_loader._apply_cuda_optimizations(config)
+                self.assertEqual(attn, "sdpa")
+                self.assertEqual(dtype, "bfloat16_sentinel")
+                self.assertTrue(compile_)
+
+    def test_cuda_optimizations_honors_flash_attn_optin(self):
+        """PRF-4: advanced.attn_implementation opt-in still yields flash_attention_2."""
+        from qwen3_tts.core.engine import model_loader
+        mock_torch = MagicMock()
+        mock_torch.cuda.is_available.return_value = True
+        mock_torch.cuda.get_device_capability.return_value = (8, 0)
+        mock_torch.bfloat16 = "bfloat16_sentinel"
+        mock_torch.backends.cudnn = MagicMock()
+        with patch("qwen3_tts.core.config._has_flash_attn", return_value=True):
+            with patch.dict(sys.modules, {"torch": mock_torch}):
+                config = {
+                    "generation": {"compile_model": True},
+                    "advanced": {"attn_implementation": "flash_attention_2"},
+                }
                 attn, dtype, compile_ = model_loader._apply_cuda_optimizations(config)
                 self.assertEqual(attn, "flash_attention_2")
                 self.assertEqual(dtype, "bfloat16_sentinel")

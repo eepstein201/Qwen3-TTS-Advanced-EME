@@ -157,8 +157,8 @@ CLI and UI parse the `recovery` field to show actionable guidance.
 | GPU | Compute Cap | Attention | dtype | Quantization | torch.compile |
 |-----|------------|-----------|-------|-------------|---------------|
 | T4 (free Colab) | 7.5 | SDPA | float16 | 8-bit (bitsandbytes) | No |
-| L4 (Colab Pro) | 8.9 | Flash Attention 2 | bfloat16 | None needed | Yes |
-| A100 (Colab Pro+) | 8.0 | Flash Attention 2 | bfloat16 | None needed | Yes |
+| L4 (Colab Pro) | 8.9 | SDPA (FA2 opt-in) | bfloat16 | None needed | Yes |
+| A100 (Colab Pro+) | 8.0 | SDPA (FA2 opt-in) | bfloat16 | None needed | Yes |
 | Non-CUDA | N/A | SDPA | float32 | N/A | No |
 
 `get_cuda_capability()` and `get_optimal_attn_config()` in `qwen3_tts/core/config.py` expose hardware detection. The Colab notebook auto-configures based on detected GPU tier.

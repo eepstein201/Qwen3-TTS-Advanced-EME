@@ -109,14 +109,22 @@ def _apply_cuda_optimizations(config):
 
     if capability[0] >= 8:
         # Ampere+ (A100, A10G, RTX 30xx, etc.)
-        from qwen3_tts.core.config import _has_flash_attn
+        from qwen3_tts.core.config import (
+            _has_flash_attn,
+            _resolve_attn_implementation,
+        )
 
-        if _has_flash_attn():
-            attn_impl = "flash_attention_2"
-        else:
-            attn_impl = "sdpa"
+        # SDPA is the safe default (upstream #333: NaN logits with
+        # flash_attention_2 for Qwen3-TTS on L4/A100). FA2 is opt-in via
+        # advanced.attn_implementation and only when flash_attn is installed.
+        preference = config.get("advanced", {}).get("attn_implementation", "auto")
+        has_flash = _has_flash_attn()
+        attn_impl = _resolve_attn_implementation(preference, has_flash)
+        if attn_impl != "flash_attention_2":
             logger.info(
-                "flash_attn not installed — using SDPA attention (still fast on Ampere+)"
+                "Using SDPA attention on Ampere+ (FA2 is opt-in via "
+                "advanced.attn_implementation); upstream #333 reports NaN "
+                "logits with flash_attention_2 for Qwen3-TTS."
             )
         should_compile = config.get("generation", {}).get("compile_model", True)
         return (attn_impl, torch.bfloat16, should_compile)
