@@ -568,6 +568,109 @@ def _run_inference_mlx_streaming(
 # ---------------------------------------------------------------------------
 
 
+# PRF-2: how far into an incoming chunk we may trim to reach a sign change.
+# 2 ms is under one period of any speech fundamental, so the splice never
+# skips audible content.
+_ZERO_CROSS_SEARCH_MS = 2.0
+
+# PRF-2: lag window searched when phase-aligning a crossfaded splice. 10 ms is
+# a full period at 100 Hz, so it spans the phase of any normal speech
+# fundamental; the trimmed audio sits at a chunk boundary.
+_ALIGN_MAX_LAG_MS = 10.0
+
+# Correlation window used to score alignment (~5 ms of the outgoing tail).
+_ALIGN_CORR_SAMPLES = 120
+
+# PRF-2: bound on the per-seam level correction. Chunks are sentences of one
+# utterance, so a few dB covers generator drift; clamping keeps a genuinely
+# quiet chunk from being pumped up and stops gain drifting across many seams.
+_SEAM_MAX_GAIN_DB = 3.0
+
+
+def _snap_to_zero_crossing(head: Any, max_search: int) -> int:
+    """Return the offset of the first sign change within ``head[:max_search]``.
+
+    Splicing at a sign change means both sides of the seam start near zero
+    amplitude, which removes the step discontinuity an arbitrary splice point
+    would leave. Returns 0 when there is no crossing in the window (e.g. a DC
+    or near-silent head), so the caller trims nothing.
+    """
+    import numpy as np  # lazy — heavy import
+
+    n = int(min(max_search, len(head)))
+    if n < 2:
+        return 0
+    signs = np.signbit(head[:n])
+    changes = np.flatnonzero(signs[:-1] != signs[1:])
+    if changes.size == 0:
+        return 0
+    return int(changes[0]) + 1
+
+
+def _align_offset(
+    tail: Any, head: Any, max_lag: int, corr_samples: int = _ALIGN_CORR_SAMPLES
+) -> int:
+    """Return the lag into ``head`` that best phase-aligns it with ``tail``.
+
+    Picks the offset maximising normalised cross-correlation between the end
+    of ``tail`` and a same-length window of ``head``. Snapping to a *zero
+    crossing* is not enough here: it ignores the crossing direction and the
+    outgoing phase, so it can land anti-phase and deepen the cancellation dip
+    the crossfade then bakes in (measured: a quarter-period offset gets worse,
+    0.87 -> 0.71 of reference RMS). Correlation aligns to the outgoing signal
+    directly. Returns 0 when either side is too short or effectively silent.
+    """
+    import numpy as np  # lazy — heavy import
+
+    if max_lag <= 0:
+        return 0
+    ref_len = int(min(corr_samples, len(tail)))
+    if ref_len < 8:
+        return 0
+    max_lag = int(min(max_lag, len(head) - ref_len))
+    if max_lag <= 0:
+        return 0
+
+    ref = np.asarray(tail[-ref_len:], dtype=np.float64)
+    ref_norm = float(np.linalg.norm(ref))
+    if ref_norm <= 1e-9:
+        return 0
+    seg = np.asarray(head[: ref_len + max_lag], dtype=np.float64)
+
+    dots = np.correlate(seg, ref, mode="valid")
+    cumsq = np.concatenate([[0.0], np.cumsum(seg**2)])
+    window_energy = cumsq[ref_len:] - cumsq[:-ref_len]
+    norms = np.sqrt(np.maximum(window_energy, 1e-18))
+    scores = dots / (norms * ref_norm)
+
+    # Voiced speech is periodic, so many lags align equally well (a 200 Hz
+    # sine repeats every 120 samples). Take the earliest lag that is
+    # essentially as good as the best so we discard as little audio as
+    # possible instead of jumping a whole extra period.
+    best = float(scores.max())
+    good = np.flatnonzero(scores >= best - 1e-3)
+    return int(good[0]) if good.size else int(np.argmax(scores))
+
+
+def _seam_gain(tail: Any, head: Any, max_db: float = _SEAM_MAX_GAIN_DB) -> float:
+    """Bounded gain that RMS-matches ``head`` to ``tail`` across a seam.
+
+    Independently generated chunks drift in level, which reads as a step at
+    the splice. Returns 1.0 for empty or effectively silent input so digital
+    silence can't divide by zero or explode the gain.
+    """
+    import numpy as np  # lazy — heavy import
+
+    if len(tail) == 0 or len(head) == 0:
+        return 1.0
+    tail_rms = float(np.sqrt(np.mean(np.asarray(tail, dtype=np.float64) ** 2)))
+    head_rms = float(np.sqrt(np.mean(np.asarray(head, dtype=np.float64) ** 2)))
+    if tail_rms <= 1e-6 or head_rms <= 1e-6:
+        return 1.0
+    limit = 10.0 ** (max_db / 20.0)
+    return float(min(max(tail_rms / head_rms, 1.0 / limit), limit))
+
+
 def _crossfade_chunks(
     chunks: list,
     sample_rate: int,
@@ -608,12 +711,30 @@ def _crossfade_chunks(
         return np.concatenate(chunks)
 
     fade_samples = int(sample_rate * crossfade_ms / 1000)
+    search_samples = int(sample_rate * _ZERO_CROSS_SEARCH_MS / 1000)
+    max_lag_samples = int(sample_rate * _ALIGN_MAX_LAG_MS / 1000)
     combined = chunks[0].copy()
     for chunk in chunks[1:]:
         overlap = min(fade_samples, len(combined), len(chunk))
         if overlap <= 0:
-            combined = np.concatenate([combined, chunk])
+            # Hard splice (no room to fade): snap to a sign change so both
+            # sides meet near zero and the join doesn't click.
+            offset = _snap_to_zero_crossing(chunk, search_samples)
+            combined = np.concatenate([combined, chunk[offset:] if offset else chunk])
             continue
+        # PRF-2: align phase and level *before* the raised cosine — the fade
+        # shape is already right for correlated speech; the seam artifact
+        # comes from splicing at an arbitrary phase and from level drift.
+        lag = _align_offset(combined, chunk, max_lag_samples)
+        if lag:
+            chunk = chunk[lag:]
+            overlap = min(fade_samples, len(combined), len(chunk))
+            if overlap <= 0:
+                combined = np.concatenate([combined, chunk])
+                continue
+        gain = _seam_gain(combined[-overlap:], chunk[:overlap])
+        if gain != 1.0:
+            chunk = (chunk * gain).astype(np.float32)
         t = np.linspace(0, np.pi / 2, overlap, dtype=np.float32)
         fade_out = np.cos(t) ** 2
         fade_in = np.sin(t) ** 2

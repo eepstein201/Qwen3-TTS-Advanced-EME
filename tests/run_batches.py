@@ -124,6 +124,7 @@ BATCHES = {
         "modules": [
             "tests.test_engine",
             "tests.test_seed_lock_chunks",
+            "tests.test_phase_aligned_splices",
             "tests.test_generate_helpers",
             "tests.test_generate_helpers_part2",
             "tests.test_generate_server",
