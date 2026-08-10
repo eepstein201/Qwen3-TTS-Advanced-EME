@@ -29,6 +29,7 @@ from fastapi.middleware.cors import CORSMiddleware
 # Rate limiting (R-13)
 from slowapi import Limiter, _rate_limit_exceeded_handler
 from slowapi.errors import RateLimitExceeded
+from slowapi.middleware import SlowAPIMiddleware
 
 _HAS_SLOWAPI = True
 
@@ -338,17 +339,40 @@ _transcribe_limit = _rate_limit_from_env("TTS_RATE_LIMIT_TRANSCRIBE", "transcrib
 _prompt_ops_limit = _rate_limit_from_env("TTS_RATE_LIMIT_PROMPT_OPS", "prompt_ops", "10/minute")
 _config_ops_limit = _rate_limit_from_env("TTS_RATE_LIMIT_CONFIG_OPS", "config_ops", "2/minute")
 
-# Create separate limiters for different strategies
-limiter_hybrid = Limiter(key_func=_get_rate_limit_key)
-limiter_ip = Limiter(key_func=_get_ip_key)
-limiter_token = Limiter(key_func=_get_token_key)
+# Global pre-auth limiter: an IP-keyed default ceiling enforced by
+# SlowAPIMiddleware at the ASGI layer, BEFORE routing/auth. Per-route
+# @limiter.limit decorators run after Depends(verify_auth) (Starlette order:
+# Middleware -> Routing -> Endpoint), so without this global ceiling an
+# unauthenticated flood bypasses rate limiting entirely — every request 401s
+# before the per-route limiter fires. The global limiter is a SEPARATE instance
+# from the strategy limiters below; slowapi's decorator binds to its own Limiter
+# at decoration time and never reads app.state.limiter, so the two coexist:
+# global = pre-auth ceiling on all routes; per-route = post-auth fine-grain.
+_rate_limit_enabled = not _RATE_LIMITING_DISABLED
+limiter_global = Limiter(
+    key_func=_get_ip_key,
+    default_limits=[_generate_limit],
+    enabled=_rate_limit_enabled,
+)
 
-app.state.limiter = limiter_hybrid  # slowapi's default handler expects this name
+# Create separate limiters for different strategies
+limiter_hybrid = Limiter(key_func=_get_rate_limit_key, enabled=_rate_limit_enabled)
+limiter_ip = Limiter(key_func=_get_ip_key, enabled=_rate_limit_enabled)
+limiter_token = Limiter(key_func=_get_token_key, enabled=_rate_limit_enabled)
+
+# SlowAPIMiddleware + _rate_limit_exceeded_handler read app.state.limiter for the
+# global default; the per-strategy limiters stay on their own attrs for the
+# per-route decorators (and for test reset).
+app.state.limiter = limiter_global
+app.state.limiter_global = limiter_global
 app.state.limiter_hybrid = limiter_hybrid
 app.state.limiter_ip = limiter_ip
 app.state.limiter_token = limiter_token
 
 app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
+# Added last → outermost middleware → rate limit fires before CORS, body-size,
+# security headers, and auth (the desired pre-auth flood ceiling).
+app.add_middleware(SlowAPIMiddleware)
 
 
 def _rate_limit(limit_string: str, strategy: str = "hybrid") -> callable:
