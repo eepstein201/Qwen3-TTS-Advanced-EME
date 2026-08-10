@@ -49,6 +49,15 @@ def _setup_app_state(models=None, server_config=None):
     state.auth_token = _TEST_TOKEN
     if not hasattr(state, "inference_lock"):
         state.inference_lock = asyncio.Lock()
+    # _stream_generation stamps generation_state under generation_lock (P3).
+    if not hasattr(state, "generation_lock"):
+        state.generation_lock = asyncio.Lock()
+    if not hasattr(state, "generation_state"):
+        state.generation_state = {
+            "active": False, "start_time": 0.0, "text_length": 0, "mode": "",
+            "batch_index": 0, "batch_total": 0, "chunk_index": 0, "chunk_total": 0,
+            "generation_id": None, "cancelled": False,
+        }
     if models is not None:
         state.models = models
     if server_config is not None:
