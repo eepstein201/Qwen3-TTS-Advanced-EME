@@ -30,28 +30,28 @@ Eliminate silent data loss / wrong output (4 HIGHs), the batch/streaming output 
 
 ---
 
-## WS1 — Silent-data-loss & wrong-output HIGHs (ship first; low risk, high value)
+## WS1 — Silent-data-loss & wrong-output HIGHs (ship first; low risk, high value) — ✅ DONE (PR #154, merged 2026-08-10)
 **Branch:** `fix/silent-data-loss` · **Findings:** H1, H4, H5, H6 · **Complexity:** Small–Medium
 
-### Task 1.1 — H1: re-clear stale `cancelled` per batch item
+### Task 1.1 — H1: re-clear stale `cancelled` per batch item — ✅ done
 - **Files:** `qwen3_tts/server/app_generation.py:294` (modify); `tests/test_server_generation.py` (add)
 - **Action:** In the per-item `generation_state.update(...)` inside `inference_lock`, add `"cancelled": False` (mirror the streaming path at l.658). This clears any flag a concurrent `/cancel-generation` set between items.
 - **Test (AAA):** `test_concurrent_cancel_does_not_truncate_other_batch` — mock two interleaved requests where B is cancelled; assert A returns all submitted items. Use a fake `inference_lock` that releases between items.
 - **Validate:** `pytest tests/test_server_generation.py -k cancel -v -m "not e2e"`
 
-### Task 1.2 — H4: mark watch files processed only after success
+### Task 1.2 — H4: mark watch files processed only after success — ✅ done
 - **Files:** `qwen3_tts/interface/generate_interactive.py:713` (modify); test
 - **Action:** Move `processed_files.add(event.src_path)` from l.713 to after the successful `sf.write` (~l.742). On failure the file is NOT added → retried next event.
 - **Test:** `test_watch_mode_retries_file_after_generation_failure` — patch generator to raise once then succeed; assert the file is processed on the second cycle.
 - **Validate:** `pytest tests/test_interactive.py -k watch -v`
 
-### Task 1.3 — H5: thread `gen_params` into the REPL
+### Task 1.3 — H5: thread `gen_params` into the REPL — ✅ done
 - **Files:** `qwen3_tts/interface/generate.py:638`, `qwen3_tts/interface/generate_interactive.py:471` (modify)
 - **Action:** Add `gen_params` parameter to `run_repl`; pass it from `generate.py:638` (`run_repl(config, use_server, gen_params)`); delete the internal reconstruction at l.500–501.
 - **Test:** `test_repl_honors_cli_sampling_flags` — invoke `run_repl` with `gen_params={"temperature":0.5,"seed":42}`; assert the params reach the generation call (mock the generator, capture kwargs).
 - **Validate:** `pytest tests/test_interactive.py -k repl -v`
 
-### Task 1.4 — H6: per-entry error recovery in SRT (and batch local path)
+### Task 1.4 — H6: per-entry error recovery in SRT (and batch local path) — ✅ done
 - **Files:** `qwen3_tts/interface/cli/srt.py:88–119`, `qwen3_tts/interface/generate.py:131–146` (modify)
 - **Action:** Wrap each entry's generation in `try/except`; log the entry + error; continue. Build the combined output from successful entries. Mirror `dialogue.py:162–203`.
 - **Test:** `test_srt_continues_after_entry_error` — 3 entries, middle one raises; assert 2 audio files + combined output produced, failure logged.
@@ -159,8 +159,14 @@ TTS_DISABLE_RATE_LIMITING=1 tts server start
 conda run -n qwen3-tts-mlx python -m pytest tests/test_e2e_security_auth.py -m e2e -v
 ```
 
+## Progress
+- **WS1 — merged** as PR #154 (`fix/silent-data-loss`), 2026-08-10. All four HIGHs (H1, H4, H5, H6) shipped with regression tests, CI green.
+- **Separate from this plan:** PR #153 (`fix(server): FastAPI hardening`) also merged 2026-08-10 — six ad-hoc server-hardening fixes (CWE-209 on `/health`, pre-auth rate-limit middleware, WS Origin validation, streaming-safe body-size middleware) from a standalone FastAPI review, not sourced from `python-review-2026-08-10.md`. Overlaps WS4 Task 2.4's WS `generation_state` goal, so that item is already satisfied when WS2 reaches it.
+- **WS2–WS9 — not started.**
+
 ## Acceptance
-- [ ] WS1–WS4 HIGHs each have a regression test (fails before / passes after)
+- [x] WS1 HIGHs each have a regression test (fails before / passes after)
+- [ ] WS2–WS4 remaining HIGHs each have a regression test (fails before / passes after)
 - [ ] WS2 streaming output matches batch for per-chunk processing (equivalence tests green)
 - [ ] Every workstream passes ruff + mypy + bandit + `pytest -m "not e2e"`
 - [ ] No new `# type: ignore`, no bare `except:`, no mutable defaults introduced
