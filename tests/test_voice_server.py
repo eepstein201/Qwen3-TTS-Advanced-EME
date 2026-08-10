@@ -844,8 +844,9 @@ class TestClonePromptLoadLockScope(unittest.TestCase):
         app.state.models_loaded.set()
 
     def test_clone_prompt_load_runs_outside_inference_lock(self):
-        import numpy as np
         from unittest.mock import MagicMock, patch
+
+        import numpy as np
 
         from qwen3_tts.server.app import app
 
