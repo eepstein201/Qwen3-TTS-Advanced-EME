@@ -19,3 +19,7 @@ ignored:
   # docker/vllm.Dockerfile has one apt-get without --no-install-recommends;
   # the image intentionally pulls recommended CUDA-adjacent packages.
   - DL3015
+  # Dockerfile.cpu-probe uses two consecutive RUNs for pip (CPU-torch first,
+  # then the extras): keeping them separate lets the stable torch layer stay
+  # cached when only the extras change.
+  - DL3059

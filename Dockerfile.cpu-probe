@@ -1,0 +1,46 @@
+# CPU install-probe for the PRODUCTION image.
+#
+# The production Dockerfile (.[torch,server,audio,ui]) is never built by CI:
+# its nvidia/cuda base + the NVIDIA Container Toolkit can't run on ubuntu-latest.
+# This probe rebuilds the SAME install on a CPU python base (CPU torch wheels)
+# so pip-resolution, missing-extra, and import breakage in the production path
+# are caught on every push -- WITHOUT a GPU.
+#
+# It does NOT validate the CUDA runtime or inference. Real CUDA build + run is
+# exercised by scripts/validate_docker_cuda.sh (manual/Colab GPU gate).
+#
+# Build: docker build -f Dockerfile.cpu-probe -t qwen3-tts:cpu-probe .
+
+FROM python:3.11-slim-bookworm
+ENV DEBIAN_FRONTEND=noninteractive \
+    PYTHONUNBUFFERED=1 \
+    PIP_NO_CACHE_DIR=1 \
+    PIP_DISABLE_PIP_VERSION_CHECK=1
+
+# System deps mirror the production Dockerfile (ffmpeg for audio, git for any
+# source installs). --no-install-recommends keeps the layer small.
+RUN apt-get update && apt-get install -y --no-install-recommends \
+        ffmpeg libsndfile1 portaudio19-dev git curl \
+    && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /app
+
+# Copy package definition + source in the production Dockerfile's order so the
+# probe exercises the real install graph (not an editable/dev install).
+COPY pyproject.toml README.md ./
+COPY qwen3_tts/ ./qwen3_tts/
+
+# CPU torch first, from the official CPU index, so the extras below do NOT pull
+# the multi-GB CUDA wheel. torch + torchaudio both live on the CPU index, so a
+# single --index-url is sufficient for this pair.
+RUN pip install --index-url https://download.pytorch.org/whl/cpu torch torchaudio
+
+# Full production extras; torch/torchaudio are already satisfied so pip skips
+# them (no CUDA wheel pulled). Catches resolution drift in the torch/server/
+# audio/ui extras (qwen-tts, transformers>=4.57.3, etc.).
+RUN pip install ".[torch,server,audio,ui]"
+
+# Probe: the production import surface must load on CPU. A failure here means
+# a production-image build would fail at runtime on the same import.
+RUN python -c "import torch, torchaudio, transformers, fastapi, soundfile, qwen3_tts; \
+        print('cpu-probe imports OK; torch', torch.__version__, 'torchaudio', torchaudio.__version__)"

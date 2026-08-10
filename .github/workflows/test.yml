@@ -190,7 +190,22 @@ jobs:
         chmod +x /tmp/hadolint
 
     - name: Lint Dockerfiles
-      run: /tmp/hadolint Dockerfile Dockerfile.test Dockerfile.vllm docker/vllm.Dockerfile
+      run: /tmp/hadolint Dockerfile Dockerfile.test Dockerfile.cpu-probe Dockerfile.vllm docker/vllm.Dockerfile
+
+  docker-cpu-probe:
+    # CPU install-probe for the PRODUCTION image: rebuilds the production
+    # install (.[torch,server,audio,ui]) with CPU torch wheels on ubuntu-latest,
+    # so pip-resolution / import breakage in the path CI never actually builds
+    # is caught on every push -- WITHOUT a GPU. Real CUDA build/run stays a
+    # manual gate (scripts/validate_docker_cuda.sh). Heavy pip resolution is
+    # cached via the Docker layer unless pyproject.toml/README change.
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v7
+
+    - name: Build CPU install-probe
+      run: |
+        docker build -f Dockerfile.cpu-probe -t qwen3-tts:cpu-probe .
 
   test-minimal:
     # Minimal test job for quick feedback
