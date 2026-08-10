@@ -438,7 +438,16 @@ class TestEngineFunctions(unittest.TestCase):
         mock_model.parameters.return_value = iter([MagicMock(dtype="float32")])
 
         # Act / Assert
-        with patch.dict(sys.modules, {"torch": mock_torch}):
+        # Swap only the single "torch" key rather than using
+        # patch.dict(sys.modules, ...), which clears and repopulates the whole
+        # module table on exit. That momentary empty-sys.modules window races
+        # importlib's thread-keyed lock bookkeeping once any later test spins up
+        # threads (gradio's Blocks.queue does), surfacing as
+        # `KeyError: <thread id>` inside importlib._bootstrap.
+        _sentinel = object()
+        _saved = sys.modules.get("torch", _sentinel)
+        sys.modules["torch"] = mock_torch
+        try:
             with patch(
                 "qwen3_tts.core.engine.inference.get_torch_dtype_name",
                 return_value="float32",
@@ -449,6 +458,11 @@ class TestEngineFunctions(unittest.TestCase):
                         {"temperature": 0.7}, language="English",
                         voice_prompt=MagicMock()
                     )
+        finally:
+            if _saved is _sentinel:
+                sys.modules.pop("torch", None)
+            else:
+                sys.modules["torch"] = _saved
 
         self.assertIn("no audio", str(ctx.exception).lower())
 
