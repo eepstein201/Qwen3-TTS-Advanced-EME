@@ -11,8 +11,8 @@ numpy>=2.2.6
 httpx>=0.28.1
 
 # Optional: monitoring and logging
-uvicorn[standard]>=0.52.0
-fastapi>=0.139.2
+uvicorn[standard]>=0.52.1
+fastapi>=0.141.1
 
 # Optional: development tools (comment out for production)
 # pytest>=8.0.0

@@ -26,16 +26,16 @@ torch = [
 # MLX backend (Apple Silicon only)
 mlx = [
     "mlx>=0.32.0",
-    "mlx-audio>=0.4.5",
+    "mlx-audio>=0.4.6",
     "mlx-lm>=0.31.3",
     "huggingface_hub",
 ]
 
 # FastAPI server
 server = [
-    "fastapi>=0.139.2",
+    "fastapi>=0.141.1",
     "slowapi>=0.1.10",
-    "uvicorn[standard]>=0.52.0",
+    "uvicorn[standard]>=0.52.1",
     "soundfile>=0.14.0",
     "psutil>=7.2.2",
 ]
@@ -70,13 +70,13 @@ dev = [
     "pytest>=9.1.1",
     "pytest-asyncio>=0.23",
     "httpx>=0.28.1",
-    "pytest-xdist>=3.0",      # parallel execution
+    "pytest-xdist>=3.8.0",      # parallel execution
     "pytest-timeout>=2.4.0",    # catch hanging tests
     "pytest-random-order>=1.2.0", # find interdependent tests
     "pytest-cov>=7.1.0",        # coverage reporting
-    "ruff>=0.16.0",              # linting + formatting
+    "ruff>=0.16.1",              # linting + formatting
     "mypy>=2.3.0",             # static type checking
-    "bandit>=1.7",            # security static analysis
+    "bandit>=1.9.4",            # security static analysis
 ]
 
 # Universal test dependencies (works across all environments)
@@ -86,10 +86,10 @@ test = [
     "pytest-asyncio>=0.23",   # Async test support
     "httpx>=0.28.1",            # HTTP client for testing
     "pytest-cov>=7.1.0",        # Coverage reporting
-    "playwright>=1.61.0",     # E2E testing (if not already in main deps)
-    "fastapi>=0.139.2",       # Server dependencies for integration tests
+    "playwright>=1.62.0",     # E2E testing (if not already in main deps)
+    "fastapi>=0.141.1",       # Server dependencies for integration tests
     "slowapi>=0.1.10",         # Rate limiting for server tests
-    "uvicorn[standard]>=0.52.0",
+    "uvicorn[standard]>=0.52.1",
     "soundfile>=0.14.0",
     "psutil>=7.2.2",
 ]

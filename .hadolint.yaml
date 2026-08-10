@@ -1,0 +1,25 @@
+# hadolint global config — applies to every Dockerfile linted from repo root.
+# Each ignored rule is a reviewed, intentional deviation; new violations of
+# rules NOT listed here still fail CI.
+ignored:
+  # apt packages are intentionally unpinned: exact Debian versions would be
+  # brittle across nvidia/cuda base-image bumps and add no real safety here.
+  - DL3008
+  # pip installs target project extras (.[torch,server,audio,ui,vllm]) or pip
+  # itself; versions are resolved via pyproject.toml, not pinned inline.
+  - DL3013
+  # `pip install --upgrade pip` omits --no-cache-dir (cache lives one layer).
+  - DL3042
+  # HEALTHCHECK uses shell form (curl ... || exit 1); ENTRYPOINT/CMD already
+  # use JSON (exec) form.
+  - DL3025
+  # Named users (USER testuser) are intentional for readability; the UID is
+  # fixed at creation (useradd -u 1000) so it resolves in practice.
+  - DL3066
+  # docker/vllm.Dockerfile has one apt-get without --no-install-recommends;
+  # the image intentionally pulls recommended CUDA-adjacent packages.
+  - DL3015
+  # Dockerfile.cpu-probe uses two consecutive RUNs for pip (CPU-torch first,
+  # then the extras): keeping them separate lets the stable torch layer stay
+  # cached when only the extras change.
+  - DL3059
