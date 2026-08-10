@@ -230,7 +230,7 @@ def reset_rate_limiters():
 
     from qwen3_tts.server.app import app
 
-    for attr in ("limiter", "limiter_hybrid", "limiter_ip", "limiter_token"):
+    for attr in ("limiter", "limiter_global", "limiter_hybrid", "limiter_ip", "limiter_token"):
         limiter = getattr(app.state, attr, None)
         if limiter is not None and hasattr(limiter, "reset"):
             limiter.reset()

@@ -16,6 +16,7 @@ import json
 import logging
 import logging.handlers
 import os
+import re
 import secrets
 import signal
 import sys
@@ -23,12 +24,21 @@ import time
 from pathlib import Path
 
 import uvicorn
-from fastapi import Depends, FastAPI, HTTPException, Request, WebSocket
+from fastapi import (
+    Depends,
+    FastAPI,
+    HTTPException,
+    Request,
+    WebSocket,
+    WebSocketException,
+    status,
+)
 from fastapi.middleware.cors import CORSMiddleware
 
 # Rate limiting (R-13)
 from slowapi import Limiter, _rate_limit_exceeded_handler
 from slowapi.errors import RateLimitExceeded
+from slowapi.middleware import SlowAPIMiddleware
 
 _HAS_SLOWAPI = True
 
@@ -252,6 +262,28 @@ app.add_middleware(
 )
 
 
+# Same origin allowlist as CORS, compiled for the WebSocket Origin check
+# (CSWSH defense). CORS protects HTTP only; the WS handshake is a separate
+# request that a browser page can attempt to steal via cookies.
+_origin_re = re.compile(_cors_regex)
+
+
+def validate_ws_origin(websocket: WebSocket) -> None:
+    """Reject cross-origin browser WebSocket handshakes (CSWSH defense).
+
+    Browsers always send ``Origin``; CLI/script clients (the ``tts`` client,
+    tests) do not. A browser handshake is accepted only if Origin matches the
+    same allowlist as CORS. An ABSENT Origin is allowed because the real auth is
+    the per-message bearer token (not Origin), and a non-browser client cannot
+    carry the victim's browser session that makes Cross-Site WebSocket
+    Hijacking exploitable. Raised before ``accept()`` -> FastAPI rejects the
+    handshake (Starlette sends HTTP 403).
+    """
+    origin = websocket.headers.get("origin")
+    if origin is not None and not _origin_re.match(origin):
+        raise WebSocketException(code=status.WS_1008_POLICY_VIOLATION)
+
+
 # Reject request bodies larger than this before they are read/parsed (R-30).
 # Sized ~2x the largest legitimate payload: MAX_AUDIO_BASE64_BYTES (50MB base64)
 # plus JSON envelope overhead. Guards against memory-exhaustion via oversized
@@ -259,42 +291,81 @@ app.add_middleware(
 MAX_REQUEST_BODY_BYTES = 2 * MAX_AUDIO_BASE64_BYTES  # ~100MB
 
 
-@app.middleware("http")
-async def limit_request_body_size(request: Request, call_next):
-    """Reject oversized request bodies by streaming actual bytes read.
-
-    Trusting Content-Length alone is bypassed by chunked/omitted headers.
-    This middleware reads the body in chunks and enforces the cap on actual
-    bytes received, then replaces request._receive so downstream reads normally.
-    """
+async def _send_413(scope, receive, send) -> None:
+    """Send a minimal 413 JSON response (matches the prior middleware body)."""
     from fastapi.responses import JSONResponse
 
-    # Fast-path: reject immediately when Content-Length is present and over limit
-    content_length = request.headers.get("content-length")
-    if content_length is not None:
-        try:
-            if int(content_length) > MAX_REQUEST_BODY_BYTES:
-                return JSONResponse(
-                    status_code=413,
-                    content={"detail": "Request body too large"},
-                )
-        except ValueError:
-            pass
+    await JSONResponse(
+        status_code=413, content={"detail": "Request body too large"}
+    )(scope, receive, send)
 
-    # Stream actual bytes to catch chunked or header-free transfers
-    body_chunks: list[bytes] = []
-    body_size = 0
-    async for chunk in request.stream():
-        body_size += len(chunk)
-        if body_size > MAX_REQUEST_BODY_BYTES:
-            return JSONResponse(
-                status_code=413,
-                content={"detail": "Request body too large"},
-            )
-        body_chunks.append(chunk)
 
-    request._body = b"".join(body_chunks)
-    return await call_next(request)
+class RequestBodySizeLimitMiddleware:
+    """ASGI middleware: reject oversized request bodies WITHOUT buffering.
+
+    Replaces the prior ``@app.middleware("http")`` that did
+    ``request._body = b"".join(...)`` — buffering up to MAX_REQUEST_BODY_BYTES
+    of an UNAUTHENTICATED request before the 401 (a pre-auth memory-DoS: an
+    attacker can send many large chunked bodies with no token). This counts
+    bytes off the ``receive`` callable and aborts as soon as the cap is
+    exceeded; chunks pass through unbuffered so the app's own ``request.json()``
+    read works normally.
+
+    The cap is read from the module global at request time so tests that patch
+    ``MAX_REQUEST_BODY_BYTES`` take effect without re-adding the middleware.
+    """
+
+    def __init__(self, app):
+        self.app = app
+
+    async def __call__(self, scope, receive, send):
+        if scope["type"] != "http":
+            await self.app(scope, receive, send)
+            return
+
+        max_body_size = MAX_REQUEST_BODY_BYTES
+
+        # Fast-path: Content-Length present and over cap -> reject before reading
+        # any bytes. This runs BEFORE the app, so we send the 413 directly (no
+        # inner ExceptionMiddleware is above us to convert a raised exception).
+        for name, value in scope.get("headers", []):
+            if name == b"content-length":
+                try:
+                    if int(value) > max_body_size:
+                        await _send_413(scope, receive, send)
+                        return
+                except ValueError:
+                    pass
+                break
+
+        received = 0
+
+        async def receive_wrapper():
+            nonlocal received
+            message = await receive()
+            if message["type"] == "http.request":
+                received += len(message.get("body", b"") or b"")
+                if received > max_body_size:
+                    # Raised inside the app's body read, so Starlette's
+                    # ExceptionMiddleware (inner to us) converts it to the 413
+                    # response. A plain Exception here is swallowed into a
+                    # 400/500; HTTPException (a StarletteHTTPException subclass)
+                    # is what it recognises.
+                    raise HTTPException(
+                        status_code=413, detail="Request body too large"
+                    )
+            return message
+
+        await self.app(scope, receive_wrapper, send)
+
+
+# Registered BEFORE security_headers so it sits INSIDE that BaseHTTPMiddleware
+# in the final stack (an outer BaseHTTPMiddleware re-wraps `receive` and would
+# bypass this counter), and outside CORS/ExceptionMiddleware so the
+# StarletteHTTPException(413) raised on overflow is converted to the 413
+# response by the inner ExceptionMiddleware. Net order (outer->inner):
+# SlowAPI -> security_headers -> RequestBody -> CORS -> ExceptionMiddleware.
+app.add_middleware(RequestBodySizeLimitMiddleware)
 
 
 @app.middleware("http")
@@ -338,17 +409,40 @@ _transcribe_limit = _rate_limit_from_env("TTS_RATE_LIMIT_TRANSCRIBE", "transcrib
 _prompt_ops_limit = _rate_limit_from_env("TTS_RATE_LIMIT_PROMPT_OPS", "prompt_ops", "10/minute")
 _config_ops_limit = _rate_limit_from_env("TTS_RATE_LIMIT_CONFIG_OPS", "config_ops", "2/minute")
 
-# Create separate limiters for different strategies
-limiter_hybrid = Limiter(key_func=_get_rate_limit_key)
-limiter_ip = Limiter(key_func=_get_ip_key)
-limiter_token = Limiter(key_func=_get_token_key)
+# Global pre-auth limiter: an IP-keyed default ceiling enforced by
+# SlowAPIMiddleware at the ASGI layer, BEFORE routing/auth. Per-route
+# @limiter.limit decorators run after Depends(verify_auth) (Starlette order:
+# Middleware -> Routing -> Endpoint), so without this global ceiling an
+# unauthenticated flood bypasses rate limiting entirely — every request 401s
+# before the per-route limiter fires. The global limiter is a SEPARATE instance
+# from the strategy limiters below; slowapi's decorator binds to its own Limiter
+# at decoration time and never reads app.state.limiter, so the two coexist:
+# global = pre-auth ceiling on all routes; per-route = post-auth fine-grain.
+_rate_limit_enabled = not _RATE_LIMITING_DISABLED
+limiter_global = Limiter(
+    key_func=_get_ip_key,
+    default_limits=[_generate_limit],
+    enabled=_rate_limit_enabled,
+)
 
-app.state.limiter = limiter_hybrid  # slowapi's default handler expects this name
+# Create separate limiters for different strategies
+limiter_hybrid = Limiter(key_func=_get_rate_limit_key, enabled=_rate_limit_enabled)
+limiter_ip = Limiter(key_func=_get_ip_key, enabled=_rate_limit_enabled)
+limiter_token = Limiter(key_func=_get_token_key, enabled=_rate_limit_enabled)
+
+# SlowAPIMiddleware + _rate_limit_exceeded_handler read app.state.limiter for the
+# global default; the per-strategy limiters stay on their own attrs for the
+# per-route decorators (and for test reset).
+app.state.limiter = limiter_global
+app.state.limiter_global = limiter_global
 app.state.limiter_hybrid = limiter_hybrid
 app.state.limiter_ip = limiter_ip
 app.state.limiter_token = limiter_token
 
 app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
+# Added last → outermost middleware → rate limit fires before CORS, body-size,
+# security headers, and auth (the desired pre-auth flood ceiling).
+app.add_middleware(SlowAPIMiddleware)
 
 
 def _rate_limit(limit_string: str, strategy: str = "hybrid") -> callable:
@@ -739,7 +833,10 @@ async def generate_stream(
 
 
 @app.websocket("/ws")
-async def websocket_endpoint(websocket: WebSocket):
+async def websocket_endpoint(
+    websocket: WebSocket,
+    origin_ok: None = Depends(validate_ws_origin),
+):
     """Bidirectional WebSocket endpoint for real-time TTS streaming."""
     state = websocket.app.state
 

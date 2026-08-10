@@ -18,6 +18,8 @@ import json
 import logging
 import struct
 import threading
+import time
+import uuid
 
 from fastapi import WebSocket, WebSocketDisconnect
 
@@ -430,7 +432,28 @@ async def _stream_generation(
             done.set()
             loop.call_soon_threadsafe(queue.put_nowait, None)
 
+    ws_gen_id = str(uuid.uuid4())[:8]
+
     async with app_state.inference_lock:
+        # Mark this generation active in the shared generation_state so the
+        # public /generation-status, /cancel-generation, and
+        # detect_degraded_generation() see WebSocket work — without this the WS
+        # path is invisible to the HTTP control plane (an HTTP /generate would
+        # queue behind an unseen job, and the degraded-generation watchdog could
+        # not see a runaway WS generation). generation_lock is nested inside
+        # inference_lock (same order as app_generation.py:291-304) and held only
+        # for the dict mutation.
+        async with app_state.generation_lock:
+            app_state.generation_state.update(
+                {
+                    "active": True,
+                    "start_time": time.time(),
+                    "text_length": len(text),
+                    "mode": mode,
+                    "generation_id": ws_gen_id,
+                    "cancelled": False,
+                }
+            )
         # Event signals the inference thread has fully stopped; the consumer
         # awaits it in its finally BEFORE releasing inference_lock so an
         # in-flight model.generate() cannot race the next request.
@@ -470,6 +493,23 @@ async def _stream_generation(
             # the thread is mid-chunk and waiting for the stop signal.
             stop_event.set()
             await _await_inference_thread_done(done)
+            # Release the shared generation_state slot, but only if this
+            # generation still owns it (a concurrent request may have
+            # overwritten generation_id). Mirrors app_generation.py:514/754.
+            async with app_state.generation_lock:
+                if app_state.generation_state.get("generation_id") == ws_gen_id:
+                    app_state.generation_state.update(
+                        {
+                            "active": False,
+                            "start_time": 0.0,
+                            "text_length": 0,
+                            "mode": "",
+                            "chunk_index": 0,
+                            "chunk_total": 0,
+                            "cancelled": False,
+                            "generation_id": None,
+                        }
+                    )
 
     # Terminal frame — branch on outcome (outside inference_lock so the lock
     # isn't held while sending the final JSON). Pre-fix this was an

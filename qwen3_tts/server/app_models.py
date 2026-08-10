@@ -243,7 +243,7 @@ def handle_load_model(state, req):
             sanitize_log(e),
             exc_info=True,
         )
-        state.model_load_errors[model_type] = str(e)
+        state.model_load_errors[model_type] = _sanitize_error(str(e))
         _recover_from_failed_load(state, model_type)
         _error_response(500, "import_error", _sanitize_error(str(e)), "config")
         return  # explicit guard — _error_response raises, but this ensures no fall-through
@@ -254,7 +254,7 @@ def handle_load_model(state, req):
             sanitize_log(e),
             exc_info=True,
         )
-        state.model_load_errors[model_type] = str(e)
+        state.model_load_errors[model_type] = _sanitize_error(str(e))
         _recover_from_failed_load(state, model_type)
         _error_response(500, "load_failed", _sanitize_error(str(e)), "restart")
         return
@@ -265,7 +265,7 @@ def handle_load_model(state, req):
             sanitize_log(e),
             exc_info=True,
         )
-        state.model_load_errors[model_type] = str(e)
+        state.model_load_errors[model_type] = _sanitize_error(str(e))
         _recover_from_failed_load(state, model_type)
         _error_response(500, "unknown_error", _sanitize_error(str(e)), "bug")
         return

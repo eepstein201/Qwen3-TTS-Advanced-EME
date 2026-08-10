@@ -13,14 +13,23 @@ Usage:
 """
 
 import argparse
-
-# E2E helper for automatic Playwright toggle
 import importlib.util
 import json
 import os
 import subprocess
 import sys
 from pathlib import Path
+
+# Tests run with rate limiting DISABLED (mirrors run_full_suite.py). The
+# unittest batch runner does not fire pytest's autouse reset_rate_limiters
+# fixture, so without this the global pre-auth limiter accumulates across
+# tests and 429s later endpoint calls (e.g. TestServerValidation). Rate-limit
+# behavior itself is covered by tests/test_rate_limiting.py under
+# pytest/coverage, which leave this unset. setdefault so an explicit external
+# value still wins.
+os.environ.setdefault("TTS_DISABLE_RATE_LIMITING", "1")
+
+# E2E helper for automatic Playwright toggle
 
 spec = importlib.util.spec_from_file_location("e2e_helpers", Path(__file__).parent / "e2e_helpers.py")
 e2e_helpers = importlib.util.module_from_spec(spec)

@@ -401,3 +401,44 @@ class TestRateLimitEnvOverride:
             assert _handler() == "ok"
         finally:
             app_module._RATE_LIMITING_DISABLED = original
+
+
+class TestGlobalUnauthFloodLimit:
+    """Unauthenticated floods must hit a pre-auth global rate limit (P2).
+
+    Per-route ``@limiter.limit`` decorators run AFTER ``Depends(verify_auth)``
+    (Starlette order: Middleware -> Routing -> Endpoint), so unauthenticated
+    traffic bypasses them entirely. A global ``SlowAPIMiddleware`` +
+    ``default_limits`` on an IP-keyed limiter enforces a ceiling at the ASGI
+    layer, before auth — turning an unauthenticated flood (all 401 today) into
+    a throttled one (429 once the IP exceeds the default).
+    """
+
+    def test_unauth_flood_eventually_returns_429(self):
+        from qwen3_tts.server.app import app
+        from tests.voice_test_helpers import _make_test_client
+
+        client = _make_test_client(
+            app, server_config={"security": {}, "auto_shutdown_minutes": 0}
+        )
+        app.state.models_loaded.set()
+
+        global_limiter = app.state.limiter
+        was_enabled = getattr(global_limiter, "enabled", True)
+        global_limiter.enabled = True
+        global_limiter.reset()
+        try:
+            statuses = []
+            for _ in range(15):
+                resp = client.post("/generate", json={"texts": ["x"]})
+                statuses.append(resp.status_code)
+                if resp.status_code == 429:
+                    break
+        finally:
+            global_limiter.enabled = was_enabled
+            global_limiter.reset()
+
+        assert 429 in statuses, (
+            "expected the global pre-auth limiter to throttle an unauthenticated "
+            f"flood (got statuses={statuses})"
+        )

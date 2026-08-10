@@ -82,5 +82,78 @@ class TestBodySizeLimit(unittest.TestCase):
         self.assertGreater(MAX_REQUEST_BODY_BYTES, MAX_AUDIO_BASE64_BYTES)
 
 
+@_skip_server
+class TestBodySizeLimitNoBuffer(unittest.IsolatedAsyncioTestCase):
+    """P6: the body-size cap must reject oversized bodies WITHOUT buffering.
+
+    The prior middleware did ``request._body = b"".join(chunks)``, buffering up
+    to MAX_REQUEST_BODY_BYTES of an UNAUTHENTICATED request before the 401 — a
+    pre-auth memory-DoS (many large chunked bodies, no token). The ASGI
+    middleware counts bytes off the receive callable and aborts as soon as the
+    cap is exceeded, never buffering the full body.
+    """
+
+    async def test_oversized_chunked_body_rejected_without_buffering(self):
+        from qwen3_tts.server.app import RequestBodySizeLimitMiddleware
+
+        cap = 16
+        chunk = b"x" * 10
+        total_chunks = 10  # 100 bytes >> 16-byte cap
+
+        pulled = 0
+
+        async def fake_receive():
+            nonlocal pulled
+            if pulled >= total_chunks:
+                return {"type": "http.disconnect"}
+            pulled += 1
+            return {
+                "type": "http.request",
+                "body": chunk,
+                "more_body": pulled < total_chunks,
+            }
+
+        sent = []
+
+        async def fake_send(message):
+            sent.append(message)
+
+        # An app that tries to buffer the ENTIRE body (the old failure mode).
+        async def buffering_app(scope, receive, send):
+            body = b""
+            while True:
+                m = await receive()
+                if m["type"] == "http.request":
+                    body += m.get("body", b"")
+                    if not m.get("more_body"):
+                        break
+                else:
+                    break
+            await send({"type": "http.response.start", "status": 200, "headers": []})
+            await send({"type": "http.response.body", "body": b"ok"})
+
+        scope = {"type": "http", "headers": [], "method": "POST", "path": "/"}
+
+        from starlette.exceptions import HTTPException as StarletteHTTPException
+
+        with patch("qwen3_tts.server.app.MAX_REQUEST_BODY_BYTES", cap):
+            mw = RequestBodySizeLimitMiddleware(buffering_app)
+            # The bare test app has no ExceptionMiddleware, so the 413 surfaces
+            # as a raised StarletteHTTPException (in the real app the inner
+            # ExceptionMiddleware converts it to the 413 response, exercised by
+            # TestBodySizeLimit.test_missing_content_length_oversized above).
+            with self.assertRaises(StarletteHTTPException):
+                await mw(scope, fake_receive, fake_send)
+
+        # Cap (16) is exceeded during the 2nd 10-byte chunk (20 bytes). The
+        # middleware must abort there — NOT drain all 10 chunks (which would
+        # buffer the full oversized body, the bug this replaces).
+        self.assertLess(
+            pulled,
+            total_chunks,
+            f"middleware buffered the whole oversized body (pulled {pulled}/{total_chunks} chunks)",
+        )
+
+
 if __name__ == "__main__":
     unittest.main()

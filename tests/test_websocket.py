@@ -49,6 +49,15 @@ def _setup_app_state(models=None, server_config=None):
     state.auth_token = _TEST_TOKEN
     if not hasattr(state, "inference_lock"):
         state.inference_lock = asyncio.Lock()
+    # _stream_generation stamps generation_state under generation_lock (P3).
+    if not hasattr(state, "generation_lock"):
+        state.generation_lock = asyncio.Lock()
+    if not hasattr(state, "generation_state"):
+        state.generation_state = {
+            "active": False, "start_time": 0.0, "text_length": 0, "mode": "",
+            "batch_index": 0, "batch_total": 0, "chunk_index": 0, "chunk_total": 0,
+            "generation_id": None, "cancelled": False,
+        }
     if models is not None:
         state.models = models
     if server_config is not None:
@@ -897,6 +906,117 @@ class TestWebSocketDisconnectDuringGeneration(unittest.IsolatedAsyncioTestCase):
         self.assertNotIn("cancelled", statuses)
         self.assertNotIn("complete", statuses)
         self.assertNotIn("error", statuses)
+
+
+@_skip
+class TestWebSocketGenerationStateVisibility(unittest.IsolatedAsyncioTestCase):
+    """P3: a WebSocket generation must mark the shared generation_state active
+    so /generation-status, /cancel-generation, and detect_degraded_generation()
+    see it. Pre-fix the WS path acquired inference_lock but never wrote
+    generation_state, so an HTTP /generate could queue behind an invisible job
+    and the degraded-generation watchdog was blind to a runaway WS generation.
+    """
+
+    async def test_stream_generation_marks_state_active_inflight(self):
+        from qwen3_tts.server.websocket import _stream_generation
+
+        proceed = threading.Event()
+
+        def fake_streaming(*args, **kwargs):
+            # One real chunk, then block until the test releases — modelling an
+            # in-flight generation the control plane must be able to observe.
+            yield (np.zeros(8, dtype=np.float32), 24000)
+            proceed.wait(timeout=5.0)
+
+        state = types.SimpleNamespace(
+            models={"clone": MagicMock(), "design": None, "custom": None},
+            server_config={"security": {"max_text_length": 10000}},
+            inference_lock=asyncio.Lock(),
+            generation_lock=asyncio.Lock(),
+            generation_state={
+                "active": False,
+                "start_time": 0.0,
+                "text_length": 0,
+                "mode": "",
+                "batch_index": 0,
+                "batch_total": 0,
+                "chunk_index": 0,
+                "chunk_total": 0,
+                "generation_id": None,
+                "cancelled": False,
+            },
+        )
+        ws = _FakeDisconnectWebSocket()
+        stop_event = threading.Event()
+        disconnect_event = threading.Event()
+        data = {"prompt_file": "test.pt", "text": "hi", "mode": "clone"}
+
+        with patch(
+            "qwen3_tts.core.engine.run_inference_streaming", side_effect=fake_streaming
+        ), patch(
+            "qwen3_tts.core.engine.load_voice_prompt", return_value=MagicMock()
+        ), patch(
+            "qwen3_tts.server.app_lifespan._check_memory_available",
+            return_value=(True, 10000),
+        ), patch(
+            "qwen3_tts.server.validation._validate_generation_request"
+        ):
+            task = asyncio.create_task(
+                _stream_generation(
+                    ws, state, "hi", "clone", data, stop_event, disconnect_event
+                )
+            )
+            try:
+                # Poll for the in-flight state (deterministic; no fixed sleep).
+                for _ in range(100):
+                    if state.generation_state["active"]:
+                        break
+                    await asyncio.sleep(0.02)
+                self.assertTrue(
+                    state.generation_state["active"],
+                    "generation_state must be active while a WS generation is in-flight",
+                )
+                self.assertEqual(state.generation_state["mode"], "clone")
+                self.assertEqual(state.generation_state["text_length"], 2)
+                self.assertIsNotNone(state.generation_state["generation_id"])
+            finally:
+                proceed.set()
+                await asyncio.wait_for(task, timeout=5.0)
+
+        # After completion the slot is released (ownership-guarded reset).
+        self.assertFalse(state.generation_state["active"])
+        self.assertIsNone(state.generation_state["generation_id"])
+
+
+@_skip
+class TestWSOriginValidation(unittest.TestCase):
+    """P4: the WebSocket handshake must reject cross-origin browser requests
+    (CSWSH defense). CORS protects HTTP only; the WS handshake is separate.
+    """
+
+    @staticmethod
+    def _ws(origin):
+        headers = {"origin": origin} if origin is not None else {}
+        return types.SimpleNamespace(headers=headers)
+
+    def test_bad_origin_rejected(self):
+        from fastapi import WebSocketException
+
+        from qwen3_tts.server.app import validate_ws_origin
+
+        with self.assertRaises(WebSocketException):
+            validate_ws_origin(self._ws("https://evil.example"))
+
+    def test_localhost_origin_allowed(self):
+        from qwen3_tts.server.app import validate_ws_origin
+
+        validate_ws_origin(self._ws("http://127.0.0.1:7860"))  # no raise
+
+    def test_absent_origin_allowed(self):
+        """CLI/script clients (the tts client, tests) send no Origin."""
+        from qwen3_tts.server.app import validate_ws_origin
+
+        validate_ws_origin(self._ws(None))  # no raise
 
 
 @_skip
