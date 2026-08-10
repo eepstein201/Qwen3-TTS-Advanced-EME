@@ -246,6 +246,9 @@ def _run_inference_torch(
 
     _cleanup_device_memory()
 
+    if not wavs:
+        raise RuntimeError("torch generation returned no audio segments")
+
     logger.info(
         "Inference complete: %d chars, %.1fs, mode=%s [torch]",
         len(text),
