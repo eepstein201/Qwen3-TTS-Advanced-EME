@@ -462,6 +462,61 @@ class TestGenerateStreaming(unittest.TestCase):
                 generate_streaming("Hello", "clone", _CONFIG, {}, "/tmp/out.wav")
         self.assertIn("OOM", str(ctx.exception))
 
+    def test_oversized_chunk_length_raises_instead_of_buffering(self):
+        """A length prefix beyond the cap aborts instead of buffering it.
+
+        `audio_len` is an attacker-influenceable uint32 (up to ~4 GB). Without a
+        bound the reader waits for that many bytes, accumulating them in memory;
+        on a short stream it silently returns None instead of reporting the
+        corrupt frame.
+        """
+        import struct
+
+        from qwen3_tts.interface.generate_server import generate_streaming
+
+        # Arrange: header claims 300 MB of audio, body never arrives
+        header = struct.pack("<II", 24000, 300 * 1024 * 1024)
+        mock_resp = MagicMock()
+        mock_resp.status_code = 200
+        mock_resp.iter_content.return_value = [header]
+
+        # Act / Assert
+        patches = self._base_patches()
+        with patches["url"], patches["payload"], patches["play"], \
+             patch("qwen3_tts.core.http_client.server_request", return_value=mock_resp), \
+             patch("builtins.print"):
+            with self.assertRaises(RuntimeError) as ctx:
+                generate_streaming("Hello", "clone", _CONFIG, {}, "/tmp/out.wav")
+        # Assert the size-limit path specifically -- both parse errors mention
+        # "chunk"/"stream", so key on the distinguishing wording and the length.
+        msg = str(ctx.exception)
+        self.assertIn("exceeds", msg.lower())
+        self.assertIn(str(300 * 1024 * 1024), msg)
+
+    def test_malformed_chunk_bytes_raise_clear_error(self):
+        """Audio bytes that aren't a whole number of float32s report clearly."""
+        import struct
+
+        from qwen3_tts.interface.generate_server import generate_streaming
+
+        # Arrange: 6 bytes is not a multiple of 4 -> np.frombuffer would ValueError
+        header = struct.pack("<II", 24000, 6)
+        mock_resp = MagicMock()
+        mock_resp.status_code = 200
+        mock_resp.iter_content.return_value = [header + b"\x00" * 6]
+
+        # Act / Assert
+        patches = self._base_patches()
+        with patches["url"], patches["payload"], patches["play"], \
+             patch("qwen3_tts.core.http_client.server_request", return_value=mock_resp), \
+             patch("builtins.print"):
+            with self.assertRaises(RuntimeError) as ctx:
+                generate_streaming("Hello", "clone", _CONFIG, {}, "/tmp/out.wav")
+        # Assert the decode-failure path specifically, and that the underlying
+        # ValueError is chained rather than swallowed.
+        self.assertIn("parse", str(ctx.exception).lower())
+        self.assertIsInstance(ctx.exception.__cause__, ValueError)
+
     def test_no_chunks_returns_none(self):
         """Return None when no audio chunks received."""
         from qwen3_tts.interface.generate_server import generate_streaming

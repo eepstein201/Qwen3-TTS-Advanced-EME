@@ -13,6 +13,12 @@ import time
 
 logger = logging.getLogger("tts.cli")
 
+# Upper bound on a single streamed audio chunk's declared byte length. The
+# length prefix in the wire format is an attacker-influenceable uint32 (up to
+# ~4 GB) — without a cap, a corrupt or hostile stream makes the reader wait
+# for and buffer an unbounded amount of data in memory.
+MAX_STREAM_CHUNK_BYTES = 200 * 1024 * 1024  # 200 MB
+
 # get_server_url / load_config are part of this module's namespace contract: they
 # are patched by tests (see tests/test_generate_server.py). Keep them imported.
 from qwen3_tts.core.config import (  # noqa: E402, F401
@@ -313,20 +319,32 @@ def generate_streaming(
 
             # Process complete chunks in buffer
             while len(buffer) >= header_size:
-                # Read header
-                sr, audio_len = struct.unpack("<II", buffer[:header_size])
+                try:
+                    # Read header
+                    sr, audio_len = struct.unpack("<II", buffer[:header_size])
 
-                # Check if we have the full audio chunk
-                total_chunk_size = header_size + audio_len
-                if len(buffer) < total_chunk_size:
-                    break  # Need more data
+                    if audio_len > MAX_STREAM_CHUNK_BYTES:
+                        raise RuntimeError(
+                            f"Streamed audio chunk length ({audio_len} bytes) "
+                            f"exceeds the {MAX_STREAM_CHUNK_BYTES}-byte limit"
+                        )
 
-                if sample_rate is None:
-                    sample_rate = sr
+                    # Check if we have the full audio chunk
+                    total_chunk_size = header_size + audio_len
+                    if len(buffer) < total_chunk_size:
+                        break  # Need more data
 
-                # Extract audio
-                audio_bytes = buffer[header_size:total_chunk_size]
-                chunk = np.frombuffer(audio_bytes, dtype="<f4")
+                    if sample_rate is None:
+                        sample_rate = sr
+
+                    # Extract audio
+                    audio_bytes = buffer[header_size:total_chunk_size]
+                    chunk = np.frombuffer(audio_bytes, dtype="<f4")
+                except (struct.error, ValueError) as e:
+                    raise RuntimeError(
+                        f"Failed to parse streamed audio chunk: {e}"
+                    ) from e
+
                 all_chunks.append(chunk)
                 chunk_count += 1
 
