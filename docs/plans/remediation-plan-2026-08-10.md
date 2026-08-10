@@ -16,6 +16,33 @@
 - Restart server to pick up changes: `tts server stop && tts server start` (server uses editable install).
 - Tests are AAA-pattern, descriptive names; new async tests use `IsolatedAsyncioTestCase` (never bare `async def` on `TestCase`); register new test modules in `tests/run_batches.py` BATCHES.
 
+## Model Routing (per workstream / agent)
+
+Routing for whoever executes this plan — a later session, or a subagent fleet. Heuristic:
+`haiku` = deterministic/mechanical, `sonnet` = default implementation, `opus` = architecture,
+deep review, or ambiguity. Prefer tuning `effort` (`low`…`xhigh`/`max`) over reaching for a
+bigger model — `low`/`medium` are unusually strong on the Claude 5 family.
+
+| Work | Model | Why |
+|---|---|---|
+| **WS3** H3 empty-wavs guard, `validate_config` type guard, `parse_ssml` / `show_history` | `haiku` | 1–3 line guards against pre-written specs; fully deterministic |
+| **WS3** H7 streaming parse hardening | `sonnet` | Bounds an attacker-influenced length prefix — security-adjacent judgment |
+| **WS3** `generate_via_server` exception refactor | `sonnet` | New exception type across 6 raise sites **plus callers**; needs call-graph tracing |
+| **WS3/WS2** full gate + PR | `sonnet` | Running gates is mechanical; interpreting a matrix red is not (a broad red here is usually one test) |
+| **WS2** pipeline unification (Tasks 2.1–2.5) | `opus` | Architectural: shared async generator, batch/stream equivalence, in-band error frame. High-risk by this plan's own assessment — do not downgrade |
+| **WS4** concurrency hardening | `opus` | Lock topology + RNG reasoning; Task 2.4's WS `generation_state` goal is already satisfied by PR #153 |
+| **WS5/WS6/WS7** leaks, async-blocking, dep CVEs | `sonnet` | Localized, well-specified; `haiku` fine for the pure version bumps in WS7 |
+| **WS8/WS9** quality, i18n edge cases | `sonnet` | Decomposition needs characterization tests first (see WS8) |
+| Review agent: silent-failure-hunter | `opus` | Swallowed errors / missing propagation are semantic and cross-file — the exact class a cheaper tier rationalizes past |
+| Review agents: python-reviewer, fastapi-reviewer, code-reviewer, tdd-guide | `sonnet` | Objective rubrics against small diffs |
+
+**Do not use `fable`** on this plan. It is ~2× Opus 5's cost, its edge is open-ended
+long-horizon autonomy (every workstream here is pre-specified), and its safety classifiers
+target most cybersecurity content — WS3's H7 is security-adjacent parse hardening, so a
+false-positive refusal is a live risk with no upside. It would only be justified for the
+`repo-audit-2026-07-31.md` P2-1 file splits, where silent mock-patch-seam breakage costs
+more than the token delta.
+
 ## Requirements Restatement
 Eliminate silent data loss / wrong output (4 HIGHs), the batch/streaming output divergence (1 HIGH), and crash-on-edge-case paths (2 HIGHs), plus the two remaining HIGHs (vLLM pool leak, history clobber). Then progress the MEDIUMs by theme. Each fix ships with a regression test that fails before / passes after.
 
