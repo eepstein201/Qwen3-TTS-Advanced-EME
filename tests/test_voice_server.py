@@ -823,5 +823,66 @@ class TestUpdateModelConfigAcceptsAll5MlxQuants:
         )
 
 
+@_skip_server
+class TestClonePromptLoadLockScope(unittest.TestCase):
+    """P5: clone-mode voice-prompt load must run OUTSIDE inference_lock.
+
+    Disk I/O + tensor deserialize is not GPU work; holding the GPU-serialization
+    lock during it needlessly blocks every other generation. The streaming and
+    WebSocket sibling paths load the prompt before the lock; the batch /generate
+    path now matches them.
+    """
+
+    @classmethod
+    def setUpClass(cls):
+        from qwen3_tts.server.app import app
+
+        cls.client = _make_test_client(
+            app,
+            server_config={"security": {"max_text_length": 10000}, "auto_shutdown_minutes": 0},
+        )
+        app.state.models_loaded.set()
+
+    def test_clone_prompt_load_runs_outside_inference_lock(self):
+        import numpy as np
+        from unittest.mock import MagicMock, patch
+
+        from qwen3_tts.server.app import app
+
+        app.state.models["clone"] = MagicMock()
+        # Ensure no cache hit so load_voice_prompt actually runs.
+        with app.state.gen_cache_lock:
+            app.state.gen_cache.clear()
+
+        lock_state_during_load = []
+
+        def spy_load(*args, **kwargs):
+            # Runs in the to_thread worker. On CPython the GIL makes this bool
+            # read atomic, and a held inference_lock stays held for the whole
+            # call (the owning coroutine is suspended at the await). So this
+            # reliably distinguishes load-inside-lock from load-outside-lock.
+            lock_state_during_load.append(app.state.inference_lock.locked())
+            return MagicMock()
+
+        fake_wav = np.zeros(100, dtype="float32")
+        with patch("qwen3_tts.core.engine.load_voice_prompt", side_effect=spy_load), patch(
+            "qwen3_tts.core.engine.run_inference", return_value=(fake_wav, 24000)
+        ), patch(
+            "qwen3_tts.server.app_lifespan._check_memory_available",
+            return_value=(True, 10000),
+        ):
+            resp = self.client.post(
+                "/generate",
+                json={"texts": ["hello"], "mode": "clone", "prompt_file": "voice.pt"},
+                headers={"Authorization": "Bearer test_token"},
+            )
+        self.assertEqual(resp.status_code, 200, resp.text)
+        self.assertEqual(
+            lock_state_during_load,
+            [False],
+            f"clone prompt load must run OUTSIDE inference_lock (got {lock_state_during_load})",
+        )
+
+
 if __name__ == "__main__":
     unittest.main()

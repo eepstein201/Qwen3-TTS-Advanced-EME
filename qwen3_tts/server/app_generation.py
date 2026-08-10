@@ -282,12 +282,31 @@ async def handle_generate(request, state, req, security, config_provider):
                     )
                 continue
 
-            # Acquire inference_lock ONLY for GPU-bound work: the state update,
-            # voice-prompt load, and the inference call itself. Everything after
-            # chunk_count capture is CPU-only on the local wav array and must
-            # run with the lock released so other requests can inference in
-            # parallel with our encode/peaks. (generation_lock is a separate
-            # short-lived lock used only for state updates.)
+            # Load the voice prompt BEFORE acquiring inference_lock — disk I/O +
+            # tensor deserialize is not GPU work, so holding the GPU-serialization
+            # lock during it needlessly blocks every other generation. Mirrors
+            # the streaming path (:611 before lock :644) and the WS path
+            # (websocket.py:356 before :433).
+            voice_prompt = None
+            if mode == "clone":
+                if not prompt_file:
+                    raise HTTPException(
+                        status_code=400,
+                        detail="prompt_file required for clone mode",
+                    )
+                voice_prompt = await asyncio.to_thread(load_voice_prompt, prompt_file)
+                if voice_prompt is None:
+                    raise HTTPException(
+                        status_code=404,
+                        detail=f"Voice prompt not found: {prompt_file}",
+                    )
+
+            # Acquire inference_lock ONLY for GPU-bound work: the state update
+            # and the inference call itself. Everything after chunk_count
+            # capture is CPU-only on the local wav array and must run with the
+            # lock released so other requests can inference in parallel with our
+            # encode/peaks. (generation_lock is a separate short-lived lock used
+            # only for state updates.)
             async with state.inference_lock:
                 # Brief lock to set generation state
                 async with state.generation_lock:
@@ -302,23 +321,6 @@ async def handle_generate(request, state, req, security, config_provider):
                             "generation_id": batch_gen_id,
                         }
                     )
-
-                # Prepare mode-specific params
-                voice_prompt = None
-                if mode == "clone":
-                    if not prompt_file:
-                        raise HTTPException(
-                            status_code=400,
-                            detail="prompt_file required for clone mode",
-                        )
-                    voice_prompt = await asyncio.to_thread(
-                        load_voice_prompt, prompt_file
-                    )
-                    if voice_prompt is None:
-                        raise HTTPException(
-                            status_code=404,
-                            detail=f"Voice prompt not found: {prompt_file}",
-                        )
 
                 def _chunk_progress(chunk_idx, chunk_total):
                     state.generation_state.update(
