@@ -107,6 +107,7 @@ config.json → qwen3_tts.core.config → qwen3_tts.core.engine (dispatch)
 | `qwen3_tts/tools/healthcheck.py` | Installation health checks (deps, config, server) | No |
 | `qwen3_tts/tools/uninstall.py` | Uninstall utilities (models, voices, config, all) | No |
 | `qwen3_tts/tools/solid_analyzer.py` | SOLID-principle compliance analyzer; scores each principle with line-number violations (`make solid-score` → `python -m qwen3_tts.tools.solid_analyzer`) | No |
+| `qwen3_tts/tools/check_config_docs.py` | CONFIG.md drift checker — verifies the documented default-value column against `get_default_config()`, exits 1 on mismatch (`make check-config-docs` → `python -m qwen3_tts.tools.check_config_docs`). Guards the AUTO-GENERATED `docs/CONFIG.md`, which ships without a live generator. | No |
 | `qwen3_tts/cli.py` | Click entry point — imports command groups from sibling modules | No (all lazy) |
 | `qwen3_tts/cli_server.py` | Server CLI group: start, stop, restart, status, log, stats | No |
 | `qwen3_tts/cli_voice.py` | Voice CLI group + list group: voice CRUD, list speakers/presets | No |
@@ -125,7 +126,7 @@ qwen3_tts/
 ├── core/config/ (pkg), engine/{text_processing,audio_processing,voice_prompt,model_loader,inference,asr}.py
 ├── server/app.py, app_lifespan.py, app_generation.py, app_models.py, app_prompts.py, websocket.py, validation.py, client/
 ├── interface/generate.py, generate_helpers.py, generate_interactive.py, generate_server.py, ui/, cli/
-└── tools/create_voice.py, model_cache.py, healthcheck.py, uninstall.py
+└── tools/create_voice.py, model_cache.py, healthcheck.py, uninstall.py, solid_analyzer.py, check_config_docs.py
 ```
 
 Top-level: `pyproject.toml`, `config.json`, `install.sh`, `ecosystem.config.cjs`, `voice_prompts/`, `tests/`, `docs/`
@@ -262,7 +263,7 @@ python tests/run_batches.py --list     # List batches
 
 **`async def test_*` must never sit on a plain `unittest.TestCase`** — unittest does not await it, so the body never runs yet the test reports **ok** (it also emits `RuntimeWarning: coroutine ... was never awaited`). Use `unittest.IsolatedAsyncioTestCase`, or `@pytest.mark.asyncio` outside a TestCase (pytest-asyncio is in `strict` mode; unmarked coroutine tests are skipped). Both false-green shapes are guarded statically by `tests/test_async_test_hygiene.py`. New test modules must also be added to `BATCHES` in `tests/run_batches.py` — that list is explicit, not discovery-based, so an unregistered module silently never runs in the batch gates.
 
-**Static gates:** `ruff check qwen3_tts tests` (config in `.ruff.toml`), `mypy qwen3_tts/{core,server,interface}` (config in `pyproject.toml`; FastAPI `app.py` + vLLM modules excluded), `bandit -r qwen3_tts -c pyproject.toml` (target: 0 HIGH). All ship in the `dev` extra.
+**Static gates:** `ruff check qwen3_tts tests` (config in `.ruff.toml`), `mypy qwen3_tts/{core,server,interface}` (config in `pyproject.toml`; FastAPI `app.py` + vLLM modules excluded), `bandit -r qwen3_tts -c pyproject.toml` (target: 0 HIGH). **Docs gate:** `make check-config-docs` (or `python -m qwen3_tts.tools.check_config_docs`) fails when `docs/CONFIG.md` default values drift from `get_default_config()`. All ship in the `dev` extra.
 
 **Log level:** Controlled by `TTS_LOG_LEVEL` env var (default `INFO`). Set `TTS_LOG_LEVEL=DEBUG` for verbose output.
 

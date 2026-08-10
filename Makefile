@@ -1,7 +1,7 @@
 # Qwen3-TTS Makefile
 # Provides convenient shortcuts for common development tasks
 
-.PHONY: help install test test-batch test-core test-voice test-server test-engine test-e2e clean lint format solid-score coverage
+.PHONY: help install test test-batch test-core test-voice test-server test-engine test-e2e clean lint format solid-score coverage check-config-docs
 
 # Default target
 help:
@@ -25,6 +25,7 @@ help:
 	@echo "  lint             Run linters (if installed)"
 	@echo "  format           Format code with ruff"
 	@echo "  solid-score      Analyze SOLID principle compliance"
+	@echo "  check-config-docs Verify docs/CONFIG.md defaults match the code"
 	@echo "  coverage         Run tests with coverage report"
 
 # Installation
@@ -115,6 +116,10 @@ solid-score:
 
 solid-score-fail:
 	python -m qwen3_tts.tools.solid_analyzer qwen3_tts/ --fail-below 35
+
+# Verify docs/CONFIG.md default values against get_default_config() (exit 1 on drift)
+check-config-docs:
+	python -m qwen3_tts.tools.check_config_docs
 
 # Coverage
 coverage:

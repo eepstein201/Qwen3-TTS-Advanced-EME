@@ -515,7 +515,7 @@ tts server restart
 
 ### Log Rotation
 
-**Server log rotation:**
+**Server log rotation (manual):**
 ```bash
 # Archive old logs
 mv .voice_server.log .voice_server.log.old
@@ -524,15 +524,27 @@ mv .voice_server.log .voice_server.log.old
 gzip .voice_server.log.old
 ```
 
-**Configure log rotation (optional):**
+**Log verbosity** is controlled by the `TTS_LOG_LEVEL` environment variable
+(default `INFO`; set `DEBUG` for verbose output), not by a `config.json` key.
+Restart the server to apply a change:
+
 ```bash
-# Add to config.json
-{
-  "server": {
-    "log_level": "INFO",
-    "log_rotation": true,
-    "log_max_size_mb": 100
-  }
+TTS_LOG_LEVEL=DEBUG tts server restart
+```
+
+**Automated rotation (optional):** the server writes a single append-only
+`.voice_server.log`; there is no built-in rotation config. Use the system log
+rotator (or a scheduled task) to archive and compress it, e.g.:
+
+```bash
+# /etc/logrotate.d/qwen3-tts  (adjust the path to your repo)
+/path/to/Qwen3-TTS_UserFiles/.voice_server.log {
+    weekly
+    rotate 4
+    compress
+    missingok
+    notifempty
+    copytruncate
 }
 ```
 

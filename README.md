@@ -300,8 +300,8 @@ tts config edit                          # Interactive voice description editor
 | `generation.max_chunk_tokens` | `200` | Max tokens per chunk (torch backend) |
 | `generation.temperature` | `0.7` | Higher = more varied output |
 | `generation.silence_gap_seconds` | `0.0` | Silence between chunks (0 uses crossfade) |
-| `security.rate_limits.generate` | `10/minute` | Rate limit for generation endpoints |
-| `security.rate_limits.model_ops` | `5/minute` | Rate limit for model management endpoints |
+| `security.rate_limits.generate` | `20/minute` | Rate limit for generation endpoints |
+| `security.rate_limits.model_ops` | `3/minute` | Rate limit for model management endpoints |
 
 *You can use environment variables to override settings per session (e.g., `TTS_BACKEND=vllm tts "text"`).*
 
@@ -424,14 +424,20 @@ The FastAPI server (port 5123) provides the following endpoints:
 | `GET /health` | No | Health check (always available) |
 | `GET /ready` | No | Kubernetes readiness probe (503 while loading) |
 | `GET /generation-status` | No | Poll generation progress |
+| `GET /queue-status` | No | Request queue length and active status |
 | `POST /generate` | Yes | Generate audio (JSON response, see below) |
 | `POST /generate-stream` | Yes | Stream audio chunks (float32 PCM, see below) |
+| `WebSocket /ws` | Yes | Bidirectional real-time TTS streaming (auth via first message) |
 | `POST /load-model` | Yes | Load a model on-demand |
 | `POST /unload-model` | Yes | Unload model to free memory |
 | `POST /update-model-config` | Yes | Change model size, quantization, audio loader |
 | `POST /update-startup-config` | Yes | Set which models load at startup |
 | `GET /models` | Yes | List model status and memory |
+| `POST /load-asr` | Yes | Load ASR model for transcription |
+| `POST /unload-asr` | Yes | Unload ASR model to free memory |
+| `POST /transcribe` | Yes | Transcribe audio to text using ASR |
 | `GET /prompts` | Yes | List voice prompts (supports `offset`/`limit` pagination) |
+| `POST /create-voice-prompt` | Yes | Create voice clone prompt from uploaded audio |
 | `POST /delete-prompt` | Yes | Delete a voice prompt |
 | `POST /rename-prompt` | Yes | Rename a voice prompt |
 | `GET /preview-prompt` | Yes | Return .wav audio bytes for a prompt |
@@ -516,7 +522,7 @@ Development environment setup and testing procedures, including:
 - Installation steps (MLX and Torch backends)
 - Available scripts and development tools
 - Project structure overview
-- Testing procedures (1970+ tests across 6 batches)
+- Testing procedures (2000+ tests across 6 batches)
 - Code style enforcement (black, ruff, mypy)
 - Development workflow (feature branches, commits, PRs)
 - Troubleshooting common issues
@@ -572,7 +578,7 @@ This installs all required dependencies including gradio, pytest, and playwright
 
 ### Test Execution
 
-**Run all tests using the batch runner (1900+ tests across 80+ test files, organized in 6 batches):
+**Run all tests using the batch runner (2000+ tests across 100+ modules, organized in 6 batches):
 ```bash
 python tests/run_batches.py        # Run all batches
 python tests/run_batches.py --batch 1  # Run a specific batch

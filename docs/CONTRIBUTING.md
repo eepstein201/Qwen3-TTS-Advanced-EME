@@ -6,7 +6,7 @@
 
 ### Prerequisites
 
-- **Python**: 3.10 or later (3.11 recommended)
+- **Python**: 3.10 or later (3.12 recommended)
 - **Conda**: Miniforge or Anaconda (recommended for environment management)
 - **Git**: For version control
 - **macOS**: Apple Silicon M1/M2/M3 for MLX backend (recommended)
@@ -93,7 +93,7 @@ qwen3-tts/
 │   ├── server/            # FastAPI server and client
 │   ├── interface/         # CLI and Gradio UI
 │   └── tools/             # Utilities (healthcheck, cache, voice)
-├── tests/                  # Test suite (2300+ tests)
+├── tests/                  # Test suite (2000+ tests)
 ├── docs/                   # Documentation
 ├── config.json             # Configuration file
 └── pyproject.toml          # Package metadata
@@ -103,15 +103,15 @@ qwen3-tts/
 
 ### Test Suite Overview
 
-The project has **2300+ tests** across 100+ modules, organized into 6 batches
+The project has **2000+ tests** across 100+ modules, organized into 6 batches
 (module counts from `tests/run_batches.py`):
 
 | Batch | Name | Modules | Description | Server Required |
 |-------|------|---------|-------------|-----------------|
-| 1 | Core | 10 | Core utilities, config, validation | No |
+| 1 | Core | 15 | Core utilities, config, validation | No |
 | 2 | Voice | 19 | Voice prompts, CLI commands | No |
-| 3 | Server | 29 | Server infrastructure, API endpoints | No |
-| 4 | Engine | 20 | Engine components, UI logic | No |
+| 3 | Server | 33 | Server infrastructure, API endpoints | No |
+| 4 | Engine | 22 | Engine components, UI logic | No |
 | 5 | Optional | 13 | Pytest-dependent features | No |
 | 6 | E2E | 1 | End-to-end Playwright tests | **Yes** |
 
