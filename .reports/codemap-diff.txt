@@ -1,0 +1,34 @@
+CODEMAP GENERATION REPORT — 2026-08-10
+========================================
+First generation (no prior docs/CODEMAPS/ — no diff gating applied).
+
+Scope scanned:
+- 70 .py files, 24,656 LOC under qwen3_tts/
+- 162 test files under tests/
+- Entry point: tts → qwen3_tts.cli:cli (Click)
+- 22 API routes across server/ (8 GET, 13 POST, 1 WS)
+
+Codemaps written (docs/CODEMAPS/):
+- architecture.md   system, dispatch, layers, generation flow
+- backend.md        FastAPI routes grouped by handler, middleware, client
+- frontend.md       Gradio UI module map + critical constraints
+- data.md           config.json schema + filesystem storage (no DB)
+- dependencies.md   models, backends, conda envs, libs, PM2
+
+New dependencies detected: none since last architecture review.
+Architecture changes since CLAUDE.md: none — codemaps derived from current
+on-disk tree + CLAUDE.md (ARCHITECTURE.md is fresh, 2026-08-09).
+
+Staleness warnings:
+- docs/00-Foundations/ARCHITECTURE.md: fresh (2026-08-09) — no action.
+- inference.py at 1532 LOC exceeds the 800-line guideline (known structural
+  debt; tracked in project_open_structural_debt memory).
+
+Notes for next scan:
+- /generate and /health are registered via app.add_api_route (app.py:389,679),
+  NOT decorators — a decorator-only grep will undercount routes by 2.
+- Batch runner uses an explicit module list (tests/run_batches.py); new test
+  modules must be registered there or they silently skip the batch gates.
+
+Next review: ~2026-11-08 (90-day cadence), or immediately after a major
+refactor / new feature surface.
