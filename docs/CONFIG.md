@@ -59,7 +59,7 @@ Every table below reflects `get_default_config()` defaults.
 | Key | Type | Default | Description |
 |-----|------|---------|-------------|
 | `default_voice_description` | string | `"A calm, friendly male voice with clear articulation and moderate pace."` | Default description used in Design mode. |
-| `default_clone_prompt` | string | `"default_clone.pt"` | Default voice-clone prompt filename. |
+| `default_clone_prompt` | string/null | `null` | Default voice-clone prompt filename. `null` = auto-scan `voice_prompts/` for the first usable prompt. |
 | `default_speaker` | string | `"ryan"` | Default premium speaker for Custom mode. |
 | `output_directory` | string | `"~/Downloads"` | Default output directory for **CLI**-generated audio. |
 | `history_output_directory` | string | `"~/Downloads/Qwen3-TTS Output"` | Parent for **web-UI** output. Generations land in its `Automated Output/` subfolder (with `.json` sidecars); per-row Download copies land in `Manual Downloads/`. Distinct from `output_directory`. |
@@ -181,10 +181,16 @@ Use with `tts "..." --prosody excited`. List them with `tts list prosody`.
 
 ### `aliases`
 
-Named shortcuts bundling a prompt and preset. Default:
+Named shortcuts bundling a voice prompt (and optional preset) to a single name,
+invoked with `-v`/`--voice`. Ships **empty** (`{}`) — no alias is seeded, so an
+unconfigured `-v` can never resolve to a dangling prompt. Add your own:
 
 ```json
-{ "aliases": { "default": { "prompt": "default_clone.pt", "preset": "consistent" } } }
+{
+  "aliases": {
+    "default": { "prompt": "my_voice.pt", "preset": "consistent" }
+  }
+}
 ```
 
 Use with `tts "..." -v default`. List them with `tts list aliases`.
