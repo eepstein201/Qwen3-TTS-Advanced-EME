@@ -181,6 +181,8 @@ jobs:
     # need nvidia/cuda + the NVIDIA Container Toolkit), so hadolint is the
     # gate that catches syntax/anti-pattern regressions in them.
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
     steps:
     - uses: actions/checkout@v7
 
@@ -200,6 +202,8 @@ jobs:
     # manual gate (scripts/validate_docker_cuda.sh). Heavy pip resolution is
     # cached via the Docker layer unless pyproject.toml/README change.
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
     steps:
     - uses: actions/checkout@v7
 
