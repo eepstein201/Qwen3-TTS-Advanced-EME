@@ -13,6 +13,11 @@ import time
 
 logger = logging.getLogger("tts.cli")
 
+
+class TTSGenericError(RuntimeError):
+    """Raised for TTS server-interaction failures that have no more specific type."""
+
+
 # Upper bound on a single streamed audio chunk's declared byte length. The
 # length prefix in the wire format is an attacker-influenceable uint32 (up to
 # ~4 GB) — without a cap, a corrupt or hostile stream makes the reader wait
@@ -191,8 +196,10 @@ def generate_via_server(
     if resp.status_code == 503:
         try:
             error_data = resp.json()
-        except (ValueError, requests.exceptions.JSONDecodeError):
-            raise Exception("Server returned HTTP 503 (non-JSON response)")
+        except (ValueError, requests.exceptions.JSONDecodeError) as e:
+            raise TTSGenericError(
+                "Server returned HTTP 503 (non-JSON response)"
+            ) from e
 
         if error_data.get("error") == "model_not_loaded":
             model_type = error_data.get("model_type")
@@ -220,9 +227,9 @@ def generate_via_server(
                         finally:
                             progress.stop()
                     else:
-                        raise Exception(f"Failed to load {model_type} model")
+                        raise TTSGenericError(f"Failed to load {model_type} model")
                 else:
-                    raise Exception(
+                    raise TTSGenericError(
                         f"Model '{model_type}' not loaded. Enable in config.json or load with server."
                     )
 
@@ -246,9 +253,16 @@ def generate_via_server(
             msg += f"\n  Suggestion: Check your configuration in {CONFIG_PATH}."
         elif recovery == "retry":
             msg += "\n  Suggestion: Try again; the issue may be transient."
-        raise Exception(msg)
+        raise TTSGenericError(msg)
 
-    return resp.json()["results"]
+    response_json = resp.json()
+    results = response_json.get("results")
+    if results is None:
+        raise TTSGenericError(
+            "Server response missing expected 'results' key; "
+            f"top-level keys present: {sorted(response_json.keys())}"
+        )
+    return results
 
 
 def generate_streaming(
@@ -302,7 +316,9 @@ def generate_streaming(
 
         if resp.status_code != 200:
             error_data = resp.json()
-            raise Exception(f"Server error: {error_data.get('error', 'Unknown')}")
+            raise TTSGenericError(
+                f"Server error: {error_data.get('error', 'Unknown')}"
+            )
 
         # Collect all chunks for saving
         all_chunks = []
@@ -373,7 +389,7 @@ def generate_streaming(
         return None
 
     except requests.exceptions.RequestException as e:
-        raise Exception(f"Streaming request failed: {e}")
+        raise ConnectionError(f"Streaming request failed: {e}") from e
 
 
 # ---------------------------------------------------------------------------
