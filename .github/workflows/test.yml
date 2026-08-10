@@ -7,6 +7,14 @@ on:
     branches: [ main, develop ]
   workflow_dispatch:
 
+# Least-privilege default for every job in this workflow. Each job here only
+# checks out code, sets up Python, and uploads artifacts, so read access to
+# contents is sufficient. Declaring it at the top level also covers jobs added
+# later, which otherwise each raise a fresh CodeQL
+# actions/missing-workflow-permissions alert.
+permissions:
+  contents: read
+
 jobs:
   test:
     runs-on: ${{ matrix.os }}
