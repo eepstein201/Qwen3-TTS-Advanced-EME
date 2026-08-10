@@ -900,6 +900,86 @@ class TestWebSocketDisconnectDuringGeneration(unittest.IsolatedAsyncioTestCase):
 
 
 @_skip
+class TestWebSocketGenerationStateVisibility(unittest.IsolatedAsyncioTestCase):
+    """P3: a WebSocket generation must mark the shared generation_state active
+    so /generation-status, /cancel-generation, and detect_degraded_generation()
+    see it. Pre-fix the WS path acquired inference_lock but never wrote
+    generation_state, so an HTTP /generate could queue behind an invisible job
+    and the degraded-generation watchdog was blind to a runaway WS generation.
+    """
+
+    async def test_stream_generation_marks_state_active_inflight(self):
+        from qwen3_tts.server.websocket import _stream_generation
+
+        proceed = threading.Event()
+
+        def fake_streaming(*args, **kwargs):
+            # One real chunk, then block until the test releases — modelling an
+            # in-flight generation the control plane must be able to observe.
+            yield (np.zeros(8, dtype=np.float32), 24000)
+            proceed.wait(timeout=5.0)
+
+        state = types.SimpleNamespace(
+            models={"clone": MagicMock(), "design": None, "custom": None},
+            server_config={"security": {"max_text_length": 10000}},
+            inference_lock=asyncio.Lock(),
+            generation_lock=asyncio.Lock(),
+            generation_state={
+                "active": False,
+                "start_time": 0.0,
+                "text_length": 0,
+                "mode": "",
+                "batch_index": 0,
+                "batch_total": 0,
+                "chunk_index": 0,
+                "chunk_total": 0,
+                "generation_id": None,
+                "cancelled": False,
+            },
+        )
+        ws = _FakeDisconnectWebSocket()
+        stop_event = threading.Event()
+        disconnect_event = threading.Event()
+        data = {"prompt_file": "test.pt", "text": "hi", "mode": "clone"}
+
+        with patch(
+            "qwen3_tts.core.engine.run_inference_streaming", side_effect=fake_streaming
+        ), patch(
+            "qwen3_tts.core.engine.load_voice_prompt", return_value=MagicMock()
+        ), patch(
+            "qwen3_tts.server.app_lifespan._check_memory_available",
+            return_value=(True, 10000),
+        ), patch(
+            "qwen3_tts.server.validation._validate_generation_request"
+        ):
+            task = asyncio.create_task(
+                _stream_generation(
+                    ws, state, "hi", "clone", data, stop_event, disconnect_event
+                )
+            )
+            try:
+                # Poll for the in-flight state (deterministic; no fixed sleep).
+                for _ in range(100):
+                    if state.generation_state["active"]:
+                        break
+                    await asyncio.sleep(0.02)
+                self.assertTrue(
+                    state.generation_state["active"],
+                    "generation_state must be active while a WS generation is in-flight",
+                )
+                self.assertEqual(state.generation_state["mode"], "clone")
+                self.assertEqual(state.generation_state["text_length"], 2)
+                self.assertIsNotNone(state.generation_state["generation_id"])
+            finally:
+                proceed.set()
+                await asyncio.wait_for(task, timeout=5.0)
+
+        # After completion the slot is released (ownership-guarded reset).
+        self.assertFalse(state.generation_state["active"])
+        self.assertIsNone(state.generation_state["generation_id"])
+
+
+@_skip
 class TestWebSocketStreamErrorCascade(unittest.TestCase):
     """Cover the handler try/except around ``_stream_generation`` (websocket.py
     223-236).
