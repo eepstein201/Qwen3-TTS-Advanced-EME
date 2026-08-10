@@ -84,42 +84,54 @@ def process_srt_file(srt_path, config, args, gen_params, use_server):
 
     all_audio = []
     sample_rate = None
+    success_count = 0
 
     for idx, start_ms, end_ms, text in entries:
         print(f"  [{idx}/{len(entries)}] {text[:50]}{'...' if len(text) > 50 else ''}")
 
-        if use_server:
-            results = generate_via_server(
-                [text],
-                mode,
-                config,
-                gen_params,
-                prompt_file=prompt_file if mode == "clone" else None,
-                voice_description=voice_description if mode == "design" else None,
-            )
-            wav, sr = _decode_base64_result(results[0])
-        else:
-            wav, sr = generate_local(
-                text,
-                mode,
-                gen_params,
-                config.get("language", "English"),
-                prompt_file=prompt_file,
-                voice_description=voice_description,
-            )
+        try:
+            if use_server:
+                results = generate_via_server(
+                    [text],
+                    mode,
+                    config,
+                    gen_params,
+                    prompt_file=prompt_file if mode == "clone" else None,
+                    voice_description=voice_description if mode == "design" else None,
+                )
+                wav, sr = _decode_base64_result(results[0])
+            else:
+                wav, sr = generate_local(
+                    text,
+                    mode,
+                    gen_params,
+                    config.get("language", "English"),
+                    prompt_file=prompt_file,
+                    voice_description=voice_description,
+                )
 
-        wav = process_audio_args(wav, sr, args)
+            wav = process_audio_args(wav, sr, args)
 
-        if sample_rate is None:
-            sample_rate = sr
+            if sample_rate is None:
+                sample_rate = sr
 
-        all_audio.append(wav)
+            all_audio.append(wav)
+            success_count += 1
 
-        individual_path = safe_path_join(output_dir, f"{basename}_{idx:03d}.wav")
-        sf.write(individual_path, wav, sr)
+            individual_path = safe_path_join(output_dir, f"{basename}_{idx:03d}.wav")
+            sf.write(individual_path, wav, sr)
+        except Exception as e:
+            # One bad entry must not abort the whole file or discard the
+            # combined output. Log, skip, and continue (mirrors dialogue.py).
+            print(f"  [{idx}/{len(entries)}] FAILED, skipping: {e}")
+            continue
+
+    if not all_audio:
+        print("\nNo subtitles succeeded; nothing to combine.")
+        return
 
     # Combined file
-    print("\nCreating combined audio...")
+    print(f"\nCreating combined audio from {success_count}/{len(entries)} subtitles...")
     combined = []
     silence_samples = int(sample_rate * 0.5)
 
@@ -131,7 +143,7 @@ def process_srt_file(srt_path, config, args, gen_params, use_server):
     combined_path = safe_path_join(output_dir, f"{basename}_combined.wav")
     sf.write(combined_path, np.array(combined), sample_rate)
 
-    print(f"\nSaved {len(entries)} individual files to: {output_dir}")
+    print(f"\nSaved {success_count}/{len(entries)} individual files to: {output_dir}")
     print(f"Combined audio: {combined_path}")
 
     if args.play:

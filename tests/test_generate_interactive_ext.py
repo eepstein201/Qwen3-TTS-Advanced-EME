@@ -220,6 +220,50 @@ class TestRunRepl(unittest.TestCase):
              patch("qwen3_tts.interface.generate_interactive.play_audio"):
             run_repl({}, use_server)
 
+    def test_repl_honors_cli_sampling_flags(self):
+        """H5: run_repl threads the caller's gen_params (CLI --seed/--temperature)
+        through to generation instead of rebuilding from raw config (which
+        silently dropped every CLI override)."""
+        from qwen3_tts.interface.generate_interactive import run_repl
+
+        captured = {}
+
+        def fake_generate(texts, mode, config, gen_params, **kwargs):
+            captured["gen_params"] = dict(gen_params)
+            return ["base64"]
+
+        inputs = iter(["hello world", "/quit"])
+        cli_params = {
+            "temperature": 0.5,
+            "seed": 42,
+            "max_new_tokens": 2048,
+            "top_k": 50,
+            "top_p": 0.95,
+            "repetition_penalty": 1.05,
+        }
+        with patch("builtins.input", side_effect=inputs), \
+             patch("builtins.print"), \
+             patch("qwen3_tts.interface.generate_interactive.get_default_clone_prompt", return_value="default.pt"), \
+             patch("soundfile.write"), \
+             patch("qwen3_tts.interface.generate_server.generate_via_server", side_effect=fake_generate), \
+             patch("qwen3_tts.interface.generate_interactive._decode_base64_result", return_value=(MagicMock(), 24000)), \
+             patch("qwen3_tts.interface.generate_interactive.play_audio"):
+            run_repl({}, True, gen_params=cli_params)
+
+        self.assertIn(
+            "gen_params", captured, "REPL never invoked generation for text input."
+        )
+        self.assertEqual(
+            captured["gen_params"].get("seed"),
+            42,
+            "CLI --seed was dropped before reaching generation.",
+        )
+        self.assertEqual(
+            captured["gen_params"].get("temperature"),
+            0.5,
+            "CLI --temperature was dropped before reaching generation.",
+        )
+
     def test_quit_command(self):
         self._run_repl_with_inputs(["/quit"])
 

@@ -109,6 +109,31 @@ class TestProcessSrtServerMode(unittest.TestCase):
         combined_path = mock_sf.call_args_list[-1].args[0]
         self.assertTrue(combined_path.endswith("test_combined.wav"))
 
+    @patch(f"{_MOD}.play_audio")
+    @patch("soundfile.write")
+    @patch(f"{_MOD}.process_audio_args", side_effect=lambda w, sr, a: w)
+    @patch(f"{_MOD}._decode_base64_result")
+    @patch(f"{_MOD}.generate_via_server")
+    def test_continues_after_entry_error(self, mock_gen, mock_decode,
+                                         mock_proc, mock_sf, mock_play):
+        """H6: a single failing entry must not abort the whole file. The other
+        entry still produces its individual file plus the combined output."""
+        import numpy as np
+        mock_gen.side_effect = [
+            RuntimeError("transient failure on entry 1"),
+            [{"audio_base64": "AA"}],
+        ]
+        mock_decode.return_value = (np.zeros(100, dtype=np.float32), 24000)
+        with tempfile.TemporaryDirectory(dir=os.path.expanduser("~")) as tmpdir:
+            srt_path = _write_srt(tmpdir)
+            args = _make_args(output=tmpdir)
+            config = {"language": "English", "default_clone_prompt": "voice.pt"}
+            process_srt_file(srt_path, config, args, {}, use_server=True)
+        # Both entries attempted; entry 1 failed and was skipped, entry 2
+        # succeeded -> 1 individual + 1 combined = 2 soundfile.write calls.
+        self.assertEqual(mock_gen.call_count, 2)
+        self.assertEqual(mock_sf.call_count, 2)
+
 
 @_skip
 class TestProcessSrtLocalMode(unittest.TestCase):

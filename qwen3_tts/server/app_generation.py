@@ -319,6 +319,10 @@ async def handle_generate(request, state, req, security, config_provider):
                             "batch_index": i,
                             "batch_total": len(texts),
                             "generation_id": batch_gen_id,
+                            # Re-clear per item so a stale flag left by a
+                            # concurrent request's cancel cannot truncate this
+                            # batch. Mirrors the streaming-path clear at :658.
+                            "cancelled": False,
                         }
                     )
 
@@ -525,6 +529,10 @@ async def handle_generate(request, state, req, security, config_provider):
                     "chunk_index": 0,
                     "chunk_total": 0,
                     "generation_id": None,
+                    # A cancelled batch must not leave the shared flag dirty
+                    # for the next request's cancel check (:249). Mirrors
+                    # the streaming finally reset at :764.
+                    "cancelled": False,
                 }
             )
         with state.request_queue_lock:

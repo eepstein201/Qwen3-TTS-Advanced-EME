@@ -468,7 +468,7 @@ def interactive_mode(use_server, config, gen_params):
 # ---------------------------------------------------------------------------
 
 
-def run_repl(config, use_server):
+def run_repl(config, use_server, gen_params=None):
     """Run interactive REPL mode for rapid TTS iteration."""
     import soundfile as sf
 
@@ -497,7 +497,14 @@ def run_repl(config, use_server):
         "counter": 1,
     }
 
-    base_gen_params = config.get("generation", {}).copy()
+    # Base the REPL's working params on the caller's CLI-merged gen_params so
+    # flags like --seed/--temperature are honored. Previously this rebuilt from
+    # raw config["generation"], silently dropping every CLI override.
+    # base_gen_params is the reset point when switching presets. Fall back to
+    # the config block only when no params were supplied (e.g. unit tests).
+    if gen_params is None:
+        gen_params = config.get("generation", {})
+    base_gen_params = gen_params.copy()
     gen_params = base_gen_params.copy()
 
     while True:
@@ -710,7 +717,6 @@ def run_watch_mode(watch_dir, config, args, gen_params, use_server):
                 if not text:
                     return
 
-                processed_files.add(event.src_path)
                 basename = os.path.splitext(os.path.basename(event.src_path))[0]
                 output_path = safe_path_join(safe_output_dir, f"{basename}.wav")
 
@@ -740,6 +746,11 @@ def run_watch_mode(watch_dir, config, args, gen_params, use_server):
 
                 wav = process_audio_args(wav, sr, args)
                 sf.write(output_path, wav, sr)
+                # Mark processed only after a successful write so a failed
+                # generation stays eligible for retry on the next event
+                # (previously it was marked before generation and silently
+                # dropped forever on failure).
+                processed_files.add(event.src_path)
 
                 print(f"  -> {output_path}")
 
