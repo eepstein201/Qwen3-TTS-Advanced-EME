@@ -16,6 +16,7 @@ import json
 import logging
 import logging.handlers
 import os
+import re
 import secrets
 import signal
 import sys
@@ -23,7 +24,15 @@ import time
 from pathlib import Path
 
 import uvicorn
-from fastapi import Depends, FastAPI, HTTPException, Request, WebSocket
+from fastapi import (
+    Depends,
+    FastAPI,
+    HTTPException,
+    Request,
+    WebSocket,
+    WebSocketException,
+    status,
+)
 from fastapi.middleware.cors import CORSMiddleware
 
 # Rate limiting (R-13)
@@ -251,6 +260,28 @@ app.add_middleware(
     allow_methods=["GET", "POST"],
     allow_headers=["Authorization", "Content-Type"],
 )
+
+
+# Same origin allowlist as CORS, compiled for the WebSocket Origin check
+# (CSWSH defense). CORS protects HTTP only; the WS handshake is a separate
+# request that a browser page can attempt to steal via cookies.
+_origin_re = re.compile(_cors_regex)
+
+
+def validate_ws_origin(websocket: WebSocket) -> None:
+    """Reject cross-origin browser WebSocket handshakes (CSWSH defense).
+
+    Browsers always send ``Origin``; CLI/script clients (the ``tts`` client,
+    tests) do not. A browser handshake is accepted only if Origin matches the
+    same allowlist as CORS. An ABSENT Origin is allowed because the real auth is
+    the per-message bearer token (not Origin), and a non-browser client cannot
+    carry the victim's browser session that makes Cross-Site WebSocket
+    Hijacking exploitable. Raised before ``accept()`` -> FastAPI rejects the
+    handshake (Starlette sends HTTP 403).
+    """
+    origin = websocket.headers.get("origin")
+    if origin is not None and not _origin_re.match(origin):
+        raise WebSocketException(code=status.WS_1008_POLICY_VIOLATION)
 
 
 # Reject request bodies larger than this before they are read/parsed (R-30).
@@ -763,7 +794,10 @@ async def generate_stream(
 
 
 @app.websocket("/ws")
-async def websocket_endpoint(websocket: WebSocket):
+async def websocket_endpoint(
+    websocket: WebSocket,
+    origin_ok: None = Depends(validate_ws_origin),
+):
     """Bidirectional WebSocket endpoint for real-time TTS streaming."""
     state = websocket.app.state
 

@@ -980,6 +980,37 @@ class TestWebSocketGenerationStateVisibility(unittest.IsolatedAsyncioTestCase):
 
 
 @_skip
+class TestWSOriginValidation(unittest.TestCase):
+    """P4: the WebSocket handshake must reject cross-origin browser requests
+    (CSWSH defense). CORS protects HTTP only; the WS handshake is separate.
+    """
+
+    @staticmethod
+    def _ws(origin):
+        headers = {"origin": origin} if origin is not None else {}
+        return types.SimpleNamespace(headers=headers)
+
+    def test_bad_origin_rejected(self):
+        from fastapi import WebSocketException
+
+        from qwen3_tts.server.app import validate_ws_origin
+
+        with self.assertRaises(WebSocketException):
+            validate_ws_origin(self._ws("https://evil.example"))
+
+    def test_localhost_origin_allowed(self):
+        from qwen3_tts.server.app import validate_ws_origin
+
+        validate_ws_origin(self._ws("http://127.0.0.1:7860"))  # no raise
+
+    def test_absent_origin_allowed(self):
+        """CLI/script clients (the tts client, tests) send no Origin."""
+        from qwen3_tts.server.app import validate_ws_origin
+
+        validate_ws_origin(self._ws(None))  # no raise
+
+
+@_skip
 class TestWebSocketStreamErrorCascade(unittest.TestCase):
     """Cover the handler try/except around ``_stream_generation`` (websocket.py
     223-236).
