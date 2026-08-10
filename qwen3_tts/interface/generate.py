@@ -635,7 +635,7 @@ def _handle_generation(args, config, gen_params, use_server, max_chunk_chars):
     """Handle all generation: special modes, text resolution, and single-text output."""
     # Special modes
     if args.repl:
-        run_repl(config, use_server)
+        run_repl(config, use_server, gen_params)
         return use_server
     if args.watch:
         run_watch_mode(args.watch, config, args, gen_params, use_server)

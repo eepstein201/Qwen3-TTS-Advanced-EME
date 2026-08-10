@@ -468,7 +468,7 @@ def interactive_mode(use_server, config, gen_params):
 # ---------------------------------------------------------------------------
 
 
-def run_repl(config, use_server):
+def run_repl(config, use_server, gen_params=None):
     """Run interactive REPL mode for rapid TTS iteration."""
     import soundfile as sf
 
@@ -497,7 +497,14 @@ def run_repl(config, use_server):
         "counter": 1,
     }
 
-    base_gen_params = config.get("generation", {}).copy()
+    # Base the REPL's working params on the caller's CLI-merged gen_params so
+    # flags like --seed/--temperature are honored. Previously this rebuilt from
+    # raw config["generation"], silently dropping every CLI override.
+    # base_gen_params is the reset point when switching presets. Fall back to
+    # the config block only when no params were supplied (e.g. unit tests).
+    if gen_params is None:
+        gen_params = config.get("generation", {})
+    base_gen_params = gen_params.copy()
     gen_params = base_gen_params.copy()
 
     while True:
