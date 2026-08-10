@@ -39,7 +39,6 @@ from fastapi.middleware.cors import CORSMiddleware
 from slowapi import Limiter, _rate_limit_exceeded_handler
 from slowapi.errors import RateLimitExceeded
 from slowapi.middleware import SlowAPIMiddleware
-from starlette.exceptions import HTTPException as StarletteHTTPException
 
 _HAS_SLOWAPI = True
 
@@ -350,8 +349,9 @@ class RequestBodySizeLimitMiddleware:
                     # Raised inside the app's body read, so Starlette's
                     # ExceptionMiddleware (inner to us) converts it to the 413
                     # response. A plain Exception here is swallowed into a
-                    # 400/500; StarletteHTTPException is what it recognises.
-                    raise StarletteHTTPException(
+                    # 400/500; HTTPException (a StarletteHTTPException subclass)
+                    # is what it recognises.
+                    raise HTTPException(
                         status_code=413, detail="Request body too large"
                     )
             return message

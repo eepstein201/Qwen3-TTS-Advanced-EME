@@ -63,6 +63,8 @@ def _make_state():
     state.gen_cache = {}
     state.gen_cache_lock = threading.Lock()
     state.inference_lock = asyncio.Lock()
+    # _stream_generation now stamps generation_state under generation_lock (P3).
+    state.generation_lock = asyncio.Lock()
     state.eta_cache = {"median_rate": None, "last_updated": 0}
     state.eta_cache_lock = threading.Lock()
     state.shutdown_timer = None
@@ -82,6 +84,7 @@ async def _drain_streaming_response(response):
 def _reset_state(state):
     """Reset mutable state attributes between tests to avoid cross-pollution."""
     state.inference_lock = asyncio.Lock()
+    state.generation_lock = asyncio.Lock()
     state.generation_state.update(
         {
             "active": False,
