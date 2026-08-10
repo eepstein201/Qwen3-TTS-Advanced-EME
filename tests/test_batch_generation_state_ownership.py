@@ -318,6 +318,63 @@ class TestBatchGenerationStateOwnership(unittest.TestCase):
 
         asyncio.run(run())
 
+    def test_batch_finally_resets_cancelled_flag(self):
+        """H1: a cancelled batch must not leave ``cancelled=True`` behind.
+
+        The streaming finally resets ``cancelled`` (app_generation.py:764) but
+        the batch finally historically did not.  A leftover ``cancelled=True``
+        is then seen by the next request's per-item cancel check (:249) and
+        silently truncates an unrelated in-flight batch.  The finally now
+        resets ``cancelled=False`` under the ownership guard, mirroring
+        streaming.  Verified by simulating a ``/cancel-generation`` landing
+        during this batch's inference and asserting the flag is cleared on
+        completion.
+        """
+
+        async def run():
+            from qwen3_tts.server.app_generation import handle_generate
+            from qwen3_tts.server.validation import GenerateRequest
+
+            state = _make_state()
+            fake_wav = np.zeros(500, dtype=np.float32)
+
+            def mock_inference(model, text, **kwargs):
+                # Simulate a /cancel-generation landing during this item.
+                state.generation_state["cancelled"] = True
+                return fake_wav, 24000
+
+            req = GenerateRequest(
+                text="hello world", mode="design", voice_description="friendly"
+            )
+            request = _make_request(state)
+            with patch(
+                f"{_APP_GENERATION}._check_memory_available",
+                return_value=(True, 4096),
+            ), patch(
+                "qwen3_tts.server.validation._validate_generation_request"
+            ), patch(
+                f"{_ENGINE}.run_inference", side_effect=mock_inference
+            ):
+                result = await handle_generate(
+                    request=request,
+                    state=state,
+                    req=req,
+                    security={"max_text_length": 50000, "max_batch_size": 20},
+                    config_provider=None,
+                )
+            self.assertIn("results", result)
+
+            # The batch owns generation_state here (no foreign takeover), so its
+            # finally must clear the cancelled flag — no stale flag for the next
+            # request's per-item cancel check.
+            self.assertFalse(
+                state.generation_state["cancelled"],
+                "Batch finally left cancelled=True; the next request's cancel "
+                "check would silently truncate an unrelated batch.",
+            )
+
+        asyncio.run(run())
+
 
 if __name__ == "__main__":
     unittest.main()
