@@ -119,8 +119,18 @@ Eliminate silent data loss / wrong output (4 HIGHs), the batch/streaming output 
 
 ---
 
-## WS3 — Edge-case crash hardening
+## WS3 — Edge-case crash hardening — ✅ DONE (branch `worktree-crash-hardening`)
 **Branch:** `fix/crash-hardening` · **Findings:** H3, H7 + Theme C (validate_config non-dict, parse_ssml, show_history JSONL, generate_via_server KeyError, 6× generic raise Exception) · **Complexity:** Medium
+
+All six items shipped with regression tests. Two deviations from the text below, both
+deliberate:
+- **`validate_config`** does *not* fall back to defaults on a non-dict config — it raises an
+  actionable error mirroring the adjacent corrupt-JSON path. Silently substituting defaults
+  would ignore the user's real `backend`/`model_size` with no signal, which is the same
+  silent-failure class this plan exists to remove.
+- **`TTSGenericError` subclasses `RuntimeError`** (not `Exception`) so existing
+  `except RuntimeError` sites and the H7 parse errors share one catchable base. All callers
+  audited: every catch site uses broad `except Exception`, so none needed changing.
 - **H3** `inference.py:255`: add `if not wavs: raise RuntimeError("torch generation returned no audio segments")` (mirror MLX l.417). Unit-test with stub returning `[]`.
 - **H7** `generate_server.py:315–344`: wrap parse loop in `try/except (struct.error, ValueError)`; bound `audio_len` against `MAX_CHUNK_SIZE` (define constant, e.g. 200 MB).
 - **validate_config** `config/io.py:92`: type-guard `if not isinstance(config, dict): raise ValueError(...)`; extend `load_config` except to `(TypeError, ValueError)`.
@@ -189,7 +199,10 @@ conda run -n qwen3-tts-mlx python -m pytest tests/test_e2e_security_auth.py -m e
 ## Progress
 - **WS1 — merged** as PR #154 (`fix/silent-data-loss`), 2026-08-10. All four HIGHs (H1, H4, H5, H6) shipped with regression tests, CI green.
 - **Separate from this plan:** PR #153 (`fix(server): FastAPI hardening`) also merged 2026-08-10 — six ad-hoc server-hardening fixes (CWE-209 on `/health`, pre-auth rate-limit middleware, WS Origin validation, streaming-safe body-size middleware) from a standalone FastAPI review, not sourced from `python-review-2026-08-10.md`. Overlaps WS4 Task 2.4's WS `generation_state` goal, so that item is already satisfied when WS2 reaches it.
-- **WS2–WS9 — not started.**
+- **WS3 — done** on branch `worktree-crash-hardening` (6 items, 5 commits). Gates at time of
+  completion: full non-e2e suite **2734 passed / 6 skipped / 0 failed**, ruff clean, mypy clean
+  (53 files), bandit 0 High/Medium/Low, batches 1 and 4 green.
+- **WS2, WS4–WS9 — not started.**
 
 ## Acceptance
 - [x] WS1 HIGHs each have a regression test (fails before / passes after)
