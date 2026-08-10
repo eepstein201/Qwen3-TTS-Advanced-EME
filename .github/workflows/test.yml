@@ -175,6 +175,23 @@ jobs:
       run: |
         docker run --rm qwen3-tts:test python -c "import pytest; import gradio; import qwen3_tts"
 
+  docker-lint:
+    # Static lint of all Dockerfiles (no build, no CUDA/GPU required).
+    # The production Dockerfile + Dockerfile.vllm are never built by CI (they
+    # need nvidia/cuda + the NVIDIA Container Toolkit), so hadolint is the
+    # gate that catches syntax/anti-pattern regressions in them.
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v7
+
+    - name: Install hadolint
+      run: |
+        curl -sL -o /tmp/hadolint "https://github.com/hadolint/hadolint/releases/download/v2.15.1/hadolint-Linux-x86_64"
+        chmod +x /tmp/hadolint
+
+    - name: Lint Dockerfiles
+      run: /tmp/hadolint Dockerfile Dockerfile.test Dockerfile.vllm docker/vllm.Dockerfile
+
   test-minimal:
     # Minimal test job for quick feedback
     runs-on: ubuntu-latest
