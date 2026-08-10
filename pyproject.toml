@@ -76,7 +76,7 @@ dev = [
     "pytest-cov>=7.1.0",        # coverage reporting
     "ruff>=0.16.1",              # linting + formatting
     "mypy>=2.3.0",             # static type checking
-    "bandit>=1.7",            # security static analysis
+    "bandit>=1.9.4",            # security static analysis
 ]
 
 # Universal test dependencies (works across all environments)
