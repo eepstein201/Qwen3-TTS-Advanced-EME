@@ -1,4 +1,4 @@
-<!-- Generated: 2026-08-10 | Files scanned: 70 .py (24.7k LOC) | Token estimate: ~450 -->
+<!-- Generated: 2026-08-10 | Files scanned: 71 .py (25k LOC) | Token estimate: ~450 -->
 
 # Architecture — Qwen3-TTS
 

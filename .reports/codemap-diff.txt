@@ -1,34 +1,73 @@
-CODEMAP GENERATION REPORT — 2026-08-10
-========================================
-First generation (no prior docs/CODEMAPS/ — no diff gating applied).
+Codemap Refresh Report — 2026-08-10
 
-Scope scanned:
-- 70 .py files, 24,656 LOC under qwen3_tts/
-- 162 test files under tests/
-- Entry point: tts → qwen3_tts.cli:cli (Click)
-- 22 API routes across server/ (8 GET, 13 POST, 1 WS)
+COMMIT RANGE: 5fd5332 (initial codemap) → HEAD (f802803, PR #155 merge)
 
-Codemaps written (docs/CODEMAPS/):
-- architecture.md   system, dispatch, layers, generation flow
-- backend.md        FastAPI routes grouped by handler, middleware, client
-- frontend.md       Gradio UI module map + critical constraints
-- data.md           config.json schema + filesystem storage (no DB)
-- dependencies.md   models, backends, conda envs, libs, PM2
+## Codemap Files Updated
 
-New dependencies detected: none since last architecture review.
-Architecture changes since CLAUDE.md: none — codemaps derived from current
-on-disk tree + CLAUDE.md (ARCHITECTURE.md is fresh, 2026-08-09).
+### docs/CODEMAPS/backend.md
+**Status: MODIFIED (~25% content change)**
+**Reason:** Reflects PRs #153/#154 server hardening
+**Changes:**
+  - Updated LOC counts: app.py 864→961, app_generation.py 788→798, websocket.py 502→542
+  - Expanded Middleware section to document PR #153 security hardening:
+    * X-Forwarded-For IP resolution + TTS_TRUSTED_PROXIES allowlist
+    * RequestBodySizeLimitMiddleware body-DoS defense (100 MB, stream-counting)
+    * WS Origin header validation (CSWSH)
+    * /health error sanitization (CWE-209 filesystem path redaction)
+  - Clarified rate limiting is env-tunable per-limit
 
-Staleness warnings:
-- docs/00-Foundations/ARCHITECTURE.md: fresh (2026-08-09) — no action.
-- inference.py at 1532 LOC exceeds the 800-line guideline (known structural
-  debt; tracked in project_open_structural_debt memory).
+### docs/CODEMAPS/architecture.md
+**Status: MODIFIED (~2% content change)**
+**Reason:** Updated LOC count
+**Changes:**
+  - Header: 70 files / 24.7k LOC → 71 files / 25k LOC (add check_config_docs.py)
 
-Notes for next scan:
-- /generate and /health are registered via app.add_api_route (app.py:389,679),
-  NOT decorators — a decorator-only grep will undercount routes by 2.
-- Batch runner uses an explicit module list (tests/run_batches.py); new test
-  modules must be registered there or they silently skip the batch gates.
+### docs/CODEMAPS/frontend.md
+**Status: NO CHANGE** (no UI changes in scope)
 
-Next review: ~2026-11-08 (90-day cadence), or immediately after a major
-refactor / new feature surface.
+### docs/CODEMAPS/data.md
+**Status: NO CHANGE** (no schema/storage changes in scope)
+
+### docs/CODEMAPS/dependencies.md
+**Status: NO CHANGE** (no new external package dependencies)
+
+## Documentation Files Verified
+
+### docs/CONFIG.md
+**Status: VERIFIED** ✓
+- Drift check: OK (66 keys match get_default_config())
+
+### docs/CONTRIBUTING.md
+**Status: VERIFIED** ✓
+- Development setup and test commands current
+
+### docs/RUNBOOK.md
+**Status: VERIFIED** ✓
+- PM2 service, rate-limiting, server config sections current
+
+## New Artifacts
+
+- qwen3_tts/tools/check_config_docs.py (199 LOC, PR #151)
+  * Automated CONFIG.md default-value drift detection
+  * Runner: python -m qwen3_tts.tools.check_config_docs
+  * CI gate: make check-config-docs
+  * Status: Dev/CI utility, not in codemap scope
+
+## Architecture Changes (Same-Day PRs)
+
+PR #153: FastAPI Hardening
+  - CWE-209: /health error redaction (filesystem leak)
+  - Rate-limiting: Hybrid IP+token keying, env overrides per-limit
+  - X-Forwarded-For: TTS_TRUSTED_PROXIES gating (Colab/proxy support)
+  - Body-DoS: RequestBodySizeLimitMiddleware (100 MB, stream-counting)
+  - WS Origin validation: CSWSH defense
+  - /generation-status anonymization: no input-derived fields
+
+PR #154: Silent Data Loss Remediation
+  - History state thread-safety
+  - Voice-prompt atomic operations
+
+PR #155: Documentation updates
+
+## Staleness: NONE
+All same-day, no drift detected.
