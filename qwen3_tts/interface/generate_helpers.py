@@ -268,7 +268,11 @@ def show_history(count=10):
     print(f"\nRecent generations (last {min(count, len(recent))}):\n")
 
     for line in reversed(recent):
-        entry = json.loads(line)
+        try:
+            entry = json.loads(line)
+        except json.JSONDecodeError:
+            logger.debug("Skipping corrupt JSONL line in history file")
+            continue
         ts = entry.get("timestamp", "")[:19].replace("T", " ")
         text_preview = entry.get("text", "")[:50]
         if len(entry.get("text", "")) > 50:
@@ -326,22 +330,29 @@ def parse_ssml(text):
     # <break> tags
     def replace_break(match):
         time_str = match.group(1)
-        if "ms" in time_str:
-            ms = int(time_str.replace("ms", ""))
-            if ms >= 1000:
-                return "... "
-            elif ms >= 500:
-                return ".. "
-            else:
+        # Check for milliseconds first (since "500ms" ends with "s")
+        if time_str.endswith("ms"):
+            try:
+                ms = int(time_str[:-2])
+                if ms >= 1000:
+                    return "... "
+                elif ms >= 500:
+                    return ".. "
+                else:
+                    return ". "
+            except ValueError:
                 return ". "
-        elif "s" in time_str:
-            seconds = float(time_str.replace("s", ""))
-            if seconds >= 2:
-                return ".... "
-            elif seconds >= 1:
-                return "... "
-            else:
-                return ".. "
+        elif time_str.endswith("s"):
+            try:
+                seconds = float(time_str[:-1])
+                if seconds >= 2:
+                    return ".... "
+                elif seconds >= 1:
+                    return "... "
+                else:
+                    return ".. "
+            except ValueError:
+                return ". "
         return ". "
 
     processed = re.sub(

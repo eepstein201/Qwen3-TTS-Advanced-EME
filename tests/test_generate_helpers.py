@@ -470,6 +470,35 @@ class TestShowHistory(unittest.TestCase):
         finally:
             os.unlink(path)
 
+    def test_corrupt_jsonl_line_skipped(self):
+        """Corrupt JSONL line is skipped; valid entries still display."""
+        from qwen3_tts.interface.generate_helpers import show_history
+        valid_entry = {
+            "timestamp": "2026-03-20T10:00:00.000",
+            "text": "Valid entry",
+            "mode": "clone",
+            "voice": "test.pt",
+            "output": "/tmp/out.wav",
+        }
+        corrupt_line = "{ invalid json without closing bracket"
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".jsonl", delete=False) as f:
+            # Write: valid, corrupt, valid
+            f.write(json.dumps(valid_entry) + "\n")
+            f.write(corrupt_line + "\n")
+            f.write(json.dumps(valid_entry) + "\n")
+            path = f.name
+        try:
+            with mock.patch("qwen3_tts.interface.generate_helpers.HISTORY_FILE", path):
+                with mock.patch("builtins.print") as mock_print:
+                    # Should not raise even with corrupt line
+                    show_history(count=10)
+            output = " ".join(str(c) for c in mock_print.call_args_list)
+            # Both valid entries should be displayed
+            self.assertIn("Valid entry", output)
+            self.assertIn("clone", output)
+        finally:
+            os.unlink(path)
+
 
 # =========================================================================
 # get_voice_alias
@@ -552,6 +581,49 @@ class TestParseSSML(unittest.TestCase):
         text, meta = parse_ssml('<prosody rate="fast" pitch="low">Hello</prosody>')
         self.assertEqual(meta["prosody"]["speed"], 1.2)
         self.assertEqual(meta["prosody"]["pitch"], -2)
+
+    def test_break_malformed_seconds_suffix(self):
+        """<break time='seconds'/> (malformed suffix) is handled gracefully."""
+        from qwen3_tts.interface.generate_helpers import parse_ssml
+        # This should not raise ValueError, should handle gracefully
+        text, meta = parse_ssml('Hello<break time="seconds"/> world')
+        # Should contain a pause marker or the text (graceful fallback)
+        self.assertIn("Hello", text)
+        self.assertIn("world", text)
+
+    def test_break_malformed_multiple_s(self):
+        """<break time='1s2s'/> (malformed time) is handled gracefully."""
+        from qwen3_tts.interface.generate_helpers import parse_ssml
+        # This should not raise ValueError
+        text, meta = parse_ssml('Hello<break time="1s2s"/> world')
+        self.assertIn("Hello", text)
+        self.assertIn("world", text)
+
+    def test_break_malformed_non_numeric_with_s(self):
+        """<break time='abcs'/> (non-numeric with s suffix) is handled gracefully."""
+        from qwen3_tts.interface.generate_helpers import parse_ssml
+        # This should not raise ValueError
+        text, meta = parse_ssml('Hello<break time="abcs"/> world')
+        self.assertIn("Hello", text)
+        self.assertIn("world", text)
+
+    def test_break_valid_500ms_regression(self):
+        """<break time='500ms'/> still parses correctly (regression guard)."""
+        from qwen3_tts.interface.generate_helpers import parse_ssml
+        text, meta = parse_ssml('Hello<break time="500ms"/> world')
+        # Should produce ". " for 500ms
+        self.assertIn("Hello", text)
+        self.assertIn("world", text)
+        self.assertIn(". ", text)
+
+    def test_break_valid_2s_regression(self):
+        """<break time='2s'/> still parses correctly (regression guard)."""
+        from qwen3_tts.interface.generate_helpers import parse_ssml
+        text, meta = parse_ssml('Hello<break time="2s"/> world')
+        # Should produce ".... " for 2s
+        self.assertIn("Hello", text)
+        self.assertIn("world", text)
+        self.assertIn(".... ", text)
 
 
 # =========================================================================
