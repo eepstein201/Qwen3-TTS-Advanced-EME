@@ -367,6 +367,49 @@ class TestLoadModelEndpoint(unittest.TestCase):
             self.assertIn(resp.status_code, [200, 500, 503],
                 f"model_type '{model_type}' should be valid")
 
+    def test_health_model_load_errors_sanitized(self):
+        """/health must not expose raw model-load error paths (CWE-209).
+
+        The on-demand loader stores the failure into state.model_load_errors,
+        which the UNAUTHENTICATED /health endpoint returns verbatim. The raw
+        exception routinely contains absolute HuggingFace cache paths and repo
+        IDs, so it must be sanitized at storage time (the background loader
+        already does this — app_lifespan.py:476).
+        """
+        from qwen3_tts.server.app import app
+
+        # Deterministic regardless of test order: ensure clone is unloaded and
+        # no prior error is recorded so /load-model actually invokes load_model.
+        app.state.models["clone"] = None
+        app.state.model_load_errors["clone"] = None
+        secret = (
+            "/Users/secret/.cache/huggingface/hub/"
+            "models--x/snapshots/abc missing weight"  # nosec B105 -- test fixture
+        )
+        try:
+            with patch(
+                "qwen3_tts.core.engine.load_model", side_effect=RuntimeError(secret)
+            ):
+                resp = self.client.post(
+                    "/load-model",
+                    json={"model_type": "clone"},
+                    headers={"Authorization": "Bearer test_token"},
+                )
+            # The authenticated caller gets a sanitized 500; the error is also
+            # recorded in state for /health.
+            self.assertEqual(resp.status_code, 500)
+
+            # /health is unauthenticated and echoes model_load_errors verbatim.
+            health = self.client.get("/health").json()
+            err = health.get("model_load_errors", {}).get("clone")
+            self.assertIsNotNone(err, "expected a load error to be recorded")
+            self.assertIn("<path>", err, "absolute paths must be redacted")
+            for needle in ("/Users", ".cache", "snapshots"):
+                self.assertNotIn(needle, err)
+        finally:
+            app.state.models["clone"] = None
+            app.state.model_load_errors["clone"] = None
+
 
 @_skip_server
 class TestCancelGenerationEndpoint(unittest.TestCase):
