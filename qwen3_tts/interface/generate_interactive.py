@@ -710,7 +710,6 @@ def run_watch_mode(watch_dir, config, args, gen_params, use_server):
                 if not text:
                     return
 
-                processed_files.add(event.src_path)
                 basename = os.path.splitext(os.path.basename(event.src_path))[0]
                 output_path = safe_path_join(safe_output_dir, f"{basename}.wav")
 
@@ -740,6 +739,11 @@ def run_watch_mode(watch_dir, config, args, gen_params, use_server):
 
                 wav = process_audio_args(wav, sr, args)
                 sf.write(output_path, wav, sr)
+                # Mark processed only after a successful write so a failed
+                # generation stays eligible for retry on the next event
+                # (previously it was marked before generation and silently
+                # dropped forever on failure).
+                processed_files.add(event.src_path)
 
                 print(f"  -> {output_path}")
 
