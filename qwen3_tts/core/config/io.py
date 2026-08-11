@@ -81,6 +81,11 @@ def validate_config(config: dict) -> tuple[dict, list[str]]:
         (result, issues): result is a new dict with corrections; issues is a
         list of human-readable correction descriptions.
     """
+    if not isinstance(config, dict):
+        raise ValueError(
+            f"config must be a dict, got {type(config).__name__} instead"
+        )
+
     from qwen3_tts.core.config import (
         DEFAULT_GENERATION_PARAMS,
         IS_MACOS,
@@ -205,7 +210,16 @@ def load_config() -> dict:
         _config_cache["mtime"] = current_mtime
         from qwen3_tts.core.config import validate_config as _validate_config
 
-        data, _ = _validate_config(data)
+        try:
+            data, _ = _validate_config(data)
+        except (TypeError, ValueError) as e:
+            # Mirror the corrupt-JSON path above: an unusable config is surfaced,
+            # not silently swapped for defaults, so the user's real settings are
+            # never quietly ignored.
+            raise ValueError(
+                f"config.json is not a valid config object: {e}\n"
+                f"Run 'tts config' to reset, or fix {CONFIG_PATH} manually."
+            ) from e
 
         # Allow environment variable override for backend (useful for test runner)
         env_backend = os.environ.get("QWEN3_TTS_BACKEND")

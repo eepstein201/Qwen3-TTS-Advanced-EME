@@ -137,6 +137,76 @@ class TestConfigValidation(unittest.TestCase):
         _, issues = validate_config({})
         self.assertEqual(issues, [])
 
+    def test_validate_config_list_raises_valueerror(self):
+        """validate_config raises ValueError when handed a list instead of dict."""
+        from qwen3_tts.core.config import validate_config
+        with pytest.raises(ValueError, match="must be a dict"):
+            validate_config([1, 2, 3])
+
+    def test_validate_config_string_raises_valueerror(self):
+        """validate_config raises ValueError when handed a string."""
+        from qwen3_tts.core.config import validate_config
+        with pytest.raises(ValueError, match="must be a dict"):
+            validate_config("not a dict")
+
+    def test_validate_config_number_raises_valueerror(self):
+        """validate_config raises ValueError when handed a number."""
+        from qwen3_tts.core.config import validate_config
+        with pytest.raises(ValueError, match="must be a dict"):
+            validate_config(42)
+
+    def test_load_config_list_json_raises_actionable_error(self):
+        """A JSON list config is reported, not silently swapped for defaults.
+
+        Mirrors the corrupt-JSON path: silently substituting defaults would
+        ignore the user's real settings (backend, model size) with no signal.
+        """
+        from qwen3_tts.core import config as cfg
+        original_path = cfg.CONFIG_PATH
+        original_cache = dict(cfg._config_cache)
+        try:
+            with tempfile.NamedTemporaryFile(mode="w", suffix=".json", delete=False) as f:
+                json.dump([1, 2, 3], f)
+                list_path = f.name
+            cfg.CONFIG_PATH = list_path
+            cfg._config_cache["data"] = None
+            cfg._config_cache["mtime"] = 0
+
+            with self.assertRaises(ValueError) as ctx:
+                cfg.load_config()
+
+            msg = str(ctx.exception)
+            self.assertIn("tts config", msg)
+            self.assertIsInstance(ctx.exception.__cause__, ValueError)
+            self.assertIn("list", str(ctx.exception.__cause__))
+        finally:
+            cfg.CONFIG_PATH = original_path
+            cfg._config_cache.update(original_cache)
+            os.unlink(list_path)
+
+    def test_load_config_string_json_raises_actionable_error(self):
+        """A JSON string config is reported, not silently swapped for defaults."""
+        from qwen3_tts.core import config as cfg
+        original_path = cfg.CONFIG_PATH
+        original_cache = dict(cfg._config_cache)
+        try:
+            with tempfile.NamedTemporaryFile(mode="w", suffix=".json", delete=False) as f:
+                json.dump("not a dict", f)
+                str_path = f.name
+            cfg.CONFIG_PATH = str_path
+            cfg._config_cache["data"] = None
+            cfg._config_cache["mtime"] = 0
+
+            with self.assertRaises(ValueError) as ctx:
+                cfg.load_config()
+
+            self.assertIn("tts config", str(ctx.exception))
+            self.assertIn("str", str(ctx.exception.__cause__))
+        finally:
+            cfg.CONFIG_PATH = original_path
+            cfg._config_cache.update(original_cache)
+            os.unlink(str_path)
+
 
 # =========================================================================
 # Config Function Tests

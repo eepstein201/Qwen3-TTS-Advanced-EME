@@ -416,6 +416,56 @@ class TestEngineFunctions(unittest.TestCase):
                             f"Got calls: {all_calls}"
                         )
 
+    def test_torch_empty_wavs_raises_runtime_error(self):
+        """Empty torch generation output raises instead of IndexError on wavs[0].
+
+        The MLX path guards this (`if not results: raise RuntimeError`); the torch
+        path indexed `wavs[0]` directly, so a model returning no segments surfaced
+        as an opaque IndexError instead of a diagnosable failure.
+        """
+        from qwen3_tts.core.engine import inference
+
+        # Arrange: a torch model whose generation yields zero audio segments
+        mock_torch = MagicMock()
+        mock_torch.backends.mps.is_available.return_value = False
+        mock_torch.cuda.is_available.return_value = False
+        mock_torch.inference_mode = MagicMock(
+            return_value=MagicMock(__enter__=MagicMock(), __exit__=MagicMock())
+        )
+
+        mock_model = MagicMock()
+        mock_model.generate_voice_clone.return_value = ([], 24000)
+        mock_model.parameters.return_value = iter([MagicMock(dtype="float32")])
+
+        # Act / Assert
+        # Swap only the single "torch" key rather than using
+        # patch.dict(sys.modules, ...), which clears and repopulates the whole
+        # module table on exit. That momentary empty-sys.modules window races
+        # importlib's thread-keyed lock bookkeeping once any later test spins up
+        # threads (gradio's Blocks.queue does), surfacing as
+        # `KeyError: <thread id>` inside importlib._bootstrap.
+        _sentinel = object()
+        _saved = sys.modules.get("torch", _sentinel)
+        sys.modules["torch"] = mock_torch
+        try:
+            with patch(
+                "qwen3_tts.core.engine.inference.get_torch_dtype_name",
+                return_value="float32",
+            ):
+                with self.assertRaises(RuntimeError) as ctx:
+                    inference._run_inference_torch(
+                        mock_model, "test text", "clone",
+                        {"temperature": 0.7}, language="English",
+                        voice_prompt=MagicMock()
+                    )
+        finally:
+            if _saved is _sentinel:
+                sys.modules.pop("torch", None)
+            else:
+                sys.modules["torch"] = _saved
+
+        self.assertIn("no audio", str(ctx.exception).lower())
+
 
 @pytest.mark.unit
 class TestGetMlxGenParams(unittest.TestCase):

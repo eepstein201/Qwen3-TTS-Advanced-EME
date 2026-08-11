@@ -43,6 +43,7 @@ except ImportError:
 
 try:
     from qwen3_tts.interface.generate_server import (
+        TTSGenericError,
         _run_single_generation,
         _voice_param_for_log,
         ensure_server_running,
@@ -462,6 +463,61 @@ class TestGenerateStreaming(unittest.TestCase):
                 generate_streaming("Hello", "clone", _CONFIG, {}, "/tmp/out.wav")
         self.assertIn("OOM", str(ctx.exception))
 
+    def test_oversized_chunk_length_raises_instead_of_buffering(self):
+        """A length prefix beyond the cap aborts instead of buffering it.
+
+        `audio_len` is an attacker-influenceable uint32 (up to ~4 GB). Without a
+        bound the reader waits for that many bytes, accumulating them in memory;
+        on a short stream it silently returns None instead of reporting the
+        corrupt frame.
+        """
+        import struct
+
+        from qwen3_tts.interface.generate_server import generate_streaming
+
+        # Arrange: header claims 300 MB of audio, body never arrives
+        header = struct.pack("<II", 24000, 300 * 1024 * 1024)
+        mock_resp = MagicMock()
+        mock_resp.status_code = 200
+        mock_resp.iter_content.return_value = [header]
+
+        # Act / Assert
+        patches = self._base_patches()
+        with patches["url"], patches["payload"], patches["play"], \
+             patch("qwen3_tts.core.http_client.server_request", return_value=mock_resp), \
+             patch("builtins.print"):
+            with self.assertRaises(RuntimeError) as ctx:
+                generate_streaming("Hello", "clone", _CONFIG, {}, "/tmp/out.wav")
+        # Assert the size-limit path specifically -- both parse errors mention
+        # "chunk"/"stream", so key on the distinguishing wording and the length.
+        msg = str(ctx.exception)
+        self.assertIn("exceeds", msg.lower())
+        self.assertIn(str(300 * 1024 * 1024), msg)
+
+    def test_malformed_chunk_bytes_raise_clear_error(self):
+        """Audio bytes that aren't a whole number of float32s report clearly."""
+        import struct
+
+        from qwen3_tts.interface.generate_server import generate_streaming
+
+        # Arrange: 6 bytes is not a multiple of 4 -> np.frombuffer would ValueError
+        header = struct.pack("<II", 24000, 6)
+        mock_resp = MagicMock()
+        mock_resp.status_code = 200
+        mock_resp.iter_content.return_value = [header + b"\x00" * 6]
+
+        # Act / Assert
+        patches = self._base_patches()
+        with patches["url"], patches["payload"], patches["play"], \
+             patch("qwen3_tts.core.http_client.server_request", return_value=mock_resp), \
+             patch("builtins.print"):
+            with self.assertRaises(RuntimeError) as ctx:
+                generate_streaming("Hello", "clone", _CONFIG, {}, "/tmp/out.wav")
+        # Assert the decode-failure path specifically, and that the underlying
+        # ValueError is chained rather than swallowed.
+        self.assertIn("parse", str(ctx.exception).lower())
+        self.assertIsInstance(ctx.exception.__cause__, ValueError)
+
     def test_no_chunks_returns_none(self):
         """Return None when no audio chunks received."""
         from qwen3_tts.interface.generate_server import generate_streaming
@@ -839,6 +895,119 @@ class TestGenerateViaServerExtended(unittest.TestCase):
             with self.assertRaises(Exception) as ctx:
                 generate_via_server(["Hi"], "clone", _CONFIG, {})
         self.assertIn("502", str(ctx.exception))
+
+
+# ---------------------------------------------------------------------------
+# TTSGenericError and exception-type hardening
+# ---------------------------------------------------------------------------
+
+@pytest.mark.unit
+@_skip
+class TestTTSGenericError(unittest.TestCase):
+    """Tests for the TTSGenericError exception type."""
+
+    def test_is_runtime_error_subclass(self):
+        """TTSGenericError subclasses RuntimeError so callers can catch it selectively."""
+        # Arrange / Act
+        is_subclass = issubclass(TTSGenericError, RuntimeError)
+
+        # Assert
+        self.assertTrue(is_subclass)
+
+    def test_instance_caught_by_except_runtime_error(self):
+        """An except RuntimeError clause catches a raised TTSGenericError."""
+        # Arrange
+        caught = False
+
+        # Act
+        try:
+            raise TTSGenericError("boom")
+        except RuntimeError:
+            caught = True
+
+        # Assert
+        self.assertTrue(caught)
+
+
+@pytest.mark.unit
+@_skip
+class TestGenerateViaServerMissingResultsKey(unittest.TestCase):
+    """Tests for generate_via_server() when the server response has no 'results' key."""
+
+    def _mock_response(self, status_code, json_data):
+        resp = MagicMock()
+        resp.status_code = status_code
+        resp.json.return_value = json_data
+        return resp
+
+    def _base_patches(self):
+        poller = MagicMock()
+        return {
+            "url": patch(f"{_MOD}.get_server_url", return_value="http://127.0.0.1:5123"),
+            "payload": patch(f"{_MOD}._build_generation_payload", return_value={}),
+            "poller": patch(
+                "qwen3_tts.interface.generate_interactive._ProgressPoller",
+                return_value=poller,
+            ),
+        }
+
+    def test_missing_results_key_raises_clear_error(self):
+        """A 200 response without 'results' raises TTSGenericError naming the keys present, not a KeyError."""
+        # Arrange
+        resp = self._mock_response(200, {"status": "ok", "unexpected": True})
+        patches = self._base_patches()
+
+        # Act / Assert
+        with patches["url"], patches["payload"], patches["poller"], \
+             patch("qwen3_tts.core.http_client.server_request", return_value=resp):
+            with self.assertRaises(TTSGenericError) as ctx:
+                generate_via_server(["Hello"], "clone", _CONFIG, {})
+        self.assertIn("results", str(ctx.exception))
+        self.assertIn("status", str(ctx.exception))
+
+    def test_results_none_raises_clear_error(self):
+        """A 200 response with 'results' explicitly set to None also raises a clear error."""
+        # Arrange
+        resp = self._mock_response(200, {"results": None})
+        patches = self._base_patches()
+
+        # Act / Assert
+        with patches["url"], patches["payload"], patches["poller"], \
+             patch("qwen3_tts.core.http_client.server_request", return_value=resp):
+            with self.assertRaises(TTSGenericError):
+                generate_via_server(["Hello"], "clone", _CONFIG, {})
+
+
+@pytest.mark.unit
+@_skip
+class TestGenerateStreamingNetworkFailure(unittest.TestCase):
+    """Tests for generate_streaming() network-failure exception type."""
+
+    def _base_patches(self):
+        return {
+            "url": patch(f"{_MOD}.get_server_url", return_value="http://127.0.0.1:5123"),
+            "payload": patch(f"{_MOD}._build_generation_payload", return_value={}),
+            "play": patch(f"{_MOD}.play_audio"),
+        }
+
+    def test_request_exception_raises_connection_error(self):
+        """A requests.exceptions.RequestException is re-raised as ConnectionError, chained via 'from e'."""
+        # Arrange
+        import requests as req_mod
+
+        from qwen3_tts.interface.generate_server import generate_streaming
+
+        original = req_mod.exceptions.ConnectionError("refused")
+        patches = self._base_patches()
+
+        # Act / Assert
+        with patches["url"], patches["payload"], patches["play"], \
+             patch("qwen3_tts.core.http_client.server_request", side_effect=original), \
+             patch("builtins.print"):
+            with self.assertRaises(ConnectionError) as ctx:
+                generate_streaming("Hello", "clone", _CONFIG, {}, "/tmp/out.wav")
+        self.assertIn("Streaming request failed", str(ctx.exception))
+        self.assertIs(ctx.exception.__cause__, original)
 
 
 if __name__ == "__main__":
