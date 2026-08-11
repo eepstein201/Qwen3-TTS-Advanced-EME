@@ -23,6 +23,15 @@ except ImportError:
     HAS_MLX_AUDIO = False
 
 
+class _NoOpConfig:
+    """Config provider with no post-processing enabled, so dispatch tests do not
+    depend on whatever the developer's local config.json happens to set."""
+
+    @staticmethod
+    def load():
+        return {"generation": {}}
+
+
 class TestBackendDispatch(unittest.TestCase):
     """Test that public API dispatches to correct backend functions."""
 
@@ -43,26 +52,43 @@ class TestBackendDispatch(unittest.TestCase):
         self.assertEqual(result, "mlx_model")
 
     def test_run_inference_dispatch_torch(self):
+        import numpy as np
+
         from qwen3_tts.core.engine import run_inference
+
+        # WS2: run_inference post-processes the strategy's output, so the fake
+        # must be audio-like (a placeholder string now fails validation), and
+        # the config is stubbed so a local clone_speed can't stretch it.
+        fake_audio = np.array([0.1, 0.2], dtype=np.float32)
         with patch("qwen3_tts.core.engine.inference.get_backend", return_value="torch"):
             # Patch the registry entry for torch backend
             with patch.dict(
                 "qwen3_tts.core.engine.inference._INFERENCE_STRATEGIES",
-                {"torch": lambda *args, **kwargs: ("wav", 24000)}
+                {"torch": lambda *args, **kwargs: (fake_audio, 24000)}
             ):
-                result = run_inference("model", "text", "clone", {})
-        self.assertEqual(result, ("wav", 24000))
+                result = run_inference(
+                    "model", "text", "clone", {}, config_provider=_NoOpConfig
+                )
+        np.testing.assert_array_equal(result[0], fake_audio)
+        self.assertEqual(result[1], 24000)
 
     def test_run_inference_dispatch_mlx(self):
+        import numpy as np
+
         from qwen3_tts.core.engine import run_inference
+
+        fake_audio = np.array([0.1, 0.2], dtype=np.float32)
         with patch("qwen3_tts.core.engine.inference.get_backend", return_value="mlx"):
             # Patch the registry entry for mlx backend
             with patch.dict(
                 "qwen3_tts.core.engine.inference._INFERENCE_STRATEGIES",
-                {"mlx": lambda *args, **kwargs: ("wav", 24000)}
+                {"mlx": lambda *args, **kwargs: (fake_audio, 24000)}
             ):
-                result = run_inference("model", "text", "design", {})
-        self.assertEqual(result, ("wav", 24000))
+                result = run_inference(
+                    "model", "text", "design", {}, config_provider=_NoOpConfig
+                )
+        np.testing.assert_array_equal(result[0], fake_audio)
+        self.assertEqual(result[1], 24000)
 
 
 @unittest.skipIf(not HAS_MLX, "mlx not installed")

@@ -843,7 +843,9 @@ async def websocket_endpoint(
     def _verify_token(token: str) -> bool:
         return secrets.compare_digest(token, state.auth_token)
 
-    await websocket_tts_handler(websocket, state, _verify_token)
+    await websocket_tts_handler(
+        websocket, state, _verify_token, _app_config_provider
+    )
 
 
 @app.post("/shutdown")

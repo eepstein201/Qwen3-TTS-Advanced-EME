@@ -67,6 +67,7 @@ async def websocket_tts_handler(
     websocket: WebSocket,
     app_state,
     verify_token_fn,
+    config_provider=None,
 ) -> None:
     """Handle a WebSocket connection for bidirectional TTS streaming.
 
@@ -221,6 +222,7 @@ async def websocket_tts_handler(
                     data=data,
                     stop_event=stop_event,
                     disconnect_event=disconnect_event,
+                    config_provider=config_provider,
                 )
             except (ValueError, KeyError, json.JSONDecodeError) as e:
                 # Client validation errors - bad request data
@@ -262,6 +264,7 @@ async def _stream_generation(
     data: dict,
     stop_event: threading.Event,
     disconnect_event: threading.Event,
+    config_provider=None,
 ) -> None:
     """Run TTS generation and stream audio chunks over WebSocket.
 
@@ -406,6 +409,8 @@ async def _stream_generation(
                 speaker=req.speaker,
                 instruct=req.instruct,
                 x_vector_only_mode=req.x_vector_only_mode,
+                max_chunk_chars=req.max_chunk_chars,
+                config_provider=config_provider,
             ):
                 if stop_event.is_set():
                     break

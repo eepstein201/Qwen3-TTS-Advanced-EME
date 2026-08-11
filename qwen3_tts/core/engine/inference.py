@@ -1100,6 +1100,45 @@ def _set_seed_for_backend(seed: int | None) -> None:
         torch.manual_seed(seed)
 
 
+def _postprocess_chunk(
+    audio,
+    sample_rate,
+    gen_params,
+    mode,
+    config,
+    reference_text=None,
+    x_vector_only_mode=False,
+):
+    """Per-chunk post-processing shared by the batch and streaming paths (WS2).
+
+    Applies every step that is computable from a single chunk, in the order the
+    batch path has always used: ICL echo trim (it removes generated content, so
+    it must run first), then clone rate control, then audio validation.
+
+    ``_maybe_apply_lufs`` is deliberately NOT here. EBU R128 integrated loudness
+    applies a relative gate derived from the block statistics of the *whole*
+    signal, so it cannot be computed incrementally over chunks. The batch path
+    applies it once after combining; the streaming paths skip it. That
+    divergence is architectural, not an oversight — see
+    tests/test_engine_streaming.py::test_lufs_stays_batch_only.
+
+    Returns (audio, sample_rate); the sample rate never changes.
+    """
+    audio, sample_rate = _trim_icl_echo(
+        audio,
+        sample_rate,
+        reference_text,
+        mode,
+        x_vector_only_mode,
+        config=config,
+    )
+    audio, sample_rate = _maybe_apply_speed(
+        audio, sample_rate, gen_params, mode, config=config
+    )
+    audio = _validate_audio(audio, sample_rate, mode=mode)
+    return audio, sample_rate
+
+
 # ---------------------------------------------------------------------------
 # Public dispatch API
 # ---------------------------------------------------------------------------
@@ -1166,17 +1205,17 @@ def run_inference(
             x_vector_only_mode=x_vector_only_mode,
         )
         config = (config_provider or _DEFAULT_CONFIG_LOADER).load()
-        # Echo trim first (it removes generated content), then rate, then
-        # loudness — LUFS must measure the audio that actually ships.
-        wav, sr = _trim_icl_echo(
+        # Shared per-chunk steps, then loudness — LUFS is batch-only and must
+        # measure the audio that actually ships.
+        wav, sr = _postprocess_chunk(
             wav,
             sr,
-            reference_text or _reference_text_from_prompt(voice_prompt),
+            gen_params,
             mode,
-            x_vector_only_mode,
-            config=config,
+            config,
+            reference_text=reference_text or _reference_text_from_prompt(voice_prompt),
+            x_vector_only_mode=x_vector_only_mode,
         )
-        wav, sr = _maybe_apply_speed(wav, sr, gen_params, mode, config=config)
         wav, sr = _maybe_apply_lufs(wav, sr, config=config)
         return wav, sr
 
@@ -1242,18 +1281,17 @@ def run_inference(
     else:
         result = _crossfade_chunks(all_audio, sample_rate, crossfade_ms=50)
 
-    # Echo trim first (it removes generated content), then rate, then
-    # loudness — LUFS must measure the audio that actually ships.
-    result, sample_rate = _trim_icl_echo(
+    # Shared per-chunk steps run on the combined audio here (echo trim targets
+    # the head of the whole generation), then loudness — LUFS is batch-only and
+    # must measure the audio that actually ships.
+    result, sample_rate = _postprocess_chunk(
         result,
         sample_rate,
-        reference_text or _reference_text_from_prompt(voice_prompt),
+        gen_params,
         mode,
-        x_vector_only_mode,
-        config=config,
-    )
-    result, sample_rate = _maybe_apply_speed(
-        result, sample_rate, gen_params, mode, config=config
+        config,
+        reference_text=reference_text or _reference_text_from_prompt(voice_prompt),
+        x_vector_only_mode=x_vector_only_mode,
     )
     result, sample_rate = _maybe_apply_lufs(result, sample_rate, config=config)
 
@@ -1429,10 +1467,12 @@ def run_inference_streaming(
         logger.info(
             "Starting streaming inference [mlx]: %d text chunk(s)", chunk_total
         )
+        ref_text = _reference_text_from_prompt(voice_prompt)
+        emitted = 0
         for i, chunk in enumerate(chunks):
             if progress_callback:
                 progress_callback(i + 1, chunk_total)
-            yield from _run_inference_mlx_streaming(
+            for wav_chunk, chunk_sr in _run_inference_mlx_streaming(
                 model,
                 chunk,
                 mode,
@@ -1445,7 +1485,20 @@ def run_inference_streaming(
                 x_vector_only_mode=x_vector_only_mode,
                 config=config,
                 progress_callback=None,  # text-chunk progress reported above
-            )
+            ):
+                wav_chunk, chunk_sr = _postprocess_chunk(
+                    wav_chunk,
+                    chunk_sr,
+                    gen_params,
+                    mode,
+                    config,
+                    # An ICL echo sits at the head of the generation, so only
+                    # the first emitted chunk can contain one.
+                    reference_text=ref_text if emitted == 0 else None,
+                    x_vector_only_mode=x_vector_only_mode,
+                )
+                emitted += 1
+                yield wav_chunk, chunk_sr
     else:
         # Torch fallback: chunk the text and yield per-chunk audio
         logger.info("Starting chunked streaming [torch fallback]")
@@ -1474,6 +1527,18 @@ def run_inference_streaming(
                 voice_description,
                 speaker,
                 instruct,
+                x_vector_only_mode=x_vector_only_mode,
+            )
+            wav, sr = _postprocess_chunk(
+                wav,
+                sr,
+                gen_params,
+                mode,
+                config,
+                # Echo trim applies to the head of the generation only.
+                reference_text=(
+                    _reference_text_from_prompt(voice_prompt) if i == 0 else None
+                ),
                 x_vector_only_mode=x_vector_only_mode,
             )
             yield wav, sr

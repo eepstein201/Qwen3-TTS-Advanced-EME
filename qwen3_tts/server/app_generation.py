@@ -694,6 +694,7 @@ async def handle_generate_stream(request, state, req, security, config_provider)
                         speaker=speaker,
                         instruct=instruct,
                         x_vector_only_mode=x_vector_only_mode,
+                        max_chunk_chars=req.max_chunk_chars,
                         config_provider=config_provider,
                         progress_callback=_chunk_progress,
                     ):
