@@ -202,12 +202,19 @@ conda run -n qwen3-tts-mlx python -m pytest tests/test_e2e_security_auth.py -m e
 - **WS3 — done** on branch `worktree-crash-hardening` (6 items, 5 commits). Gates at time of
   completion: full non-e2e suite **2734 passed / 6 skipped / 0 failed**, ruff clean, mypy clean
   (53 files), bandit 0 High/Medium/Low, batches 1 and 4 green.
-- **WS2, WS4–WS9 — not started.**
+- **WS2 — done** on branch `refactor/unify-streaming-pipeline`. Deviations from the plan as written, all deliberate:
+  - **Task 2.1** was written as throwaway baseline tests asserting today's divergence, to be inverted in 2.3. Written instead in final form (TDD red→green) so no assertion is authored only to be reversed; the measured baseline is recorded in the commit message. The one permanent characterization is `test_lufs_stays_batch_only`.
+  - **Task 2.3's** "stream ignores `max_chunk_chars`" was stale for the engine — `run_inference_streaming` already chunks for MLX. The silent-ignore was at the *call sites*: `/generate-stream` omitted `max_chunk_chars`, and `/ws` omitted both it and `config_provider` despite parsing `req.max_chunk_chars`. Both now forward them (`config_provider` threaded through `websocket_tts_handler` as a defaulted keyword).
+  - **Task 2.4** was already delivered by PR #153 (generation_id ownership guard + visibility test); verified, not reimplemented.
+  - **Extra, found during 2.3:** `_run_inference_mlx_streaming` never validated its chunks, so streaming could emit NaN audio the batch path corrects. The shared helper closes it.
+  - **Extra, out of plan scope:** `_STREAM_THREAD_JOIN_TIMEOUT_SEC` was a fixed 90 s sized for the 500-char chunk default. Raising `max_chunk_chars` would expire the join mid-generation and release `inference_lock` while the model was still on the GPU. Now `_stream_thread_join_timeout(text_len, max_chunk_chars)`.
+  - Gates: non-e2e suite **2757 passed / 5 skipped**, batches 1/3/4 green, ruff and mypy clean.
+- **WS4–WS9 — not started.**
 
 ## Acceptance
 - [x] WS1 HIGHs each have a regression test (fails before / passes after)
 - [ ] WS2–WS4 remaining HIGHs each have a regression test (fails before / passes after)
-- [ ] WS2 streaming output matches batch for per-chunk processing (equivalence tests green)
+- [x] WS2 streaming output matches batch for per-chunk processing (equivalence tests green)
 - [ ] Every workstream passes ruff + mypy + bandit + `pytest -m "not e2e"`
 - [ ] No new `# type: ignore`, no bare `except:`, no mutable defaults introduced
 - [ ] Feature branches only; no commits to main

@@ -238,6 +238,15 @@ async def websocket_tts_handler(
                 from qwen3_tts.server.app_lifespan import _sanitize_error
 
                 await websocket.send_json({"error": _sanitize_error(str(e))})
+                # RFC 6455 §7.4.1: 1011 means the server hit an unexpected
+                # condition. Without an explicit close code the socket ends as a
+                # normal 1000, so a client that missed the error message reads a
+                # server-side failure as a clean finish (WS2 2.5, the WebSocket
+                # counterpart of the HTTP terminal error frame).
+                with contextlib.suppress(RuntimeError):
+                    await websocket.close(
+                        code=1011, reason="Generation failed"
+                    )
             finally:
                 watcher.cancel()
                 with contextlib.suppress(asyncio.CancelledError, Exception):

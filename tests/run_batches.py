@@ -158,6 +158,7 @@ BATCHES = {
             "tests.test_engine_vllm_validation",
             "tests.test_vllm_async_nonblocking",
             "tests.test_vllm_tempfile_cleanup",
+            "tests.test_stream_error_frame",
         ],
         "timeout": 180,  # Higher timeout for async operations
     },
