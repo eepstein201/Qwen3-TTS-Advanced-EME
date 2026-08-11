@@ -16,9 +16,14 @@ import argparse
 import importlib.util
 import json
 import os
+import signal
 import subprocess
 import sys
 from pathlib import Path
+
+# Grace period for a timed-out child to print its faulthandler stack dump after
+# SIGABRT, before we escalate to SIGKILL.
+_ABORT_GRACE_SECONDS = 10
 
 # Tests run with rate limiting DISABLED (mirrors run_full_suite.py). The
 # unittest batch runner does not fire pytest's autouse reset_rate_limiters
@@ -59,6 +64,13 @@ BATCHES = {
             "tests.test_healthcheck_ext",
             "tests.test_model_cache",
             "tests.test_model_cache_commands",
+            "tests.test_batches_coverage",
+            "tests.test_claude_md",
+            "tests.test_default_presets",
+            "tests.test_extract_error",
+            "tests.test_generation_defaults",
+            "tests.test_quick_wins_regressions",
+            "tests.test_audio_pipeline",
         ],
         "timeout": 90,  # Quick tests
     },
@@ -85,6 +97,10 @@ BATCHES = {
             "tests.test_caching",
             "tests.test_server_helpers",
             "tests.test_ui_audio_reset",
+            "tests.test_voice",
+            "tests.test_cli_model_size_choices",
+            "tests.test_cli_server_restart",
+            "tests.test_cli_voice_rebuild",
         ],
         "timeout": 180,
     },
@@ -125,6 +141,23 @@ BATCHES = {
             "tests.test_streaming_thread_lifecycle",
             "tests.test_batch_generation_state_ownership",
             "tests.test_model_swap_recovery",
+            "tests.test_asr_endpoints",
+            "tests.test_body_size_limit",
+            "tests.test_client_generation_timeout",
+            "tests.test_create_voice_endpoint",
+            "tests.test_generation_lock_scope",
+            "tests.test_models_loading_flag",
+            "tests.test_python_review_fixes",
+            "tests.test_server_async_offload",
+            "tests.test_server_peaks",
+            "tests.test_streaming_chunk_total",
+            "tests.test_validation_ext",
+            "tests.test_server_vllm_integration",
+            "tests.test_engine_vllm_docker_validation",
+            "tests.test_engine_vllm_optimization",
+            "tests.test_engine_vllm_validation",
+            "tests.test_vllm_async_nonblocking",
+            "tests.test_vllm_tempfile_cleanup",
         ],
         "timeout": 180,  # Higher timeout for async operations
     },
@@ -154,6 +187,19 @@ BATCHES = {
             "tests.test_wavesurfer_security",
             "tests.test_wavesurfer_selfhost",
             "tests.test_model_loader_extended",
+            "tests.test_history_disk_rederive",
+            "tests.test_history_download",
+            "tests.test_history_hard_delete",
+            "tests.test_peaks_integration",
+            "tests.test_ui_a11y_announcer",
+            "tests.test_ui_confirm_patterns",
+            "tests.test_ui_facade_model_sizes",
+            "tests.test_ui_history_helpers",
+            "tests.test_ui_progress_indicator",
+            "tests.test_ui_shared_metadata",
+            "tests.test_ui_shared_paths",
+            "tests.test_ui_status_banner",
+            "tests.test_ui_tab_select_wiring",
         ],
         "timeout": 480,  # Engine & UI — macos CI runners run ~3-4x slower than linux
     },
@@ -176,6 +222,8 @@ BATCHES = {
             "tests.evaluations.test_wer",
             "tests.evaluations.test_speaker_similarity",
             "tests.evaluations.test_llm_judge",
+            "tests.test_install_script",
+            "tests.test_ai_regression",
         ],
         "timeout": 600,  # speaker_similarity loads WavLM (~300MB) + runs inference under memory pressure
     },
@@ -323,33 +371,55 @@ def run_batch(
         print(f"Running: {' '.join(cmd)}")
         print()
 
+    # PYTHONFAULTHANDLER makes the child install faulthandler's SIGABRT handler,
+    # which is what lets the timeout path below dump every thread's stack. On a
+    # normal run it costs nothing and changes no behaviour.
+    child_env = {**os.environ, "PYTHONFAULTHANDLER": "1"}
+
     try:
-        result = subprocess.run(
+        proc = subprocess.Popen(
             cmd,
-            timeout=timeout,
-            capture_output=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
             text=True,
-            check=False,
+            env=child_env,
         )
 
-        output = result.stdout + result.stderr
+        try:
+            stdout, stderr = proc.communicate(timeout=timeout)
+        except subprocess.TimeoutExpired:
+            # A hung batch used to be SIGKILLed, which told us *that* it hung but
+            # never *where*. SIGABRT first: faulthandler prints all thread stacks
+            # to stderr, so the hang arrives diagnosable instead of anonymous.
+            # Escalate to kill if the child ignores it (e.g. blocked in C code).
+            proc.send_signal(signal.SIGABRT)
+            try:
+                stdout, stderr = proc.communicate(timeout=_ABORT_GRACE_SECONDS)
+            except subprocess.TimeoutExpired:
+                proc.kill()
+                stdout, stderr = proc.communicate()
+
+            msg = (
+                f"ERROR: Batch {batch_num} timed out after {timeout}s\n"
+                f"--- stack dump of the hung process (all threads) ---\n"
+                f"{stderr or '(no stack dump — child died before faulthandler ran)'}"
+            )
+            if verbose:
+                print(colorize(msg, Colors.RED))
+
+            # Cleanup Playwright context
+            if playwright_context:
+                playwright_context.__exit__(None, None, None)
+
+            return False, msg
+
+        output = stdout + stderr
 
         # Cleanup Playwright context
         if playwright_context:
             playwright_context.__exit__(None, None, None)
 
-        return result.returncode == 0, output
-
-    except subprocess.TimeoutExpired:
-        msg = f"ERROR: Batch {batch_num} timed out after {timeout}s"
-        if verbose:
-            print(colorize(msg, Colors.RED))
-
-        # Cleanup Playwright context
-        if playwright_context:
-            playwright_context.__exit__(None, None, None)
-
-        return False, msg
+        return proc.returncode == 0, output
 
     except Exception as e:
         msg = f"ERROR: Batch {batch_num} failed with exception: {e}"

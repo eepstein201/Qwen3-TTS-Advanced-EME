@@ -129,6 +129,26 @@ def _is_mlx_backend():
 
 
 class TestASRThreadSafety(unittest.TestCase):
+    def _restore_asr_globals(self, asr):
+        """Snapshot the ASR module globals and restore them after the test.
+
+        The thread-safety tests below deliberately null ``_asr_model_mlx`` and
+        then race real ``load_asr_model()`` calls into it, which leaves a mock
+        model in the module global. Left set, ``is_asr_loaded()`` returns True
+        for the remainder of the process, so any later test expecting an
+        unloaded ASR sees "already_loaded" instead of "loaded" —
+        tests/test_asr_endpoints.py fails exactly that way inside the batch
+        runner while passing when run alone.
+        """
+        saved_mlx = asr._asr_model_mlx
+        saved_torch = asr._asr_model_torch
+
+        def _restore():
+            asr._asr_model_mlx = saved_mlx
+            asr._asr_model_torch = saved_torch
+
+        self.addCleanup(_restore)
+
     """Test that ASR model loading is thread-safe."""
 
     def test_asr_lock_exists(self):
@@ -150,6 +170,8 @@ class TestASRThreadSafety(unittest.TestCase):
     def test_asr_mlx_thread_safety(self):
         """Concurrent load_asr_model() calls should only load model once for MLX backend."""
         from qwen3_tts.core.engine import asr
+
+        self._restore_asr_globals(asr)
 
         # Track how many times the MLX model loader is called
         load_count = {"count": 0}
@@ -198,6 +220,8 @@ class TestASRThreadSafety(unittest.TestCase):
     def test_asr_mlx_transcribe_thread_safety(self):
         """Concurrent _transcribe_mlx calls should only load model once."""
         from qwen3_tts.core.engine import asr
+
+        self._restore_asr_globals(asr)
 
         # Track how many times the MLX model loader is called
         load_count = {"count": 0}
