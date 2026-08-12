@@ -1,8 +1,10 @@
-<!-- Generated: 2026-08-10 | Token estimate: ~400 -->
+<!-- Generated: 2026-08-12 | Token estimate: ~430 -->
 
 # Data & Storage — Qwen3-TTS
 
 No database. Persistence = config JSON + filesystem.
+
+**Load/save contract** (`core/config/io.py`): `save_config` is atomic (temp file + `os.replace`). `load_config` never silently falls back to defaults — a non-dict or unusable `config.json` raises `ValueError` naming the path and the `tts config` reset (WS3, #157), so real user settings can't be quietly ignored.
 
 ## config.json (canonical schema)
 - **advanced**: `backend` (mlx/torch/vllm), `model_size` (1.7B/0.6B), `mlx_quantization` (4–8bit/bf16), `torch_quantization` (none/8bit/4bit), `audio_loader` (torchaudio/librosa), `attn_implementation` (auto = SDPA)

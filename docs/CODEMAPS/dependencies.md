@@ -1,4 +1,4 @@
-<!-- Generated: 2026-08-10 | Token estimate: ~400 -->
+<!-- Generated: 2026-08-12 | Token estimate: ~420 -->
 
 # Dependencies — Qwen3-TTS
 
@@ -16,7 +16,9 @@ Note: FA2 NaN risk (upstream #333) → default SDPA. A `transformers<5` cap re-b
 `pyrubberband` (primary, needs `rubberband` binary) + `librosa` (fallback) · `soundfile` · EBU R128 LUFS normalization (optional).
 
 ## Server / UI
-FastAPI + uvicorn · slowapi (rate-limit) · Gradio (pin `!=6.14.*`) · Click (CLI)
+`fastapi>=0.141.1` · `starlette>=1.6.0,<2` (explicit floor, #167 — not a bare transitive) · `uvicorn[standard]>=0.52.1` · `slowapi>=0.1.10` · `gradio>=6.0.0,!=6.14.*,<7` · Click (CLI)
+
+Gradio floor is capped in practice: `>=6.15` needs `huggingface-hub>=1.2`, which `transformers<4.58` (torch env) forbids. Do not raise it.
 
 ## Process management
 PM2 — `ecosystem.config.cjs`, service `tts-server-5123` (conda: `qwen3-tts-mlx`), port 5123.

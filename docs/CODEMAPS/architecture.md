@@ -1,4 +1,4 @@
-<!-- Generated: 2026-08-10 | Files scanned: 71 .py (25k LOC) | Token estimate: ~450 -->
+<!-- Generated: 2026-08-12 | Files scanned: 71 .py (25.3k LOC) | Token estimate: ~470 -->
 
 # Architecture — Qwen3-TTS
 
@@ -18,7 +18,9 @@ config.json → core.config → core.engine (dispatch on advanced.backend)
 - **interface/** — `cli.py` (Click groups) + `generate*.py` (CLI gen) + `cli/` (batch, srt, dialogue) + `ui/` (Gradio)
 
 ## Generation flow
-`text → _prepare_text_chunks (≤max_chunk_chars) → backend.generate → audio → post-proc (ASR echo-trim, phase-align splice, rate stretch, LUFS norm) → output file + history`
+`text → _prepare_text_chunks (≤max_chunk_chars) → backend.generate → _postprocess_chunk → combine (phase-align crossfade) → LUFS norm → output file + history`
+
+**Unified pipeline (WS2, #160):** `engine/inference.py::_postprocess_chunk` (echo-trim → clone speed → audio validation) is called by BOTH `run_inference` and `run_inference_streaming`, both backends — streaming output matches batch. LUFS is deliberately outside it (EBU R128 gates over the whole signal), so batch-only.
 
 ## Principles
 - Lazy imports everywhere (no torch/mlx at module scope)
@@ -26,5 +28,8 @@ config.json → core.config → core.engine (dispatch on advanced.backend)
 - 3 distinct HF models (Clone / Design / Custom)
 
 ## Heaviest modules (LOC)
-inference.py 1532 · generate.py 902 · app.py 864 · ui/shared.py 803 · app_generation.py 788
-_(inference.py >800-line guideline — known structural debt)_
+inference.py 1600 · app.py 963 · generate.py 902 · app_generation.py 858 · ui/shared.py 803 · generate_interactive.py 781
+_(inference.py + app.py exceed the 800-line guideline — known structural debt)_
+
+## Layer size
+core/ 6.9k · server/ 5.8k · interface/ui/ 4.8k · tests/ 166 modules, 2746 tests
