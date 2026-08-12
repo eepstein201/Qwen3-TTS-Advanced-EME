@@ -352,12 +352,31 @@ class TestWiredIntoRunInference(unittest.TestCase):
 
         return inspect.getsource(run_inference)
 
+    def _helper_source(self):
+        """WS2 moved the per-chunk steps into the shared _postprocess_chunk."""
+        import inspect
+
+        from qwen3_tts.core.engine.inference import _postprocess_chunk
+
+        return inspect.getsource(_postprocess_chunk)
+
     def test_run_inference_calls_trim(self):
-        self.assertIn("_trim_icl_echo", self._source())
+        self.assertIn("_trim_icl_echo", self._helper_source())
 
     def test_both_paths_call_trim(self):
         """Single-chunk returns early, so each path needs its own call."""
-        self.assertGreaterEqual(self._source().count("_trim_icl_echo"), 2)
+        self.assertGreaterEqual(self._source().count("_postprocess_chunk"), 2)
+
+    def test_streaming_path_also_trims(self):
+        """WS2: the streaming paths run the same helper, so the echo trim is
+        no longer batch-only. Both backend branches must call it."""
+        import inspect
+
+        from qwen3_tts.core.engine.inference import run_inference_streaming
+
+        self.assertGreaterEqual(
+            inspect.getsource(run_inference_streaming).count("_postprocess_chunk"), 2
+        )
 
     def test_accepts_reference_text_argument(self):
         import inspect
@@ -369,10 +388,19 @@ class TestWiredIntoRunInference(unittest.TestCase):
         self.assertIsNone(params["reference_text"].default)
 
     def test_trim_runs_before_lufs(self):
-        """Trim first so loudness measures only the audio that ships."""
+        """Trim first so loudness measures only the audio that ships.
+
+        The trim moved into _postprocess_chunk (WS2), so the ordering is now
+        "helper before LUFS" in run_inference, plus "trim before speed" inside
+        the helper.
+        """
+        self.assertLess(
+            self._helper_source().index("_trim_icl_echo"),
+            self._helper_source().index("_maybe_apply_speed"),
+        )
         source = self._source()
         self.assertLess(
-            source.index("_trim_icl_echo"), source.index("_maybe_apply_lufs")
+            source.index("_postprocess_chunk"), source.index("_maybe_apply_lufs")
         )
 
 

@@ -241,20 +241,36 @@ class TestWiredIntoRunInference(unittest.TestCase):
 
         return inspect.getsource(run_inference)
 
+    def _helper_source(self):
+        """WS2 moved the per-chunk steps into the shared _postprocess_chunk."""
+        import inspect
+
+        from qwen3_tts.core.engine.inference import _postprocess_chunk
+
+        return inspect.getsource(_postprocess_chunk)
+
     def test_run_inference_applies_speed(self):
-        self.assertIn("_maybe_apply_speed", self._source())
+        self.assertIn("_maybe_apply_speed", self._helper_source())
 
     def test_both_single_and_multi_chunk_paths_apply_speed(self):
         """Single-chunk returns early, so each path needs its own call."""
-        self.assertGreaterEqual(self._source().count("_maybe_apply_speed"), 2)
+        self.assertGreaterEqual(self._source().count("_postprocess_chunk"), 2)
 
     def test_speed_is_applied_before_lufs(self):
-        """LUFS must measure the stretched audio, not the pre-stretch audio."""
+        """LUFS must measure the stretched audio, not the pre-stretch audio.
+
+        Speed now lives in _postprocess_chunk, so the ordering guarantee is
+        "run_inference calls the helper before LUFS" plus "the helper applies
+        speed". LUFS stays batch-only and must remain outside the helper.
+        """
         source = self._source()
         self.assertLess(
-            source.index("_maybe_apply_speed"),
+            source.index("_postprocess_chunk"),
             source.index("_maybe_apply_lufs"),
         )
+        self.assertIn("_maybe_apply_speed", self._helper_source())
+        # Match a call, not the docstring that explains the deliberate absence.
+        self.assertNotIn("_maybe_apply_lufs(", self._helper_source())
 
 
 if __name__ == "__main__":

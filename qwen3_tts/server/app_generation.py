@@ -7,6 +7,7 @@ These are plain async functions called by thin endpoint wrappers in app.py.
 import asyncio
 import base64
 import io
+import json
 import logging
 import os
 import secrets
@@ -54,7 +55,55 @@ def _should_stop_streaming(stop_event, generation_state) -> bool:
     return stop_event.is_set() or bool(generation_state.get("cancelled"))
 
 
-_STREAM_THREAD_JOIN_TIMEOUT_SEC: float = 90.0  # one <=500-char chunk on slow macOS CI ~30-60s; 90s margin
+# Floor for the streaming inference thread join. The wait must cover ONE chunk's
+# generation; on slow macOS CI a 500-char chunk takes ~30-60 s, so 90 s is the
+# margin for default-sized chunks.
+_STREAM_THREAD_JOIN_FLOOR_SEC: float = 90.0
+
+# Conservative per-character generation cost, matching TTSClient's
+# _generation_timeout (server/client/generator.py). Chunks generate sequentially
+# at ~40-70 s each on MLX/M2 Pro for ~500 chars.
+_STREAM_SECONDS_PER_CHAR: float = 0.25
+
+
+def _stream_thread_join_timeout(
+    text_len: int, max_chunk_chars: int | None = None
+) -> float:
+    """Seconds to wait for the streaming inference thread to finish its chunk.
+
+    Must scale with ``max_chunk_chars``: a fixed timeout sized for the 500-char
+    default expires mid-generation once the limit is raised, and the caller then
+    releases ``inference_lock`` while the model is still running on the GPU —
+    the exact race this join exists to prevent. Never reintroduce a constant
+    here (same failure mode as the old hardcoded ``timeout=600`` in
+    generate_via_server).
+
+    ``max_chunk_chars`` of 0/None disables chunking, so the whole text is
+    generated in one call and the bound is the full text length.
+    """
+    effective_chars = (
+        min(max_chunk_chars, text_len) if max_chunk_chars else text_len
+    )
+    return max(_STREAM_THREAD_JOIN_FLOOR_SEC, effective_chars * _STREAM_SECONDS_PER_CHAR)
+
+
+# Back-compat alias: existing callers/tests reference the old constant name.
+_STREAM_THREAD_JOIN_TIMEOUT_SEC: float = _STREAM_THREAD_JOIN_FLOOR_SEC
+
+# Terminal error frame for the length-prefixed streaming wire format (WS2 2.5).
+# Frames are [sample_rate:4][length:4][payload:length]; a real chunk always
+# carries a non-zero sample rate, so 0 is a free sentinel. The payload is JSON
+# {"error": str, "code": str}. The client mirror of this constant lives in
+# qwen3_tts/interface/generate_server.py and is kept in lockstep by
+# tests/test_stream_error_frame.py.
+STREAM_ERROR_SENTINEL_SR: int = 0
+STREAM_ERROR_CODE_INFERENCE_FAILED = "inference_failed"
+
+
+def encode_stream_error_frame(message: str, code: str = STREAM_ERROR_CODE_INFERENCE_FAILED) -> bytes:
+    """Build a terminal error frame for the streaming wire format."""
+    payload = json.dumps({"error": message, "code": code}).encode("utf-8")
+    return struct.pack("<II", STREAM_ERROR_SENTINEL_SR, len(payload)) + payload
 
 
 async def _await_inference_thread_done(
@@ -694,6 +743,7 @@ async def handle_generate_stream(request, state, req, security, config_provider)
                         speaker=speaker,
                         instruct=instruct,
                         x_vector_only_mode=x_vector_only_mode,
+                        max_chunk_chars=req.max_chunk_chars,
                         config_provider=config_provider,
                         progress_callback=_chunk_progress,
                     ):
@@ -753,12 +803,15 @@ async def handle_generate_stream(request, state, req, security, config_provider)
                     chunk_count += 1
             finally:
                 stop_event.set()
-                await _await_inference_thread_done(done)
+                join_timeout = _stream_thread_join_timeout(
+                    len(text), req.max_chunk_chars
+                )
+                await _await_inference_thread_done(done, timeout=join_timeout)
                 if not done.is_set():
                     logger.error(
                         "streaming inference thread did not stop within %ss; "
                         "releasing inference_lock",
-                        _STREAM_THREAD_JOIN_TIMEOUT_SEC,
+                        join_timeout,
                     )
                 # Reset generation state if still our generation
                 if state.generation_state.get("generation_id") == gen_id:
@@ -774,14 +827,21 @@ async def handle_generate_stream(request, state, req, security, config_provider)
                             "cancelled": False,
                         }
                     )
-            # False-success guard (H3): if the thread errored before delivering
-            # any chunk, raise so the client sees a broken connection instead of
-            # a silent empty 200 (Starlette commits 200 headers before iterating
-            # the body). Only fires on the normal-completion path (sentinel
-            # received -> break); on client disconnect the finally returns early
-            # via GeneratorExit/aclose and this code is skipped.
-            if thread_error[0] is not None and chunk_count == 0:
-                raise RuntimeError(thread_error[0])
+            # Terminal error frame (WS2 Task 2.5). Starlette commits the 200
+            # headers before the body is iterated, so once streaming starts we
+            # cannot signal failure with a status code. Raising here would just
+            # truncate the connection, which the client cannot distinguish from
+            # a network drop and which carries no error context. Instead emit an
+            # in-band terminal frame — sample_rate 0 is never valid for real
+            # audio — and let the stream end cleanly.
+            #
+            # This fires whether or not chunks were already delivered: a
+            # mid-stream failure used to be dropped entirely, so the client
+            # accepted truncated audio as a complete generation.
+            # On client disconnect the finally returns early via
+            # GeneratorExit/aclose and this code is skipped.
+            if thread_error[0] is not None:
+                yield encode_stream_error_frame(thread_error[0])
 
     return StreamingResponse(
         audio_stream_generator(),

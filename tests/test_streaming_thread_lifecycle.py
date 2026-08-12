@@ -81,6 +81,35 @@ async def _drain_streaming_response(response):
         pass
 
 
+async def _collect_streaming_response(response):
+    """Return the full streamed body so terminal frames can be inspected."""
+    body = b""
+    async for part in response.body_iterator:
+        body += part
+    return body
+
+
+def _terminal_error_from(body):
+    """Decode the in-band terminal error frame (WS2 2.5), or None if absent.
+
+    Frames are [sample_rate:4][length:4][payload:length]; a real audio chunk
+    never has sample_rate 0, so the sentinel identifies the error frame.
+    """
+    import json
+    import struct
+
+    from qwen3_tts.server.app_generation import STREAM_ERROR_SENTINEL_SR
+
+    offset = 0
+    while offset + 8 <= len(body):
+        sr, length = struct.unpack("<II", body[offset : offset + 8])
+        payload = body[offset + 8 : offset + 8 + length]
+        if sr == STREAM_ERROR_SENTINEL_SR:
+            return json.loads(payload.decode("utf-8"))
+        offset += 8 + length
+    return None
+
+
 def _reset_state(state):
     """Reset mutable state attributes between tests to avoid cross-pollution."""
     state.inference_lock = asyncio.Lock()
@@ -350,13 +379,17 @@ class TestStreamingThreadLifecycle(unittest.IsolatedAsyncioTestCase):
                 )
 
                 # Pre-fix: consumer deadlocks on queue.get() -> wait_for times
-                # out -> asyncio.TimeoutError (not RuntimeError) = RED.
-                # Post-fix: thread captures error, sends sentinel, consumer
-                # breaks, false-success guard raises RuntimeError = GREEN.
-                with self.assertRaises(RuntimeError):
-                    await asyncio.wait_for(
-                        _drain_streaming_response(response), timeout=5
-                    )
+                # out = RED. Post-fix: thread captures the error, sends the
+                # sentinel, the consumer breaks and emits a terminal error
+                # frame (WS2 2.5 — raising here would only truncate the
+                # connection, which the client cannot tell from a network drop).
+                body = await asyncio.wait_for(
+                    _collect_streaming_response(response), timeout=5
+                )
+                self.assertIsNotNone(
+                    _terminal_error_from(body),
+                    "stream ended without a terminal error frame",
+                )
         finally:
             _reset_state(state)
 
@@ -399,13 +432,18 @@ class TestStreamingThreadLifecycle(unittest.IsolatedAsyncioTestCase):
                     config_provider=None,
                 )
 
-                # Pre-fix: body drains cleanly (empty 200) -> assertRaises
-                # fails because no RuntimeError is raised = RED.
-                # Post-fix: false-success guard raises RuntimeError = GREEN.
-                with self.assertRaises(RuntimeError):
-                    await asyncio.wait_for(
-                        _drain_streaming_response(response), timeout=5
-                    )
+                # Pre-fix: body drains cleanly (silent empty 200) = RED.
+                # Post-fix: a terminal error frame carries the failure in band,
+                # so the client gets the reason instead of a bare truncated
+                # connection (WS2 2.5 superseded the raise-based guard).
+                body = await asyncio.wait_for(
+                    _collect_streaming_response(response), timeout=5
+                )
+                error = _terminal_error_from(body)
+                self.assertIsNotNone(
+                    error, "empty stream ended without a terminal error frame"
+                )
+                self.assertIn("boom", error["error"])
         finally:
             _reset_state(state)
 

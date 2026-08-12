@@ -5,6 +5,7 @@ Handles server-side generation (HTTP), streaming, local generation,
 server lifecycle, and UI launch.
 """
 
+import json
 import logging
 import os
 import subprocess  # nosec B404
@@ -23,6 +24,13 @@ class TTSGenericError(RuntimeError):
 # ~4 GB) — without a cap, a corrupt or hostile stream makes the reader wait
 # for and buffer an unbounded amount of data in memory.
 MAX_STREAM_CHUNK_BYTES = 200 * 1024 * 1024  # 200 MB
+
+# Terminal error frame sentinel (WS2 2.5). Mirrors
+# qwen3_tts.server.app_generation.STREAM_ERROR_SENTINEL_SR — duplicated rather
+# than imported so the CLI never pulls FastAPI in, and kept in lockstep by
+# tests/test_stream_error_frame.py. A real audio chunk always has a non-zero
+# sample rate, so 0 unambiguously marks an error frame whose payload is JSON.
+STREAM_ERROR_SENTINEL_SR = 0
 
 # get_server_url / load_config are part of this module's namespace contract: they
 # are patched by tests (see tests/test_generate_server.py). Keep them imported.
@@ -349,6 +357,23 @@ def generate_streaming(
                     total_chunk_size = header_size + audio_len
                     if len(buffer) < total_chunk_size:
                         break  # Need more data
+
+                    # Terminal error frame (WS2 2.5): the server cannot change
+                    # the status code once streaming has begun, so a mid-stream
+                    # failure arrives in band with sample_rate 0 — never valid
+                    # for real audio. Surface it as an error rather than
+                    # decoding JSON as float32 samples, and never treat the
+                    # partial audio already received as a complete generation.
+                    if sr == STREAM_ERROR_SENTINEL_SR:
+                        payload = buffer[header_size:total_chunk_size]
+                        try:
+                            detail = json.loads(payload.decode("utf-8"))
+                            message = detail.get("error", "unknown streaming error")
+                        except (ValueError, UnicodeDecodeError):
+                            message = "server reported a streaming error"
+                        raise TTSGenericError(
+                            f"Server error during streaming: {message}"
+                        )
 
                     if sample_rate is None:
                         sample_rate = sr

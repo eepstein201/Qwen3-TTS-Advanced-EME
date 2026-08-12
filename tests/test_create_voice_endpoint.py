@@ -187,16 +187,15 @@ class TestModelTableASRRow(unittest.TestCase):
             "model_size": "1.7B",
         }
 
-        mock_requests = MagicMock()
-        mock_requests.get.return_value = mock_resp
+        # get_model_table_data calls server_request (the single HTTP choke-point),
+        # so patching it directly is sufficient. Do NOT swap sys.modules["requests"]
+        # for a MagicMock: importing modules while that swap is live corrupts their
+        # import state on Python 3.10 and leaks into later tests (it broke
+        # test_stream_error_frame's server_request patch in batch 3).
+        from qwen3_tts.interface.ui import model_management as mm
 
-        with patch.dict("sys.modules", {"requests": mock_requests}):
-            # Force reimport to use the mocked requests
-
-            import qwen3_tts.interface.ui.model_management as mm
-            # Directly mock the requests.get call inside the function
-            with patch("qwen3_tts.core.http_client.server_request", return_value=mock_resp):
-                rows = mm.get_model_table_data()
+        with patch("qwen3_tts.core.http_client.server_request", return_value=mock_resp):
+            rows = mm.get_model_table_data()
 
         # Should have 4 rows: clone, design, custom, asr
         self.assertEqual(len(rows), 4)

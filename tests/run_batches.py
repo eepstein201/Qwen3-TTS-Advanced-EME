@@ -158,6 +158,7 @@ BATCHES = {
             "tests.test_engine_vllm_validation",
             "tests.test_vllm_async_nonblocking",
             "tests.test_vllm_tempfile_cleanup",
+            "tests.test_stream_error_frame",
         ],
         "timeout": 180,  # Higher timeout for async operations
     },
@@ -200,6 +201,7 @@ BATCHES = {
             "tests.test_ui_shared_paths",
             "tests.test_ui_status_banner",
             "tests.test_ui_tab_select_wiring",
+            "tests.test_engine_streaming",
         ],
         "timeout": 480,  # Engine & UI — macos CI runners run ~3-4x slower than linux
     },
