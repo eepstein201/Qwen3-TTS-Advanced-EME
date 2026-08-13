@@ -432,6 +432,7 @@ class TestGlobalUnauthFloodLimit:
         # 10/min generate limit and defaults much higher, so a fixed 15 would
         # no longer trip it.
         import re as _re
+
         from qwen3_tts.server.app import _global_limit
         _m = _re.match(r"(\d+)", _global_limit)
         _ceiling = int(_m.group(1)) if _m else 10
