@@ -14,6 +14,7 @@ import os
 import re as _re
 import secrets
 import sys
+import tempfile
 import threading
 import time
 from collections import deque
@@ -222,7 +223,14 @@ def _acquire_startup_lock():
 
 
 def _write_auth_token(token: str) -> None:
-    """Write the auth token file with restricted permissions.
+    """Write the auth token file atomically with restricted permissions.
+
+    Atomic: serialize to a temp file in the same directory, fsync, then
+    os.replace() onto TOKEN_FILE (atomic on POSIX). A concurrent reader (the
+    Gradio UI /models poll, CLI clients) therefore never observes an empty or
+    partially-written token -- the previous token stays valid until the new one
+    is fully in place. Mirrors the atomic writes used for config
+    (core/config/io.py) and the PID file (core/config/pid.py).
 
     Raises RuntimeError on failure. TTSClient discovers the token ONLY by
     reading TOKEN_FILE, so a write failure must abort startup rather than leave
@@ -231,9 +239,23 @@ def _write_auth_token(token: str) -> None:
     try:
         TOKEN_FILE.parent.mkdir(parents=True, exist_ok=True)
         os.chmod(TOKEN_FILE.parent, 0o700)
-        with open(TOKEN_FILE, "w") as f:
-            f.write(token)
-        os.chmod(TOKEN_FILE, 0o600)
+        fd, tmp_path = tempfile.mkstemp(
+            dir=TOKEN_FILE.parent, prefix=".voice_server_token.", suffix=".tmp"
+        )
+        try:
+            with os.fdopen(fd, "w") as f:
+                f.write(token)
+                f.flush()
+                os.fsync(f.fileno())
+            os.chmod(tmp_path, 0o600)
+            os.replace(tmp_path, TOKEN_FILE)
+        except BaseException:
+            # Leave any existing token untouched; clean up the temp file.
+            try:
+                os.unlink(tmp_path)
+            except OSError:
+                pass
+            raise
     except OSError as e:
         raise RuntimeError(f"Cannot write auth token to {TOKEN_FILE}: {e}") from e
     logger.info("Auth token written to %s", TOKEN_FILE)
