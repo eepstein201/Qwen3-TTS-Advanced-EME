@@ -7,6 +7,7 @@ auto-shutdown, ETA estimation, memory checking, error sanitization.
 
 import asyncio
 import atexit
+import fcntl
 import json
 import logging
 import os
@@ -20,6 +21,7 @@ from contextlib import asynccontextmanager
 
 from qwen3_tts.core.config import (
     HISTORY_FILE,
+    LOCK_FILE,
     TOKEN_FILE,
     cleanup_pid_file,
     get_backend,
@@ -189,6 +191,36 @@ def _check_memory_available() -> tuple[bool, int]:
     return True, available_mb
 
 
+def _acquire_startup_lock():
+    """Acquire an exclusive, non-blocking lock guarding the server-start race.
+
+    uvicorn's Server.startup() runs the ASGI lifespan startup (this function's
+    caller) BEFORE it attempts to bind the TCP port. A losing `tts server
+    start`/`tts ui` invocation that races an already-running (or
+    already-starting) instance therefore used to reach _write_auth_token()
+    and clobber the winner's still-valid token with one that belongs to a
+    process about to exit on its own bind failure — every authenticated
+    endpoint (including the Gradio UI's /models poll) then 401s against the
+    server that actually won and kept running. Acquiring this lock first, and
+    aborting startup immediately when it's already held, means a losing
+    process never reaches the token write at all.
+
+    Raises RuntimeError if another instance already holds the lock. Returns
+    the open file object — keep it referenced for the process lifetime;
+    closing it (or process exit) releases the lock.
+    """
+    fh = open(LOCK_FILE, "w")
+    try:
+        fcntl.flock(fh, fcntl.LOCK_EX | fcntl.LOCK_NB)
+    except OSError as e:
+        fh.close()
+        raise RuntimeError(
+            f"Another TTS server instance is already running or starting "
+            f"(lock held on {LOCK_FILE})"
+        ) from e
+    return fh
+
+
 def _write_auth_token(token: str) -> None:
     """Write the auth token file with restricted permissions.
 
@@ -325,6 +357,11 @@ async def _maybe_stop_vllm_adapter(state) -> None:
 @asynccontextmanager
 async def lifespan(app):
     """FastAPI lifespan — startup and shutdown."""
+    # Must be first: abort before touching any shared state (including
+    # TOKEN_FILE) if another instance is already running or starting.
+    # See _acquire_startup_lock for why this has to precede everything else.
+    lock_fh = _acquire_startup_lock()
+
     # Initialize app.state
     app.state.auth_token = secrets.token_hex(32)
     app.state.models = {"clone": None, "design": None, "custom": None}
@@ -424,6 +461,9 @@ async def lifespan(app):
             logger.info(f"Token file preserved for client use: {TOKEN_FILE}")
     except (FileNotFoundError, OSError):
         pass
+
+    fcntl.flock(lock_fh, fcntl.LOCK_UN)
+    lock_fh.close()
 
 
 def _background_load(app_state):

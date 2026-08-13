@@ -96,13 +96,15 @@ class TestLifespan(unittest.TestCase):
         async def _run():
             with patch(f"{_APP_LIFESPAN}.load_config", return_value=mock_config), \
                  patch(f"{_APP_LIFESPAN}.TOKEN_FILE", pathlib.Path("/tmp/test_token_xyz")), \
+                 patch(f"{_APP_LIFESPAN}._acquire_startup_lock", return_value=MagicMock()), \
                  patch(f"{_APP_LIFESPAN}._background_load"), \
                  patch(f"{_APP_LIFESPAN}.cleanup_resources"), \
                  patch(f"{_APP_LIFESPAN}.cleanup_pid_file"), \
                  patch("atexit.register"), \
                  patch("builtins.open", MagicMock()), \
                  patch("os.chmod"), \
-                 patch("os.unlink"):
+                 patch("os.unlink"), \
+                 patch("fcntl.flock"):
                 async with lifespan(app):
                     # Verify state was initialized during startup
                     self.assertIsNotNone(app.state.auth_token)
