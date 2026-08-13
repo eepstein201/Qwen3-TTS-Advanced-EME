@@ -1,73 +1,71 @@
-Codemap Refresh Report — 2026-08-10
+CODEMAP DIFF REPORT
+Generated:      2026-08-12
+Previous scan:  2026-08-10 (commit 79ce699)
+Current HEAD:   33a78c8 "fix(deps): pin starlette>=1.6.0 and regenerate stale lock (#167)"
+Mode:           UPDATE IN PLACE (change volume well under the 30% rewrite threshold)
 
-COMMIT RANGE: 5fd5332 (initial codemap) → HEAD (f802803, PR #155 merge)
+SCOPE
+  Source files:  71 .py, 25,253 LOC  (was ~25k)
+  Layers:        core/ 6,854 · server/ 5,818 · interface/ui/ 4,806
+  Tests:         166 test modules, 2,746 test functions
 
-## Codemap Files Updated
+SOURCE FILES MODIFIED SINCE LAST SCAN (7)
+  qwen3_tts/core/config/io.py
+  qwen3_tts/core/engine/inference.py
+  qwen3_tts/interface/generate_helpers.py
+  qwen3_tts/interface/generate_server.py
+  qwen3_tts/server/app.py
+  qwen3_tts/server/app_generation.py
+  qwen3_tts/server/websocket.py
 
-### docs/CODEMAPS/backend.md
-**Status: MODIFIED (~25% content change)**
-**Reason:** Reflects PRs #153/#154 server hardening
-**Changes:**
-  - Updated LOC counts: app.py 864→961, app_generation.py 788→798, websocket.py 502→542
-  - Expanded Middleware section to document PR #153 security hardening:
-    * X-Forwarded-For IP resolution + TTS_TRUSTED_PROXIES allowlist
-    * RequestBodySizeLimitMiddleware body-DoS defense (100 MB, stream-counting)
-    * WS Origin header validation (CSWSH)
-    * /health error sanitization (CWE-209 filesystem path redaction)
-  - Clarified rate limiting is env-tunable per-limit
+  Files added:   none
+  Files removed: none
+  (13 test modules + tests/run_batches.py also touched; CI: .github/workflows/test.yml)
 
-### docs/CODEMAPS/architecture.md
-**Status: MODIFIED (~2% content change)**
-**Reason:** Updated LOC count
-**Changes:**
-  - Header: 70 files / 24.7k LOC → 71 files / 25k LOC (add check_config_docs.py)
+ARCHITECTURE CHANGES
+  1. WS2 unified batch+streaming pipeline (#160, 3e535ec)
+     - New shared helper engine/inference.py::_postprocess_chunk (line 1103), called
+       from 4 sites across run_inference and run_inference_streaming, both backends.
+     - Order: ICL echo trim -> clone speed -> audio validation.
+     - LUFS intentionally excluded (EBU R128 gates the whole signal) => batch-only.
+     - Terminal stream error frame: sample_rate == 0 sentinel
+       (server/app_generation.py:99 STREAM_ERROR_SENTINEL_SR; duplicated client-side at
+       interface/generate_server.py:33 so the CLI never imports FastAPI).
+     - _stream_thread_join_timeout(text_len, max_chunk_chars) at app_generation.py:69
+       replaces a fixed 90s join.
+     - /ws closes with RFC 6455 1011 after an error message.
 
-### docs/CODEMAPS/frontend.md
-**Status: NO CHANGE** (no UI changes in scope)
+  2. WS3 edge-case crash hardening (#157, 26a5a48)
+     - core/config/io.py: validate_config rejects non-dict input; load_config raises a
+       path-naming ValueError instead of silently substituting defaults.
+     - Bounded/error-checked streamed chunk parsing, hardened SSML break parsing and
+       history JSONL reads, typed errors replacing generic exceptions.
 
-### docs/CODEMAPS/data.md
-**Status: NO CHANGE** (no schema/storage changes in scope)
+  3. Test-infra enforcement (#159, 5a19dd9)
+     - tests/test_batches_coverage.py enforces BATCHES registration.
+     - run_batch() sends SIGABRT (PYTHONFAULTHANDLER=1) before SIGKILL to dump stacks.
 
-### docs/CODEMAPS/dependencies.md
-**Status: NO CHANGE** (no new external package dependencies)
+  No new routes, services, or modules. Route surface unchanged since 2026-08-10.
 
-## Documentation Files Verified
+DEPENDENCY CHANGES
+  + starlette>=1.6.0,<2   (NEW explicit pin, #167 — was an unpinned fastapi transitive
+                           that requirements.lock had drifted down to 1.3.1)
+    requirements.lock regenerated.
+    Note: custom RequestBodySizeLimitMiddleware retained over starlette's native
+    max_body_size (pre-auth no-buffer ordering + Content-Length fast path).
+  No dependencies added or removed otherwise.
 
-### docs/CONFIG.md
-**Status: VERIFIED** ✓
-- Drift check: OK (66 keys match get_default_config())
+CODEMAPS UPDATED
+  docs/CODEMAPS/architecture.md   updated (generation flow, LOC table, layer sizes)
+  docs/CODEMAPS/backend.md        updated (streaming failure semantics, starlette pin, LOC)
+  docs/CODEMAPS/data.md           updated (config load/save contract)
+  docs/CODEMAPS/dependencies.md   updated (explicit server pin versions, gradio floor cap)
+  docs/CODEMAPS/frontend.md       header only — verified unchanged (no interface/ui/ edits)
 
-### docs/CONTRIBUTING.md
-**Status: VERIFIED** ✓
-- Development setup and test commands current
+STALENESS
+  None. All five codemaps regenerated within 2 days of the previous scan; the
+  90-day cadence noted in CLAUDE.md is comfortably met.
 
-### docs/RUNBOOK.md
-**Status: VERIFIED** ✓
-- PM2 service, rate-limiting, server config sections current
-
-## New Artifacts
-
-- qwen3_tts/tools/check_config_docs.py (199 LOC, PR #151)
-  * Automated CONFIG.md default-value drift detection
-  * Runner: python -m qwen3_tts.tools.check_config_docs
-  * CI gate: make check-config-docs
-  * Status: Dev/CI utility, not in codemap scope
-
-## Architecture Changes (Same-Day PRs)
-
-PR #153: FastAPI Hardening
-  - CWE-209: /health error redaction (filesystem leak)
-  - Rate-limiting: Hybrid IP+token keying, env overrides per-limit
-  - X-Forwarded-For: TTS_TRUSTED_PROXIES gating (Colab/proxy support)
-  - Body-DoS: RequestBodySizeLimitMiddleware (100 MB, stream-counting)
-  - WS Origin validation: CSWSH defense
-  - /generation-status anonymization: no input-derived fields
-
-PR #154: Silent Data Loss Remediation
-  - History state thread-safety
-  - Voice-prompt atomic operations
-
-PR #155: Documentation updates
-
-## Staleness: NONE
-All same-day, no drift detected.
+WATCH ITEMS (structural debt, unchanged status)
+  inference.py  1600 LOC  — exceeds the 800-line guideline (grew from 1532 via WS2)
+  app.py         963 LOC  — exceeds the 800-line guideline
