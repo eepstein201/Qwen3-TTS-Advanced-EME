@@ -306,6 +306,11 @@ def is_server_running(config_or_url: dict | str | None = None) -> bool:
     try:
         validated_url = _validate_server_url(url)
         resp = requests.get(f"{validated_url}/health", timeout=2)
-        return resp.status_code in (200, 503)
+        # A 429 (rate-limited) still proves the server process is up and
+        # answering; treating it as "down" makes the Gradio UI show
+        # "Disconnected / Server not running" whenever the global limiter
+        # trips, and misleads `tts server restart` (which gates the stop on
+        # this check).
+        return resp.status_code in (200, 503, 429)
     except (requests.RequestException, OSError):
         return False

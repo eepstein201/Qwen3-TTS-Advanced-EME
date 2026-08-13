@@ -409,6 +409,15 @@ _transcribe_limit = _rate_limit_from_env("TTS_RATE_LIMIT_TRANSCRIBE", "transcrib
 _prompt_ops_limit = _rate_limit_from_env("TTS_RATE_LIMIT_PROMPT_OPS", "prompt_ops", "10/minute")
 _config_ops_limit = _rate_limit_from_env("TTS_RATE_LIMIT_CONFIG_OPS", "config_ops", "2/minute")
 
+# Global pre-auth FLOOD backstop, deliberately decoupled from the per-route
+# generate limit. The Gradio UI polls /health + /models every 5s (~24/min), so
+# a global ceiling tied to the 10/min generate limit would throttle normal
+# authenticated use within ~25s and 429 /health -> is_server_running() reads
+# "down" -> the UI shows "Disconnected / Server not running". This backstop
+# only needs to stop floods (hundreds-thousands/min); the tight per-endpoint
+# caps below (@limiter.limit, post-auth) still do the real rate limiting.
+_global_limit = _rate_limit_from_env("TTS_RATE_LIMIT_GLOBAL", "global", "120/minute")
+
 # Global pre-auth limiter: an IP-keyed default ceiling enforced by
 # SlowAPIMiddleware at the ASGI layer, BEFORE routing/auth. Per-route
 # @limiter.limit decorators run after Depends(verify_auth) (Starlette order:
@@ -421,7 +430,7 @@ _config_ops_limit = _rate_limit_from_env("TTS_RATE_LIMIT_CONFIG_OPS", "config_op
 _rate_limit_enabled = not _RATE_LIMITING_DISABLED
 limiter_global = Limiter(
     key_func=_get_ip_key,
-    default_limits=[_generate_limit],
+    default_limits=[_global_limit],
     enabled=_rate_limit_enabled,
 )
 
