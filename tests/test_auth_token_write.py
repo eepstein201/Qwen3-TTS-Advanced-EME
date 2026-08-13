@@ -52,6 +52,93 @@ class TestWriteAuthToken(unittest.TestCase):
             self.assertEqual(os.stat(token_file.parent).st_mode & 0o777, 0o700)
 
 
+class TestAuthTokenWriteIsAtomic(unittest.TestCase):
+    """The token file must update atomically.
+
+    TTSClient discovers the server token ONLY by reading TOKEN_FILE, and
+    ``auth_headers()`` reads it fresh on every call. A truncate-then-write
+    (``open(path, "w")``) leaves the file EMPTY on disk between the truncation
+    and the write completing; a reader in that window gets ``""`` ->
+    ``auth_headers()`` returns ``{}`` -> the request ships with no
+    ``Authorization`` header and the server logs ``Auth failure: missing_token``.
+    During a ``tts server restart`` the Gradio UI's ``/models`` poll can land in
+    exactly that window. Atomic temp-file + ``os.replace`` (POSIX-atomic) keeps
+    the previous token fully readable until the new one is in place -- the same
+    pattern already used for config (``core/config/io.py``) and the PID file
+    (``core/config/pid.py``).
+    """
+
+    def test_write_replaces_file_atomically_not_truncates_in_place(self):
+        """Atomic os.replace installs a NEW inode; a truncating open keeps the
+        same one. Same inode => the old token was destroyed before the new one
+        was ready, so a concurrent reader can observe an empty file."""
+        with tempfile.TemporaryDirectory() as tmp:
+            token_file = Path(tmp) / "cfg" / ".voice_server_token"
+            with patch.object(app_lifespan, "TOKEN_FILE", token_file):
+                app_lifespan._write_auth_token("first-token")
+                inode_before = os.stat(token_file).st_ino
+
+                app_lifespan._write_auth_token("second-token")
+
+                self.assertEqual(token_file.read_text(), "second-token")
+                inode_after = os.stat(token_file).st_ino
+                self.assertNotEqual(
+                    inode_before,
+                    inode_after,
+                    "token file was truncated in place (same inode) instead of "
+                    "atomically replaced -- a concurrent reader can observe an "
+                    "empty token",
+                )
+
+    def test_concurrent_reader_never_observes_empty_or_partial_token(self):
+        """While the token is rewritten repeatedly, a reader must see only whole
+        old/new tokens -- never empty or partial -- which is what prevents the
+        missing_token auth failures during a restart."""
+        import threading
+
+        token_a = "A" * 64
+        token_b = "B" * 64
+        valid = {token_a, token_b}
+
+        with tempfile.TemporaryDirectory() as tmp:
+            token_file = Path(tmp) / "cfg" / ".voice_server_token"
+            with patch.object(app_lifespan, "TOKEN_FILE", token_file):
+                app_lifespan._write_auth_token(token_a)
+
+                bad: list[str] = []
+                stop = threading.Event()
+
+                def reader() -> None:
+                    while not stop.is_set():
+                        try:
+                            content = token_file.read_text()
+                        except OSError:
+                            continue
+                        if content not in valid:
+                            bad.append(content)
+
+                def writer() -> None:
+                    for i in range(800):
+                        app_lifespan._write_auth_token(
+                            token_a if i % 2 else token_b
+                        )
+
+                t = threading.Thread(target=reader)
+                t.start()
+                try:
+                    writer()
+                finally:
+                    stop.set()
+                    t.join()
+
+                self.assertEqual(
+                    bad,
+                    [],
+                    f"concurrent reader observed non-atomic token state(s): "
+                    f"{bad[:5]!r}",
+                )
+
+
 class TestStartupLock(unittest.TestCase):
     def test_acquires_lock_when_free(self):
         with tempfile.TemporaryDirectory() as tmp:
