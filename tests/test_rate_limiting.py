@@ -12,7 +12,7 @@ Tests:
 Run: pytest tests/test_rate_limiting.py -v
 """
 
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, patch
 
 try:
     import pytest
@@ -427,9 +427,17 @@ class TestGlobalUnauthFloodLimit:
         was_enabled = getattr(global_limiter, "enabled", True)
         global_limiter.enabled = True
         global_limiter.reset()
+        # Send enough unauthenticated requests to exceed the global ceiling,
+        # whatever its configured value. The ceiling is decoupled from the
+        # 10/min generate limit and defaults much higher, so a fixed 15 would
+        # no longer trip it.
+        import re as _re
+        from qwen3_tts.server.app import _global_limit
+        _m = _re.match(r"(\d+)", _global_limit)
+        _ceiling = int(_m.group(1)) if _m else 10
         try:
             statuses = []
-            for _ in range(15):
+            for _ in range(_ceiling + 10):
                 resp = client.post("/generate", json={"texts": ["x"]})
                 statuses.append(resp.status_code)
                 if resp.status_code == 429:
@@ -442,3 +450,78 @@ class TestGlobalUnauthFloodLimit:
             "expected the global pre-auth limiter to throttle an unauthenticated "
             f"flood (got statuses={statuses})"
         )
+
+
+class TestGlobalCeilingDecoupled:
+    """The global pre-auth ceiling must NOT reuse the 10/min generate limit.
+
+    The Gradio UI polls /health + /models roughly every 5s (~24/min). With the
+    global default tied to the 10/min generate limit, normal authenticated use
+    trips it within ~25s and /health starts 429ing -> is_server_running() reads
+    "down" -> the UI shows "Disconnected / Server not running", and
+    `tts server restart` (which calls is_server_running to decide whether to
+    stop) skips the stop, starts a loser that aborts on the startup lock, and
+    leaves the old server running under a stale PID file. The global backstop
+    only needs to stop floods (thousands/min), so it sits well above normal
+    traffic as a separate limit.
+    """
+
+    def test_global_limit_exists_and_is_separate_from_generate(self):
+        from qwen3_tts.server import app as app_module
+
+        assert hasattr(app_module, "_global_limit"), (
+            "global pre-auth ceiling must be an explicit _global_limit, not the "
+            "generate limit reused via default_limits"
+        )
+        assert app_module._global_limit != app_module._generate_limit
+
+    def test_global_limit_above_ui_polling_rate(self):
+        import re
+
+        from qwen3_tts.server import app as app_module
+
+        m = re.match(r"(\d+)", app_module._global_limit)
+        assert m, f"unparseable _global_limit: {app_module._global_limit!r}"
+        per_minute = int(m.group(1))
+        # UI status + model-badge polling alone is ~24/min; leave real headroom.
+        assert per_minute >= 60, (
+            f"global ceiling {per_minute}/min is too low -- the UI's own polling "
+            "would trip it and /health would 429"
+        )
+
+
+class TestServerRunningHandlesRateLimit:
+    """is_server_running() must treat a 429 (rate-limited /health) as 'running'.
+
+    A 429 proves the server process is up and answering; treating it as 'down'
+    makes the Gradio UI show 'Disconnected / Server not running' during any
+    burst that trips the global limiter, and misleads `tts server restart`.
+    """
+
+    @staticmethod
+    def _is_running(status_code):
+        from qwen3_tts.core.config import runtime
+
+        resp = MagicMock(status_code=status_code)
+        with patch("requests.get", return_value=resp):
+            return runtime.is_server_running("http://127.0.0.1:5123")
+
+    def test_429_counts_as_running(self):
+        assert self._is_running(429) is True
+
+    def test_200_counts_as_running(self):
+        assert self._is_running(200) is True
+
+    def test_503_counts_as_running(self):
+        assert self._is_running(503) is True
+
+    def test_404_counts_as_not_running(self):
+        assert self._is_running(404) is False
+
+    def test_connection_error_counts_as_not_running(self):
+        import requests
+
+        from qwen3_tts.core.config import runtime
+
+        with patch("requests.get", side_effect=requests.ConnectionError()):
+            assert runtime.is_server_running("http://127.0.0.1:5123") is False
