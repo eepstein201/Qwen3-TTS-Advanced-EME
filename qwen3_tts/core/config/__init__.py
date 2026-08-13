@@ -135,6 +135,7 @@ from qwen3_tts.core.config.paths import (
     IN_COLAB,
     IS_LINUX,
     IS_MACOS,
+    LOCK_FILE,
     LOG_FILE,
     PID_FILE,
     TOKEN_FILE,
@@ -217,6 +218,7 @@ __all__ = [
     "HISTORY_FILE",
     "PID_FILE",
     "LOG_FILE",
+    "LOCK_FILE",
     "TOKEN_FILE",
     "HF_CACHE",
     # io
