@@ -37,7 +37,11 @@ class TestWriteAuthToken(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             token_file = Path(tmp) / "sub" / ".voice_server_token"
             with patch.object(app_lifespan, "TOKEN_FILE", token_file), \
-                 patch("builtins.open", side_effect=OSError("read-only file system")):
+                 patch.object(
+                     app_lifespan.tempfile,
+                     "mkstemp",
+                     side_effect=OSError("read-only file system"),
+                 ):
                 with self.assertRaises(RuntimeError):
                     app_lifespan._write_auth_token("secret-token")
 
