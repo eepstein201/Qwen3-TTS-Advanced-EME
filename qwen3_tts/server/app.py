@@ -643,7 +643,7 @@ async def update_model_config(
 
 
 @app.post("/update-startup-config")
-@_rate_limit("2/minute", strategy="hybrid")
+@_rate_limit(_config_ops_limit, strategy="hybrid")
 async def update_startup_config(
     request: Request,
     req: UpdateStartupConfigRequest,
@@ -681,7 +681,7 @@ async def unload_asr(request: Request, _auth: None = Depends(verify_auth)):
 
 
 @app.post("/transcribe")
-@_rate_limit(_generate_limit)
+@_rate_limit(_transcribe_limit)
 async def transcribe(
     request: Request, req: TranscribeRequest, _auth: None = Depends(verify_auth)
 ):
@@ -702,7 +702,7 @@ async def list_prompts(request: Request, _auth: None = Depends(verify_auth)):
 
 
 @app.post("/delete-prompt")
-@_rate_limit("10/minute", strategy="hybrid")
+@_rate_limit(_prompt_ops_limit, strategy="hybrid")
 async def delete_prompt(
     request: Request, req: DeletePromptRequest, _auth: None = Depends(verify_auth)
 ):
@@ -713,7 +713,7 @@ async def delete_prompt(
 
 
 @app.post("/rename-prompt")
-@_rate_limit("10/minute", strategy="hybrid")
+@_rate_limit(_prompt_ops_limit, strategy="hybrid")
 async def rename_prompt(
     request: Request, req: RenamePromptRequest, _auth: None = Depends(verify_auth)
 ):
@@ -744,7 +744,7 @@ async def prompt_details(request: Request, _auth: None = Depends(verify_auth)):
 
 
 @app.post("/create-voice-prompt")
-@_rate_limit(_model_limit)
+@_rate_limit(_prompt_ops_limit)
 async def create_voice_prompt_endpoint(
     request: Request, req: CreateVoicePromptRequest, _auth: None = Depends(verify_auth)
 ):

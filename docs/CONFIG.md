@@ -97,11 +97,11 @@ Every table below reflects `get_default_config()` defaults.
 |-----|------|---------|-------------|
 | `security.max_text_length` | integer | `50000` | Max characters accepted per generation request. |
 | `security.max_batch_size` | integer | `20` | Max number of texts per batch request. |
-| `security.rate_limits.generate` | string | `"20/minute"` | Rate limit for `/generate`, `/generate-stream`. |
-| `security.rate_limits.model_ops` | string | `"3/minute"` | Rate limit for model load/unload/config endpoints. |
-| `security.rate_limits.transcribe` | string | `"15/minute"` | Rate limit for `/transcribe`. |
+| `security.rate_limits.generate` | string | `"10/minute"` | Rate limit for `/generate`, `/generate-stream`. |
+| `security.rate_limits.model_ops` | string | `"5/minute"` | Rate limit for model load/unload/config endpoints. |
+| `security.rate_limits.transcribe` | string | `"10/minute"` | Rate limit for `/transcribe`. |
 | `security.rate_limits.prompt_ops` | string | `"10/minute"` | Rate limit for prompt create/delete/rename. |
-| `security.rate_limits.config_ops` | string | `"1/minute"` | Rate limit for `/update-startup-config`. |
+| `security.rate_limits.config_ops` | string | `"2/minute"` | Rate limit for `/update-startup-config`. |
 | `security.rate_limits.global` | string | `"120/minute"` | Global pre-auth ceiling on **all** routes (IP-keyed middleware). Deliberately decoupled from the per-route limits above — it must stay above the Gradio UI's ~24/min `/health`+`/models` polling, or `/health` 429s and the UI reports "Disconnected / Server not running". Override via `TTS_RATE_LIMIT_GLOBAL`. |
 
 Rate-limit values use slowapi's `"<count>/<unit>"` format (`second`/`minute`/`hour`/`day`). See [`rate-limiting.md`](rate-limiting.md) for strategy details. `security.rate_limits.global` is not part of the `validate_config()` default block — the server supplies the `120/minute` fallback at import (`qwen3_tts/server/app.py`).

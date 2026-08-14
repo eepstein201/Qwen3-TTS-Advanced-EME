@@ -250,7 +250,7 @@ python -m pytest tests/ -m e2e                  # opt-in: run E2E (needs live se
 > hang plain `pytest tests/` when a server is up. Opt in with `-m e2e`. The batch runner
 > uses `unittest` (ignores markers), so all batches are unaffected.
 
-> **E2E + rate limiting:** the live server's `/generate` limit (default 10–20/min, in-process) is shared across e2e modules and starves suites that fire many requests, causing false 429 skips. `run_full_suite.py` starts its test server with `TTS_DISABLE_RATE_LIMITING=1`; for a manual run do the same (`TTS_DISABLE_RATE_LIMITING=1 tts server start`, or raise one limit via `TTS_RATE_LIMIT_GENERATE=120/minute`). The performance/stress e2e tests assert real audio output, so they now perform actual (slow) generation.
+> **E2E + rate limiting:** the live server's `/generate` limit (default 10/minute, configurable) is shared across e2e modules and starves suites that fire many requests, causing false 429 skips. `run_full_suite.py` starts its test server with `TTS_DISABLE_RATE_LIMITING=1`; for a manual run do the same (`TTS_DISABLE_RATE_LIMITING=1 tts server start`, or raise one limit via `TTS_RATE_LIMIT_GENERATE=120/minute`). The performance/stress e2e tests assert real audio output, so they now perform actual (slow) generation.
 
 **Batch runner** (prevents hangs from cascading failures):
 ```bash

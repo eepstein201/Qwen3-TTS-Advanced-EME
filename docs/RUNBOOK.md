@@ -61,8 +61,8 @@ tts config edit
 ```
 
 Rate limits use slowapi's `"<count>/<unit>"` string form under `security.rate_limits`
-(see [rate-limiting.md](rate-limiting.md) for defaults, actual endpoint wiring, and the
-currently-unwired `transcribe`/`prompt_ops`/`config_ops` keys). Keep the `global`
+(see [rate-limiting.md](rate-limiting.md) for defaults and the full endpoint-wiring
+table). Keep the `global`
 pre-auth ceiling above the Gradio UI's ~24/min `/health`+`/models` polling, or the UI
 shows "Disconnected / Server not running" while the server is up.
 `auto_shutdown_minutes: 0` disables idle
@@ -634,13 +634,11 @@ chmod 600 ~/.config/qwen3-tts/.voice_server_token
 ### Rate Limiting
 
 **Default limits** are per-endpoint-group (slowapi): generation `10/minute`,
-model ops `5/minute`, plus a global pre-auth ceiling of `120/minute` on all
+model ops `5/minute`, transcription `10/minute`, prompt operations `10/minute`,
+config operations `2/minute`, plus a global pre-auth ceiling of `120/minute` on all
 routes (flood backstop — keep it above the Gradio UI's ~24/min `/health`+`/models`
-polling or the UI shows "Disconnected / Server not running"). `/transcribe` currently
-shares the generate limit; `/delete-prompt`/`/rename-prompt` are hardcoded
-`10/minute` and `/update-startup-config` `2/minute` (the `transcribe`/`prompt_ops`/
-`config_ops` config keys are not wired to those endpoints — see
-[rate-limiting.md](rate-limiting.md)).
+polling or the UI shows "Disconnected / Server not running"). See
+[rate-limiting.md](rate-limiting.md) for the full endpoint-wiring table.
 
 **Adjust in config.json** under `security.rate_limits` (values are `"<count>/<unit>"` strings):
 ```json
