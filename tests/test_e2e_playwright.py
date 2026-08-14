@@ -1050,7 +1050,7 @@ class TestE2EPlaywright(unittest.TestCase):
         Advanced Settings must be open before calling.
         """
         panel = self.gp._get_visible_tab_panel()
-        # Label is "Seed (empty for random)" — filter matches any label containing "Seed"
+        # Label is "Seed (empty = random)" — filter matches any label containing "Seed"
         seed_container = panel.locator("label").filter(has_text="Seed").locator("..").first
         inp = seed_container.locator("textarea, input").first
         if inp.count() > 0:

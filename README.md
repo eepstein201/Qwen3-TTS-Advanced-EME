@@ -27,21 +27,27 @@ Clone any voice from an audio sample, design voices from text descriptions, or c
 
 Qwen3-TTS isn't just a research script; it is engineered to be a production-ready synthesis engine. Here is what sets it apart:
 
+### 🔒 Local-First by Design
+* **Fully Local & Private:** All generation runs on your hardware — no cloud API calls, no audio or text leaving your machine. The only network traffic is between you and your own localhost server.
+* **Three Modes, One Server:** Clone, Design, and Custom share a single persistent FastAPI server with on-demand model loading/unloading, so you can swap workflows without reloading anything.
+* **Reproducible via Seeds:** When no seed is supplied the server generates one and echoes it back on every result (see [Seeds](#interfaces)); reuse a seed to reproduce a voice exactly.
+* **Dual-Format Voice Prompts:** Voice prompts save as `.pt` (torch) and `.wav`+`.txt` (MLX) pairs, so a cloned voice works on both backends without re-creating it.
+
 ### ☁️ Zero-Setup Cloud Execution
 * **1-Click Google Colab Deployment:** Test the entire system without installing a single package locally. The included Colab notebook automatically detects cloud GPUs, configures optimal performance settings, and generates a shareable public URL for the Web UI.
 
 ### 🎙️ The Audio Engine
 * **Zero-Shot Voice Cloning:** Clone any human voice using just 5 to 15 seconds of reference audio. 
-    * *Why it matters:* You don't need hours of clean studio data. Whisper auto-transcription handles the text extraction, or use "embedding-only" mode to clone a voice without a transcript.
+    * *Why it matters:* You don't need hours of clean studio data. Whisper auto-transcription handles the text extraction, or use `x_vector_only_mode` to clone entirely without a transcript — it works for both generation *and* voice-prompt creation, so a single audio sample with no transcript at all can become a reusable saved voice.
 * **Prompt-Based Voice Design:** Generate entirely new voices by simply describing them (e.g., *"A warm, friendly British female voice speaking quickly"*). 
     * *Why it matters:* Gives you infinite creative control for video game NPCs, audiobooks, or brand personas without hiring a voice actor.
 * **Premium Pre-Trained Speakers:** Includes 9 highly optimized, built-in voices for immediate plug-and-play generation.
 
 ### ⚙️ Production Architecture
-* **True Zero-Latency Streaming:** Built on FastAPI with asynchronous queues. Streams raw audio bytes back to the client the millisecond they are inferred.
-* **Bulletproof GPU Serialization:** Strict `asyncio` locking queues concurrent requests, ensuring your GPU never crashes under high web traffic.
-* **Rate Limiting:** Optional per-endpoint rate limiting via `slowapi` with reverse-proxy-aware IP resolution (supports Colab tunnels, Gradio share links).
-* **Smooth Multi-Chunk Audio:** Raised-cosine crossfade between audio chunks eliminates audible clicks at boundaries. Configurable silence gaps also supported.
+* **Chunked Streaming:** Long texts are split into sentence-aligned chunks and streamed back as each chunk finishes, so playback can begin well before the full generation completes. (Chunks generate sequentially — expect ~40-70 s per chunk on MLX/M2 Pro; this is "start hearing audio sooner", not real-time synthesis.)
+* **Serialized GPU Access:** Strict `asyncio` locking queues concurrent requests so model state is never corrupted under concurrent load — one generation at a time, by design.
+* **Rate Limiting (on by default):** Per-endpoint limits via `slowapi` (a hard dependency) plus a global pre-auth ceiling on all routes, with reverse-proxy-aware IP resolution (`X-Forwarded-For` honored only for trusted proxies).
+* **Smooth Multi-Chunk Audio:** Raised-cosine crossfade between audio chunks eliminates audible clicks at boundaries. Chunks are phase-aligned and level-matched before the crossfade; configurable silence gaps are also supported.
 * **LUFS Normalization:** Optional EBU R128 loudness normalization via `pyloudnorm` for broadcast-ready audio output.
 
 ### 💻 Hardware Flexibility
@@ -56,7 +62,13 @@ Qwen3-TTS performance relies heavily on your hardware and backend combination. B
 
 ### General Base Requirements (All Local Systems)
 * **Python:** 3.10+ (3.12 recommended for native installs)
-* **Disk Space:** ~3 GB per model (Total ~10 GB to cache Clone, Design, and Custom models)
+* **Disk Space:** each of the three models costs ~2.5 GB (MLX 8-bit) to ~3.5 GB (torch) — ~7.5-10.5 GB total to cache Clone, Design, and Custom models
+
+> ### ⚠️ Honest Caveats (Upstream Issues That Shape the Defaults)
+> A few defaults here exist *because of* known upstream Qwen3-TTS issues, not by preference:
+> * **Clone speed is post-hoc** (`generation.clone_speed`): the model's native rate control is broken for cloning (upstream #290), so speed changes time-stretch the generated audio instead.
+> * **SDPA by default** (`advanced.attn_implementation: "auto"`): Flash Attention 2 can produce NaNs on Qwen3-TTS (upstream #333); it is opt-in only.
+> * **ICL echo trim is effectively dormant** (`generation.trim_icl_echo`, default `true`): cloning sometimes re-speaks the reference transcript's tail before the requested text (upstream #341). The trim only fires when ASR is already loaded *and* a reference transcript is resolvable — no server/UI caller passes one yet — so it is safe to leave enabled but currently inert.
 
 ### 1. Apple Silicon (macOS)
 | Hardware | Recommendation | Optimal `config.json` Settings |
@@ -115,8 +127,8 @@ If you prefer to run the system locally, there are two ways to install Qwen3-TTS
 
 1. Clone the repository:
 ```bash
-git clone [https://github.com/your-repo/Qwen3-TTS.git](https://github.com/your-repo/Qwen3-TTS.git)
-cd Qwen3-TTS
+git clone https://github.com/eepstein201/Qwen3-TTS-Advanced-EME.git
+cd Qwen3-TTS-Advanced-EME
 ```
 
 2. Build and run the production-ready container:
@@ -138,8 +150,8 @@ Your server is now running natively. The web UI is available at `http://localhos
 
 1. Clone and navigate to the directory:
 ```bash
-git clone [https://github.com/your-repo/Qwen3-TTS.git](https://github.com/your-repo/Qwen3-TTS.git)
-cd Qwen3-TTS
+git clone https://github.com/eepstein201/Qwen3-TTS-Advanced-EME.git
+cd Qwen3-TTS-Advanced-EME
 ```
 
 2. Install based on your specific backend:
@@ -155,6 +167,14 @@ cd Qwen3-TTS
     ```bash
     pip install -e ".[torch,vllm,server,audio,cuda,rich]"
     ```
+
+> ### ⚠️ The `torch` and `mlx` Extras Conflict — Never Install Both in One Environment
+> The two extras pin incompatible `transformers` versions (MLX needs the newer line; torch/Qwen3-TTS weights need the older one). Installing both into the same environment breaks one of them. On a Mac where you want both backends, use **two separate conda environments** — `qwen3-tts` (torch) and `qwen3-tts-mlx` (MLX) — and install only that environment's extra into each:
+> ```bash
+> conda create -n qwen3-tts python=3.12 && conda run -n qwen3-tts pip install -e ".[torch,server,audio,rich]"
+> conda create -n qwen3-tts-mlx python=3.12 && conda run -n qwen3-tts-mlx pip install -e ".[mlx,server,audio,rich]"
+> ```
+> Pick one backend per machine unless you specifically need both.
 
 3. **Pro-Tip (Native Install Only): Add a Shell Alias**
 To run the `tts` command from anywhere without polluting your global shell or manually activating environments, add this to your `~/.zshrc` or `~/.bashrc`:
@@ -239,12 +259,24 @@ You can configure your backend permanently via `tts config` or `config.json`.
 ### Command Line Interface (CLI)
 The `tts` command is fully featured with Rich progress bars.
 ```bash
-tts "Text" --stream -o output                        # Stream real-time
+tts "Text" --stream -o output                        # Stream chunks as they generate
 tts "Text" --preset creative -o output               # Use generation presets
 tts "Text" --speed 1.2 --normalize -o processed      # Audio post-processing
+tts "Text" --seed 12345 -o output                    # Reproducible generation (see below)
 tts batch texts.json -o ~/Downloads/                 # Batch processing
+tts srt subtitles.srt                                # SRT subtitles
+tts dialogue script.json                             # Multi-speaker dialogue
+tts watch ./inbox                                   # Watch a directory for .txt files
+tts repl                                            # Interactive REPL
+tts history 10                                      # Last 10 generations
 tts server status                                    # Check memory/health
+tts voice info my_voice                              # Prompt metadata (via server)
+tts voice rebuild my_voice                           # Regenerate .pt prompts (torch-only)
+tts config path                                      # Print config.json path
+tts list speakers|presets|aliases|prosody|models|backends  # List reference data
 ```
+
+**Seeds — reproducible voices:** when no `--seed` is supplied the server generates one and echoes it back on every result — the `"seed"` field on `/generate`, the `X-Seed` header on `/generate-stream`, the `"complete"` message on `/ws`, and `client.last_seed` in the Python API. The seed is recorded in the web UI's history; reuse it to reproduce a voice exactly.
 
 ### Gradio Web UI
 Run `tts ui` to launch a local browser interface with tabs for Cloning, Designing, Custom Voices, Model Management, and Voice Prompt Management.
@@ -292,16 +324,23 @@ tts config edit                          # Interactive voice description editor
 | `advanced.model_size` | `1.7B` | `1.7B` (High fidelity) or `0.6B` (Fast/Light) |
 | `advanced.torch_quantization` | `none` | PyTorch backend quantization: `none`, `8bit`, `4bit` |
 | `advanced.mlx_quantization` | `8bit` | MLX backend quantization: `4bit`, `5bit`, `6bit`, `8bit`, `bf16` |
+| `advanced.attn_implementation` | `auto` | `auto` (SDPA), `sdpa`, `flash_attention_2`, `eager`. FA2 is opt-in only — it can produce NaNs on Qwen3-TTS (upstream #333) |
 | `advanced.vllm_gpu_memory_utilization`| `0.7` | VRAM reservation for vLLM (0.1 - 1.0) |
 | `cache.voice_prompt_max` | `10` | Max voice prompts cached in memory (LRU) |
 | `cache.generation_max` | `5` | Max generation results cached (SHA256 key) |
 | `cache.eta_ttl_seconds` | `30` | ETA cache TTL in seconds |
-| `generation.max_chunk_chars` | `500` | Auto-splits long texts to prevent timeouts |
+| `generation.max_chunk_chars` | `500` | Auto-splits long texts (0 disables). Prevents *silent truncation*: a single MLX generate call is capped at `max_new_tokens=2048` (~170 s of audio), so unchunked long text cuts off mid-sentence |
 | `generation.max_chunk_tokens` | `200` | Max tokens per chunk (torch backend) |
 | `generation.temperature` | `0.7` | Higher = more varied output |
-| `generation.silence_gap_seconds` | `0.0` | Silence between chunks (0 uses crossfade) |
-| `security.rate_limits.generate` | `20/minute` | Rate limit for generation endpoints |
-| `security.rate_limits.model_ops` | `3/minute` | Rate limit for model management endpoints |
+| `generation.silence_gap_seconds` | `0.0` | Silence between chunks (0 uses a phase-aligned, level-matched crossfade) |
+| `generation.lufs_normalize` | `false` | Apply EBU R128 loudness normalization after combining chunks |
+| `generation.lufs_target` | `-16.0` | Target loudness in LUFS (used only when `lufs_normalize` is `true`) |
+| `generation.clone_speed` | unset | Clone-mode-only post-hoc rate (0.5-2.0). The model's native rate control is broken for cloning (upstream #290), so speed time-stretches the generated audio. Design/custom keep native `instruct` rate control |
+| `generation.trim_icl_echo` | `true` | Clips ICL echo of the reference transcript (upstream #341). Only fires when ASR is already loaded *and* a reference transcript is resolvable — currently dormant |
+| `history_output_directory` | `~/Downloads/Qwen3-TTS Output` | Root for web-UI output (`Automated Output/` for generations, `Manual Downloads/` for kept files) |
+| `models.<type>.revision` | `main` | HuggingFace branch/tag/SHA for `clone`/`design`/`custom` model downloads |
+| `security.rate_limits.generate` | `10/minute` | Rate limit for generation endpoints |
+| `security.rate_limits.model_ops` | `5/minute` | Rate limit for model management endpoints |
 
 *You can use environment variables to override settings per session (e.g., `TTS_BACKEND=vllm tts "text"`).*
 
@@ -309,35 +348,33 @@ tts config edit                          # Interactive voice description editor
 
 ## Rate Limiting
 
-The server supports configurable rate limiting to prevent abuse and ensure fair resource allocation. Rate limiting uses **slowapi** with support for multiple strategies: per-IP, per-token, and hybrid (both).
-
-### Installation
-
-Rate limiting requires `slowapi`:
-
-```bash
-pip install slowapi
-```
-
-**Note:** slowapi is now a required dependency (not optional).
+Rate limiting is **on by default** (no opt-in needed) to prevent abuse and ensure fair resource allocation. It uses **slowapi** — a hard dependency of the `server` extra, so there is nothing extra to install — with support for multiple strategies: per-IP, per-token, and hybrid (both). A global, per-IP, pre-auth ceiling on **all** routes (default `120/minute` via `SlowAPIMiddleware`) also applies, so unauthenticated floods cannot bypass the per-route limits entirely.
 
 ### Configuration
 
-Rate limits are configured in `config.json` under `security.rate_limits`:
+Rate limits are configured in `config.json` under `security.rate_limits` (defaults shown):
 
 ```json
 {
   "security": {
     "rate_limits": {
-      "generate": "20/minute",
-      "model_ops": "3/minute",
-      "transcribe": "15/minute",
+      "generate": "10/minute",
+      "model_ops": "5/minute",
+      "transcribe": "10/minute",
       "prompt_ops": "10/minute",
-      "config_ops": "1/minute"
+      "config_ops": "2/minute",
+      "global": "120/minute"
     }
   }
 }
 ```
+
+**Environment overrides** (read once at server import — restart to apply):
+* `TTS_DISABLE_RATE_LIMITING=1` disables every limiter (test/CI only)
+* `TTS_RATE_LIMIT_GENERATE`, `TTS_RATE_LIMIT_MODEL_OPS`, `TTS_RATE_LIMIT_TRANSCRIBE`, `TTS_RATE_LIMIT_PROMPT_OPS`, `TTS_RATE_LIMIT_CONFIG_OPS`, `TTS_RATE_LIMIT_GLOBAL` override individual limits (e.g. `TTS_RATE_LIMIT_GENERATE=120/minute`)
+* `TTS_TRUSTED_PROXIES` (comma-separated IPs, loopback by default): `X-Forwarded-For` is honored for client-IP keying only when the direct TCP peer is in this allowlist — set it when running behind a reverse proxy
+
+The `global` ceiling is deliberately decoupled from the `generate` limit: it must stay above the Gradio UI's ~24/minute `/health`+`/models` polling, or `/health` starts returning 429 and the UI reports "Disconnected / Server not running".
 
 ### Rate Limit Strategies
 
@@ -347,16 +384,19 @@ Rate limits are configured in `config.json` under `security.rate_limits`:
 
 ### Protected Endpoints
 
-| Endpoint | Limit | Strategy |
+Effective limits as actually applied (a few endpoints currently use a different limit than their named category — noted in the table):
+
+| Endpoint | Effective limit | Strategy |
 |----------|-------|----------|
-| `/generate`, `/generate-stream` | 20/minute | Hybrid |
-| `/load-model`, `/unload-model` | 3/minute | Hybrid |
-| `/update-model-config` | 3/minute | Hybrid |
-| `/load-asr`, `/unload-asr` | 3/minute | Hybrid |
-| `/transcribe` | 15/minute | Hybrid |
-| `/create-voice-prompt` | 3/minute | Hybrid |
-| `/delete-prompt`, `/rename-prompt` | 10/minute | Hybrid |
-| `/update-startup-config` | 1/minute | Hybrid |
+| `/generate`, `/generate-stream` | `generate` (default 10/minute) | Hybrid |
+| `/load-model`, `/unload-model` | `model_ops` (default 5/minute) | Hybrid |
+| `/update-model-config` | `model_ops` | Hybrid |
+| `/load-asr`, `/unload-asr` | `model_ops` | Hybrid |
+| `/transcribe` | uses the `generate` limit (its own `transcribe` category is defined but not yet applied) | Hybrid |
+| `/create-voice-prompt` | uses the `model_ops` limit (its own `prompt_ops` category is defined but not yet applied) | Hybrid |
+| `/delete-prompt`, `/rename-prompt` | hardcoded `10/minute` | Hybrid |
+| `/update-startup-config` | hardcoded `2/minute` (its own `config_ops` category is defined but not yet applied) | Hybrid |
+| All routes (pre-auth ceiling) | `global` (default 120/minute) | Per-IP |
 
 ### Error Responses
 
@@ -448,6 +488,8 @@ The FastAPI server (port 5123) provides the following endpoints:
 
 Authentication uses Bearer tokens from `~/.config/qwen3-tts/.voice_server_token` (legacy fallback: `~/.voice_server_token`).
 
+**WebSocket `/ws` — bidirectional real-time streaming.** Beyond the HTTP endpoints, `/ws` carries full-duplex generation: the client authenticates with its first message, then sends text and receives binary audio chunks as they are produced. It supports live cancellation — a concurrent watcher reads frames during generation and distinguishes an explicit cancel from a client disconnect — and validates the browser `Origin` header against the CORS allowlist before the socket is accepted. The generation seed is returned on the `"complete"` message.
+
 ### `POST /generate` Response
 
 Returns JSON (not a binary audio stream):
@@ -458,24 +500,54 @@ Returns JSON (not a binary audio stream):
     {
       "index": 0,
       "audio_base64": "...",
-      "sample_rate": 24000
+      "sample_rate": 24000,
+      "chunks": 1,
+      "seed": 1234567890
     }
   ]
 }
 ```
 
-Each result contains base64-encoded WAV audio. Decode with standard base64 libraries. Long texts are chunked automatically, producing multiple results.
+Each result contains base64-encoded WAV audio, the number of chunks it was built from, and the generation seed (server-generated when not supplied — reuse it to reproduce the output). Decode with standard base64 libraries. Long texts are chunked automatically, producing multiple results.
 
 ### `POST /generate-stream` Wire Format
 
-Streams raw float32 little-endian samples as binary chunks at 24000 Hz:
+The response body is a sequence of **length-prefixed binary frames**, one per audio chunk — not a raw float32 stream. Each frame is:
+
+```
+[sample_rate: 4 bytes, uint32 LE][length: 4 bytes, uint32 LE][payload: `length` bytes]
+```
+
+The payload is float32 little-endian PCM samples at `sample_rate` Hz (typically 24000). Because Starlette commits the 200 response headers before the body streams, a mid-stream failure cannot change the status code — instead the server emits a **terminal error frame** with `sample_rate == 0` (never valid for real audio) whose payload is JSON `{"error": "...", "code": "..."}`. Treat that frame as an error, not audio. On success the `X-Seed` response header carries the generation seed.
 
 ```python
-# Python consumer
-import struct, httpx
+# Minimal Python consumer
+import json, struct, httpx
+
+def read_exact(r, n):
+    buf = b""
+    while len(buf) < n:
+        part = r.read(n - len(buf))
+        if not part:
+            raise EOFError("stream ended mid-frame")
+        buf += part
+    return buf
+
 with httpx.stream("POST", url, json=payload, headers=headers) as r:
-    for chunk in r.iter_bytes():
-        samples = struct.unpack(f'<{len(chunk)//4}f', chunk)
+    r.raise_for_status()
+    raw = r.raw  # sync byte stream
+    while True:
+        try:
+            header = read_exact(raw, 8)
+        except EOFError:
+            break  # clean end of stream
+        sample_rate, length = struct.unpack("<II", header)
+        payload = read_exact(raw, length)
+        if sample_rate == 0:
+            err = json.loads(payload)   # terminal error frame
+            raise RuntimeError(f"server error: {err['error']} ({err['code']})")
+        samples = struct.unpack(f"<{length // 4}f", payload)
+        play(samples, sample_rate)
 ```
 
 ---
@@ -483,7 +555,7 @@ with httpx.stream("POST", url, json=payload, headers=headers) as r:
 ## Troubleshooting & FAQ
 
 * **Server won't start:** Run `tts server log` to view the error trace.
-* **CUDA Out of Memory:** The server locks concurrent requests to prevent this. If it happens on boot, run `tts server stop` to clear VRAM, then switch to the lighter model: `tts config` -> `0.6B`. If using vLLM, lower the `vllm_gpu_memory_utilization` to `0.5`.
+* **CUDA Out of Memory:** The server locks concurrent requests to prevent this. If it happens on boot, run `tts server stop` to clear VRAM, then switch to the lighter model: `tts config edit --model-size 0.6B`. If using vLLM, lower the `vllm_gpu_memory_utilization` to `0.5`.
 * **Subprocess/vLLM won't die:** The FastAPI server traps `SIGTERM` and kills the process group. If you force-killed the terminal (`kill -9`), find the PID with `nvidia-smi` and kill it manually.
 * **Bad Audio Quality:** Lower the temperature (`--temperature 0.5`) or use `--preset consistent`. Ensure your reference audio has absolutely zero background noise.
 

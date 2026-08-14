@@ -49,17 +49,22 @@ def _build_create_voice_tab(clone_prompt):
             )
             with gr.Row():
                 auto_transcribe_btn = gr.Button("Auto-Transcribe", size="sm")
+            gr.Markdown(
+                "*Auto-Transcribe needs the server running and the ASR model "
+                "loaded (Manage Models → ASR). The transcript it fills is also "
+                "what the clone echo-trim post-process uses.*"
+            )
 
         with gr.Column(scale=1):
             create_name = gr.Textbox(
                 label="Voice Name",
                 placeholder="e.g., my_voice",
-                info="Will create my_voice.pt + .wav + .txt",
+                info="Creates a .wav+.txt prompt (MLX) or a .pt prompt (torch)",
             )
             create_no_transcript = gr.Checkbox(
                 label="Speaker embedding only",
                 value=False,
-                info="Create without transcript (x-vector only, lower fidelity)",
+                info="Speaker embedding only (x-vector): no transcript needed, lower fidelity",
             )
             create_btn = gr.Button("Create Voice Prompt", variant="primary")
             create_status = gr.Textbox(label="Status", interactive=False)
@@ -83,7 +88,7 @@ def _build_create_voice_tab(clone_prompt):
 
 def _build_manage_voices_tab(clone_prompt):
     """Build Manage Voices tab components and wiring."""
-    gr.Markdown("View, preview, rename, and delete voice prompts.")
+    gr.Markdown("View, preview, rename, set a default, and delete voice prompts.")
 
     with gr.Row():
         with gr.Column(scale=2):
@@ -252,7 +257,9 @@ def _build_manage_models_tab(
     status_html, clone_model_indicator, design_model_indicator, custom_model_indicator
 ):
     """Build Manage Models tab components and wiring."""
-    gr.Markdown("Load/unload models, configure startup defaults, and audio loader.")
+    gr.Markdown(
+        "Load/unload models and ASR, configure startup defaults, and set the audio loader."
+    )
 
     with gr.Row():
         with gr.Column(scale=2):
@@ -285,6 +292,10 @@ def _build_manage_models_tab(
             )
 
             gr.Markdown("### ASR (Whisper)")
+            gr.Markdown(
+                "*Powers Auto-Transcribe on Create Voice and the clone "
+                "echo-trim post-process.*"
+            )
             with gr.Row():
                 asr_load_btn = gr.Button("Load ASR", size="sm")
                 asr_unload_btn = gr.Button("Unload ASR", size="sm", variant="stop")

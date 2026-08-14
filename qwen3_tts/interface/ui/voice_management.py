@@ -102,7 +102,7 @@ def create_voice_prompt(
                     # Clean up wav file
                     os.remove(wav_path)
                     raise gr.Error(
-                        "Please provide a transcript or enable 'no transcript' mode"
+                        "Please provide a transcript or tick 'Speaker embedding only'"
                     )
                 with open(txt_path, "w") as f:
                     f.write(transcript.strip())

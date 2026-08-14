@@ -93,7 +93,7 @@ def generate_guard_check(gen_guard_state: dict | None) -> tuple:
     if not confirmed:
         return (
             {**new_state, "generating": True},
-            "Generation in progress. Click again to cancel and restart.",
+            "Generation in progress. Click again to stop and restart.",
             True,
         )
 
@@ -119,7 +119,7 @@ def cancel_streaming_generation():
             return STATUS_GENERATION_STOPPED, format_status_display()
         else:
             return (
-                f"Cancel failed: {resp.json().get('error', 'Unknown')}",
+                f"Stop failed: {resp.json().get('error', 'Unknown')}",
                 format_status_display(),
             )
     except Exception as e:
@@ -142,7 +142,7 @@ def _prepare_cancel_confirmation():
         resp = server_request("GET", "/generation-status", timeout=2)
         if resp.status_code != 200:
             # Generation not active - can proceed without confirmation
-            return "Ready to cancel", True, 0, 0, "N/A"
+            return "Ready to stop", True, 0, 0, "N/A"
 
         status = resp.json()
         if not status.get("active", False):
@@ -158,7 +158,7 @@ def _prepare_cancel_confirmation():
 
         # Fast path: <10% progress, no confirmation needed
         if progress_pct < 10:
-            return "Canceling...", True, progress_pct, chunks, eta
+            return "Stopping...", True, progress_pct, chunks, eta
 
         # Full confirmation required
         return (
@@ -388,7 +388,10 @@ def _generate_server_side(mode, text, history_list, stream_config):
             history_list_copy = list(history_list)
         return (
             temp_path,
-            f"Generated: {os.path.basename(persistent_path)}",
+            # First line stays the bare filename: e2e tests parse the wav
+            # basename from line 1 of this status ("Generated: <name>.wav").
+            f"Generated: {os.path.basename(persistent_path)}\n"
+            f"Saved to: {output_dir}",
             format_status_display(),
             history_list_copy,
         )
@@ -418,9 +421,10 @@ def _generate_server_side(mode, text, history_list, stream_config):
 def _build_common_controls():
     """Build the common right-column controls shared by all generation tabs.
 
-    Returns dict with keys: temp, top_k, top_p, rep, seed.
-    Audio processing (trim, normalize, speed, pitch) is not supported
-    in streaming mode and has been removed from the WaveSurfer UI.
+    Returns dict with keys: temp, top_k, top_p, rep, seed, seed_lock.
+    Per-generation audio-processing controls were removed when generation
+    moved server-side; post-processing (echo trim, loudness) is applied by
+    the engine.
     """
     # Slider defaults are driven by config.json (single source of truth) so the
     # UI tracks the user's configured generation defaults, not hardcoded values.
@@ -430,7 +434,11 @@ def _build_common_controls():
         top_k = gr.Slider(1, 100, value=_defaults["top_k"], step=1, label="Top-K")
         top_p = gr.Slider(0.1, 1.0, value=_defaults["top_p"], step=0.01, label="Top-P")
         rep = gr.Slider(1.0, 2.0, value=_defaults["repetition_penalty"], step=0.01, label="Repetition Penalty")
-        seed = gr.Textbox(label="Seed (empty for random)", value="")
+        seed = gr.Textbox(
+            label="Seed (empty = random)",
+            value="",
+            info="The seed actually used is saved to Recent Generations — click a row to reuse it",
+        )
         seed_lock = gr.Checkbox(
             label="Lock voice across chunks",
             value=False,

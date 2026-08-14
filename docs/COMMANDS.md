@@ -34,7 +34,7 @@
 | `tts voice delete NAME` | Delete voice prompt |
 | `tts voice rename OLD NEW` | Rename voice prompt |
 | `tts voice preview NAME` | Play voice prompt |
-| `tts voice rebuild NAME` | Regenerate a prompt's `.pt` (torch-only; forces `TTS_BACKEND=torch`) |
+| `tts voice rebuild NAME` | Regenerate a prompt's `.pt` (torch-only; forces `TTS_BACKEND=torch`). Needs the `qwen_tts` package, so on MLX-default Macs run it from the torch env: `conda run -n qwen3-tts tts voice rebuild NAME` — otherwise it fails on the missing `qwen_tts` import |
 | `tts voice info NAME` | Show prompt metadata (formats, size, duration) via server |
 | `tts list speakers` | List premium speakers (Custom mode) |
 | `tts list presets` | List generation presets |
@@ -94,7 +94,11 @@
 | `make test-server` | Run Batch 3: Server infrastructure |
 | `make test-engine` | Run Batch 4: Engine & UI |
 | `make test-optional` | Run Batch 5: Optional (pytest-dependent) |
-| `make test-e2e` | Run Batch 6: E2E Playwright (requires server) |
+| `make test-e2e` | Run Batch 6: the `tests.test_e2e_playwright` module (requires a live server + Playwright; the runner sets `TTS_DISABLE_RATE_LIMITING=1` and preloads all three models). The rest of the `test_e2e_*` suite is excluded from batches — run it with `pytest -m e2e` against a server started with `TTS_DISABLE_RATE_LIMITING=1` |
+| `make test-batch-continue` | Run all test batches, continuing past failures |
+| `make install-mlx` | Install with MLX backend dependencies |
+| `make install-test-deps` | Install test dependencies, works in any environment (`pip install -e ".[test]"`) |
+| `make check-config-docs` | Verify `docs/CONFIG.md` defaults match `get_default_config()` (exit 1 on drift) |
 | `python tests/run_batches.py` | Run all test batches with failure isolation |
 | `python tests/run_batches.py --batch N` | Run specific batch (1-6) |
 | `python tests/run_full_suite.py --full` | Full suite with multi-environment testing |
@@ -157,7 +161,7 @@ All generation commands support these options (use `tts generate --help` for ful
 
 | Command | Description |
 |---------|-------------|
-| `tts server start` | Start model server (default port 5123) |
+| `tts server start` | Start model server as a background daemon (default port 5123); `--public` binds 0.0.0.0, `--foreground` runs in the foreground (Colab/notebooks) |
 | `tts server stop` | Graceful server shutdown |
 | `tts server status` | Show server status and loaded models |
 | `tts server log` | Tail server log file |

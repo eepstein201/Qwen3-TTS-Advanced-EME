@@ -11,7 +11,7 @@
 - **Git**: For version control
 - **macOS**: Apple Silicon M1/M2/M3 for MLX backend (recommended)
 - **Linux**: Any modern x86_64 distribution
-- **Windows**: WSL2 with Ubuntu recommended (native support limited)
+- **Windows**: Not supported natively (no Windows platform in the support matrix) — use WSL2 with Ubuntu
 
 ### Installation Steps
 
@@ -24,6 +24,12 @@ cd Qwen3-TTS-Advanced-EME
 
 #### 2. Create Conda Environments
 
+Two conda environments exist because the torch and mlx backends conflict on
+their `transformers` version requirements — they cannot coexist in one env.
+You normally need only the one matching your backend; the other is optional
+(and the torch env is required for `tts voice rebuild` on MLX Macs, see
+[`COMMANDS.md`](COMMANDS.md)).
+
 **For MLX backend (Apple Silicon only):**
 ```bash
 conda create -n qwen3-tts-mlx python=3.11 -y
@@ -31,14 +37,33 @@ conda activate qwen3-tts-mlx
 pip install -e ".[mlx,server,ui,dev]"
 ```
 
-**For Torch backend (Linux/Windows/Intel Mac):**
+**For Torch backend (Linux/WSL2/Intel Mac):**
 ```bash
 conda create -n qwen3-tts python=3.11 -y
 conda activate qwen3-tts
 pip install -e ".[torch,server,ui,dev]"
 ```
 
-#### 3. Verify Installation
+#### 3. Test-Only Setup (Any Python Environment)
+
+Running the test suite does **not** require conda. In any Python 3.10+
+environment:
+
+```bash
+pip install -e ".[test]"
+python -m pytest tests/ -v
+```
+
+`requirements.lock` pins the full `test+ui+dev` dependency tree for
+standalone test/CI environments (regenerate it after changing dependencies in
+`pyproject.toml`). **Never install the lock into the platform conda envs**
+(`qwen3-tts` / `qwen3-tts-mlx`): the transformers/huggingface-hub conflict is
+env-specific — in the torch env, transformers 4.57.3 requires
+`huggingface-hub<1.0` while the lock's gradio 6.20 requires `>=1.2.0`, so the
+lock would break `pip check` there. The lock is for standalone test/CI envs
+only; platform extras (`mlx`, `torch`) are deliberately excluded from it.
+
+#### 4. Verify Installation
 
 ```bash
 tts doctor
@@ -104,30 +129,45 @@ qwen3-tts/
 ### Test Suite Overview
 
 The project has **2000+ tests** across 100+ modules, organized into 6 batches
-(module counts from `tests/run_batches.py`):
+(module counts from the `BATCHES` dict in `tests/run_batches.py`):
 
 | Batch | Name | Modules | Description | Server Required |
 |-------|------|---------|-------------|-----------------|
-| 1 | Core | 15 | Core utilities, config, validation | No |
-| 2 | Voice | 19 | Voice prompts, CLI commands | No |
-| 3 | Server | 33 | Server infrastructure, API endpoints | No |
-| 4 | Engine | 22 | Engine components, UI logic | No |
-| 5 | Optional | 13 | Pytest-dependent features | No |
+| 1 | Core | 22 | Core utilities, config, validation | No |
+| 2 | Voice | 23 | Voice prompts, CLI commands | No |
+| 3 | Server | 51 | Server infrastructure, API endpoints | No |
+| 4 | Engine | 36 | Engine components, UI logic | No |
+| 5 | Optional | 16 | Optional-dependency features | No |
 | 6 | E2E | 1 | End-to-end Playwright tests | **Yes** |
+
+Note: batch 6 runs only `tests.test_e2e_playwright`. The rest of the
+`test_e2e_*` suite is deliberately excluded from batches and runs under pytest
+only (`pytest -m e2e`); `tests/test_rate_limiting.py` is excluded too (the
+batch runner disables rate limiting, so it would pass hollowly).
 
 ### Running Tests
 
-**Run all tests (requires server for Batch 6):**
+**Run all batches** (no server needed for batches 1-5; the runner sets
+`TTS_DISABLE_RATE_LIMITING=1` for its children):
 ```bash
-# Ensure server is running
-tts server start
-
 # Run all batches
 python tests/run_batches.py
 
 # Or use Makefile
 make test-batch
 ```
+
+**Run the full test suite via pytest** — no server needed. `pytest.ini`
+deselects e2e by default (`-m "not e2e"`), so a plain full run hangs on
+nothing:
+```bash
+python -m pytest tests/ -v --tb=short   # skips E2E by default
+python -m pytest tests/ -m e2e          # opt-in: run E2E (needs live server)
+```
+
+Run `pytest -m "not e2e"` locally before pushing: CI's coverage job runs the
+full pytest discovery, which is broader than the batch runner — a test outside
+`BATCHES` can pass every batch gate yet fail CI.
 
 **Run specific batch:**
 ```bash
@@ -153,16 +193,38 @@ open htmlcov/index.html
 
 ### Test Organization
 
-Tests are organized by module and use pytest marks:
+Tests are organized by module and use pytest marks (all registered in
+`pytest.ini`, enforced with `--strict-markers`):
 - `@pytest.mark.unit`: Unit tests (no external dependencies)
 - `@pytest.mark.integration`: Integration tests (requires server)
-- `@pytest.mark.e2e`: End-to-end tests (requires server and browser)
+- `@pytest.mark.e2e`: End-to-end tests (requires server and browser); deselected by default
+- `@pytest.mark.slow`: Slow tests (deselect with `-m "not slow"`)
+- `@pytest.mark.requires_server`: Needs a running server
+
+### Mandatory Test Workflow Rules
+
+1. **Register new test modules in `BATCHES`** (`tests/run_batches.py`). The
+   list is explicit, not discovery-based — an unregistered module silently
+   never runs in the batch gates. Enforced by
+   `tests/test_batches_coverage.py` (an `INTENTIONALLY_UNBATCHED` allowlist
+   with a written reason exists for genuine exceptions).
+2. **Never put `async def test_*` on a plain `unittest.TestCase`** — unittest
+   does not await it, so the body never runs yet the test reports *ok* (a
+   false green). Use `unittest.IsolatedAsyncioTestCase`, or
+   `@pytest.mark.asyncio` outside a TestCase (pytest-asyncio is in `strict`
+   mode; unmarked coroutine tests are skipped). Guarded statically by
+   `tests/test_async_test_hygiene.py`.
+3. **Never attach a `select` listener to a `gr.Tab`** in the Gradio UI —
+   gradio 6.14.x recurses infinitely in the Dataframe frontend and kills the
+   page. Fixed upstream in 6.20.0, but the ban stays as defense-in-depth (and
+   Timer polling is cheaper); it is **not** a reason to avoid gradio > 6.14.
+   Guarded by `tests/test_ui_tab_select_wiring.py`.
 
 ### E2E Testing Requirements
 
 Batch 6 (E2E Playwright) requires:
-1. **Server running**: `tts server start`
-2. **Models loaded**: Clone model must be loaded
+1. **Server running**: `tts server start` (the batch setup preloads the clone, design, and custom models via `/load-model`, but start the server with `TTS_DISABLE_RATE_LIMITING=1` or a raised generate limit to avoid false 429 skips)
+2. **Models loaded**: all three (clone, design, custom)
 3. **Browser**: Playwright browser driver
 
 **Setup for E2E tests:**

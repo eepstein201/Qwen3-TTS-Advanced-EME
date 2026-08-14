@@ -2,13 +2,12 @@
 
 ## Architecture
 
-Rate limiting is implemented using **slowapi** with support for multiple strategies. The server creates three separate limiters at startup, each using a different key function:
+Rate limiting is implemented using **slowapi** with support for multiple strategies. The server creates **four** separate limiters at startup:
 
-### Key Components
-
-1. **IP-Based Rate Limiting**: Uses `_get_real_client_ip()` to handle reverse proxies
-2. **Token-Based Rate Limiting**: Hashes auth tokens for per-user limits (SHA-256, first 16 hex chars)
-3. **Hybrid Rate Limiting**: Combines both IP + token for strictest enforcement
+1. **Global pre-auth ceiling** (`limiter_global`): an IP-keyed default limit enforced by `SlowAPIMiddleware` at the ASGI layer, **before routing and auth**, on ALL routes. This exists because the per-route `@limiter.limit` decorators run *after* `Depends(verify_auth)` — without a pre-auth ceiling, an unauthenticated flood 401s on every request before any limiter fires and bypasses rate limiting entirely.
+2. **Hybrid Rate Limiting** (`limiter_hybrid`): Combines IP + token for strictest enforcement
+3. **IP-Based Rate Limiting** (`limiter_ip`): Uses `_get_real_client_ip()` to handle reverse proxies
+4. **Token-Based Rate Limiting** (`limiter_token`): Hashes auth tokens for per-user limits (SHA-256, first 16 hex chars)
 
 ## Configuration
 
@@ -25,13 +24,32 @@ Examples:
 
 ### Default Limits
 
-| Endpoint Type | Default Limit | Rationale |
-|--------------|--------------|-----------|
-| Generation | 20/minute | Streaming allows ~3 req/min with headroom |
-| Model Operations | 3/minute | Expensive GPU operations |
-| Transcription | 15/minute | ASR is faster than TTS |
-| Prompt Operations | 10/minute | I/O bound operations |
-| Config Changes | 1/minute | Should be rare |
+| Limit | Default | Rationale |
+|-------|---------|-----------|
+| Generation (`generate`) | 10/minute | Long-text chunks take ~40-70 s each on MLX; 10/min is ample headroom for interactive use |
+| Model Operations (`model_ops`) | 5/minute | Load/unload are expensive GPU/memory operations |
+| Global pre-auth ceiling (`global`) | 120/minute | Flood backstop only — must stay well above the Gradio UI's ~24/min `/health` + `/models` polling (see below) |
+
+**Operational caveat — the global ceiling vs. the Gradio UI:** the web UI polls `/health` + `/models` every 5 s (~24 requests/min) against a single IP. If you lower `security.rate_limits.global` below that, `/health` starts returning 429 and the UI banner shows "Disconnected / Server not running" even though the server is up. Keep the global ceiling comfortably above ~24/min; tighten abuse with the per-endpoint limits, not the global ceiling.
+
+### Actual Endpoint Wiring
+
+The config keys below `generate`/`model_ops` map to real endpoints. The remaining keys are **defined but not currently wired** — a known gap; do not rely on them until wired:
+
+| Endpoint | Effective limit (default) |
+|----------|--------------------------|
+| `/generate`, `/generate-stream`, `/transcribe` | `generate` (10/minute) — `/transcribe` reuses the generate limit; the `transcribe` key is unwired |
+| `/load-model`, `/unload-model`, `/update-model-config`, `/create-voice-prompt` | `model_ops` (5/minute) |
+| `/delete-prompt`, `/rename-prompt` | hardcoded `"10/minute"` — the `prompt_ops` key is unwired |
+| `/update-startup-config` | hardcoded `"2/minute"` — the `config_ops` key is unwired |
+| All routes (pre-auth) | `global` (120/minute) |
+
+### Environment Variables
+
+All rate-limit values are resolved once at **server import time** — restart the server (`tts server stop && tts server start`) to apply any change (config or env):
+
+- `TTS_DISABLE_RATE_LIMITING=1` — makes every limiter a no-op. For local test/CI servers only; never set in production.
+- `TTS_RATE_LIMIT_GENERATE`, `TTS_RATE_LIMIT_MODEL_OPS`, `TTS_RATE_LIMIT_TRANSCRIBE`, `TTS_RATE_LIMIT_PROMPT_OPS`, `TTS_RATE_LIMIT_CONFIG_OPS`, `TTS_RATE_LIMIT_GLOBAL` — override the corresponding limit (env wins over `config.json`). The TRANSCRIBE/PROMPT_OPS/CONFIG_OPS overrides inherit the unwired-key gap above.
 
 ### Custom Configuration
 
@@ -45,11 +63,14 @@ Edit `config.json`:
       "model_ops": "10/hour",
       "transcribe": "100/hour",
       "prompt_ops": "30/hour",
-      "config_ops": "5/hour"
+      "config_ops": "5/hour",
+      "global": "240/minute"
     }
   }
 }
 ```
+
+(`transcribe`, `prompt_ops`, and `config_ops` are accepted but currently unwired — see "Actual Endpoint Wiring" above.)
 
 ## Rate Limit Strategies
 
@@ -105,20 +126,19 @@ This ensures:
 
 ### Proxy Handling
 
-The server respects `X-Forwarded-For` headers **only when not on loopback**:
+The server honors `X-Forwarded-For` **only when the direct TCP peer is in the trusted-proxy allowlist** (`TTS_TRUSTED_PROXIES`, comma-separated IPs; loopback — `127.0.0.1`, `::1`, `localhost` — by default):
 
 ```python
 def _get_real_client_ip(request: Request) -> str:
     direct_host = request.client.host if request.client else "127.0.0.1"
-    is_loopback = direct_host in ("127.0.0.1", "::1", "localhost")
-    if not is_loopback:
+    if direct_host in TRUSTED_PROXIES:
         forwarded = request.headers.get("X-Forwarded-For")
         if forwarded:
             return forwarded.split(",")[0].strip()
     return direct_host
 ```
 
-This security feature prevents rate limit bypass when the server is bound to localhost.
+This prevents rate-limit bypass: a client connecting **directly** on a public or Colab bind cannot spoof `X-Forwarded-For` to rotate its rate-limit key — the header is only read when the connection actually came from a trusted proxy. **Set `TTS_TRUSTED_PROXIES` when running behind a reverse proxy** so per-IP limits see the real client; unset it (or leave loopback-only) otherwise.
 
 ## Testing
 
@@ -155,7 +175,7 @@ for i in {1..25}; do
 done
 ```
 
-Expected output: First 20 requests succeed, next 5 return HTTP 429.
+Expected output: First 10 requests succeed, next 15 return HTTP 429 (the 10/minute generate default).
 
 ## Troubleshooting
 
@@ -233,7 +253,7 @@ Tokens are hashed to prevent sensitive data from appearing in logs or rate limit
 
 ### Proxy Security
 
-`X-Forwarded-For` headers are only trusted when the server is **not bound to loopback**. This prevents rate limit bypass attacks.
+`X-Forwarded-For` headers are only trusted when the direct TCP peer is in the **`TTS_TRUSTED_PROXIES` allowlist** (loopback by default). A client connecting directly — including on a public or Colab bind — cannot spoof the header to rotate its rate-limit key, which prevents rate limit bypass attacks. Only add proxies you actually front the server with.
 
 ### Rate Limit Bypass Prevention
 
@@ -269,7 +289,7 @@ logger.warning(
 
 ## Best Practices
 
-1. **Start with conservative limits** (20/minute for generation)
+1. **Start with conservative limits** (10/minute for generation)
 2. **Monitor 429 error rates** to detect abuse vs. legitimate high usage
 3. **Use hybrid strategy** for public-facing endpoints
 4. **Adjust limits based on actual usage patterns**

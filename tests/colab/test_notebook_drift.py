@@ -53,7 +53,7 @@ STDLIB_PREFIXES = {
     "concurrent", "queue", "multiprocessing", "errno", "glob", "fnmatch",
     "struct", "base64", "binascii", "hmac", "ssl", "socket", "http", "urllib",
     "email", "mimetypes", "string", "operator", "ipaddress", "tomllib",
-    "importlib",
+    "importlib", "fcntl",
 }
 
 # First-party packages (won't be in pyproject deps).

@@ -63,7 +63,10 @@ def _build_clone_tab(status_html, history_state):
     with gr.Row():
         with gr.Column(scale=2):
             clone_text = gr.Textbox(
-                label="Text Input", placeholder="Enter text to synthesize...", lines=3
+                label="Text Input",
+                placeholder="Enter text to synthesize...",
+                lines=3,
+                info="Long text is automatically split into ~500-char chunks to avoid mid-sentence cutoff (a single unsplit generation is capped at ~170 s of audio)",
             )
             clone_text_info = gr.Textbox(
                 label="",
@@ -90,7 +93,7 @@ def _build_clone_tab(status_html, history_state):
             clone_no_transcript = gr.Checkbox(
                 label="Speaker embedding only",
                 value=False,
-                info="Clone using x-vector only (no transcript needed, lower fidelity)",
+                info="Speaker embedding only (x-vector): clones without a transcript, lower fidelity",
             )
 
     clone_btns = generation._build_generate_buttons_and_output("clone")
@@ -161,7 +164,10 @@ def _build_design_tab(status_html, history_state, clone_prompt):
     with gr.Row():
         with gr.Column(scale=2):
             design_text = gr.Textbox(
-                label="Text Input", placeholder="Enter text to synthesize...", lines=3
+                label="Text Input",
+                placeholder="Enter text to synthesize...",
+                lines=3,
+                info="Long text is automatically split into ~500-char chunks to avoid mid-sentence cutoff (a single unsplit generation is capped at ~170 s of audio)",
             )
             design_text_info = gr.Textbox(
                 label="",
@@ -244,7 +250,11 @@ def _build_design_tab(status_html, history_state, clone_prompt):
 
     # Save as Voice Prompt (Design-then-Clone pipeline)
     with gr.Accordion("Save as Voice Prompt", open=False):
-        gr.Markdown("Save the generated audio as a reusable voice clone prompt.")
+        gr.Markdown(
+            "Save the generated audio as a reusable voice clone prompt. Saved "
+            "prompts use speaker-embedding-only (x-vector) mode, so fidelity is "
+            "lower than a transcript-based clone."
+        )
         design_save_name = gr.Textbox(
             label="Voice Name", placeholder="e.g., designed_voice", max_lines=1
         )
@@ -400,7 +410,10 @@ def _build_custom_tab(status_html, history_state):
     with gr.Row():
         with gr.Column(scale=2):
             custom_text = gr.Textbox(
-                label="Text Input", placeholder="Enter text to synthesize...", lines=3
+                label="Text Input",
+                placeholder="Enter text to synthesize...",
+                lines=3,
+                info="Long text is automatically split into ~500-char chunks to avoid mid-sentence cutoff (a single unsplit generation is capped at ~170 s of audio)",
             )
             custom_text_info = gr.Textbox(
                 label="",

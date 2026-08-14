@@ -7,11 +7,12 @@ Index of the project's reference documentation. For a product overview and quick
 | Doc | What it covers |
 |-----|----------------|
 | [COMMANDS.md](COMMANDS.md) | Full `tts` CLI command reference — generation, server, voice, config, cache, testing. |
-| [CONFIG.md](CONFIG.md) | Every `config.json` key and environment variable, with defaults, generated from `config.py`. |
+| [CONFIG.md](CONFIG.md) | Every `config.json` key and environment variable, with defaults. Hand-maintained (no live generator since `config.py` became the `core/config/` package); its defaults are drift-checked against `get_default_config()` by `make check-config-docs`. |
 | [rate-limiting.md](rate-limiting.md) | Rate-limiting architecture (slowapi), strategies, and the `security.rate_limits` format. |
 | [CONTRIBUTING.md](CONTRIBUTING.md) | Dev environment setup, scripts, testing procedures, code style, PR workflow. |
 | [RUNBOOK.md](RUNBOOK.md) | Deployment, PM2, health checks, model management, monitoring, troubleshooting. |
 | [00-Foundations/ARCHITECTURE.md](00-Foundations/ARCHITECTURE.md) | Architecture deep dive — full config schema, security model, platform matrix, internals. |
+| [CODEMAPS/](CODEMAPS/) | Token-lean maps (~2k tokens total) — architecture, backend, frontend, data, and dependency views. Refreshed on a 90-day cadence. |
 
 ## Roadmaps (live)
 
