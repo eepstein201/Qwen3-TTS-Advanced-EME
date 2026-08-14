@@ -138,6 +138,47 @@ def test_toggle_model_load_success():
 
 
 @pytest.mark.unit
+def test_toggle_model_load_success_reports_duration():
+    """toggle_model load success message includes the elapsed load time."""
+    from qwen3_tts.interface.ui.model_management import toggle_model
+
+    mock_resp = MagicMock()
+    mock_resp.status_code = 200
+    mock_resp.json.return_value = {"status": "loaded"}
+
+    with patch("qwen3_tts.interface.ui.model_management.load_config", return_value={}), \
+         patch("qwen3_tts.interface.ui.model_management.is_server_running", return_value=True), \
+         patch("qwen3_tts.core.http_client.server_request", return_value=mock_resp), \
+         patch("qwen3_tts.interface.ui.model_management.get_model_table_data", return_value=[]), \
+         patch("qwen3_tts.interface.ui.model_management.format_status_display", return_value="ok"), \
+         patch("qwen3_tts.interface.ui.model_management.time.monotonic",
+               side_effect=[10.0, 47.5]):
+        msg, table, status = toggle_model("clone", "load")
+
+    assert "37.5s" in msg
+
+
+@pytest.mark.unit
+def test_toggle_model_already_loaded_omits_duration():
+    """already_loaded responses don't report a meaningless 0.0s duration."""
+    from qwen3_tts.interface.ui.model_management import toggle_model
+
+    mock_resp = MagicMock()
+    mock_resp.status_code = 200
+    mock_resp.json.return_value = {"status": "already_loaded"}
+
+    with patch("qwen3_tts.interface.ui.model_management.load_config", return_value={}), \
+         patch("qwen3_tts.interface.ui.model_management.is_server_running", return_value=True), \
+         patch("qwen3_tts.core.http_client.server_request", return_value=mock_resp), \
+         patch("qwen3_tts.interface.ui.model_management.get_model_table_data", return_value=[]), \
+         patch("qwen3_tts.interface.ui.model_management.format_status_display", return_value="ok"):
+        msg, table, status = toggle_model("clone", "load")
+
+    assert "already_loaded" in msg
+    assert "0.0s" not in msg
+
+
+@pytest.mark.unit
 def test_toggle_model_server_down():
     """toggle_model returns 'Server not running' when down."""
     from qwen3_tts.interface.ui.model_management import toggle_model
@@ -246,6 +287,36 @@ def test_update_startup_defaults(tmp_path):
 
 
 # ---- get_model_status_html ----
+
+@pytest.mark.unit
+def test_badge_loading_shows_eta_from_prior_load():
+    """Loading badge surfaces the prior load duration as an expected ETA."""
+    from qwen3_tts.interface.ui.model_management import _badge_from_models_payload
+
+    html = _badge_from_models_payload(
+        {"models": {"clone": {"loaded": False, "loading": True,
+                              "load_time_sec": 42.3}}},
+        "clone",
+    )
+
+    assert "Loading" in html
+    assert "42" in html
+    assert "expected" in html
+
+
+@pytest.mark.unit
+def test_badge_loading_without_eta_omits_expectation():
+    """No prior load_time_sec → plain Loading badge, no invented ETA."""
+    from qwen3_tts.interface.ui.model_management import _badge_from_models_payload
+
+    html = _badge_from_models_payload(
+        {"models": {"design": {"loaded": False, "loading": True}}},
+        "design",
+    )
+
+    assert "Loading" in html
+    assert "expected" not in html
+
 
 @pytest.mark.unit
 def test_get_model_status_html_loaded():

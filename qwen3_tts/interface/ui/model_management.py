@@ -10,16 +10,14 @@ This module contains:
 """
 
 import logging
+import time
 
 from qwen3_tts.core.config import (
     is_server_running,
     load_config,
     save_config,
 )
-from qwen3_tts.interface.ui.components import (
-    ProgressIndicator,
-    poll_model_load_progress,
-)
+from qwen3_tts.interface.ui.components import ProgressIndicator
 from qwen3_tts.interface.ui.shared import format_status_display
 
 logger = logging.getLogger("tts.ui")
@@ -113,20 +111,13 @@ def toggle_model(model_type, action):
     if not is_server_running(config):
         return "Server not running", get_model_table_data(), format_status_display()
 
-    if action == "load":
-        # Build a ProgressIndicator instance so log entries / future inline
-        # progress wiring can read message + ETA. Also probes the server's
-        # `loading: bool` field via poll_model_load_progress (Phase 1b
-        # contract). Not yielded today because the blocking sync call leaves
-        # no opportunity to update outputs mid-flight under the current
-        # lambda-wrapped wiring.
-        progress = poll_model_load_progress(model_type)
-        eta_s = progress.get("eta_s")
-        ProgressIndicator(
-            mode="indeterminate",
-            message=f"Loading {model_type}…"
-            + (f" (~{int(eta_s)}s expected)" if eta_s else ""),
-        )
+    # In-flight progress is surfaced by the shared badge Timer (see
+    # _badge_from_models_payload — it renders `loading` + prior-load ETA from
+    # /models), not by this handler: the blocking POST below leaves no
+    # opportunity to update outputs mid-flight under the lambda-wrapped
+    # wiring. Here we only measure wall time so the completion message can
+    # report how long the operation actually took.
+    started = time.monotonic()
 
     try:
         from qwen3_tts.core.http_client import server_request
@@ -146,8 +137,15 @@ def toggle_model(model_type, action):
         if resp.status_code == 200:
             result = resp.json()
             status = result.get("status", "done")
+            # already_loaded short-circuits server-side without loading, so a
+            # duration would be meaningless for it.
+            elapsed = (
+                f" in {time.monotonic() - started:.1f}s"
+                if status != "already_loaded"
+                else ""
+            )
             return (
-                f"Model {model_type}: {status}",
+                f"Model {model_type}: {status}{elapsed}",
                 get_model_table_data(),
                 format_status_display(),
             )
@@ -244,6 +242,14 @@ def _badge_from_models_payload(data, model_type):
     if loaded:
         return status_badge(f"Loaded ({memory:.0f}MB)", severity="success")
     if loading:
+        # Prior measured load duration is the best available estimate — the
+        # server cannot know remaining time for the in-flight load.
+        load_time_sec = info.get("load_time_sec")
+        if load_time_sec is not None:
+            return status_badge(
+                f"Loading {model_type}... (~{int(load_time_sec)}s expected)",
+                severity="loading",
+            )
         return status_badge(f"Loading {model_type}...", severity="loading")
     return status_badge("Not loaded", severity="info")
 
