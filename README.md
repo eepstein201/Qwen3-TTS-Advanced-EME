@@ -392,10 +392,9 @@ Effective limits as actually applied (a few endpoints currently use a different 
 | `/load-model`, `/unload-model` | `model_ops` (default 5/minute) | Hybrid |
 | `/update-model-config` | `model_ops` | Hybrid |
 | `/load-asr`, `/unload-asr` | `model_ops` | Hybrid |
-| `/transcribe` | uses the `generate` limit (its own `transcribe` category is defined but not yet applied) | Hybrid |
-| `/create-voice-prompt` | uses the `model_ops` limit (its own `prompt_ops` category is defined but not yet applied) | Hybrid |
-| `/delete-prompt`, `/rename-prompt` | hardcoded `10/minute` | Hybrid |
-| `/update-startup-config` | hardcoded `2/minute` (its own `config_ops` category is defined but not yet applied) | Hybrid |
+| `/transcribe` | `transcribe` (default 10/minute) | Hybrid |
+| `/create-voice-prompt`, `/delete-prompt`, `/rename-prompt` | `prompt_ops` (default 10/minute) | Hybrid |
+| `/update-startup-config` | `config_ops` (default 2/minute) | Hybrid |
 | All routes (pre-auth ceiling) | `global` (default 120/minute) | Per-IP |
 
 ### Error Responses

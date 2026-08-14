@@ -61,11 +61,11 @@ def _get_default_rate_limit(endpoint_type: str) -> str:
         Default rate limit string
     """
     defaults = {
-        "generate": "20/minute",
-        "model_ops": "3/minute",
-        "transcribe": "15/minute",
+        "generate": "10/minute",
+        "model_ops": "5/minute",
+        "transcribe": "10/minute",
         "prompt_ops": "10/minute",
-        "config_ops": "1/minute",
+        "config_ops": "2/minute",
     }
     return defaults.get(endpoint_type, "10/minute")
 
@@ -153,13 +153,18 @@ def validate_config(config: dict) -> tuple[dict, list[str]]:
                     )
             corrected_sec["rate_limits"] = corrected_limits
         else:
-            # Add default rate_limits if missing
+            # Add default rate_limits if missing. Kept in lockstep with app.py's
+            # _rate_limit_from_env fallbacks (guarded by
+            # tests/test_rate_limiting.py::TestRateLimitDefaultsSingleSource).
             corrected_sec["rate_limits"] = {
-                "generate": "20/minute",
-                "model_ops": "3/minute",
-                "transcribe": "15/minute",
-                "prompt_ops": "10/minute",
-                "config_ops": "1/minute",
+                key: _get_default_rate_limit(key)
+                for key in (
+                    "generate",
+                    "model_ops",
+                    "transcribe",
+                    "prompt_ops",
+                    "config_ops",
+                )
             }
             issues.append("added default security.rate_limits section")
 

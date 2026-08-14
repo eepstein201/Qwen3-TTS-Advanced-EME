@@ -526,3 +526,139 @@ class TestServerRunningHandlesRateLimit:
 
         with patch("requests.get", side_effect=requests.ConnectionError()):
             assert runtime.is_server_running("http://127.0.0.1:5123") is False
+
+
+class TestEndpointLimiterWiring:
+    """Each rate-limit category must be wired to its own endpoint.
+
+    The ``transcribe``/``prompt_ops``/``config_ops`` limit constants existed
+    (config and ``TTS_RATE_LIMIT_*`` env overrides read them) but were never
+    applied: ``/transcribe`` shared the generate limit, ``/create-voice-prompt``
+    shared model_ops, ``/delete-prompt`` and ``/rename-prompt`` were hardcoded
+    ``"10/minute"``, and ``/update-startup-config`` was hardcoded
+    ``"2/minute"`` -- so tuning those keys silently did nothing.
+
+    Static AST check (the project's wiring-guard pattern): slowapi leaves no
+    runtime attribute on the wrapped endpoint to assert against after import,
+    so the decorator source is the contract.
+    """
+
+    # endpoint function name -> limiter constant its @_rate_limit(...) must use
+    EXPECTED_LIMITERS = {
+        "transcribe": "_transcribe_limit",
+        "create_voice_prompt_endpoint": "_prompt_ops_limit",
+        "delete_prompt": "_prompt_ops_limit",
+        "rename_prompt": "_prompt_ops_limit",
+        "update_startup_config": "_config_ops_limit",
+    }
+
+    @staticmethod
+    def _decorator_args():
+        """Yield (function_name, first_decorator_arg_node) for every
+        ``@_rate_limit(...)``-decorated module-level function in app.py."""
+        import ast
+        from pathlib import Path
+
+        from qwen3_tts.server import app as app_module
+
+        tree = ast.parse(Path(app_module.__file__).read_text(encoding="utf-8"))
+        for node in tree.body:
+            if not isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                continue
+            for deco in node.decorator_list:
+                if (
+                    isinstance(deco, ast.Call)
+                    and isinstance(deco.func, ast.Name)
+                    and deco.func.id == "_rate_limit"
+                    and deco.args
+                ):
+                    yield node.name, deco.args[0]
+
+    def test_each_endpoint_uses_its_own_limiter(self):
+        import ast
+
+        for func_name, arg in self._decorator_args():
+            if func_name not in self.EXPECTED_LIMITERS:
+                continue
+            expected = self.EXPECTED_LIMITERS[func_name]
+            assert isinstance(arg, ast.Name) and arg.id == expected, (
+                f"{func_name} must be limited by {expected}, found "
+                f"{arg.id if isinstance(arg, ast.Name) else ast.dump(arg)}"
+            )
+
+    def test_no_endpoint_uses_hardcoded_limit_string(self):
+        import ast
+
+        offenders = [
+            func_name
+            for func_name, arg in self._decorator_args()
+            if isinstance(arg, ast.Constant)
+        ]
+        assert not offenders, (
+            f"hardcoded rate-limit strings bypass config/env overrides: {offenders}"
+        )
+
+
+class TestRateLimitDefaultsSingleSource:
+    """io.py's validation defaults must match app.py's runtime fallbacks.
+
+    Two divergent tables existed: ``_get_default_rate_limit`` /
+    ``validate_config`` said 20/3/15/10/1 per minute while app.py's
+    ``_rate_limit_from_env`` literals said 10/5/10/10/2. A config
+    normalized by ``validate_config`` would silently jump to different
+    limits than a config without the section. The documented defaults
+    (README, RUNBOOK, rate-limiting.md) are app.py's runtime fallbacks —
+    validation must not inject anything else.
+    """
+
+    @staticmethod
+    def _runtime_fallbacks():
+        """Parse app.py's _rate_limit_from_env literals -> {config_key: default}."""
+        import ast
+        from pathlib import Path
+
+        from qwen3_tts.server import app as app_module
+
+        tree = ast.parse(Path(app_module.__file__).read_text(encoding="utf-8"))
+        runtime = {}
+        for node in ast.walk(tree):
+            if (
+                isinstance(node, ast.Call)
+                and isinstance(node.func, ast.Name)
+                and node.func.id == "_rate_limit_from_env"
+                and len(node.args) >= 3
+                and all(isinstance(a, ast.Constant) for a in node.args[:3])
+            ):
+                _env_key, config_key, default = (a.value for a in node.args[:3])
+                runtime[config_key] = default
+        return runtime
+
+    def test_get_default_rate_limit_matches_runtime_fallbacks(self):
+        from qwen3_tts.core.config import _get_default_rate_limit
+
+        runtime = self._runtime_fallbacks()
+        assert runtime, "_rate_limit_from_env calls not found in app.py"
+        # ``global`` is a server-side pre-auth ceiling resolved only in
+        # app.py; _get_default_rate_limit does not manage it.
+        runtime.pop("global", None)
+        for key, literal in runtime.items():
+            validation_default = _get_default_rate_limit(key)
+            assert validation_default == literal, (
+                f"{key}: validate_config default {validation_default!r} != "
+                f"app.py runtime fallback {literal!r}"
+            )
+
+    def test_validate_config_injects_runtime_fallback_defaults(self):
+        from qwen3_tts.core.config import validate_config
+
+        runtime = self._runtime_fallbacks()
+        # ``global`` is a server-side pre-auth ceiling resolved only in
+        # app.py; validate_config deliberately does not inject it.
+        runtime.pop("global", None)
+        corrected, _issues = validate_config({"security": {"max_text_length": 100}})
+        injected = corrected.get("security", {}).get("rate_limits", {})
+        for key, literal in runtime.items():
+            assert injected.get(key) == literal, (
+                f"validate_config injected {key}={injected.get(key)!r} but the "
+                f"documented runtime fallback is {literal!r}"
+            )

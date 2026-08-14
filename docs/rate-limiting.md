@@ -34,14 +34,15 @@ Examples:
 
 ### Actual Endpoint Wiring
 
-The config keys below `generate`/`model_ops` map to real endpoints. The remaining keys are **defined but not currently wired** — a known gap; do not rely on them until wired:
+Every config key maps to real endpoints — each category has its own decorator (guarded by `tests/test_rate_limiting.py::TestEndpointLimiterWiring`, which also fails on any reintroduced hardcoded limit string):
 
 | Endpoint | Effective limit (default) |
 |----------|--------------------------|
-| `/generate`, `/generate-stream`, `/transcribe` | `generate` (10/minute) — `/transcribe` reuses the generate limit; the `transcribe` key is unwired |
-| `/load-model`, `/unload-model`, `/update-model-config`, `/create-voice-prompt` | `model_ops` (5/minute) |
-| `/delete-prompt`, `/rename-prompt` | hardcoded `"10/minute"` — the `prompt_ops` key is unwired |
-| `/update-startup-config` | hardcoded `"2/minute"` — the `config_ops` key is unwired |
+| `/generate`, `/generate-stream` | `generate` (10/minute) |
+| `/load-model`, `/unload-model`, `/update-model-config`, `/load-asr`, `/unload-asr` | `model_ops` (5/minute) |
+| `/transcribe` | `transcribe` (10/minute) |
+| `/create-voice-prompt`, `/delete-prompt`, `/rename-prompt` | `prompt_ops` (10/minute) |
+| `/update-startup-config` | `config_ops` (2/minute) |
 | All routes (pre-auth) | `global` (120/minute) |
 
 ### Environment Variables
@@ -49,7 +50,7 @@ The config keys below `generate`/`model_ops` map to real endpoints. The remainin
 All rate-limit values are resolved once at **server import time** — restart the server (`tts server stop && tts server start`) to apply any change (config or env):
 
 - `TTS_DISABLE_RATE_LIMITING=1` — makes every limiter a no-op. For local test/CI servers only; never set in production.
-- `TTS_RATE_LIMIT_GENERATE`, `TTS_RATE_LIMIT_MODEL_OPS`, `TTS_RATE_LIMIT_TRANSCRIBE`, `TTS_RATE_LIMIT_PROMPT_OPS`, `TTS_RATE_LIMIT_CONFIG_OPS`, `TTS_RATE_LIMIT_GLOBAL` — override the corresponding limit (env wins over `config.json`). The TRANSCRIBE/PROMPT_OPS/CONFIG_OPS overrides inherit the unwired-key gap above.
+- `TTS_RATE_LIMIT_GENERATE`, `TTS_RATE_LIMIT_MODEL_OPS`, `TTS_RATE_LIMIT_TRANSCRIBE`, `TTS_RATE_LIMIT_PROMPT_OPS`, `TTS_RATE_LIMIT_CONFIG_OPS`, `TTS_RATE_LIMIT_GLOBAL` — override the corresponding limit (env wins over `config.json`).
 
 ### Custom Configuration
 
@@ -69,8 +70,6 @@ Edit `config.json`:
   }
 }
 ```
-
-(`transcribe`, `prompt_ops`, and `config_ops` are accepted but currently unwired — see "Actual Endpoint Wiring" above.)
 
 ## Rate Limit Strategies
 
