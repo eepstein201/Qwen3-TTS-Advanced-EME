@@ -24,8 +24,8 @@ from qwen3_tts.interface.ui.components import StatusBanner, confirm_step
 # on_history_select keys off evt.index[1] (the clicked column).
 HISTORY_COL_TEXT_PREVIEW = 2  # "Text Preview" — click copies the transcript
 HISTORY_COL_DELETE = 5  # "Remove" (✕) — path-keyed two-step hard-delete
-HISTORY_COL_DOWNLOAD = 6  # "Download" — wired in Task 4; index lives with its
-# siblings so the column map stays in one place.
+HISTORY_COL_DOWNLOAD = 6  # "Download" (⭳) — copy into Manual Downloads; index
+# lives with its siblings so the column map stays in one place.
 # Window in which a second click on the same armed row confirms a hard-delete.
 # Mirrors the 5 s used by Clear All's confirm_step.
 DELETE_CONFIRM_TIMEOUT_S = 5.0
@@ -364,7 +364,7 @@ def on_clear_history_click(clear_state, history_list) -> tuple:
         clear_state = {"armed": False, "ts": 0.0}
     new_state, btn_update, confirmed = confirm_step(
         clear_state,
-        "Confirm Clear All? (click again)",
+        "Confirm Clear All (deletes files)? (click again)",
         "Clear All",
     )
     if not confirmed:
@@ -374,7 +374,11 @@ def on_clear_history_click(clear_state, history_list) -> tuple:
             gr.update(),  # history_df unchanged
             gr.update(),  # history_state unchanged
             gr.update(),  # audio unchanged
-            StatusBanner().render("Click again within 5s to clear all generations.", "warning"),
+            StatusBanner().render(
+                "Click again within 5s to permanently delete ALL listed "
+                "generation files from disk.",
+                "warning",
+            ),
             {"action": "replay"},  # no waveform clear on arm
         )
     # Hard-delete every listed generation's files BEFORE clearing the list.

@@ -1,5 +1,7 @@
 # Platform Validation Results
 
+> **⚠️ Point-in-time snapshot — read date 2026-05-18.** This file records one validation pass and is *not* continuously maintained. Later re-measurements supersede parts of it: the 2026-07-13 clean-install lock verification (Linux py3.11/3.12) and the 2026-07-29 re-verification of the dependency knot / lock policy (see CLAUDE.md, "Testing"). Treat the per-platform results below as historical evidence for that date, not as a statement of current pass/fail status.
+
 ## Test Environments
 
 This document summarizes test validation across all supported platforms.
@@ -179,9 +181,15 @@ Legend: ✅ Pass | ⚠️ Partial (deps required) | ❌ Fail
 
 ## CI/CD Status
 
+Jobs as defined in `.github/workflows/test.yml`:
+
 | Job | Status | Notes |
 |-----|--------|-------|
-| test (ubuntu-latest) | ✅ | All batches |
-| test (macos-latest) | ✅ | All batches |
-| test-docker | ✅ | Container validation |
-| test-minimal | ✅ | Smoke test |
+| test (ubuntu-latest) | ✅ | Batches 1–5 + cross-platform check (Python 3.10/3.11/3.12) |
+| test (macos-latest) | ✅ | Batches 1–5 (Python 3.11/3.12) |
+| lint | ✅ | Ruff + mypy (`core,server,interface`) + bandit (fail on HIGH) |
+| coverage | ✅ | `pytest -m "not e2e" --cov-fail-under=80` (80% floor) |
+| test-docker | ✅ | Container build + Batches 1–2 in container + health check |
+| docker-lint | ✅ | Hadolint on all Dockerfiles (static; production/vLLM images never built in CI) |
+| docker-cpu-probe | ✅ | CPU-wheel install probe of the production image (no GPU needed); real CUDA build is a manual gate |
+| test-minimal | ✅ | Quick smoke test + universal install verification |

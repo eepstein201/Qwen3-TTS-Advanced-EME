@@ -52,15 +52,20 @@ tts config edit
   },
   "security": {
     "rate_limits": {
-      "generate": "20/minute",
-      "model_ops": "3/minute"
+      "generate": "10/minute",
+      "model_ops": "5/minute",
+      "global": "120/minute"
     }
   }
 }
 ```
 
 Rate limits use slowapi's `"<count>/<unit>"` string form under `security.rate_limits`
-(see [rate-limiting.md](rate-limiting.md)). `auto_shutdown_minutes: 0` disables idle
+(see [rate-limiting.md](rate-limiting.md) for defaults, actual endpoint wiring, and the
+currently-unwired `transcribe`/`prompt_ops`/`config_ops` keys). Keep the `global`
+pre-auth ceiling above the Gradio UI's ~24/min `/health`+`/models` polling, or the UI
+shows "Disconnected / Server not running" while the server is up.
+`auto_shutdown_minutes: 0` disables idle
 auto-shutdown — set a positive value for ephemeral/cloud runs.
 
 #### 3. Verify Installation
@@ -75,9 +80,14 @@ Expected output: All checks pass ✓
 
 #### Starting the Server
 
-**Development mode (auto-reload on code changes):**
+**Start the server (daemonized):**
 ```bash
 tts server start
+```
+
+The server runs as a daemon and does **not** auto-reload on code changes. To pick up code or config changes:
+```bash
+tts server stop && tts server start
 ```
 
 **Production mode with PM2 (recommended):**
@@ -396,8 +406,7 @@ curl -X POST http://127.0.0.1:5123/unload-model \
   -H "Content-Type: application/json" -d '{"model_type": "design"}'
 
 # Switch to 4-bit quantization
-tts config edit
-# Set advanced.mlx_quantization to "4bit"
+tts config edit --mlx-quantization 4bit
 
 # Restart server
 tts server stop && tts server start
@@ -413,7 +422,7 @@ tts server stop && tts server start
 tts config show | grep audio_loader
 
 # Test generation with known-good settings
-tts "Test" -o test.wav --preset stable
+tts "Test" -o test.wav --preset consistent
 ```
 
 **Fix:**
@@ -526,7 +535,8 @@ gzip .voice_server.log.old
 
 **Log verbosity** is controlled by the `TTS_LOG_LEVEL` environment variable
 (default `INFO`; set `DEBUG` for verbose output), not by a `config.json` key.
-Restart the server to apply a change:
+Restart the server to apply a change. The same applies to `TTS_RATE_LIMIT_*`
+overrides and `TTS_TRUSTED_PROXIES` — all are read once at server import:
 
 ```bash
 TTS_LOG_LEVEL=DEBUG tts server restart
@@ -593,7 +603,7 @@ rotator (or a scheduled task) to archive and compress it, e.g.:
 
 1. **Restore backup**
    ```bash
-   tar -xzf qwen3tss_backup.tar.gz
+   tar -xzf qwen3tts_backup.tar.gz
    ```
 
 2. **Reinstall previous version**
@@ -623,19 +633,23 @@ chmod 600 ~/.config/qwen3-tts/.voice_server_token
 
 ### Rate Limiting
 
-**Default limits** are per-endpoint-group (slowapi), e.g. generation `20/minute`,
-model ops `3/minute`.
+**Default limits** are per-endpoint-group (slowapi): generation `10/minute`,
+model ops `5/minute`, plus a global pre-auth ceiling of `120/minute` on all
+routes (flood backstop — keep it above the Gradio UI's ~24/min `/health`+`/models`
+polling or the UI shows "Disconnected / Server not running"). `/transcribe` currently
+shares the generate limit; `/delete-prompt`/`/rename-prompt` are hardcoded
+`10/minute` and `/update-startup-config` `2/minute` (the `transcribe`/`prompt_ops`/
+`config_ops` config keys are not wired to those endpoints — see
+[rate-limiting.md](rate-limiting.md)).
 
 **Adjust in config.json** under `security.rate_limits` (values are `"<count>/<unit>"` strings):
 ```json
 {
   "security": {
     "rate_limits": {
-      "generate": "20/minute",
-      "model_ops": "3/minute",
-      "transcribe": "15/minute",
-      "prompt_ops": "10/minute",
-      "config_ops": "1/minute"
+      "generate": "10/minute",
+      "model_ops": "5/minute",
+      "global": "120/minute"
     }
   }
 }
@@ -679,9 +693,9 @@ location /tts/ {
 
 | Quantization | Memory | Speed | Quality |
 |--------------|--------|-------|--------|
-| `bf16` | High | Fast | Best |
+| `bf16` | High | Slow | Best |
 | `8bit` | Medium | Medium | Good |
-| `4bit` | Low | Slow | Acceptable |
+| `4bit` | Low | Fast | Acceptable |
 
 **Recommendation:** Start with `8bit`, switch to `4bit` if memory constrained.
 

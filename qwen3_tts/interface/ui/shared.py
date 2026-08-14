@@ -35,8 +35,8 @@ MAX_HISTORY_SIZE = 10
 # that cell routes through on_history_select (column-aware) to delete the row.
 HISTORY_REMOVE_GLYPH = "✕"
 # Glyph for the "Download" column — copies the row's file into Manual Downloads
-# (wired in Task 4; the column exists so get_history_data's row shape is built
-# once). Clicking it currently falls through to the default replay branch.
+# via on_history_select (HISTORY_COL_DOWNLOAD). A same-named file already in
+# Manual Downloads arms an overwrite confirm ("Overwrite?" replaces the glyph).
 HISTORY_DOWNLOAD_GLYPH = "⭳"
 # Cell text shown while a row's action is armed (waiting for the confirming
 # second click within DELETE_CONFIRM_TIMEOUT_S). Distinct from the resting

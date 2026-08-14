@@ -213,7 +213,8 @@ def build_ui():
         current_size, current_quant, current_backend = get_current_model_settings()
         with gr.Accordion("Model Settings", open=False):
             gr.Markdown(
-                "Change model size or quantization. Settings apply on next generation."
+                "Change model size or quantization. Applying reloads any loaded "
+                "models immediately — this can take a few minutes."
             )
             with gr.Row():
                 model_size_dropdown = gr.Dropdown(
@@ -311,6 +312,10 @@ def build_ui():
 
         # History panel below tabs (renders after tabs in the page layout)
         gr.Markdown("### Recent Generations")
+        gr.Markdown(
+            "*Click a row to replay it and reuse its seed · ✕ permanently "
+            "deletes the row's file · ⭳ copies it to Manual Downloads*"
+        )
         with gr.Row():
             clear_all_btn = gr.Button("Clear All", size="sm", variant="stop")
         # Two-step confirm state for Clear All (mirrors voice-delete wiring).
@@ -455,11 +460,12 @@ def build_ui():
         ---
         **Tips:**
         - Start the TTS server first: `tts server start`
-        - Models auto-load on first use — no need to pre-load all three
-        - Use **Model Settings** above to switch between model sizes ({model_size_choices}) and MLX quantizations ({mlx_quant_choices})
+        - Models load at server startup per the startup config — load the others in **Manage Models**
+        - Use **Model Settings** above to switch between model sizes ({model_size_choices}) and MLX quantizations ({mlx_quant_choices}); applying reloads loaded models now
         - Clone mode uses a voice prompt (.pt for PyTorch, .wav+.txt for MLX)
         - Design mode creates voices from text descriptions
         - Custom mode uses premium pre-trained speakers
+        - Generations are saved to `~/Downloads/Qwen3-TTS Output/Automated Output/`; **Clear All** and the ✕ cell permanently delete those files, while ⭳ **copies** a file to `Manual Downloads` (it is not a browser download)
         - Run `tts config` to optimize settings for your hardware
         """)
 

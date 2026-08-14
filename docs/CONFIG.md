@@ -1,6 +1,6 @@
 # Qwen3-TTS Configuration Reference
 
-> **AUTO-GENERATED** from `qwen3_tts/core/config.py` (`get_default_config()` / `validate_config()`) and `config.json`. Do not edit generated tables by hand — update the code and regenerate.
+> **AUTO-GENERATED** from the `qwen3_tts/core/config/` package (`get_default_config()` / `validate_config()`) and `config.json`. The doc currently ships **without a live generator** — tables are curated by hand, and the *default-value* column is drift-checked against `get_default_config()` by `make check-config-docs` (`python -m qwen3_tts.tools.check_config_docs`), which exits non-zero when a documented default disagrees with the code. When adding a key that exists in `get_default_config()`, the default column must match exactly.
 
 ## Configuration File Location
 
@@ -28,7 +28,16 @@ These are the environment variables actually read by the TTS code.
 | Variable | Required | Description | Example |
 |----------|----------|-------------|---------|
 | `TTS_LOG_LEVEL` | No | Server/log verbosity (default `INFO`). | `DEBUG` |
-| `TTS_TRUSTED_PROXIES` | No | Comma-separated IP allowlist; `X-Forwarded-For` is honored only when the direct peer is in this list (default: loopback). Set this behind a reverse proxy. | `10.0.0.1,10.0.0.2` |
+| `TTS_TRUSTED_PROXIES` | No | Comma-separated IP allowlist; `X-Forwarded-For` is honored only when the direct peer is in this list (default: loopback). Set this behind a reverse proxy so per-IP rate limiting sees the real client. | `10.0.0.1,10.0.0.2` |
+| `TTS_RATE_LIMIT_GENERATE` | No | Override `security.rate_limits.generate` (`/generate`, `/generate-stream`). | `120/minute` |
+| `TTS_RATE_LIMIT_MODEL_OPS` | No | Override `security.rate_limits.model_ops` (model load/unload/config endpoints). | `5/minute` |
+| `TTS_RATE_LIMIT_TRANSCRIBE` | No | Override `security.rate_limits.transcribe` (`/transcribe`). | `30/minute` |
+| `TTS_RATE_LIMIT_PROMPT_OPS` | No | Override `security.rate_limits.prompt_ops` (prompt create/delete/rename). | `30/minute` |
+| `TTS_RATE_LIMIT_CONFIG_OPS` | No | Override `security.rate_limits.config_ops` (`/update-startup-config`). | `5/minute` |
+| `TTS_RATE_LIMIT_GLOBAL` | No | Override the global pre-auth ceiling (`security.rate_limits.global`), applied to **all** routes. | `240/minute` |
+| `TTS_DISABLE_RATE_LIMITING` | No | Test/CI kill-switch: `1` makes every rate-limit decorator and the global limiter a no-op. For local E2E/CI servers only — production leaves it unset. | `1` |
+
+All `TTS_RATE_LIMIT_*` and `TTS_DISABLE_RATE_LIMITING` values are read **once at server import** (`qwen3_tts/server/app.py`) — restart the server to apply a change.
 
 ### Web UI
 
@@ -93,8 +102,9 @@ Every table below reflects `get_default_config()` defaults.
 | `security.rate_limits.transcribe` | string | `"15/minute"` | Rate limit for `/transcribe`. |
 | `security.rate_limits.prompt_ops` | string | `"10/minute"` | Rate limit for prompt create/delete/rename. |
 | `security.rate_limits.config_ops` | string | `"1/minute"` | Rate limit for `/update-startup-config`. |
+| `security.rate_limits.global` | string | `"120/minute"` | Global pre-auth ceiling on **all** routes (IP-keyed middleware). Deliberately decoupled from the per-route limits above — it must stay above the Gradio UI's ~24/min `/health`+`/models` polling, or `/health` 429s and the UI reports "Disconnected / Server not running". Override via `TTS_RATE_LIMIT_GLOBAL`. |
 
-Rate-limit values use slowapi's `"<count>/<unit>"` format (`second`/`minute`/`hour`/`day`). See [`rate-limiting.md`](rate-limiting.md) for strategy details.
+Rate-limit values use slowapi's `"<count>/<unit>"` format (`second`/`minute`/`hour`/`day`). See [`rate-limiting.md`](rate-limiting.md) for strategy details. `security.rate_limits.global` is not part of the `validate_config()` default block — the server supplies the `120/minute` fallback at import (`qwen3_tts/server/app.py`).
 
 ### `advanced`
 
@@ -106,6 +116,7 @@ Rate-limit values use slowapi's `"<count>/<unit>"` format (`second`/`minute`/`ho
 | `advanced.torch_quantization` | string | `"none"` | Torch quantization: `"none"`, `"8bit"`, or `"4bit"`. |
 | `advanced.dtype` | string | `"bfloat16"` | Torch compute dtype. |
 | `advanced.audio_loader` | string | `"torchaudio"` | Audio I/O library: `"torchaudio"` or `"librosa"`. |
+| `advanced.attn_implementation` | string | `"auto"` | Attention kernel: `"auto"`, `"sdpa"`, `"flash_attention_2"`, or `"eager"`. `"auto"` resolves to SDPA; FA2 is opt-in only — upstream #333 reports NaN logits with `flash_attention_2` on Ampere+ GPUs. |
 | `advanced.vllm_enabled` | boolean | `false` | Mirror of `vllm.enabled` (see below). |
 | `advanced.vllm_fallback_to_torch` | boolean | `true` | Fall back to torch if vLLM init fails. |
 
@@ -142,6 +153,10 @@ vLLM-Omni backend settings (Linux/NVIDIA). Only relevant when `advanced.backend`
 | `generation.lufs_normalize` | boolean | `false` | Apply EBU R128 loudness normalization. |
 | `generation.lufs_target` | float | `-16.0` | Target loudness in LUFS (used when `lufs_normalize` is true). |
 | `generation.silence_gap_seconds` | float | `0.0` | Silence between chunks (0–5s). `0.0` uses a 50 ms crossfade instead. |
+| `generation.clone_speed` | float | *(unset)* | Clone-only post-hoc time-stretch rate (0.5–2.0). The model's native rate control is broken for cloning (upstream #290), so `run_inference` time-stretches after generation via `process_audio(speed=…)`. `gen_params["speed"]` overrides this key; out-of-range values are clamped. Design/Custom keep native `instruct` rate control and are never stretched. |
+| `generation.trim_icl_echo` | boolean | `true` | Clone-only: clip the ICL echo of the reference transcript (upstream #341) from the head of cloned output. Only fires when ASR is **already loaded** (never force-loads) **and** a reference transcript is resolvable; `x_vector_only_mode` prompts carry no transcript and are never probed. |
+
+Note: `generation.clone_speed` and `generation.trim_icl_echo` are **not keys of `get_default_config()`** — the engine reads them with `.get()` fallbacks (`core/engine/inference.py`), so they are absent from a fresh `config.json` and the defaults above describe the engine's fallback behavior. They are documented here for reference; the drift checker skips keys that are not present in the code defaults.
 
 ### `presets`
 
