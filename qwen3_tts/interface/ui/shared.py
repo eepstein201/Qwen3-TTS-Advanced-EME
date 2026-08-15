@@ -796,7 +796,7 @@ def get_gradio_launch_kwargs(config: dict) -> dict:
     allowed = list({output_dir, downloads, tempfile.gettempdir()})
 
     return {
-        "server_name": "0.0.0.0" if IN_COLAB else "127.0.0.1",  # nosec B104
+        "server_name": "0.0.0.0" if IN_COLAB else "127.0.0.1",  # nosec B104  # Colab only
         "allowed_paths": allowed,
         "theme": gr.themes.Soft(),
         "css": ".gr-hidden { display: none !important; height: 0 !important; overflow: hidden !important; }",

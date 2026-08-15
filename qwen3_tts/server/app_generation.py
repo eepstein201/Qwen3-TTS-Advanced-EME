@@ -343,7 +343,13 @@ async def handle_generate(request, state, req, security, config_provider):
                         status_code=400,
                         detail="prompt_file required for clone mode",
                     )
-                voice_prompt = await asyncio.to_thread(load_voice_prompt, prompt_file)
+                try:
+                    voice_prompt = await asyncio.to_thread(
+                        load_voice_prompt, prompt_file
+                    )
+                except FileNotFoundError as e:
+                    # MLX loader raises (torch returns None) — map both to 404.
+                    raise HTTPException(status_code=404, detail=str(e)) from e
                 if voice_prompt is None:
                     raise HTTPException(
                         status_code=404,
@@ -667,7 +673,11 @@ async def handle_generate_stream(request, state, req, security, config_provider)
             raise HTTPException(
                 status_code=400, detail="prompt_file required for clone mode"
             )
-        voice_prompt = await asyncio.to_thread(load_voice_prompt, prompt_file)
+        try:
+            voice_prompt = await asyncio.to_thread(load_voice_prompt, prompt_file)
+        except FileNotFoundError as e:
+            # MLX loader raises (torch returns None) — map both to 404.
+            raise HTTPException(status_code=404, detail=str(e)) from e
         if voice_prompt is None:
             raise HTTPException(
                 status_code=404, detail=f"Voice prompt not found: {prompt_file}"

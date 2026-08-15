@@ -86,6 +86,24 @@ class TestWebSocketAuth(unittest.TestCase):
             resp = ws.receive_json()
             self.assertEqual(resp["error"], "Authentication failed")
 
+    def test_auth_failure_is_audit_logged(self):
+        """Bad-token auth failures must be auditable: WARNING level, client IP.
+
+        Pre-fix the bad-token path logged nothing at all (only the separate
+        exception path logged at DEBUG), so auth failures were invisible in
+        default INFO runs — no audit trail for brute-force probing of /ws.
+        """
+        _setup_app_state()
+        with self.assertLogs("tts.server.websocket", level="WARNING") as logs:
+            with TestClient(app).websocket_connect("/ws") as ws:
+                ws.send_text(json.dumps({"token": "wrong_token"}))
+                resp = ws.receive_json()
+                self.assertEqual(resp["error"], "Authentication failed")
+        joined = "\n".join(logs.output)
+        self.assertIn("WebSocket auth failed", joined)
+        # The sanitized client IP must appear in the audit record.
+        self.assertIn("testclient", joined)
+
     def test_bad_json_first_message_closes_4001(self):
         """Non-JSON first message should close the connection."""
         from starlette.websockets import WebSocketDisconnect
@@ -185,6 +203,26 @@ class TestWebSocketGeneration(unittest.TestCase):
             ws.send_text(json.dumps({"mode": "clone"}))
             resp = ws.receive_json()
             self.assertEqual(resp["error"], "No text provided")
+
+    def test_missing_prompt_mlx_raise_reports_not_found(self):
+        """MLX loader RAISES FileNotFoundError for a missing prompt (torch
+        returns None) — /ws must report it as a clean not-found error frame,
+        not let it escape to the generic internal-error close (1011)."""
+        _setup_app_state(
+            models={"clone": MagicMock(), "design": None, "custom": None},
+            server_config={"security": {}},
+        )
+        with patch(
+            "qwen3_tts.core.engine.load_voice_prompt",
+            side_effect=FileNotFoundError("Voice prompt not found: ghost_prompt"),
+        ):
+            with TestClient(app).websocket_connect("/ws") as ws:
+                self._authenticate(ws)
+                ws.send_text(json.dumps({
+                    "text": "hi", "mode": "clone", "prompt_file": "ghost_prompt",
+                }))
+                resp = ws.receive_json()
+        self.assertIn("not found", resp["error"].lower())
 
     def test_model_not_loaded_returns_error(self):
         """Requesting a mode whose model is None should return an error."""

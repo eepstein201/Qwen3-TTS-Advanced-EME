@@ -394,7 +394,7 @@ def generate_streaming(
                 sf.write(temp.name, chunk, sr)
                 try:
                     play_audio(temp.name)
-                except Exception:  # nosec B110
+                except Exception:
                     logger.debug("Streaming audio playback failed: skipping")
                 finally:
                     os.unlink(temp.name)

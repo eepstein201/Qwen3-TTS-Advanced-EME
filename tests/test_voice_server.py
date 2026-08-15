@@ -115,6 +115,53 @@ class TestServerValidation(unittest.TestCase):
         self.assertNotIn(".ssh", detail_str.lower(),
                          "Error response must not expose .ssh directory")
 
+    def test_generate_missing_prompt_mlx_raise_returns_404(self):
+        """MLX loader RAISES FileNotFoundError for a missing prompt (torch
+        returns None) — /generate must map it to 404, not an unhandled 500.
+        Audit follow-up (2026-08-15): load_voice_prompt_mlx raises while the
+        server only mapped the torch None case."""
+        from qwen3_tts.server.app import app as _app
+
+        _app.state.models["clone"] = object()  # pass the model-loaded gate
+        try:
+            with patch(
+                "qwen3_tts.core.engine.load_voice_prompt",
+                side_effect=FileNotFoundError(
+                    "Voice prompt not found: ghost_prompt"
+                ),
+            ):
+                resp = self.client.post("/generate", json={
+                    "texts": ["hello"],
+                    "mode": "clone",
+                    "prompt_file": "ghost_prompt",
+                }, headers=self.auth)
+        finally:
+            _app.state.models["clone"] = None
+        self.assertEqual(resp.status_code, 404)
+        self.assertIn("not found", resp.json()["detail"].lower())
+
+    def test_generate_stream_missing_prompt_mlx_raise_returns_404(self):
+        """/generate-stream must map the MLX FileNotFoundError to 404 too."""
+        from qwen3_tts.server.app import app as _app
+
+        _app.state.models["clone"] = object()  # pass the model-loaded gate
+        try:
+            with patch(
+                "qwen3_tts.core.engine.load_voice_prompt",
+                side_effect=FileNotFoundError(
+                    "Voice prompt not found: ghost_prompt"
+                ),
+            ):
+                resp = self.client.post("/generate-stream", json={
+                    "text": "hello",
+                    "mode": "clone",
+                    "prompt_file": "ghost_prompt",
+                }, headers=self.auth)
+        finally:
+            _app.state.models["clone"] = None
+        self.assertEqual(resp.status_code, 404)
+        self.assertIn("not found", resp.json()["detail"].lower())
+
     def test_load_model_exception_returns_sanitized_detail(self):
         """Exceptions in /load-model must not expose raw exception messages."""
         # Send a request with invalid model_type to trigger validation error
