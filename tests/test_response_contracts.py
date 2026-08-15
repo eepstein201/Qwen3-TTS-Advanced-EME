@@ -399,5 +399,47 @@ def _VOICE_PROMPTS_DIR():
     return VOICE_PROMPTS_DIR
 
 
+@_skip
+class TestOpenApiContract(unittest.TestCase):
+    """G4: the OpenAPI spec generates cleanly with every response contract.
+
+    /shutdown intentionally carries no response_model — it returns a plain
+    Response (BackgroundTask + SIGTERM per #176), which a JSON schema cannot
+    describe.
+    """
+
+    def test_openapi_generates_cleanly(self):
+        import qwen3_tts.server.app as app_mod
+
+        spec = app_mod.app.openapi()  # must not raise on any response model
+        schemas = spec["components"]["schemas"]
+        for name in (
+            "ModelsResponse",
+            "StatsResponse",
+            "ReadyResponse",
+            "QueueStatusResponse",
+            "GenerationStatusResponse",
+            "GenerateResponse",
+            "TranscribeResponse",
+            "ModelOpResponse",
+            "UpdateModelConfigResponse",
+            "UpdateStartupConfigResponse",
+            "PromptsListResponse",
+            "PromptDetailsResponse",
+            "DeletePromptResponse",
+            "RenamePromptResponse",
+        ):
+            self.assertIn(name, schemas)
+
+    def test_openapi_union_route_uses_anyof(self):
+        """/prompt-details returns two disjoint shapes — the union must land
+        in the spec as anyOf, not silently collapse to one member."""
+        import qwen3_tts.server.app as app_mod
+
+        spec = app_mod.app.openapi()
+        resp = spec["paths"]["/prompt-details"]["get"]["responses"]["200"]
+        self.assertIn("anyOf", resp["content"]["application/json"]["schema"])
+
+
 if __name__ == "__main__":
     unittest.main()

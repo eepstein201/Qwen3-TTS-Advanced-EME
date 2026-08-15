@@ -141,7 +141,7 @@ Base: `http://127.0.0.1:5123`
 
 Public (no auth): `/health`, `/ready`, `/generation-status`, `/queue-status`. `/generation-status` intentionally omits request-content-derived fields (`eta_sec`, `batch_total`, `chunk_total`) to avoid leaking input size to unauthenticated callers; it exposes only `active`, `cancelled`, coarse `batch_index`/`chunk_index`, and `elapsed_sec`. `/health`'s `model_load_errors` are sanitized (absolute paths redacted to `<path>`) so failed-load diagnostics don't leak filesystem layout to unauthenticated callers (CWE-209). The WebSocket `/ws` path now marks `generation_state` active during generation (so `/generation-status` and `detect_degraded_generation` see WS work, not just HTTP) and validates the browser `Origin` header against the CORS allowlist before `accept()` (CSWSH defense; absent Origin is allowed since auth is the per-message token).
 
-All other endpoints require `Authorization: Bearer <token>` (token from `~/.config/qwen3-tts/.voice_server_token`, legacy fallback: `~/.voice_server_token`).
+All other endpoints require `Authorization: Bearer <token>` (token from `~/.config/qwen3-tts/.voice_server_token`, legacy fallback: `~/.voice_server_token`). JSON routes carry Pydantic `response_model=` contracts in `server/validation.py` (health/ready/stats/models/generate/transcribe/ops typed; binary routes `/generate-stream`, `/ws`, `/preview-prompt`, `/shutdown` deliberately untyped) — guarded by `tests/test_response_contracts.py`.
 
 **Reverse proxies:** `X-Forwarded-For` is honored for client-IP / rate-limit keying only when the direct TCP peer is in the `TTS_TRUSTED_PROXIES` allowlist (comma-separated IPs; loopback by default). Set it when running behind a reverse proxy so per-IP rate limiting sees the real client.
 
