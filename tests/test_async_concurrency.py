@@ -1,8 +1,10 @@
 #!/usr/bin/env python3
 """Tests for thread safety in concurrent scenarios."""
 
+import tempfile
 import threading
 import unittest
+from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 
@@ -25,23 +27,35 @@ class TestMPSPatchThreadSafety(unittest.TestCase):
         )
 
     def test_mps_patch_thread_safety(self):
-        """Concurrent calls should only install patch once."""
+        """Concurrent calls should only install patch once.
+
+        The old assertion `mock_torch.multinomial != MagicMock()` is a
+        tautology (two distinct mocks are always !=), so it passed even
+        when the wrapper was never assigned. The identity check below is
+        the real detector: verified RED when production skips the
+        ``torch.multinomial = _safe_multinomial`` assignment.
+        """
         from qwen3_tts.core.engine import model_loader
 
-        # Reset state
+        # Reset state; restore afterwards so the installed flag set under
+        # a mock torch does not leak into later tests in the same process.
+        saved_installed = model_loader._mps_patch_installed
         model_loader._mps_patch_installed = False
+
+        def _restore():
+            model_loader._mps_patch_installed = saved_installed
+
+        self.addCleanup(_restore)
 
         # Mock torch module
         mock_torch = MagicMock()
-        mock_torch.multinomial = MagicMock()
+        original_multinomial = MagicMock()
+        mock_torch.multinomial = original_multinomial
         mock_torch.nan_to_num = MagicMock(return_value=MagicMock())
         mock_torch.cuda.is_available.return_value = False
 
         with patch.dict('sys.modules', {'torch': mock_torch}):
             with patch('qwen3_tts.core.config.IS_MACOS', True):
-                # Reset state
-                model_loader._mps_patch_installed = False
-
                 threads = []
                 for _ in range(10):
                     t = threading.Thread(target=model_loader._install_mps_patch)
@@ -52,12 +66,21 @@ class TestMPSPatchThreadSafety(unittest.TestCase):
                 for t in threads:
                     t.join()
 
-        # With proper locking, patch should only be installed once
-        # Check that multinomial was assigned (patched)
-        self.assertTrue(
-            mock_torch.multinomial != MagicMock(),
-            "Patch should have been installed"
-        )
+                # With proper locking, patch should be installed exactly once:
+                # the module attribute must be replaced with the wrapper...
+                self.assertIsNot(
+                    mock_torch.multinomial,
+                    original_multinomial,
+                    "torch.multinomial was never replaced — patch not installed"
+                )
+                # ...and the wrapper must delegate to the original exactly
+                # once per call (no double-wrapping).
+                mock_torch.multinomial(MagicMock(), 2)
+                self.assertEqual(
+                    original_multinomial.call_count, 1,
+                    "patched multinomial must delegate to the original exactly once"
+                )
+
         # And state should be True
         self.assertTrue(model_loader._mps_patch_installed, "Flag should be set")
 
@@ -81,41 +104,70 @@ class TestMLXPromptCacheThreadSafety(unittest.TestCase):
         )
 
     def test_mlx_prompt_cache_concurrent_access(self):
-        """Concurrent cache access should not raise RuntimeError."""
-        from collections import OrderedDict
+        """Concurrent load_voice_prompt_mlx() calls must hit the real cache.
 
-        # Create a test cache that simulates concurrent access
-        test_cache = OrderedDict()
-        errors = []
+        The old version exercised a LOCAL OrderedDict that mimicked the
+        cache — production code was never called, so disabling the real
+        cache (or its lock) left the test green. This version runs the
+        real loader against a temp prompt directory: a cache hit must
+        return the SAME object the first (miss) call produced, and
+        concurrent callers must all observe that one entry. Verified RED
+        when production stops populating _mlx_prompt_cache.
+        """
+        import qwen3_tts.core.engine.voice_prompt as voice_prompt
 
-        def cache_operations():
-            try:
-                for i in range(100):
-                    # Simulate the operations that happen in load_voice_prompt_mlx
-                    key = f"test_prompt_{i % 5}"
-                    if key in test_cache:
-                        test_cache.move_to_end(key)
-                    else:
-                        if len(test_cache) >= 10:
-                            test_cache.popitem(last=False)
-                        test_cache[key] = {"data": i}
-            except RuntimeError as e:
-                errors.append(str(e))
+        # Snapshot the module cache; restore after the test so a prompt
+        # cached against the temp dir does not leak into other tests.
+        saved_cache = voice_prompt._mlx_prompt_cache.copy()
+        voice_prompt._mlx_prompt_cache.clear()
 
-        # Run multiple threads without lock - this should cause issues
-        # (This test documents the problem; the fix makes it pass)
-        threads = [threading.Thread(target=cache_operations) for _ in range(5)]
-        for t in threads:
-            t.start()
-        for t in threads:
-            t.join()
+        def _restore():
+            voice_prompt._mlx_prompt_cache.clear()
+            voice_prompt._mlx_prompt_cache.update(saved_cache)
 
-        # Without a lock, OrderedDict may raise RuntimeError
-        # With the lock in place in the actual code, this won't happen
-        self.assertEqual(
-            len(errors), 0,
-            f"Concurrent cache access caused errors (race condition): {errors}"
-        )
+        self.addCleanup(_restore)
+
+        with tempfile.TemporaryDirectory() as tmp:
+            prompt_name = "concurrency_probe"
+            Path(tmp, f"{prompt_name}.wav").write_bytes(b"RIFF-fake-wav")
+            Path(tmp, f"{prompt_name}.txt").write_text("probe transcript")
+
+            with patch.object(voice_prompt, "VOICE_PROMPTS_DIR", tmp):
+                # First call: cache miss, loads from disk.
+                first = voice_prompt.load_voice_prompt_mlx(prompt_name)
+                self.assertEqual(first["ref_text"], "probe transcript")
+
+                # Second call: must be a cache HIT — same object, not a
+                # freshly loaded dict.
+                second = voice_prompt.load_voice_prompt_mlx(prompt_name)
+                self.assertIs(
+                    second, first,
+                    "repeat load must be served from the cache (same object)"
+                )
+
+                # Concurrent callers: all succeed, all see the cached entry,
+                # exactly one cache entry for the prompt.
+                errors = []
+
+                def load_many():
+                    try:
+                        for _ in range(20):
+                            voice_prompt.load_voice_prompt_mlx(prompt_name)
+                    except Exception as e:  # noqa: BLE001 — recorded, asserted below
+                        errors.append(str(e))
+
+                threads = [threading.Thread(target=load_many) for _ in range(10)]
+                for t in threads:
+                    t.start()
+                for t in threads:
+                    t.join()
+
+                self.assertEqual(errors, [], f"concurrent loads raised: {errors}")
+                self.assertEqual(
+                    len(voice_prompt._mlx_prompt_cache), 1,
+                    "concurrent loads must leave exactly one cache entry"
+                )
+
 
 
 def _is_mlx_backend():
