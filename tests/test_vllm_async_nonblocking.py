@@ -2,102 +2,148 @@
 
 Tests that vLLM generation calls don't block the event loop,
 allowing other requests to be processed concurrently.
+
+The tests below call the REAL ``AsyncVLLMClient.generate()`` — only the
+HTTP transport is faked (an async ``post()`` that yields like real async
+I/O). Earlier versions of this module replaced ``client.generate`` with a
+local mock, so a production regression to a synchronous blocking call
+(e.g. ``time.sleep`` instead of ``await``) left every test green.
 """
 
 import asyncio
+import contextlib
+import time
 import unittest
+from unittest.mock import patch
 
 from qwen3_tts.server.vllm_client import AsyncVLLMClient
+
+# A single faked HTTP round-trip takes this long. Long enough that a
+# heartbeat task can tick many times during a truly async call, and that
+# N serialized calls blow the wall-clock bound.
+_REQUEST_DELAY_SECS = 0.2
+# Heartbeat cadence used to detect event-loop starvation.
+_HEARTBEAT_INTERVAL_SECS = 0.01
+# A genuinely async generate() yields the loop for the full request delay,
+# producing ~_REQUEST_DELAY_SECS/_HEARTBEAT_INTERVAL_SECS ticks. A blocking
+# generate() yields almost nothing. Half the expected count separates the
+# two regimes with margin for scheduler jitter.
+_MIN_HEARTBEATS_DURING_GENERATE = 10
+
+
+class _FakeResponse:
+    def __init__(self):
+        self.status_code = 200
+
+    def raise_for_status(self):
+        pass
+
+    def json(self):
+        return {"data": [{"audio": ""}]}
+
+
+class _FakeAsyncHttpClient:
+    """Stand-in for httpx.AsyncClient whose post() yields like async I/O."""
+
+    def __init__(self, delay=_REQUEST_DELAY_SECS):
+        self._delay = delay
+        self.post_calls = []
+
+    async def post(self, url, json=None):
+        self.post_calls.append(json)
+        await asyncio.sleep(self._delay)
+        return _FakeResponse()
 
 
 class TestVLLMNonBlocking(unittest.TestCase):
     def test_generate_is_non_blocking(self):
-        """Verify vLLM generate doesn't block event loop."""
+        """A heartbeat task must keep ticking while the REAL generate() runs.
 
-        async def test():
-            # Mock AsyncVLLMClient
-            client = AsyncVLLMClient(
-                base_url="http://localhost:8100"
-            )
+        If generate() regresses to a synchronous blocking call (e.g.
+        time.sleep instead of await), the heartbeat starves and this fails.
+        """
 
-            # Mock the generate method to simulate slow response
-            async def slow_generate(*args, **kwargs):
-                await asyncio.sleep(0.1)  # Simulate slow generation
-                return {"audio": "base64data"}
+        async def scenario():
+            client = AsyncVLLMClient(base_url="http://localhost:8100")
+            client._client = _FakeAsyncHttpClient()
 
-            client.generate = slow_generate
+            ticks = {"count": 0}
 
-            # Track if event loop can process other tasks
-            other_task_ran = False
+            async def heartbeat():
+                while True:
+                    ticks["count"] += 1
+                    await asyncio.sleep(_HEARTBEAT_INTERVAL_SECS)
 
-            async def other_task():
-                nonlocal other_task_ran
-                other_task_ran = True
-                await asyncio.sleep(0.05)
+            beat = asyncio.create_task(heartbeat())
+            try:
+                with patch.object(
+                    AsyncVLLMClient,
+                    "_decode_audio",
+                    staticmethod(lambda audio_base64: (24000, None)),
+                ):
+                    await client.generate(text="Hello")
+            finally:
+                beat.cancel()
+                with contextlib.suppress(asyncio.CancelledError):
+                    await beat
+            return ticks["count"]
 
-            # Start both tasks concurrently
-            await asyncio.gather(
-                client.generate(text="Hello"),
-                other_task()
-            )
-
-            # Verify other task ran during generate
-            self.assertTrue(other_task_ran, "Event loop was blocked!")
-
-        # Run async test
-        asyncio.run(test())
+        ticks = asyncio.run(scenario())
+        self.assertGreaterEqual(
+            ticks,
+            _MIN_HEARTBEATS_DURING_GENERATE,
+            "Event loop was starved during generate() — "
+            f"only {ticks} heartbeat ticks ran in "
+            f"{_REQUEST_DELAY_SECS}s (blocking call?)",
+        )
 
     def test_circuit_breaker_prevents_blocking(self):
-        """Verify circuit breaker doesn't block event loop."""
+        """The circuit breaker must start CLOSED and expose its state."""
 
-        async def test():
-            # Mock AsyncVLLMClient with circuit breaker
-            client = AsyncVLLMClient(
-                base_url="http://localhost:8100"
+        async def scenario():
+            client = AsyncVLLMClient(base_url="http://localhost:8100")
+            state = await asyncio.create_task(
+                asyncio.to_thread(lambda: client.circuit_breaker.state)
             )
+            return state
 
-            # Circuit breaker state changes should be async
-            # This test verifies the circuit breaker pattern itself is non-blocking
-            async def check_state():
-                # Access circuit breaker state
-                state = client.circuit_breaker.state
-                return state
-
-            # Should be able to check state without blocking
-            state = await asyncio.create_task(check_state())
-            self.assertIsNotNone(state)
-
-        asyncio.run(test())
+        state = asyncio.run(scenario())
+        self.assertEqual(state, "CLOSED")
 
     def test_multiple_concurrent_requests(self):
-        """Verify multiple requests can be processed concurrently."""
+        """Ten concurrent REAL generate() calls must overlap, not serialize.
 
-        async def test():
-            # Mock AsyncVLLMClient
-            client = AsyncVLLMClient(
-                base_url="http://localhost:8100"
-            )
+        Each faked round-trip takes _REQUEST_DELAY_SECS; if the calls run
+        concurrently the batch finishes in ~one delay, while a serialized
+        (blocking) implementation takes >= 10x that.
+        """
+        num_requests = 10
 
-            # Mock generate
-            call_count = 0
+        async def scenario():
+            client = AsyncVLLMClient(base_url="http://localhost:8100")
+            fake = _FakeAsyncHttpClient()
+            client._client = fake
+            with patch.object(
+                AsyncVLLMClient,
+                "_decode_audio",
+                staticmethod(lambda audio_base64: (24000, None)),
+            ):
+                start = time.monotonic()
+                results = await asyncio.gather(
+                    *[client.generate(text=f"Request {i}") for i in range(num_requests)]
+                )
+                elapsed = time.monotonic() - start
+            return results, elapsed, len(fake.post_calls)
 
-            async def mock_generate(*args, **kwargs):
-                nonlocal call_count
-                call_count += 1
-                await asyncio.sleep(0.05)
-                return {"audio": f"data{call_count}"}
-
-            client.generate = mock_generate
-
-            # Launch 10 concurrent requests
-            tasks = [client.generate(text=f"Request {i}") for i in range(10)]
-            results = await asyncio.gather(*tasks)
-
-            # All should complete
-            self.assertEqual(len(results), 10)
-            self.assertEqual(call_count, 10)
-
-        asyncio.run(test())
+        results, elapsed, post_calls = asyncio.run(scenario())
+        self.assertEqual(len(results), num_requests)
+        self.assertEqual(post_calls, num_requests, "every request must hit the server")
+        self.assertLess(
+            elapsed,
+            num_requests * _REQUEST_DELAY_SECS,
+            f"{num_requests} requests took {elapsed:.2f}s — they were serialized, "
+            "not run concurrently",
+        )
 
 
 if __name__ == "__main__":
