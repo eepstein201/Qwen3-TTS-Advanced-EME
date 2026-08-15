@@ -423,6 +423,64 @@ def test_openapi_generates_cleanly(self):
 
 ---
 
+## Wave 3 — follow-on lanes (recorded 2026-08-15; surfaced by wave-1 execution)
+
+Both items are recorded in the roadmap's LOW-cleanups list via the wave-1 reconciliation; these lanes make them actionable. They can run in parallel — disjoint write surfaces (`app_generation.py` vs a test module).
+
+### Lane H — Fix the on-demand-load mismatch (`/generate` `model_not_loaded`)
+
+**Branch:** `fix/on-demand-model-load` · **Worktree:** yes · **Gated on:** #185 (GEN-2) merging — it edits `app_generation.py`'s response layer.
+
+**Premise (verified 2026-08-15):** `/generate` with `mode: design` (or `custom`) on a freshly-started server returns `{"detail": {"error": "model_not_loaded", "recovery": "restart", ...}}` — but `docs/RUNBOOK.md` states models load "on demand when a request needs them", and FOLLOWUP-1's keep-false decision (design/custom `load_at_startup: false`) explicitly relies on on-demand being one request away. The RUNBOOK and the FOLLOWUP-1 rationale describe the intended behavior; the handler is what's wrong. (Also fix the misleading `recovery: "restart"` — the actual remedy is loading the model, not restarting the server.)
+
+**Files:**
+- Modify: `qwen3_tts/server/app_generation.py` (the `/generate` + `/generate-stream` model-lookup path)
+- Test: extend `tests/test_voice_server.py` (or the module owning generation endpoint tests — locate by content)
+
+- [ ] **H1. Write the failing test** (RED):
+
+```python
+def test_generate_loads_model_on_demand(self):
+    """/generate with an unloaded model loads it instead of erroring (RUNBOOK contract)."""
+    with patch("qwen3_tts.core.engine.load_model") as mock_load, \
+         patch("qwen3_tts.core.engine.run_inference",
+               return_value=(np.zeros(2400, dtype=np.float32), 24000)):
+        resp = self.client.post(
+            "/generate",
+            json={"text": "hello", "mode": "design",
+                  "voice_description": "A calm voice"},
+            headers=self.auth,
+        )
+    self.assertEqual(resp.status_code, 200)
+    mock_load.assert_called_once()
+```
+(Adapt to the module's TestClient/auth harness; mirror for `/generate-stream`. Watch it fail with today's `model_not_loaded`.)
+
+- [ ] **H2. Implement on-demand load** in the handler's model-resolution step:
+  - if `state.models.get(model_type) is None`: set `loading_map[model_type] = True` (existing `/models` infrastructure, so badges show the load), `await asyncio.to_thread(load_model, model_type)`, store into `state.models` + `model_load_times`, clear the flag — mirroring `handle_load_model`'s guarded sequence (in `finally`).
+  - A load failure returns the same sanitized error shape `/load-model` produces (503 + `model_load_errors` entry via `_recover_from_failed_load` — PRF-5), NOT a bare 500.
+  - Keep it OUTSIDE `inference_lock` (load is not GPU-inference; matches the voice-prompt-load precedent in the same handler).
+  - Concurrency: two simultaneous first-requests must not double-load — re-check `state.models` under the existing loading map/lock pattern before committing to load; a second request arriving mid-load may wait or return 503-with-loading, but must not corrupt state. Test this explicitly.
+
+- [ ] **H3. Fix the error text** for the (now rarer) genuinely-cannot-load path: `recovery: "restart"` → guidance pointing at `POST /load-model` / the Manage Models tab.
+
+- [ ] **H4. RUNBOOK already claims this — no doc change needed**; instead add the one-line confirmation to the roadmap LOW-cleanups entry when marking resolved.
+
+- [ ] **H5. Gates:** batch 3; ruff; mypy (53 files); full non-E2E suite; commit `fix(server): load design/custom models on demand in /generate (RUNBOOK contract)`.
+
+### Lane I — De-hollow `tests/test_server_peaks.py`
+
+**Branch:** `fix/test-server-peaks-unittest` · **Worktree:** yes · **Parallel-safe** (test module only; no overlap with Lane H).
+
+**Premise (verified by lane D, 2026-08-15):** the module's tests consume a pytest fixture for the client/app; the batch runner executes modules via `python -m unittest`, where fixture-dependent tests silently don't run — they pass hollow in every batch gate (the same false-green family #181 fixed).
+
+- [ ] **I1. Prove the hollowness first** (detector discipline): run `conda run -n qwen3-tts-mlx python -m unittest tests.test_server_peaks -v` and record how many tests actually execute vs. the module's test count under pytest. Sabotage the peaks endpoint (e.g. make `/generate` return no `peaks` field) and confirm the unittest run still reports OK.
+- [ ] **I2. Rewrite the module as `unittest.TestCase`** with an explicit `setUp` building the app + TestClient via the `tests/conftest._init_app_state` pattern (the exact idiom `tests/test_peaks_caching.py` from lane D uses — read it first and copy the harness). Keep every assertion; only the harness changes.
+- [ ] **I3. Verify the fixed module goes RED under the I1 sabotage** and GREEN after revert; confirm it now runs real under both `python -m unittest tests.test_server_peaks` (correct test count, all OK) and pytest.
+- [ ] **I4. Gates:** batch 3 (the module's owner — confirm in BATCHES); full non-E2E suite; commit `test: convert test_server_peaks to unittest so batch gates exercise it for real`.
+
+---
+
 ## PRF-7 (Tier 1 #2) — review mlx-audio 0.4.7 (PR #164)
 
 Read-only lane, no branch:
