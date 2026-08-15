@@ -381,7 +381,14 @@ async def _stream_generation(
                 {"error": "prompt_file required for clone mode"}
             )
             return
-        voice_prompt = await asyncio.to_thread(load_voice_prompt, req.prompt_file)
+        try:
+            voice_prompt = await asyncio.to_thread(
+                load_voice_prompt, req.prompt_file
+            )
+        except FileNotFoundError as e:
+            # MLX loader raises (torch returns None) — report like the HTTP 404.
+            await websocket.send_json({"error": str(e)})
+            return
         if voice_prompt is None:
             await websocket.send_json(
                 {"error": f"Voice prompt not found: {req.prompt_file}"}

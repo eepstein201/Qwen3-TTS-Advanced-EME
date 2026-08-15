@@ -204,6 +204,26 @@ class TestWebSocketGeneration(unittest.TestCase):
             resp = ws.receive_json()
             self.assertEqual(resp["error"], "No text provided")
 
+    def test_missing_prompt_mlx_raise_reports_not_found(self):
+        """MLX loader RAISES FileNotFoundError for a missing prompt (torch
+        returns None) — /ws must report it as a clean not-found error frame,
+        not let it escape to the generic internal-error close (1011)."""
+        _setup_app_state(
+            models={"clone": MagicMock(), "design": None, "custom": None},
+            server_config={"security": {}},
+        )
+        with patch(
+            "qwen3_tts.core.engine.load_voice_prompt",
+            side_effect=FileNotFoundError("Voice prompt not found: ghost_prompt"),
+        ):
+            with TestClient(app).websocket_connect("/ws") as ws:
+                self._authenticate(ws)
+                ws.send_text(json.dumps({
+                    "text": "hi", "mode": "clone", "prompt_file": "ghost_prompt",
+                }))
+                resp = ws.receive_json()
+        self.assertIn("not found", resp["error"].lower())
+
     def test_model_not_loaded_returns_error(self):
         """Requesting a mode whose model is None should return an error."""
         _setup_app_state(models={"clone": None, "design": None, "custom": None})
