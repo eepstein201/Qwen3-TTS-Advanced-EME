@@ -105,7 +105,7 @@ prompt-enhancer = [
 
 # vLLM-Omni backend (Linux/CUDA only)
 vllm = [
-    "vllm>=0.8",
+    "vllm>=0.27.1",
     "vllm-omni",
 ]
 
