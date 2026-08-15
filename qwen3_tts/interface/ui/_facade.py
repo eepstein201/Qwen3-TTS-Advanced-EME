@@ -119,7 +119,7 @@ def _find_available_port(preferred, max_tries=10):
     """
     import socket
 
-    bind_addr = "0.0.0.0" if IN_COLAB else "127.0.0.1"  # nosec B104
+    bind_addr = "0.0.0.0" if IN_COLAB else "127.0.0.1"  # nosec B104  # Colab only
     for offset in range(max_tries):
         port = preferred + offset
         try:

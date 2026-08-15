@@ -343,7 +343,7 @@ class _ProgressPoller:
 
                         sys.stderr.write(line)
                         sys.stderr.flush()
-            except Exception as e:  # nosec B110
+            except Exception as e:
                 logger.debug("Progress poller (_run_fallback) error: %s", e)
 
             tick += 1
