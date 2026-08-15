@@ -21,7 +21,9 @@ import secrets
 import signal
 import sys
 import time
+from collections.abc import Callable
 from pathlib import Path
+from typing import Any
 
 import uvicorn
 from fastapi import (
@@ -29,11 +31,13 @@ from fastapi import (
     FastAPI,
     HTTPException,
     Request,
+    Response,
     WebSocket,
     WebSocketException,
     status,
 )
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 
 # Rate limiting (R-13)
 from slowapi import Limiter, _rate_limit_exceeded_handler
@@ -448,13 +452,19 @@ app.state.limiter_hybrid = limiter_hybrid
 app.state.limiter_ip = limiter_ip
 app.state.limiter_token = limiter_token
 
-app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
+# slowapi ships the handler narrowed to RateLimitExceeded; Starlette's handler
+# protocol types the parameter as Exception and does not accept the narrower
+# signature (no contravariance), so this call needs a targeted ignore.
+app.add_exception_handler(
+    RateLimitExceeded,
+    _rate_limit_exceeded_handler,  # type: ignore[arg-type]
+)
 # Added last → outermost middleware → rate limit fires before CORS, body-size,
 # security headers, and auth (the desired pre-auth flood ceiling).
 app.add_middleware(SlowAPIMiddleware)
 
 
-def _rate_limit(limit_string: str, strategy: str = "hybrid") -> callable:
+def _rate_limit(limit_string: str, strategy: str = "hybrid") -> Callable:
     """Return a slowapi rate limit decorator with specified strategy.
 
     When ``TTS_DISABLE_RATE_LIMITING`` is set, returns a no-op decorator so
@@ -466,6 +476,9 @@ def _rate_limit(limit_string: str, strategy: str = "hybrid") -> callable:
 
     Returns:
         Decorator function.
+
+    Raises:
+        ValueError: If ``strategy`` is not one of the known strategies.
     """
     if _RATE_LIMITING_DISABLED:
 
@@ -480,6 +493,8 @@ def _rate_limit(limit_string: str, strategy: str = "hybrid") -> callable:
         "token": limiter_token,
     }
     selected_limiter = limiter_map.get(strategy)
+    if selected_limiter is None:
+        raise ValueError(f"Unknown rate-limit strategy: {strategy!r}")
     return selected_limiter.limit(limit_string)
 
 
@@ -493,15 +508,13 @@ def _rate_limit(limit_string: str, strategy: str = "hybrid") -> callable:
     response_model=HealthResponse,
     responses={503: {"model": HealthResponse, "description": "Models still loading"}},
 )
-async def health(request: Request) -> dict:
+async def health(request: Request) -> dict[str, Any] | JSONResponse:
     """Health check endpoint."""
     state = request.app.state
     reset_activity_timer(state)
 
     if not state.models_loaded.is_set():
-        from fastapi.responses import JSONResponse
-
-        data = {"status": "loading"}
+        data: dict[str, Any] = {"status": "loading"}
         # Include model load errors even during loading
         data["model_load_errors"] = {
             k: v for k, v in state.model_load_errors.items() if v is not None
@@ -858,7 +871,7 @@ async def websocket_endpoint(
 
 
 @app.post("/shutdown")
-async def shutdown(request: Request, _auth: None = Depends(verify_auth)) -> dict:
+async def shutdown(request: Request, _auth: None = Depends(verify_auth)) -> Response:
     """Graceful shutdown via BackgroundTask + SIGTERM for reliable termination."""
     from starlette.background import BackgroundTask
 
@@ -880,8 +893,6 @@ async def shutdown(request: Request, _auth: None = Depends(verify_auth)) -> dict
             pass
         cleanup_resources(state)
         os.kill(os.getpid(), signal.SIGTERM)
-
-    from fastapi import Response
 
     return Response(
         content=json.dumps({"status": "shutting_down"}),
