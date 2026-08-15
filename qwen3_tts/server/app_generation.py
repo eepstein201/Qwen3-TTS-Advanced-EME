@@ -275,6 +275,7 @@ async def handle_generate(request, state, req, security, config_provider):
                         "index": i,
                         "audio_base64": b64_audio,
                         "sample_rate": entry["sample_rate"],
+                        "peaks": entry.get("peaks"),
                         "chunks": entry.get("chunks", 0),
                         "seed": entry.get("seed"),
                     }
@@ -320,6 +321,7 @@ async def handle_generate(request, state, req, security, config_provider):
                             "index": i,
                             "audio_base64": b64_audio,
                             "sample_rate": entry["sample_rate"],
+                            "peaks": entry.get("peaks"),
                             "chunks": entry.get("chunks", 0),
                             "seed": entry.get("seed"),
                         }
@@ -489,6 +491,17 @@ async def handle_generate(request, state, req, security, config_provider):
             os.chmod(cache_file.name, 0o600)
             await asyncio.to_thread(sf.write, cache_file.name, wav, sr)
 
+            # Compute waveform peaks BEFORE storing the cache entry so the
+            # entry carries them and cache hits can echo them without
+            # recomputing (MED-1). Runs off the event loop like the encode.
+            from qwen3_tts.core.engine.audio_processing import (
+                calculate_waveform_peaks,
+            )
+
+            peaks = await asyncio.to_thread(
+                calculate_waveform_peaks, wav, num_peaks=500
+            )
+
             with state.gen_cache_lock:
                 if len(state.gen_cache) >= get_generation_cache_max():
                     oldest_key = min(
@@ -508,15 +521,9 @@ async def handle_generate(request, state, req, security, config_provider):
                     "timestamp": time.time(),
                     "chunks": chunk_count,
                     "seed": used_seed,
+                    "peaks": peaks,
                 }
 
-            from qwen3_tts.core.engine.audio_processing import (
-                calculate_waveform_peaks,
-            )
-
-            peaks = await asyncio.to_thread(
-                calculate_waveform_peaks, wav, num_peaks=500
-            )
             results.append(
                 {
                     "index": i,
