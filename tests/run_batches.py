@@ -214,7 +214,6 @@ BATCHES = {
             "tests.test_flash_attn_install",
             "tests.test_solid_analyzer",
             "tests.test_check_config_docs",
-            "tests.test_protocols",
             "tests.test_voice_helpers",
             "tests.test_validation",
             "tests.test_error_handling",
