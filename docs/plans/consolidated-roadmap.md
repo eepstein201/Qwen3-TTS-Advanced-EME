@@ -1,6 +1,6 @@
 # Qwen3-TTS Consolidated Development Roadmap
 
-> **Status:** All P0–P2 items complete. Priority 2 enhancements (R-23/27/29/43) complete. GEN-1 (inference_lock release) shipped (#59, 2026-07-21). **2026-08-03 Santa audit (24 defects) resolved at HIGH severity**: H7 (#125), H1–H6 (#126), and the deferred Important I1 — WS client-disconnect misclassified as cancel (#137, `2e42e05`) — all merged to `main`; 13 MEDIUM + 4 LOW remain (see `audit_2026_08_03_ws_concurrency_cluster` memory). **P2-1 `config.py` split shipped** (`5a22d58` → `core/config/` package, largest submodule 464 lines); **P3 housekeeping shipped** (`3979881`). **PQA batch (2026-07-30 research): PRF-1..6 and PRF-8 shipped 2026-08-09 (PRs #143–#149); PRF-7 partial (0.4.6 in, 0.4.7 pending); PRF-9/10 open.** Open work is: response-model coverage (GEN-2), the `load_at_startup` default decision (FOLLOWUP-1), vLLM-backend performance (HIGH-1/2, MED-2), PRF-7 remainder + PRF-9/10, P2-1 residuals (`inference.py`/`generate.py`/`app.py`/`shared.py`), P2-2, and upstream-blocked research.
+> **Status:** All P0–P2 items complete. Priority 2 enhancements (R-23/27/29/43) complete. GEN-1 (inference_lock release) shipped (#59, 2026-07-21). **2026-08-03 Santa audit (24 defects) resolved at HIGH severity**: H7 (#125), H1–H6 (#126), and the deferred Important I1 — WS client-disconnect misclassified as cancel (#137, `2e42e05`) — all merged to `main`; 13 MEDIUM + 4 LOW remain (see `audit_2026_08_03_ws_concurrency_cluster` memory). **P2-1 `config.py` split shipped** (`5a22d58` → `core/config/` package, largest submodule 464 lines); **P3 housekeeping shipped** (`3979881`). **PQA batch (2026-07-30 research): PRF-1..6 and PRF-8 shipped 2026-08-09 (PRs #143–#149); PRF-7 partial (0.4.6 in, 0.4.7 pending); PRF-9/10 open.** Open work is: response-model coverage (GEN-2), vLLM-backend performance (HIGH-1/2, MED-2), PRF-7 remainder + PRF-9/10, P2-1 residuals (`inference.py`/`generate.py`/`app.py`/`shared.py`), P2-2, and upstream-blocked research.
 > **Last Updated:** 2026-08-14 — reconciled the PRF table against the 2026-08-09 merges (#143–#149): PRF-1 (#143 `d449325`), PRF-2 (#146 `7b6c336`, intentional design divergence — see row), PRF-3 (#145 `c4172e8`), PRF-4 (#144 `ecba434`), PRF-5 (#148 `97124c1`), PRF-6 (#147 `71533c1`), PRF-8 (#149 `bc7f3ec`); PRF-7 `mlx-audio>=0.4.6` merged via dependabot #129 (`15d9a7d`), 0.4.7 open as PR #164. PRF-4 is no longer open — SDPA is the default (`advanced.attn_implementation="auto"`), FA2 opt-in. Earlier: 2026-08-07 pass recorded the 08-03 audit HIGH-resolution + I1 (#137), the `config.py` split (`5a22d58`), P3 closure (`3979881`).
 
 ---
@@ -108,13 +108,13 @@ Adopted from [`perf-research-2026-07-30.md`](perf-research-2026-07-30.md) (five-
 
 ---
 
-## Priority 2: Enhancements (Open)
+## Priority 2: Enhancements (Resolved)
 
 | ID | Task | Impact | Effort | Files |
 |----|------|--------|--------|-------|
-| **FOLLOWUP-1** | Decide `config.json` defaults for `design.load_at_startup` and `custom.load_at_startup` (currently `false`/`false`; only `clone` is `true`). Trade-off: ~2.5 GB → ~7.5 GB startup memory vs always-available Design/Custom voices. | Low | Low | `config.json` |
+| **FOLLOWUP-1** | ✅ **Decided 2026-08-15: keep `design.load_at_startup`/`custom.load_at_startup` at `false`/`false`** (only `clone` loads at startup). Rationale: ~5 GB of additional startup memory buys availability for models most sessions never open; on-demand load is one click in Manage Models and now shows a live ETA badge (PR #175). No `config.json` change needed — the existing default-pinning tests already cover keep-false. | Low | Low | `config.json` (unchanged) |
 
-**Acceptance:** decision recorded here with rationale; if flipped to `true`, update `config.json`, CLAUDE.md "Key Settings", and add a test asserting startup loads the expected models.
+**Acceptance:** decision recorded here with rationale; if flipped to `true`, update `config.json`, CLAUDE.md "Key Settings", and add a test asserting startup loads the expected models. (Keep-false: done — decision recorded 2026-08-15; no flip, no new test required.)
 
 ---
 
@@ -187,7 +187,7 @@ above (`config.py`, `_facade.py`, `inference.py`, `generate.py`, `app.py`). Full
 
 ### Sprint 1 — Default-backend quick wins (low risk, no vLLM needed)
 1. **GEN-2:** `response_model` contracts (incremental; improves OpenAPI + client contracts)
-2. **FOLLOWUP-1:** decide `load_at_startup` defaults (config-only)
+2. ~~**FOLLOWUP-1:** decide `load_at_startup` defaults (config-only)~~ ✅ decided 2026-08-15 — keep `false`/`false` (see Priority 2)
 3. **MED-1:** verify/cache wavesurfer peaks
 
 ### Sprint 2 — Concurrency refinement ✅ (2026-07-21)
