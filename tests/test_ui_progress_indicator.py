@@ -221,14 +221,20 @@ class TestModelLoadHandlerUsesProgressIndicator(unittest.TestCase):
         )
 
     def test_toggle_model_load_imports_poll_helper(self):
-        """Source-level: handler module references poll_model_load_progress."""
+        """Source-level: load ETA is wired via the badge renderer.
+
+        toggle_model no longer calls poll_model_load_progress (the discarded
+        pre-load probe): the blocking POST makes an in-handler indicator
+        unrenderable, so the live ETA is surfaced by the shared badge Timer
+        through _badge_from_models_payload reading load_time_sec from /models.
+        """
         from qwen3_tts.interface.ui import model_management
 
-        src = inspect.getsource(model_management)
+        src = inspect.getsource(model_management._badge_from_models_payload)
         self.assertIn(
-            "poll_model_load_progress",
+            "load_time_sec",
             src,
-            "model_management.py does not poll for progress",
+            "loading badge does not surface the prior-load ETA",
         )
 
 
