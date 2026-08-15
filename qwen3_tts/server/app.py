@@ -454,10 +454,13 @@ app.state.limiter_token = limiter_token
 
 # slowapi ships the handler narrowed to RateLimitExceeded; Starlette's handler
 # protocol types the parameter as Exception and does not accept the narrower
-# signature (no contravariance), so this call needs a targeted ignore.
+# signature (no contravariance) — under slowapi <= 0.1.9. 0.1.10 (requirements.lock)
+# fixed the handler typing, so the ignore is unused there; warn_unused_ignores
+# turns that into an error. Listing both codes keeps local (0.1.9) and CI (0.1.10)
+# green.
 app.add_exception_handler(
     RateLimitExceeded,
-    _rate_limit_exceeded_handler,  # type: ignore[arg-type]
+    _rate_limit_exceeded_handler,  # type: ignore[arg-type,unused-ignore]
 )
 # Added last → outermost middleware → rate limit fires before CORS, body-size,
 # security headers, and auth (the desired pre-auth flood ceiling).
