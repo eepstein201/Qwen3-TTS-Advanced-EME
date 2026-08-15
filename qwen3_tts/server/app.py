@@ -139,6 +139,12 @@ from qwen3_tts.server.validation import (  # noqa: E402
     UnloadModelRequest,
     UpdateModelConfigRequest,
     UpdateStartupConfigRequest,
+    # Response contracts (GEN-2)
+    GenerationStatusResponse,
+    ModelsResponse,
+    QueueStatusResponse,
+    ReadyResponse,
+    StatsResponse,
     _error_response,  # noqa: F401 (re-exported for test backward compat)
     _gen_cache_key,  # noqa: F401 (re-exported for test backward compat)
     # Validation helpers
@@ -554,7 +560,7 @@ async def health(request: Request) -> dict[str, Any] | JSONResponse:
     return data
 
 
-@app.get("/ready")
+@app.get("/ready", response_model=ReadyResponse)
 async def ready(request: Request) -> dict:
     """Readiness probe endpoint for Kubernetes-style deployments.
 
@@ -571,7 +577,7 @@ async def ready(request: Request) -> dict:
     return {"status": "ready"}
 
 
-@app.get("/generation-status")
+@app.get("/generation-status", response_model=GenerationStatusResponse)
 async def generation_status(request: Request) -> dict:
     """Get current generation status (public — sensitive fields stripped)."""
     state = request.app.state
@@ -591,7 +597,7 @@ async def generation_status(request: Request) -> dict:
     return result
 
 
-@app.get("/queue-status")
+@app.get("/queue-status", response_model=QueueStatusResponse)
 async def queue_status(request: Request) -> dict:
     """Get generation queue status (public — sensitive fields stripped)."""
     state = request.app.state
@@ -609,7 +615,7 @@ async def queue_status(request: Request) -> dict:
 # ---------------------------------------------------------------------------
 
 
-@app.get("/stats")
+@app.get("/stats", response_model=StatsResponse)
 async def stats(request: Request, _auth: None = Depends(verify_auth)) -> dict:
     """Get server statistics."""
     state = request.app.state
@@ -617,7 +623,7 @@ async def stats(request: Request, _auth: None = Depends(verify_auth)) -> dict:
     return handle_stats(state, state.server_config)
 
 
-@app.get("/models")
+@app.get("/models", response_model=ModelsResponse)
 async def list_models(request: Request, _auth: None = Depends(verify_auth)) -> dict:
     """List model status."""
     state = request.app.state

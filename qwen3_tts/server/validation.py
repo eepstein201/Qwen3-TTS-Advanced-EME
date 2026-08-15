@@ -160,6 +160,105 @@ class HealthResponse(BaseModel):
 
 
 # ---------------------------------------------------------------------------
+# Response contracts (GEN-2)
+#
+# Every model below describes an EXISTING handler's return dict. FastAPI
+# response_model filters anything the model does not declare, so a wrong model
+# silently drops fields — read the handler before editing these. Optional
+# fields cover backend-conditional keys (mlx_quantization vs dtype) and
+# hardware-absent memory stats so the same contract validates on every
+# backend. Untyped on purpose: /generate-stream and /ws (binary/WebSocket),
+# /preview-prompt and /shutdown (non-JSON Response objects).
+# ---------------------------------------------------------------------------
+
+
+class ReadyResponse(BaseModel):
+    """Response model for /ready (200 body; the 503 path is an HTTPException)."""
+
+    status: str
+
+
+class GenerationStatusResponse(BaseModel):
+    """Response model for /generation-status (public — sensitive fields stripped)."""
+
+    active: bool
+    batch_index: int
+    chunk_index: int
+    cancelled: bool
+    elapsed_sec: float | None = None  # only emitted while a generation is active
+
+
+class QueueStatusResponse(BaseModel):
+    """Response model for /queue-status."""
+
+    queue_length: int
+    active: bool
+
+
+class GenerationHealth(BaseModel):
+    """Nested /stats generation-health block (detect_degraded_generation)."""
+
+    degraded: bool
+    elapsed_sec: float | None = None
+    sec_per_char: float | None = None
+    threshold_sec_per_char: float
+
+
+class StatsResponse(BaseModel):
+    """Response model for /stats."""
+
+    status: str
+    backend: str
+    generation_health: GenerationHealth
+    model_size: str
+    clone_model_loaded: bool
+    design_model_loaded: bool
+    custom_model_loaded: bool
+    voice_prompts_cached: int
+    voice_prompts_cache_hits: int
+    idle_seconds: int
+    auto_shutdown_minutes: int | str  # "disabled" when auto-shutdown is off
+    generation_queue_size: int
+    # Backend-conditional / hardware-optional fields (None on the other backend).
+    mlx_quantization: str | None = None
+    dtype: str | None = None
+    mps_memory_allocated_mb: float | str | None = None  # "unavailable" on error
+    cuda_memory_allocated_mb: float | None = None
+    cuda_memory_reserved_mb: float | None = None
+    mlx_memory_active_mb: float | None = None
+    mlx_memory_peak_mb: float | None = None
+
+
+class ModelEntry(BaseModel):
+    """One model row in the /models listing."""
+
+    loaded: bool
+    loading: bool  # mutually exclusive with loaded (drives UI progress polls)
+    description: str
+    memory_mb: int
+    repo_id: str
+    load_at_startup: bool
+    load_time_sec: float | None = None
+
+
+class AsrInfo(BaseModel):
+    """ASR block in the /models listing."""
+
+    loaded: bool
+    backend: str | None = None
+    model_name: str | None = None
+
+
+class ModelsResponse(BaseModel):
+    """Response model for /models."""
+
+    models: dict[str, ModelEntry]
+    asr: AsrInfo
+    backend: str
+    model_size: str
+
+
+# ---------------------------------------------------------------------------
 # Validation functions
 # ---------------------------------------------------------------------------
 
