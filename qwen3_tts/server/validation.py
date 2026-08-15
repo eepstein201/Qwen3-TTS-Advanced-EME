@@ -258,6 +258,12 @@ class ModelsResponse(BaseModel):
     model_size: str
 
 
+class TranscribeResponse(BaseModel):
+    """Response model for /transcribe."""
+
+    transcript: str
+
+
 # ---------------------------------------------------------------------------
 # Validation functions
 # ---------------------------------------------------------------------------

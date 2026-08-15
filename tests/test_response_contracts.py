@@ -31,20 +31,25 @@ _skip = unittest.skipUnless(HAS_DEPS, "requires fastapi")
 class _ContractTestBase(unittest.TestCase):
     """Shared TestClient harness with app.state snapshot/restore."""
 
-    @classmethod
-    def setUpClass(cls):
+    def setUp(self):
         from qwen3_tts.server.app import app
-        from tests.conftest import _init_app_state
+        from tests.conftest import _init_app_state, _restore_app_state, _save_app_state
 
+        self._restore_app_state = _restore_app_state
+        self._original_state = _save_app_state(app)
         _init_app_state(app, auth_token="test_token")
         app.state.models_loaded.set()  # simulate ready
         app.state.server_config = {
             "security": {"max_text_length": 50000, "max_batch_size": 20},
             "auto_shutdown_minutes": 0,
         }
-        cls.app = app
-        cls.client = TestClient(app, raise_server_exceptions=False)
-        cls.auth = {"Authorization": "Bearer test_token"}
+        self.app = app
+        self.client = TestClient(app, raise_server_exceptions=False)
+        self.auth = {"Authorization": "Bearer test_token"}
+        self._reset_limiters()
+
+    def tearDown(self):
+        self._restore_app_state(self.app, self._original_state)
 
     def _reset_limiters(self):
         """Reset in-process rate limiters (house pattern; unittest ignores the
@@ -127,6 +132,87 @@ class TestPublicStatusContracts(_ContractTestBase):
                       "load_at_startup", "load_time_sec"):
             self.assertIn(field, resp.json()["models"]["clone"])
         self.assertFalse(entry.loaded)
+
+
+@_skip
+class TestGenerationContracts(_ContractTestBase):
+    """G2: /generate (typed since #176-era GenerateResponse) and /transcribe."""
+
+    def _mocked_generate_patches(self):
+        """Patches that make /generate return 200 without touching models."""
+        import numpy as np
+
+        return (
+            patch(
+                "qwen3_tts.server.app_generation._check_memory_available",
+                return_value=(True, 4000),
+            ),
+            patch(
+                "qwen3_tts.core.engine.load_voice_prompt",
+                return_value=MagicMock(),
+            ),
+            patch(
+                "qwen3_tts.core.engine.run_inference",
+                return_value=(np.zeros(4800, dtype=np.float32), 24000),
+            ),
+            patch(
+                "qwen3_tts.core.engine.audio_processing.calculate_waveform_peaks",
+                return_value=[0.1] * 500,
+            ),
+            patch("soundfile.write"),
+        )
+
+    def tearDown(self):
+        # Remove cache temp files the generation handler created.
+        for entry in list(getattr(self.app.state, "gen_cache", {}).values()):
+            main_file = entry.get("main_file")
+            if main_file and os.path.exists(main_file):
+                try:
+                    os.remove(main_file)
+                except OSError:
+                    pass
+        self.app.state.gen_cache = {}
+        super().tearDown()
+
+    def test_generate_matches_contract(self):
+        from qwen3_tts.server.validation import GenerateResponse
+
+        self.app.state.models["clone"] = MagicMock()
+        p1, p2, p3, p4, p5 = self._mocked_generate_patches()
+        with p1, p2, p3, p4, p5:
+            resp = self.client.post(
+                "/generate",
+                json={"text": "Hello contracts", "mode": "clone",
+                      "prompt_file": "voice.wav"},
+                headers=self.auth,
+            )
+        self.assertEqual(resp.status_code, 200, resp.text)
+        model = GenerateResponse.model_validate(resp.json())
+        self.assertEqual(len(model.results), 1)
+        row = resp.json()["results"][0]
+        # Every GenerateResult field must survive response_model filtering.
+        for field in ("index", "audio_base64", "sample_rate", "peaks",
+                      "chunks", "seed"):
+            self.assertIn(field, row)
+        self.assertEqual(row["sample_rate"], 24000)
+        self.assertIsInstance(row["peaks"], list)
+        self.assertIsInstance(row["chunks"], int)
+        self.assertIsInstance(row["seed"], int)
+
+    def test_transcribe_matches_contract(self):
+        from qwen3_tts.server.validation import TranscribeResponse
+
+        with patch(
+            "qwen3_tts.core.engine.transcribe_audio", return_value="hello world"
+        ):
+            resp = self.client.post(
+                "/transcribe",
+                json={"audio_base64": "aGVsbG8=", "language": "en"},
+                headers=self.auth,
+            )
+        self.assertEqual(resp.status_code, 200, resp.text)
+        model = TranscribeResponse.model_validate(resp.json())
+        self.assertEqual(model.transcript, "hello world")
 
 
 if __name__ == "__main__":

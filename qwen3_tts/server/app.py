@@ -145,6 +145,7 @@ from qwen3_tts.server.validation import (  # noqa: E402
     QueueStatusResponse,
     ReadyResponse,
     StatsResponse,
+    TranscribeResponse,
     _error_response,  # noqa: F401 (re-exported for test backward compat)
     _gen_cache_key,  # noqa: F401 (re-exported for test backward compat)
     # Validation helpers
@@ -702,7 +703,7 @@ async def unload_asr(request: Request, _auth: None = Depends(verify_auth)):
     return await asyncio.to_thread(handle_unload_asr, state)
 
 
-@app.post("/transcribe")
+@app.post("/transcribe", response_model=TranscribeResponse)
 @_rate_limit(_transcribe_limit)
 async def transcribe(
     request: Request, req: TranscribeRequest, _auth: None = Depends(verify_auth)
