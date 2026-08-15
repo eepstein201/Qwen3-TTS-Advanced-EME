@@ -86,6 +86,24 @@ class TestWebSocketAuth(unittest.TestCase):
             resp = ws.receive_json()
             self.assertEqual(resp["error"], "Authentication failed")
 
+    def test_auth_failure_is_audit_logged(self):
+        """Bad-token auth failures must be auditable: WARNING level, client IP.
+
+        Pre-fix the bad-token path logged nothing at all (only the separate
+        exception path logged at DEBUG), so auth failures were invisible in
+        default INFO runs — no audit trail for brute-force probing of /ws.
+        """
+        _setup_app_state()
+        with self.assertLogs("tts.server.websocket", level="WARNING") as logs:
+            with TestClient(app).websocket_connect("/ws") as ws:
+                ws.send_text(json.dumps({"token": "wrong_token"}))
+                resp = ws.receive_json()
+                self.assertEqual(resp["error"], "Authentication failed")
+        joined = "\n".join(logs.output)
+        self.assertIn("WebSocket auth failed", joined)
+        # The sanitized client IP must appear in the audit record.
+        self.assertIn("testclient", joined)
+
     def test_bad_json_first_message_closes_4001(self):
         """Non-JSON first message should close the connection."""
         from starlette.websockets import WebSocketDisconnect

@@ -23,6 +23,7 @@ import uuid
 
 from fastapi import WebSocket, WebSocketDisconnect
 
+from qwen3_tts.core.config import sanitize_log
 from qwen3_tts.server.app_generation import (
     _await_inference_thread_done,
     _resolve_generation_seed,
@@ -102,21 +103,34 @@ async def websocket_tts_handler(
         # and skipped _ws_release — leaking a connection slot. Repeating 50x
         # exhausted _WS_MAX_TOTAL (unauthenticated slot-exhaustion DoS).
         if not isinstance(auth_data, dict):
+            logger.warning(
+                "WebSocket auth failed from %s: first message not a JSON object",
+                sanitize_log(client_ip),
+            )
             await websocket.close(code=4001, reason="Authentication failed")
             _ws_release(app_state, client_ip)
             return
         token = auth_data.get("token", "")
         if not verify_token_fn(token):
+            logger.warning(
+                "WebSocket auth failed from %s: invalid token",
+                sanitize_log(client_ip),
+            )
             await websocket.send_json({"error": "Authentication failed"})
             await websocket.close(code=4001, reason="Authentication failed")
             _ws_release(app_state, client_ip)
             return
         await websocket.send_json({"status": "authenticated"})
-    except Exception:
+    except Exception as e:
         # Any auth-path failure (timeout, malformed JSON, disconnect, or an
         # unexpected error) must release the reserved slot. Broad catch
         # guarantees no leak regardless of payload shape.
-        logger.debug("WebSocket auth failed; releasing slot", exc_info=True)
+        logger.warning(
+            "WebSocket auth failed from %s: %s",
+            sanitize_log(client_ip),
+            sanitize_log(e),
+            exc_info=True,
+        )
         await websocket.close(code=4001, reason="Authentication failed")
         _ws_release(app_state, client_ip)
         return
