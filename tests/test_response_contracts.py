@@ -241,6 +241,9 @@ class TestOpsContracts(_ContractTestBase):
             if os.path.exists(p):
                 os.remove(p)
 
+        # CI's clean runner home has no ~/Qwen3-TTS_UserFiles yet (config
+        # resolves home-relative), so the prompts dir may not exist there.
+        os.makedirs(os.path.dirname(path), exist_ok=True)
         with open(path, "wb") as f:
             f.write(b"RIFF-contract-test")
         self.addCleanup(_safe_remove)
