@@ -215,5 +215,189 @@ class TestGenerationContracts(_ContractTestBase):
         self.assertEqual(model.transcript, "hello world")
 
 
+@_skip
+class TestOpsContracts(_ContractTestBase):
+    """G3: model/ASR ops, config updates, and prompt CRUD routes."""
+
+    _TMP_BASE = "zz_contract_tmp_prompt"
+
+    def _make_prompt_file(self, base=_TMP_BASE, ext=".wav"):
+        """Create a throwaway prompt file in the real VOICE_PROMPTS_DIR."""
+        from qwen3_tts.core.config import VOICE_PROMPTS_DIR
+
+        path = os.path.join(str(VOICE_PROMPTS_DIR), f"{base}{ext}")
+
+        def _safe_remove(p=path):
+            if os.path.exists(p):
+                os.remove(p)
+
+        with open(path, "wb") as f:
+            f.write(b"RIFF-contract-test")
+        self.addCleanup(_safe_remove)
+        return base
+
+    def test_load_model_matches_contract(self):
+        from qwen3_tts.server.validation import ModelOpResponse
+
+        self.app.state.models["clone"] = MagicMock()
+        resp = self.client.post(
+            "/load-model", json={"model_type": "clone"}, headers=self.auth
+        )
+        self.assertEqual(resp.status_code, 200, resp.text)
+        model = ModelOpResponse.model_validate(resp.json())
+        self.assertEqual(model.status, "already_loaded")
+        self.assertEqual(model.model, "clone")
+
+    def test_unload_model_matches_contract(self):
+        from qwen3_tts.server.validation import ModelOpResponse
+
+        self.app.state.models["design"] = MagicMock()
+        with patch("qwen3_tts.core.engine.unload_model_cleanup"):
+            resp = self.client.post(
+                "/unload-model", json={"model_type": "design"}, headers=self.auth
+            )
+        self.assertEqual(resp.status_code, 200, resp.text)
+        model = ModelOpResponse.model_validate(resp.json())
+        self.assertEqual(model.status, "unloaded")
+        self.assertEqual(model.model, "design")
+
+    def test_update_model_config_matches_contract(self):
+        from qwen3_tts.server.validation import UpdateModelConfigResponse
+
+        with patch(
+            "qwen3_tts.server.app._get_app_config", return_value={}
+        ), patch("qwen3_tts.server.app_models.save_config"):
+            resp = self.client.post(
+                "/update-model-config",
+                json={"model_size": "0.6B"},
+                headers=self.auth,
+            )
+        self.assertEqual(resp.status_code, 200, resp.text)
+        model = UpdateModelConfigResponse.model_validate(resp.json())
+        self.assertEqual(model.status, "config_updated")
+        self.assertEqual(model.changes, ["model_size=0.6B"])
+        self.assertIn("models_unloaded", resp.json())
+
+    def test_update_startup_config_matches_contract(self):
+        from qwen3_tts.server.validation import UpdateStartupConfigResponse
+
+        with patch(
+            "qwen3_tts.server.app._get_app_config", return_value={}
+        ), patch("qwen3_tts.server.app_models.save_config"):
+            resp = self.client.post(
+                "/update-startup-config",
+                json={"clone": False},
+                headers=self.auth,
+            )
+        self.assertEqual(resp.status_code, 200, resp.text)
+        model = UpdateStartupConfigResponse.model_validate(resp.json())
+        self.assertEqual(model.status, "updated")
+        self.assertEqual(model.changes, ["clone=off"])
+
+    def test_load_asr_matches_contract(self):
+        from qwen3_tts.server.validation import LoadAsrResponse
+
+        with patch("qwen3_tts.core.engine.is_asr_loaded", return_value=True):
+            resp = self.client.post("/load-asr", headers=self.auth)
+        self.assertEqual(resp.status_code, 200, resp.text)
+        model = LoadAsrResponse.model_validate(resp.json())
+        self.assertEqual(model.status, "already_loaded")
+
+    def test_unload_asr_matches_contract(self):
+        from qwen3_tts.server.validation import UnloadAsrResponse
+
+        with patch("qwen3_tts.core.engine.unload_asr_model"):
+            resp = self.client.post("/unload-asr", headers=self.auth)
+        self.assertEqual(resp.status_code, 200, resp.text)
+        model = UnloadAsrResponse.model_validate(resp.json())
+        self.assertEqual(model.status, "unloaded")
+
+    def test_prompts_matches_contract(self):
+        from qwen3_tts.server.validation import PromptsListResponse
+
+        resp = self.client.get("/prompts", headers=self.auth)
+        self.assertEqual(resp.status_code, 200, resp.text)
+        model = PromptsListResponse.model_validate(resp.json())
+        self.assertEqual(model.total, len(model.prompts))
+
+    def test_prompt_details_all_matches_contract(self):
+        from qwen3_tts.server.validation import PromptDetailsResponse
+
+        resp = self.client.get("/prompt-details", headers=self.auth)
+        self.assertEqual(resp.status_code, 200, resp.text)
+        model = PromptDetailsResponse.model_validate(resp.json())
+        self.assertIsInstance(model.prompts, list)
+
+    def test_prompt_details_single_matches_contract(self):
+        from qwen3_tts.server.validation import PromptInfo
+
+        base = self._make_prompt_file()
+        resp = self.client.get(
+            "/prompt-details", params={"name": base}, headers=self.auth
+        )
+        self.assertEqual(resp.status_code, 200, resp.text)
+        model = PromptInfo.model_validate(resp.json())
+        self.assertEqual(model.name, base)
+        self.assertEqual(model.formats, [".wav"])
+        self.assertGreater(model.size_bytes, 0)
+        self.assertFalse(model.is_default)
+
+    def test_delete_prompt_matches_contract(self):
+        from qwen3_tts.server.validation import DeletePromptResponse
+
+        base = self._make_prompt_file()
+        with patch("qwen3_tts.server.app._get_app_config", return_value={}):
+            resp = self.client.post(
+                "/delete-prompt", json={"name": base}, headers=self.auth
+            )
+        self.assertEqual(resp.status_code, 200, resp.text)
+        model = DeletePromptResponse.model_validate(resp.json())
+        self.assertEqual(model.status, "deleted")
+        self.assertEqual(model.files_removed, [f"{base}.wav"])
+
+    def test_rename_prompt_matches_contract(self):
+        from qwen3_tts.server.validation import RenamePromptResponse
+
+        old = self._make_prompt_file()
+        new_base = f"{self._TMP_BASE}_renamed"
+        renamed_path = os.path.join(
+            str(_VOICE_PROMPTS_DIR()), f"{new_base}.wav"
+        )
+        self.addCleanup(
+            lambda: os.path.exists(renamed_path) and os.remove(renamed_path)
+        )
+        with patch("qwen3_tts.server.app._get_app_config", return_value={}):
+            resp = self.client.post(
+                "/rename-prompt",
+                json={"old_name": old, "new_name": new_base},
+                headers=self.auth,
+            )
+        self.assertEqual(resp.status_code, 200, resp.text)
+        model = RenamePromptResponse.model_validate(resp.json())
+        self.assertEqual(model.status, "renamed")
+        self.assertEqual(model.old_name, old)
+        self.assertEqual(model.new_name, new_base)
+        self.assertEqual(model.files_renamed, [f"{new_base}.wav"])
+
+    def test_preview_prompt_returns_audio_bytes(self):
+        """Deliberately untyped: /preview-prompt returns a FileResponse, so the
+        contract is the media type, not a JSON model."""
+        base = self._make_prompt_file()
+        resp = self.client.get(
+            "/preview-prompt", params={"name": base}, headers=self.auth
+        )
+        self.assertEqual(resp.status_code, 200, resp.text)
+        self.assertTrue(
+            resp.headers["content-type"].startswith("audio/wav"),
+            resp.headers["content-type"],
+        )
+
+
+def _VOICE_PROMPTS_DIR():
+    from qwen3_tts.core.config import VOICE_PROMPTS_DIR
+
+    return VOICE_PROMPTS_DIR
+
+
 if __name__ == "__main__":
     unittest.main()

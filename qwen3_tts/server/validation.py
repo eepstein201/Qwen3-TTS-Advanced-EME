@@ -264,6 +264,85 @@ class TranscribeResponse(BaseModel):
     transcript: str
 
 
+class ModelOpResponse(BaseModel):
+    """Response model for /load-model and /unload-model."""
+
+    status: str  # "loaded" | "already_loaded" | "unloaded" | "already_unloaded"
+    model: str
+
+
+class LoadAsrResponse(BaseModel):
+    """Response model for /load-asr."""
+
+    status: str  # "loaded" | "already_loaded"
+    load_time_sec: float | None = None  # only emitted on a fresh load
+
+
+class UnloadAsrResponse(BaseModel):
+    """Response model for /unload-asr."""
+
+    status: str  # "unloaded"
+
+
+class UpdateModelConfigResponse(BaseModel):
+    """Response model for /update-model-config."""
+
+    status: str
+    changes: list[str]
+    models_unloaded: bool
+    note: str
+
+
+class UpdateStartupConfigResponse(BaseModel):
+    """Response model for /update-startup-config."""
+
+    status: str
+    changes: list[str]
+
+
+class PromptsListResponse(BaseModel):
+    """Response model for /prompts (backend-aware file list)."""
+
+    prompts: list[str]
+    total: int
+    offset: int = 0  # absent only on the OSError branch, which returns early
+    limit: int = 0
+
+
+class PromptInfo(BaseModel):
+    """Metadata for one voice prompt (/prompt-details)."""
+
+    name: str
+    formats: list[str]
+    size_bytes: int
+    created: float | None = None  # None when no files exist for the base name
+    is_default: bool
+
+
+class PromptDetailsResponse(BaseModel):
+    """Response model for /prompt-details with no name (all prompts)."""
+
+    prompts: list[PromptInfo]
+
+
+class DeletePromptResponse(BaseModel):
+    """Response model for /delete-prompt."""
+
+    status: str
+    name: str
+    files_removed: list[str]
+    files_failed: list[str] | None = None  # only emitted when a removal failed
+
+
+class RenamePromptResponse(BaseModel):
+    """Response model for /rename-prompt."""
+
+    status: str
+    old_name: str
+    new_name: str
+    files_renamed: list[str]
+
+
 # ---------------------------------------------------------------------------
 # Validation functions
 # ---------------------------------------------------------------------------
