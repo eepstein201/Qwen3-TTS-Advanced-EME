@@ -267,7 +267,7 @@ python tests/run_batches.py --list     # List batches
 
 **Hung batches dump stacks.** `run_batch()` sends `SIGABRT` (child runs with `PYTHONFAULTHANDLER=1`) before escalating to `SIGKILL`, so a timeout reports every thread's traceback instead of dying anonymously. Worth knowing because `starlette`'s `TestClient` websocket `receive()` is unbounded (`portal.call`, no timeout) — a `/ws` path that skips its terminal frame blocks a test forever regardless of the test's own timeouts.
 
-**Static gates:** `ruff check qwen3_tts tests` (config in `.ruff.toml`), `mypy qwen3_tts/{core,server,interface}` (config in `pyproject.toml`; FastAPI `app.py` + vLLM modules excluded), `bandit -r qwen3_tts -c pyproject.toml` (target: 0 HIGH). **Docs gate:** `make check-config-docs` (or `python -m qwen3_tts.tools.check_config_docs`) fails when `docs/CONFIG.md` default values drift from `get_default_config()`. All ship in the `dev` extra.
+**Static gates:** `ruff check qwen3_tts tests` (config in `.ruff.toml`), `mypy qwen3_tts/{core,server,interface}` (config in `pyproject.toml`; vLLM modules excluded), `bandit -r qwen3_tts -c pyproject.toml` (target: 0 HIGH). **Docs gate:** `make check-config-docs` (or `python -m qwen3_tts.tools.check_config_docs`) fails when `docs/CONFIG.md` default values drift from `get_default_config()`. All ship in the `dev` extra.
 
 **Log level:** Controlled by `TTS_LOG_LEVEL` env var (default `INFO`). Set `TTS_LOG_LEVEL=DEBUG` for verbose output.
 
