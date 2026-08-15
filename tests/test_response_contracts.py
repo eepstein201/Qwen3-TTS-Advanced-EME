@@ -118,6 +118,16 @@ class TestPublicStatusContracts(_ContractTestBase):
         # Backend-conditional fields stay present-but-null on the other backend.
         self.assertIn("backend", resp.json())
 
+    def test_stats_omits_keys_the_handler_did_not_emit(self):
+        """exclude_unset fidelity: optional keys absent from the handler dict
+        must stay absent (no additive nulls) — e.g. CUDA stats on a machine
+        with no CUDA, or MLX stats when the backend import failed."""
+        resp = self.client.get("/stats", headers=self.auth)
+        self.assertEqual(resp.status_code, 200, resp.text)
+        data = resp.json()
+        self.assertNotIn("cuda_memory_allocated_mb", data)
+        self.assertNotIn("cuda_memory_reserved_mb", data)
+
     def test_models_matches_contract(self):
         from qwen3_tts.server.validation import ModelsResponse
 

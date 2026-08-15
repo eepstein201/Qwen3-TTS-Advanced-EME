@@ -167,8 +167,11 @@ class HealthResponse(BaseModel):
 # silently drops fields — read the handler before editing these. Optional
 # fields cover backend-conditional keys (mlx_quantization vs dtype) and
 # hardware-absent memory stats so the same contract validates on every
-# backend. Untyped on purpose: /generate-stream and /ws (binary/WebSocket),
-# /preview-prompt and /shutdown (non-JSON Response objects).
+# backend. The routes set response_model_exclude_unset=True so keys the
+# handler did NOT emit (e.g. mlx memory stats on torch) stay absent instead
+# of appearing as additive nulls — the response body is byte-identical to
+# the pre-contract output. Untyped on purpose: /generate-stream and /ws
+# (binary/WebSocket), /preview-prompt and /shutdown (non-JSON Response).
 # ---------------------------------------------------------------------------
 
 

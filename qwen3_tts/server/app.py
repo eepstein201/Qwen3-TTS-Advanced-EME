@@ -126,23 +126,18 @@ from qwen3_tts.server.validation import (  # noqa: E402
     MAX_AUDIO_BASE64_BYTES,
     CreateVoicePromptRequest,
     DeletePromptRequest,
+    # Response contracts (GEN-2)
+    DeletePromptResponse,
     # Response models
     ErrorResponse,  # noqa: F401 (imported by test code via app module)
     # Request models
     GenerateRequest,
     GenerateResponse,
     GenerateResult,  # noqa: F401 (imported by test code via app module)
-    HealthResponse,
-    LoadModelRequest,
-    RenamePromptRequest,
-    TranscribeRequest,
-    UnloadModelRequest,
-    UpdateModelConfigRequest,
-    UpdateStartupConfigRequest,
-    # Response contracts (GEN-2)
-    DeletePromptResponse,
     GenerationStatusResponse,
+    HealthResponse,
     LoadAsrResponse,
+    LoadModelRequest,
     ModelOpResponse,
     ModelsResponse,
     PromptDetailsResponse,
@@ -150,11 +145,16 @@ from qwen3_tts.server.validation import (  # noqa: E402
     PromptsListResponse,
     QueueStatusResponse,
     ReadyResponse,
+    RenamePromptRequest,
     RenamePromptResponse,
     StatsResponse,
+    TranscribeRequest,
     TranscribeResponse,
     UnloadAsrResponse,
+    UnloadModelRequest,
+    UpdateModelConfigRequest,
     UpdateModelConfigResponse,
+    UpdateStartupConfigRequest,
     UpdateStartupConfigResponse,
     _error_response,  # noqa: F401 (re-exported for test backward compat)
     _gen_cache_key,  # noqa: F401 (re-exported for test backward compat)
@@ -571,7 +571,7 @@ async def health(request: Request) -> dict[str, Any] | JSONResponse:
     return data
 
 
-@app.get("/ready", response_model=ReadyResponse)
+@app.get("/ready", response_model=ReadyResponse, response_model_exclude_unset=True)
 async def ready(request: Request) -> dict:
     """Readiness probe endpoint for Kubernetes-style deployments.
 
@@ -588,7 +588,7 @@ async def ready(request: Request) -> dict:
     return {"status": "ready"}
 
 
-@app.get("/generation-status", response_model=GenerationStatusResponse)
+@app.get("/generation-status", response_model=GenerationStatusResponse, response_model_exclude_unset=True)
 async def generation_status(request: Request) -> dict:
     """Get current generation status (public — sensitive fields stripped)."""
     state = request.app.state
@@ -608,7 +608,7 @@ async def generation_status(request: Request) -> dict:
     return result
 
 
-@app.get("/queue-status", response_model=QueueStatusResponse)
+@app.get("/queue-status", response_model=QueueStatusResponse, response_model_exclude_unset=True)
 async def queue_status(request: Request) -> dict:
     """Get generation queue status (public — sensitive fields stripped)."""
     state = request.app.state
@@ -626,7 +626,7 @@ async def queue_status(request: Request) -> dict:
 # ---------------------------------------------------------------------------
 
 
-@app.get("/stats", response_model=StatsResponse)
+@app.get("/stats", response_model=StatsResponse, response_model_exclude_unset=True)
 async def stats(request: Request, _auth: None = Depends(verify_auth)) -> dict:
     """Get server statistics."""
     state = request.app.state
@@ -634,7 +634,7 @@ async def stats(request: Request, _auth: None = Depends(verify_auth)) -> dict:
     return handle_stats(state, state.server_config)
 
 
-@app.get("/models", response_model=ModelsResponse)
+@app.get("/models", response_model=ModelsResponse, response_model_exclude_unset=True)
 async def list_models(request: Request, _auth: None = Depends(verify_auth)) -> dict:
     """List model status."""
     state = request.app.state
@@ -642,7 +642,7 @@ async def list_models(request: Request, _auth: None = Depends(verify_auth)) -> d
     return handle_list_models(state, state.server_config)
 
 
-@app.post("/load-model", response_model=ModelOpResponse)
+@app.post("/load-model", response_model=ModelOpResponse, response_model_exclude_unset=True)
 @_rate_limit(_model_limit)
 async def load_model_endpoint(
     request: Request, req: LoadModelRequest, _auth: None = Depends(verify_auth)
@@ -653,7 +653,7 @@ async def load_model_endpoint(
     return await asyncio.to_thread(handle_load_model, state, req)
 
 
-@app.post("/unload-model", response_model=ModelOpResponse)
+@app.post("/unload-model", response_model=ModelOpResponse, response_model_exclude_unset=True)
 @_rate_limit(_model_limit, strategy="hybrid")
 async def unload_model(
     request: Request, req: UnloadModelRequest, _auth: None = Depends(verify_auth)
@@ -664,7 +664,7 @@ async def unload_model(
     return await asyncio.to_thread(handle_unload_model, state, req)
 
 
-@app.post("/update-model-config", response_model=UpdateModelConfigResponse)
+@app.post("/update-model-config", response_model=UpdateModelConfigResponse, response_model_exclude_unset=True)
 @_rate_limit(_model_limit)
 async def update_model_config(
     request: Request, req: UpdateModelConfigRequest, _auth: None = Depends(verify_auth)
@@ -675,7 +675,7 @@ async def update_model_config(
     return await handle_update_model_config(state, req, _get_app_config)
 
 
-@app.post("/update-startup-config", response_model=UpdateStartupConfigResponse)
+@app.post("/update-startup-config", response_model=UpdateStartupConfigResponse, response_model_exclude_unset=True)
 @_rate_limit(_config_ops_limit, strategy="hybrid")
 async def update_startup_config(
     request: Request,
@@ -695,7 +695,7 @@ async def update_startup_config(
 # ---------------------------------------------------------------------------
 
 
-@app.post("/load-asr", response_model=LoadAsrResponse)
+@app.post("/load-asr", response_model=LoadAsrResponse, response_model_exclude_unset=True)
 @_rate_limit(_model_limit)
 async def load_asr(request: Request, _auth: None = Depends(verify_auth)):
     """Load the ASR model for transcription."""
@@ -704,7 +704,7 @@ async def load_asr(request: Request, _auth: None = Depends(verify_auth)):
     return await asyncio.to_thread(handle_load_asr, state)
 
 
-@app.post("/unload-asr", response_model=UnloadAsrResponse)
+@app.post("/unload-asr", response_model=UnloadAsrResponse, response_model_exclude_unset=True)
 @_rate_limit(_model_limit, strategy="hybrid")
 async def unload_asr(request: Request, _auth: None = Depends(verify_auth)):
     """Unload the ASR model to free memory."""
@@ -713,7 +713,7 @@ async def unload_asr(request: Request, _auth: None = Depends(verify_auth)):
     return await asyncio.to_thread(handle_unload_asr, state)
 
 
-@app.post("/transcribe", response_model=TranscribeResponse)
+@app.post("/transcribe", response_model=TranscribeResponse, response_model_exclude_unset=True)
 @_rate_limit(_transcribe_limit)
 async def transcribe(
     request: Request, req: TranscribeRequest, _auth: None = Depends(verify_auth)
@@ -724,7 +724,7 @@ async def transcribe(
     return await asyncio.to_thread(handle_transcribe, state, req)
 
 
-@app.get("/prompts", response_model=PromptsListResponse)
+@app.get("/prompts", response_model=PromptsListResponse, response_model_exclude_unset=True)
 async def list_prompts(request: Request, _auth: None = Depends(verify_auth)):
     """List voice prompts with optional pagination (R-24)."""
     state = request.app.state
@@ -734,7 +734,7 @@ async def list_prompts(request: Request, _auth: None = Depends(verify_auth)):
     )
 
 
-@app.post("/delete-prompt", response_model=DeletePromptResponse)
+@app.post("/delete-prompt", response_model=DeletePromptResponse, response_model_exclude_unset=True)
 @_rate_limit(_prompt_ops_limit, strategy="hybrid")
 async def delete_prompt(
     request: Request, req: DeletePromptRequest, _auth: None = Depends(verify_auth)
@@ -745,7 +745,7 @@ async def delete_prompt(
     return await asyncio.to_thread(handle_delete_prompt, state, req, _get_app_config)
 
 
-@app.post("/rename-prompt", response_model=RenamePromptResponse)
+@app.post("/rename-prompt", response_model=RenamePromptResponse, response_model_exclude_unset=True)
 @_rate_limit(_prompt_ops_limit, strategy="hybrid")
 async def rename_prompt(
     request: Request, req: RenamePromptRequest, _auth: None = Depends(verify_auth)
@@ -769,6 +769,7 @@ async def preview_prompt(request: Request, _auth: None = Depends(verify_auth)):
 @app.get(
     "/prompt-details",
     response_model=PromptDetailsResponse | PromptInfo,
+    response_model_exclude_unset=True,
 )
 async def prompt_details(request: Request, _auth: None = Depends(verify_auth)):
     """Return metadata for voice prompts."""
