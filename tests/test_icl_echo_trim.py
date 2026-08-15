@@ -475,5 +475,86 @@ class TestPostProcessingOrder(unittest.TestCase):
                 self.assertEqual(len(set(calls)), 3)
 
 
+@pytest.mark.unit
+class TestPromptTranscriptReachesEchoTrim(unittest.TestCase):
+    """End-to-end: the server never passes reference_text — it only hands
+    run_inference the prompt object from load_voice_prompt. The echo trim is
+    therefore live only if the transcript resolves off that object through
+    the _reference_text_from_prompt fallback and reaches _postprocess_chunk.
+
+    These capture the value at the _postprocess_chunk seam (runtime call,
+    not a source grep) using prompts shaped exactly like the loaders return:
+    MLX dict {"ref_audio", "ref_text"}; torch VoiceClonePromptItem with a
+    .ref_text field; x-vector prompt with ref_text=None.
+    """
+
+    SR = 24000
+    REFERENCE = "this is the reference transcript"
+
+    def _captured_reference_text(self, voice_prompt, **run_kwargs):
+        """Run single-chunk run_inference, return what _postprocess_chunk saw."""
+        import qwen3_tts.core.engine.inference as inf
+
+        captured = {}
+        audio = np.zeros(self.SR, dtype=np.float32)
+
+        class _Capture:
+            def __call__(self, a, sample_rate, *args, **kwargs):
+                captured["reference_text"] = kwargs.get("reference_text")
+                return a, sample_rate
+
+        class _ConfigProvider:
+            def load(self):
+                return {"generation": {}}
+
+        with (
+            patch.object(inf, "_run_inference_single", return_value=(audio, self.SR)),
+            patch.object(inf, "_postprocess_chunk", side_effect=_Capture()),
+            patch.object(inf, "_maybe_apply_lufs", side_effect=lambda a, s, **kw: (a, s)),
+        ):
+            inf.run_inference(
+                object(),
+                "some text",
+                "clone",
+                {},
+                config_provider=_ConfigProvider(),
+                voice_prompt=voice_prompt,
+                **run_kwargs,
+            )
+        return captured.get("reference_text")
+
+    def test_mlx_shaped_dict_prompt_resolves_transcript(self):
+        prompt = {"ref_audio": "voice.wav", "ref_text": self.REFERENCE}
+        self.assertEqual(
+            self._captured_reference_text(prompt), self.REFERENCE
+        )
+
+    def test_torch_shaped_prompt_item_resolves_transcript(self):
+        reference = self.REFERENCE
+
+        class _VoiceClonePromptItem:
+            # Field layout of the upstream dataclass the .pt files store.
+            ref_text = reference
+
+        self.assertEqual(
+            self._captured_reference_text(_VoiceClonePromptItem()), self.REFERENCE
+        )
+
+    def test_explicit_reference_text_wins_over_prompt(self):
+        prompt = {"ref_audio": "voice.wav", "ref_text": self.REFERENCE}
+        self.assertEqual(
+            self._captured_reference_text(
+                prompt, reference_text="explicit caller text"
+            ),
+            "explicit caller text",
+        )
+
+    def test_x_vector_prompt_resolves_none_and_never_probes(self):
+        # x-vector-only prompts carry no transcript (ref_code=None upstream),
+        # so the trim must see None and stand down.
+        prompt = {"ref_audio": "voice.wav", "ref_text": None}
+        self.assertIsNone(self._captured_reference_text(prompt))
+
+
 if __name__ == "__main__":
     unittest.main()
