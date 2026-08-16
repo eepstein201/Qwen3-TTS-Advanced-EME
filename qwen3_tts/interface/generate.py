@@ -98,7 +98,7 @@ def process_batch(texts, args, config, gen_params, use_server):
     if not os.path.isdir(output_dir):
         os.makedirs(output_dir, exist_ok=True)
 
-    language = config.get("language", "English")
+    language = config.get("language", "auto")
     mode = args.mode or "clone"
     prompt_file = args.prompt or get_default_clone_prompt(config)
     voice_description = args.description or config.get("default_voice_description", "")
@@ -744,7 +744,7 @@ def _handle_generation(args, config, gen_params, use_server, max_chunk_chars):
     output_dir = os.path.expanduser(config.get("output_directory", "~/Downloads"))
     output_path = auto_increment_filename(safe_path_join(output_dir, output_name))
 
-    language = config.get("language", "English")
+    language = config.get("language", "auto")
     mode = alias_mode or "clone"
     prompt_file = _resolve_prompt_file(alias_prompt, args, config)
     voice_description = alias_description or config.get("default_voice_description", "")

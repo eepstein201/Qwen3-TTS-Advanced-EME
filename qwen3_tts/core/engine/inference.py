@@ -169,6 +169,12 @@ def _cleanup_device_memory() -> None:
 # ---------------------------------------------------------------------------
 
 
+# The documented product default for `generation.max_new_tokens`
+# (core/config/io.py, docs/CONFIG.md). Shared by both backends so the two
+# param-merge helpers cannot drift apart.
+_DEFAULT_MAX_NEW_TOKENS = 2048
+
+
 def _build_torch_params(gen_params: dict) -> dict:
     """Merge caller gen_params with config defaults for torch backend."""
     config = load_config()
@@ -183,7 +189,8 @@ def _build_torch_params(gen_params: dict) -> dict:
             "repetition_penalty", config_gen.get("repetition_penalty", 1.05)
         ),
         "max_new_tokens": gen_params.get(
-            "max_new_tokens", config_gen.get("max_new_tokens", 2048)
+            "max_new_tokens",
+            config_gen.get("max_new_tokens", _DEFAULT_MAX_NEW_TOKENS),
         ),
     }
 
@@ -193,7 +200,7 @@ def _run_inference_torch(
     text: str,
     mode: str,
     gen_params: dict,
-    language: str = "English",
+    language: str = "auto",
     voice_prompt: Any = None,
     voice_description: str | None = None,
     speaker: str | None = None,
@@ -306,6 +313,107 @@ def _validate_audio(wav: Any, sample_rate: int, mode: str = "unknown") -> Any:
 # ---------------------------------------------------------------------------
 
 
+# PRF-9 (docs/reviews/prf9-max-new-tokens-measurement-2026-08-15.md) measured
+# MLX caps >= 8192 as NO-GO: non-deterministic EOS-failure runaway loops plus
+# memory exhaustion (13.5 GB active at 8192; 16.5 GB over-commit at 16384 on a
+# 16 GB machine). mlx-audio's own default, 4096, is the highest validated cap.
+# The request schema still permits up to 8192 for other backends, so the MLX
+# ceiling is enforced here, where the backend knowledge lives.
+_MLX_MAX_TOKENS_CEILING = 4096
+
+
+def _split_mlx_params(params: dict) -> tuple[dict, int]:
+    """Split merged gen params into mlx-audio sampling kwargs + the token cap.
+
+    Our key is ``max_new_tokens``; every mlx-audio entry point calls it
+    ``max_tokens``. ``generate_custom_voice``/``generate_voice_design`` take no
+    ``**kwargs``, so the key must be *renamed* rather than added — passing the
+    old name raises TypeError there, and on ``generate()`` it is silently
+    swallowed (the original bug).
+
+    Returns a NEW dict; ``params`` is never mutated.
+    """
+    sampling = {k: v for k, v in params.items() if k != "max_new_tokens"}
+
+    requested = params.get("max_new_tokens")
+    if requested is None:
+        # Absent or explicitly None: fall back to the documented product
+        # default, NOT the ceiling — PRF-9 established that higher is the risk
+        # direction, so "unspecified" must not mean "maximum permitted".
+        return sampling, _DEFAULT_MAX_NEW_TOKENS
+
+    # Type-normalize before comparing. `GenerateRequest` coerces this field, but
+    # `validate_config()` type-checks only `generation.temperature`, so a
+    # hand-edited config.json ("max_new_tokens": "4096") reaches us as a str and
+    # would raise TypeError on the comparison below — breaking every MLX
+    # generation. bool is excluded explicitly: it is an int subclass, and
+    # `range(True)` would yield a silent 1-token generation.
+    if isinstance(requested, bool) or not isinstance(requested, (int, float)):
+        logger.warning(
+            "max_new_tokens=%r is not a number; using the default of %d",
+            requested,
+            _DEFAULT_MAX_NEW_TOKENS,
+        )
+        return sampling, _DEFAULT_MAX_NEW_TOKENS
+    requested = int(requested)
+
+    if requested > _MLX_MAX_TOKENS_CEILING:
+        logger.warning(
+            "max_new_tokens=%d exceeds the MLX ceiling of %d; clamping "
+            "(PRF-9 measured >=8192 as unstable on 16 GB)",
+            requested,
+            _MLX_MAX_TOKENS_CEILING,
+        )
+        return sampling, _MLX_MAX_TOKENS_CEILING
+
+    if requested < 1:
+        # mlx-audio loops `for step in range(max_tokens)`, so <=0 yields an
+        # empty generation rather than an error. The request schema enforces
+        # ge=1, but direct engine callers are not bound by it.
+        logger.warning(
+            "max_new_tokens=%d is below 1; using the default of %d",
+            requested,
+            _DEFAULT_MAX_NEW_TOKENS,
+        )
+        return sampling, _DEFAULT_MAX_NEW_TOKENS
+
+    return sampling, requested
+
+
+def _mlx_lang_code(language: str | None, model: Any = None) -> str:
+    """Map our language name onto mlx-audio's language code.
+
+    mlx-audio lowercases the value and looks it up in ``codec_language_id``.
+    An unrecognized value does NOT raise — it simply drops the language
+    conditioning token — so an unsupported language would otherwise fail
+    silently. It also does not *strip*, so a padded "  English  " would miss
+    the lookup; normalizing here covers both.
+
+    The supported set is per-checkpoint (mlx-audio builds it from the loaded
+    talker config), so it is read off the model rather than hardcoded.
+    """
+    code = (language or "auto").strip().lower()
+
+    if code == "auto":
+        # Never looked up: both backends short-circuit "auto" before touching
+        # codec_language_id, so it can never be unsupported.
+        return code
+
+    supported = getattr(model, "supported_languages", None)
+    # mlx-audio deliberately omits every "*_dialect" key when it builds
+    # supported_languages, but its generation-time lookup still consults the
+    # full codec_language_id map — so dialect codes DO work and must not be
+    # reported as unsupported (the project ships Beijing/Chengdu speakers).
+    if supported and code not in supported and "dialect" not in code:
+        logger.warning(
+            "language %s has no mlx-audio match; generating without language "
+            "conditioning (model supports: %s)",
+            sanitize_log(str(language)),
+            ", ".join(sorted(supported)),
+        )
+    return code
+
+
 def _get_mlx_gen_params(gen_params: dict, config: dict) -> dict:
     """Merge caller gen_params with config defaults for MLX backend."""
     config_gen = config.get("generation", {})
@@ -319,7 +427,8 @@ def _get_mlx_gen_params(gen_params: dict, config: dict) -> dict:
             "repetition_penalty", config_gen.get("repetition_penalty", 1.05)
         ),
         "max_new_tokens": gen_params.get(
-            "max_new_tokens", config_gen.get("max_new_tokens", 2048)
+            "max_new_tokens",
+            config_gen.get("max_new_tokens", _DEFAULT_MAX_NEW_TOKENS),
         ),
     }
 
@@ -329,7 +438,7 @@ def _run_inference_mlx(
     text: str,
     mode: str,
     gen_params: dict,
-    language: str = "English",
+    language: str = "auto",
     voice_prompt: Any = None,
     voice_description: str | None = None,
     speaker: str | None = None,
@@ -359,6 +468,7 @@ def _run_inference_mlx(
     # Read defaults from config so MLX matches torch behavior (R-17)
     config = load_config()
     params = _get_mlx_gen_params(gen_params, config)
+    sampling, max_tokens = _split_mlx_params(params)
 
     seed = gen_params.get("seed")
     if seed is not None:
@@ -387,33 +497,32 @@ def _run_inference_mlx(
                 text=text,
                 ref_audio=ref_audio_path,
                 ref_text=ref_text,
-                language=language,
-                **params,
+                lang_code=_mlx_lang_code(language, model),
+                max_tokens=max_tokens,
+                **sampling,
             )
         )
 
     elif mode == "custom":
-        # MLX generate_custom_voice doesn't accept max_new_tokens
-        custom_params = {k: v for k, v in params.items() if k != "max_new_tokens"}
         results = list(
             model.generate_custom_voice(
                 text=text,
                 speaker=speaker or "Ryan",
-                language=language,
+                language=_mlx_lang_code(language, model),
                 instruct=instruct or "",
-                **custom_params,
+                max_tokens=max_tokens,
+                **sampling,
             )
         )
 
     else:  # design
-        # MLX generate_voice_design doesn't accept max_new_tokens
-        design_params = {k: v for k, v in params.items() if k != "max_new_tokens"}
         results = list(
             model.generate_voice_design(
                 text=text,
                 instruct=voice_description or "",
-                language=language,
-                **design_params,
+                language=_mlx_lang_code(language, model),
+                max_tokens=max_tokens,
+                **sampling,
             )
         )
 
@@ -456,7 +565,7 @@ def _run_inference_mlx_streaming(
     text: str,
     mode: str,
     gen_params: dict,
-    language: str = "English",
+    language: str = "auto",
     voice_prompt: Any = None,
     voice_description: str | None = None,
     speaker: str | None = None,
@@ -494,6 +603,7 @@ def _run_inference_mlx_streaming(
     if config is None:
         config = load_config()
     params = _get_mlx_gen_params(gen_params, config)
+    sampling, max_tokens = _split_mlx_params(params)
 
     seed = gen_params.get("seed")
     if seed is not None:
@@ -515,32 +625,31 @@ def _run_inference_mlx_streaming(
             text=text,
             ref_audio=ref_audio_path,
             ref_text=ref_text,
-            language=language,
+            lang_code=_mlx_lang_code(language, model),
+            max_tokens=max_tokens,
             stream=True,  # Enable streaming
-            **params,
+            **sampling,
         )
 
     elif mode == "custom":
-        # MLX generate_custom_voice doesn't accept max_new_tokens
-        custom_params = {k: v for k, v in params.items() if k != "max_new_tokens"}
         generator = model.generate_custom_voice(
             text=text,
             speaker=speaker or "Ryan",
-            language=language,
+            language=_mlx_lang_code(language, model),
             instruct=instruct or "",
+            max_tokens=max_tokens,
             stream=True,  # Enable streaming
-            **custom_params,
+            **sampling,
         )
 
     else:  # design
-        # MLX generate_voice_design doesn't accept max_new_tokens
-        design_params = {k: v for k, v in params.items() if k != "max_new_tokens"}
         generator = model.generate_voice_design(
             text=text,
             instruct=voice_description or "",
-            language=language,
+            language=_mlx_lang_code(language, model),
+            max_tokens=max_tokens,
             stream=True,  # Enable streaming
-            **design_params,
+            **sampling,
         )
 
     chunk_count = 0
@@ -1149,7 +1258,7 @@ def run_inference(
     text: str,
     mode: str,
     gen_params: dict,
-    language: str = "English",
+    language: str = "auto",
     voice_prompt: Any = None,
     voice_description: str | None = None,
     speaker: str | None = None,
@@ -1306,7 +1415,7 @@ def _run_inference_single(
     text: str,
     mode: str,
     gen_params: dict,
-    language: str = "English",
+    language: str = "auto",
     voice_prompt: Any = None,
     voice_description: str | None = None,
     speaker: str | None = None,
@@ -1419,7 +1528,7 @@ def run_inference_streaming(
     text: str,
     mode: str,
     gen_params: dict,
-    language: str = "English",
+    language: str = "auto",
     voice_prompt: Any = None,
     voice_description: str | None = None,
     speaker: str | None = None,

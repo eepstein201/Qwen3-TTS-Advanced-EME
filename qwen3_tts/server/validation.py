@@ -39,7 +39,7 @@ class GenerateRequest(BaseModel):
     mode: str = "clone"
     prompt_file: str | None = None
     voice_description: str = ""
-    language: str = "English"
+    language: str = "auto"
     speaker: str | None = None
     instruct: str = ""
     temperature: float = Field(default=0.7, ge=0.0, le=2.0)

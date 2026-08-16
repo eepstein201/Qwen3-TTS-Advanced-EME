@@ -298,7 +298,7 @@ def get_default_config(current_config: dict | None = None) -> dict:
         # generation) and "Manual Downloads" (user-curated keepers). Distinct
         # from output_directory, which remains the CLI's save location.
         "history_output_directory": "~/Downloads/Qwen3-TTS Output",
-        "language": "English",
+        "language": "auto",
         "server": {
             "host": "127.0.0.1",
             "port": 5123,

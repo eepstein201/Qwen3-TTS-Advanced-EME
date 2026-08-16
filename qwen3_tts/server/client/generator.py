@@ -220,7 +220,7 @@ class GeneratorMixin:
             {
                 "texts": [text],
                 "mode": mode,
-                "language": self.config.get("language", "English"),
+                "language": self.config.get("language", "auto"),
                 "seed_lock_chunks": seed_lock_chunks,
                 **gen_params,
             },
@@ -360,7 +360,7 @@ class GeneratorMixin:
             {
                 "text": text,
                 "mode": mode,
-                "language": self.config.get("language", "English"),
+                "language": self.config.get("language", "auto"),
                 **gen_params,
             },
             mode,
@@ -527,7 +527,7 @@ class GeneratorMixin:
                 {
                     "texts": [text],
                     "mode": mode,
-                    "language": self.config.get("language", "English"),
+                    "language": self.config.get("language", "auto"),
                     **gen_params,
                 },
                 mode,

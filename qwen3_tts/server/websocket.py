@@ -336,7 +336,7 @@ async def _stream_generation(
                 repetition_penalty=data.get("repetition_penalty", 1.05),
                 max_new_tokens=data.get("max_new_tokens", 2048),
                 seed=data.get("seed"),
-                language=data.get("language", "English"),
+                language=data.get("language", "auto"),
                 max_chunk_chars=data.get("max_chunk_chars"),
                 x_vector_only_mode=data.get("x_vector_only_mode", False),
                 seed_lock_chunks=data.get("seed_lock_chunks", False),

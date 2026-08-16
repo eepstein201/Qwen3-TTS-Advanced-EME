@@ -105,7 +105,7 @@ def process_srt_file(srt_path, config, args, gen_params, use_server):
                     text,
                     mode,
                     gen_params,
-                    config.get("language", "English"),
+                    config.get("language", "auto"),
                     prompt_file=prompt_file,
                     voice_description=voice_description,
                 )
