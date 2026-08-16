@@ -257,7 +257,7 @@ def _prepare_streaming_config(
     payload = {
         "mode": mode,
         "text": text,
-        "language": config.get("language", "English"),
+        "language": config.get("language", "auto"),
         "seed_lock_chunks": seed_lock_chunks,
         **gen_params,
     }

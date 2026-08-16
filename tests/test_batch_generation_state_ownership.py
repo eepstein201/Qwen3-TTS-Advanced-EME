@@ -121,7 +121,7 @@ def _prime_cache_for_design(text, state):
         voice_description="friendly",
         speaker=None,
         instruct="",
-        language="English",
+        language="auto",  # mirrors the GenerateRequest default
         x_vector_only_mode=False,
         max_chunk_chars=None,
         seed_lock_chunks=False,

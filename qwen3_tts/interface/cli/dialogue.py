@@ -116,7 +116,7 @@ def process_dialogue(dialogue_path, config, args, gen_params, use_server):
     os.makedirs(output_dir, exist_ok=True)
 
     basename = os.path.splitext(os.path.basename(dialogue_path))[0]
-    language = config.get("language", "English")
+    language = config.get("language", "auto")
 
     print(f"\nProcessing dialogue: {dialogue_path}")
     print(f"Found {len(lines)} lines, pause between lines: {pause_ms}ms")

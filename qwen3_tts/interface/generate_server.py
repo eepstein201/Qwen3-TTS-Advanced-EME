@@ -426,7 +426,7 @@ def generate_local(
     text,
     mode,
     gen_params,
-    language="English",
+    language="auto",
     prompt_file=None,
     voice_description=None,
     speaker=None,

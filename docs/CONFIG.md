@@ -72,7 +72,7 @@ Every table below reflects `get_default_config()` defaults.
 | `default_speaker` | string | `"ryan"` | Default premium speaker for Custom mode. |
 | `output_directory` | string | `"~/Downloads"` | Default output directory for **CLI**-generated audio. |
 | `history_output_directory` | string | `"~/Downloads/Qwen3-TTS Output"` | Parent for **web-UI** output. Generations land in its `Automated Output/` subfolder (with `.json` sidecars); per-row Download copies land in `Manual Downloads/`. Distinct from `output_directory`. |
-| `language` | string | `"English"` | Language for text processing / tokenization. |
+| `language` | string | `"auto"` | Language conditioning + text processing. `"auto"` lets the model infer the language from the text — the safe default, since a concrete value conditions generation on a language the text may not be in. A named value (`"English"`, `"Chinese"`, …) forces conditioning; torch raises `NotImplementedError` on an unrecognized name, MLX warns and generates without conditioning. Text normalization maps anything unrecognized (including `"auto"`) to English rules. |
 
 ### `server`
 

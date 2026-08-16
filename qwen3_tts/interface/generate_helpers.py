@@ -535,7 +535,7 @@ def _build_generation_payload(
     """Build request payload for /generate or /generate-stream."""
     payload = {
         "mode": mode,
-        "language": config.get("language", "English"),
+        "language": config.get("language", "auto"),
         **gen_params,
     }
     if max_chunk_chars is not None:

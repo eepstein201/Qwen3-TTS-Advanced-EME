@@ -200,7 +200,7 @@ def _run_inference_torch(
     text: str,
     mode: str,
     gen_params: dict,
-    language: str = "English",
+    language: str = "auto",
     voice_prompt: Any = None,
     voice_description: str | None = None,
     speaker: str | None = None,
@@ -394,6 +394,11 @@ def _mlx_lang_code(language: str | None, model: Any = None) -> str:
     """
     code = (language or "auto").strip().lower()
 
+    if code == "auto":
+        # Never looked up: both backends short-circuit "auto" before touching
+        # codec_language_id, so it can never be unsupported.
+        return code
+
     supported = getattr(model, "supported_languages", None)
     # mlx-audio deliberately omits every "*_dialect" key when it builds
     # supported_languages, but its generation-time lookup still consults the
@@ -433,7 +438,7 @@ def _run_inference_mlx(
     text: str,
     mode: str,
     gen_params: dict,
-    language: str = "English",
+    language: str = "auto",
     voice_prompt: Any = None,
     voice_description: str | None = None,
     speaker: str | None = None,
@@ -560,7 +565,7 @@ def _run_inference_mlx_streaming(
     text: str,
     mode: str,
     gen_params: dict,
-    language: str = "English",
+    language: str = "auto",
     voice_prompt: Any = None,
     voice_description: str | None = None,
     speaker: str | None = None,
@@ -1253,7 +1258,7 @@ def run_inference(
     text: str,
     mode: str,
     gen_params: dict,
-    language: str = "English",
+    language: str = "auto",
     voice_prompt: Any = None,
     voice_description: str | None = None,
     speaker: str | None = None,
@@ -1410,7 +1415,7 @@ def _run_inference_single(
     text: str,
     mode: str,
     gen_params: dict,
-    language: str = "English",
+    language: str = "auto",
     voice_prompt: Any = None,
     voice_description: str | None = None,
     speaker: str | None = None,
@@ -1523,7 +1528,7 @@ def run_inference_streaming(
     text: str,
     mode: str,
     gen_params: dict,
-    language: str = "English",
+    language: str = "auto",
     voice_prompt: Any = None,
     voice_description: str | None = None,
     speaker: str | None = None,

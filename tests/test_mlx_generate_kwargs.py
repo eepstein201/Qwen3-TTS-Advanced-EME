@@ -841,6 +841,27 @@ class TestLanguageNormalizationEverywhere(unittest.TestCase):
 
                 self.assertEqual(model.calls[method]["language"], "english")
 
+    def test_auto_never_warns_even_if_absent_from_supported(self):
+        """"auto" is short-circuited by both backends before any lookup.
+
+        It is also the shipped default, so warning on it would fire on every
+        stock generation. Guarded against a model whose list omits it.
+        """
+        model = FakeMLXModel()
+        model.supported_languages = ["english", "chinese"]  # no "auto"
+
+        with patch.object(inference.logger, "warning") as mock_warning:
+            _run_batch(
+                model, "clone", BASE_PARAMS, language="auto",
+                voice_prompt=CLONE_PROMPT,
+            )
+
+        self.assertEqual(model.calls["generate"]["lang_code"], "auto")
+        self.assertEqual(
+            [c for c in mock_warning.call_args_list if "mlx-audio match" in str(c)],
+            [],
+        )
+
     def test_language_none_does_not_crash(self):
         model = FakeMLXModel()
 

@@ -635,13 +635,13 @@ class TestGenerateEndpointExt3(unittest.TestCase):
         }
         # Must mirror the fields handle_generate feeds into the key, including
         # the GenerateRequest defaults for the behavior toggles (language
-        # defaults to "English"). Omitting language here computes lang=None and
-        # would miss the handler's lang=English entry, forcing real generation.
+        # defaults to "auto"). Omitting language here computes lang=None and
+        # would miss the handler's lang=auto entry, forcing real generation.
         cache_key = _gen_cache_key(
             "cached text", "design", gen_params,
             prompt_file=None, voice_description="friendly",
             speaker=None, instruct=None,
-            language="English", x_vector_only_mode=False,
+            language="auto", x_vector_only_mode=False,
             max_chunk_chars=None, seed_lock_chunks=False,
         )
 

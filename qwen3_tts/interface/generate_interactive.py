@@ -140,7 +140,7 @@ def preview_voice_prompt(prompt_name, config):
             "texts": ["This is a preview of the voice prompt."],
             "mode": "clone",
             "prompt_file": prompt_name,
-            "language": config.get("language", "English"),
+            "language": config.get("language", "auto"),
             "temperature": 0.7,
         }
         print(f"Generating preview for '{prompt_name}'...")
@@ -434,7 +434,7 @@ def interactive_mode(use_server, config, gen_params):
     output_path = safe_path_join(output_dir, output_name)
 
     print()
-    language = config.get("language", "English")
+    language = config.get("language", "auto")
 
     if use_server:
         print("Using TTS server...")
@@ -623,7 +623,7 @@ def run_repl(config, use_server, gen_params=None):
                     text,
                     state["mode"],
                     gen_params,
-                    config.get("language", "English"),
+                    config.get("language", "auto"),
                     prompt_file=state["prompt"],
                 )
 
@@ -739,7 +739,7 @@ def run_watch_mode(watch_dir, config, args, gen_params, use_server):
                         text,
                         mode,
                         gen_params,
-                        config.get("language", "English"),
+                        config.get("language", "auto"),
                         prompt_file=prompt_file,
                         voice_description=voice_description,
                     )
