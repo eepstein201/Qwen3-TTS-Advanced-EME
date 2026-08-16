@@ -204,6 +204,7 @@ BATCHES = {
             "tests.test_ui_status_banner",
             "tests.test_ui_tab_select_wiring",
             "tests.test_engine_streaming",
+            "tests.test_mlx_generate_kwargs",
         ],
         "timeout": 480,  # Engine & UI — macos CI runners run ~3-4x slower than linux
     },
