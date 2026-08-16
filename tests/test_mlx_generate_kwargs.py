@@ -546,6 +546,48 @@ class TestNoneAndMissingCap(unittest.TestCase):
                     inference._DEFAULT_MAX_NEW_TOKENS,
                 )
 
+    def test_non_numeric_cap_falls_back_instead_of_crashing(self):
+        """A hand-edited config.json string must not 500 every generation.
+
+        validate_config() type-checks only generation.temperature, so
+        "max_new_tokens": "4096" reaches the engine as a str and would raise
+        TypeError on the ceiling comparison.
+        """
+        for bad in ("4096", "not-a-number", [], {}):
+            with self.subTest(value=bad):
+                model = FakeMLXModel()
+                params = {**BASE_PARAMS, "max_new_tokens": bad}
+
+                _run_batch(model, "clone", params, voice_prompt=CLONE_PROMPT)
+
+                self.assertEqual(
+                    model.calls["generate"]["max_tokens"],
+                    inference._DEFAULT_MAX_NEW_TOKENS,
+                )
+
+    def test_bool_cap_is_rejected_not_treated_as_int(self):
+        """bool is an int subclass; range(True) would emit ~1 token silently."""
+        model = FakeMLXModel()
+        params = {**BASE_PARAMS, "max_new_tokens": True}
+
+        _run_batch(model, "clone", params, voice_prompt=CLONE_PROMPT)
+
+        self.assertEqual(
+            model.calls["generate"]["max_tokens"],
+            inference._DEFAULT_MAX_NEW_TOKENS,
+        )
+
+    def test_float_cap_is_coerced_to_int(self):
+        """mlx-audio does range(max_tokens); a float would TypeError there."""
+        model = FakeMLXModel()
+        params = {**BASE_PARAMS, "max_new_tokens": 2048.7}
+
+        _run_batch(model, "clone", params, voice_prompt=CLONE_PROMPT)
+
+        forwarded = model.calls["generate"]["max_tokens"]
+        self.assertIsInstance(forwarded, int)
+        self.assertEqual(forwarded, 2048)
+
     def test_split_helper_handles_none(self):
         _, max_tokens = inference._split_mlx_params({"max_new_tokens": None})
 
@@ -639,6 +681,26 @@ class TestLangCodeMapping(unittest.TestCase):
             [],
             f"warned about a language the model supports: {lang_warnings}",
         )
+
+    def test_dialect_codes_do_not_false_warn(self):
+        """mlx-audio omits *_dialect from supported_languages but still honors
+        them at generation time, so warning would be actively misleading."""
+        model = FakeMLXModel()  # supported_languages has no dialect entries
+
+        with patch.object(inference.logger, "warning") as mock_warning:
+            _run_batch(
+                model,
+                "clone",
+                BASE_PARAMS,
+                language="beijing_dialect",
+                voice_prompt=CLONE_PROMPT,
+            )
+
+        self.assertEqual(model.calls["generate"]["lang_code"], "beijing_dialect")
+        lang_warnings = [
+            c for c in mock_warning.call_args_list if "mlx-audio match" in str(c)
+        ]
+        self.assertEqual(lang_warnings, [])
 
     def test_model_without_supported_languages_does_not_crash(self):
         """getattr fallback: not every model object exposes the attribute."""

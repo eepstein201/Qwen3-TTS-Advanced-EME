@@ -342,6 +342,21 @@ def _split_mlx_params(params: dict) -> tuple[dict, int]:
         # direction, so "unspecified" must not mean "maximum permitted".
         return sampling, _DEFAULT_MAX_NEW_TOKENS
 
+    # Type-normalize before comparing. `GenerateRequest` coerces this field, but
+    # `validate_config()` type-checks only `generation.temperature`, so a
+    # hand-edited config.json ("max_new_tokens": "4096") reaches us as a str and
+    # would raise TypeError on the comparison below — breaking every MLX
+    # generation. bool is excluded explicitly: it is an int subclass, and
+    # `range(True)` would yield a silent 1-token generation.
+    if isinstance(requested, bool) or not isinstance(requested, (int, float)):
+        logger.warning(
+            "max_new_tokens=%r is not a number; using the default of %d",
+            requested,
+            _DEFAULT_MAX_NEW_TOKENS,
+        )
+        return sampling, _DEFAULT_MAX_NEW_TOKENS
+    requested = int(requested)
+
     if requested > _MLX_MAX_TOKENS_CEILING:
         logger.warning(
             "max_new_tokens=%d exceeds the MLX ceiling of %d; clamping "
@@ -380,11 +395,15 @@ def _mlx_lang_code(language: str | None, model: Any = None) -> str:
     code = (language or "auto").strip().lower()
 
     supported = getattr(model, "supported_languages", None)
-    if supported and code not in supported:
+    # mlx-audio deliberately omits every "*_dialect" key when it builds
+    # supported_languages, but its generation-time lookup still consults the
+    # full codec_language_id map — so dialect codes DO work and must not be
+    # reported as unsupported (the project ships Beijing/Chengdu speakers).
+    if supported and code not in supported and "dialect" not in code:
         logger.warning(
-            "language %r has no mlx-audio match; generating without language "
+            "language %s has no mlx-audio match; generating without language "
             "conditioning (model supports: %s)",
-            language,
+            sanitize_log(str(language)),
             ", ".join(sorted(supported)),
         )
     return code
