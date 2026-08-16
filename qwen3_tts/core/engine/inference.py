@@ -351,6 +351,17 @@ def _split_mlx_params(params: dict) -> tuple[dict, int]:
         )
         return sampling, _MLX_MAX_TOKENS_CEILING
 
+    if requested < 1:
+        # mlx-audio loops `for step in range(max_tokens)`, so <=0 yields an
+        # empty generation rather than an error. The request schema enforces
+        # ge=1, but direct engine callers are not bound by it.
+        logger.warning(
+            "max_new_tokens=%d is below 1; using the default of %d",
+            requested,
+            _DEFAULT_MAX_NEW_TOKENS,
+        )
+        return sampling, _DEFAULT_MAX_NEW_TOKENS
+
     return sampling, requested
 
 

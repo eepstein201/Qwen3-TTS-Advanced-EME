@@ -528,6 +528,24 @@ class TestNoneAndMissingCap(unittest.TestCase):
                     inference._DEFAULT_MAX_NEW_TOKENS,
                 )
 
+    def test_non_positive_cap_falls_back_to_default(self):
+        """<=0 would make mlx-audio's range(max_tokens) loop generate nothing.
+
+        The request schema enforces ge=1, but direct engine callers are not
+        bound by it, so the engine must not emit a silently empty generation.
+        """
+        for bad in (0, -1):
+            with self.subTest(value=bad):
+                model = FakeMLXModel()
+                params = {**BASE_PARAMS, "max_new_tokens": bad}
+
+                _run_batch(model, "clone", params, voice_prompt=CLONE_PROMPT)
+
+                self.assertEqual(
+                    model.calls["generate"]["max_tokens"],
+                    inference._DEFAULT_MAX_NEW_TOKENS,
+                )
+
     def test_split_helper_handles_none(self):
         _, max_tokens = inference._split_mlx_params({"max_new_tokens": None})
 
