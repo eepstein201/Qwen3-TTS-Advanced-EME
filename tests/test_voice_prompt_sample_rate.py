@@ -144,6 +144,46 @@ class TestGradioCreateVoiceUpsamples(unittest.TestCase):
 
         self.assertEqual(info.samplerate, 48000)
 
+    def test_stereo_upload_lands_on_disk_as_mono(self):
+        """Assert the ARTIFACT, not the helper's return value.
+
+        ensure_min_sample_rate downmixed in memory but reported
+        was_resampled=False, so this handler byte-copied the untouched stereo
+        original. The unit test passed because it inspected the returned array;
+        the file MLX actually opens was still two channels.
+        """
+        import soundfile as sf
+
+        src = os.path.join(self.tmp.name, "stereo48k.wav")
+        mono = _tone(1.0, 48000)
+        sf.write(src, np.stack([mono, mono], axis=-1), 48000)
+
+        info = self._create(src, "stereo_disk")
+
+        self.assertEqual(info.channels, 1)
+        self.assertEqual(info.samplerate, 48000)
+
+    def test_unreadable_upload_is_refused_and_writes_nothing(self):
+        """If the rate cannot be inspected, the guarantee cannot be delivered.
+
+        Logging a warning and byte-copying anyway ships exactly the
+        unverified prompt this code exists to prevent — the caller has no way
+        to know, and a runaway generation looks like a hang.
+        """
+        import gradio as gr
+
+        bad = os.path.join(self.tmp.name, "not_audio.wav")
+        with open(bad, "w") as f:
+            f.write("this is not a wav file")
+
+        with self.assertRaises(gr.Error):
+            self._create(bad, "unreadable")
+
+        self.assertFalse(
+            os.path.exists(os.path.join(self.tmp.name, "unreadable.wav")),
+            "refused creation must not leave a prompt behind",
+        )
+
 
 class TestLegacyLowRatePromptWarnsOnLoad(unittest.TestCase):
     """Prompts created before the resampling fix are still on disk and still
@@ -254,11 +294,29 @@ class TestEnsureMinSampleRateAlwaysReturnsMono(unittest.TestCase):
         mono = _tone(0.5, 48000)
         stereo = np.stack([mono, mono], axis=-1)
 
-        out, sr, resampled = ensure_min_sample_rate(stereo, 48000)
+        out, sr, was_modified = ensure_min_sample_rate(stereo, 48000)
 
         self.assertEqual(out.ndim, 1)
         self.assertEqual(sr, 48000)
-        self.assertFalse(resampled)
+
+    def test_stereo_downmix_reports_the_audio_was_modified(self):
+        """The third element gates whether callers write the ARRAY or byte-copy
+        the ORIGINAL file. A stereo downmix that reports False makes every
+        caller copy the untouched stereo original, so the mono guarantee never
+        reaches disk — it only ever existed in memory.
+        """
+        mono = _tone(0.5, 48000)
+        stereo = np.stack([mono, mono], axis=-1)
+
+        _, _, was_modified = ensure_min_sample_rate(stereo, 48000)
+
+        self.assertTrue(was_modified)
+
+    def test_untouched_mono_reports_no_modification(self):
+        """Byte-copying is the better outcome when nothing changed."""
+        _, _, was_modified = ensure_min_sample_rate(_tone(0.5, 48000), 48000)
+
+        self.assertFalse(was_modified)
 
     def test_stereo_at_low_rate_is_mono_and_upsampled(self):
         mono = _tone(0.5, 8000)
