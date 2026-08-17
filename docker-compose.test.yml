@@ -1,0 +1,69 @@
+# Hardened Linux verification services. Separate from docker-compose.yml,
+# whose GPU/vLLM services are drift-guarded and production-shaped.
+#
+#   docker compose -p qwen3-tts-test -f docker-compose.test.yml run --rm suite
+#
+# The image BAKES the source in (Dockerfile.test COPYs it), so there is no
+# bind mount and a run can never mutate this checkout. Rebuild to pick up
+# code changes -- a stale image silently tests the previous commit.
+services:
+  # Shared build definition; not run directly.
+  base: &base
+    build:
+      context: .
+      dockerfile: Dockerfile.test
+      target: test
+    image: qwen3-tts:test
+    init: true
+    # Dependencies are baked at build time, so the suite needs no network.
+    # This also guarantees no test can reach the internet and pass by luck.
+    network_mode: none
+    read_only: true
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    pids_limit: 512
+    user: "1000:1000"
+    environment:
+      GRADIO_ANALYTICS_ENABLED: "False"
+      PYTHONDONTWRITEBYTECODE: "1"
+      # Batch runner and E2E suites both key off this.
+      TTS_DISABLE_RATE_LIMITING: "1"
+    tmpfs:
+      # read_only:true means every writable path must be declared.
+      - /tmp:size=2g,uid=1000,gid=1000,mode=0700
+      - /home/testuser:size=512m,uid=1000,gid=1000,mode=0700
+      - /app/voice_prompts:size=256m,uid=1000,gid=1000,mode=0700
+
+  # Full non-E2E suite -- the superset the CI coverage job runs.
+  suite:
+    <<: *base
+    command: ["python", "-m", "pytest", "tests/", "-q", "-m", "not e2e", "--tb=short"]
+
+  # Batch runner: bounded per-batch timeouts, dumps thread stacks on a hang.
+  batches:
+    <<: *base
+    command: ["python", "tests/run_batches.py"]
+
+  # Static gates, matching the Makefile targets.
+  gates:
+    <<: *base
+    command:
+      - bash
+      - -lc
+      - |
+        set -x
+        ruff check qwen3_tts tests
+        python -m qwen3_tts.tools.check_config_docs
+
+  # Interactive debugging. Start detached so closing a terminal does not
+  # destroy the session:
+  #   docker compose -p qwen3-tts-test -f docker-compose.test.yml \
+  #     run --detach --name qwen3-shell shell
+  #   docker exec -it -w /app qwen3-shell bash
+  shell:
+    <<: *base
+    command: ["bash"]
+    stdin_open: true
+    tty: true

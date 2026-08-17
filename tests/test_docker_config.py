@@ -109,5 +109,29 @@ class TestDockerfile(unittest.TestCase):
         )
 
 
+class TestDockerfileTestCopiesFilesTestsRead(unittest.TestCase):
+    """Repo-root files that tests open must be COPYd into the test image, or
+    the module errors in the container while passing on the host. install.sh
+    was missing, so tests/test_install_script.py never ran on Linux.
+    """
+
+    def setUp(self):
+        import os
+
+        root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        with open(os.path.join(root, "Dockerfile.test")) as f:
+            self.content = f.read()
+
+    def test_copies_install_sh(self):
+        self.assertIn("install.sh", self.content)
+
+    def test_copies_every_repo_root_file_a_test_opens(self):
+        """Guard the whole class of bug, not just install.sh."""
+        for name in ("CLAUDE.md", "config.json", "pytest.ini",
+                     "colab_notebook.ipynb", "install.sh", "pyproject.toml"):
+            with self.subTest(name=name):
+                self.assertIn(name, self.content)
+
+
 if __name__ == "__main__":
     unittest.main()

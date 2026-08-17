@@ -49,8 +49,9 @@ COPY --chown=testuser:testuser tests/ ./tests/
 COPY --chown=testuser:testuser config.json pytest.ini ./
 
 # Repo-root files referenced by guard/drift tests (CLAUDE.md size guard,
-# ARCHITECTURE.md companion, colab notebook drift, docker config drift)
-COPY --chown=testuser:testuser CLAUDE.md colab_notebook.ipynb docker-compose.yml Dockerfile.vllm ./
+# ARCHITECTURE.md companion, colab notebook drift, docker config drift,
+# install.sh config-template drift)
+COPY --chown=testuser:testuser CLAUDE.md colab_notebook.ipynb docker-compose.yml Dockerfile.vllm install.sh ./
 COPY --chown=testuser:testuser docs/ ./docs/
 
 # Create expected directory structure with symlinks for both root and testuser
