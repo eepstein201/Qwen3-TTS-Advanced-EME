@@ -145,5 +145,62 @@ class TestGradioCreateVoiceUpsamples(unittest.TestCase):
         self.assertEqual(info.samplerate, 48000)
 
 
+class TestLegacyLowRatePromptWarnsOnLoad(unittest.TestCase):
+    """Prompts created before the resampling fix are still on disk and still
+    broken. `tts voice rebuild` does not repair them — it regenerates the .pt
+    and leaves the .wav alone, while MLX reads the .wav. Warning at the load
+    choke-point is what makes that visible.
+    """
+
+    def setUp(self):
+        import tempfile
+
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+
+    def _prompt(self, name, sr):
+        import soundfile as sf
+
+        sf.write(os.path.join(self.tmp.name, f"{name}.wav"), _tone(1.0, sr), sr)
+        with open(os.path.join(self.tmp.name, f"{name}.txt"), "w") as f:
+            f.write("hello there friend")
+
+    def _load(self, name):
+        from qwen3_tts.core.engine import voice_prompt as vp
+
+        vp.clear_voice_prompt_cache()
+        with patch.object(vp, "VOICE_PROMPTS_DIR", self.tmp.name):
+            return vp.load_voice_prompt_mlx(name)
+
+    def test_warns_for_below_native_rate(self):
+        self._prompt("legacy", 8000)
+
+        with self.assertLogs("tts.engine", level="WARNING") as logs:
+            self._load("legacy")
+
+        self.assertTrue(
+            any("8000" in ln and "24000" in ln for ln in logs.output),
+            f"expected a rate warning naming both rates, got: {logs.output}",
+        )
+
+    def test_silent_for_adequate_rate(self):
+        self._prompt("fine", DEFAULT_SAMPLE_RATE)
+
+        with patch("qwen3_tts.core.engine.voice_prompt.logger") as mock_log:
+            self._load("fine")
+
+        rate_warnings = [c for c in mock_log.warning.call_args_list if "Hz" in str(c)]
+        self.assertEqual(rate_warnings, [])
+
+    def test_load_still_returns_the_prompt(self):
+        """The warning is advisory — it must never break loading."""
+        self._prompt("legacy2", 8000)
+
+        result = self._load("legacy2")
+
+        self.assertEqual(result["ref_text"], "hello there friend")
+        self.assertTrue(result["ref_audio"].endswith("legacy2.wav"))
+
+
 if __name__ == "__main__":
     unittest.main()
