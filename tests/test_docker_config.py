@@ -132,6 +132,14 @@ class TestDockerfileTestCopiesFilesTestsRead(unittest.TestCase):
             with self.subTest(name=name):
                 self.assertIn(name, self.content)
 
+    def test_copies_the_tool_config_the_static_gates_read(self):
+        """Same class of bug, one level out: a tool config that is missing does
+        not error, it silently changes the ruleset. Without .ruff.toml the
+        container's `ruff check` runs on defaults and reported 780 phantom
+        errors that do not reproduce on the host.
+        """
+        self.assertIn(".ruff.toml", self.content)
+
 
 if __name__ == "__main__":
     unittest.main()
