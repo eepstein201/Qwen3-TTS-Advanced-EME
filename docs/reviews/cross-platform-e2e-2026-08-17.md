@@ -153,9 +153,7 @@ this image exists for Task 9a Step 4 — went unverified on Linux. Adding the
 `audio` extra then surfaced 3 more: `pyrubberband` shells out to the
 `rubberband-cli` **binary**, which was not apt-installed. Both fixed.
 
-### D8 — `test_voice_features` poisons librosa for every later module (test, OPEN)
-
-**Container batch 2 is red because of this. Not yet fixed.**
+### D8 — `test_voice_features` poisons librosa for every later module (test, fixed)
 
 `tests/test_voice_features.py` uses `patch.dict('sys.modules', {'pyrubberband':
 None})` to force the librosa fallback. `patch.dict` snapshots `sys.modules` on
@@ -195,10 +193,73 @@ have propagated. It became *reachable* only because librosa is now installed in
 the image (D7). The new error message is doing its job — it names the failure
 loudly instead of silently writing a bad reference.
 
-**Proposed fix (not yet applied):** import librosa in `test_voice_features`
-*before* entering `patch.dict`, so it is present in the pre-patch snapshot and
-survives restoration. This keeps the fallback under test while removing the
-eviction.
+**Fix applied** (`a76fc9b`): a `_preload_librosa()` helper imports librosa and
+touches the lazy attributes the fallback calls, from `setUp` — i.e. *before*
+`patch.dict` is entered — so librosa is in the pre-patch snapshot and survives
+restoration. The fallback stays genuinely under test. After the fix the poisoned
+pair runs 71 tests OK, the container batch runner is **6/6 green**, and macOS
+gained a test (2862 → 2863) because the `skipTest` for the numba bug no longer
+fires.
+
+---
+
+## Product findings NOT chartered by this plan (reported, not fixed)
+
+### D9 — custom-mode generation runs to the token cap (HIGH, open)
+
+Surfaced by the new `_warn_if_cap_reached()` this branch ships. Twice during the
+E2E run:
+
+```
+WARNING: Generation hit the 2048-token cap without emitting EOS (mode=custom)
+         — the audio is truncated.
+INFO: Inference complete: 16 chars, 215.8s, mode=custom [mlx]
+```
+
+**A 16-character input took 215.8 s and still never emitted EOS.** This is the
+same EOS-failure runaway class the plan addresses for clone references — but in
+**custom** mode, which uses no reference audio at all, so the sample-rate fix
+cannot be the cause.
+
+This also **re-attributes an E2E failure**: `test_e2e_performance_batch`'s
+"Request 0 took 232.3 s (expected < 120 s)" is not (only) machine contention, it
+is this runaway. Recorded here rather than fixed: diagnosing why custom mode
+fails to emit EOS is a separate investigation, and this plan's charter is the
+reference-rate path. The warning that exposes it ships in `d4f34c9`.
+
+### D10 — clone output length tracks the reference transcript, not the request (MED, open)
+
+`tts "Local clone path check." -m clone -p lt1_24k` (23 characters) produced
+**42.48 s** of audio; the same text via the server produced 16.56 s. The
+reference `lt1_24k` is 41.34 s of audio with a 610-character transcript — so the
+output duration matches the *reference*, not the request.
+
+That is consistent with the known ICL echo behaviour (PRF-8 / upstream #341):
+the model re-speaks the reference transcript before the requested text.
+`trim_icl_echo` defaults on but **only fires when ASR is already loaded**, and
+ASR was not loaded here, so nothing trimmed it. Consistent with, but not proven
+by, transcription — I did not ASR-verify the content, so this is circumstantial
+(duration match + documented mechanism), and is reported at that confidence.
+
+Not a regression from this branch, and `lt1_24k` is at the correct 24 kHz, so it
+is independent of the rate fix.
+
+### Fixture and CLI notes (not defects in the product)
+
+- The plan's `tts batch` fixture was wrong: `load_batch_file` returns the raw
+  JSON array and expects **plain text strings**, with mode/speaker supplied as
+  CLI flags — not per-item objects. The plan predicted this class ("that would
+  be a fixture bug, not a product bug").
+- The plan's `tts dialogue` fixture was likewise wrong: a `speakers` map
+  declaring each speaker's mode is required, otherwise every line falls back to
+  `mode=clone` and the default clone prompt.
+- `tts generate --help` advertises `--max-new-tokens`, `--top-k`, `--top-p` etc.,
+  but the bare `tts <text>` and `tts generate` paths both dispatch to an
+  **argparse** parser that rejects `--max-new-tokens` as an unrecognised
+  argument. The Click help and the parser that actually runs disagree. Minor,
+  pre-existing, out of scope — recorded because it cost time here.
+- `-o` rejects absolute paths by design (path-traversal guard); output is always
+  resolved under `config.output_directory`.
 
 ---
 
@@ -215,6 +276,15 @@ eviction.
 | Server freshness | started 12:57:39 after all edits; `/health` ok, clone loaded in 6.0 s; `openapi.json` shows `max_new_tokens` `maximum: 8192` |
 | Legacy-prompt warning on the real reproducer | **passes** — exactly one warning naming `lt1`, `8000`, `24000`; silent for `lt1_24k` |
 | Full E2E (`pytest -m e2e`) | **78 passed, 4 failed, 4 skipped** in 25m33s |
+| CLI read-only sweep (12 commands) | **all pass**; `tts doctor` → "All checks passed" |
+| CLI generation, all modes + both routing paths | **5/5 produce real audio** (clone local, clone via server, design, custom, seeded) |
+| Artifact assertions | every file mono, 24000 Hz, non-silent (peak 0.42–0.83), duration > 0.5 s |
+| batch / SRT / dialogue | **all 3 pass** after correcting the plan's fixtures; 5/5 artifacts assert real audio |
+| Voice lifecycle | create / info / rename / delete all work |
+| **F2+F7 regression proof** | an 8 kHz source through `tts voice create` landed on disk at **24000 Hz, mono, 12.0 s** — duration preserved. CLI printed "Reference audio upsampled 8000Hz -> 24000Hz" |
+| **F3 proof in a real generation** | `tts … -p lt1` emitted the warning naming both rates and stating `rebuild` will not fix it |
+| Server lifecycle | `restart` → new PID, clone reloaded; `status`, `log`, `stop` all work |
+| Gradio UI browser smoke | **NOT RUN** — see outstanding |
 
 #### E2E failures — all latency, machine NOT quiesced
 
@@ -239,8 +309,12 @@ these can be called pass or fail.** Not yet done.
 | Compose model | valid |
 | Static gates | **pass** (`ruff` clean, config-docs OK) — genuinely, after D3/D5 |
 | Full non-E2E suite | **2857 passed, 19 skipped, 0 failed** |
-| Batch runner | **RED — batch 2**, via D8 above |
-| F6 fixed in container | `test_install_script.py` now runs instead of erroring |
+| Batch runner | **6/6 batches pass**, `SCRIPT_EXIT=0` (after D8) |
+| F6 fixed in container | `test_install_script.py` **7 passed** — previously 4 failed with `FileNotFoundError` |
+| Config reconciliation on Linux | `get_default_config()`, `config.json` and `install.sh` all agree on `auto`; `default_clone_prompt is None` |
+| Sample-rate guarantee on Linux | 8000 → 24000 Hz with duration preserved; 48 kHz passed through untouched; stereo reduced to mono |
+| Isolation contract (verified, not assumed) | uid **1000**, network **isolated** (`pypi.org` unresolvable), `CapEff=0000000000000000`, `NoNewPrivs=1`, voice_prompts tmpfs writable |
+| Checkout not mutated | confirmed — the only tracked diffs were my own uncommitted files plus `.claude/.mcp.json`, a known E2E side-effect, since restored |
 
 ---
 
