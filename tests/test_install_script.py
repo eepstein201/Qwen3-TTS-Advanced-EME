@@ -35,5 +35,31 @@ class TestInstallScriptHistoryOutputDir(unittest.TestCase):
         self.assertRegex(self.text, r"HISTORY_OUTPUT_DIR=\$\{HISTORY_OUTPUT_DIR:-")
 
 
+class TestInstallScriptMatchesPythonDefaults(unittest.TestCase):
+    """install.sh writes config.json from a hand-maintained heredoc rather
+    than calling get_default_config(), so the two drift silently. PR #190
+    changed the language default to "auto" and the heredoc kept "English",
+    so every fresh install reverted the fix.
+    """
+
+    def setUp(self):
+        with open(INSTALL_SH) as f:
+            self.text = f.read()
+
+    def test_language_default_matches_python(self):
+        from qwen3_tts.core.config import get_default_config
+
+        expected = get_default_config()["language"]
+        self.assertIn(f'"language": "{expected}"', self.text)
+
+    def test_no_stale_english_language_default(self):
+        self.assertNotIn('"language": "English"', self.text)
+
+    def test_default_clone_prompt_is_not_a_dangling_filename(self):
+        """get_default_config() ships None: no prompt ships with the package,
+        so any seeded filename references a file that does not exist."""
+        self.assertNotIn('"default_clone_prompt": "default_clone.pt"', self.text)
+
+
 if __name__ == "__main__":
     unittest.main()
