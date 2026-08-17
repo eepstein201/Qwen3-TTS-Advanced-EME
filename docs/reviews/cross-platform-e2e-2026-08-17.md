@@ -339,6 +339,75 @@ these can be called pass or fail.** Not yet done.
 
 ---
 
+## Task S — cross-family adversarial gate (`agy`)
+
+Reviewers: **B** `gemini-3.1-pro-high`, **C** `gpt-oss-120b-medium`. Same
+byte-identical payload (the code diff, docs/plan excluded — 96–104 KB, under the
+200 KB split threshold), two independent invocations, fresh conversation each
+round. Claude-family reviewers deliberately not used.
+
+| Round | B | C | Outcome |
+|---|---|---|---|
+| 0 | FAIL | FAIL | **2 real defects fixed** |
+| 1 | FAIL | PASS (3 suggestions) | **2 real defects fixed**, 2 declined |
+| 2 | FAIL | PASS (0 issues) | 0 new real defects |
+
+### Round 0 — both reviewers, independently
+
+- **Unreadable upload was copied unchecked.** Both flagged that the `sf.read`
+  failure path logged a warning and byte-copied the file, shipping exactly the
+  unverified prompt the code exists to prevent. **Fixed** (`d3a82bd`): now a
+  `gr.Error`, and nothing is written.
+- **Stereo never reached disk as mono** (B only, and it was right).
+  `ensure_min_sample_rate` downmixed in memory but returned
+  `was_resampled=False`; both callers use that flag to choose between writing
+  the array and byte-copying the original, so a 48 kHz stereo upload landed on
+  disk **still stereo**. My own unit test asserted the returned array, not the
+  file — a hollow green. **Verified by reproducing it** (`ON DISK: 2 channels`),
+  then **fixed**: the third return value now means `was_modified` (resampled OR
+  downmixed), with an artifact-level test asserting the file's channel count.
+
+### Round 1 — B only
+
+- **`test_copies_every_repo_root_file_a_test_opens` was hollow.** It used a bare
+  substring match, and the comment above the `COPY` names the same files — so it
+  stayed green with `install.sh` deleted from the `COPY`, the exact regression it
+  guards. **Verified empirically**, then **fixed** (`92d0d7e`) with an anchored
+  `(?m)^COPY…` regex; confirmed the new assertion returns False on the broken file.
+- **Misleading message**: a stereo downmix printed "upsampled 48000Hz -> 48000Hz".
+  **Fixed** — the resample and downmix cases now print distinctly.
+
+### Consciously declined, with reasons
+
+- **"`load_voice_prompt_mlx` should raise, not warn"** (B, rounds 1 and 2).
+  Declined: the plan chose advisory deliberately, and
+  `test_load_still_returns_the_prompt` pins it. Raising would hard-fail every
+  existing legacy prompt on load with no recourse but re-creation, which is a
+  user-facing breaking change well beyond this plan's charter. C raised the same
+  point as a *suggestion*, not a critical issue. **This is a genuine design
+  question and is escalated to the repo owner rather than decided here.**
+- **"`_warn_if_cap_reached` should raise"** (B round 1). Same class; truncated
+  audio is still usable output and discarding it is a behaviour change.
+- **"The static `install.sh` / Dockerfile tests are hollow proxies; assert the
+  built container instead"** (B round 2). Partly addressed rather than declined:
+  the container assertion already happens — Task 9a Step 2 runs
+  `test_install_script.py` **inside the image** (7 passed). The module is
+  documented as text-only so it stays runnable on any platform.
+- **"The torch path bypasses the fix"** (B round 2). **Verified false**: the
+  torch branch posts to `/create-voice-prompt`, whose handler writes only the
+  `.pt` via `torch.save` after `load_audio_for_cloning()` (which resamples); its
+  temp `.wav` is a `NamedTemporaryFile` outside `voice_prompts/`. There is no
+  `.wav` for MLX to pick up later.
+
+### Gate verdict
+
+**Not unanimous.** C converged to a clean PASS; B holds one consistent design
+objection plus one false positive. Per the plan's own rule — stop after three
+rounds and escalate rather than loop — the residue is escalated, not silently
+accepted. Four real defects were found and fixed by this gate, two of which
+(the stereo-to-disk bug and the hollow Docker test) were genuine holes in my own
+work that the macOS and Linux suites both passed straight through.
+
 ## Outstanding
 
 1. **Task 8 Step 12** — Gradio UI browser smoke on macOS.
