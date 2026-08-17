@@ -72,12 +72,18 @@ def create_and_save_voice_prompt(
     # mlx-audio, so it must be corrected here, at write time.
     from qwen3_tts.core.engine.audio_processing import ensure_min_sample_rate
 
-    ref_audio, new_sr, was_resampled = ensure_min_sample_rate(ref_audio, ref_sr)
-    if was_resampled:
-        print(
-            f"Reference audio upsampled {ref_sr}Hz -> {new_sr}Hz "
-            f"(below {new_sr}Hz causes runaway generation)"
-        )
+    # was_modified covers a resample, a stereo downmix, or both — the flag
+    # gates whether the .wav below is written from this array or byte-copied
+    # from the original, so it must not be read as "was resampled".
+    ref_audio, new_sr, was_modified = ensure_min_sample_rate(ref_audio, ref_sr)
+    if was_modified:
+        if new_sr != ref_sr:
+            print(
+                f"Reference audio upsampled {ref_sr}Hz -> {new_sr}Hz "
+                f"(below {new_sr}Hz causes runaway generation)"
+            )
+        else:
+            print("Reference audio downmixed to mono (model expects 1 channel)")
         ref_sr = new_sr
 
     # Normalize prompt name
@@ -93,7 +99,7 @@ def create_and_save_voice_prompt(
     # Save .wav — copy from temp or write from loaded audio. A resampled clip
     # must be written from the array; copying the temp file would restore the
     # original low rate and undo the fix above.
-    if wav_path and not was_resampled:
+    if wav_path and not was_modified:
         shutil.copy2(wav_path, mlx_wav_path)
     else:
         sf.write(mlx_wav_path, ref_audio, ref_sr)
