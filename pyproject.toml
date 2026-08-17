@@ -96,6 +96,12 @@ test = [
     "uvicorn[standard]>=0.52.1",
     "soundfile>=0.14.0",
     "psutil>=7.2.2",
+    # ensure_min_sample_rate() resamples through librosa and now RAISES rather
+    # than silently writing a below-native-rate reference, so voice creation
+    # from any source under 24 kHz genuinely requires it. Without librosa the
+    # reference-audio tests fail (17 of them) instead of skipping, and CI would
+    # never verify the guarantee at all. Also in the `audio` extra.
+    "librosa>=0.11.0",
 ]
 
 # AI voice-description enhancement (Design mode)
