@@ -103,12 +103,14 @@ def create_voice_prompt(
                 ensure_min_sample_rate,
             )
 
+            # These two failures need separate handlers and must NOT share a
+            # try: soundfile raises LibsndfileError, which subclasses
+            # RuntimeError — the same type ensure_min_sample_rate raises to
+            # refuse. Catching them together makes an undecodable upload
+            # indistinguishable from a rate guarantee we could not deliver.
             was_resampled = False
             try:
                 src_audio, src_sr = sf.read(audio_path)
-                src_audio, new_sr, was_resampled = ensure_min_sample_rate(
-                    src_audio, src_sr
-                )
             except (RuntimeError, OSError, ValueError) as exc:
                 # Unreadable by soundfile (e.g. a container it cannot decode).
                 # Fall through to the byte copy rather than failing creation —
@@ -120,6 +122,15 @@ def create_voice_prompt(
                     exc,
                     DEFAULT_SAMPLE_RATE,
                 )
+            else:
+                try:
+                    src_audio, new_sr, was_resampled = ensure_min_sample_rate(
+                        src_audio, src_sr
+                    )
+                except RuntimeError as exc:
+                    # Cannot deliver the rate guarantee — refuse to create the
+                    # prompt rather than write one that hangs generation.
+                    raise gr.Error(str(exc))
 
             if was_resampled:
                 sf.write(wav_path, src_audio, new_sr)

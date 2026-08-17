@@ -82,6 +82,69 @@ def load_audio(file_path, target_sr=16000):
     return audio, target_sr
 
 
+def ensure_min_sample_rate(audio, sr, target_sr=DEFAULT_SAMPLE_RATE):
+    """Upsample reference audio that sits below the model's native rate.
+
+    Returns ``(audio, sample_rate, was_resampled)``. Always returns mono.
+
+    Measured 2026-08-16: an 8 kHz reference `.wav` makes MLX clone generation
+    fail to emit EOS — it runs to the token cap on every attempt (3/3, up to
+    47.8x the expected token count), producing minutes of looped audio for a
+    12-character input. Resampling the same audio with the same transcript to
+    24 kHz restored normal termination.
+
+    This has to happen when the prompt is *written*, not when it is loaded:
+    the MLX clone path passes ``ref_audio=<path>`` straight to mlx-audio,
+    which opens the file itself, so ``load_audio_for_cloning()``'s own
+    resampling never applies — whatever rate is on disk is what the model sees.
+
+    Never downsamples. 48 kHz references generate fine, and reducing them
+    would only discard data.
+
+    Raises:
+        RuntimeError: if the clip is below ``target_sr`` and cannot be
+            resampled. This is deliberately fatal. Returning
+            ``was_resampled=False`` here would be indistinguishable from
+            "already fine", and every caller writes the file on that signal —
+            shipping the poisonous prompt this function exists to prevent.
+    """
+    import numpy as np  # lazy — heavy import
+
+    if audio is None or len(audio) == 0:
+        return audio, sr, False
+
+    # Mono reduction happens BEFORE the rate check: a 48 kHz stereo reference
+    # needs no resampling but still must not reach the model as two channels.
+    if getattr(audio, "ndim", 1) > 1:
+        audio = np.mean(audio, axis=-1).astype(np.float32)
+
+    if sr >= target_sr:
+        return audio, sr, False
+
+    try:
+        import librosa
+    except ImportError as exc:
+        raise RuntimeError(
+            f"Reference audio is {sr} Hz, below the model's native "
+            f"{target_sr} Hz, and librosa is not installed to resample it. "
+            f"A below-native-rate reference makes clone generation fail to "
+            f"stop and run to the token cap. Install librosa, or supply "
+            f"audio at {target_sr} Hz or higher."
+        ) from exc
+
+    mono = np.asarray(audio, dtype=np.float32)
+    try:
+        resampled = librosa.resample(mono, orig_sr=sr, target_sr=target_sr)
+    except Exception as exc:
+        raise RuntimeError(
+            f"Failed to resample {sr} Hz reference audio to {target_sr} Hz: "
+            f"{exc}. Refusing to write a below-native-rate reference, which "
+            f"would make clone generation fail to stop."
+        ) from exc
+
+    return resampled.astype(np.float32), target_sr, True
+
+
 def load_audio_for_cloning(
     file_path, max_duration=VOICE_EMBEDDING_MAX_DURATION, target_sr=DEFAULT_SAMPLE_RATE
 ):

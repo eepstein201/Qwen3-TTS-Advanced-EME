@@ -155,8 +155,15 @@ class TestLegacyLowRatePromptWarnsOnLoad(unittest.TestCase):
     def setUp(self):
         import tempfile
 
+        from qwen3_tts.core.engine import voice_prompt as vp
+
         self.tmp = tempfile.TemporaryDirectory()
         self.addCleanup(self.tmp.cleanup)
+        # load_voice_prompt_mlx caches by prompt NAME in a module-level LRU.
+        # Without this, a prompt loaded here stays cached for the rest of the
+        # session and any later test loading the same name gets a cache hit
+        # instead of exercising the real path.
+        self.addCleanup(vp.clear_voice_prompt_cache)
 
     def _prompt(self, name, sr):
         import soundfile as sf
