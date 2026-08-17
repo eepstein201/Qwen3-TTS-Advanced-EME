@@ -23,6 +23,7 @@ from qwen3_tts.core.config import (
     set_default_clone_prompt,
     validate_voice_name,
 )
+from qwen3_tts.core.engine.audio_processing import DEFAULT_SAMPLE_RATE
 from qwen3_tts.interface.ui.shared import (
     get_voice_prompts,
 )
@@ -88,10 +89,48 @@ def create_voice_prompt(
 
     try:
         if backend == "mlx":
-            # For MLX, copy the audio and transcript
+            # MLX opens this .wav by path (voice_prompt.py hands mlx-audio
+            # ref_audio=<path>), so whatever rate lands on disk is what the
+            # model sees — and a below-native rate makes clone generation fail
+            # to emit EOS and run to the token cap. Rewrite only when a
+            # resample actually happened; a byte copy preserves the original
+            # exactly, which is the better outcome when the rate is fine.
             import shutil
 
-            shutil.copy(audio_path, wav_path)
+            import soundfile as sf
+
+            from qwen3_tts.core.engine.audio_processing import (
+                ensure_min_sample_rate,
+            )
+
+            was_resampled = False
+            try:
+                src_audio, src_sr = sf.read(audio_path)
+                src_audio, new_sr, was_resampled = ensure_min_sample_rate(
+                    src_audio, src_sr
+                )
+            except (RuntimeError, OSError, ValueError) as exc:
+                # Unreadable by soundfile (e.g. a container it cannot decode).
+                # Fall through to the byte copy rather than failing creation —
+                # but say so, because the rate then goes unchecked.
+                logger.warning(
+                    "Could not inspect the sample rate of the uploaded "
+                    "reference audio (%s); copying it unchanged. If cloning "
+                    "runs on and on, re-upload at %d Hz or higher.",
+                    exc,
+                    DEFAULT_SAMPLE_RATE,
+                )
+
+            if was_resampled:
+                sf.write(wav_path, src_audio, new_sr)
+                logger.info(
+                    "Upsampled reference audio %d Hz -> %d Hz for %s",
+                    src_sr,
+                    new_sr,
+                    base_name,
+                )
+            else:
+                shutil.copy(audio_path, wav_path)
 
             if no_transcript:
                 # Create empty transcript marker for x_vector_only mode
