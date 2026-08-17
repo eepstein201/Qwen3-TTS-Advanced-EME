@@ -202,5 +202,67 @@ class TestLegacyLowRatePromptWarnsOnLoad(unittest.TestCase):
         self.assertTrue(result["ref_audio"].endswith("legacy2.wav"))
 
 
+class TestEnsureMinSampleRateNeverSilentlyFails(unittest.TestCase):
+    """F7: the ImportError branch logged a warning and returned
+    was_resampled=False, and create_voice.py then copied the original
+    low-rate file to disk — silently shipping the exact poisonous prompt
+    the function exists to prevent. Found by both Santa reviewers.
+    """
+
+    def test_raises_when_it_cannot_resample_a_low_rate_clip(self):
+        audio = _tone(1.0, 8000)
+
+        # Simulate librosa being unavailable.
+        with patch.dict("sys.modules", {"librosa": None}):
+            with self.assertRaises(RuntimeError) as ctx:
+                ensure_min_sample_rate(audio, 8000)
+
+        self.assertIn("8000", str(ctx.exception))
+
+    def test_does_not_raise_when_no_resample_is_needed(self):
+        """A missing librosa is irrelevant when the rate is already fine."""
+        audio = _tone(1.0, DEFAULT_SAMPLE_RATE)
+
+        with patch.dict("sys.modules", {"librosa": None}):
+            out, sr, resampled = ensure_min_sample_rate(audio, DEFAULT_SAMPLE_RATE)
+
+        self.assertFalse(resampled)
+        self.assertEqual(sr, DEFAULT_SAMPLE_RATE)
+
+    def test_resample_failure_is_reported_not_swallowed(self):
+        audio = _tone(1.0, 8000)
+
+        with patch("librosa.resample", side_effect=ValueError("boom")):
+            with self.assertRaises(RuntimeError):
+                ensure_min_sample_rate(audio, 8000)
+
+
+class TestEnsureMinSampleRateAlwaysReturnsMono(unittest.TestCase):
+    """F8: mono reduction sat *after* the `sr >= target_sr` early return, so a
+    48 kHz stereo reference passed straight through and MLX received a
+    multi-channel file. Found by Santa reviewer C.
+    """
+
+    def test_stereo_at_adequate_rate_is_still_reduced_to_mono(self):
+        mono = _tone(0.5, 48000)
+        stereo = np.stack([mono, mono], axis=-1)
+
+        out, sr, resampled = ensure_min_sample_rate(stereo, 48000)
+
+        self.assertEqual(out.ndim, 1)
+        self.assertEqual(sr, 48000)
+        self.assertFalse(resampled)
+
+    def test_stereo_at_low_rate_is_mono_and_upsampled(self):
+        mono = _tone(0.5, 8000)
+        stereo = np.stack([mono, mono], axis=-1)
+
+        out, sr, resampled = ensure_min_sample_rate(stereo, 8000)
+
+        self.assertEqual(out.ndim, 1)
+        self.assertEqual(sr, DEFAULT_SAMPLE_RATE)
+        self.assertTrue(resampled)
+
+
 if __name__ == "__main__":
     unittest.main()
