@@ -1111,11 +1111,11 @@ PYTHON_EOF
     cat > "$CONFIG_FILE" << EOF
 {
   "default_voice_description": "A calm, friendly male voice with clear articulation and moderate pace.",
-  "default_clone_prompt": "default_clone.pt",
+  "default_clone_prompt": null,
   "default_speaker": "ryan",
   "output_directory": "~/Downloads",
   "history_output_directory": "$HISTORY_OUTPUT_DIR",
-  "language": "English",
+  "language": "auto",
   "server": {
     "host": "127.0.0.1",
     "port": 5123,

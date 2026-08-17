@@ -16,7 +16,7 @@
     "backend": "mlx",
     "audio_loader": "torchaudio"
   },
-  "language": "English",
+  "language": "auto",
   "generation": {
     "silence_gap_seconds": 0.0,
     "max_chunk_chars": 500,
