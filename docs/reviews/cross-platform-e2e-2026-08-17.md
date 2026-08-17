@@ -286,7 +286,28 @@ is independent of the rate fix.
 | Server lifecycle | `restart` → new PID, clone reloaded; `status`, `log`, `stop` all work |
 | Gradio UI browser smoke | **NOT RUN** — see outstanding |
 
-#### E2E failures — all latency, machine NOT quiesced
+#### E2E failures — re-run on a quiesced machine, then attributed
+
+The first E2E pass ran while Docker was concurrently building images and running
+full suites on the same 12-core machine — exactly the contention the plan warns
+about. All four were re-run with nothing else running:
+
+| Test | First pass | Quiesced re-run | Verdict |
+|---|---|---|---|
+| `test_e2e_performance_batch::test_01` | FAIL (232.3 s vs 120 s) | **PASS** | contention (compounded by D9) |
+| `test_e2e_performance_stress::test_01` | FAIL (timeout) | **PASS** | contention |
+| `test_ai_regression::…[clone]` | FAIL | **FAIL** | **pre-existing** |
+| `test_e2e_history_clear_copy::test_03` | FAIL | **FAIL** | **pre-existing** |
+
+The two that still fail were then **proved pre-existing rather than reasoned
+about**: `HEAD` was detached to `origin/main` (`eb8fa8e`), the server restarted on
+that pristine code, and both reproduced identically —
+`Failed: Request to /generate failed: timed out` and
+`playwright TimeoutError: Page.wait_for_function: Timeout 10000ms exceeded`.
+The branch was then restored. Neither is caused by this work, and neither is
+fixed by it.
+
+Original first-pass detail:
 
 | Test | Failure |
 |---|---|
@@ -320,13 +341,24 @@ these can be called pass or fail.** Not yet done.
 
 ## Outstanding
 
-1. **D8** — fix `test_voice_features` sys.modules eviction; re-run container batches.
-2. **Task 8 E2E re-run** on a quiesced machine (4 latency failures).
-3. **Task 8** remaining steps: CLI sweep, artifact assertions, batch/SRT/dialogue,
-   voice lifecycle + F2/F3 regression proof, Gradio UI browser smoke, server lifecycle.
-4. **Task 9a** Steps 3–6: config + sample-rate assertions inside Linux, isolation
-   contract check (adjust for dropped `read_only`), checkout-not-mutated check.
-5. **Task 9b** amd64 arch-parity (optional, skippable).
-6. **Task 9c** push + GitHub Actions; **9d** hand `tests/validate_colab.ipynb` to the
+1. **Task 8 Step 12** — Gradio UI browser smoke on macOS.
+2. **Task 9b** amd64 arch-parity (optional, explicitly skippable per the plan).
+3. **Task 9c** push + GitHub Actions; **9d** hand `tests/validate_colab.ipynb` to the
    user for a real CUDA runtime. CUDA row stays **UNVERIFIED** until returned.
-7. **Task S** cross-family adversarial gate (`agy`), then **Task 10** ship.
+4. **Task S** cross-family adversarial gate (`agy`), then **Task 10** ship.
+
+Reported but deliberately **not** fixed here (out of charter, see above):
+**D9** custom-mode token-cap runaway (HIGH), **D10** clone output tracking the
+reference transcript, the `--max-new-tokens` CLI/parser mismatch, and the two
+pre-existing E2E failures.
+
+## Verification matrix
+
+| Platform | Method | Status |
+|---|---|---|
+| macOS M2 Pro (MLX) | full suite + live E2E + CLI sweep + real audio | **verified**, minus the UI browser smoke |
+| Linux arm64 (CPU) | hardened Compose: gates, suite, 6/6 batches, isolation contract | **verified** |
+| Linux amd64 | buildx/QEMU import + collect-only | not run (optional) |
+| Linux CI matrix | GitHub Actions on a `fix/*` branch | not run yet |
+| Linux CUDA / Colab | `tests/validate_colab.ipynb`, user-run | **UNVERIFIED — pending user run** |
+| Cross-model review | `agy` dual adversarial gate | not run yet |
