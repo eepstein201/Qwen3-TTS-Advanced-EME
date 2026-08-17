@@ -85,7 +85,14 @@ def load_audio(file_path, target_sr=16000):
 def ensure_min_sample_rate(audio, sr, target_sr=DEFAULT_SAMPLE_RATE):
     """Upsample reference audio that sits below the model's native rate.
 
-    Returns ``(audio, sample_rate, was_resampled)``. Always returns mono.
+    Returns ``(audio, sample_rate, was_modified)``. Always returns mono.
+
+    ``was_modified`` is True when the returned array differs from the input for
+    ANY reason — resampled, downmixed to mono, or both. It is not a
+    "was_resampled" flag: every caller uses it to decide between writing this
+    array and byte-copying the ORIGINAL file, so a stereo downmix that reported
+    False made callers copy the untouched stereo original and the mono
+    guarantee never reached disk.
 
     Measured 2026-08-16: an 8 kHz reference `.wav` makes MLX clone generation
     fail to emit EOS — it runs to the token cap on every attempt (3/3, up to
@@ -104,7 +111,7 @@ def ensure_min_sample_rate(audio, sr, target_sr=DEFAULT_SAMPLE_RATE):
     Raises:
         RuntimeError: if the clip is below ``target_sr`` and cannot be
             resampled. This is deliberately fatal. Returning
-            ``was_resampled=False`` here would be indistinguishable from
+            ``was_modified=False`` here would be indistinguishable from
             "already fine", and every caller writes the file on that signal —
             shipping the poisonous prompt this function exists to prevent.
     """
@@ -115,11 +122,14 @@ def ensure_min_sample_rate(audio, sr, target_sr=DEFAULT_SAMPLE_RATE):
 
     # Mono reduction happens BEFORE the rate check: a 48 kHz stereo reference
     # needs no resampling but still must not reach the model as two channels.
-    if getattr(audio, "ndim", 1) > 1:
+    # Track it: callers byte-copy the original whenever this returns False, so
+    # an unreported downmix leaves the stereo file on disk untouched.
+    was_downmixed = getattr(audio, "ndim", 1) > 1
+    if was_downmixed:
         audio = np.mean(audio, axis=-1).astype(np.float32)
 
     if sr >= target_sr:
-        return audio, sr, False
+        return audio, sr, was_downmixed
 
     try:
         import librosa

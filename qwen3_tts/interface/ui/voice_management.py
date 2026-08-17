@@ -103,42 +103,46 @@ def create_voice_prompt(
                 ensure_min_sample_rate,
             )
 
-            # These two failures need separate handlers and must NOT share a
-            # try: soundfile raises LibsndfileError, which subclasses
-            # RuntimeError — the same type ensure_min_sample_rate raises to
-            # refuse. Catching them together makes an undecodable upload
-            # indistinguishable from a rate guarantee we could not deliver.
-            was_resampled = False
+            # An upload whose rate cannot be inspected must be REFUSED, not
+            # copied with a warning. Copying it ships exactly the unverified
+            # prompt this code exists to prevent, and the user has no way to
+            # know: a below-native-rate reference makes generation run to the
+            # token cap, which presents as a hang, not an error.
+            #
+            # These two failures still need separate handlers, because
+            # soundfile raises LibsndfileError — a subclass of RuntimeError,
+            # the same type ensure_min_sample_rate raises to refuse. Sharing
+            # one try would conflate "undecodable upload" with "guarantee I
+            # could not deliver" and produce the wrong message.
             try:
                 src_audio, src_sr = sf.read(audio_path)
             except (RuntimeError, OSError, ValueError) as exc:
-                # Unreadable by soundfile (e.g. a container it cannot decode).
-                # Fall through to the byte copy rather than failing creation —
-                # but say so, because the rate then goes unchecked.
-                logger.warning(
-                    "Could not inspect the sample rate of the uploaded "
-                    "reference audio (%s); copying it unchanged. If cloning "
-                    "runs on and on, re-upload at %d Hz or higher.",
-                    exc,
-                    DEFAULT_SAMPLE_RATE,
+                raise gr.Error(
+                    f"Could not read the uploaded reference audio ({exc}). "
+                    f"Its sample rate cannot be verified, and a below-"
+                    f"{DEFAULT_SAMPLE_RATE} Hz reference makes clone "
+                    f"generation fail to stop. Re-upload a WAV or FLAC at "
+                    f"{DEFAULT_SAMPLE_RATE} Hz or higher."
                 )
-            else:
-                try:
-                    src_audio, new_sr, was_resampled = ensure_min_sample_rate(
-                        src_audio, src_sr
-                    )
-                except RuntimeError as exc:
-                    # Cannot deliver the rate guarantee — refuse to create the
-                    # prompt rather than write one that hangs generation.
-                    raise gr.Error(str(exc))
 
-            if was_resampled:
+            try:
+                src_audio, new_sr, was_modified = ensure_min_sample_rate(
+                    src_audio, src_sr
+                )
+            except RuntimeError as exc:
+                # Cannot deliver the rate guarantee — refuse to create the
+                # prompt rather than write one that hangs generation.
+                raise gr.Error(str(exc))
+
+            if was_modified:
+                # Resampled, downmixed to mono, or both. Byte-copying here
+                # would put the untouched original back on disk and undo it.
                 sf.write(wav_path, src_audio, new_sr)
                 logger.info(
-                    "Upsampled reference audio %d Hz -> %d Hz for %s",
+                    "Rewrote reference audio for %s (%d Hz -> %d Hz, mono)",
+                    base_name,
                     src_sr,
                     new_sr,
-                    base_name,
                 )
             else:
                 shutil.copy(audio_path, wav_path)
