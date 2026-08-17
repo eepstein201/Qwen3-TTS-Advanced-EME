@@ -244,6 +244,23 @@ by, transcription — I did not ASR-verify the content, so this is circumstantia
 Not a regression from this branch, and `lt1_24k` is at the correct 24 kHz, so it
 is independent of the rate fix.
 
+### D11 — `tts ui --port` is a dead flag (LOW, open)
+
+`ui_command()` sets `os.environ["TTS_UI_PORT"]`, and **nothing anywhere reads
+it** (`grep -rn TTS_UI_PORT qwen3_tts/` returns exactly that one write). A UI
+launched with `--port 7866` was confirmed listening on **7860**:
+
+```
+41537 … /bin/tts ui --no-browser --port 7866
+TCP 127.0.0.1:7860 (LISTEN)
+```
+
+Same dead-knob class as the MLX `max_new_tokens`/`language` findings that
+triggered this whole plan: the flag is advertised, accepted, and ignored.
+Pre-existing and outside this plan's charter, so it is reported rather than
+fixed — fixing it after the adversarial gate would also mean re-running the gate
+on an unreviewed diff.
+
 ### Fixture and CLI notes (not defects in the product)
 
 - The plan's `tts batch` fixture was wrong: `load_batch_file` returns the raw
@@ -284,7 +301,7 @@ is independent of the rate fix.
 | **F2+F7 regression proof** | an 8 kHz source through `tts voice create` landed on disk at **24000 Hz, mono, 12.0 s** — duration preserved. CLI printed "Reference audio upsampled 8000Hz -> 24000Hz" |
 | **F3 proof in a real generation** | `tts … -p lt1` emitted the warning naming both rates and stating `rebuild` will not fix it |
 | Server lifecycle | `restart` → new PID, clone reloaded; `status`, `log`, `stop` all work |
-| Gradio UI browser smoke | **NOT RUN** — see outstanding |
+| Gradio UI | **partial** — served config asserts all six tabs (`Clone Mode`, `Design Mode`, `Custom Mode`, `Create Voice`, `Manage Voices`, `Manage Models`), 3 dataframes and 6 audio players on gradio 6.20.0, plus the Playwright E2E UI tests in the 78 that passed. The **interactive** click-through smoke was **not** done — the Chrome extension is not connected to this session |
 
 #### E2E failures — re-run on a quiesced machine, then attributed
 
