@@ -356,6 +356,38 @@ these can be called pass or fail.** Not yet done.
 
 ---
 
+### D12 — the F7 contract change made librosa mandatory, and CI did not have it (fixed)
+
+First CI run on PR #191 was **red across the whole test matrix**. Diagnosed, not
+guessed: CI installs `.[test]` (`.github/workflows/test.yml:57`), and that extra
+carried **no librosa** — it lives in the `audio` extra. Because
+`ensure_min_sample_rate` now *raises* instead of silently returning, every path
+that resamples a below-24 kHz source fails hard rather than passing quietly.
+
+Reproduced locally by shadowing librosa with a stub that raises `ImportError`,
+which is a faithful simulation of the CI environment:
+
+```
+PYTHONPATH=<stub> pytest tests/test_voice_prompt_sample_rate.py \
+                        tests/test_create_voice_functions.py
+17 failed, 45 passed
+```
+
+17 — the same count the container produced before the `audio` extra was added
+there (D7). **Fixed** (`f4a3bb2`) by adding `librosa>=0.11.0` to the `test`
+extra and regenerating `requirements.lock`.
+
+This is worth stating plainly as a **product consequence**, not just a test fix:
+after F7, creating a voice prompt from any source below 24 kHz **requires
+librosa**. Previously it "worked" by writing the poisonous file. Failing is the
+intended behaviour, but it does make librosa non-optional for that path.
+
+Also on that run: `Code scanning AI findings` (GitHub Advanced Security) failed
+in 2 s with `CAPIError: 400 The requested model is not supported`. That job never
+analysed the diff — infrastructure, not a finding. The real CodeQL `Analyze`
+jobs (javascript-typescript, actions) **passed**, as did bandit, docker-lint,
+docker-cpu-probe and audio-quality.
+
 ## Task S — cross-family adversarial gate (`agy`)
 
 Reviewers: **B** `gemini-3.1-pro-high`, **C** `gpt-oss-120b-medium`. Same
