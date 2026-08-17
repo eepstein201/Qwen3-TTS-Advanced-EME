@@ -148,7 +148,7 @@ vLLM-Omni backend settings (Linux/NVIDIA). Only relevant when `advanced.backend`
 | `generation.seed` | integer/null | `null` | Fixed RNG seed (null = random per request). |
 | `generation.max_chunk_chars` | integer | `500` | Max characters per chunk before splitting (`0` disables chunking). |
 | `generation.max_chunk_tokens` | integer | `200` | Max tokens per chunk (torch backend). |
-| `generation.max_new_tokens` | integer | `2048` | Hard cap on generated tokens per `model.generate()` call. |
+| `generation.max_new_tokens` | integer | `2048` | Hard cap on generated tokens per `model.generate()` call. **MLX clamps this to 4096** (`_MLX_MAX_TOKENS_CEILING`) regardless of the value here or the request schema's `le=8192`: PRF-9 measured ≥8192 as unstable on 16 GB (EOS-failure runaway loops + memory exhaustion). Torch honors the full range. |
 | `generation.compile_model` | boolean | `true` | Enable model compilation (torch). |
 | `generation.lufs_normalize` | boolean | `false` | Apply EBU R128 loudness normalization. |
 | `generation.lufs_target` | float | `-16.0` | Target loudness in LUFS (used when `lufs_normalize` is true). |
