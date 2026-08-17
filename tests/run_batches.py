@@ -60,6 +60,7 @@ BATCHES = {
             "tests.test_lufs_return_shape",
             "tests.test_clone_rate_control",
             "tests.test_icl_echo_trim",
+            "tests.test_voice_prompt_sample_rate",
             "tests.test_healthcheck",
             "tests.test_healthcheck_ext",
             "tests.test_model_cache",
