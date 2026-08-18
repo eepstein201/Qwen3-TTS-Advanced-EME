@@ -15,7 +15,9 @@ The behavioral pipe tests pin the block/allow contract each script promises
 in its docstring (exit 2 blocks; exit 0 allows; malformed stdin fails open).
 """
 
+import importlib.util
 import json
+import os
 import subprocess
 import sys
 import tempfile
@@ -384,6 +386,91 @@ class TestClaudeMdLengthGuard(unittest.TestCase):
     def test_fails_open_on_malformed_stdin(self):
         proc = _run_hook(LENGTH_HOOK, raw="{not json")
         self.assertEqual(proc.returncode, 0)
+
+
+class TestLengthGuardPathValidation(unittest.TestCase):
+    """Path-validation contract for the length guard (CodeQL hardening).
+
+    The guard acts on a tool-provided path (stdin payload) and an
+    environment-provided project root — both untrusted sources in CodeQL's
+    model — so every path must be validated (resolved, absolute, contained
+    in the project root) before any file operation. These tests pin the
+    validation helpers, and pin that validation never hollows the guard
+    for in-project spellings.
+    """
+
+    @staticmethod
+    def _guard_module():
+        spec = importlib.util.spec_from_file_location(
+            "claude_md_length_guard_under_test", HOOKS_DIR / LENGTH_HOOK
+        )
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+        return module
+
+    def test_is_within_accepts_root_and_children(self):
+        guard = self._guard_module()
+        self.assertTrue(guard._is_within("/a/b/CLAUDE.md", "/a/b"))
+        self.assertTrue(guard._is_within("/a/b", "/a/b"))
+
+    def test_is_within_rejects_outside_and_prefix_siblings(self):
+        guard = self._guard_module()
+        self.assertFalse(guard._is_within("/a/c/CLAUDE.md", "/a/b"))
+        self.assertFalse(guard._is_within("/a/bb/CLAUDE.md", "/a/b"))
+
+    def test_is_within_case_folds_only_on_darwin(self):
+        """macOS filesystems are case-insensitive; the containment compare
+        must fold case there (realpath does not) or a differently-spelled
+        in-project path would slip the validation."""
+        guard = self._guard_module()
+        self.assertEqual(guard._is_within("/a/b/CLAUDE.md", "/A/B"), sys.platform == "darwin")
+
+    def test_resolve_project_root_canonicalizes_env_value(self):
+        guard = self._guard_module()
+        with tempfile.TemporaryDirectory() as tmp:
+            nested = Path(tmp) / "nested"
+            nested.mkdir()
+            with mock.patch.dict(os.environ, {"CLAUDE_PROJECT_DIR": str(nested / "..")}):
+                self.assertEqual(
+                    guard._resolve_project_root(), str(nested.resolve().parent)
+                )
+
+    def test_resolve_project_root_falls_back_to_cwd(self):
+        guard = self._guard_module()
+        with mock.patch.dict(os.environ):
+            os.environ.pop("CLAUDE_PROJECT_DIR", None)
+            self.assertEqual(guard._resolve_project_root(), os.getcwd())
+
+    def test_relative_tool_path_is_out_of_scope(self):
+        """A relative path cannot be anchored to the project root, so it is
+        out of scope (exit 0), like every other non-matching payload."""
+        proc = _run_hook(
+            LENGTH_HOOK,
+            payload={
+                "tool_name": "Write",
+                "tool_input": {
+                    "file_path": "CLAUDE.md",
+                    "content": "line\n" * (CLAUDE_MD_MAX_LINES + 1),
+                },
+            },
+        )
+        self.assertEqual(proc.returncode, 0)
+
+    def test_in_root_traversal_spelling_still_guards(self):
+        """Validation must resolve, not reject, in-project traversal
+        spellings — the guard still fires through subdir/.. paths."""
+        sneaky = REPO_ROOT / "subdir" / ".." / "CLAUDE.md"
+        proc = _run_hook(
+            LENGTH_HOOK,
+            payload={
+                "tool_name": "Write",
+                "tool_input": {
+                    "file_path": str(sneaky),
+                    "content": "line\n" * (CLAUDE_MD_MAX_LINES + 1),
+                },
+            },
+        )
+        self.assertEqual(proc.returncode, 2)
 
 
 if __name__ == "__main__":
