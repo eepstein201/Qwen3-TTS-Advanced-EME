@@ -18,15 +18,85 @@ import gradio as gr
 
 from qwen3_tts.core.config import (
     CUSTOM_VOICE_SPEAKERS,
+    VOICE_PROMPTS_DIR,
     get_backend,
     get_generation_presets,
     get_mlx_quantization,
     get_model_size,
     is_server_running,
     load_config,
+    safe_path_join,
 )
+from qwen3_tts.core.engine.audio_processing import DEFAULT_SAMPLE_RATE
 
 logger = logging.getLogger("tts.ui")
+
+
+def low_rate_prompt_rate(prompt_name):
+    """Return the prompt's on-disk sample rate if it is BELOW the model's
+    native rate, else ``None``.
+
+    Detection only — :func:`low_rate_prompt_warning` formats the user-facing
+    message from it. Split so the Manage Voices table can show the rate without
+    reading the file twice.
+
+    Purely diagnostic: any failure to inspect the file returns ``None`` rather
+    than raising, because this must never break a generation or a table render.
+    """
+    import os.path
+
+    base = prompt_name
+    for suffix in (".wav", ".pt", ".txt"):
+        if base.endswith(suffix):
+            base = base[: -len(suffix)]
+            break
+
+    try:
+        wav_path = safe_path_join(VOICE_PROMPTS_DIR, f"{base}.wav")
+        if not os.path.exists(wav_path):
+            return None
+
+        import soundfile as sf  # lazy — optional at import time
+
+        on_disk_sr = sf.info(wav_path).samplerate
+    except Exception as exc:  # noqa: BLE001 - diagnostics must never break the UI
+        logger.debug("Could not read sample rate for %s: %s", prompt_name, exc)
+        return None
+
+    return on_disk_sr if on_disk_sr < DEFAULT_SAMPLE_RATE else None
+
+
+def low_rate_prompt_warning(prompt_name):
+    """Return a user-facing warning if this prompt's .wav is below the model's
+    native rate, else ``None``.
+
+    ``load_voice_prompt_mlx`` already logs this, but on the ``tts.engine``
+    logger — which for the web UI means .voice_server.log, where a browser user
+    never looks. In the CLI the same warning prints to the terminal and is
+    genuinely useful; in the browser the only symptom was a generation that ran
+    on and on. This is the shared source of truth for both UI call sites (the
+    Manage Voices table and the generation path) so they cannot drift apart.
+
+    Purely diagnostic: returns ``None`` whenever the rate cannot be
+    established, because this must never break a generation or a table render.
+    """
+    on_disk_sr = low_rate_prompt_rate(prompt_name)
+    if on_disk_sr is None:
+        return None
+
+    base = prompt_name
+    for suffix in (".wav", ".pt", ".txt"):
+        if base.endswith(suffix):
+            base = base[: -len(suffix)]
+            break
+
+    return (
+        f"Voice prompt '{base}' has a {on_disk_sr} Hz reference, below the "
+        f"model's native {DEFAULT_SAMPLE_RATE} Hz. Cloning with it makes "
+        f"generation fail to stop and run to the token cap, which looks like a "
+        f"hang. Re-create it in the Create Voice tab — 'tts voice rebuild' will "
+        f"NOT fix it, because it regenerates the .pt and MLX reads the .wav."
+    )
 
 # Constants
 MAX_HISTORY_SIZE = 10

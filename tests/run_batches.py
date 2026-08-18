@@ -184,6 +184,7 @@ BATCHES = {
             "tests.test_ui_model_management",
             "tests.test_ui_facade",
             "tests.test_ui_port_flag",
+            "tests.test_ui_low_rate_prompt_warning",
             "tests.test_ui_shared_ext",
             "tests.test_ui_voice_mgmt",
             "tests.test_ui_generation_ext",

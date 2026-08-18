@@ -12,7 +12,7 @@ Run: conda run -n qwen3-tts-mlx python -m pytest tests/test_ui_low_rate_prompt_w
 """
 import os
 import unittest
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 import numpy as np
 
@@ -93,9 +93,15 @@ class TestLowRatePromptWarningHelper(_PromptDir):
 
 class TestManageVoicesTableFlagsLowRatePrompts(_PromptDir):
     def _rows(self):
+        from qwen3_tts.interface.ui import shared
         from qwen3_tts.interface.ui import voice_management as vm
 
+        # The rate lookup lives in `shared`, so patch it at its definition
+        # site as well — patching only vm.VOICE_PROMPTS_DIR would leave the
+        # helper reading the real voice_prompts/ directory.
         with patch.object(vm, "VOICE_PROMPTS_DIR", self.tmp.name), patch.object(
+            shared, "VOICE_PROMPTS_DIR", self.tmp.name
+        ), patch.object(
             vm, "get_voice_prompts", return_value=["legacy.wav", "fine.wav"]
         ), patch.object(vm, "load_config", return_value={}):
             return vm.get_prompt_table_data()
@@ -125,6 +131,64 @@ class TestManageVoicesTableFlagsLowRatePrompts(_PromptDir):
 
         for row in self._rows():
             self.assertEqual(len(row), 3)
+
+
+class TestGenerationSurfacesTheWarning(unittest.TestCase):
+    """The moment of pain is the generation itself — warn before the wait."""
+
+    def _generate(self, payload, warning):
+        from qwen3_tts.interface.ui import generation as gen
+
+        stream_config = {"server_side": True, "payload": payload}
+
+        # Patch gradio.Warning at the library, NOT `gen.gr`:
+        # _generate_server_side does its own `import gradio as gr` inside the
+        # function body, which shadows the module-level name, so patching the
+        # module attribute silently has no effect and the real warning fires.
+        with patch.object(
+            gen.shared, "low_rate_prompt_warning", return_value=warning
+        ), patch(
+            "qwen3_tts.server.client.TTSClient", return_value=MagicMock()
+        ), patch("gradio.Warning") as mock_warning, patch.object(
+            gen, "add_to_history"
+        ), patch.object(
+            gen, "save_generation_metadata"
+        ), patch.object(
+            gen, "format_status_display", return_value=""
+        ):
+            try:
+                gen._generate_server_side(
+                    payload.get("mode", "clone"),
+                    payload.get("text", ""),
+                    [],
+                    stream_config,
+                )
+            except Exception:  # noqa: BLE001 - only the warning call matters here
+                pass
+        return mock_warning
+
+    def test_warns_when_the_clone_prompt_is_low_rate(self):
+        mock_warning = self._generate(
+            {"mode": "clone", "prompt_file": "legacy.wav", "text": "hi"},
+            "legacy is 8000 Hz",
+        )
+
+        mock_warning.assert_called_once_with("legacy is 8000 Hz")
+
+    def test_silent_when_the_prompt_is_fine(self):
+        mock_warning = self._generate(
+            {"mode": "clone", "prompt_file": "fine.wav", "text": "hi"}, None
+        )
+
+        mock_warning.assert_not_called()
+
+    def test_silent_for_non_clone_modes(self):
+        """Custom and design use no reference audio at all."""
+        mock_warning = self._generate(
+            {"mode": "custom", "speaker": "ryan", "text": "hi"}, "should not appear"
+        )
+
+        mock_warning.assert_not_called()
 
 
 if __name__ == "__main__":

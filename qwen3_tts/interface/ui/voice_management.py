@@ -24,6 +24,7 @@ from qwen3_tts.core.config import (
     validate_voice_name,
 )
 from qwen3_tts.core.engine.audio_processing import DEFAULT_SAMPLE_RATE
+from qwen3_tts.interface.ui import shared
 from qwen3_tts.interface.ui.shared import (
     get_voice_prompts,
 )
@@ -291,6 +292,14 @@ def get_prompt_table_data():
             fmt = "torch (.pt)"
         else:
             fmt = "mlx (.wav+.txt)"
+
+        # Flag a below-native-rate reference here rather than adding a column:
+        # Manage Voices declares headers=["Name", "Format", "Default"], so an
+        # extra column would desync the Dataframe. This is the only place a
+        # user can see WHICH prompt is the bad one.
+        low_rate = shared.low_rate_prompt_rate(prompt)
+        if low_rate is not None:
+            fmt = f"{fmt} - {low_rate} Hz, re-create"
 
         rows.append([base, fmt, is_default])
 
