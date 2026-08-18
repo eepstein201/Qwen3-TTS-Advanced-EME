@@ -25,6 +25,7 @@ from qwen3_tts.core.config import (
     is_server_running,
     load_config,
 )
+from qwen3_tts.interface.ui import shared
 from qwen3_tts.interface.ui.shared import (
     add_to_history,
     format_status_display,
@@ -312,6 +313,16 @@ def _generate_server_side(mode, text, history_list, stream_config):
         from qwen3_tts.server.client import TTSClient
 
         payload = stream_config.get("payload", {})
+
+        # The engine logs this to `tts.engine`, which for the web UI means
+        # .voice_server.log — a browser user never sees it and just watches a
+        # generation run on and on. Surface it where they are, before the wait
+        # starts. Advisory only: the generation still proceeds.
+        if payload.get("mode", "clone") == "clone" and payload.get("prompt_file"):
+            rate_warning = shared.low_rate_prompt_warning(payload["prompt_file"])
+            if rate_warning:
+                gr.Warning(rate_warning)
+
         filename = f"voice_ui_{uuid.uuid4().hex[:8]}.wav"
         # Save to temp dir (Gradio always allows tempdir paths)
         temp_path = os.path.join(tempfile.gettempdir(), filename)
