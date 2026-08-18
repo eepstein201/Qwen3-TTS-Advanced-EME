@@ -21,3 +21,13 @@ def test_architecture_md_exists():
         "docs/00-Foundations/ARCHITECTURE.md missing — "
         "this is where deep-dive content from CLAUDE.md should live."
     )
+
+
+def test_memory_index_guard_rule_present():
+    """CLAUDE.md must carry the standing MEMORY.md index guard rule."""
+    with open("CLAUDE.md") as f:
+        content = f.read()
+    assert "Memory index guard" in content, (
+        "CLAUDE.md missing the memory-index guard rule: "
+        "MEMORY.md <=150 lines, archive overflow per the rule text."
+    )
