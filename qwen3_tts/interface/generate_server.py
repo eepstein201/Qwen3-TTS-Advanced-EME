@@ -105,7 +105,20 @@ def build_ui_and_launch(config):
     from qwen3_tts.interface.ui import _find_available_port, build_ui
     from qwen3_tts.interface.ui.shared import get_gradio_launch_kwargs
 
+    # `tts ui --port N` arrives as TTS_UI_PORT (ui_command sets it), the same
+    # way --share and --no-browser arrive below. It was previously never read
+    # back, so the flag was accepted and silently dropped: the UI started fine
+    # on the config/default port and the user's browser hit a dead address.
+    # An explicit flag outranks the configured default; an unparseable value
+    # falls back rather than taking down startup.
     preferred = config.get("ui", {}).get("port", 7860)
+    requested = os.environ.get("TTS_UI_PORT")
+    if requested:
+        try:
+            preferred = int(requested)
+        except ValueError:
+            print(f"Ignoring invalid TTS_UI_PORT={requested!r}; using {preferred}.")
+
     port = _find_available_port(preferred)
     if port is None:
         print(f"No available port found near {preferred}.")
