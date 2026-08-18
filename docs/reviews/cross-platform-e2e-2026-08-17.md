@@ -244,7 +244,14 @@ by, transcription — I did not ASR-verify the content, so this is circumstantia
 Not a regression from this branch, and `lt1_24k` is at the correct 24 kHz, so it
 is independent of the rate fix.
 
-### D11 — `tts ui --port` is a dead flag (LOW, open)
+### D11 — `tts ui --port` is a dead flag (LOW, **fixed in the follow-up**)
+
+> Tracked as #194 and fixed on `fix/ui-port-flag-and-low-rate-warning-surfacing`,
+> together with the UI-surfacing gap for the low-rate prompt warning (the engine
+> logs it to `tts.engine`, which for the web UI means `.voice_server.log`, where
+> a browser user never looks). That follow-up reached a **unanimous PASS** from
+> both adversarial reviewers after two rounds of fixes.
+
 
 `ui_command()` sets `os.environ["TTS_UI_PORT"]`, and **nothing anywhere reads
 it** (`grep -rn TTS_UI_PORT qwen3_tts/` returns exactly that one write). A UI
