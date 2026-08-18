@@ -156,6 +156,13 @@ class TestDockerfileTestCopiesFilesTestsRead(unittest.TestCase):
         """
         self._assert_copied(".ruff.toml")
 
+    def test_copies_the_workflow_directory_the_ci_gate_reads(self):
+        """test_workflow_timeouts.py reads .github/workflows/. A directory is
+        the same trap as a file: absent, the gate cannot run in the container,
+        and making it skip there would report green while verifying nothing.
+        """
+        self._assert_copied(".github/workflows/")
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -2,6 +2,10 @@
 .git
 .gitignore
 .github
+# ...except the workflow definitions, which Dockerfile.test COPYs so
+# tests/test_workflow_timeouts.py can run inside the container instead of
+# skipping there. Excluded by .github above, re-included here.
+!.github/workflows
 
 # Worktrees
 .worktrees
