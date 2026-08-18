@@ -15,9 +15,18 @@ on:
 permissions:
   contents: read
 
+# Every job carries a `timeout-minutes`. Without one a job inherits GitHub's
+# 6-hour default, so a hang burns six hours of wall-clock before reporting a
+# useless "cancelled" -- which is exactly what happened to `coverage` on PR
+# #195 (6h00m16s) while the identical job passed in 4m47s on the push trigger
+# and 2m07s on a re-run. The suite has a known unbounded-block hazard
+# (starlette TestClient websocket `receive()` has no timeout), so this is a
+# live failure mode, not a hypothetical. Bounds below are ~4-6x each job's
+# observed runtime, sized to absorb a cold cache without masking a real hang.
 jobs:
   test:
     runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
     strategy:
       fail-fast: false
       matrix:
@@ -109,6 +118,7 @@ jobs:
   lint:
     # Static gates: lint, type-check, security (fast feedback)
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     steps:
     - uses: actions/checkout@v7
 
@@ -135,6 +145,7 @@ jobs:
   coverage:
     # Coverage gate: 80% floor on the non-e2e suite
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     steps:
     - uses: actions/checkout@v7
 
@@ -164,6 +175,7 @@ jobs:
   test-docker:
     # Container-based testing
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     steps:
     - uses: actions/checkout@v7
 
@@ -189,6 +201,7 @@ jobs:
     # need nvidia/cuda + the NVIDIA Container Toolkit), so hadolint is the
     # gate that catches syntax/anti-pattern regressions in them.
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     permissions:
       contents: read
     steps:
@@ -209,7 +222,10 @@ jobs:
     # is caught on every push -- WITHOUT a GPU. Real CUDA build/run stays a
     # manual gate (scripts/validate_docker_cuda.sh). Heavy pip resolution is
     # cached via the Docker layer unless pyproject.toml/README change.
+    # Highest bound in the workflow: a cache miss re-resolves the full torch
+    # dependency tree (8m46s cached on 2026-08-18).
     runs-on: ubuntu-latest
+    timeout-minutes: 45
     permissions:
       contents: read
     steps:
@@ -222,6 +238,7 @@ jobs:
   test-minimal:
     # Minimal test job for quick feedback
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     steps:
     - uses: actions/checkout@v7
 
