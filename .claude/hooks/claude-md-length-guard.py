@@ -45,6 +45,35 @@ def _future_content(tool_name, tool_input, current):
     return None
 
 
+def _resolve_project_root():
+    """Project root as a canonical absolute path.
+
+    CLAUDE_PROJECT_DIR is provided by the harness; cwd is the fallback.
+    The environment value is realpath'd before any file operation touches
+    a path derived from it — env and stdin are untrusted sources (CodeQL),
+    so both are validated rather than used as given.
+    """
+    env_dir = os.environ.get("CLAUDE_PROJECT_DIR")
+    if env_dir:
+        return os.path.realpath(env_dir)
+    return os.getcwd()
+
+
+def _is_within(path, root):
+    """True when path is root itself or lies underneath it.
+
+    Case-folded on macOS only: its filesystems are case-insensitive and a
+    tool-provided spelling can differ in case from the canonical root
+    (realpath does not normalize that on darwin). The stat-based
+    samefile() comparison in main() remains the authoritative identity
+    check; this containment filter only rejects paths that point outside
+    the project entirely.
+    """
+    if sys.platform == "darwin":
+        path, root = path.lower(), root.lower()
+    return path == root or path.startswith(root + os.sep)
+
+
 def main():
     try:
         payload = json.load(sys.stdin)
@@ -56,15 +85,23 @@ def main():
 
     if os.path.basename(file_path) != "CLAUDE.md":
         return 0
-    project_root = os.environ.get("CLAUDE_PROJECT_DIR") or os.getcwd()
+    if not os.path.isabs(file_path):
+        return 0  # relative paths cannot be anchored to the project root
+    project_root = _resolve_project_root()
+    resolved = os.path.realpath(file_path)
+    if not _is_within(resolved, project_root):
+        return 0
     target = os.path.join(project_root, "CLAUDE.md")
     try:
         with open(target) as f:
             current = f.read()
-        # samefile, not realpath equality: on macOS's case-insensitive FS the
-        # shell $PWD spelling can differ in case from the canonical path, and
-        # realpath does not normalize that — string compare silently allows.
-        if not os.path.samefile(file_path, target):
+        # samefile on the resolved path, not realpath equality: on macOS's
+        # case-insensitive FS the spelling can differ in case from the
+        # canonical path, and realpath does not normalize that — string
+        # compare silently allows. Resolving first also strips .. segments
+        # that could name a nonexistent intermediate directory, which would
+        # make stat fail and fail the guard open.
+        if not os.path.samefile(resolved, target):
             return 0
     except OSError:
         return 0
@@ -75,13 +112,13 @@ def main():
     count = _line_count(future)
     if count > MAX_LINES:
         print(
-            "BLOCKED by claude-md-length-guard: this %s would put CLAUDE.md at"
-            " %d lines (hard CI gate: <=%d, checked via readlines() — wc -l"
-            " under-reports by one). Prefer folding detail into existing table"
-            " rows over adding new paragraphs; move deep-dive content to"
+            f"BLOCKED by claude-md-length-guard: this {tool_name} would put"
+            f" CLAUDE.md at {count} lines (hard CI gate: <={MAX_LINES},"
+            " checked via readlines() — wc -l under-reports by one). Prefer"
+            " folding detail into existing table rows over adding new"
+            " paragraphs; move deep-dive content to"
             " docs/00-Foundations/ARCHITECTURE.md. Verify with: python3 -c"
-            " \"print(len(open('CLAUDE.md').readlines()))\""
-            % (tool_name, count, MAX_LINES),
+            " \"print(len(open('CLAUDE.md').readlines()))\"",
             file=sys.stderr,
         )
         return 2
