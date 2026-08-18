@@ -84,6 +84,15 @@ class TestLowRatePromptWarningHelper(_PromptDir):
         """Never break a generation over a diagnostic."""
         self.assertIsNone(self._warn("nope"))
 
+    def test_a_non_string_name_is_not_an_error(self):
+        """This helper promises never to raise. A None from an unset dropdown
+        must not AttributeError out of a diagnostic and kill the generation it
+        exists to annotate."""
+        from qwen3_tts.interface.ui import shared
+
+        self.assertIsNone(shared.low_rate_prompt_rate(None))
+        self.assertIsNone(shared.low_rate_prompt_warning(None))
+
     def test_unreadable_wav_is_not_an_error(self):
         with open(os.path.join(self.tmp.name, "broken.wav"), "w") as f:
             f.write("not a wav")
@@ -147,7 +156,7 @@ class TestGenerationSurfacesTheWarning(unittest.TestCase):
         # module attribute silently has no effect and the real warning fires.
         with patch.object(
             gen.shared, "low_rate_prompt_warning", return_value=warning
-        ), patch(
+        ) as probe, patch(
             "qwen3_tts.server.client.TTSClient", return_value=MagicMock()
         ), patch("gradio.Warning") as mock_warning, patch.object(
             gen, "add_to_history"
@@ -156,15 +165,18 @@ class TestGenerationSurfacesTheWarning(unittest.TestCase):
         ), patch.object(
             gen, "format_status_display", return_value=""
         ):
-            try:
-                gen._generate_server_side(
-                    payload.get("mode", "clone"),
-                    payload.get("text", ""),
-                    [],
-                    stream_config,
-                )
-            except Exception:  # noqa: BLE001 - only the warning call matters here
-                pass
+            # NOT wrapped in try/except: swallowing here would let a crash
+            # before the warning logic masquerade as "correctly stayed silent",
+            # which is precisely the hollow negative test this guards against.
+            # _generate_server_side handles its own generation errors and
+            # returns a status tuple, so it does not raise.
+            gen._generate_server_side(
+                payload.get("mode", "clone"),
+                payload.get("text", ""),
+                [],
+                stream_config,
+            )
+        self.probe = probe
         return mock_warning
 
     def test_warns_when_the_clone_prompt_is_low_rate(self):
@@ -180,14 +192,19 @@ class TestGenerationSurfacesTheWarning(unittest.TestCase):
             {"mode": "clone", "prompt_file": "fine.wav", "text": "hi"}, None
         )
 
+        # Assert the check actually RAN and chose to stay quiet. Without this,
+        # the test would also pass if the code never reached the check at all.
+        self.probe.assert_called_once_with("fine.wav")
         mock_warning.assert_not_called()
 
     def test_silent_for_non_clone_modes(self):
-        """Custom and design use no reference audio at all."""
+        """Custom and design use no reference audio at all, so the prompt is
+        never inspected — here the check correctly does not run."""
         mock_warning = self._generate(
             {"mode": "custom", "speaker": "ryan", "text": "hi"}, "should not appear"
         )
 
+        self.probe.assert_not_called()
         mock_warning.assert_not_called()
 
 

@@ -32,6 +32,15 @@ from qwen3_tts.core.engine.audio_processing import DEFAULT_SAMPLE_RATE
 logger = logging.getLogger("tts.ui")
 
 
+def _strip_prompt_suffix(prompt_name):
+    """Return the prompt base name with a known extension removed."""
+    base = prompt_name
+    for suffix in (".wav", ".pt", ".txt"):
+        if base.endswith(suffix):
+            return base[: -len(suffix)]
+    return base
+
+
 def low_rate_prompt_rate(prompt_name):
     """Return the prompt's on-disk sample rate if it is BELOW the model's
     native rate, else ``None``.
@@ -45,13 +54,12 @@ def low_rate_prompt_rate(prompt_name):
     """
     import os.path
 
-    base = prompt_name
-    for suffix in (".wav", ".pt", ".txt"):
-        if base.endswith(suffix):
-            base = base[: -len(suffix)]
-            break
-
     try:
+        # Inside the try on purpose: this function promises never to raise, and
+        # a non-str name (None from an unset dropdown, say) would otherwise
+        # AttributeError out of a purely diagnostic helper and kill the
+        # generation it was meant to annotate.
+        base = _strip_prompt_suffix(prompt_name)
         wav_path = safe_path_join(VOICE_PROMPTS_DIR, f"{base}.wav")
         if not os.path.exists(wav_path):
             return None
@@ -84,12 +92,7 @@ def low_rate_prompt_warning(prompt_name):
     if on_disk_sr is None:
         return None
 
-    base = prompt_name
-    for suffix in (".wav", ".pt", ".txt"):
-        if base.endswith(suffix):
-            base = base[: -len(suffix)]
-            break
-
+    base = _strip_prompt_suffix(prompt_name)
     return (
         f"Voice prompt '{base}' has a {on_disk_sr} Hz reference, below the "
         f"model's native {DEFAULT_SAMPLE_RATE} Hz. Cloning with it makes "
