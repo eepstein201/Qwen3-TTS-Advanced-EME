@@ -23,6 +23,7 @@ from qwen3_tts.core.config import (
     set_default_clone_prompt,
     validate_voice_name,
 )
+from qwen3_tts.core.engine.audio_processing import DEFAULT_SAMPLE_RATE
 from qwen3_tts.interface.ui.shared import (
     get_voice_prompts,
 )
@@ -88,10 +89,63 @@ def create_voice_prompt(
 
     try:
         if backend == "mlx":
-            # For MLX, copy the audio and transcript
+            # MLX opens this .wav by path (voice_prompt.py hands mlx-audio
+            # ref_audio=<path>), so whatever rate lands on disk is what the
+            # model sees — and a below-native rate makes clone generation fail
+            # to emit EOS and run to the token cap. Rewrite only when a
+            # resample actually happened; a byte copy preserves the original
+            # exactly, which is the better outcome when the rate is fine.
             import shutil
 
-            shutil.copy(audio_path, wav_path)
+            import soundfile as sf
+
+            from qwen3_tts.core.engine.audio_processing import (
+                ensure_min_sample_rate,
+            )
+
+            # An upload whose rate cannot be inspected must be REFUSED, not
+            # copied with a warning. Copying it ships exactly the unverified
+            # prompt this code exists to prevent, and the user has no way to
+            # know: a below-native-rate reference makes generation run to the
+            # token cap, which presents as a hang, not an error.
+            #
+            # These two failures still need separate handlers, because
+            # soundfile raises LibsndfileError — a subclass of RuntimeError,
+            # the same type ensure_min_sample_rate raises to refuse. Sharing
+            # one try would conflate "undecodable upload" with "guarantee I
+            # could not deliver" and produce the wrong message.
+            try:
+                src_audio, src_sr = sf.read(audio_path)
+            except (RuntimeError, OSError, ValueError) as exc:
+                raise gr.Error(
+                    f"Could not read the uploaded reference audio ({exc}). "
+                    f"Its sample rate cannot be verified, and a below-"
+                    f"{DEFAULT_SAMPLE_RATE} Hz reference makes clone "
+                    f"generation fail to stop. Re-upload a WAV or FLAC at "
+                    f"{DEFAULT_SAMPLE_RATE} Hz or higher."
+                )
+
+            try:
+                src_audio, new_sr, was_modified = ensure_min_sample_rate(
+                    src_audio, src_sr
+                )
+            except RuntimeError as exc:
+                # Cannot deliver the rate guarantee — refuse to create the
+                # prompt rather than write one that hangs generation.
+                raise gr.Error(str(exc))
+
+            if was_modified:
+                # Resampled, downmixed to mono, or both. Byte-copying here
+                # would put the untouched original back on disk and undo it.
+                sf.write(wav_path, src_audio, new_sr)
+                logger.info(
+                    "Rewrote reference audio for %s (%d Hz -> %d Hz, mono)",
+                    base_name,
+                    src_sr,
+                    new_sr,
+                )
+            else:
+                shutil.copy(audio_path, wav_path)
 
             if no_transcript:
                 # Create empty transcript marker for x_vector_only mode

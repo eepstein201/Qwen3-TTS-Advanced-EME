@@ -23,6 +23,22 @@ except ImportError:
 _MOD = "qwen3_tts.interface.ui.voice_management"
 
 
+def _readable_audio():
+    """Patch soundfile.read to report an adequate-rate mono clip.
+
+    create_voice_prompt now REFUSES an upload whose sample rate it cannot
+    inspect, rather than byte-copying it unchecked — copying shipped exactly
+    the below-native-rate prompt that makes clone generation run to the token
+    cap. These tests pass a placeholder path that no decoder can open, so they
+    must supply the rate themselves to reach the plumbing they actually assert.
+    """
+    import numpy as np
+
+    return patch(
+        "soundfile.read", return_value=(np.zeros(24000, dtype="float32"), 24000)
+    )
+
+
 @unittest.skipUnless(HAS_GRADIO, "requires gradio")
 class TestCreateVoicePromptUI(unittest.TestCase):
     """Tests for create_voice_prompt."""
@@ -58,6 +74,7 @@ class TestCreateVoicePromptUI(unittest.TestCase):
              patch(f"{_MOD}.load_config", return_value={"advanced": {"backend": "mlx"}}), \
              patch(f"{_MOD}.strip_extension", return_value="new_voice"), \
              patch("os.path.exists", return_value=False), \
+             _readable_audio(), \
              patch("shutil.copy") as mock_copy, \
              patch("builtins.open", mock_open()), \
              patch(f"{_MOD}.get_voice_prompts", return_value=["new_voice.wav"]), \
@@ -77,6 +94,7 @@ class TestCreateVoicePromptUI(unittest.TestCase):
              patch(f"{_MOD}.load_config", return_value={"advanced": {"backend": "mlx"}}), \
              patch(f"{_MOD}.strip_extension", return_value="voice"), \
              patch("os.path.exists", return_value=False), \
+             _readable_audio(), \
              patch("shutil.copy"), \
              patch("builtins.open", m), \
              patch(f"{_MOD}.get_voice_prompts", return_value=["voice.wav"]), \

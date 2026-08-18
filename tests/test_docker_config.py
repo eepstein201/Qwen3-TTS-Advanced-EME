@@ -109,5 +109,53 @@ class TestDockerfile(unittest.TestCase):
         )
 
 
+class TestDockerfileTestCopiesFilesTestsRead(unittest.TestCase):
+    """Repo-root files that tests open must be COPYd into the test image, or
+    the module errors in the container while passing on the host. install.sh
+    was missing, so tests/test_install_script.py never ran on Linux.
+    """
+
+    def setUp(self):
+        import os
+
+        root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        with open(os.path.join(root, "Dockerfile.test")) as f:
+            self.content = f.read()
+
+    def _assert_copied(self, name):
+        """Assert the file appears in an actual COPY instruction.
+
+        A bare substring check is hollow here: the COPY line is preceded by a
+        comment naming the very files it copies, so `assertIn("install.sh")`
+        stays green even if install.sh is deleted from the COPY — which is the
+        exact regression this class exists to catch.
+        """
+        import re
+
+        self.assertRegex(
+            self.content,
+            rf"(?m)^COPY[^\n]*(?<![\w.\-/]){re.escape(name)}(?![\w.\-])",
+            f"{name} is not in any COPY instruction in Dockerfile.test",
+        )
+
+    def test_copies_install_sh(self):
+        self._assert_copied("install.sh")
+
+    def test_copies_every_repo_root_file_a_test_opens(self):
+        """Guard the whole class of bug, not just install.sh."""
+        for name in ("CLAUDE.md", "config.json", "pytest.ini",
+                     "colab_notebook.ipynb", "install.sh", "pyproject.toml"):
+            with self.subTest(name=name):
+                self._assert_copied(name)
+
+    def test_copies_the_tool_config_the_static_gates_read(self):
+        """Same class of bug, one level out: a tool config that is missing does
+        not error, it silently changes the ruleset. Without .ruff.toml the
+        container's `ruff check` runs on defaults and reported 780 phantom
+        errors that do not reproduce on the host.
+        """
+        self._assert_copied(".ruff.toml")
+
+
 if __name__ == "__main__":
     unittest.main()

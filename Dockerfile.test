@@ -5,10 +5,15 @@
 FROM python:3.11-slim-bookworm AS test-base
 
 # Install system dependencies for testing
+# rubberband-cli is the BINARY pyrubberband shells out to. Without it the
+# clone rate-control path degrades to unstretched audio and its tests fail --
+# the Python package alone is not enough. The Colab notebook apt-installs it
+# for the same reason.
 RUN apt-get update && apt-get install -y --no-install-recommends \
     ffmpeg \
     libsndfile1 \
     portaudio19-dev \
+    rubberband-cli \
     curl \
     git \
     && rm -rf /var/lib/apt/lists/*
@@ -37,8 +42,14 @@ COPY --chown=testuser:testuser pyproject.toml README.md ./
 
 # Install as testuser to avoid root pip installations
 USER testuser
+# dev  -> ruff/mypy/bandit. Without it the compose `gates` service silently
+#         finds no `ruff` binary and (without `set -e`) reports success anyway.
+# audio -> librosa. ensure_min_sample_rate() resamples through it, so without
+#         this extra every reference-audio rate test fails in the container
+#         while passing on the host — and the Linux half of that guarantee
+#         goes unverified, which is the entire point of this image.
 RUN pip install --user --upgrade pip && \
-    pip install --user -e ".[test]"
+    pip install --user -e ".[test,dev,audio]"
 
 # Switch back to root to copy files with proper permissions
 USER root
@@ -49,8 +60,11 @@ COPY --chown=testuser:testuser tests/ ./tests/
 COPY --chown=testuser:testuser config.json pytest.ini ./
 
 # Repo-root files referenced by guard/drift tests (CLAUDE.md size guard,
-# ARCHITECTURE.md companion, colab notebook drift, docker config drift)
-COPY --chown=testuser:testuser CLAUDE.md colab_notebook.ipynb docker-compose.yml Dockerfile.vllm ./
+# ARCHITECTURE.md companion, colab notebook drift, docker config drift,
+# install.sh config-template drift) and by the static gates (.ruff.toml --
+# without it ruff runs on its DEFAULT ruleset and reports hundreds of
+# phantom errors that do not reproduce on the host).
+COPY --chown=testuser:testuser CLAUDE.md colab_notebook.ipynb docker-compose.yml Dockerfile.vllm install.sh .ruff.toml Dockerfile.test docker-compose.test.yml ./
 COPY --chown=testuser:testuser docs/ ./docs/
 
 # Create expected directory structure with symlinks for both root and testuser

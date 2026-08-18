@@ -18,7 +18,10 @@ from qwen3_tts.core.config import (
     safe_path_join,
     sanitize_log,
 )
-from qwen3_tts.core.engine.audio_processing import load_audio_for_cloning
+from qwen3_tts.core.engine.audio_processing import (
+    DEFAULT_SAMPLE_RATE,
+    load_audio_for_cloning,
+)
 
 logger = logging.getLogger("tts.engine")
 
@@ -315,6 +318,31 @@ def load_voice_prompt_mlx(prompt_name):
 
     with open(txt_path) as f:
         ref_text = f.read().strip()
+
+    # Prompts created before reference audio was resampled on write are still
+    # on disk, and MLX opens this path directly — so a below-native rate here
+    # is the runaway-generation bug, not a quality nit. `tts voice rebuild`
+    # does NOT repair it: rebuild regenerates the .pt and leaves the .wav
+    # alone. Advisory only; never block a load over it. Cached, so this fires
+    # once per cache-miss rather than once per generation.
+    try:
+        import soundfile as sf  # lazy — optional at import time
+
+        on_disk_sr = sf.info(wav_path).samplerate
+    except Exception as exc:  # noqa: BLE001 - diagnostics must never break loading
+        logger.debug("Could not read sample rate of %s: %s", wav_path, exc)
+    else:
+        if on_disk_sr < DEFAULT_SAMPLE_RATE:
+            logger.warning(
+                "Voice prompt '%s' has a %d Hz reference (below the model's "
+                "native %d Hz). This makes clone generation fail to stop and "
+                "run to the token cap. Re-create it with 'tts voice create' — "
+                "'tts voice rebuild' will NOT fix it (it only regenerates the "
+                ".pt; MLX reads the .wav).",
+                sanitize_log(base),
+                on_disk_sr,
+                DEFAULT_SAMPLE_RATE,
+            )
 
     result = {"ref_audio": wav_path, "ref_text": ref_text}
 

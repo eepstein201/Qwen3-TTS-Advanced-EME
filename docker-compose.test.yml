@@ -1,0 +1,98 @@
+# Hardened Linux verification services. Separate from docker-compose.yml,
+# whose GPU/vLLM services are drift-guarded and production-shaped.
+#
+#   docker compose -p qwen3-tts-test -f docker-compose.test.yml run --rm suite
+#
+# The image BAKES the source in (Dockerfile.test COPYs it), so there is no
+# bind mount and a run can never mutate this checkout. Rebuild to pick up
+# code changes -- a stale image silently tests the previous commit.
+services:
+  # Shared build definition; not run directly.
+  base: &base
+    build:
+      context: .
+      dockerfile: Dockerfile.test
+      target: test
+    image: qwen3-tts:test
+    init: true
+    # Dependencies are baked at build time, so the suite needs no network.
+    # This also guarantees no test can reach the internet and pass by luck.
+    network_mode: none
+    # Deliberately NOT read_only. The "a run cannot mutate your checkout"
+    # guarantee comes from Dockerfile.test COPYing the source in -- there is no
+    # bind mount -- not from a read-only rootfs. Setting read_only on top of
+    # that bought nothing and broke 42 tests that legitimately write output
+    # files into the working directory (tts batch/srt/dialogue, the Gradio
+    # facade), plus ruff's own cache. A hardening flag that manufactures false
+    # failures makes the Linux signal less trustworthy, not more.
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    pids_limit: 512
+    user: "1000:1000"
+    environment:
+      GRADIO_ANALYTICS_ENABLED: "False"
+      PYTHONDONTWRITEBYTECODE: "1"
+      # Batch runner and E2E suites both key off this.
+      TTS_DISABLE_RATE_LIMITING: "1"
+    tmpfs:
+      # Keep prompt writes off the image layer so a run leaves no residue.
+      # NEVER mount a tmpfs over /home/testuser itself: the image pip-installs
+      # to /home/testuser/.local, and a tmpfs there masks that site-packages
+      # tree. The symptom is a baffling "No module named pytest" from an image
+      # that demonstrably has pytest.
+      - /app/voice_prompts:size=256m,uid=1000,gid=1000,mode=0700
+
+  # Full non-E2E suite -- the superset the CI coverage job runs.
+  # -p no:cacheprovider: a throwaway container gains nothing from the cache,
+  # and this keeps .pytest_cache out of the image layer.
+  # --continue-on-collection-errors: one environment-specific import failure
+  # must not abort the whole suite. Collection errors still surface in the
+  # summary as "N error", so this hides nothing.
+  suite:
+    <<: *base
+    command:
+      - python
+      - -m
+      - pytest
+      - tests/
+      - -q
+      - -m
+      - not e2e
+      - --tb=short
+      - -p
+      - no:cacheprovider
+      - --continue-on-collection-errors
+
+  # Batch runner: bounded per-batch timeouts, dumps thread stacks on a hang.
+  batches:
+    <<: *base
+    command: ["python", "tests/run_batches.py"]
+
+  # Static gates, matching the Makefile targets.
+  # `set -e` is mandatory: without it a missing binary prints "command not
+  # found", the shell still exits 0, and the gate reports success having
+  # checked nothing.
+  gates:
+    <<: *base
+    command:
+      - bash
+      - -lc
+      - |
+        set -ex
+        # --no-cache: a throwaway container gets no reuse from a cache, and
+        # this keeps .ruff_cache out of the image layer.
+        ruff check --no-cache qwen3_tts tests
+        python -m qwen3_tts.tools.check_config_docs
+
+  # Interactive debugging. Start detached so closing a terminal does not
+  # destroy the session:
+  #   docker compose -p qwen3-tts-test -f docker-compose.test.yml \
+  #     run --detach --name qwen3-shell shell
+  #   docker exec -it -w /app qwen3-shell bash
+  shell:
+    <<: *base
+    command: ["bash"]
+    stdin_open: true
+    tty: true

@@ -11,8 +11,41 @@ from tests.voice_test_helpers import (
 )
 
 
+def _preload_librosa():
+    """Import librosa OUTSIDE any ``sys.modules`` patch.
+
+    ``patch.dict('sys.modules', ...)`` snapshots ``sys.modules`` on entry and
+    RESTORES it on exit. If librosa is imported for the first time *inside* that
+    context, every librosa and numba module the import pulled in is evicted when
+    the context exits. The next ``import librosa`` anywhere in the process then
+    tries to re-register a native numba extension and dies with
+    ``ImportError: cannot load module more than once per process`` — poisoning
+    every later test module in the same interpreter, not just this one.
+
+    That is not hypothetical: it made ``test_create_voice_functions`` fail with
+    9 errors when it ran after this module under the batch runner, while passing
+    standalone (35 tests OK) and under pytest, whose import order happens to
+    leave librosa resident.
+
+    Importing here puts librosa in the pre-patch snapshot, so restoration leaves
+    it in place and the fallback stays genuinely under test.
+    """
+    try:
+        import librosa
+
+        # librosa uses lazy_loader; touch the attributes the fallback actually
+        # calls so their submodules are imported now rather than under the patch.
+        librosa.effects
+        librosa.resample
+    except Exception:  # noqa: BLE001 - librosa is optional in some environments
+        pass
+
+
 class TestRubberBandAudioProcessing(unittest.TestCase):
     """Test pyrubberband fallback to librosa for speed/pitch adjustment."""
+
+    def setUp(self):
+        _preload_librosa()
 
     def test_adjust_speed_noop(self):
         """Speed factor 1.0 should return audio unchanged."""

@@ -57,13 +57,18 @@ class _Unset:
 UNSET = _Unset()
 
 
-def _fake_result(n_samples=1000, sample_rate=24000):
-    """One mlx-audio GenerationResult-alike carrying non-silent audio."""
+def _fake_result(n_samples=1000, sample_rate=24000, token_count=None):
+    """One mlx-audio GenerationResult-alike carrying non-silent audio.
+
+    ``token_count`` mirrors the real field (``len(generated_codes)``); it is
+    None by default so cap-reached detection stays quiet unless a test opts in.
+    """
     result = MagicMock()
     # Non-silent so _validate_audio() doesn't emit an unrelated warning that
     # could pollute assertLogs() in the clamp tests.
     result.audio = np.full(n_samples, 0.1, dtype=np.float32)
     result.sample_rate = sample_rate
+    result.token_count = token_count
     return result
 
 
@@ -91,11 +96,17 @@ class FakeMLXModel:
 
     def __init__(self):
         self.calls = {}
+        # Set by tests that exercise cap-reached detection.
+        self.token_count_override = None
         # Instance attribute, matching upstream: mlx-audio builds this per
         # checkpoint from config.talker_config.codec_language_id. Tests mutate
         # it to prove the implementation reads the model rather than a
         # hardcoded constant.
         self.supported_languages = ["auto", "english", "chinese"]
+
+    def _results(self, stream):
+        results = [_fake_result(token_count=self.token_count_override)]
+        return iter(results) if stream else results
 
     def generate(
         self,
@@ -132,7 +143,7 @@ class FakeMLXModel:
             "repetition_penalty": repetition_penalty,
             "swallowed": dict(kwargs),
         }
-        return iter([_fake_result()]) if stream else [_fake_result()]
+        return self._results(stream)
 
     def generate_custom_voice(
         self,
@@ -162,7 +173,7 @@ class FakeMLXModel:
             "top_p": top_p,
             "repetition_penalty": repetition_penalty,
         }
-        return iter([_fake_result()]) if stream else [_fake_result()]
+        return self._results(stream)
 
     def generate_voice_design(
         self,
@@ -190,7 +201,7 @@ class FakeMLXModel:
             "top_p": top_p,
             "repetition_penalty": repetition_penalty,
         }
-        return iter([_fake_result()]) if stream else [_fake_result()]
+        return self._results(stream)
 
 
 #: Sampling values carried by BASE_PARAMS, asserted at every call site so that
@@ -750,6 +761,84 @@ class TestSplitMlxParams(unittest.TestCase):
             inference._DEFAULT_MAX_NEW_TOKENS,
             inference._MLX_MAX_TOKENS_CEILING,
         )
+
+
+class TestCapReachedWarning(unittest.TestCase):
+    """Hitting the cap means EOS never fired — the output is truncated.
+
+    mlx-audio's generation loop is a bare ``for step in range(max_tokens)``
+    with no exhaustion signal, and ``_validate_audio`` only checks clipping
+    and silence, so this is otherwise silent end to end: a clean 200 with
+    half a sentence, or minutes of looped audio.
+    """
+
+    def _model_reporting(self, token_count):
+        model = FakeMLXModel()
+        model.token_count_override = token_count
+        return model
+
+    def test_warns_when_generation_reaches_the_cap(self):
+        model = self._model_reporting(2048)
+
+        with self.assertLogs(LOGGER, level="WARNING") as logs:
+            _run_batch(model, "clone", BASE_PARAMS, voice_prompt=CLONE_PROMPT)
+
+        self.assertTrue(
+            any("2048" in ln and "cap" in ln.lower() for ln in logs.output),
+            f"expected a cap-reached warning, got: {logs.output}",
+        )
+
+    def test_silent_when_generation_stops_on_its_own(self):
+        model = self._model_reporting(120)
+
+        with patch.object(inference.logger, "warning") as mock_warning:
+            _run_batch(model, "clone", BASE_PARAMS, voice_prompt=CLONE_PROMPT)
+
+        cap_warnings = [
+            c for c in mock_warning.call_args_list if "cap" in str(c).lower()
+        ]
+        self.assertEqual(cap_warnings, [])
+
+    def test_absent_token_count_does_not_crash_or_warn(self):
+        """Older/other mlx-audio versions may not populate token_count."""
+        model = self._model_reporting(None)
+
+        with patch.object(inference.logger, "warning") as mock_warning:
+            wav, _ = _run_batch(
+                model, "clone", BASE_PARAMS, voice_prompt=CLONE_PROMPT
+            )
+
+        self.assertIsNotNone(wav)
+        self.assertEqual(
+            [c for c in mock_warning.call_args_list if "cap" in str(c).lower()], []
+        )
+
+    def test_warns_on_the_streaming_path_too(self):
+        model = self._model_reporting(2048)
+
+        with self.assertLogs(LOGGER, level="WARNING") as logs:
+            _run_streaming(model, "clone", BASE_PARAMS, voice_prompt=CLONE_PROMPT)
+
+        self.assertTrue(
+            any("cap" in ln.lower() for ln in logs.output),
+            f"streaming cap-reached was silent: {logs.output}",
+        )
+
+    def test_warns_for_custom_and_design(self):
+        for mode, extra in (
+            ("custom", {"speaker": "Ryan"}),
+            ("design", {"voice_description": "calm"}),
+        ):
+            with self.subTest(mode=mode):
+                model = self._model_reporting(2048)
+
+                with self.assertLogs(LOGGER, level="WARNING") as logs:
+                    _run_batch(model, mode, BASE_PARAMS, **extra)
+
+                self.assertTrue(
+                    any("cap" in ln.lower() for ln in logs.output),
+                    f"{mode} cap-reached was silent: {logs.output}",
+                )
 
 
 class TestConstantsArePinned(unittest.TestCase):

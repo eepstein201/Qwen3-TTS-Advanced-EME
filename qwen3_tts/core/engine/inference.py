@@ -18,7 +18,11 @@ from qwen3_tts.core.config import (
     load_config,
     sanitize_log,
 )
-from qwen3_tts.core.engine.audio_processing import LUFS_TARGET, process_audio
+from qwen3_tts.core.engine.audio_processing import (
+    DEFAULT_SAMPLE_RATE,
+    LUFS_TARGET,
+    process_audio,
+)
 from qwen3_tts.core.engine.text_processing import _normalize_text, _split_text
 
 logger = logging.getLogger("tts.engine")
@@ -380,6 +384,33 @@ def _split_mlx_params(params: dict) -> tuple[dict, int]:
     return sampling, requested
 
 
+def _warn_if_cap_reached(results: Any, max_tokens: int, mode: str) -> None:
+    """Report generations that stopped at the cap instead of on EOS.
+
+    mlx-audio's loop is a bare ``for step in range(max_tokens)`` with no
+    exhaustion signal, and ``_validate_audio`` only checks clipping/silence —
+    so truncation is otherwise silent end to end: a clean 200 carrying half a
+    sentence, or minutes of looped audio when EOS never fires.
+
+    ``token_count`` is ``len(generated_codes)`` upstream. It is read
+    defensively so a result object without the field degrades to silence
+    rather than raising.
+    """
+    for result in results or ():
+        count = getattr(result, "token_count", None)
+        if isinstance(count, int) and not isinstance(count, bool) and count >= max_tokens:
+            logger.warning(
+                "Generation hit the %d-token cap without emitting EOS "
+                "(mode=%s) — the audio is truncated. For clone mode the usual "
+                "cause is a voice prompt whose reference .wav is below %d Hz; "
+                "re-create the prompt from higher-rate audio.",
+                max_tokens,
+                mode,
+                DEFAULT_SAMPLE_RATE,
+            )
+            return
+
+
 def _mlx_lang_code(language: str | None, model: Any = None) -> str:
     """Map our language name onto mlx-audio's language code.
 
@@ -529,6 +560,8 @@ def _run_inference_mlx(
     if not results:
         raise RuntimeError("MLX generation returned no results")
 
+    _warn_if_cap_reached(results, max_tokens, mode)
+
     # Collect audio from all segments and concatenate
     import mlx.core as mx
     import numpy as np  # lazy — heavy import
@@ -653,6 +686,7 @@ def _run_inference_mlx_streaming(
         )
 
     chunk_count = 0
+    last_result = None
     for result in generator:
         audio_mx = result.audio
         wav = np.array(audio_mx, dtype=np.float32)
@@ -662,11 +696,21 @@ def _run_inference_mlx_streaming(
         chunk_count += 1
         logger.debug("Streaming chunk %d: %d samples", chunk_count, len(wav))
 
+        # Keep the highest token_count seen; the cap is applied per segment,
+        # so the check belongs after the stream drains, not per chunk.
+        _tc = getattr(result, "token_count", None)
+        if isinstance(_tc, int) and not isinstance(_tc, bool):
+            last_result = result
+
         # Call progress callback (total unknown until completion for MLX)
         if progress_callback:
             progress_callback(chunk_count, 0)  # 0 = unknown total
 
         yield wav, sr
+
+    _warn_if_cap_reached(
+        [last_result] if last_result is not None else (), max_tokens, mode
+    )
 
     # After completion, update with final count
     if progress_callback and chunk_count > 0:
