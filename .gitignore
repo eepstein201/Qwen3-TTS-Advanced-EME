@@ -88,6 +88,7 @@ poltergeist.config.json
 .ruff_cache/
 phase-*-smoke/
 
+# Claude Code shared settings — intentionally tracked; hooks-only, enforced
+# by tests/test_claude_hooks.py (secrets would fail that guard)
 # Claude Code local settings (contains secrets, e.g. MCP tokens)
-.claude/settings.json
 .claude/settings.local.json

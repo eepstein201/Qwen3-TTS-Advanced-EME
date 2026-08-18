@@ -105,6 +105,21 @@ class TestHooksAreRepoDurable(unittest.TestCase):
         self.assertIn("Write", matchers[0])
         self.assertIn("Edit", matchers[0])
 
+    def test_shared_settings_are_hooks_only(self):
+        """Secret-bearing sections (env/permissions/mcpServers) stay local.
+
+        .gitignore ignored this file because settings "contain secrets";
+        the shared file is un-ignored on the condition that it carries
+        hooks and nothing else.
+        """
+        data = json.loads(SHARED_SETTINGS.read_text())
+        self.assertEqual(
+            set(data),
+            {"hooks"},
+            "shared .claude/settings.json must be hooks-only — secrets and"
+            " permissions belong in .claude/settings.local.json (gitignored)",
+        )
+
     def test_shared_settings_are_not_gitignored(self):
         proc = subprocess.run(
             ["git", "check-ignore", "-q", str(SHARED_SETTINGS)],
