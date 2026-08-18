@@ -18,14 +18,18 @@ in its docstring (exit 2 blocks; exit 0 allows; malformed stdin fails open).
 import json
 import subprocess
 import sys
+import tempfile
 import unittest
 from pathlib import Path
+from unittest import mock
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 HOOKS_DIR = REPO_ROOT / ".claude" / "hooks"
 SHARED_SETTINGS = REPO_ROOT / ".claude" / "settings.json"
 LOCAL_SETTINGS = REPO_ROOT / ".claude" / "settings.local.json"
 GITIGNORE = REPO_ROOT / ".gitignore"
+DOCKERIGNORE = REPO_ROOT / ".dockerignore"
+TEST_DOCKERFILE = REPO_ROOT / "Dockerfile.test"
 
 PUSH_HOOK = "no-direct-push-main.py"
 PREPUSH_HOOK = "prepush-local-gates.py"
@@ -144,6 +148,74 @@ class TestHooksAreRepoDurable(unittest.TestCase):
                     f"{script} is wired in BOTH shared and local settings"
                     " — every call would double-fire",
                 )
+
+
+class TestHooksShipInTestImage(unittest.TestCase):
+    """The docker test lane must be able to run these guard tests.
+
+    Dockerfile.test copies explicit paths (there is no blanket ``COPY . .``)
+    and .dockerignore excludes all of ``.claude/`` from the build context —
+    so the tracked hook scripts and the hooks-only shared settings only
+    reach /app when BOTH halves exist: a dockerignore re-include
+    (last-match-wins, so it must sit after the .claude exclusion) and an
+    explicit COPY line (the .github/workflows precedent). Without them every
+    hook test failed or errored in the container on missing files while
+    passing on native runners.
+    """
+
+    def test_dockerignore_reincludes_hooks_and_shared_settings(self):
+        lines = [
+            stripped
+            for stripped in (ln.strip() for ln in DOCKERIGNORE.read_text().splitlines())
+            if stripped and not stripped.startswith("#")
+        ]
+        claude_excludes = [
+            i for i, pattern in enumerate(lines) if pattern in (".claude", ".claude/")
+        ]
+        self.assertEqual(len(claude_excludes), 1, "expected exactly one .claude exclusion")
+        for needed in ("!.claude/hooks", "!.claude/settings.json"):
+            self.assertIn(
+                needed,
+                lines,
+                f"{needed} missing — hook files never enter the docker build context",
+            )
+            self.assertGreater(
+                lines.index(needed),
+                claude_excludes[0],
+                f"{needed} must follow the .claude exclusion"
+                " (dockerignore is last-match-wins)",
+            )
+
+    def test_dockerfile_test_copies_hooks_and_shared_settings(self):
+        copy_lines = [
+            ln for ln in TEST_DOCKERFILE.read_text().splitlines() if ln.startswith("COPY")
+        ]
+        for needed in (".claude/hooks/", ".claude/settings.json"):
+            self.assertTrue(
+                any(needed in ln for ln in copy_lines),
+                f"Dockerfile.test must COPY {needed} — explicit-copy image,"
+                " dockerignore alone keeps it out of /app",
+            )
+
+    def test_git_checks_skip_without_a_checkout(self):
+        """The two git-metadata durability checks must skip, not error.
+
+        The docker test image ships no .git (dockerignored, deliberately —
+        like settings.local.json on CI checkouts). Those assertions still
+        fully run on the native ubuntu/macos lanes; the docker lane must
+        report them skipped.
+        """
+        module = sys.modules[__name__]
+        git_checks = (
+            "test_hook_scripts_are_git_tracked",
+            "test_shared_settings_are_not_gitignored",
+        )
+        with tempfile.TemporaryDirectory() as tmp:
+            with mock.patch.object(module, "REPO_ROOT", Path(tmp)):
+                for name in git_checks:
+                    case = module.TestHooksAreRepoDurable(name)
+                    with self.assertRaises(unittest.SkipTest):
+                        getattr(case, name)()
 
 
 class TestNoDirectPushMain(unittest.TestCase):
