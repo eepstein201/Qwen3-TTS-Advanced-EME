@@ -31,3 +31,21 @@ def test_memory_index_guard_rule_present():
         "CLAUDE.md missing the memory-index guard rule: "
         "MEMORY.md <=150 lines, archive overflow per the rule text."
     )
+
+
+def test_session_save_rule_cites_global_hook_not_missing_local_overrides():
+    """The session-save rule must not point at nonexistent local override files.
+
+    `.claude/commands/ecc/` holds only pm2 commands — the ecc commands come
+    from the plugin cache. The durable enforcement is the user-scope global
+    hook, which works in every project and survives plugin updates.
+    """
+    with open("CLAUDE.md") as f:
+        content = f.read()
+    assert ".claude/commands/ecc/" not in content, (
+        "CLAUDE.md cites .claude/commands/ecc/ overrides that do not exist; "
+        "cite the global hook (~/.claude/hooks/no-tmp-session-writes.py)."
+    )
+    assert "no-tmp-session-writes" in content, (
+        "CLAUDE.md session-save rule should name the enforcing global hook."
+    )
