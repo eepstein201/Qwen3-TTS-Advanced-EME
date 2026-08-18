@@ -1,0 +1,719 @@
+{
+ "issue": 192,
+ "date": "2026-08-18",
+ "host": "macOS 27, Apple M2 Pro, 16 GB",
+ "backend": "mlx",
+ "model": "mlx-community/Qwen3-TTS-12Hz-1.7B-CustomVoice-8bit",
+ "text": "Token test three",
+ "speaker": "Ryan",
+ "language": "auto",
+ "sampling": {
+  "temperature": 0.9,
+  "top_k": 50,
+  "top_p": 0.95,
+  "repetition_penalty": 1.05
+ },
+ "max_tokens": 2048,
+ "conditions": {
+  "varying_seed_single_model": {
+   "runs": [
+    {
+     "text": "Token test three",
+     "seed": 1000,
+     "elapsed_s": 1.7,
+     "audio_s": 2.2,
+     "approx_tokens": 27,
+     "CAPPED": false
+    },
+    {
+     "text": "Token test three",
+     "seed": 1001,
+     "elapsed_s": 3.2,
+     "audio_s": 5.3,
+     "approx_tokens": 66,
+     "CAPPED": false
+    },
+    {
+     "text": "Token test three",
+     "seed": 1002,
+     "elapsed_s": 1.0,
+     "audio_s": 1.5,
+     "approx_tokens": 19,
+     "CAPPED": false
+    },
+    {
+     "text": "Token test three",
+     "seed": 1003,
+     "elapsed_s": 0.6,
+     "audio_s": 1.3,
+     "approx_tokens": 16,
+     "CAPPED": false
+    },
+    {
+     "text": "Token test three",
+     "seed": 1004,
+     "elapsed_s": 0.6,
+     "audio_s": 1.3,
+     "approx_tokens": 16,
+     "CAPPED": false
+    },
+    {
+     "text": "Token test three",
+     "seed": 1005,
+     "elapsed_s": 0.7,
+     "audio_s": 1.5,
+     "approx_tokens": 19,
+     "CAPPED": false
+    },
+    {
+     "text": "Token test three",
+     "seed": 1006,
+     "elapsed_s": 0.6,
+     "audio_s": 1.3,
+     "approx_tokens": 16,
+     "CAPPED": false
+    },
+    {
+     "text": "Token test three",
+     "seed": 1007,
+     "elapsed_s": 0.5,
+     "audio_s": 1.1,
+     "approx_tokens": 14,
+     "CAPPED": false
+    },
+    {
+     "text": "Token test three",
+     "seed": 1008,
+     "elapsed_s": 0.7,
+     "audio_s": 1.4,
+     "approx_tokens": 18,
+     "CAPPED": false
+    },
+    {
+     "text": "Token test three",
+     "seed": 1009,
+     "elapsed_s": 0.7,
+     "audio_s": 1.5,
+     "approx_tokens": 19,
+     "CAPPED": false
+    },
+    {
+     "text": "Token test three",
+     "seed": 1010,
+     "elapsed_s": 0.6,
+     "audio_s": 1.2,
+     "approx_tokens": 15,
+     "CAPPED": false
+    },
+    {
+     "text": "Token test three",
+     "seed": 1011,
+     "elapsed_s": 0.8,
+     "audio_s": 1.7,
+     "approx_tokens": 21,
+     "CAPPED": false
+    },
+    {
+     "text": "Token test three",
+     "seed": 1012,
+     "elapsed_s": 1.2,
+     "audio_s": 2.6,
+     "approx_tokens": 33,
+     "CAPPED": false
+    },
+    {
+     "text": "Token test three",
+     "seed": 1013,
+     "elapsed_s": 0.6,
+     "audio_s": 1.2,
+     "approx_tokens": 15,
+     "CAPPED": false
+    },
+    {
+     "text": "Token test three",
+     "seed": 1014,
+     "elapsed_s": 0.5,
+     "audio_s": 1.1,
+     "approx_tokens": 14,
+     "CAPPED": false
+    },
+    {
+     "text": "Token test three",
+     "seed": 1015,
+     "elapsed_s": 0.9,
+     "audio_s": 1.9,
+     "approx_tokens": 24,
+     "CAPPED": false
+    },
+    {
+     "text": "Token test three",
+     "seed": 1016,
+     "elapsed_s": 0.8,
+     "audio_s": 1.7,
+     "approx_tokens": 21,
+     "CAPPED": false
+    },
+    {
+     "text": "Token test three",
+     "seed": 1017,
+     "elapsed_s": 0.6,
+     "audio_s": 1.4,
+     "approx_tokens": 17,
+     "CAPPED": false
+    },
+    {
+     "text": "Token test three",
+     "seed": 1018,
+     "elapsed_s": 0.7,
+     "audio_s": 1.4,
+     "approx_tokens": 18,
+     "CAPPED": false
+    },
+    {
+     "text": "Token test three",
+     "seed": 1019,
+     "elapsed_s": 0.7,
+     "audio_s": 1.4,
+     "approx_tokens": 18,
+     "CAPPED": false
+    },
+    {
+     "text": "Token test three",
+     "seed": 1020,
+     "elapsed_s": 1.2,
+     "audio_s": 2.6,
+     "approx_tokens": 33,
+     "CAPPED": false
+    },
+    {
+     "text": "Token test three",
+     "seed": 1021,
+     "elapsed_s": 3.7,
+     "audio_s": 6.7,
+     "approx_tokens": 84,
+     "CAPPED": false
+    },
+    {
+     "text": "Token test three",
+     "seed": 1022,
+     "elapsed_s": 1.0,
+     "audio_s": 1.4,
+     "approx_tokens": 18,
+     "CAPPED": false
+    },
+    {
+     "text": "Token test three",
+     "seed": 1023,
+     "elapsed_s": 0.7,
+     "audio_s": 1.5,
+     "approx_tokens": 19,
+     "CAPPED": false
+    },
+    {
+     "text": "Token test three",
+     "seed": 1024,
+     "elapsed_s": 3.8,
+     "audio_s": 7.6,
+     "approx_tokens": 95,
+     "CAPPED": false
+    },
+    {
+     "text": "Token test three",
+     "seed": 1025,
+     "elapsed_s": 1.0,
+     "audio_s": 1.4,
+     "approx_tokens": 17,
+     "CAPPED": false
+    },
+    {
+     "text": "Token test three",
+     "seed": 1026,
+     "elapsed_s": 0.5,
+     "audio_s": 1.0,
+     "approx_tokens": 13,
+     "CAPPED": false
+    },
+    {
+     "text": "Token test three",
+     "seed": 1027,
+     "elapsed_s": 1.0,
+     "audio_s": 2.2,
+     "approx_tokens": 28,
+     "CAPPED": false
+    },
+    {
+     "text": "Token test three",
+     "seed": 1028,
+     "elapsed_s": 0.6,
+     "audio_s": 1.3,
+     "approx_tokens": 16,
+     "CAPPED": false
+    },
+    {
+     "text": "Token test three",
+     "seed": 1029,
+     "elapsed_s": 0.7,
+     "audio_s": 1.6,
+     "approx_tokens": 20,
+     "CAPPED": false
+    },
+    {
+     "text": "Token test three",
+     "seed": 1030,
+     "elapsed_s": 0.7,
+     "audio_s": 1.4,
+     "approx_tokens": 18,
+     "CAPPED": false
+    },
+    {
+     "text": "Token test three",
+     "seed": 1031,
+     "elapsed_s": 1.1,
+     "audio_s": 2.5,
+     "approx_tokens": 31,
+     "CAPPED": false
+    },
+    {
+     "text": "Token test three",
+     "seed": 1032,
+     "elapsed_s": 1.3,
+     "audio_s": 3.0,
+     "approx_tokens": 37,
+     "CAPPED": false
+    },
+    {
+     "text": "Token test three",
+     "seed": 1033,
+     "elapsed_s": 0.6,
+     "audio_s": 1.2,
+     "approx_tokens": 15,
+     "CAPPED": false
+    },
+    {
+     "text": "Token test three",
+     "seed": 1034,
+     "elapsed_s": 0.7,
+     "audio_s": 1.6,
+     "approx_tokens": 20,
+     "CAPPED": false
+    },
+    {
+     "text": "Token test three",
+     "seed": 1035,
+     "elapsed_s": 1.3,
+     "audio_s": 2.7,
+     "approx_tokens": 34,
+     "CAPPED": false
+    },
+    {
+     "text": "Token test three",
+     "seed": 1036,
+     "elapsed_s": 0.5,
+     "audio_s": 1.0,
+     "approx_tokens": 12,
+     "CAPPED": false
+    },
+    {
+     "text": "Token test three",
+     "seed": 1037,
+     "elapsed_s": 0.6,
+     "audio_s": 1.4,
+     "approx_tokens": 17,
+     "CAPPED": false
+    },
+    {
+     "text": "Token test three",
+     "seed": 1038,
+     "elapsed_s": 2.2,
+     "audio_s": 5.0,
+     "approx_tokens": 62,
+     "CAPPED": false
+    },
+    {
+     "text": "Token test three",
+     "seed": 1039,
+     "elapsed_s": 0.6,
+     "audio_s": 1.3,
+     "approx_tokens": 16,
+     "CAPPED": false
+    },
+    {
+     "text": "Token test three",
+     "seed": 1040,
+     "elapsed_s": 0.7,
+     "audio_s": 1.6,
+     "approx_tokens": 20,
+     "CAPPED": false
+    },
+    {
+     "text": "Token test three",
+     "seed": 1041,
+     "elapsed_s": 0.8,
+     "audio_s": 1.6,
+     "approx_tokens": 20,
+     "CAPPED": false
+    },
+    {
+     "text": "Token test three",
+     "seed": 1042,
+     "elapsed_s": 0.7,
+     "audio_s": 1.6,
+     "approx_tokens": 20,
+     "CAPPED": false
+    },
+    {
+     "text": "Token test three",
+     "seed": 1043,
+     "elapsed_s": 0.7,
+     "audio_s": 1.4,
+     "approx_tokens": 18,
+     "CAPPED": false
+    },
+    {
+     "text": "Token test three",
+     "seed": 1044,
+     "elapsed_s": 2.3,
+     "audio_s": 5.1,
+     "approx_tokens": 64,
+     "CAPPED": false
+    },
+    {
+     "text": "Token test three",
+     "seed": 1045,
+     "elapsed_s": 0.6,
+     "audio_s": 1.1,
+     "approx_tokens": 14,
+     "CAPPED": false
+    },
+    {
+     "text": "Token test three",
+     "seed": 1046,
+     "elapsed_s": 0.6,
+     "audio_s": 1.4,
+     "approx_tokens": 17,
+     "CAPPED": false
+    },
+    {
+     "text": "Token test three",
+     "seed": 1047,
+     "elapsed_s": 0.8,
+     "audio_s": 1.6,
+     "approx_tokens": 20,
+     "CAPPED": false
+    },
+    {
+     "text": "Token test three",
+     "seed": 1048,
+     "elapsed_s": 1.5,
+     "audio_s": 3.4,
+     "approx_tokens": 42,
+     "CAPPED": false
+    },
+    {
+     "text": "Token test three",
+     "seed": 1049,
+     "elapsed_s": 0.5,
+     "audio_s": 1.1,
+     "approx_tokens": 14,
+     "CAPPED": false
+    },
+    {
+     "text": "Token test three",
+     "seed": 1050,
+     "elapsed_s": 0.6,
+     "audio_s": 1.2,
+     "approx_tokens": 15,
+     "CAPPED": false
+    },
+    {
+     "text": "Token test three",
+     "seed": 1051,
+     "elapsed_s": 0.8,
+     "audio_s": 1.7,
+     "approx_tokens": 21,
+     "CAPPED": false
+    },
+    {
+     "text": "Token test three",
+     "seed": 1052,
+     "elapsed_s": 0.8,
+     "audio_s": 1.7,
+     "approx_tokens": 21,
+     "CAPPED": false
+    },
+    {
+     "text": "Token test three",
+     "seed": 1053,
+     "elapsed_s": 0.6,
+     "audio_s": 1.1,
+     "approx_tokens": 14,
+     "CAPPED": false
+    },
+    {
+     "text": "Token test three",
+     "seed": 1054,
+     "elapsed_s": 0.6,
+     "audio_s": 1.4,
+     "approx_tokens": 17,
+     "CAPPED": false
+    },
+    {
+     "text": "Token test three",
+     "seed": 1055,
+     "elapsed_s": 4.1,
+     "audio_s": 7.8,
+     "approx_tokens": 97,
+     "CAPPED": false
+    },
+    {
+     "text": "Token test three",
+     "seed": 1056,
+     "elapsed_s": 0.9,
+     "audio_s": 1.2,
+     "approx_tokens": 15,
+     "CAPPED": false
+    },
+    {
+     "text": "Token test three",
+     "seed": 1057,
+     "elapsed_s": 0.6,
+     "audio_s": 1.3,
+     "approx_tokens": 16,
+     "CAPPED": false
+    },
+    {
+     "text": "Token test three",
+     "seed": 1058,
+     "elapsed_s": 0.5,
+     "audio_s": 1.0,
+     "approx_tokens": 13,
+     "CAPPED": false
+    },
+    {
+     "text": "Token test three",
+     "seed": 1059,
+     "elapsed_s": 0.8,
+     "audio_s": 1.6,
+     "approx_tokens": 20,
+     "CAPPED": false
+    }
+   ],
+   "capped": 0
+  },
+  "all_three_models_resident": {
+   "runs": [
+    {
+     "run": 0,
+     "elapsed_s": 1.5,
+     "audio_s": 1.9,
+     "approx_tokens": 24,
+     "CAPPED": false
+    },
+    {
+     "run": 1,
+     "elapsed_s": 1.3,
+     "audio_s": 2.2,
+     "approx_tokens": 28,
+     "CAPPED": false
+    },
+    {
+     "run": 2,
+     "elapsed_s": 0.8,
+     "audio_s": 1.5,
+     "approx_tokens": 19,
+     "CAPPED": false
+    },
+    {
+     "run": 3,
+     "elapsed_s": 1.0,
+     "audio_s": 2.0,
+     "approx_tokens": 25,
+     "CAPPED": false
+    },
+    {
+     "run": 4,
+     "elapsed_s": 0.6,
+     "audio_s": 1.2,
+     "approx_tokens": 15,
+     "CAPPED": false
+    },
+    {
+     "run": 5,
+     "elapsed_s": 0.6,
+     "audio_s": 1.3,
+     "approx_tokens": 16,
+     "CAPPED": false
+    },
+    {
+     "run": 6,
+     "elapsed_s": 2.1,
+     "audio_s": 4.1,
+     "approx_tokens": 51,
+     "CAPPED": false
+    },
+    {
+     "run": 7,
+     "elapsed_s": 1.0,
+     "audio_s": 1.5,
+     "approx_tokens": 19,
+     "CAPPED": false
+    },
+    {
+     "run": 8,
+     "elapsed_s": 0.6,
+     "audio_s": 1.3,
+     "approx_tokens": 16,
+     "CAPPED": false
+    },
+    {
+     "run": 9,
+     "elapsed_s": 0.6,
+     "audio_s": 1.4,
+     "approx_tokens": 17,
+     "CAPPED": false
+    },
+    {
+     "run": 10,
+     "elapsed_s": 0.7,
+     "audio_s": 1.6,
+     "approx_tokens": 20,
+     "CAPPED": false
+    },
+    {
+     "run": 11,
+     "elapsed_s": 2.0,
+     "audio_s": 2.6,
+     "approx_tokens": 32,
+     "CAPPED": false
+    },
+    {
+     "run": 12,
+     "elapsed_s": 0.9,
+     "audio_s": 1.4,
+     "approx_tokens": 17,
+     "CAPPED": false
+    },
+    {
+     "run": 13,
+     "elapsed_s": 0.9,
+     "audio_s": 2.1,
+     "approx_tokens": 26,
+     "CAPPED": false
+    },
+    {
+     "run": 14,
+     "elapsed_s": 0.7,
+     "audio_s": 1.5,
+     "approx_tokens": 19,
+     "CAPPED": false
+    },
+    {
+     "run": 15,
+     "elapsed_s": 0.6,
+     "audio_s": 1.1,
+     "approx_tokens": 14,
+     "CAPPED": false
+    },
+    {
+     "run": 16,
+     "elapsed_s": 0.6,
+     "audio_s": 1.4,
+     "approx_tokens": 17,
+     "CAPPED": false
+    },
+    {
+     "run": 17,
+     "elapsed_s": 0.7,
+     "audio_s": 1.4,
+     "approx_tokens": 17,
+     "CAPPED": false
+    },
+    {
+     "run": 18,
+     "elapsed_s": 0.7,
+     "audio_s": 1.4,
+     "approx_tokens": 18,
+     "CAPPED": false
+    },
+    {
+     "run": 19,
+     "elapsed_s": 0.7,
+     "audio_s": 1.5,
+     "approx_tokens": 19,
+     "CAPPED": false
+    },
+    {
+     "run": 20,
+     "elapsed_s": 2.0,
+     "audio_s": 3.8,
+     "approx_tokens": 48,
+     "CAPPED": false
+    },
+    {
+     "run": 21,
+     "elapsed_s": 1.0,
+     "audio_s": 1.8,
+     "approx_tokens": 22,
+     "CAPPED": false
+    },
+    {
+     "run": 22,
+     "elapsed_s": 0.9,
+     "audio_s": 1.9,
+     "approx_tokens": 24,
+     "CAPPED": false
+    },
+    {
+     "run": 23,
+     "elapsed_s": 0.7,
+     "audio_s": 1.4,
+     "approx_tokens": 18,
+     "CAPPED": false
+    },
+    {
+     "run": 24,
+     "elapsed_s": 0.8,
+     "audio_s": 1.8,
+     "approx_tokens": 22,
+     "CAPPED": false
+    },
+    {
+     "run": 25,
+     "elapsed_s": 0.7,
+     "audio_s": 1.5,
+     "approx_tokens": 19,
+     "CAPPED": false
+    },
+    {
+     "run": 26,
+     "elapsed_s": 0.5,
+     "audio_s": 1.0,
+     "approx_tokens": 13,
+     "CAPPED": false
+    },
+    {
+     "run": 27,
+     "elapsed_s": 0.7,
+     "audio_s": 1.4,
+     "approx_tokens": 17,
+     "CAPPED": false
+    },
+    {
+     "run": 28,
+     "elapsed_s": 0.6,
+     "audio_s": 1.1,
+     "approx_tokens": 14,
+     "CAPPED": false
+    },
+    {
+     "run": 29,
+     "elapsed_s": 0.6,
+     "audio_s": 1.2,
+     "approx_tokens": 15,
+     "CAPPED": false
+    }
+   ],
+   "capped": 0
+  }
+ }
+}
