@@ -70,6 +70,13 @@ COPY --chown=testuser:testuser docs/ ./docs/
 # the container at all, and skipping it there would leave the batch reporting
 # green while verifying nothing.
 COPY --chown=testuser:testuser .github/workflows/ ./.github/workflows/
+# tests/test_claude_hooks.py executes the PreToolUse hook scripts and reads
+# the hooks-only shared settings. .dockerignore excludes .claude/ wholesale
+# (local settings must never bake into an image); these two tracked,
+# secret-free files are re-included there and copied explicitly, mirroring
+# the .github/workflows pattern above.
+COPY --chown=testuser:testuser .claude/hooks/ ./.claude/hooks/
+COPY --chown=testuser:testuser .claude/settings.json ./.claude/settings.json
 
 # Create expected directory structure with symlinks for both root and testuser
 RUN mkdir -p /root/Qwen3-TTS_UserFiles /home/testuser/Qwen3-TTS_UserFiles && \

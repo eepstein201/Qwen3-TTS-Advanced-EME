@@ -68,6 +68,8 @@ class TestHooksAreRepoDurable(unittest.TestCase):
     """The hooks must ship with the repo, not just this machine."""
 
     def test_hook_scripts_are_git_tracked(self):
+        if not (REPO_ROOT / ".git").exists():
+            self.skipTest("no git checkout (docker test image ships no .git)")
         proc = subprocess.run(
             ["git", "ls-files", "--", ".claude/hooks"],
             capture_output=True,
@@ -125,6 +127,8 @@ class TestHooksAreRepoDurable(unittest.TestCase):
         )
 
     def test_shared_settings_are_not_gitignored(self):
+        if not (REPO_ROOT / ".git").exists():
+            self.skipTest("no git checkout (docker test image ships no .git)")
         proc = subprocess.run(
             ["git", "check-ignore", "-q", str(SHARED_SETTINGS)],
             capture_output=True,

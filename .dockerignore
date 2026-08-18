@@ -58,3 +58,9 @@ voice_prompts/
 # Claude data
 .auto-claude/
 .claude/
+# ...except the tracked hook scripts and the hooks-only shared settings,
+# which Dockerfile.test COPYs so tests/test_claude_hooks.py runs in the
+# container instead of failing on missing files (settings.local.json,
+# .mcp.json and the rest of .claude/ stay excluded).
+!.claude/hooks
+!.claude/settings.json
