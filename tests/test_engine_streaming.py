@@ -22,6 +22,7 @@ catch if a keyword were silently dropped.
 import ast
 import unittest
 from pathlib import Path
+from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
 import numpy as np
@@ -189,6 +190,141 @@ class TestStreamingCallSitesForwardConfig(unittest.TestCase):
         kwargs = _streaming_call_keywords("qwen3_tts/server/websocket.py")
         self.assertIn("max_chunk_chars", kwargs)
         self.assertIn("config_provider", kwargs)
+
+
+# Deltas, not totals: mlx-audio's streaming branch returns before it can yield
+# the cumulative `token_count = len(generated_codes)`, so every streamed
+# GenerationResult carries `token_count=new_tokens` — bounded by
+# `streaming_chunk_size = int(streaming_interval * 12.5)` = 25 at the default
+# 2.0 s interval.
+_STREAM_CHUNK_TOKENS = 25
+
+
+def _fake_chunk(tokens, segment_idx=0):
+    """One streamed GenerationResult carrying a per-chunk token DELTA."""
+    return SimpleNamespace(
+        audio=np.array([0.1, -0.1], dtype=np.float32),
+        sample_rate=_SR,
+        token_count=tokens,
+        segment_idx=segment_idx,
+    )
+
+
+def _chunks_totalling(tokens, segment_idx=0):
+    """Split a per-segment token total into the deltas mlx-audio would emit."""
+    full, remainder = divmod(tokens, _STREAM_CHUNK_TOKENS)
+    chunks = [
+        _fake_chunk(_STREAM_CHUNK_TOKENS, segment_idx) for _ in range(full)
+    ]
+    if remainder:
+        chunks.append(_fake_chunk(remainder, segment_idx))
+    return chunks
+
+
+class _CountingGenerator:
+    """Yields the given chunks and records how many were actually consumed.
+
+    Guard-the-guard: a cap test that silently drove an EMPTY generator would
+    report "no warning" and pass for the wrong reason.
+    """
+
+    def __init__(self, chunks):
+        self._chunks = chunks
+        self.consumed = 0
+
+    def __call__(self, *args, **kwargs):
+        for chunk in self._chunks:
+            self.consumed += 1
+            yield chunk
+
+
+class TestStreamingCapWarning(unittest.TestCase):
+    """#192 — the streaming token-cap warning must be able to fire at all.
+
+    `_warn_if_cap_reached` was handed the LAST streamed result, whose
+    `token_count` is a per-chunk delta capped at 25. Comparing that against
+    `max_tokens` (2048) is never true, so a runaway that never emits EOS was
+    silent on `/generate-stream` and `/ws` — exactly the failure #192 reports,
+    on the two paths where truncation is least visible.
+
+    The cap is applied PER SEGMENT upstream (`generate()` resets
+    `generated_codes` and `decoded_tokens` inside
+    `for segment_idx, segment_text in enumerate(segments)`), so the total must
+    be tracked per segment rather than summed across the whole stream.
+    """
+
+    MAX_TOKENS = 2048
+
+    def _drive(self, chunks):
+        """Run the streaming path over `chunks`; return (records, generator)."""
+        gen = _CountingGenerator(chunks)
+        model = SimpleNamespace(generate_custom_voice=gen)
+
+        with patch.object(inference, "_mlx_lang_code", return_value="en"):
+            with self.assertLogs(inference.logger, level="WARNING") as captured:
+                # A no-op warning keeps assertLogs from failing when the
+                # code under test correctly stays silent; the assertions
+                # below filter for the cap message specifically.
+                inference.logger.warning("sentinel")
+                emitted = list(
+                    inference._run_inference_mlx_streaming(
+                        model,
+                        "Token test three",
+                        "custom",
+                        {"max_new_tokens": self.MAX_TOKENS},
+                        config={"generation": {}},
+                    )
+                )
+
+        cap_warnings = [r for r in captured.output if "token cap" in r]
+        return cap_warnings, gen, emitted
+
+    def test_warns_when_a_segment_runs_to_the_cap(self):
+        """82 deltas of 25 tokens reach 2050 >= 2048 — this must warn."""
+        chunks = _chunks_totalling(self.MAX_TOKENS + 2)
+
+        cap_warnings, gen, emitted = self._drive(chunks)
+
+        # Guard-the-guard: prove the stream was actually driven.
+        self.assertEqual(gen.consumed, len(chunks))
+        self.assertEqual(len(emitted), len(chunks))
+        self.assertTrue(
+            all(c.token_count <= _STREAM_CHUNK_TOKENS for c in chunks),
+            "fixture must carry deltas, not a cumulative count",
+        )
+        self.assertEqual(
+            len(cap_warnings),
+            1,
+            "a stream totalling >= max_tokens in one segment must warn",
+        )
+        self.assertIn("mode=custom", cap_warnings[0])
+
+    def test_does_not_warn_below_the_cap(self):
+        chunks = _chunks_totalling(self.MAX_TOKENS - 100)
+
+        cap_warnings, gen, _ = self._drive(chunks)
+
+        self.assertEqual(gen.consumed, len(chunks))
+        self.assertEqual(cap_warnings, [])
+
+    def test_does_not_sum_across_segments(self):
+        """Two 1200-token segments total 2400 but neither hit the 2048 cap.
+
+        Naively summing every delta in the stream would report a runaway that
+        did not happen — the cap resets per segment upstream.
+        """
+        chunks = _chunks_totalling(1200, segment_idx=0) + _chunks_totalling(
+            1200, segment_idx=1
+        )
+
+        cap_warnings, gen, _ = self._drive(chunks)
+
+        self.assertEqual(gen.consumed, len(chunks))
+        self.assertEqual(
+            cap_warnings,
+            [],
+            "per-segment totals stayed under the cap; summing them is a false positive",
+        )
 
 
 if __name__ == "__main__":
