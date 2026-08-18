@@ -35,7 +35,14 @@ class _LaunchHarness(unittest.TestCase):
                 os.environ[key] = value
 
     def _launch(self, config, **env):
-        """Return the port build_ui_and_launch asked _find_available_port for."""
+        """Return the port that actually reached ``demo.launch()``.
+
+        Asserting only what `_find_available_port` was *called with* would be a
+        hollow proxy — it would still pass if the resolved port never reached
+        the launch. `_find_available_port` is stubbed to pass its argument
+        through (it really does return the preferred port when free), so the
+        value observed on `launch(server_port=...)` is the end-to-end result.
+        """
         from qwen3_tts.interface.generate_server import build_ui_and_launch
 
         demo = MagicMock()
@@ -43,15 +50,14 @@ class _LaunchHarness(unittest.TestCase):
             os.environ[key] = value
 
         with patch("qwen3_tts.interface.ui.build_ui", return_value=demo), patch(
-            "qwen3_tts.interface.ui._find_available_port"
-        ) as find_port, patch(
-            "qwen3_tts.core.config.IN_COLAB", False
-        ):
-            find_port.return_value = 7860
+            "qwen3_tts.interface.ui._find_available_port",
+            side_effect=lambda preferred, **kw: preferred,
+        ), patch("qwen3_tts.core.config.IN_COLAB", False):
             build_ui_and_launch(config)
 
         self.demo = demo
-        return find_port.call_args[0][0]
+        demo.launch.assert_called_once()
+        return demo.launch.call_args[1]["server_port"]
 
 
 class TestUiPortFlagReachesLaunch(_LaunchHarness):
