@@ -74,11 +74,11 @@ def main():
     reason = _violates(command)
     if reason:
         print(
-            "BLOCKED by no-direct-push-main (%s): repo policy is feature-branch"
+            f"BLOCKED by no-direct-push-main ({reason}): repo policy is feature-branch"
             " workflow — Claude never pushes, merges into, or deletes branches"
             " on main directly, even after being told to go ahead. Commit to a"
             " feature branch and hand the exact command to the user to run"
-            " personally." % reason,
+            " personally.",
             file=sys.stderr,
         )
         return 2
