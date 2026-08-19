@@ -93,7 +93,7 @@ real `.pt` into `VOICE_PROMPTS_DIR`.
 | 9 | the `/create-voice-prompt` route awaits the async handler directly (not re-wrapped in `to_thread`) | `TestCreatePromptRouteShape::test_endpoint_awaits_handler_directly` | source-shape guard | PASS | GREEN run 1; RED: `AssertionError: 'await handle_create_voice_prompt(' not found` |
 | 10 | the UI client uses `CREATE_PROMPT_TIMEOUT_SEC` (>660 s), not a hardcoded 60 s | `TestCreatePromptTimeoutDrift::test_ui_client_uses_shared_constant` | source-shape guard | PASS | GREEN run 1; RED: `ImportError: cannot import name 'CREATE_PROMPT_TIMEOUT_SEC'` |
 | 11 | existing `/create-voice-prompt` endpoint behavior unchanged by the async rewrite | `tests/test_create_voice_endpoint.py` (suite, 8 tests) | unit/integration (TestClient) | PASS (8/8) | GREEN run 2; module untouched by the fix |
-| 12 | the converted import-error regression test still guards no-success-on-`ImportError` | `tests/test_python_review_fixes.py` (suite, 14 tests) | unit | PASS (14/14) | GREEN run 3; RED for the module conversion documented in task-1-report.md |
+| 12 | the converted import-error regression test still guards no-success-on-`ImportError` | `tests/test_python_review_fixes.py` (suite, 14 tests) | unit | PASS (14/14) | GREEN run 3; conversion verified GREEN-only (no RED run — the task-1 RED covered the new module's 10 failures) |
 
 ## Coverage
 
@@ -111,7 +111,7 @@ Result: **32 passed**; `qwen3_tts/server/app_prompts.py` — 211 stmts,
 This is a scoped three-module run, not the module's full-suite number.
 Intentional gaps:
 
-- Lines 47-81 / 94-142 / 155-239 / 258-279 / 295-346 are the four sibling
+- Lines 47-81 / 94-142 / 155-239 / 258-279 / 295-346 are the five sibling
   prompt handlers (`handle_list_prompts`, `handle_delete_prompt`,
   `handle_rename_prompt`, `handle_preview_prompt`, `handle_prompt_details`)
   plus their helpers — out of scope for this fix and covered by other suite
