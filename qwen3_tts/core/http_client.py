@@ -19,7 +19,7 @@ from qwen3_tts.core.config import (
     load_config,
 )
 
-__all__ = ["LOAD_MODEL_TIMEOUT_SEC", "server_request"]
+__all__ = ["LOAD_MODEL_TIMEOUT_SEC", "TRANSCRIBE_TIMEOUT_SEC", "server_request"]
 
 # A /load-model issued while a generation is running queues its warm-up
 # behind inference_lock (#192 serialization), so the total is load time +
@@ -32,6 +32,14 @@ __all__ = ["LOAD_MODEL_TIMEOUT_SEC", "server_request"]
 # of someone else's queued generation. EVERY /load-model caller must use
 # this constant (guarded by tests/test_issue192_warmup_serialization.py).
 LOAD_MODEL_TIMEOUT_SEC = 900
+
+# /transcribe serializes its ASR generate on inference_lock (#192), so it
+# queues behind an in-flight generation (whole-text worst case ~660s
+# documented) before the generate itself runs. The UI's old hardcoded 60s
+# timed out client-side whenever a generation was in flight — same defect
+# class as the /load-model 120s above. Every /transcribe caller must use
+# this constant (guarded by tests/test_issue192_transcribe_serialization.py).
+TRANSCRIBE_TIMEOUT_SEC = 900
 
 _ALLOWED_METHODS = frozenset(
     {"GET", "POST", "PUT", "DELETE", "PATCH", "HEAD", "OPTIONS"}

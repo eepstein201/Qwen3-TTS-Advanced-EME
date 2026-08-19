@@ -3,12 +3,14 @@
 
 The design warm-up inference is real MLX inference. Running it while a
 generation holds the GPU was the #192 trigger pair — the one this fix
-closes. It is NOT the only unsynchronized concurrent MLX inference
-reachable through the API: ``/transcribe`` (mlx-whisper ``generate``,
-engine/asr.py) and ``/create-voice-prompt`` (``create_voice_clone_prompt``,
-engine/inference.py) remain unlocked of the same class (ml-explore/mlx#3078,
-Blaizzy/mlx-audio#638, #733 — corruption manifests as EOS-never-emitted
-runaways behind HTTP 200); serializing those is tracked as a #192 follow-up.
+closes. It was not the only unsynchronized concurrent MLX inference
+reachable through the API: ``/create-voice-prompt``
+(``create_voice_clone_prompt``, engine/inference.py) remains unlocked of
+the same class (ml-explore/mlx#3078, Blaizzy/mlx-audio#638, #733 —
+corruption manifests as EOS-never-emitted runaways behind HTTP 200);
+serializing it is tracked as a #192 follow-up. ``/transcribe``
+(mlx-whisper ``generate``) was the same class and is now serialized
+(tests/test_issue192_transcribe_serialization.py).
 
 Contract pinned by these tests:
 

@@ -721,7 +721,7 @@ async def transcribe(
     """Transcribe audio to text using ASR."""
     state = request.app.state
     reset_activity_timer(state)
-    return await asyncio.to_thread(handle_transcribe, state, req)
+    return await handle_transcribe(state, req)
 
 
 @app.get("/prompts", response_model=PromptsListResponse, response_model_exclude_unset=True)

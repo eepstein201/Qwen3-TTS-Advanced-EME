@@ -145,6 +145,7 @@ BATCHES = {
             "tests.test_batch_generation_state_ownership",
             "tests.test_model_swap_recovery",
             "tests.test_issue192_warmup_serialization",
+            "tests.test_issue192_transcribe_serialization",
             "tests.test_asr_endpoints",
             "tests.test_body_size_limit",
             "tests.test_client_generation_timeout",
