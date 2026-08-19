@@ -202,10 +202,9 @@ async def handle_load_model(state, req):
     (nothing else held), matching the global lock order where
     inference_lock is outermost (/generate at app_generation.py, /ws).
     Warm-up-vs-generation was the issue #192 trigger pair — the one this
-    closes. It is not the only unlocked MLX inference reachable through
-    the API: /create-voice-prompt remains unsynchronized of the same
-    class (tracked as a #192 follow-up; /transcribe is serialized since
-    the follow-up landed).
+    closes. /transcribe and /create-voice-prompt were the same class and
+    are both serialized now (leaf acquisitions) — with them, every MLX
+    inference reachable through the API serializes on inference_lock.
 
     Raises HTTPException on invalid model_type or load failure.
     Returns status dict.
@@ -577,8 +576,9 @@ async def handle_transcribe(state, req):
     lock, so the global inference_lock-outermost order is preserved. The lazy
     ASR model load stays OUTSIDE the lock — minutes of download + weight
     construction must not starve /generate (same split as /load-model's
-    load/warm-up, PR #211). /create-voice-prompt remains unsynchronized of
-    the same class; tracked as a #192 follow-up.
+    load/warm-up, PR #211). /create-voice-prompt was the last of the
+    class and is serialized the same way — with it, all MLX inference
+    reachable through the API serializes on inference_lock.
 
     Args:
         state: app.state
