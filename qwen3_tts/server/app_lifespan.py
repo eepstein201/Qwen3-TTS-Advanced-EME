@@ -517,9 +517,9 @@ def _run_warmup_under_inference_lock(app_state, model, model_type):
     started yet; one already running finishes under the lock (still
     serialized — safety holds), it is just no longer waited for.
 
-    This closes the warm-up-vs-generation pair only; /transcribe and
-    /create-voice-prompt remain unlocked MLX inference of the same class
-    (tracked as a #192 follow-up).
+    This closes the warm-up-vs-generation pair only; /create-voice-prompt
+    remains unlocked MLX inference of the same class (tracked as a #192
+    follow-up; /transcribe is serialized since the follow-up landed).
     """
     if model_type != "design":
         # _warmup_model no-ops for clone/custom — don't queue behind a

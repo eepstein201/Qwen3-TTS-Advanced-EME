@@ -132,8 +132,9 @@ class TestTranscribeEndpoint(unittest.TestCase):
         from tests.conftest import _restore_app_state
         _restore_app_state(self.app, self.original_state)
 
+    @patch("qwen3_tts.core.engine.is_asr_loaded", return_value=True)
     @patch("qwen3_tts.core.engine.transcribe_audio")
-    def test_transcribe_success(self, mock_transcribe):
+    def test_transcribe_success(self, mock_transcribe, mock_is_loaded):
         mock_transcribe.return_value = "Hello world"
         audio_b64 = base64.b64encode(b"fake_audio_data").decode()
         resp = self.client.post(
@@ -145,8 +146,9 @@ class TestTranscribeEndpoint(unittest.TestCase):
         data = resp.json()
         self.assertEqual(data["transcript"], "Hello world")
 
+    @patch("qwen3_tts.core.engine.is_asr_loaded", return_value=True)
     @patch("qwen3_tts.core.engine.transcribe_audio")
-    def test_transcribe_default_language(self, mock_transcribe):
+    def test_transcribe_default_language(self, mock_transcribe, mock_is_loaded):
         mock_transcribe.return_value = "Bonjour"
         audio_b64 = base64.b64encode(b"fake_audio_data").decode()
         resp = self.client.post(
@@ -158,8 +160,9 @@ class TestTranscribeEndpoint(unittest.TestCase):
         data = resp.json()
         self.assertEqual(data["transcript"], "Bonjour")
 
+    @patch("qwen3_tts.core.engine.is_asr_loaded", return_value=True)
     @patch("qwen3_tts.core.engine.transcribe_audio", side_effect=RuntimeError("Transcription failed"))
-    def test_transcribe_failure(self, mock_transcribe):
+    def test_transcribe_failure(self, mock_transcribe, mock_is_loaded):
         audio_b64 = base64.b64encode(b"fake_audio_data").decode()
         resp = self.client.post(
             "/transcribe",

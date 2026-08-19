@@ -212,8 +212,12 @@ class TestGenerationContracts(_ContractTestBase):
     def test_transcribe_matches_contract(self):
         from qwen3_tts.server.validation import TranscribeResponse
 
-        with patch(
-            "qwen3_tts.core.engine.transcribe_audio", return_value="hello world"
+        with (
+            patch("qwen3_tts.core.engine.is_asr_loaded", return_value=True),
+            patch(
+                "qwen3_tts.core.engine.transcribe_audio",
+                return_value="hello world",
+            ),
         ):
             resp = self.client.post(
                 "/transcribe",

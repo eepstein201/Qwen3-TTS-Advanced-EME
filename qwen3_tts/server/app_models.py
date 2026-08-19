@@ -203,8 +203,9 @@ async def handle_load_model(state, req):
     inference_lock is outermost (/generate at app_generation.py, /ws).
     Warm-up-vs-generation was the issue #192 trigger pair — the one this
     closes. It is not the only unlocked MLX inference reachable through
-    the API: /transcribe and /create-voice-prompt remain unsynchronized
-    of the same class (tracked as a #192 follow-up).
+    the API: /create-voice-prompt remains unsynchronized of the same
+    class (tracked as a #192 follow-up; /transcribe is serialized since
+    the follow-up landed).
 
     Raises HTTPException on invalid model_type or load failure.
     Returns status dict.
@@ -526,10 +527,58 @@ def handle_unload_asr(state):
     return {"status": "unloaded"}
 
 
-def handle_transcribe(state, req):
+def _decode_audio(audio_b64):
+    """Decode the request's base64 payload (blocking CPU for large clips)."""
+    import base64
+
+    return base64.b64decode(audio_b64)
+
+
+def _stage_tempfile(audio_bytes):
+    """Write decoded audio to a 0600 tempfile for ASR (blocking file IO)."""
+    import tempfile
+
+    with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as tmp:
+        path = tmp.name
+        try:
+            tmp.write(audio_bytes)
+            os.chmod(path, 0o600)
+        except OSError:
+            # The handler's finally only sees the path once staging
+            # returns, so a write/chmod failure must clean up here —
+            # unlike the pre-#192 shape, which leaked the write-failure
+            # case. Unlink-then-close is fine on the POSIX targets.
+            try:
+                os.remove(path)
+            except OSError:
+                pass
+            raise
+    return path
+
+
+def _remove_tempfile(path):
+    """Best-effort tempfile cleanup (blocking file IO)."""
+    if path and os.path.exists(path):
+        try:
+            os.remove(path)
+        except OSError:
+            pass
+
+
+async def handle_transcribe(state, req):
     """Transcribe audio to text using the ASR model.
 
     Decodes base64 audio, writes to tempfile, transcribes, cleans up.
+
+    The mlx-whisper generate is real MLX inference and runs under
+    ``inference_lock`` (#192: unsynchronized concurrent MLX inference is
+    upstream-unsafe — ml-explore/mlx#3078, Blaizzy/mlx-audio#638/#733). It is
+    a leaf acquisition: the handler holds nothing else when it takes the
+    lock, so the global inference_lock-outermost order is preserved. The lazy
+    ASR model load stays OUTSIDE the lock — minutes of download + weight
+    construction must not starve /generate (same split as /load-model's
+    load/warm-up, PR #211). /create-voice-prompt remains unsynchronized of
+    the same class; tracked as a #192 follow-up.
 
     Args:
         state: app.state
@@ -538,26 +587,36 @@ def handle_transcribe(state, req):
     Returns:
         Dict with transcript text.
     """
-    import base64
-    import tempfile
+    from qwen3_tts.core.engine import (
+        is_asr_loaded,
+        load_asr_model,
+        transcribe_audio,
+    )
 
-    from qwen3_tts.core.engine import transcribe_audio
-
-    # Decode audio
+    # Decode audio. Off the event loop: a near-100 MB body makes b64decode
+    # + the tempfile write sub-second-but-blocking work (async-offload
+    # policy, cf. tests/test_server_async_offload.py).
     try:
-        audio_bytes = base64.b64decode(req.audio_base64)
+        audio_bytes = await asyncio.to_thread(_decode_audio, req.audio_base64)
     except Exception:
         raise HTTPException(status_code=400, detail="Invalid base64 audio data")
 
     # Write to tempfile for ASR processing
     tmp_path = None
     try:
-        with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as tmp:
-            tmp.write(audio_bytes)
-            tmp_path = tmp.name
-        os.chmod(tmp_path, 0o600)
+        tmp_path = await asyncio.to_thread(_stage_tempfile, audio_bytes)
 
-        transcript = transcribe_audio(tmp_path, req.language)
+        # First /transcribe after startup pays the ASR model load here
+        # (preload_asr_model never preloads on the MLX backend). Unlocked —
+        # and it must complete before the generate queues for the lock, or
+        # the load would run inside the generation-serialized section.
+        if not is_asr_loaded():
+            await asyncio.to_thread(load_asr_model)
+
+        async with state.inference_lock:
+            transcript = await asyncio.to_thread(
+                transcribe_audio, tmp_path, req.language
+            )
         return {"transcript": transcript}
     except ImportError as e:
         logger.error("ASR not available: %s", sanitize_log(e))
@@ -569,8 +628,4 @@ def handle_transcribe(state, req):
         logger.error("Unexpected transcription error: %s", sanitize_log(e))
         _error_response(500, "unknown_error", _sanitize_error(str(e)), "bug")
     finally:
-        if tmp_path and os.path.exists(tmp_path):
-            try:
-                os.remove(tmp_path)
-            except OSError:
-                pass
+        await asyncio.to_thread(_remove_tempfile, tmp_path)

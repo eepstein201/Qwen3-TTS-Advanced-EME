@@ -217,7 +217,9 @@ def auto_transcribe_audio(audio_path):
     """Auto-transcribe audio using server ASR.
 
     Phase 1b: surfaces a `gr.Info` toast + ProgressIndicator while the
-    transcribe round-trip is in flight (typically 1-3s).
+    transcribe round-trip is in flight (typically 1-3s; can queue for
+    minutes behind an in-flight generation — the server serializes ASR
+    on inference_lock, see TRANSCRIBE_TIMEOUT_SEC).
 
     Args:
         audio_path: Path to the audio file
@@ -250,13 +252,16 @@ def auto_transcribe_audio(audio_path):
             "audio_base64": base64.b64encode(audio_bytes).decode(),
         }
 
-        from qwen3_tts.core.http_client import server_request
+        from qwen3_tts.core.http_client import (
+            TRANSCRIBE_TIMEOUT_SEC,
+            server_request,
+        )
 
         resp = server_request(
             "POST",
             "/transcribe",
             json=payload,
-            timeout=60,
+            timeout=TRANSCRIBE_TIMEOUT_SEC,
         )
 
         if resp.status_code != 200:

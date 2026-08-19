@@ -507,9 +507,10 @@ def _warmup_model(model, model_type, backend):
     if _warmup_disabled():
         # Issue #192 ablation/mitigation knob: skip the load-time warm-up
         # inference. The server normally runs this warm-up serialized on
-        # inference_lock (app_models/app_lifespan); /transcribe and
-        # /create-voice-prompt remain unserialized GPU work (tracked as a
-        # #192 follow-up). Logged positively — a run's log must record the
+        # inference_lock (app_models/app_lifespan); /create-voice-prompt
+        # remains unserialized GPU work (tracked as a #192 follow-up;
+        # /transcribe is serialized since the follow-up landed). Logged
+        # positively — a run's log must record the
         # knob was active, because the absence of warm-up lines alone
         # proves nothing.
         logger.info("Skipping %s warm-up (TTS_SKIP_WARMUP set)", model_type)
