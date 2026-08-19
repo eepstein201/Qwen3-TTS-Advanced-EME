@@ -1,0 +1,2527 @@
+{
+ "summary": {
+  "generations": 48,
+  "generations_non_ok": 0,
+  "capped": 0,
+  "cap_warnings_in_log": 0,
+  "churn_ops": 210,
+  "unload_guard_engaged": 35,
+  "custom_unload_slipped": 0
+ },
+ "rows": [
+  {
+   "kind": "churn",
+   "op": "unload",
+   "model": "clone",
+   "start_s": 0.7,
+   "elapsed_s": 0.7,
+   "status": 200,
+   "detail": "unloaded"
+  },
+  {
+   "kind": "churn",
+   "op": "load",
+   "model": "clone",
+   "start_s": 21.4,
+   "elapsed_s": 19.8,
+   "status": 200,
+   "detail": "loaded"
+  },
+  {
+   "kind": "churn",
+   "op": "unload",
+   "model": "custom",
+   "start_s": 22.5,
+   "elapsed_s": 0.1,
+   "status": 409,
+   "detail": null
+  },
+  {
+   "kind": "churn",
+   "op": "load",
+   "model": "custom",
+   "start_s": 23.5,
+   "elapsed_s": 0.0,
+   "status": 200,
+   "detail": "already_loaded"
+  },
+  {
+   "kind": "churn",
+   "op": "unload",
+   "model": "clone",
+   "start_s": 25.1,
+   "elapsed_s": 0.6,
+   "status": 200,
+   "detail": "unloaded"
+  },
+  {
+   "kind": "churn",
+   "op": "load",
+   "model": "clone",
+   "start_s": 57.7,
+   "elapsed_s": 31.6,
+   "status": 200,
+   "detail": "loaded"
+  },
+  {
+   "kind": "churn",
+   "op": "unload",
+   "model": "clone",
+   "start_s": 59.2,
+   "elapsed_s": 0.5,
+   "status": 200,
+   "detail": "unloaded"
+  },
+  {
+   "kind": "churn",
+   "op": "load",
+   "model": "clone",
+   "start_s": 78.6,
+   "elapsed_s": 18.4,
+   "status": 200,
+   "detail": "loaded"
+  },
+  {
+   "kind": "churn",
+   "op": "unload",
+   "model": "custom",
+   "start_s": 79.6,
+   "elapsed_s": 0.0,
+   "status": 409,
+   "detail": null
+  },
+  {
+   "kind": "churn",
+   "op": "load",
+   "model": "custom",
+   "start_s": 80.6,
+   "elapsed_s": 0.0,
+   "status": 200,
+   "detail": "already_loaded"
+  },
+  {
+   "kind": "churn",
+   "op": "unload",
+   "model": "clone",
+   "start_s": 83.1,
+   "elapsed_s": 1.5,
+   "status": 200,
+   "detail": "unloaded"
+  },
+  {
+   "kind": "churn",
+   "op": "load",
+   "model": "clone",
+   "start_s": 98.3,
+   "elapsed_s": 14.2,
+   "status": 200,
+   "detail": "loaded"
+  },
+  {
+   "kind": "generate",
+   "generator": 0,
+   "text": "Token test three churn 90544 0 0",
+   "start_s": 98.5,
+   "elapsed_s": 98.5,
+   "status": 200,
+   "error": null,
+   "audio_s": 5.5,
+   "approx_tokens": 69,
+   "CAPPED": false,
+   "seed": 93219491
+  },
+  {
+   "kind": "churn",
+   "op": "unload",
+   "model": "clone",
+   "start_s": 100.8,
+   "elapsed_s": 1.5,
+   "status": 200,
+   "detail": "unloaded"
+  },
+  {
+   "kind": "churn",
+   "op": "load",
+   "model": "clone",
+   "start_s": 111.9,
+   "elapsed_s": 10.1,
+   "status": 200,
+   "detail": "loaded"
+  },
+  {
+   "kind": "churn",
+   "op": "unload",
+   "model": "custom",
+   "start_s": 113.0,
+   "elapsed_s": 0.1,
+   "status": 409,
+   "detail": null
+  },
+  {
+   "kind": "churn",
+   "op": "load",
+   "model": "custom",
+   "start_s": 114.0,
+   "elapsed_s": 0.0,
+   "status": 200,
+   "detail": "already_loaded"
+  },
+  {
+   "kind": "churn",
+   "op": "unload",
+   "model": "clone",
+   "start_s": 116.1,
+   "elapsed_s": 1.1,
+   "status": 200,
+   "detail": "unloaded"
+  },
+  {
+   "kind": "churn",
+   "op": "load",
+   "model": "clone",
+   "start_s": 124.5,
+   "elapsed_s": 7.4,
+   "status": 200,
+   "detail": "loaded"
+  },
+  {
+   "kind": "churn",
+   "op": "unload",
+   "model": "clone",
+   "start_s": 125.9,
+   "elapsed_s": 0.3,
+   "status": 200,
+   "detail": "unloaded"
+  },
+  {
+   "kind": "churn",
+   "op": "load",
+   "model": "clone",
+   "start_s": 128.8,
+   "elapsed_s": 2.0,
+   "status": 200,
+   "detail": "loaded"
+  },
+  {
+   "kind": "churn",
+   "op": "unload",
+   "model": "custom",
+   "start_s": 129.9,
+   "elapsed_s": 0.0,
+   "status": 409,
+   "detail": null
+  },
+  {
+   "kind": "churn",
+   "op": "load",
+   "model": "custom",
+   "start_s": 130.9,
+   "elapsed_s": 0.0,
+   "status": 200,
+   "detail": "already_loaded"
+  },
+  {
+   "kind": "churn",
+   "op": "unload",
+   "model": "clone",
+   "start_s": 132.0,
+   "elapsed_s": 0.1,
+   "status": 200,
+   "detail": "unloaded"
+  },
+  {
+   "kind": "churn",
+   "op": "load",
+   "model": "clone",
+   "start_s": 137.9,
+   "elapsed_s": 4.9,
+   "status": 200,
+   "detail": "loaded"
+  },
+  {
+   "kind": "churn",
+   "op": "unload",
+   "model": "clone",
+   "start_s": 139.8,
+   "elapsed_s": 0.9,
+   "status": 200,
+   "detail": "unloaded"
+  },
+  {
+   "kind": "generate",
+   "generator": 1,
+   "text": "Token test three churn 90544 1 0",
+   "start_s": 139.9,
+   "elapsed_s": 139.9,
+   "status": 200,
+   "error": null,
+   "audio_s": 5.2,
+   "approx_tokens": 65,
+   "CAPPED": false,
+   "seed": 1865539937
+  },
+  {
+   "kind": "churn",
+   "op": "load",
+   "model": "clone",
+   "start_s": 144.8,
+   "elapsed_s": 4.0,
+   "status": 200,
+   "detail": "loaded"
+  },
+  {
+   "kind": "churn",
+   "op": "unload",
+   "model": "custom",
+   "start_s": 145.8,
+   "elapsed_s": 0.0,
+   "status": 409,
+   "detail": null
+  },
+  {
+   "kind": "churn",
+   "op": "load",
+   "model": "custom",
+   "start_s": 146.8,
+   "elapsed_s": 0.0,
+   "status": 200,
+   "detail": "already_loaded"
+  },
+  {
+   "kind": "churn",
+   "op": "unload",
+   "model": "clone",
+   "start_s": 147.9,
+   "elapsed_s": 0.1,
+   "status": 200,
+   "detail": "unloaded"
+  },
+  {
+   "kind": "generate",
+   "generator": 3,
+   "text": "Token test three churn 90544 3 0",
+   "start_s": 151.1,
+   "elapsed_s": 151.1,
+   "status": 200,
+   "error": null,
+   "audio_s": 5.2,
+   "approx_tokens": 65,
+   "CAPPED": false,
+   "seed": 1133010262
+  },
+  {
+   "kind": "churn",
+   "op": "load",
+   "model": "clone",
+   "start_s": 151.6,
+   "elapsed_s": 2.7,
+   "status": 200,
+   "detail": "loaded"
+  },
+  {
+   "kind": "churn",
+   "op": "unload",
+   "model": "clone",
+   "start_s": 153.0,
+   "elapsed_s": 0.4,
+   "status": 200,
+   "detail": "unloaded"
+  },
+  {
+   "kind": "generate",
+   "generator": 2,
+   "text": "Token test three churn 90544 2 0",
+   "start_s": 155.0,
+   "elapsed_s": 155.0,
+   "status": 200,
+   "error": null,
+   "audio_s": 5.0,
+   "approx_tokens": 63,
+   "CAPPED": false,
+   "seed": 605751912
+  },
+  {
+   "kind": "churn",
+   "op": "load",
+   "model": "clone",
+   "start_s": 157.2,
+   "elapsed_s": 3.2,
+   "status": 200,
+   "detail": "loaded"
+  },
+  {
+   "kind": "churn",
+   "op": "unload",
+   "model": "custom",
+   "start_s": 158.3,
+   "elapsed_s": 0.0,
+   "status": 409,
+   "detail": null
+  },
+  {
+   "kind": "churn",
+   "op": "load",
+   "model": "custom",
+   "start_s": 159.3,
+   "elapsed_s": 0.0,
+   "status": 200,
+   "detail": "already_loaded"
+  },
+  {
+   "kind": "generate",
+   "generator": 0,
+   "text": "Token test three churn 90544 0 1",
+   "start_s": 160.0,
+   "elapsed_s": 61.5,
+   "status": 200,
+   "error": null,
+   "audio_s": 5.6,
+   "approx_tokens": 70,
+   "CAPPED": false,
+   "seed": 561378692
+  },
+  {
+   "kind": "churn",
+   "op": "unload",
+   "model": "clone",
+   "start_s": 160.4,
+   "elapsed_s": 0.2,
+   "status": 200,
+   "detail": "unloaded"
+  },
+  {
+   "kind": "churn",
+   "op": "load",
+   "model": "clone",
+   "start_s": 163.0,
+   "elapsed_s": 1.5,
+   "status": 200,
+   "detail": "loaded"
+  },
+  {
+   "kind": "churn",
+   "op": "unload",
+   "model": "clone",
+   "start_s": 164.1,
+   "elapsed_s": 0.1,
+   "status": 200,
+   "detail": "unloaded"
+  },
+  {
+   "kind": "churn",
+   "op": "load",
+   "model": "clone",
+   "start_s": 166.6,
+   "elapsed_s": 1.5,
+   "status": 200,
+   "detail": "loaded"
+  },
+  {
+   "kind": "churn",
+   "op": "unload",
+   "model": "custom",
+   "start_s": 167.6,
+   "elapsed_s": 0.0,
+   "status": 409,
+   "detail": null
+  },
+  {
+   "kind": "churn",
+   "op": "load",
+   "model": "custom",
+   "start_s": 168.6,
+   "elapsed_s": 0.0,
+   "status": 200,
+   "detail": "already_loaded"
+  },
+  {
+   "kind": "churn",
+   "op": "unload",
+   "model": "clone",
+   "start_s": 169.7,
+   "elapsed_s": 0.2,
+   "status": 200,
+   "detail": "unloaded"
+  },
+  {
+   "kind": "generate",
+   "generator": 1,
+   "text": "Token test three churn 90544 1 1",
+   "start_s": 171.1,
+   "elapsed_s": 31.2,
+   "status": 200,
+   "error": null,
+   "audio_s": 7.5,
+   "approx_tokens": 94,
+   "CAPPED": false,
+   "seed": 87054612
+  },
+  {
+   "kind": "churn",
+   "op": "load",
+   "model": "clone",
+   "start_s": 172.7,
+   "elapsed_s": 1.9,
+   "status": 200,
+   "detail": "loaded"
+  },
+  {
+   "kind": "churn",
+   "op": "unload",
+   "model": "clone",
+   "start_s": 173.9,
+   "elapsed_s": 0.2,
+   "status": 200,
+   "detail": "unloaded"
+  },
+  {
+   "kind": "generate",
+   "generator": 3,
+   "text": "Token test three churn 90544 3 1",
+   "start_s": 174.7,
+   "elapsed_s": 23.6,
+   "status": 200,
+   "error": null,
+   "audio_s": 4.4,
+   "approx_tokens": 55,
+   "CAPPED": false,
+   "seed": 597134118
+  },
+  {
+   "kind": "churn",
+   "op": "load",
+   "model": "clone",
+   "start_s": 176.1,
+   "elapsed_s": 1.3,
+   "status": 200,
+   "detail": "loaded"
+  },
+  {
+   "kind": "churn",
+   "op": "unload",
+   "model": "custom",
+   "start_s": 177.1,
+   "elapsed_s": 0.0,
+   "status": 409,
+   "detail": null
+  },
+  {
+   "kind": "churn",
+   "op": "load",
+   "model": "custom",
+   "start_s": 178.1,
+   "elapsed_s": 0.0,
+   "status": 200,
+   "detail": "already_loaded"
+  },
+  {
+   "kind": "generate",
+   "generator": 2,
+   "text": "Token test three churn 90544 2 1",
+   "start_s": 178.2,
+   "elapsed_s": 23.2,
+   "status": 200,
+   "error": null,
+   "audio_s": 5.2,
+   "approx_tokens": 65,
+   "CAPPED": false,
+   "seed": 1949673301
+  },
+  {
+   "kind": "churn",
+   "op": "unload",
+   "model": "clone",
+   "start_s": 179.2,
+   "elapsed_s": 0.1,
+   "status": 200,
+   "detail": "unloaded"
+  },
+  {
+   "kind": "generate",
+   "generator": 0,
+   "text": "Token test three churn 90544 0 2",
+   "start_s": 181.9,
+   "elapsed_s": 21.9,
+   "status": 200,
+   "error": null,
+   "audio_s": 5.4,
+   "approx_tokens": 67,
+   "CAPPED": false,
+   "seed": 601052055
+  },
+  {
+   "kind": "churn",
+   "op": "load",
+   "model": "clone",
+   "start_s": 182.1,
+   "elapsed_s": 1.8,
+   "status": 200,
+   "detail": "loaded"
+  },
+  {
+   "kind": "churn",
+   "op": "unload",
+   "model": "clone",
+   "start_s": 183.2,
+   "elapsed_s": 0.1,
+   "status": 200,
+   "detail": "unloaded"
+  },
+  {
+   "kind": "generate",
+   "generator": 1,
+   "text": "Token test three churn 90544 1 2",
+   "start_s": 184.5,
+   "elapsed_s": 13.4,
+   "status": 200,
+   "error": null,
+   "audio_s": 4.8,
+   "approx_tokens": 60,
+   "CAPPED": false,
+   "seed": 652038762
+  },
+  {
+   "kind": "churn",
+   "op": "load",
+   "model": "clone",
+   "start_s": 185.6,
+   "elapsed_s": 1.4,
+   "status": 200,
+   "detail": "loaded"
+  },
+  {
+   "kind": "churn",
+   "op": "unload",
+   "model": "custom",
+   "start_s": 186.6,
+   "elapsed_s": 0.0,
+   "status": 409,
+   "detail": null
+  },
+  {
+   "kind": "churn",
+   "op": "load",
+   "model": "custom",
+   "start_s": 187.6,
+   "elapsed_s": 0.0,
+   "status": 200,
+   "detail": "already_loaded"
+  },
+  {
+   "kind": "generate",
+   "generator": 3,
+   "text": "Token test three churn 90544 3 2",
+   "start_s": 187.9,
+   "elapsed_s": 13.2,
+   "status": 200,
+   "error": null,
+   "audio_s": 5.6,
+   "approx_tokens": 70,
+   "CAPPED": false,
+   "seed": 1976818418
+  },
+  {
+   "kind": "churn",
+   "op": "unload",
+   "model": "clone",
+   "start_s": 188.8,
+   "elapsed_s": 0.1,
+   "status": 200,
+   "detail": "unloaded"
+  },
+  {
+   "kind": "generate",
+   "generator": 2,
+   "text": "Token test three churn 90544 2 2",
+   "start_s": 191.5,
+   "elapsed_s": 13.2,
+   "status": 200,
+   "error": null,
+   "audio_s": 5.1,
+   "approx_tokens": 64,
+   "CAPPED": false,
+   "seed": 414050976
+  },
+  {
+   "kind": "churn",
+   "op": "load",
+   "model": "clone",
+   "start_s": 191.7,
+   "elapsed_s": 2.0,
+   "status": 200,
+   "detail": "loaded"
+  },
+  {
+   "kind": "churn",
+   "op": "unload",
+   "model": "clone",
+   "start_s": 192.8,
+   "elapsed_s": 0.1,
+   "status": 200,
+   "detail": "unloaded"
+  },
+  {
+   "kind": "generate",
+   "generator": 0,
+   "text": "Token test three churn 90544 0 3",
+   "start_s": 195.3,
+   "elapsed_s": 13.4,
+   "status": 200,
+   "error": null,
+   "audio_s": 5.9,
+   "approx_tokens": 74,
+   "CAPPED": false,
+   "seed": 878856076
+  },
+  {
+   "kind": "churn",
+   "op": "load",
+   "model": "clone",
+   "start_s": 195.7,
+   "elapsed_s": 1.9,
+   "status": 200,
+   "detail": "loaded"
+  },
+  {
+   "kind": "churn",
+   "op": "unload",
+   "model": "custom",
+   "start_s": 196.7,
+   "elapsed_s": 0.0,
+   "status": 409,
+   "detail": null
+  },
+  {
+   "kind": "churn",
+   "op": "load",
+   "model": "custom",
+   "start_s": 197.7,
+   "elapsed_s": 0.0,
+   "status": 200,
+   "detail": "already_loaded"
+  },
+  {
+   "kind": "generate",
+   "generator": 1,
+   "text": "Token test three churn 90544 1 3",
+   "start_s": 198.1,
+   "elapsed_s": 13.5,
+   "status": 200,
+   "error": null,
+   "audio_s": 5.1,
+   "approx_tokens": 64,
+   "CAPPED": false,
+   "seed": 161550118
+  },
+  {
+   "kind": "churn",
+   "op": "unload",
+   "model": "clone",
+   "start_s": 198.9,
+   "elapsed_s": 0.1,
+   "status": 200,
+   "detail": "unloaded"
+  },
+  {
+   "kind": "churn",
+   "op": "load",
+   "model": "clone",
+   "start_s": 201.3,
+   "elapsed_s": 1.4,
+   "status": 200,
+   "detail": "loaded"
+  },
+  {
+   "kind": "churn",
+   "op": "unload",
+   "model": "clone",
+   "start_s": 202.4,
+   "elapsed_s": 0.1,
+   "status": 200,
+   "detail": "unloaded"
+  },
+  {
+   "kind": "churn",
+   "op": "load",
+   "model": "clone",
+   "start_s": 205.1,
+   "elapsed_s": 1.7,
+   "status": 200,
+   "detail": "loaded"
+  },
+  {
+   "kind": "churn",
+   "op": "unload",
+   "model": "custom",
+   "start_s": 206.1,
+   "elapsed_s": 0.0,
+   "status": 409,
+   "detail": null
+  },
+  {
+   "kind": "churn",
+   "op": "load",
+   "model": "custom",
+   "start_s": 207.1,
+   "elapsed_s": 0.0,
+   "status": 200,
+   "detail": "already_loaded"
+  },
+  {
+   "kind": "generate",
+   "generator": 3,
+   "text": "Token test three churn 90544 3 3",
+   "start_s": 207.3,
+   "elapsed_s": 19.4,
+   "status": 200,
+   "error": null,
+   "audio_s": 6.0,
+   "approx_tokens": 75,
+   "CAPPED": false,
+   "seed": 1222812589
+  },
+  {
+   "kind": "churn",
+   "op": "unload",
+   "model": "clone",
+   "start_s": 208.3,
+   "elapsed_s": 0.2,
+   "status": 200,
+   "detail": "unloaded"
+  },
+  {
+   "kind": "churn",
+   "op": "load",
+   "model": "clone",
+   "start_s": 216.1,
+   "elapsed_s": 6.9,
+   "status": 200,
+   "detail": "loaded"
+  },
+  {
+   "kind": "churn",
+   "op": "unload",
+   "model": "clone",
+   "start_s": 217.9,
+   "elapsed_s": 0.8,
+   "status": 200,
+   "detail": "unloaded"
+  },
+  {
+   "kind": "generate",
+   "generator": 2,
+   "text": "Token test three churn 90544 2 3",
+   "start_s": 222.7,
+   "elapsed_s": 31.2,
+   "status": 200,
+   "error": null,
+   "audio_s": 5.0,
+   "approx_tokens": 63,
+   "CAPPED": false,
+   "seed": 304609686
+  },
+  {
+   "kind": "churn",
+   "op": "load",
+   "model": "clone",
+   "start_s": 227.5,
+   "elapsed_s": 8.6,
+   "status": 200,
+   "detail": "loaded"
+  },
+  {
+   "kind": "churn",
+   "op": "unload",
+   "model": "custom",
+   "start_s": 228.6,
+   "elapsed_s": 0.1,
+   "status": 409,
+   "detail": null
+  },
+  {
+   "kind": "churn",
+   "op": "load",
+   "model": "custom",
+   "start_s": 229.6,
+   "elapsed_s": 0.1,
+   "status": 200,
+   "detail": "already_loaded"
+  },
+  {
+   "kind": "churn",
+   "op": "unload",
+   "model": "clone",
+   "start_s": 232.3,
+   "elapsed_s": 1.6,
+   "status": 200,
+   "detail": "unloaded"
+  },
+  {
+   "kind": "churn",
+   "op": "load",
+   "model": "clone",
+   "start_s": 240.7,
+   "elapsed_s": 7.4,
+   "status": 200,
+   "detail": "loaded"
+  },
+  {
+   "kind": "churn",
+   "op": "unload",
+   "model": "clone",
+   "start_s": 242.8,
+   "elapsed_s": 1.1,
+   "status": 200,
+   "detail": "unloaded"
+  },
+  {
+   "kind": "churn",
+   "op": "load",
+   "model": "clone",
+   "start_s": 249.0,
+   "elapsed_s": 5.2,
+   "status": 200,
+   "detail": "loaded"
+  },
+  {
+   "kind": "churn",
+   "op": "unload",
+   "model": "custom",
+   "start_s": 250.0,
+   "elapsed_s": 0.0,
+   "status": 409,
+   "detail": null
+  },
+  {
+   "kind": "churn",
+   "op": "load",
+   "model": "custom",
+   "start_s": 251.0,
+   "elapsed_s": 0.0,
+   "status": 200,
+   "detail": "already_loaded"
+  },
+  {
+   "kind": "churn",
+   "op": "unload",
+   "model": "clone",
+   "start_s": 252.9,
+   "elapsed_s": 0.9,
+   "status": 200,
+   "detail": "unloaded"
+  },
+  {
+   "kind": "generate",
+   "generator": 0,
+   "text": "Token test three churn 90544 0 4",
+   "start_s": 254.9,
+   "elapsed_s": 59.6,
+   "status": 200,
+   "error": null,
+   "audio_s": 5.2,
+   "approx_tokens": 65,
+   "CAPPED": false,
+   "seed": 1881280276
+  },
+  {
+   "kind": "churn",
+   "op": "load",
+   "model": "clone",
+   "start_s": 259.7,
+   "elapsed_s": 5.8,
+   "status": 200,
+   "detail": "loaded"
+  },
+  {
+   "kind": "churn",
+   "op": "unload",
+   "model": "clone",
+   "start_s": 261.8,
+   "elapsed_s": 1.1,
+   "status": 200,
+   "detail": "unloaded"
+  },
+  {
+   "kind": "churn",
+   "op": "load",
+   "model": "clone",
+   "start_s": 267.6,
+   "elapsed_s": 4.7,
+   "status": 200,
+   "detail": "loaded"
+  },
+  {
+   "kind": "churn",
+   "op": "unload",
+   "model": "custom",
+   "start_s": 268.6,
+   "elapsed_s": 0.0,
+   "status": 409,
+   "detail": null
+  },
+  {
+   "kind": "churn",
+   "op": "load",
+   "model": "custom",
+   "start_s": 269.7,
+   "elapsed_s": 0.0,
+   "status": 200,
+   "detail": "already_loaded"
+  },
+  {
+   "kind": "churn",
+   "op": "unload",
+   "model": "clone",
+   "start_s": 271.0,
+   "elapsed_s": 0.3,
+   "status": 200,
+   "detail": "unloaded"
+  },
+  {
+   "kind": "generate",
+   "generator": 1,
+   "text": "Token test three churn 90544 1 4",
+   "start_s": 274.7,
+   "elapsed_s": 76.6,
+   "status": 200,
+   "error": null,
+   "audio_s": 5.8,
+   "approx_tokens": 72,
+   "CAPPED": false,
+   "seed": 130450994
+  },
+  {
+   "kind": "churn",
+   "op": "load",
+   "model": "clone",
+   "start_s": 302.0,
+   "elapsed_s": 30.0,
+   "status": 200,
+   "detail": "loaded"
+  },
+  {
+   "kind": "churn",
+   "op": "unload",
+   "model": "clone",
+   "start_s": 306.9,
+   "elapsed_s": 4.0,
+   "status": 200,
+   "detail": "unloaded"
+  },
+  {
+   "kind": "churn",
+   "op": "load",
+   "model": "clone",
+   "start_s": 315.7,
+   "elapsed_s": 7.7,
+   "status": 200,
+   "detail": "loaded"
+  },
+  {
+   "kind": "churn",
+   "op": "unload",
+   "model": "custom",
+   "start_s": 316.7,
+   "elapsed_s": 0.0,
+   "status": 409,
+   "detail": null
+  },
+  {
+   "kind": "churn",
+   "op": "load",
+   "model": "custom",
+   "start_s": 317.7,
+   "elapsed_s": 0.0,
+   "status": 200,
+   "detail": "already_loaded"
+  },
+  {
+   "kind": "churn",
+   "op": "unload",
+   "model": "clone",
+   "start_s": 319.1,
+   "elapsed_s": 0.3,
+   "status": 200,
+   "detail": "unloaded"
+  },
+  {
+   "kind": "generate",
+   "generator": 3,
+   "text": "Token test three churn 90544 3 4",
+   "start_s": 323.5,
+   "elapsed_s": 116.2,
+   "status": 200,
+   "error": null,
+   "audio_s": 5.8,
+   "approx_tokens": 73,
+   "CAPPED": false,
+   "seed": 321055574
+  },
+  {
+   "kind": "churn",
+   "op": "load",
+   "model": "clone",
+   "start_s": 327.1,
+   "elapsed_s": 7.0,
+   "status": 200,
+   "detail": "loaded"
+  },
+  {
+   "kind": "churn",
+   "op": "unload",
+   "model": "clone",
+   "start_s": 328.7,
+   "elapsed_s": 0.6,
+   "status": 200,
+   "detail": "unloaded"
+  },
+  {
+   "kind": "churn",
+   "op": "load",
+   "model": "clone",
+   "start_s": 331.9,
+   "elapsed_s": 2.2,
+   "status": 200,
+   "detail": "loaded"
+  },
+  {
+   "kind": "churn",
+   "op": "unload",
+   "model": "custom",
+   "start_s": 332.9,
+   "elapsed_s": 0.0,
+   "status": 409,
+   "detail": null
+  },
+  {
+   "kind": "churn",
+   "op": "load",
+   "model": "custom",
+   "start_s": 334.0,
+   "elapsed_s": 0.0,
+   "status": 200,
+   "detail": "already_loaded"
+  },
+  {
+   "kind": "churn",
+   "op": "unload",
+   "model": "clone",
+   "start_s": 335.7,
+   "elapsed_s": 0.7,
+   "status": 200,
+   "detail": "unloaded"
+  },
+  {
+   "kind": "generate",
+   "generator": 2,
+   "text": "Token test three churn 90544 2 4",
+   "start_s": 335.8,
+   "elapsed_s": 113.1,
+   "status": 200,
+   "error": null,
+   "audio_s": 5.7,
+   "approx_tokens": 71,
+   "CAPPED": false,
+   "seed": 1977969422
+  },
+  {
+   "kind": "churn",
+   "op": "load",
+   "model": "clone",
+   "start_s": 338.4,
+   "elapsed_s": 1.7,
+   "status": 200,
+   "detail": "loaded"
+  },
+  {
+   "kind": "churn",
+   "op": "unload",
+   "model": "clone",
+   "start_s": 339.6,
+   "elapsed_s": 0.1,
+   "status": 200,
+   "detail": "unloaded"
+  },
+  {
+   "kind": "generate",
+   "generator": 0,
+   "text": "Token test three churn 90544 0 5",
+   "start_s": 341.4,
+   "elapsed_s": 86.6,
+   "status": 200,
+   "error": null,
+   "audio_s": 4.9,
+   "approx_tokens": 61,
+   "CAPPED": false,
+   "seed": 1435191548
+  },
+  {
+   "kind": "churn",
+   "op": "load",
+   "model": "clone",
+   "start_s": 342.9,
+   "elapsed_s": 2.3,
+   "status": 200,
+   "detail": "loaded"
+  },
+  {
+   "kind": "churn",
+   "op": "unload",
+   "model": "custom",
+   "start_s": 343.9,
+   "elapsed_s": 0.0,
+   "status": 409,
+   "detail": null
+  },
+  {
+   "kind": "churn",
+   "op": "load",
+   "model": "custom",
+   "start_s": 345.0,
+   "elapsed_s": 0.0,
+   "status": 200,
+   "detail": "already_loaded"
+  },
+  {
+   "kind": "churn",
+   "op": "unload",
+   "model": "clone",
+   "start_s": 346.2,
+   "elapsed_s": 0.2,
+   "status": 200,
+   "detail": "unloaded"
+  },
+  {
+   "kind": "generate",
+   "generator": 1,
+   "text": "Token test three churn 90544 1 5",
+   "start_s": 349.2,
+   "elapsed_s": 74.5,
+   "status": 200,
+   "error": null,
+   "audio_s": 4.4,
+   "approx_tokens": 55,
+   "CAPPED": false,
+   "seed": 1939333158
+  },
+  {
+   "kind": "churn",
+   "op": "load",
+   "model": "clone",
+   "start_s": 350.6,
+   "elapsed_s": 3.4,
+   "status": 200,
+   "detail": "loaded"
+  },
+  {
+   "kind": "churn",
+   "op": "unload",
+   "model": "clone",
+   "start_s": 351.8,
+   "elapsed_s": 0.2,
+   "status": 200,
+   "detail": "unloaded"
+  },
+  {
+   "kind": "generate",
+   "generator": 3,
+   "text": "Token test three churn 90544 3 5",
+   "start_s": 354.0,
+   "elapsed_s": 30.5,
+   "status": 200,
+   "error": null,
+   "audio_s": 5.0,
+   "approx_tokens": 62,
+   "CAPPED": false,
+   "seed": 957679459
+  },
+  {
+   "kind": "churn",
+   "op": "load",
+   "model": "clone",
+   "start_s": 355.9,
+   "elapsed_s": 3.2,
+   "status": 200,
+   "detail": "loaded"
+  },
+  {
+   "kind": "churn",
+   "op": "unload",
+   "model": "custom",
+   "start_s": 356.9,
+   "elapsed_s": 0.0,
+   "status": 409,
+   "detail": null
+  },
+  {
+   "kind": "churn",
+   "op": "load",
+   "model": "custom",
+   "start_s": 358.0,
+   "elapsed_s": 0.0,
+   "status": 200,
+   "detail": "already_loaded"
+  },
+  {
+   "kind": "generate",
+   "generator": 2,
+   "text": "Token test three churn 90544 2 5",
+   "start_s": 358.0,
+   "elapsed_s": 22.3,
+   "status": 200,
+   "error": null,
+   "audio_s": 4.4,
+   "approx_tokens": 55,
+   "CAPPED": false,
+   "seed": 44748162
+  },
+  {
+   "kind": "churn",
+   "op": "unload",
+   "model": "clone",
+   "start_s": 359.5,
+   "elapsed_s": 0.5,
+   "status": 200,
+   "detail": "unloaded"
+  },
+  {
+   "kind": "generate",
+   "generator": 0,
+   "text": "Token test three churn 90544 0 6",
+   "start_s": 362.7,
+   "elapsed_s": 21.3,
+   "status": 200,
+   "error": null,
+   "audio_s": 4.6,
+   "approx_tokens": 57,
+   "CAPPED": false,
+   "seed": 92088862
+  },
+  {
+   "kind": "churn",
+   "op": "load",
+   "model": "clone",
+   "start_s": 364.6,
+   "elapsed_s": 4.1,
+   "status": 200,
+   "detail": "loaded"
+  },
+  {
+   "kind": "churn",
+   "op": "unload",
+   "model": "clone",
+   "start_s": 365.8,
+   "elapsed_s": 0.2,
+   "status": 200,
+   "detail": "unloaded"
+  },
+  {
+   "kind": "generate",
+   "generator": 1,
+   "text": "Token test three churn 90544 1 6",
+   "start_s": 369.1,
+   "elapsed_s": 19.9,
+   "status": 200,
+   "error": null,
+   "audio_s": 4.6,
+   "approx_tokens": 58,
+   "CAPPED": false,
+   "seed": 2118671183
+  },
+  {
+   "kind": "churn",
+   "op": "load",
+   "model": "clone",
+   "start_s": 369.9,
+   "elapsed_s": 3.1,
+   "status": 200,
+   "detail": "loaded"
+  },
+  {
+   "kind": "churn",
+   "op": "unload",
+   "model": "custom",
+   "start_s": 371.0,
+   "elapsed_s": 0.0,
+   "status": 409,
+   "detail": null
+  },
+  {
+   "kind": "churn",
+   "op": "load",
+   "model": "custom",
+   "start_s": 372.0,
+   "elapsed_s": 0.0,
+   "status": 200,
+   "detail": "already_loaded"
+  },
+  {
+   "kind": "generate",
+   "generator": 3,
+   "text": "Token test three churn 90544 3 6",
+   "start_s": 372.6,
+   "elapsed_s": 18.5,
+   "status": 200,
+   "error": null,
+   "audio_s": 4.8,
+   "approx_tokens": 60,
+   "CAPPED": false,
+   "seed": 963872631
+  },
+  {
+   "kind": "churn",
+   "op": "unload",
+   "model": "clone",
+   "start_s": 373.2,
+   "elapsed_s": 0.2,
+   "status": 200,
+   "detail": "unloaded"
+  },
+  {
+   "kind": "churn",
+   "op": "load",
+   "model": "clone",
+   "start_s": 377.7,
+   "elapsed_s": 3.6,
+   "status": 200,
+   "detail": "loaded"
+  },
+  {
+   "kind": "generate",
+   "generator": 2,
+   "text": "Token test three churn 90544 2 6",
+   "start_s": 377.8,
+   "elapsed_s": 19.8,
+   "status": 200,
+   "error": null,
+   "audio_s": 4.7,
+   "approx_tokens": 59,
+   "CAPPED": false,
+   "seed": 462345589
+  },
+  {
+   "kind": "churn",
+   "op": "unload",
+   "model": "clone",
+   "start_s": 378.9,
+   "elapsed_s": 0.2,
+   "status": 200,
+   "detail": "unloaded"
+  },
+  {
+   "kind": "churn",
+   "op": "load",
+   "model": "clone",
+   "start_s": 381.6,
+   "elapsed_s": 1.7,
+   "status": 200,
+   "detail": "loaded"
+  },
+  {
+   "kind": "generate",
+   "generator": 0,
+   "text": "Token test three churn 90544 0 7",
+   "start_s": 382.6,
+   "elapsed_s": 19.8,
+   "status": 200,
+   "error": null,
+   "audio_s": 4.5,
+   "approx_tokens": 56,
+   "CAPPED": false,
+   "seed": 1637699364
+  },
+  {
+   "kind": "churn",
+   "op": "unload",
+   "model": "custom",
+   "start_s": 382.6,
+   "elapsed_s": 0.0,
+   "status": 409,
+   "detail": null
+  },
+  {
+   "kind": "churn",
+   "op": "load",
+   "model": "custom",
+   "start_s": 383.6,
+   "elapsed_s": 0.0,
+   "status": 200,
+   "detail": "already_loaded"
+  },
+  {
+   "kind": "churn",
+   "op": "unload",
+   "model": "clone",
+   "start_s": 384.9,
+   "elapsed_s": 0.3,
+   "status": 200,
+   "detail": "unloaded"
+  },
+  {
+   "kind": "churn",
+   "op": "load",
+   "model": "clone",
+   "start_s": 387.7,
+   "elapsed_s": 1.7,
+   "status": 200,
+   "detail": "loaded"
+  },
+  {
+   "kind": "churn",
+   "op": "unload",
+   "model": "clone",
+   "start_s": 388.9,
+   "elapsed_s": 0.2,
+   "status": 200,
+   "detail": "unloaded"
+  },
+  {
+   "kind": "churn",
+   "op": "load",
+   "model": "clone",
+   "start_s": 391.4,
+   "elapsed_s": 1.5,
+   "status": 200,
+   "detail": "loaded"
+  },
+  {
+   "kind": "churn",
+   "op": "unload",
+   "model": "custom",
+   "start_s": 392.4,
+   "elapsed_s": 0.0,
+   "status": 409,
+   "detail": null
+  },
+  {
+   "kind": "generate",
+   "generator": 1,
+   "text": "Token test three churn 90544 1 7",
+   "start_s": 392.7,
+   "elapsed_s": 23.6,
+   "status": 200,
+   "error": null,
+   "audio_s": 5.7,
+   "approx_tokens": 71,
+   "CAPPED": false,
+   "seed": 1252525057
+  },
+  {
+   "kind": "churn",
+   "op": "load",
+   "model": "custom",
+   "start_s": 393.4,
+   "elapsed_s": 0.0,
+   "status": 200,
+   "detail": "already_loaded"
+  },
+  {
+   "kind": "churn",
+   "op": "unload",
+   "model": "clone",
+   "start_s": 394.6,
+   "elapsed_s": 0.2,
+   "status": 200,
+   "detail": "unloaded"
+  },
+  {
+   "kind": "churn",
+   "op": "load",
+   "model": "clone",
+   "start_s": 397.4,
+   "elapsed_s": 1.8,
+   "status": 200,
+   "detail": "loaded"
+  },
+  {
+   "kind": "churn",
+   "op": "unload",
+   "model": "clone",
+   "start_s": 398.6,
+   "elapsed_s": 0.1,
+   "status": 200,
+   "detail": "unloaded"
+  },
+  {
+   "kind": "churn",
+   "op": "load",
+   "model": "clone",
+   "start_s": 401.8,
+   "elapsed_s": 2.2,
+   "status": 200,
+   "detail": "loaded"
+  },
+  {
+   "kind": "churn",
+   "op": "unload",
+   "model": "custom",
+   "start_s": 402.8,
+   "elapsed_s": 0.0,
+   "status": 409,
+   "detail": null
+  },
+  {
+   "kind": "churn",
+   "op": "load",
+   "model": "custom",
+   "start_s": 403.8,
+   "elapsed_s": 0.0,
+   "status": 200,
+   "detail": "already_loaded"
+  },
+  {
+   "kind": "churn",
+   "op": "unload",
+   "model": "clone",
+   "start_s": 405.3,
+   "elapsed_s": 0.5,
+   "status": 200,
+   "detail": "unloaded"
+  },
+  {
+   "kind": "generate",
+   "generator": 3,
+   "text": "Token test three churn 90544 3 7",
+   "start_s": 405.4,
+   "elapsed_s": 32.8,
+   "status": 200,
+   "error": null,
+   "audio_s": 6.3,
+   "approx_tokens": 79,
+   "CAPPED": false,
+   "seed": 326765334
+  },
+  {
+   "kind": "churn",
+   "op": "load",
+   "model": "clone",
+   "start_s": 407.8,
+   "elapsed_s": 1.5,
+   "status": 200,
+   "detail": "loaded"
+  },
+  {
+   "kind": "churn",
+   "op": "unload",
+   "model": "clone",
+   "start_s": 409.0,
+   "elapsed_s": 0.2,
+   "status": 200,
+   "detail": "unloaded"
+  },
+  {
+   "kind": "churn",
+   "op": "load",
+   "model": "clone",
+   "start_s": 411.7,
+   "elapsed_s": 1.7,
+   "status": 200,
+   "detail": "loaded"
+  },
+  {
+   "kind": "churn",
+   "op": "unload",
+   "model": "custom",
+   "start_s": 412.7,
+   "elapsed_s": 0.0,
+   "status": 409,
+   "detail": null
+  },
+  {
+   "kind": "churn",
+   "op": "load",
+   "model": "custom",
+   "start_s": 413.7,
+   "elapsed_s": 0.0,
+   "status": 200,
+   "detail": "already_loaded"
+  },
+  {
+   "kind": "churn",
+   "op": "unload",
+   "model": "clone",
+   "start_s": 415.3,
+   "elapsed_s": 0.6,
+   "status": 200,
+   "detail": "unloaded"
+  },
+  {
+   "kind": "generate",
+   "generator": 2,
+   "text": "Token test three churn 90544 2 7",
+   "start_s": 415.4,
+   "elapsed_s": 37.5,
+   "status": 200,
+   "error": null,
+   "audio_s": 5.2,
+   "approx_tokens": 65,
+   "CAPPED": false,
+   "seed": 1580322206
+  },
+  {
+   "kind": "churn",
+   "op": "load",
+   "model": "clone",
+   "start_s": 417.9,
+   "elapsed_s": 1.6,
+   "status": 200,
+   "detail": "loaded"
+  },
+  {
+   "kind": "churn",
+   "op": "unload",
+   "model": "clone",
+   "start_s": 419.0,
+   "elapsed_s": 0.1,
+   "status": 200,
+   "detail": "unloaded"
+  },
+  {
+   "kind": "churn",
+   "op": "load",
+   "model": "clone",
+   "start_s": 421.6,
+   "elapsed_s": 1.6,
+   "status": 200,
+   "detail": "loaded"
+  },
+  {
+   "kind": "churn",
+   "op": "unload",
+   "model": "custom",
+   "start_s": 422.6,
+   "elapsed_s": 0.0,
+   "status": 409,
+   "detail": null
+  },
+  {
+   "kind": "churn",
+   "op": "load",
+   "model": "custom",
+   "start_s": 423.6,
+   "elapsed_s": 0.0,
+   "status": 200,
+   "detail": "already_loaded"
+  },
+  {
+   "kind": "churn",
+   "op": "unload",
+   "model": "clone",
+   "start_s": 424.7,
+   "elapsed_s": 0.1,
+   "status": 200,
+   "detail": "unloaded"
+  },
+  {
+   "kind": "generate",
+   "generator": 0,
+   "text": "Token test three churn 90544 0 8",
+   "start_s": 426.2,
+   "elapsed_s": 43.6,
+   "status": 200,
+   "error": null,
+   "audio_s": 5.5,
+   "approx_tokens": 69,
+   "CAPPED": false,
+   "seed": 1839798690
+  },
+  {
+   "kind": "churn",
+   "op": "load",
+   "model": "clone",
+   "start_s": 427.6,
+   "elapsed_s": 1.9,
+   "status": 200,
+   "detail": "loaded"
+  },
+  {
+   "kind": "churn",
+   "op": "unload",
+   "model": "clone",
+   "start_s": 428.8,
+   "elapsed_s": 0.2,
+   "status": 200,
+   "detail": "unloaded"
+  },
+  {
+   "kind": "churn",
+   "op": "load",
+   "model": "clone",
+   "start_s": 431.3,
+   "elapsed_s": 1.5,
+   "status": 200,
+   "detail": "loaded"
+  },
+  {
+   "kind": "churn",
+   "op": "unload",
+   "model": "custom",
+   "start_s": 432.3,
+   "elapsed_s": 0.0,
+   "status": 409,
+   "detail": null
+  },
+  {
+   "kind": "churn",
+   "op": "load",
+   "model": "custom",
+   "start_s": 433.3,
+   "elapsed_s": 0.0,
+   "status": 200,
+   "detail": "already_loaded"
+  },
+  {
+   "kind": "churn",
+   "op": "unload",
+   "model": "clone",
+   "start_s": 434.5,
+   "elapsed_s": 0.1,
+   "status": 200,
+   "detail": "unloaded"
+  },
+  {
+   "kind": "generate",
+   "generator": 1,
+   "text": "Token test three churn 90544 1 8",
+   "start_s": 435.3,
+   "elapsed_s": 42.6,
+   "status": 200,
+   "error": null,
+   "audio_s": 5.3,
+   "approx_tokens": 66,
+   "CAPPED": false,
+   "seed": 1210049151
+  },
+  {
+   "kind": "churn",
+   "op": "load",
+   "model": "clone",
+   "start_s": 438.3,
+   "elapsed_s": 2.8,
+   "status": 200,
+   "detail": "loaded"
+  },
+  {
+   "kind": "churn",
+   "op": "unload",
+   "model": "clone",
+   "start_s": 439.5,
+   "elapsed_s": 0.2,
+   "status": 200,
+   "detail": "unloaded"
+  },
+  {
+   "kind": "churn",
+   "op": "load",
+   "model": "clone",
+   "start_s": 441.9,
+   "elapsed_s": 1.5,
+   "status": 200,
+   "detail": "loaded"
+  },
+  {
+   "kind": "churn",
+   "op": "unload",
+   "model": "custom",
+   "start_s": 442.9,
+   "elapsed_s": 0.0,
+   "status": 409,
+   "detail": null
+  },
+  {
+   "kind": "churn",
+   "op": "load",
+   "model": "custom",
+   "start_s": 443.9,
+   "elapsed_s": 0.0,
+   "status": 200,
+   "detail": "already_loaded"
+  },
+  {
+   "kind": "churn",
+   "op": "unload",
+   "model": "clone",
+   "start_s": 445.1,
+   "elapsed_s": 0.1,
+   "status": 200,
+   "detail": "unloaded"
+  },
+  {
+   "kind": "generate",
+   "generator": 3,
+   "text": "Token test three churn 90544 3 8",
+   "start_s": 446.1,
+   "elapsed_s": 40.7,
+   "status": 200,
+   "error": null,
+   "audio_s": 5.4,
+   "approx_tokens": 68,
+   "CAPPED": false,
+   "seed": 581148090
+  },
+  {
+   "kind": "churn",
+   "op": "load",
+   "model": "clone",
+   "start_s": 449.6,
+   "elapsed_s": 3.6,
+   "status": 200,
+   "detail": "loaded"
+  },
+  {
+   "kind": "churn",
+   "op": "unload",
+   "model": "clone",
+   "start_s": 450.8,
+   "elapsed_s": 0.2,
+   "status": 200,
+   "detail": "unloaded"
+  },
+  {
+   "kind": "churn",
+   "op": "load",
+   "model": "clone",
+   "start_s": 453.5,
+   "elapsed_s": 1.7,
+   "status": 200,
+   "detail": "loaded"
+  },
+  {
+   "kind": "churn",
+   "op": "unload",
+   "model": "custom",
+   "start_s": 454.5,
+   "elapsed_s": 0.0,
+   "status": 409,
+   "detail": null
+  },
+  {
+   "kind": "churn",
+   "op": "load",
+   "model": "custom",
+   "start_s": 455.5,
+   "elapsed_s": 0.0,
+   "status": 200,
+   "detail": "already_loaded"
+  },
+  {
+   "kind": "churn",
+   "op": "unload",
+   "model": "clone",
+   "start_s": 456.7,
+   "elapsed_s": 0.1,
+   "status": 200,
+   "detail": "unloaded"
+  },
+  {
+   "kind": "generate",
+   "generator": 2,
+   "text": "Token test three churn 90544 2 8",
+   "start_s": 458.4,
+   "elapsed_s": 43.0,
+   "status": 200,
+   "error": null,
+   "audio_s": 5.8,
+   "approx_tokens": 73,
+   "CAPPED": false,
+   "seed": 1662173626
+  },
+  {
+   "kind": "churn",
+   "op": "load",
+   "model": "clone",
+   "start_s": 460.3,
+   "elapsed_s": 2.7,
+   "status": 200,
+   "detail": "loaded"
+  },
+  {
+   "kind": "churn",
+   "op": "unload",
+   "model": "clone",
+   "start_s": 461.6,
+   "elapsed_s": 0.2,
+   "status": 200,
+   "detail": "unloaded"
+  },
+  {
+   "kind": "churn",
+   "op": "load",
+   "model": "clone",
+   "start_s": 464.1,
+   "elapsed_s": 1.5,
+   "status": 200,
+   "detail": "loaded"
+  },
+  {
+   "kind": "churn",
+   "op": "unload",
+   "model": "custom",
+   "start_s": 465.1,
+   "elapsed_s": 0.0,
+   "status": 409,
+   "detail": null
+  },
+  {
+   "kind": "churn",
+   "op": "load",
+   "model": "custom",
+   "start_s": 466.1,
+   "elapsed_s": 0.0,
+   "status": 200,
+   "detail": "already_loaded"
+  },
+  {
+   "kind": "churn",
+   "op": "unload",
+   "model": "clone",
+   "start_s": 467.2,
+   "elapsed_s": 0.1,
+   "status": 200,
+   "detail": "unloaded"
+  },
+  {
+   "kind": "churn",
+   "op": "load",
+   "model": "clone",
+   "start_s": 470.4,
+   "elapsed_s": 2.2,
+   "status": 200,
+   "detail": "loaded"
+  },
+  {
+   "kind": "generate",
+   "generator": 0,
+   "text": "Token test three churn 90544 0 9",
+   "start_s": 470.4,
+   "elapsed_s": 44.2,
+   "status": 200,
+   "error": null,
+   "audio_s": 6.0,
+   "approx_tokens": 75,
+   "CAPPED": false,
+   "seed": 885924974
+  },
+  {
+   "kind": "churn",
+   "op": "unload",
+   "model": "clone",
+   "start_s": 471.6,
+   "elapsed_s": 0.2,
+   "status": 200,
+   "detail": "unloaded"
+  },
+  {
+   "kind": "churn",
+   "op": "load",
+   "model": "clone",
+   "start_s": 474.1,
+   "elapsed_s": 1.5,
+   "status": 200,
+   "detail": "loaded"
+  },
+  {
+   "kind": "churn",
+   "op": "unload",
+   "model": "custom",
+   "start_s": 475.1,
+   "elapsed_s": 0.0,
+   "status": 409,
+   "detail": null
+  },
+  {
+   "kind": "churn",
+   "op": "load",
+   "model": "custom",
+   "start_s": 476.1,
+   "elapsed_s": 0.0,
+   "status": 200,
+   "detail": "already_loaded"
+  },
+  {
+   "kind": "churn",
+   "op": "unload",
+   "model": "clone",
+   "start_s": 477.2,
+   "elapsed_s": 0.1,
+   "status": 200,
+   "detail": "unloaded"
+  },
+  {
+   "kind": "churn",
+   "op": "load",
+   "model": "clone",
+   "start_s": 479.8,
+   "elapsed_s": 1.6,
+   "status": 200,
+   "detail": "loaded"
+  },
+  {
+   "kind": "generate",
+   "generator": 1,
+   "text": "Token test three churn 90544 1 9",
+   "start_s": 480.8,
+   "elapsed_s": 45.5,
+   "status": 200,
+   "error": null,
+   "audio_s": 6.2,
+   "approx_tokens": 77,
+   "CAPPED": false,
+   "seed": 1366403522
+  },
+  {
+   "kind": "churn",
+   "op": "unload",
+   "model": "clone",
+   "start_s": 481.0,
+   "elapsed_s": 0.2,
+   "status": 200,
+   "detail": "unloaded"
+  },
+  {
+   "kind": "churn",
+   "op": "load",
+   "model": "clone",
+   "start_s": 483.6,
+   "elapsed_s": 1.6,
+   "status": 200,
+   "detail": "loaded"
+  },
+  {
+   "kind": "churn",
+   "op": "unload",
+   "model": "custom",
+   "start_s": 484.6,
+   "elapsed_s": 0.0,
+   "status": 409,
+   "detail": null
+  },
+  {
+   "kind": "churn",
+   "op": "load",
+   "model": "custom",
+   "start_s": 485.6,
+   "elapsed_s": 0.0,
+   "status": 200,
+   "detail": "already_loaded"
+  },
+  {
+   "kind": "churn",
+   "op": "unload",
+   "model": "clone",
+   "start_s": 486.8,
+   "elapsed_s": 0.1,
+   "status": 200,
+   "detail": "unloaded"
+  },
+  {
+   "kind": "churn",
+   "op": "load",
+   "model": "clone",
+   "start_s": 489.3,
+   "elapsed_s": 1.6,
+   "status": 200,
+   "detail": "loaded"
+  },
+  {
+   "kind": "churn",
+   "op": "unload",
+   "model": "clone",
+   "start_s": 490.5,
+   "elapsed_s": 0.1,
+   "status": 200,
+   "detail": "unloaded"
+  },
+  {
+   "kind": "generate",
+   "generator": 3,
+   "text": "Token test three churn 90544 3 9",
+   "start_s": 491.8,
+   "elapsed_s": 45.7,
+   "status": 200,
+   "error": null,
+   "audio_s": 6.8,
+   "approx_tokens": 85,
+   "CAPPED": false,
+   "seed": 1650221015
+  },
+  {
+   "kind": "churn",
+   "op": "load",
+   "model": "clone",
+   "start_s": 493.3,
+   "elapsed_s": 1.8,
+   "status": 200,
+   "detail": "loaded"
+  },
+  {
+   "kind": "churn",
+   "op": "unload",
+   "model": "custom",
+   "start_s": 494.3,
+   "elapsed_s": 0.0,
+   "status": 409,
+   "detail": null
+  },
+  {
+   "kind": "churn",
+   "op": "load",
+   "model": "custom",
+   "start_s": 495.3,
+   "elapsed_s": 0.0,
+   "status": 200,
+   "detail": "already_loaded"
+  },
+  {
+   "kind": "churn",
+   "op": "unload",
+   "model": "clone",
+   "start_s": 496.5,
+   "elapsed_s": 0.2,
+   "status": 200,
+   "detail": "unloaded"
+  },
+  {
+   "kind": "churn",
+   "op": "load",
+   "model": "clone",
+   "start_s": 499.0,
+   "elapsed_s": 1.5,
+   "status": 200,
+   "detail": "loaded"
+  },
+  {
+   "kind": "churn",
+   "op": "unload",
+   "model": "clone",
+   "start_s": 500.1,
+   "elapsed_s": 0.2,
+   "status": 200,
+   "detail": "unloaded"
+  },
+  {
+   "kind": "generate",
+   "generator": 2,
+   "text": "Token test three churn 90544 2 9",
+   "start_s": 500.7,
+   "elapsed_s": 42.4,
+   "status": 200,
+   "error": null,
+   "audio_s": 5.4,
+   "approx_tokens": 67,
+   "CAPPED": false,
+   "seed": 1436072568
+  },
+  {
+   "kind": "churn",
+   "op": "load",
+   "model": "clone",
+   "start_s": 502.6,
+   "elapsed_s": 1.5,
+   "status": 200,
+   "detail": "loaded"
+  },
+  {
+   "kind": "churn",
+   "op": "unload",
+   "model": "custom",
+   "start_s": 503.7,
+   "elapsed_s": 0.0,
+   "status": 409,
+   "detail": null
+  },
+  {
+   "kind": "generate",
+   "generator": 0,
+   "text": "Token test three churn 90544 0 10",
+   "start_s": 504.6,
+   "elapsed_s": 34.2,
+   "status": 200,
+   "error": null,
+   "audio_s": 5.3,
+   "approx_tokens": 66,
+   "CAPPED": false,
+   "seed": 1141336858
+  },
+  {
+   "kind": "churn",
+   "op": "load",
+   "model": "custom",
+   "start_s": 504.7,
+   "elapsed_s": 0.0,
+   "status": 200,
+   "detail": "already_loaded"
+  },
+  {
+   "kind": "churn",
+   "op": "unload",
+   "model": "clone",
+   "start_s": 505.8,
+   "elapsed_s": 0.2,
+   "status": 200,
+   "detail": "unloaded"
+  },
+  {
+   "kind": "churn",
+   "op": "load",
+   "model": "clone",
+   "start_s": 509.0,
+   "elapsed_s": 2.2,
+   "status": 200,
+   "detail": "loaded"
+  },
+  {
+   "kind": "generate",
+   "generator": 1,
+   "text": "Token test three churn 90544 1 10",
+   "start_s": 509.6,
+   "elapsed_s": 28.8,
+   "status": 200,
+   "error": null,
+   "audio_s": 5.5,
+   "approx_tokens": 69,
+   "CAPPED": false,
+   "seed": 259437608
+  },
+  {
+   "kind": "churn",
+   "op": "unload",
+   "model": "clone",
+   "start_s": 510.6,
+   "elapsed_s": 0.5,
+   "status": 200,
+   "detail": "unloaded"
+  },
+  {
+   "kind": "churn",
+   "op": "load",
+   "model": "clone",
+   "start_s": 513.5,
+   "elapsed_s": 1.9,
+   "status": 200,
+   "detail": "loaded"
+  },
+  {
+   "kind": "churn",
+   "op": "unload",
+   "model": "custom",
+   "start_s": 514.5,
+   "elapsed_s": 0.0,
+   "status": 409,
+   "detail": null
+  },
+  {
+   "kind": "churn",
+   "op": "load",
+   "model": "custom",
+   "start_s": 515.5,
+   "elapsed_s": 0.0,
+   "status": 200,
+   "detail": "already_loaded"
+  },
+  {
+   "kind": "generate",
+   "generator": 3,
+   "text": "Token test three churn 90544 3 10",
+   "start_s": 515.6,
+   "elapsed_s": 23.8,
+   "status": 200,
+   "error": null,
+   "audio_s": 4.5,
+   "approx_tokens": 56,
+   "CAPPED": false,
+   "seed": 1953347900
+  },
+  {
+   "kind": "churn",
+   "op": "unload",
+   "model": "clone",
+   "start_s": 516.7,
+   "elapsed_s": 0.2,
+   "status": 200,
+   "detail": "unloaded"
+  },
+  {
+   "kind": "churn",
+   "op": "load",
+   "model": "clone",
+   "start_s": 521.1,
+   "elapsed_s": 3.4,
+   "status": 200,
+   "detail": "loaded"
+  },
+  {
+   "kind": "churn",
+   "op": "unload",
+   "model": "clone",
+   "start_s": 522.4,
+   "elapsed_s": 0.3,
+   "status": 200,
+   "detail": "unloaded"
+  },
+  {
+   "kind": "generate",
+   "generator": 2,
+   "text": "Token test three churn 90544 2 10",
+   "start_s": 523.7,
+   "elapsed_s": 23.0,
+   "status": 200,
+   "error": null,
+   "audio_s": 6.0,
+   "approx_tokens": 75,
+   "CAPPED": false,
+   "seed": 257157707
+  },
+  {
+   "kind": "churn",
+   "op": "load",
+   "model": "clone",
+   "start_s": 525.6,
+   "elapsed_s": 2.2,
+   "status": 200,
+   "detail": "loaded"
+  },
+  {
+   "kind": "churn",
+   "op": "unload",
+   "model": "custom",
+   "start_s": 526.6,
+   "elapsed_s": 0.0,
+   "status": 409,
+   "detail": null
+  },
+  {
+   "kind": "churn",
+   "op": "load",
+   "model": "custom",
+   "start_s": 527.6,
+   "elapsed_s": 0.0,
+   "status": 200,
+   "detail": "already_loaded"
+  },
+  {
+   "kind": "generate",
+   "generator": 0,
+   "text": "Token test three churn 90544 0 11",
+   "start_s": 527.7,
+   "elapsed_s": 23.1,
+   "status": 200,
+   "error": null,
+   "audio_s": 4.5,
+   "approx_tokens": 56,
+   "CAPPED": false,
+   "seed": 983611550
+  },
+  {
+   "kind": "churn",
+   "op": "unload",
+   "model": "clone",
+   "start_s": 528.8,
+   "elapsed_s": 0.2,
+   "status": 200,
+   "detail": "unloaded"
+  },
+  {
+   "kind": "churn",
+   "op": "load",
+   "model": "clone",
+   "start_s": 532.0,
+   "elapsed_s": 2.2,
+   "status": 200,
+   "detail": "loaded"
+  },
+  {
+   "kind": "generate",
+   "generator": 1,
+   "text": "Token test three churn 90544 1 11",
+   "start_s": 532.8,
+   "elapsed_s": 23.2,
+   "status": 200,
+   "error": null,
+   "audio_s": 4.8,
+   "approx_tokens": 60,
+   "CAPPED": false,
+   "seed": 1624121486
+  },
+  {
+   "kind": "churn",
+   "op": "unload",
+   "model": "clone",
+   "start_s": 533.2,
+   "elapsed_s": 0.2,
+   "status": 200,
+   "detail": "unloaded"
+  },
+  {
+   "kind": "churn",
+   "op": "load",
+   "model": "clone",
+   "start_s": 537.1,
+   "elapsed_s": 2.9,
+   "status": 200,
+   "detail": "loaded"
+  },
+  {
+   "kind": "generate",
+   "generator": 3,
+   "text": "Token test three churn 90544 3 11",
+   "start_s": 537.5,
+   "elapsed_s": 21.9,
+   "status": 200,
+   "error": null,
+   "audio_s": 5.2,
+   "approx_tokens": 65,
+   "CAPPED": false,
+   "seed": 1337645048
+  },
+  {
+   "kind": "churn",
+   "op": "unload",
+   "model": "custom",
+   "start_s": 538.1,
+   "elapsed_s": 0.0,
+   "status": 409,
+   "detail": null
+  },
+  {
+   "kind": "churn",
+   "op": "load",
+   "model": "custom",
+   "start_s": 539.1,
+   "elapsed_s": 0.0,
+   "status": 200,
+   "detail": "already_loaded"
+  },
+  {
+   "kind": "churn",
+   "op": "unload",
+   "model": "clone",
+   "start_s": 540.3,
+   "elapsed_s": 0.2,
+   "status": 200,
+   "detail": "unloaded"
+  },
+  {
+   "kind": "generate",
+   "generator": 2,
+   "text": "Token test three churn 90544 2 11",
+   "start_s": 541.5,
+   "elapsed_s": 17.8,
+   "status": 200,
+   "error": null,
+   "audio_s": 5.0,
+   "approx_tokens": 63,
+   "CAPPED": false,
+   "seed": 123810734
+  },
+  {
+   "kind": "churn",
+   "op": "load",
+   "model": "clone",
+   "start_s": 543.2,
+   "elapsed_s": 1.9,
+   "status": 200,
+   "detail": "loaded"
+  }
+ ]
+}
