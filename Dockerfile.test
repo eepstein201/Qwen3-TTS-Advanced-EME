@@ -61,15 +61,23 @@ COPY --chown=testuser:testuser config.json pytest.ini ./
 
 # Repo-root files referenced by guard/drift tests (CLAUDE.md size guard,
 # ARCHITECTURE.md companion, colab notebook drift, docker config drift,
-# install.sh config-template drift) and by the static gates (.ruff.toml --
-# without it ruff runs on its DEFAULT ruleset and reports hundreds of
-# phantom errors that do not reproduce on the host).
-COPY --chown=testuser:testuser CLAUDE.md colab_notebook.ipynb docker-compose.yml Dockerfile.vllm install.sh .ruff.toml Dockerfile.test docker-compose.test.yml ./
+# install.sh config-template drift, .dockerignore re-include checks) and by
+# the static gates (.ruff.toml -- without it ruff runs on its DEFAULT
+# ruleset and reports hundreds of phantom errors that do not reproduce on
+# the host).
+COPY --chown=testuser:testuser CLAUDE.md colab_notebook.ipynb docker-compose.yml Dockerfile.vllm install.sh .ruff.toml Dockerfile.test docker-compose.test.yml .dockerignore ./
 COPY --chown=testuser:testuser docs/ ./docs/
 # test_workflow_timeouts.py reads these. Without them the gate cannot run in
 # the container at all, and skipping it there would leave the batch reporting
 # green while verifying nothing.
 COPY --chown=testuser:testuser .github/workflows/ ./.github/workflows/
+# tests/test_claude_hooks.py executes the PreToolUse hook scripts and reads
+# the hooks-only shared settings. .dockerignore excludes .claude/ wholesale
+# (local settings must never bake into an image); these two tracked,
+# secret-free files are re-included there and copied explicitly, mirroring
+# the .github/workflows pattern above.
+COPY --chown=testuser:testuser .claude/hooks/ ./.claude/hooks/
+COPY --chown=testuser:testuser .claude/settings.json ./.claude/settings.json
 
 # Create expected directory structure with symlinks for both root and testuser
 RUN mkdir -p /root/Qwen3-TTS_UserFiles /home/testuser/Qwen3-TTS_UserFiles && \

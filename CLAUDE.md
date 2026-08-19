@@ -25,7 +25,7 @@ Features: pyrubberband audio processing (with librosa fallback), prosody presets
 4. User:   reviews diff/commits, merges to main (PR or direct)
 5. Claude: git checkout main && git pull origin main
 ```
-**Rationale:** protects main from accidental corruption, enables review before merging, keeps history clean.
+**Rationale:** protects main from accidental corruption, enables review before merging, keeps history clean. Enforced by committed PreToolUse hooks (`.claude/hooks/`, wired via tracked `.claude/settings.json` — hooks-only by guard test): `no-direct-push-main` (blocks push/merge/delete on main), `prepush-local-gates` (gate checklist on push), `claude-md-length-guard` (CLAUDE.md ≤300 lines).
 
 ## Commands
 

@@ -67,6 +67,7 @@ BATCHES = {
             "tests.test_model_cache_commands",
             "tests.test_batches_coverage",
             "tests.test_claude_md",
+            "tests.test_claude_hooks",
             "tests.test_workflow_timeouts",
             "tests.test_default_presets",
             "tests.test_extract_error",
