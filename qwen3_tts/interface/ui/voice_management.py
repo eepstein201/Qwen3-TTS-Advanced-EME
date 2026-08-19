@@ -49,6 +49,11 @@ def create_voice_prompt(
 
     Returns:
         Tuple of (status_message, prompt_list, default_prompt)
+
+    Note (torch path): the server serializes prompt creation on
+    inference_lock (#192), so the /create-voice-prompt request can queue
+    for minutes behind an in-flight generation — the shared
+    CREATE_PROMPT_TIMEOUT_SEC (not the old 60s) covers that wait.
     """
     if not audio_path:
         raise gr.Error("Please upload an audio file")
@@ -181,13 +186,16 @@ def create_voice_prompt(
                 "no_transcript": no_transcript,
             }
 
-            from qwen3_tts.core.http_client import server_request
+            from qwen3_tts.core.http_client import (
+                CREATE_PROMPT_TIMEOUT_SEC,
+                server_request,
+            )
 
             resp = server_request(
                 "POST",
                 "/create-voice-prompt",
                 json=payload,
-                timeout=60,
+                timeout=CREATE_PROMPT_TIMEOUT_SEC,
             )
 
             if resp.status_code != 200:

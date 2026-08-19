@@ -3,6 +3,7 @@
 Extracted from app.py to keep each module under 800 lines.
 """
 
+import asyncio
 import json
 import logging
 import os
@@ -18,6 +19,11 @@ from qwen3_tts.core.config import (
     save_config,
 )
 from qwen3_tts.server.app_lifespan import _sanitize_error
+from qwen3_tts.server.app_models import (
+    _decode_audio,
+    _remove_tempfile,
+    _stage_tempfile,
+)
 from qwen3_tts.server.validation import (
     _error_response,
     _strip_extension,
@@ -340,22 +346,40 @@ def handle_prompt_details(name_param):
     return {"prompts": prompts}
 
 
-def handle_create_voice_prompt(state, req):
+def _save_pt(voice_prompt, pt_path):
+    """Serialize the voice prompt tensor to .pt (blocking IO)."""
+    import torch
+
+    torch.save(voice_prompt, pt_path)
+
+
+async def handle_create_voice_prompt(state, req):
     """Create a voice clone prompt from uploaded audio.
 
     Decodes base64 audio, loads it for cloning, creates the voice prompt
     tensor, and saves it to VOICE_PROMPTS_DIR.
 
+    Lock discipline (#192): engine ``create_voice_prompt`` is real MLX/torch
+    inference and runs UNDER ``state.inference_lock`` as a leaf acquisition
+    — the handler holds nothing else when it takes the lock, so the global
+    inference_lock-outermost order holds (unsynchronized concurrent
+    inference is upstream-unsafe: ml-explore/mlx#3078, Blaizzy/mlx-audio
+    #638/#733). Everything else stays OUTSIDE the lock: the b64 decode, the
+    tempfile staging and ``load_audio_for_cloning`` are blocking-but-
+    uncontended work that must not starve /generate (mirrors the
+    /transcribe and /load-model load/warm-up splits), and the .pt save is
+    disk IO that must not hold the GPU lock. The clone-model reference is
+    captured ONCE before the lock: a concurrent /unload-model then leaves
+    this handler an alive local reference — equal-or-better than the old
+    inline double read of ``state.models["clone"]``.
+
     Args:
-        state: app.state (provides loaded models)
+        state: app.state (provides loaded models and inference_lock)
         req: CreateVoicePromptRequest with audio_base64, name, transcript, no_transcript
 
     Returns:
         Dict with status and prompt name.
     """
-    import base64
-    import tempfile
-
     # Validate prompt name
     err = _validate_prompt_name(req.name)
     if err:
@@ -363,44 +387,53 @@ def handle_create_voice_prompt(state, req):
 
     base = _strip_extension(req.name)
 
-    # Verify clone model is loaded
-    if state.models.get("clone") is None:
+    # Capture the model reference once, before any await.
+    model = state.models.get("clone")
+    if model is None:
         raise HTTPException(
             status_code=503,
             detail="Clone model must be loaded to create voice prompts",
         )
 
-    # Decode audio
+    # Decode audio. Off the event loop: b64decode of a near-100 MB body is
+    # sub-second-but-blocking work (async-offload policy,
+    # cf. tests/test_server_async_offload.py).
     try:
-        audio_bytes = base64.b64decode(req.audio_base64)
+        audio_bytes = await asyncio.to_thread(_decode_audio, req.audio_base64)
     except Exception:
         raise HTTPException(status_code=400, detail="Invalid base64 audio data")
 
     # Write to tempfile, load audio, create prompt
     tmp_path = None
     try:
-        with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as tmp:
-            tmp.write(audio_bytes)
-            tmp_path = tmp.name
-        os.chmod(tmp_path, 0o600)
+        tmp_path = await asyncio.to_thread(_stage_tempfile, audio_bytes)
 
         from qwen3_tts.core.engine import create_voice_prompt, load_audio_for_cloning
 
-        ref_audio, ref_sr = load_audio_for_cloning(tmp_path)
-        transcript = "" if req.no_transcript else (req.transcript or "")
-        voice_prompt = create_voice_prompt(
-            state.models["clone"],
-            ref_audio,
-            ref_sr,
-            transcript,
-            x_vector_only_mode=req.no_transcript,
+        # UNLOCKED: audio decode is blocking-but-uncontended work and must
+        # not starve /generate (mirrors the /transcribe and /load-model
+        # load/warm-up splits).
+        ref_audio, ref_sr = await asyncio.to_thread(
+            load_audio_for_cloning, tmp_path
         )
 
-        # Save the .pt file
-        import torch
+        transcript = "" if req.no_transcript else (req.transcript or "")
 
+        # Real MLX/torch inference (#192) — leaf acquisition: the handler
+        # holds nothing else, so inference_lock stays outermost.
+        async with state.inference_lock:
+            voice_prompt = await asyncio.to_thread(
+                create_voice_prompt,
+                model,
+                ref_audio,
+                ref_sr,
+                transcript,
+                x_vector_only_mode=req.no_transcript,
+            )
+
+        # Save the .pt file — disk IO: off the loop AND off the lock.
         pt_path = safe_path_join(VOICE_PROMPTS_DIR, f"{base}.pt")
-        torch.save(voice_prompt, pt_path)
+        await asyncio.to_thread(_save_pt, voice_prompt, pt_path)
 
         # Clear voice prompt cache so new prompt is visible
         from qwen3_tts.core.engine import clear_voice_prompt_cache
@@ -425,8 +458,4 @@ def handle_create_voice_prompt(state, req):
         _error_response(500, "unknown_error", _sanitize_error(str(e)), "bug")
         return
     finally:
-        if tmp_path and os.path.exists(tmp_path):
-            try:
-                os.remove(tmp_path)
-            except OSError:
-                pass
+        await asyncio.to_thread(_remove_tempfile, tmp_path)

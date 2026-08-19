@@ -320,20 +320,25 @@ class TestCreatePromptSerialization(unittest.TestCase):
                 seen.append({"lock_held": state.inference_lock.locked()})
                 return MagicMock()
 
-            # Simulate an in-flight generation holding the GPU lock.
-            async with state.inference_lock:
-                with (
-                    patch(
-                        "qwen3_tts.core.engine.load_audio_for_cloning",
-                        side_effect=_load_audio,
-                    ),
-                    patch(
-                        "qwen3_tts.core.engine.create_voice_prompt",
-                        side_effect=_create,
-                    ),
-                    patch("qwen3_tts.server.app_prompts._save_pt"),
-                    patch("qwen3_tts.core.engine.clear_voice_prompt_cache"),
-                ):
+            # The patches must OUTLIVE the lock release: the handler still
+            # has post-lock work (_save_pt) after it acquires the lock, so
+            # nesting them inside the async with would unpatch before the
+            # task finishes (unlike the transcribe template, whose handler
+            # returns straight off its generate).
+            with (
+                patch(
+                    "qwen3_tts.core.engine.load_audio_for_cloning",
+                    side_effect=_load_audio,
+                ),
+                patch(
+                    "qwen3_tts.core.engine.create_voice_prompt",
+                    side_effect=_create,
+                ),
+                patch("qwen3_tts.server.app_prompts._save_pt"),
+                patch("qwen3_tts.core.engine.clear_voice_prompt_cache"),
+            ):
+                # Simulate an in-flight generation holding the GPU lock.
+                async with state.inference_lock:
                     task = asyncio.ensure_future(
                         handle_create_voice_prompt(state, _prompt_req())
                     )
@@ -343,11 +348,13 @@ class TestCreatePromptSerialization(unittest.TestCase):
                         "clone inference must not run while another holder "
                         "has inference_lock"
                     )
-                    assert staged == [{"lock_held": False}], (
-                        "unlocked staging (audio load) must proceed while "
-                        "the lock is held"
+                    assert staged and staged[0]["lock_held"], (
+                        "the audio load must run while another holder has "
+                        "inference_lock — staging is not gated on the GPU "
+                        "lock, so it proceeds even while the lock is "
+                        "unavailable"
                     )
-            result = await asyncio.wait_for(task, timeout=5)
+                result = await asyncio.wait_for(task, timeout=5)
             return result, seen
 
         result, seen = asyncio.run(_scenario())
