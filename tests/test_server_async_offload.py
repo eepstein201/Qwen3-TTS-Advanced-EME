@@ -5,7 +5,8 @@ The prompt endpoints (/prompts, /delete-prompt, /rename-prompt, /preview-prompt,
 (os.listdir/remove/rename, save_config, reading .wav files). Running those
 directly inside an async endpoint blocks the event loop and stalls in-flight
 streaming responses. They must be dispatched via ``asyncio.to_thread``, matching
-the existing pattern used by /load-model, /transcribe, and /create-voice-prompt.
+the pattern used by /transcribe and /create-voice-prompt. (/load-model's
+handler is async since the #192 warm-up serialization and is awaited directly.)
 
 See docs/reviews/e2e-review-2026-07-01.md (Phase 5 FastAPI review, HIGH).
 """

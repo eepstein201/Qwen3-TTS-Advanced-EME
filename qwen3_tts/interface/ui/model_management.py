@@ -120,7 +120,10 @@ def toggle_model(model_type, action):
     started = time.monotonic()
 
     try:
-        from qwen3_tts.core.http_client import server_request
+        from qwen3_tts.core.http_client import (
+            LOAD_MODEL_TIMEOUT_SEC,
+            server_request,
+        )
 
         if action == "load":
             path = "/load-model"
@@ -131,7 +134,7 @@ def toggle_model(model_type, action):
             "POST",
             path,
             json={"model_type": model_type},
-            timeout=120,
+            timeout=LOAD_MODEL_TIMEOUT_SEC,
         )
 
         if resp.status_code == 200:

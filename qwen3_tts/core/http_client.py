@@ -19,7 +19,19 @@ from qwen3_tts.core.config import (
     load_config,
 )
 
-__all__ = ["server_request"]
+__all__ = ["LOAD_MODEL_TIMEOUT_SEC", "server_request"]
+
+# A /load-model issued while a generation is running queues its warm-up
+# behind inference_lock (#192 serialization), so the total is load time +
+# the queued generation's runtime + warm-up. The old 120s timed out
+# client-side while the server kept working, and the visible failure
+# invited a retry that double-loads. Bound covers the documented
+# whole-text worst case (~660s) plus a cold download; a longer queued
+# generation can still exceed it — the residual spurious-timeout window
+# is accepted rather than scaling, since the client cannot know the size
+# of someone else's queued generation. EVERY /load-model caller must use
+# this constant (guarded by tests/test_issue192_warmup_serialization.py).
+LOAD_MODEL_TIMEOUT_SEC = 900
 
 _ALLOWED_METHODS = frozenset(
     {"GET", "POST", "PUT", "DELETE", "PATCH", "HEAD", "OPTIONS"}

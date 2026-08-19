@@ -193,8 +193,18 @@ def _recover_from_failed_load(state, model_type: str) -> None:
         )
 
 
-def handle_load_model(state, req):
+async def handle_load_model(state, req):
     """Load a model on demand.
+
+    The load itself runs WITHOUT inference_lock — minutes of download and
+    weight construction must not starve /generate. The design warm-up
+    inference afterwards runs UNDER inference_lock, acquired as a leaf
+    (nothing else held), matching the global lock order where
+    inference_lock is outermost (/generate at app_generation.py, /ws).
+    Warm-up-vs-generation was the issue #192 trigger pair — the one this
+    closes. It is not the only unlocked MLX inference reachable through
+    the API: /transcribe and /create-voice-prompt remain unsynchronized
+    of the same class (tracked as a #192 follow-up).
 
     Raises HTTPException on invalid model_type or load failure.
     Returns status dict.
@@ -221,12 +231,27 @@ def handle_load_model(state, req):
     try:
         from qwen3_tts.core.config import get_model_info
         from qwen3_tts.core.engine import load_model
+        from qwen3_tts.core.engine.model_loader import (
+            _warmup_disabled,
+            _warmup_model,
+        )
 
         info = get_model_info(model_type)
         model_name = info.get("name", info.get("name_template", model_type))
         logger.info("Loading %s...", sanitize_log(model_name))
         t0 = time.time()
-        model = load_model(model_type)
+        # Load without the warm-up — the server serializes it below so the
+        # warm-up never runs concurrently with a generation (#192).
+        model = await asyncio.to_thread(load_model, model_type, warmup=False)
+        # Only design weights warm up (see _warmup_model's own guard — keep
+        # in sync), and the knob is checked BEFORE the lock so ablation
+        # runs don't queue behind generations for a no-op; clone/custom
+        # skip the lock round-trip entirely.
+        if model_type == "design" and not _warmup_disabled():
+            async with state.inference_lock:
+                await asyncio.to_thread(
+                    _warmup_model, model, model_type, get_backend()
+                )
         state.models[model_type] = model
         state.model_load_times[model_type] = round(time.time() - t0, 1)
         logger.info(

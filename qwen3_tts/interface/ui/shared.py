@@ -239,7 +239,10 @@ def apply_model_settings(model_size, mlx_quantization):
         return "Server not running", format_status_display()
 
     try:
-        from qwen3_tts.core.http_client import server_request
+        from qwen3_tts.core.http_client import (
+            LOAD_MODEL_TIMEOUT_SEC,
+            server_request,
+        )
 
         # Step 1: Remember which models are loaded
         models_loaded = []
@@ -275,7 +278,7 @@ def apply_model_settings(model_size, mlx_quantization):
                         "POST",
                         "/load-model",
                         json={"model_type": model_type},
-                        timeout=120,
+                        timeout=LOAD_MODEL_TIMEOUT_SEC,
                     )
                     if r.status_code == 200:
                         reloaded.append(model_type)

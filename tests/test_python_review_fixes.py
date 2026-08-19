@@ -149,7 +149,7 @@ class TestErrorResponseReturnGuard(unittest.TestCase):
         with patch("qwen3_tts.server.app_models._error_response") as mock_err:
             mock_err.return_value = None  # doesn't raise
             with patch("qwen3_tts.core.engine.load_model", side_effect=ImportError("no backend")):
-                result = handle_load_model(state, req)
+                result = asyncio.run(handle_load_model(state, req))
 
         # After fix: result is None (explicit return after _error_response)
         # Before fix: result is {"status": "loaded", ...} — THIS IS THE BUG

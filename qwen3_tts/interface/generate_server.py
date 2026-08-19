@@ -147,11 +147,17 @@ def launch_gradio_ui(config):
 
 def load_model_on_server(config, model_type):
     """Request the server to load a model on demand."""
-    from qwen3_tts.core.http_client import server_request
+    from qwen3_tts.core.http_client import (
+        LOAD_MODEL_TIMEOUT_SEC,
+        server_request,
+    )
 
     print(f"Loading {model_type} model on server (this may take 30-60 seconds)...")
     resp = server_request(
-        "POST", "/load-model", json={"model_type": model_type}, timeout=120
+        "POST",
+        "/load-model",
+        json={"model_type": model_type},
+        timeout=LOAD_MODEL_TIMEOUT_SEC,
     )
     if resp.status_code == 200:
         result = resp.json()

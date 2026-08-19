@@ -479,6 +479,21 @@ def _load_model_mlx(model_type):
 # ---------------------------------------------------------------------------
 
 
+def _warmup_disabled() -> bool:
+    """True when the TTS_SKIP_WARMUP ablation knob is set (#192).
+
+    Read at call time (not import time) so per-process env changes apply.
+    The server's warm-up serialization guards call this BEFORE acquiring
+    inference_lock, so ablation runs don't queue loads behind generations
+    just to no-op.
+    """
+    return os.environ.get("TTS_SKIP_WARMUP", "").strip().lower() in (
+        "1",
+        "true",
+        "yes",
+    )
+
+
 def _warmup_model(model, model_type, backend):
     """Run a short warm-up inference to compile kernels. Non-fatal.
 
@@ -489,11 +504,14 @@ def _warmup_model(model, model_type, backend):
     if model_type != "design":
         return  # Base/Clone and Custom weights don't support generate_voice_design
 
-    if os.environ.get("TTS_SKIP_WARMUP", "").strip().lower() in ("1", "true", "yes"):
+    if _warmup_disabled():
         # Issue #192 ablation/mitigation knob: skip the load-time warm-up
-        # inference, the only unserialized GPU work reachable through the API.
-        # Logged positively — a run's log must record the knob was active,
-        # because the absence of warm-up lines alone proves nothing.
+        # inference. The server normally runs this warm-up serialized on
+        # inference_lock (app_models/app_lifespan); /transcribe and
+        # /create-voice-prompt remain unserialized GPU work (tracked as a
+        # #192 follow-up). Logged positively — a run's log must record the
+        # knob was active, because the absence of warm-up lines alone
+        # proves nothing.
         logger.info("Skipping %s warm-up (TTS_SKIP_WARMUP set)", model_type)
         return
 
@@ -530,7 +548,7 @@ def _warmup_model(model, model_type, backend):
 # ---------------------------------------------------------------------------
 
 
-def load_model(model_type):
+def load_model(model_type, *, warmup: bool = True):
     """Load a TTS model by type, dispatching to the configured backend.
 
     After loading, runs a short warm-up inference to pre-compile kernels
@@ -538,6 +556,10 @@ def load_model(model_type):
 
     Args:
         model_type: One of "clone", "design", "custom".
+        warmup: Run the warm-up inference here. The server passes False and
+            runs the warm-up itself under inference_lock — the warm-up is
+            real MLX inference and must not execute concurrently with a
+            generation (issue #192).
 
     Returns:
         The loaded model instance (type depends on backend).
@@ -547,5 +569,6 @@ def load_model(model_type):
         model = _load_model_mlx(model_type)
     else:
         model = _load_model_torch(model_type)
-    _warmup_model(model, model_type, backend)
+    if warmup:
+        _warmup_model(model, model_type, backend)
     return model

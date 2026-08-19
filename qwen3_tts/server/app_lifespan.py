@@ -7,6 +7,7 @@ auto-shutdown, ETA estimation, memory checking, error sanitization.
 
 import asyncio
 import atexit
+import concurrent.futures
 import fcntl
 import json
 import logging
@@ -413,6 +414,11 @@ async def lifespan(app):
     # CRITICAL: Add inference_lock to prevent parallel OOM
     app.state.inference_lock = asyncio.Lock()
 
+    # Captured for the startup loader thread: _background_load schedules its
+    # warm-up inference onto this loop so it can take inference_lock (#192 —
+    # no MLX inference may run concurrently with a generation).
+    app.state.event_loop = asyncio.get_running_loop()
+
     # ETA cache
     app.state.eta_cache = {"median_rate": None, "last_updated": 0}
     app.state.eta_cache_lock = threading.Lock()
@@ -488,6 +494,83 @@ async def lifespan(app):
     lock_fh.close()
 
 
+# Bounds the loader thread's wait for the locked warm-up. One runaway
+# generation chunk at the 4096-token ceiling is ~328s (12.5 Hz); a
+# multi-chunk /generate can hold inference_lock longer still (~660s
+# documented). 600 covers the single-chunk case with slack; longer queues
+# abandon the warm-up wait (best-effort — the first real request pays the
+# cold start) rather than stalling /ready behind an unbounded wait.
+_STARTUP_WARMUP_TIMEOUT_SEC = 600
+
+
+def _run_warmup_under_inference_lock(app_state, model, model_type):
+    """Run the design load-time warm-up serialized on inference_lock (#192).
+
+    The startup loader is a plain thread and cannot await the asyncio lock,
+    so the locked warm-up is scheduled onto the server's event loop
+    (app_state.event_loop, captured in lifespan) and this thread blocks
+    until it completes or times out. Best-effort by design — the load has
+    already succeeded at this point: if the loop is gone (shutdown race)
+    or scheduling fails, the warm-up is skipped — never run
+    unsynchronized, never failing the load around it. On timeout the WAIT
+    is abandoned and the scheduled warm-up is cancelled if it has not
+    started yet; one already running finishes under the lock (still
+    serialized — safety holds), it is just no longer waited for.
+
+    This closes the warm-up-vs-generation pair only; /transcribe and
+    /create-voice-prompt remain unlocked MLX inference of the same class
+    (tracked as a #192 follow-up).
+    """
+    if model_type != "design":
+        # _warmup_model no-ops for clone/custom — don't queue behind a
+        # generation just to do nothing (keep in sync with its own guard).
+        return
+    try:
+        from qwen3_tts.core.engine.model_loader import (
+            _warmup_disabled,
+            _warmup_model,
+        )
+
+        if _warmup_disabled():
+            # TTS_SKIP_WARMUP — check before the lock so ablation runs
+            # don't queue behind generations for a no-op.
+            return
+
+        loop = getattr(app_state, "event_loop", None)
+        if loop is None or loop.is_closed():
+            logger.info(
+                "Skipping %s warm-up (event loop unavailable)", model_type
+            )
+            return
+
+        async def _locked_warmup():
+            async with app_state.inference_lock:
+                await asyncio.to_thread(
+                    _warmup_model, model, model_type, get_backend()
+                )
+
+        future = asyncio.run_coroutine_threadsafe(_locked_warmup(), loop)
+        try:
+            future.result(timeout=_STARTUP_WARMUP_TIMEOUT_SEC)
+        except concurrent.futures.TimeoutError:
+            # Abandon the wait, not the safety: cancel stops the coroutine
+            # if it hasn't started; if it is mid-warm-up it finishes under
+            # the lock. The load has already succeeded either way.
+            future.cancel()
+            logger.warning(
+                "%s warm-up still queued behind inference_lock after %ss — "
+                "no longer waiting (cold start deferred to first request)",
+                model_type,
+                _STARTUP_WARMUP_TIMEOUT_SEC,
+            )
+    except Exception as e:  # noqa: BLE001 — best-effort; the load succeeded
+        logger.warning(
+            "Startup warm-up for %s could not run (non-fatal): %s",
+            sanitize_log(model_type),
+            sanitize_log(e),
+        )
+
+
 def _background_load(app_state):
     """Background thread that loads models at startup."""
     from qwen3_tts.core.engine import load_model, migrate_orphan_mlx_prompts
@@ -521,7 +604,9 @@ def _background_load(app_state):
             model_name = info.get("name", info.get("name_template", model_type))
             logger.info("Loading %s...", sanitize_log(model_name))
             t0 = time.time()
-            model = load_model(model_type)
+            # Load without the warm-up; it runs serialized below (#192).
+            model = load_model(model_type, warmup=False)
+            _run_warmup_under_inference_lock(app_state, model, model_type)
             app_state.models[model_type] = model
             app_state.model_load_times[model_type] = round(time.time() - t0, 1)
             logger.info(
