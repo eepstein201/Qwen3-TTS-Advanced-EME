@@ -20,7 +20,7 @@ torch = [
     "torch>=2.13.0",
     "torchaudio>=2.11.0",
     "qwen-tts",
-    "transformers>=4.57.3",
+    "transformers>=5.15.0",
 ]
 
 # MLX backend (Apple Silicon only)
