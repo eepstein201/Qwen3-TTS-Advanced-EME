@@ -13,6 +13,7 @@ Run with:
 No GPU, models, or running server required.
 """
 
+import asyncio
 import unittest
 from unittest.mock import MagicMock, patch
 
@@ -90,7 +91,7 @@ class TestFailedLoadTriggersRecovery(unittest.TestCase):
             "qwen3_tts.core.engine.unload_model_cleanup"
         ) as cleanup:
             with self.assertRaises(HTTPException):
-                handle_load_model(state, _req())
+                asyncio.run(handle_load_model(state, _req()))
 
         cleanup.assert_called_once()
 
@@ -103,7 +104,7 @@ class TestFailedLoadTriggersRecovery(unittest.TestCase):
             "qwen3_tts.core.engine.unload_model_cleanup"
         ) as cleanup:
             with self.assertRaises(HTTPException):
-                handle_load_model(state, _req())
+                asyncio.run(handle_load_model(state, _req()))
 
         cleanup.assert_called_once()
 
@@ -116,7 +117,7 @@ class TestFailedLoadTriggersRecovery(unittest.TestCase):
             "qwen3_tts.core.engine.unload_model_cleanup"
         ) as cleanup:
             with self.assertRaises(HTTPException):
-                handle_load_model(state, _req())
+                asyncio.run(handle_load_model(state, _req()))
 
         cleanup.assert_called_once()
 
@@ -129,7 +130,7 @@ class TestFailedLoadTriggersRecovery(unittest.TestCase):
             "qwen3_tts.core.config.get_model_info",
             return_value={"name": "qwen3-tts-clone"},
         ), patch("qwen3_tts.core.engine.unload_model_cleanup") as cleanup:
-            result = handle_load_model(state, _req())
+            result = asyncio.run(handle_load_model(state, _req()))
 
         self.assertEqual(result["status"], "loaded")
         cleanup.assert_not_called()
@@ -146,7 +147,7 @@ class TestFailedLoadLeavesConsistentState(unittest.TestCase):
         load_p, info_p = _load_failing(RuntimeError("CUDA out of memory"))
         with load_p, info_p, patch("qwen3_tts.core.engine.unload_model_cleanup"):
             with self.assertRaises(HTTPException):
-                handle_load_model(state, _req())
+                asyncio.run(handle_load_model(state, _req()))
 
     def test_model_slot_is_none(self):
         state = _make_state()
@@ -185,7 +186,7 @@ class TestRecoveryIsNonFatal(unittest.TestCase):
             side_effect=RuntimeError("cleanup blew up"),
         ):
             with self.assertRaises(HTTPException) as ctx:
-                handle_load_model(state, _req())
+                asyncio.run(handle_load_model(state, _req()))
 
         # The surfaced failure is the load failure, not the cleanup failure.
         self.assertEqual(ctx.exception.status_code, 500)
@@ -201,7 +202,7 @@ class TestRecoveryIsNonFatal(unittest.TestCase):
             side_effect=RuntimeError("cleanup blew up"),
         ):
             with self.assertRaises(HTTPException):
-                handle_load_model(state, _req())
+                asyncio.run(handle_load_model(state, _req()))
 
         self.assertFalse(state.models_loading["clone"])
 

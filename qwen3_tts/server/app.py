@@ -650,7 +650,7 @@ async def load_model_endpoint(
     """Load a model on demand."""
     state = request.app.state
     reset_activity_timer(state)
-    return await asyncio.to_thread(handle_load_model, state, req)
+    return await handle_load_model(state, req)
 
 
 @app.post("/unload-model", response_model=ModelOpResponse, response_model_exclude_unset=True)

@@ -469,6 +469,40 @@ def test_load_model_dispatches_torch():
     assert result == mock_model
 
 
+@pytest.mark.unit
+def test_load_model_warmup_false_skips_warmup():
+    """load_model(warmup=False) defers warm-up to the caller (issue #192).
+
+    The server layer loads unlocked, then runs the warm-up inference under
+    inference_lock — the engine must not run the warm-up itself when the
+    caller has taken over that responsibility.
+    """
+    from qwen3_tts.core.engine.model_loader import load_model
+
+    mock_model = MagicMock()
+    with (
+        patch("qwen3_tts.core.engine.model_loader.get_backend", return_value="mlx"),
+        patch(
+            "qwen3_tts.core.engine.model_loader._load_model_mlx",
+            return_value=mock_model,
+        ),
+        patch("qwen3_tts.core.engine.model_loader._warmup_model") as mock_warm,
+    ):
+        result = load_model("design", warmup=False)
+
+    mock_warm.assert_not_called()
+    assert result == mock_model
+
+
+@pytest.mark.unit
+def test_load_model_warmup_kwarg_is_keyword_only():
+    """warmup is keyword-only — call sites cannot silently pass it positionally."""
+    from qwen3_tts.core.engine.model_loader import load_model
+
+    with pytest.raises(TypeError):
+        load_model("design", False)
+
+
 # ---- _apply_cuda_optimizations additional coverage ----
 
 

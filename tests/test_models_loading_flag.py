@@ -16,6 +16,7 @@ No GPU, models, or running server required.
 Run: pytest tests/test_models_loading_flag.py -v --tb=short
 """
 
+import asyncio
 import unittest
 from unittest.mock import MagicMock, patch
 
@@ -148,7 +149,7 @@ class TestHandleLoadModelTracksLoadingFlag(unittest.TestCase):
         state = self._make_state()
         observed_during_load = {}
 
-        def fake_load_model(model_type):
+        def fake_load_model(model_type, **kwargs):  # kwargs: warmup (#192 split)
             observed_during_load["loading"] = state.models_loading.get(model_type)
             return MagicMock()
 
@@ -157,7 +158,7 @@ class TestHandleLoadModelTracksLoadingFlag(unittest.TestCase):
 
         with patch("qwen3_tts.core.engine.load_model", side_effect=fake_load_model), \
              patch("qwen3_tts.core.config.get_model_info", return_value={"name": "qwen3-tts-clone"}):
-            handle_load_model(state, req)
+            asyncio.run(handle_load_model(state, req))
 
         self.assertTrue(
             observed_during_load.get("loading"),
@@ -175,7 +176,7 @@ class TestHandleLoadModelTracksLoadingFlag(unittest.TestCase):
         state = self._make_state()
         observed = {}
 
-        def boom(model_type):
+        def boom(model_type, **kwargs):  # kwargs: warmup (#192 split)
             # Capture the flag at the moment load_model is invoked. If the handler
             # didn't set it to True first, this test passes vacuously — we want
             # it to fail loudly until the implementation tracks loading.
@@ -189,7 +190,7 @@ class TestHandleLoadModelTracksLoadingFlag(unittest.TestCase):
              patch("qwen3_tts.core.config.get_model_info", return_value={"name": "qwen3-tts-clone"}), \
              patch("qwen3_tts.server.app_models._error_response") as mock_err:
             mock_err.return_value = None  # don't re-raise; let handler return
-            handle_load_model(state, req)
+            asyncio.run(handle_load_model(state, req))
 
         self.assertTrue(
             observed.get("loading_at_call"),
