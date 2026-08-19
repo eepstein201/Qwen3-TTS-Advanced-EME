@@ -380,6 +380,52 @@ def test_warmup_model_handles_exception():
     _warmup_model(mock_model, "design", "mlx")
 
 
+@pytest.mark.unit
+def test_warmup_model_skipped_when_env_knob_set(monkeypatch):
+    """TTS_SKIP_WARMUP=1 skips the design warm-up (issue #192 mitigation)."""
+    from qwen3_tts.core.engine.model_loader import _warmup_model
+
+    monkeypatch.setenv("TTS_SKIP_WARMUP", "1")
+    mock_model = MagicMock()
+    _warmup_model(mock_model, "design", "mlx")
+    mock_model.generate_voice_design.assert_not_called()
+
+    # Quoted/exported values can carry padding — strip before matching.
+    monkeypatch.setenv("TTS_SKIP_WARMUP", " true ")
+    _warmup_model(mock_model, "design", "mlx")
+    mock_model.generate_voice_design.assert_not_called()
+
+
+@pytest.mark.unit
+def test_warmup_model_skip_logs_knob_positively(monkeypatch, caplog):
+    """The skip is logged — absence of warm-up lines alone proves nothing."""
+    import logging
+
+    from qwen3_tts.core.engine.model_loader import _warmup_model
+
+    monkeypatch.setenv("TTS_SKIP_WARMUP", "true")
+    with caplog.at_level(logging.INFO, logger="tts.engine"):
+        _warmup_model(MagicMock(), "design", "mlx")
+    assert "Skipping design warm-up" in caplog.text
+    assert "TTS_SKIP_WARMUP" in caplog.text
+
+
+@pytest.mark.unit
+def test_warmup_model_runs_when_env_knob_falsy(monkeypatch):
+    """Unset or falsy knob values leave the warm-up enabled."""
+    from qwen3_tts.core.engine.model_loader import _warmup_model
+
+    for value in (None, "0", ""):
+        if value is None:
+            monkeypatch.delenv("TTS_SKIP_WARMUP", raising=False)
+        else:
+            monkeypatch.setenv("TTS_SKIP_WARMUP", value)
+        mock_model = MagicMock()
+        mock_model.generate_voice_design.return_value = iter([b"audio"])
+        _warmup_model(mock_model, "design", "mlx")
+        mock_model.generate_voice_design.assert_called_once()
+
+
 # ---- load_model dispatch ----
 
 

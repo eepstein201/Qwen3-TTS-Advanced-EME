@@ -6,6 +6,7 @@ Imports from: config only. Does NOT import from inference or voice_prompt.
 
 import contextlib
 import logging
+import os
 import threading
 import time
 
@@ -487,6 +488,14 @@ def _warmup_model(model, model_type, backend):
     """
     if model_type != "design":
         return  # Base/Clone and Custom weights don't support generate_voice_design
+
+    if os.environ.get("TTS_SKIP_WARMUP", "").strip().lower() in ("1", "true", "yes"):
+        # Issue #192 ablation/mitigation knob: skip the load-time warm-up
+        # inference, the only unserialized GPU work reachable through the API.
+        # Logged positively — a run's log must record the knob was active,
+        # because the absence of warm-up lines alone proves nothing.
+        logger.info("Skipping %s warm-up (TTS_SKIP_WARMUP set)", model_type)
+        return
 
     try:
         t0 = time.time()

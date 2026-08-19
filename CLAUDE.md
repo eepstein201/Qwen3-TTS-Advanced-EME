@@ -271,7 +271,7 @@ python tests/run_batches.py --list     # List batches
 
 **Static gates:** `ruff check qwen3_tts tests` (config in `.ruff.toml`), `mypy qwen3_tts/{core,server,interface}` (config in `pyproject.toml`; vLLM modules excluded), `bandit -r qwen3_tts -c pyproject.toml` (target: 0 HIGH). **Docs gate:** `make check-config-docs` (or `python -m qwen3_tts.tools.check_config_docs`) fails when `docs/CONFIG.md` default values drift from `get_default_config()`. All ship in the `dev` extra.
 
-**Log level:** Controlled by `TTS_LOG_LEVEL` env var (default `INFO`). Set `TTS_LOG_LEVEL=DEBUG` for verbose output.
+**Log level:** Controlled by `TTS_LOG_LEVEL` env var (default `INFO`). Set `TTS_LOG_LEVEL=DEBUG` for verbose output. **Warm-up skip:** `TTS_SKIP_WARMUP=1` skips the design load-time warm-up inference (`_warmup_model`) — #192 mitigation while unsynchronized concurrent MLX inference (generation + warm-up) is the leading-hypothesis trigger.
 
 **Models & PM2:** See `docs/00-Foundations/ARCHITECTURE.md` for HuggingFace model IDs and PM2 service commands.
 
