@@ -399,16 +399,21 @@ def _warn_if_cap_reached(results: Any, max_tokens: int, mode: str) -> None:
     for result in results or ():
         count = getattr(result, "token_count", None)
         if isinstance(count, int) and not isinstance(count, bool) and count >= max_tokens:
-            logger.warning(
-                "Generation hit the %d-token cap without emitting EOS "
-                "(mode=%s) — the audio is truncated. For clone mode the usual "
-                "cause is a voice prompt whose reference .wav is below %d Hz; "
-                "re-create the prompt from higher-rate audio.",
-                max_tokens,
-                mode,
-                DEFAULT_SAMPLE_RATE,
-            )
+            _warn_cap_reached(max_tokens, mode)
             return
+
+
+def _warn_cap_reached(max_tokens: int, mode: str) -> None:
+    """Emit the truncation warning. Shared by the batch and streaming paths."""
+    logger.warning(
+        "Generation hit the %d-token cap without emitting EOS "
+        "(mode=%s) — the audio is truncated. For clone mode the usual "
+        "cause is a voice prompt whose reference .wav is below %d Hz; "
+        "re-create the prompt from higher-rate audio.",
+        max_tokens,
+        mode,
+        DEFAULT_SAMPLE_RATE,
+    )
 
 
 def _mlx_lang_code(language: str | None, model: Any = None) -> str:
@@ -686,7 +691,18 @@ def _run_inference_mlx_streaming(
         )
 
     chunk_count = 0
-    last_result = None
+    # Streaming yields per-chunk token DELTAS, never a cumulative count:
+    # mlx-audio's streaming branch returns before reaching the
+    # `token_count = len(generated_codes)` yield, so each result carries
+    # `new_tokens`, bounded by `streaming_chunk_size` (25 at the default 2.0 s
+    # interval). Checking a single result against `max_tokens` is therefore
+    # never true, which left cap runaways silent on /generate-stream and /ws.
+    #
+    # The cap is applied PER SEGMENT upstream — `generate()` resets
+    # `generated_codes` and `decoded_tokens` inside its segment loop — so the
+    # deltas are accumulated per `segment_idx`. Summing the whole stream would
+    # turn a multi-segment generation into a false positive.
+    tokens_by_segment: dict[int, int] = {}
     for result in generator:
         audio_mx = result.audio
         wav = np.array(audio_mx, dtype=np.float32)
@@ -696,11 +712,12 @@ def _run_inference_mlx_streaming(
         chunk_count += 1
         logger.debug("Streaming chunk %d: %d samples", chunk_count, len(wav))
 
-        # Keep the highest token_count seen; the cap is applied per segment,
-        # so the check belongs after the stream drains, not per chunk.
         _tc = getattr(result, "token_count", None)
         if isinstance(_tc, int) and not isinstance(_tc, bool):
-            last_result = result
+            _seg = getattr(result, "segment_idx", 0)
+            if not isinstance(_seg, int) or isinstance(_seg, bool):
+                _seg = 0
+            tokens_by_segment[_seg] = tokens_by_segment.get(_seg, 0) + _tc
 
         # Call progress callback (total unknown until completion for MLX)
         if progress_callback:
@@ -708,9 +725,8 @@ def _run_inference_mlx_streaming(
 
         yield wav, sr
 
-    _warn_if_cap_reached(
-        [last_result] if last_result is not None else (), max_tokens, mode
-    )
+    if tokens_by_segment and max(tokens_by_segment.values()) >= max_tokens:
+        _warn_cap_reached(max_tokens, mode)
 
     # After completion, update with final count
     if progress_callback and chunk_count > 0:
