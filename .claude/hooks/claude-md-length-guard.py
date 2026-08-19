@@ -59,21 +59,6 @@ def _resolve_project_root():
     return os.getcwd()
 
 
-def _is_within(path, root):
-    """True when path is root itself or lies underneath it.
-
-    Case-folded on macOS only: its filesystems are case-insensitive and a
-    tool-provided spelling can differ in case from the canonical root
-    (realpath does not normalize that on darwin). The stat-based
-    samefile() comparison in main() remains the authoritative identity
-    check; this containment filter only rejects paths that point outside
-    the project entirely.
-    """
-    if sys.platform == "darwin":
-        path, root = path.lower(), root.lower()
-    return path == root or path.startswith(root + os.sep)
-
-
 def main():
     try:
         payload = json.load(sys.stdin)
@@ -89,18 +74,32 @@ def main():
         return 0  # relative paths cannot be anchored to the project root
     project_root = _resolve_project_root()
     resolved = os.path.realpath(file_path)
-    if not _is_within(resolved, project_root):
-        return 0
     target = os.path.join(project_root, "CLAUDE.md")
+    # macOS only: canonicalize the spelling by case-folding every path.
+    # realpath does not normalize case on darwin, and the strict containment
+    # guard below would otherwise silently allow a case-variant spelling of
+    # the project CLAUDE.md (the original hollow-guard bug). Lowercased
+    # paths address the same files on case-insensitive APFS volumes.
+    if sys.platform == "darwin":
+        project_root = project_root.lower()
+        resolved = resolved.lower()
+        target = target.lower()
+    # Containment guards in the canonical normalize-then-check shape
+    # (realpath above, prefix check here, on the exact values used below —
+    # CodeQL: env- and stdin-derived paths are validated before any file
+    # operation). A nested CLAUDE.md passes containment but is not the
+    # guarded file; samefile rejects it, and resolving first also strips ..
+    # segments naming a nonexistent intermediate directory, which would
+    # otherwise make stat fail and fail the guard open.
+    if not resolved.startswith(project_root + os.sep):
+        return 0  # tool path points outside the project entirely
+    if not target.startswith(project_root + os.sep):
+        return 0  # derived target must pass the same containment guard
     try:
-        with open(target) as f:
+        with open(resolved) as f:
             current = f.read()
-        # samefile on the resolved path, not realpath equality: on macOS's
-        # case-insensitive FS the spelling can differ in case from the
-        # canonical path, and realpath does not normalize that — string
-        # compare silently allows. Resolving first also strips .. segments
-        # that could name a nonexistent intermediate directory, which would
-        # make stat fail and fail the guard open.
+        # Stat-based identity (not string equality) decides scope: only the
+        # project ROOT's CLAUDE.md is guarded.
         if not os.path.samefile(resolved, target):
             return 0
     except OSError:

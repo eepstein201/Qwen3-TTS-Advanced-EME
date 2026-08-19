@@ -393,10 +393,10 @@ class TestLengthGuardPathValidation(unittest.TestCase):
 
     The guard acts on a tool-provided path (stdin payload) and an
     environment-provided project root — both untrusted sources in CodeQL's
-    model — so every path must be validated (resolved, absolute, contained
-    in the project root) before any file operation. These tests pin the
-    validation helpers, and pin that validation never hollows the guard
-    for in-project spellings.
+    model — so every path is validated in main() (resolved, absolute,
+    contained in the project root, inline at the use site) before any file
+    operation. These tests pin that validation both rejects what it must
+    and never hollows the guard for in-project spellings.
     """
 
     @staticmethod
@@ -407,23 +407,6 @@ class TestLengthGuardPathValidation(unittest.TestCase):
         module = importlib.util.module_from_spec(spec)
         spec.loader.exec_module(module)
         return module
-
-    def test_is_within_accepts_root_and_children(self):
-        guard = self._guard_module()
-        self.assertTrue(guard._is_within("/a/b/CLAUDE.md", "/a/b"))
-        self.assertTrue(guard._is_within("/a/b", "/a/b"))
-
-    def test_is_within_rejects_outside_and_prefix_siblings(self):
-        guard = self._guard_module()
-        self.assertFalse(guard._is_within("/a/c/CLAUDE.md", "/a/b"))
-        self.assertFalse(guard._is_within("/a/bb/CLAUDE.md", "/a/b"))
-
-    def test_is_within_case_folds_only_on_darwin(self):
-        """macOS filesystems are case-insensitive; the containment compare
-        must fold case there (realpath does not) or a differently-spelled
-        in-project path would slip the validation."""
-        guard = self._guard_module()
-        self.assertEqual(guard._is_within("/a/b/CLAUDE.md", "/A/B"), sys.platform == "darwin")
 
     def test_resolve_project_root_canonicalizes_env_value(self):
         guard = self._guard_module()
@@ -471,6 +454,42 @@ class TestLengthGuardPathValidation(unittest.TestCase):
             },
         )
         self.assertEqual(proc.returncode, 2)
+
+    @unittest.skipUnless(sys.platform == "darwin", "case-insensitive FS only")
+    def test_darwin_case_variant_spelling_still_guards(self):
+        """Regression pin for the original macOS hollow-guard bug: a path
+        spelled with different case than the canonical project root is the
+        same file on darwin and must still be guarded (stat-based samefile
+        + case-folded containment, never raw string equality)."""
+        variant = str(REPO_ROOT).replace("Qwen3", "qwen3", 1) + "/CLAUDE.md"
+        if variant == str(REPO_ROOT / "CLAUDE.md"):
+            self.skipTest("no case-folding opportunity in this repo path")
+        proc = _run_hook(
+            LENGTH_HOOK,
+            payload={
+                "tool_name": "Write",
+                "tool_input": {
+                    "file_path": variant,
+                    "content": "line\n" * (CLAUDE_MD_MAX_LINES + 1),
+                },
+            },
+        )
+        self.assertEqual(proc.returncode, 2)
+
+    def test_nested_claude_md_is_out_of_scope(self):
+        """Containment alone is not scope: only the project ROOT's CLAUDE.md
+        is guarded, so a nested CLAUDE.md passes validation yet exits 0."""
+        proc = _run_hook(
+            LENGTH_HOOK,
+            payload={
+                "tool_name": "Write",
+                "tool_input": {
+                    "file_path": str(REPO_ROOT / "docs" / "CLAUDE.md"),
+                    "content": "line\n" * (CLAUDE_MD_MAX_LINES + 50),
+                },
+            },
+        )
+        self.assertEqual(proc.returncode, 0)
 
 
 if __name__ == "__main__":
