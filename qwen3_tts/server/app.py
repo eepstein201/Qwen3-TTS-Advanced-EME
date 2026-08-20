@@ -788,7 +788,7 @@ async def create_voice_prompt_endpoint(
     """Create a voice clone prompt from uploaded audio."""
     state = request.app.state
     reset_activity_timer(state)
-    return await asyncio.to_thread(handle_create_voice_prompt, state, req)
+    return await handle_create_voice_prompt(state, req)
 
 
 @app.post("/cancel-generation")

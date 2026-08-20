@@ -5,11 +5,13 @@ mlx-whisper's ``generate`` (engine/asr.py, via ``transcribe_audio``) is real
 MLX inference. Until this fix it ran UNLOCKED while /generate, /generate-stream
 and /ws all serialize on ``app.state.inference_lock`` — the second reachable
 unsynchronized concurrent MLX inference pair, after the design warm-up closed
-in PR #211. It is NOT the last: ``/create-voice-prompt``
-(``create_voice_clone_prompt``, engine/inference.py) remains unlocked of the
-same class (ml-explore/mlx#3078, Blaizzy/mlx-audio#638, #733 — corruption
-manifests as EOS-never-emitted runaways behind HTTP 200); serializing it is
-tracked as a #192 follow-up.
+in PR #211. ``/create-voice-prompt`` (``create_voice_clone_prompt``,
+engine/inference.py) was the last of the class
+(ml-explore/mlx#3078, Blaizzy/mlx-audio#638, #733 — corruption
+manifests as EOS-never-emitted runaways behind HTTP 200) and is
+serialized now (tests/test_issue192_create_prompt_serialization.py) —
+with it, all MLX inference reachable through the API serializes on
+``app.state.inference_lock``.
 
 Contract pinned by these tests:
 

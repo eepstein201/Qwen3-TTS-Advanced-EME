@@ -186,6 +186,9 @@ class TestErrorResponseReturnGuard(unittest.TestCase):
 
         state = MagicMock()
         state.models = {"clone": MagicMock()}
+        # handle_create_voice_prompt is async and acquires the real lock
+        # pattern around its inference — give it a real asyncio.Lock.
+        state.inference_lock = asyncio.Lock()
 
         req = MagicMock()
         req.name = "myvoice"
@@ -214,7 +217,7 @@ class TestErrorResponseReturnGuard(unittest.TestCase):
         with patch("qwen3_tts.server.app_prompts._error_response") as mock_err:
             mock_err.return_value = None
             with patch("qwen3_tts.core.engine.load_audio_for_cloning", side_effect=ImportError("no torchaudio")):
-                result = handle_create_voice_prompt(state, req)
+                result = asyncio.run(handle_create_voice_prompt(state, req))
 
         self.assertIsNone(
             result,
