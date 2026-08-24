@@ -18,8 +18,11 @@ from qwen3_tts.core.config import (
     auth_headers,
     get_default_clone_prompt,
 )
+from qwen3_tts.core.stream_protocol import (
+    StreamProtocolError,
+    iter_stream_chunks,
+)
 from qwen3_tts.server.client._base import (
-    MAX_BUFFER_SIZE,
     _build_gen_params,
     _error_payload,
     _extract_error_message,
@@ -325,9 +328,7 @@ class GeneratorMixin:
         Yields:
             (wav_chunk, sample_rate) tuples where wav_chunk is a numpy float32 array
         """
-        import struct
 
-        import numpy as np
 
         # Resolve voice alias using helper
         if voice:
@@ -420,39 +421,15 @@ class GeneratorMixin:
                 except ValueError:
                     self.last_seed = None
 
-            buffer = b""
-            header_size = 8  # 4 bytes sample_rate + 4 bytes audio_length
-
-            for chunk in resp.iter_content(chunk_size=65536):
-                buffer += chunk
-
-                # Protection against unbounded buffer growth from malformed data
-                if len(buffer) > MAX_BUFFER_SIZE:
-                    raise RuntimeError(
-                        f"Streaming buffer exceeded maximum size ({MAX_BUFFER_SIZE} bytes). "
-                        "Possible malformed response from server."
-                    )
-
-                # Parse complete chunks from buffer
-                while len(buffer) >= header_size:
-                    sr, audio_len = struct.unpack("<II", buffer[:header_size])
-                    total_chunk_size = header_size + audio_len
-
-                    # Protection against malformed headers claiming huge chunks
-                    if total_chunk_size > MAX_BUFFER_SIZE:
-                        raise RuntimeError(
-                            f"Streaming chunk size ({total_chunk_size} bytes) exceeds maximum buffer size "
-                            f"({MAX_BUFFER_SIZE} bytes). Possible malformed response from server."
-                        )
-
-                    if len(buffer) < total_chunk_size:
-                        break  # Wait for more data
-
-                    audio_bytes = buffer[header_size:total_chunk_size]
-                    wav_chunk = np.frombuffer(audio_bytes, dtype="<f4")
-                    buffer = buffer[total_chunk_size:]
-
-                    yield wav_chunk, sr
+            # Shared wire-format parser (core/stream_protocol.py). This used to
+            # be a second copy of the CLI's loop and had drifted: it never
+            # checked the sample_rate-0 terminal error sentinel, so a
+            # mid-stream server failure was decoded as float32 and yielded as
+            # garbage samples instead of raising.
+            try:
+                yield from iter_stream_chunks(resp.iter_content(chunk_size=65536))
+            except StreamProtocolError as e:
+                raise GenerationError(f"Server error during streaming: {e}") from e
 
     def generate_dialogue(
         self,

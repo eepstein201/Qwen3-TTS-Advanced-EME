@@ -16,12 +16,16 @@ from qwen3_tts.core.config import (
     get_server_url,
     is_server_running,
 )
+from qwen3_tts.core.stream_protocol import MAX_STREAM_CHUNK_BYTES
 
 # ---------------------------------------------------------------------------
 # Constants
 # ---------------------------------------------------------------------------
 
-MAX_BUFFER_SIZE = 100 * 1024 * 1024  # 100MB - maximum buffer size for streaming
+# Streaming read-buffer cap. Aliases the wire-format cap so the client, the CLI
+# and the server cannot drift apart again — they previously carried independent
+# values (100 MB here vs 200 MB in the CLI copy of the same parser).
+MAX_BUFFER_SIZE = MAX_STREAM_CHUNK_BYTES
 
 
 # ---------------------------------------------------------------------------
