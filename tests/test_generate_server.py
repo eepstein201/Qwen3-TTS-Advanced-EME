@@ -980,6 +980,81 @@ class TestGenerateViaServerMissingResultsKey(unittest.TestCase):
 
 @pytest.mark.unit
 @_skip
+class TestGenerateViaServerShortBatch(unittest.TestCase):
+    """A batch that comes back short must raise, not under-deliver silently.
+
+    ``generate_via_server`` guarded only a MISSING ``results`` key, never an
+    empty or short list, and ignored the ``cancelled`` flag the server now
+    sends. Its callers then either index ``results[0]`` (cli/srt.py,
+    cli/dialogue.py, generate_interactive.py) or iterate it
+    (interface/generate.py) — the latter writing fewer .wav files than the
+    user asked for, with exit code 0 and no warning.
+    """
+
+    def _mock_response(self, json_data):
+        resp = MagicMock()
+        resp.status_code = 200
+        resp.json.return_value = json_data
+        return resp
+
+    def _base_patches(self):
+        poller = MagicMock()
+        return {
+            "url": patch(f"{_MOD}.get_server_url", return_value="http://127.0.0.1:5123"),
+            "payload": patch(f"{_MOD}._build_generation_payload", return_value={}),
+            "poller": patch(
+                "qwen3_tts.interface.generate_interactive._ProgressPoller",
+                return_value=poller,
+            ),
+        }
+
+    def _generate(self, texts, json_data):
+        patches = self._base_patches()
+        with patches["url"], patches["payload"], patches["poller"], \
+             patch("qwen3_tts.core.http_client.server_request",
+                   return_value=self._mock_response(json_data)):
+            return generate_via_server(texts, "clone", _CONFIG, {})
+
+    def test_empty_results_raises_instead_of_returning_empty(self):
+        """An empty list must raise, not hand callers a list they will index."""
+        # Arrange / Act / Assert
+        with self.assertRaises(TTSGenericError) as ctx:
+            self._generate(["Hello"], {"results": []})
+        self.assertIn("no audio", str(ctx.exception).lower())
+
+    def test_cancelled_batch_names_cancellation(self):
+        """The server's cancelled flag must reach the user as the reason."""
+        # Arrange / Act / Assert
+        with self.assertRaises(TTSGenericError) as ctx:
+            self._generate(["Hello"], {"results": [], "cancelled": True})
+        self.assertIn("cancel", str(ctx.exception).lower())
+
+    def test_short_batch_raises_rather_than_dropping_texts(self):
+        """2 texts in, 1 result out must not silently become 1 output file."""
+        # Arrange / Act / Assert
+        with self.assertRaises(TTSGenericError) as ctx:
+            self._generate(
+                ["Hello", "World"],
+                {"results": [{"index": 0}], "cancelled": True},
+            )
+        message = str(ctx.exception)
+        self.assertIn("1", message)
+        self.assertIn("2", message)
+
+    def test_complete_batch_is_returned_unchanged(self):
+        """The guard must not fire on a full batch — no always-raise."""
+        # Arrange
+        rows = [{"index": 0}, {"index": 1}]
+
+        # Act
+        results = self._generate(["Hello", "World"], {"results": rows})
+
+        # Assert
+        self.assertEqual(results, rows)
+
+
+@pytest.mark.unit
+@_skip
 class TestGenerateStreamingNetworkFailure(unittest.TestCase):
     """Tests for generate_streaming() network-failure exception type."""
 

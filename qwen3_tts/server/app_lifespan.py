@@ -574,31 +574,40 @@ def _run_warmup_under_inference_lock(app_state, model, model_type):
 
 def _background_load(app_state):
     """Background thread that loads models at startup."""
-    from qwen3_tts.core.engine import load_model, migrate_orphan_mlx_prompts
-
-    config = app_state.server_config
-    models_config = config.get("models", {})
-
-    if not models_config:
-        models_config = {"clone": {"load_at_startup": True}}
-
-    models_to_load = []
-    for model_type, settings in models_config.items():
-        if settings.get("load_at_startup", False):
-            models_to_load.append(model_type)
-
-    if not models_to_load:
-        logger.warning("No models configured to load at startup.")
-    else:
-        logger.info(
-            "Loading %d model(s): %s", len(models_to_load), ", ".join(models_to_load)
-        )
-
-    # Everything below runs under a finally that signals readiness. This thread
+    # The ENTIRE body runs under a finally that signals readiness — the try
+    # opens on the first statement, before even the engine import. This thread
     # is the ONLY producer of models_loaded; if an exception escapes it, /ready
     # answers 503 forever and every waiter hangs, with no recorded reason. The
     # thread is also a daemon, so the failure is otherwise invisible.
+    #
+    # Two escapes lived above an earlier, later-opening try: the function-local
+    # engine import (a broken native install raises ImportError) and
+    # ``settings.get`` while building models_to_load (a hand-edited config.json
+    # mapping a model to a bool raises AttributeError). Never move work above
+    # this try. Guarded by tests/test_fastapi_app_ext2.py::TestBackgroundLoad.
     try:
+        from qwen3_tts.core.engine import load_model, migrate_orphan_mlx_prompts
+
+        config = app_state.server_config
+        models_config = config.get("models", {})
+
+        if not models_config:
+            models_config = {"clone": {"load_at_startup": True}}
+
+        models_to_load = []
+        for model_type, settings in models_config.items():
+            if settings.get("load_at_startup", False):
+                models_to_load.append(model_type)
+
+        if not models_to_load:
+            logger.warning("No models configured to load at startup.")
+        else:
+            logger.info(
+                "Loading %d model(s): %s",
+                len(models_to_load),
+                ", ".join(models_to_load),
+            )
+
         for model_type in models_to_load:
             loading_map = getattr(app_state, "models_loading", None)
             if loading_map is not None:
@@ -652,6 +661,16 @@ def _background_load(app_state):
                 logger.warning(
                     "MLX prompt migration failed: %s", sanitize_log(e)
                 )
+    except Exception as e:  # noqa: BLE001 — startup must never die silently
+        # Reached only by the setup work the per-model handlers cannot cover
+        # (engine import, config parsing). The finally below still signals
+        # readiness, so /ready answers 200 and /health reports the reason
+        # rather than the server hanging at 503 with nothing logged.
+        logger.error(
+            "Background model loading failed before any model could load: %s",
+            sanitize_log(e),
+            exc_info=True,
+        )
     finally:
         app_state.models_loaded.set()
         logger.info("Background model loading complete.")

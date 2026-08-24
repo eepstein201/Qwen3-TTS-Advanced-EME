@@ -7,6 +7,11 @@ Three independent HIGH findings, each with a genuine RED before its fix. All
 three were re-confirmed at their cited source lines before any test was
 written (no drift from the plan's 2026-08-24 verification pass).
 
+Code review of the branch then found three incomplete closures of those same
+bug classes — recorded as **1R1/1R2/1R3** below, each likewise RED-first. Three
+lower-severity review findings were deferred to the plan rather than fixed
+here (see "Deferred to the plan" at the end).
+
 ---
 
 ## 1a (H1/T1) — `/ws` join used the flat 90 s floor
@@ -200,19 +205,107 @@ correct; the assertion was aimed at the wrong attribute.
 
 ---
 
+---
+
+## Review follow-ups (1R1/1R2/1R3)
+
+Code review of this branch found three places where the bug classes above were
+only partly closed. Each was reproduced on the branch head before its fix.
+
+### 1R1 — the 1b `try/finally` opened too late
+
+`_background_load`'s own comment claims "everything below runs under a finally
+that signals readiness", but the function-local engine import and the config
+parsing that builds `models_to_load` sat **above** the `try:`. Two reachable
+escapes still wedged the server in permanent 503:
+
+```
+RESULT [engine-import-failure]:  readiness NEVER SET -> permanent 503 WEDGE
+  (escaped: ImportError: libmlx.dylib: symbol not found)
+RESULT [malformed-config]:       readiness NEVER SET -> permanent 503 WEDGE
+  (escaped: AttributeError: 'bool' object has no attribute 'get')
+```
+
+The second comes from a hand-edited `config.json` with `"models": {"clone":
+true}` — `settings.get()` on a bool. The first is the native-install breakage
+class this repo has hit before (PR #100).
+
+**RED** (`tests/test_fastapi_app_ext2.py::TestBackgroundLoad`):
+
+```
+FAILED test_engine_import_failure_still_signals_readiness
+  - ModuleNotFoundError: import of qwen3_tts.core.engine halted; None in sys.modules
+FAILED test_malformed_models_config_still_signals_readiness
+  - AttributeError: 'bool' object has no attribute 'get'
+```
+
+**GREEN** — `try:` now opens on the first statement of the body, with a
+top-level `except Exception` that logs the fatal setup error so `/health`
+carries a reason instead of the server hanging at 503 with nothing recorded.
+
+### 1R2 — `generate_dialogue` kept the unguarded `results[0]`
+
+The 1c client fix landed in `_generate_via_server` but its sibling call site in
+the **same module** (`generator.py`, `generate_dialogue`) still indexed
+`resp.json()["results"][0]`. `cancel_generation()` is the next method in that
+class, so cancelling mid-dialogue is the natural trigger.
+
+**RED** (`tests/test_client_generator.py::TestGenerateDialogue`):
+
+```
+FAILED test_empty_results_raises_generation_error_not_indexerror
+  - IndexError: list index out of range
+FAILED test_cancelled_empty_results_says_cancelled
+  - IndexError: list index out of range
+```
+
+**GREEN** — the guard is extracted to a module-level `_first_result(payload)`
+helper (DRY) and both call sites route through it. Any future single-text
+caller in this module must use it too.
+
+### 1R3 — the CLI path under-delivered silently
+
+`interface/generate_server.py::generate_via_server` guarded only a **missing**
+`results` key, never an empty or short list, and ignored the new `cancelled`
+flag. Its nine callers then either index `results[0]` (`cli/srt.py`,
+`cli/dialogue.py`, `generate_interactive.py` — bare `IndexError`, or a
+`FAILED, skipping: list index out of range` under their broad `except`) or
+iterate it (`interface/generate.py`), **writing fewer .wav files than the user
+asked for with exit code 0 and no warning**.
+
+**RED** (`tests/test_generate_server.py::TestGenerateViaServerShortBatch`):
+
+```
+FAILED test_empty_results_raises_instead_of_returning_empty  - TTSGenericError not raised
+FAILED test_cancelled_batch_names_cancellation               - TTSGenericError not raised
+FAILED test_short_batch_raises_rather_than_dropping_texts    - TTSGenericError not raised
+```
+
+**GREEN** — `len(results) != expected` now raises `TTSGenericError` naming both
+counts and, when the server says so, cancellation as the cause.
+`test_complete_batch_is_returned_unchanged` passes at RED by design: it stops
+the fix degrading to an always-raise that would satisfy the other three
+vacuously (same guard pattern as 1c's `test_uncancelled_batch_...`).
+
+---
+
 ## Gates
+
+Re-run on the branch head after the follow-ups:
 
 ```
 $ pytest tests/ -m "not e2e" -q --ignore=tests/evaluations/test_speaker_similarity.py
-2979 passed, 11 skipped, 88 deselected
+2993 passed, 5 skipped, 88 deselected
 
 $ python tests/run_batches.py --batch 2   →  1/1 batches passed
 $ python tests/run_batches.py --batch 3   →  1/1 batches passed
+$ python tests/run_batches.py --batch 4   →  1/1 batches passed   (owns test_generate_server)
 $ ruff check qwen3_tts tests              →  All checks passed
 $ mypy qwen3_tts/{core,server,interface}  →  Success: no issues found in 53 source files
-$ bandit -r qwen3_tts -c pyproject.toml   →  0 findings (7 pre-existing stale-nosec warnings only)
+$ bandit -r qwen3_tts -c pyproject.toml   →  0 High / 0 Medium / 0 Low
 $ python -m qwen3_tts.tools.check_config_docs → OK (66 keys)
-$ wc -l CLAUDE.md                         →  298   (unchanged; both edits extend existing lines)
+$ wc -l CLAUDE.md                         →  298   (unchanged; all edits extend existing lines)
+$ pytest tests/test_batches_coverage.py   →  3 passed (no unregistered modules)
 ```
 
 `--ignore=tests/evaluations/test_speaker_similarity.py` is the plan's interim
@@ -224,4 +317,27 @@ still owned by Phase 0. It is not fixed here and must not become permanent.
 
 No e2e test exercises these paths against a live server. `/ws` join scaling and
 the vanished-cache-file fall-through are both unit-pinned only; the plan's
-Phase 2d owns the e2e queuing tier.
+Phase 2d owns the e2e queuing tier. The one existing cancel e2e
+(`test_e2e_playwright.py::test_06_cancel_generation`) drives Gradio and by its
+own comments tolerates the cancel timing out, so it never asserts on the
+`/generate` response shape and could not have caught 1c.
+
+## Deferred to the plan
+
+Three review findings are recorded in the source plan as **Phase 1R4-1R6** rather
+than fixed on this branch — all LOW, none a correctness defect:
+
+1. `test_uncancelled_batch_reports_not_cancelled` uses
+   `assertFalse(result.get("cancelled"))`, which also passes when the key is
+   absent entirely. Tighten to `assertIn` + `assertIs(..., False)`.
+2. Nothing pins `cancelled` on the **wire**. All three 1c server tests call
+   `handle_generate` directly, bypassing `response_model`;
+   `tests/test_response_contracts.py` checks that every *per-result* field
+   survives response_model filtering but was not extended for the new
+   top-level flag. Verified working by hand
+   (`{"results":[],"cancelled":true}`), just unguarded.
+3. `_stream_thread_join_timeout`'s docstring says "`0`/`None` disables
+   chunking", but a request-level `max_chunk_chars=None` means "read from
+   config" (default 500) per `inference.py:1354`, not "no chunking". The join
+   then gets a whole-text timeout — over-generous, never too short, so
+   fail-safe. Pre-existing in the helper, not introduced by Phase 1.

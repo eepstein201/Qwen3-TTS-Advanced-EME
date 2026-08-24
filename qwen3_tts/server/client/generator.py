@@ -42,6 +42,25 @@ def _generation_timeout(text_len: int) -> int:
     return max(_TIMEOUT_FLOOR_SEC, int(text_len * _TIMEOUT_PER_CHAR_SEC))
 
 
+def _first_result(payload: dict) -> dict:
+    """Return the first row of a /generate response, or raise a clear error.
+
+    A 200 does not guarantee a result: a batch cancelled before its first item
+    comes back with ``results: []`` and ``cancelled: true``. Indexing straight
+    into that surfaced as a bare ``IndexError: list index out of range`` with
+    no hint of the cause. Every single-text caller in this module must route
+    through here — there are two, and only one of them used to be guarded.
+    """
+    results = payload.get("results") or []
+    if not results:
+        if payload.get("cancelled"):
+            raise GenerationError(
+                "Generation was cancelled before any audio was produced"
+            )
+        raise GenerationError("Server returned no audio for this request")
+    return results[0]
+
+
 class GeneratorMixin:
     """Mixin providing audio generation capabilities."""
 
@@ -262,17 +281,7 @@ class GeneratorMixin:
 
         import soundfile as sf
 
-        # A 200 does not guarantee a result: a batch cancelled before its first
-        # item returns an empty list. Indexing straight into it surfaced as a
-        # bare IndexError with no hint of the cause.
-        payload = resp.json()
-        results = payload.get("results") or []
-        if not results:
-            if payload.get("cancelled"):
-                raise GenerationError("Generation was cancelled before any audio was produced")
-            raise GenerationError("Server returned no audio for this request")
-
-        result = results[0]
+        result = _first_result(resp.json())
         audio_bytes = base64.b64decode(result["audio_base64"])
         wav, sr = sf.read(io.BytesIO(audio_bytes))
         self.last_chunk_count = result.get("chunks", 0)
@@ -561,7 +570,7 @@ class GeneratorMixin:
 
             import soundfile as sf
 
-            result = resp.json()["results"][0]
+            result = _first_result(resp.json())
             audio_bytes = base64.b64decode(result["audio_base64"])
             wav, sr = sf.read(io.BytesIO(audio_bytes))
 
