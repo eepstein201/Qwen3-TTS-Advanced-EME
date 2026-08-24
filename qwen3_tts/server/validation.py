@@ -137,6 +137,10 @@ class GenerateResponse(BaseModel):
     """Response model for /generate endpoint."""
 
     results: list[GenerateResult]
+    # True when the batch stopped early because /cancel-generation fired.
+    # ``results`` is then shorter than the requested texts (possibly empty), so
+    # the client needs this to tell a cancellation apart from a full response.
+    cancelled: bool = False
 
 
 class HealthResponse(BaseModel):

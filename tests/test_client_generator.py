@@ -272,6 +272,47 @@ class TestGenerateViaServer(unittest.TestCase):
         self.assertIsInstance(wav, np.ndarray)
         self.assertEqual(sr, 24000)
 
+    def test_empty_results_raises_generation_error_not_indexerror(self):
+        """A 200 carrying zero results must raise a clear GenerationError.
+
+        H3: the client indexed ``resp.json()["results"][0]`` unconditionally.
+        The server can legitimately return a short or empty ``results`` list —
+        a batch cancelled before its first item does exactly that — and the
+        caller then saw a bare ``IndexError: list index out of range`` with no
+        hint that the generation was cancelled or that the server was healthy.
+        """
+        from qwen3_tts.core.config import GenerationError
+
+        client, session = _client_with_server(self.cfg)
+        resp = MagicMock()
+        resp.status_code = 200
+        resp.json.return_value = {"results": []}
+        session.post.return_value = resp
+
+        with self.assertRaises(GenerationError) as ctx:
+            client._generate_via_server(
+                "hello", "clone", "default.pt", None, None, None, {}
+            )
+        self.assertNotIsInstance(ctx.exception, IndexError)
+        # technical_detail is what format_cli/format_gradio surface to users.
+        self.assertIn("no audio", (ctx.exception.technical_detail or "").lower())
+
+    def test_cancelled_empty_results_says_cancelled(self):
+        """An empty result set flagged ``cancelled`` must name the cause."""
+        from qwen3_tts.core.config import GenerationError
+
+        client, session = _client_with_server(self.cfg)
+        resp = MagicMock()
+        resp.status_code = 200
+        resp.json.return_value = {"results": [], "cancelled": True}
+        session.post.return_value = resp
+
+        with self.assertRaises(GenerationError) as ctx:
+            client._generate_via_server(
+                "hello", "clone", "default.pt", None, None, None, {}
+            )
+        self.assertIn("cancel", (ctx.exception.technical_detail or "").lower())
+
     def test_error_response_raises_generation_error(self):
         """Non-200 response raises GenerationError."""
         from qwen3_tts.core.config import GenerationError

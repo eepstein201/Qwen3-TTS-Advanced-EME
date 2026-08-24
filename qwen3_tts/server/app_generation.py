@@ -290,9 +290,13 @@ async def handle_generate(request, state, req, security, config_provider):
             results = [pre_lock_results[i] for i in range(len(texts))]
             with state.request_queue_lock:
                 state.request_queue.discard(request_id)
-            return {"results": results}
+            return {"results": results, "cancelled": False}
 
         results = []
+        # A cancelled batch returns fewer results than texts (possibly none).
+        # Without this marker the client cannot distinguish that from a
+        # complete response and just indexes into an empty list.
+        cancelled = False
 
         for i, text in enumerate(texts):
             # Check for cancellation before each batch item (R-44)
@@ -300,6 +304,7 @@ async def handle_generate(request, state, req, security, config_provider):
                 logger.info(
                     "Batch generation cancelled at item %d/%d", i + 1, len(texts)
                 )
+                cancelled = True
                 break
 
             # Use pre-lock cache hit if available
@@ -331,7 +336,19 @@ async def handle_generate(request, state, req, security, config_provider):
                         i + 1,
                         len(texts),
                     )
-                continue
+                    continue
+                # Entry present but its file is gone (cleanup_resources unlinks
+                # cache files; eviction can race a long batch). Fall through to
+                # generation, as the pre-lock branch above already does. The
+                # `continue` used to sit outside this guard, so the item was
+                # dropped from `results` entirely and the response came back
+                # short at 200 — an opaque IndexError in the client.
+                logger.warning(
+                    "Generation cache entry for text %d/%d lost its backing "
+                    "file; regenerating",
+                    i + 1,
+                    len(texts),
+                )
 
             # Load the voice prompt BEFORE acquiring inference_lock — disk I/O +
             # tensor deserialize is not GPU work, so holding the GPU-serialization
@@ -554,7 +571,7 @@ async def handle_generate(request, state, req, security, config_provider):
                     headers={"X-Sample-Rate": str(result["sample_rate"])},
                 )
 
-        return {"results": results}
+        return {"results": results, "cancelled": cancelled}
 
     except HTTPException:
         raise
