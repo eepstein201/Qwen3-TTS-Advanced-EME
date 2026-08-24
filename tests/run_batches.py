@@ -74,6 +74,9 @@ BATCHES = {
             "tests.test_generation_defaults",
             "tests.test_quick_wins_regressions",
             "tests.test_audio_pipeline",
+            "tests.security.test_path_injection",
+            "tests.security.test_server_request",
+            "tests.security.test_ssrf_callsites",
         ],
         "timeout": 90,  # Quick tests
     },

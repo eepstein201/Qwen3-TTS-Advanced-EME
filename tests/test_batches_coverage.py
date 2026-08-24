@@ -44,6 +44,23 @@ INTENTIONALLY_UNBATCHED = {
     "tests.test_e2e_security_validation": "e2e: run via `pytest -m e2e`",
     "tests.test_e2e_tab_navigation": "e2e: run via `pytest -m e2e`",
     "tests.test_e2e_wavesurfer_live": "e2e: run via `pytest -m e2e`",
+    # Plain pytest-style classes (not unittest.TestCase): python -m unittest's
+    # TestLoader.loadTestsFromModule only collects TestCase subclasses, so the
+    # batch runner would silently execute these as "Ran 0 tests ... OK" —
+    # a hollow pass, not real coverage. Measured empirically 2026-08-24.
+    # Covered under pytest/coverage instead.
+    "tests.security.test_play_audio": (
+        "pytest-style class (TestPlayAudioSafety), not unittest.TestCase; "
+        "collects 0 tests under `python -m unittest`"
+    ),
+    "tests.security.test_seed_bounds": (
+        "pytest-style class (TestSeedBounds), not unittest.TestCase; "
+        "collects 0 tests under `python -m unittest`"
+    ),
+    "tests.security.test_voice_name_validation": (
+        "pytest-style class (TestValidateVoiceName), not unittest.TestCase; "
+        "collects 0 tests under `python -m unittest`"
+    ),
 }
 
 
@@ -68,11 +85,15 @@ def _registered_modules() -> set[str]:
 
 
 def _modules_on_disk() -> set[str]:
-    """Dotted names for every test module under tests/ and tests/evaluations/."""
+    """Dotted names for every test module under tests/, tests/evaluations/, and tests/security/."""
     modules = {f"tests.{p.stem}" for p in _TESTS_DIR.glob("test_*.py")}
     modules |= {
         f"tests.evaluations.{p.stem}"
         for p in (_TESTS_DIR / "evaluations").glob("test_*.py")
+    }
+    modules |= {
+        f"tests.security.{p.stem}"
+        for p in (_TESTS_DIR / "security").glob("test_*.py")
     }
     return modules
 
