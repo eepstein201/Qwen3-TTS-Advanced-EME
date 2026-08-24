@@ -36,6 +36,7 @@ Run: python -m pytest tests/test_fastapi_app_ext3.py -v --tb=short
 """
 
 import asyncio
+import copy
 import os
 import shutil
 import sys
@@ -467,25 +468,49 @@ class TestFastAPIAppExt3(unittest.TestCase):
     def test_update_startup_config_no_models_key(self):
         _setup_app_state(self.token)
         config_no_models = {"advanced": {}}  # No "models" key
+        before = copy.deepcopy(config_no_models)
         with patch(f"{_APP}._get_app_config", return_value=config_no_models), \
              patch(f"{_APP_MODELS}.save_config"):
             resp = self.client.post("/update-startup-config",
                                     json={"clone": True},
                                     headers=self._auth())
         self.assertEqual(resp.status_code, 200)
-        # Immutable update: original config_no_models is NOT mutated
+        # Immutable update: the handler must build a new dict, never mutate the
+        # caller's config in place. Previously only asserted in a comment.
+        self.assertEqual(
+            config_no_models,
+            before,
+            "/update-startup-config mutated the caller's config dict in place.",
+        )
+        self.assertNotIn(
+            "models",
+            config_no_models,
+            "/update-startup-config injected a 'models' key into the original config.",
+        )
 
     # --- update-startup-config model_type not in models (line 883) ---
     def test_update_startup_config_model_type_missing(self):
         _setup_app_state(self.token)
         config = {"models": {}}  # "clone" not in models
+        before = copy.deepcopy(config)
         with patch(f"{_APP}._get_app_config", return_value=config), \
              patch(f"{_APP_MODELS}.save_config"):
             resp = self.client.post("/update-startup-config",
                                     json={"clone": True, "design": False},
                                     headers=self._auth())
         self.assertEqual(resp.status_code, 200)
-        # Immutable update: original config dict is NOT mutated
+        # Immutable update: the handler must not add the missing model_type keys
+        # to the caller's dict. Previously only asserted in a comment.
+        self.assertEqual(
+            config,
+            before,
+            "/update-startup-config mutated the caller's config dict in place.",
+        )
+        self.assertEqual(
+            config["models"],
+            {},
+            "/update-startup-config populated the original config's empty models dict.",
+        )
 
     # --- unload-model gen_cache OSError (lines 776-777) ---
     def test_unload_model_cache_oserror(self):
