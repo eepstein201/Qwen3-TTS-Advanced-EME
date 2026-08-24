@@ -381,6 +381,44 @@ def test_queue_status_empty(fastapi_client):
     assert data["active"] is False
 
 
+@pytest.mark.unit
+@_skip
+def test_queue_status_reports_non_empty_queue(fastapi_client):
+    """GET /queue-status counts the waiters actually in pending_requests.
+
+    The empty case above passes trivially — a handler hardcoding 0 would satisfy
+    it. This pins the counting itself, and that `active` is reported
+    independently of queue depth.
+    """
+    import asyncio
+    if not hasattr(app.state, 'pending_lock'):
+        app.state.pending_lock = asyncio.Lock()
+
+    original = getattr(app.state, "pending_requests", [])
+    original_active = app.state.generation_state.get("active", False)
+    try:
+        # Three queued waiters, one in-flight generation.
+        app.state.pending_requests = ["req-a", "req-b", "req-c"]
+        app.state.generation_state["active"] = True
+
+        response = fastapi_client.get("/queue-status")
+        assert response.status_code == 200
+        data = response.json()
+        assert data["queue_length"] == 3, \
+            f"/queue-status miscounted the pending queue: {data}"
+        assert data["active"] is True, \
+            f"/queue-status did not report the in-flight generation: {data}"
+
+        # Draining one waiter must move the count, not a cached value.
+        app.state.pending_requests = ["req-b", "req-c"]
+        data = fastapi_client.get("/queue-status").json()
+        assert data["queue_length"] == 2, \
+            f"/queue-status did not track the queue shrinking: {data}"
+    finally:
+        app.state.pending_requests = original
+        app.state.generation_state["active"] = original_active
+
+
 # ---------------------------------------------------------------------------
 # Admin endpoint tests
 # ---------------------------------------------------------------------------

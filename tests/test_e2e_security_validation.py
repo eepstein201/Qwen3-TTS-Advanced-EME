@@ -16,6 +16,7 @@ Prerequisites:
 Run: pytest tests/test_e2e_security_validation.py -v
 """
 
+import base64
 import json
 import os
 import urllib.error
@@ -47,6 +48,15 @@ def ensure_fresh_rate_limit(check_server):
     """Ensure the rate limit window is fresh before this module's tests run."""
     wait_for_rate_limit_reset(SERVER_URL, _get_auth_token())
     yield
+
+
+@pytest.fixture(scope="module")
+def clone_prompt(check_server):
+    """A real voice-prompt name, so accept-path tests can reach generation."""
+    name = _available_clone_prompt()
+    if not name:
+        pytest.skip("No voice prompts on this machine; accept path cannot be exercised")
+    return name
 
 
 def _get_auth_token():
@@ -124,6 +134,84 @@ def _make_request(endpoint, data=None, method="GET", token=None):
         return e.code, error_data
     except Exception as e:
         return 0, {"error": str(e)}
+
+
+def _available_clone_prompt():
+    """Name of a voice prompt on this machine, or None.
+
+    Clone mode REQUIRES prompt_file — without it /generate 400s at validation
+    ("prompt_file required for clone mode") and never reaches generation. The
+    injection tests below need at least one accepted request to prove the
+    accept path treats attacker text as literal speech, so they resolve a real
+    prompt here rather than hardcoding a machine-specific name.
+    """
+    status, data = _make_request("/prompts")
+    if status != 200:
+        return None
+    prompts = data.get("prompts") or []
+    return prompts[0] if prompts else None
+
+
+# Response fields carrying arbitrary binary-derived bytes. They MUST be removed
+# before any substring search: base64 audio contains essentially every short
+# substring by chance (measured — a 7.9 MB clone of "{{7*7}}" contains "49"),
+# so searching the raw response for an "evaluated payload" marker is a coin
+# flip, not a security assertion.
+_OPAQUE_RESULT_FIELDS = ("audio_base64", "peaks")
+
+
+def _scrubbed(data):
+    """Copy of *data* with opaque audio fields dropped from every result."""
+    if not isinstance(data, dict):
+        return data
+    out = {k: v for k, v in data.items() if k != "results"}
+    results = data.get("results")
+    if isinstance(results, list):
+        out["results"] = [
+            {k: v for k, v in r.items() if k not in _OPAQUE_RESULT_FIELDS}
+            if isinstance(r, dict)
+            else r
+            for r in results
+        ]
+    return out
+
+
+def _assert_not_reflected(data, payload, label):
+    """The payload must not be echoed back in any non-audio response field.
+
+    This is the actual injection surface of a JSON API: a reflected payload in
+    an error `detail` is what a browser would render. Asserted on EVERY status,
+    accepted or rejected — unlike the old `if status == 200` bodies, which
+    gated their checks behind a branch clone mode never reaches.
+    """
+    body = json.dumps(_scrubbed(data))
+    assert payload not in body, (
+        f"{label}: payload reflected verbatim in the response body — "
+        f"payload={payload!r}, body={body[:300]}"
+    )
+
+
+def _assert_real_audio(data, label):
+    """An accepted generation must return a real WAV, proving the normal
+    text-to-speech path ran (payload spoken as literal text) rather than some
+    alternate code path being triggered.
+
+    audio_base64 is a WAV *container*, not raw float32 — decode and check the
+    RIFF magic. (Decoding it as float32 fabricates NaN and halves durations.)
+    """
+    results = data.get("results")
+    assert results, f"{label}: accepted response carried no results: {data}"
+    first = results[0]
+    b64 = first.get("audio_base64")
+    assert b64, f"{label}: accepted result carried no audio_base64"
+    raw = base64.b64decode(b64)
+    assert raw[:4] == b"RIFF", (
+        f"{label}: audio_base64 is not a WAV container (magic={raw[:4]!r})"
+    )
+    assert len(raw) > 1000, f"{label}: audio suspiciously small ({len(raw)} bytes)"
+    assert first.get("sample_rate", 0) > 0, (
+        f"{label}: non-positive sample_rate {first.get('sample_rate')!r}"
+    )
 
 
 class TestE2EInputValidationSecurity:
@@ -264,15 +352,22 @@ class TestE2EInjectionPrevention:
                 method="POST"
             )
 
-            # Should be rejected (400/422) or treated as literal text (200/202)
-            # If 200, verify it's not a database error
-            if status == 200:
-                # Check response doesn't contain database error strings
-                response_text = json.dumps(response_str).lower()
-                assert "database" not in response_text, \
-                    f"SQL injection not prevented for: {payload[:30]}"
-                assert "syntax error" not in response_text, \
-                    f"SQL injection not prevented for: {payload[:30]}"
+            if status == 429:
+                pytest.skip("Rate limit exceeded before SQL injection could be verified")
+
+            # Handled safely: accepted as literal text, or cleanly rejected.
+            # Status 0 means the connection died (server crash) — never OK.
+            assert status in [200, 202, 400, 422, 500, 503], \
+                f"SQL payload produced an unexpected status {status}: {payload[:30]}"
+
+            # No DB error must surface regardless of status — the old version
+            # only checked this on 200, which clone mode never returns.
+            response_text = json.dumps(_scrubbed(response_str)).lower()
+            assert "database" not in response_text, \
+                f"SQL injection not prevented for: {payload[:30]}"
+            assert "syntax error" not in response_text, \
+                f"SQL injection not prevented for: {payload[:30]}"
+            _assert_not_reflected(response_str, payload, f"SQL {payload[:30]}")
 
     def test_02_xss_prevention_in_text(self):
         """REGRESSION: XSS attempts in text field should be harmless.
@@ -293,12 +388,43 @@ class TestE2EInjectionPrevention:
                 method="POST"
             )
 
-            # If successful, verify XSS wasn't executed
-            # (text should be treated as literal, not HTML)
-            if status in [200, 202]:
-                json.dumps(response_str)
-                # The response should not contain the unescaped script
-                # (or if it does, it should be escaped/sanitized)
+            if status == 429:
+                pytest.skip("Rate limit exceeded before XSS prevention could be verified")
+
+            assert status in [200, 202, 400, 422, 500, 503], \
+                f"XSS payload produced an unexpected status {status}: {payload[:30]}"
+
+            # The real injection surface of a JSON API: the payload must not be
+            # echoed back into a field a browser would render (e.g. error
+            # `detail`). Checked on every status, not just the unreachable 200.
+            _assert_not_reflected(response_str, payload, f"XSS {payload[:30]}")
+
+    def test_02b_xss_payload_is_spoken_as_literal_text(self, clone_prompt):
+        """REGRESSION: an ACCEPTED XSS payload returns ordinary audio.
+
+        Companion to test_02. That test can only ever exercise the rejection
+        path, because clone mode 400s without prompt_file — so this one supplies
+        a real prompt and asserts the accept path: the markup is synthesized as
+        speech (a real WAV comes back) instead of steering the server down some
+        other code path. One representative payload keeps the runtime sane
+        (~80 s per real clone generation on MLX).
+        """
+        payload = "<script>alert('xss')</script>"
+        status, data = _make_request(
+            "/generate",
+            {"text": payload, "mode": "clone", "prompt_file": clone_prompt},
+            method="POST",
+        )
+
+        if status == 429:
+            pytest.skip("Rate limit exceeded before XSS accept path could be verified")
+        if status in (500, 503):
+            pytest.skip(f"Server could not generate (status {status}); accept path not exercised")
+
+        assert status in [200, 202], \
+            f"XSS payload with a valid prompt should be accepted, got {status}: {data}"
+        _assert_real_audio(data, "XSS accept path")
+        _assert_not_reflected(data, payload, "XSS accept path")
 
     def test_03_xss_prevention_in_parameters(self):
         """REGRESSION: XSS attempts in all parameters should be sanitized.
@@ -379,13 +505,18 @@ class TestE2EInjectionPrevention:
                 method="POST"
             )
 
-            # If successful, verify command was not executed
-            # (text should be treated as literal)
-            if status in [200, 202]:
-                response_text = json.dumps(response_str).lower()
-                # Should not show signs of command execution
-                assert "root:" not in response_text, \
-                    f"Command injection may have succeeded: {payload[:30]}"
+            if status == 429:
+                pytest.skip("Rate limit exceeded before command injection could be verified")
+
+            assert status in [200, 202, 400, 422, 500, 503], \
+                f"Command payload produced an unexpected status {status}: {payload[:30]}"
+
+            # /etc/passwd content must never appear, on any status. Scrubbed of
+            # audio first: base64 contains arbitrary substrings by chance.
+            response_text = json.dumps(_scrubbed(response_str)).lower()
+            assert "root:" not in response_text, \
+                f"Command injection may have succeeded: {payload[:30]}"
+            _assert_not_reflected(response_str, payload, f"CMD {payload[:30]}")
 
     def test_06_template_injection_prevented(self):
         """REGRESSION: Template injection attempts should be prevented.
@@ -407,13 +538,44 @@ class TestE2EInjectionPrevention:
                 method="POST"
             )
 
-            # Template injection should not execute
-            # (text should be treated as literal)
-            if status in [200, 202]:
-                json.dumps(response_str)
-                # If the payload was executed, we'd see "49" for {{7*7}}
-                # Instead, it should be treated as literal text
-                pass  # Accept - server treated it as literal text
+            if status == 429:
+                pytest.skip("Rate limit exceeded before template injection could be verified")
+
+            assert status in [200, 202, 400, 422, 500, 503], \
+                f"Template payload produced an unexpected status {status}: {payload[:30]}"
+
+            # NOTE: deliberately NOT asserting `"49" not in response`. The
+            # response carries no text field to evaluate into, and the only
+            # numeric metadata (`seed`) is a random 9-digit int that contains
+            # "49" as a substring roughly 8% of the time — such a check is a
+            # flake, not a security guarantee. Non-reflection is the real,
+            # deterministic invariant here.
+            _assert_not_reflected(response_str, payload, f"TEMPLATE {payload[:30]}")
+
+    def test_06b_template_payload_is_spoken_as_literal_text(self, clone_prompt):
+        """REGRESSION: an ACCEPTED template payload returns ordinary audio.
+
+        Companion to test_06 for the same reason test_02b exists: clone mode
+        400s without prompt_file, so test_06 can only exercise rejection. Here
+        the request is accepted, and `{{7*7}}` must come back as a normal WAV —
+        the server has no template engine on `text`, and this pins that.
+        """
+        payload = "{{7*7}}"
+        status, data = _make_request(
+            "/generate",
+            {"text": payload, "mode": "clone", "prompt_file": clone_prompt},
+            method="POST",
+        )
+
+        if status == 429:
+            pytest.skip("Rate limit exceeded before template accept path could be verified")
+        if status in (500, 503):
+            pytest.skip(f"Server could not generate (status {status}); accept path not exercised")
+
+        assert status in [200, 202], \
+            f"Template payload with a valid prompt should be accepted, got {status}: {data}"
+        _assert_real_audio(data, "template accept path")
+        _assert_not_reflected(data, payload, "template accept path")
 
 
 class TestE2EDataTypeValidation:

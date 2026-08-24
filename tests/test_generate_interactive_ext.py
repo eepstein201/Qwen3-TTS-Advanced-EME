@@ -13,7 +13,28 @@ Run: pytest tests/test_generate_interactive_ext.py -v
 """
 import os
 import unittest
+from dataclasses import dataclass
+from typing import Any
 from unittest.mock import MagicMock, patch
+
+
+@dataclass(frozen=True)
+class ReplRun:
+    """Observable outcome of one REPL session.
+
+    Frozen: the captured transcript is evidence, not scratch space.
+    """
+
+    lines: tuple[str, ...]
+    write: Any
+    server: Any
+    local: Any
+    play: Any
+
+    @property
+    def output(self) -> str:
+        """Full transcript as one searchable string."""
+        return "\n".join(self.lines)
 
 
 class TestDeleteVoicePromptDeep(unittest.TestCase):
@@ -198,8 +219,21 @@ class TestProgressPollerRun(unittest.TestCase):
             return orig_wait(0)
 
         poller._stop.wait = stop_after_one
-        with patch("qwen3_tts.core.http_client.server_request", side_effect=ConnectionError("refused")):
+        with patch(
+            "qwen3_tts.core.http_client.server_request",
+            side_effect=ConnectionError("refused"),
+        ) as mock_req:
             poller._run_fallback()
+
+        # The point of the test: a refused connection is swallowed by the poll
+        # loop rather than escaping the thread, and the loop still terminates.
+        self.assertTrue(
+            mock_req.called, "fallback loop never polled the server."
+        )
+        self.assertTrue(
+            poller._stop.is_set(),
+            "fallback loop did not terminate after the stop signal.",
+        )
         # Should complete without exception
 
 
@@ -207,18 +241,53 @@ class TestRunRepl(unittest.TestCase):
     """Tests for run_repl REPL commands."""
 
     def _run_repl_with_inputs(self, inputs, use_server=True):
-        """Helper to run REPL with a sequence of inputs."""
+        """Run the REPL over *inputs* and return an observable result.
+
+        Returns a ``ReplRun`` carrying the captured stdout lines plus the
+        generation/playback mocks, so callers can assert on what the REPL
+        actually did. These tests previously discarded ``print`` entirely and
+        asserted nothing — they passed as long as no exception escaped, which
+        made them crash-only smoke tests rather than behavioral coverage.
+        """
         from qwen3_tts.interface.generate_interactive import run_repl
+
+        printed: list[str] = []
         input_iter = iter(inputs)
         with patch("builtins.input", side_effect=input_iter), \
-             patch("builtins.print"), \
+             patch("builtins.print", side_effect=lambda *a, **k: printed.append(" ".join(str(x) for x in a))), \
              patch("qwen3_tts.interface.generate_interactive.get_default_clone_prompt", return_value="default.pt"), \
-             patch("soundfile.write"), \
-             patch("qwen3_tts.interface.generate_server.generate_via_server", return_value=["base64"]), \
-             patch("qwen3_tts.interface.generate_server.generate_local", return_value=(MagicMock(), 24000)), \
+             patch("soundfile.write") as mock_write, \
+             patch("qwen3_tts.interface.generate_server.generate_via_server", return_value=["base64"]) as mock_server, \
+             patch("qwen3_tts.interface.generate_server.generate_local", return_value=(MagicMock(), 24000)) as mock_local, \
              patch("qwen3_tts.interface.generate_interactive._decode_base64_result", return_value=(MagicMock(), 24000)), \
-             patch("qwen3_tts.interface.generate_interactive.play_audio"):
+             patch("qwen3_tts.interface.generate_interactive.play_audio") as mock_play:
             run_repl({}, use_server)
+        return ReplRun(
+            lines=tuple(printed),
+            write=mock_write,
+            server=mock_server,
+            local=mock_local,
+            play=mock_play,
+        )
+
+    def assertReplExitedCleanly(self, run):
+        """The REPL printed its banner, reached its exit line, and raised no
+        'Unknown command' complaint. Baseline for every command test."""
+        self.assertIn(
+            "=== TTS REPL Mode ===",
+            run.output,
+            "REPL never printed its banner — it did not start.",
+        )
+        self.assertIn(
+            "Exiting REPL.",
+            run.output,
+            "REPL did not reach its exit line; the input loop broke early.",
+        )
+        self.assertNotIn(
+            "Unknown command",
+            run.output,
+            f"REPL rejected a valid command: {run.output!r}",
+        )
 
     def test_repl_honors_cli_sampling_flags(self):
         """H5: run_repl threads the caller's gen_params (CLI --seed/--temperature)
@@ -265,108 +334,273 @@ class TestRunRepl(unittest.TestCase):
         )
 
     def test_quit_command(self):
-        self._run_repl_with_inputs(["/quit"])
+        """/quit exits the loop without consuming further input."""
+        run = self._run_repl_with_inputs(["/quit"])
+        self.assertReplExitedCleanly(run)
+        self.assertFalse(
+            run.server.called, "/quit must not trigger a generation."
+        )
 
     def test_q_shortcut(self):
-        self._run_repl_with_inputs(["/q"])
+        """/q is an alias for /quit."""
+        run = self._run_repl_with_inputs(["/q"])
+        self.assertReplExitedCleanly(run)
+        self.assertFalse(run.server.called, "/q must not trigger a generation.")
 
     def test_status_command(self):
-        self._run_repl_with_inputs(["/status", "/quit"])
+        """/status reports every live setting."""
+        run = self._run_repl_with_inputs(["/status", "/quit"])
+        self.assertReplExitedCleanly(run)
+        for field in ("Mode:", "Prompt:", "Preset:", "Auto-play:", "Speed:", "Pitch:", "Server:"):
+            self.assertIn(field, run.output, f"/status omitted {field!r}")
+        self.assertIn("Mode: clone", run.output)
+        self.assertIn("Prompt: default.pt", run.output)
 
     def test_play_on_off(self):
-        self._run_repl_with_inputs(["/play off", "/play on", "/quit"])
+        """/play toggles auto-play and echoes the new state each time."""
+        run = self._run_repl_with_inputs(["/play off", "/play on", "/quit"])
+        self.assertReplExitedCleanly(run)
+        self.assertIn("Auto-play: off", run.output)
+        self.assertIn("Auto-play: on", run.output)
+        self.assertLess(
+            run.output.index("Auto-play: off"),
+            run.output.index("Auto-play: on"),
+            "Auto-play states echoed out of order.",
+        )
 
     def test_speed_command(self):
-        self._run_repl_with_inputs(["/speed 1.5", "/speed", "/quit"])
+        """/speed FACTOR sets speed; bare /speed resets it."""
+        run = self._run_repl_with_inputs(["/speed 1.5", "/speed", "/quit"])
+        self.assertReplExitedCleanly(run)
+        self.assertIn("Speed: 1.5", run.output)
+        self.assertIn("Speed: reset to default", run.output)
 
     def test_pitch_command(self):
-        self._run_repl_with_inputs(["/pitch 2.0", "/pitch", "/quit"])
+        """/pitch SEMI sets pitch; bare /pitch resets it."""
+        run = self._run_repl_with_inputs(["/pitch 2.0", "/pitch", "/quit"])
+        self.assertReplExitedCleanly(run)
+        self.assertIn("Pitch: 2.0 semitones", run.output)
+        self.assertIn("Pitch: reset to default", run.output)
 
     def test_speed_invalid(self):
-        self._run_repl_with_inputs(["/speed abc", "/quit"])
+        """A non-numeric /speed is reported, not crashed on."""
+        run = self._run_repl_with_inputs(["/speed abc", "/quit"])
+        self.assertReplExitedCleanly(run)
+        self.assertIn("Invalid speed value", run.output)
 
     def test_pitch_invalid(self):
-        self._run_repl_with_inputs(["/pitch xyz", "/quit"])
+        """A non-numeric /pitch is reported, not crashed on."""
+        run = self._run_repl_with_inputs(["/pitch xyz", "/quit"])
+        self.assertReplExitedCleanly(run)
+        self.assertIn("Invalid pitch value", run.output)
 
     @patch("qwen3_tts.interface.generate_interactive.get_voice_alias")
     def test_voice_command_found(self, mock_alias):
+        """/voice NAME resolves the alias and adopts its prompt."""
         mock_alias.return_value = {"prompt": "narrator.pt"}
-        self._run_repl_with_inputs(["/voice narrator", "/quit"])
+        run = self._run_repl_with_inputs(["/voice narrator", "/status", "/quit"])
+        self.assertReplExitedCleanly(run)
+        mock_alias.assert_called_with("narrator", {})
+        self.assertIn(
+            "Prompt: narrator.pt",
+            run.output,
+            f"/voice did not adopt the alias prompt: {run.output!r}",
+        )
 
     @patch("qwen3_tts.interface.generate_interactive.get_voice_alias")
     def test_voice_command_not_found(self, mock_alias):
+        """An unknown alias leaves the active prompt untouched."""
         mock_alias.return_value = None
-        self._run_repl_with_inputs(["/voice nonexistent", "/quit"])
+        run = self._run_repl_with_inputs(["/voice nonexistent", "/status", "/quit"])
+        self.assertReplExitedCleanly(run)
+        mock_alias.assert_called_with("nonexistent", {})
+        self.assertIn(
+            "Prompt: default.pt",
+            run.output,
+            "A failed /voice lookup must not change the active prompt.",
+        )
 
     def test_voice_no_arg(self):
-        self._run_repl_with_inputs(["/voice", "/quit"])
+        """Bare /voice is a no-op, not an error or a crash."""
+        run = self._run_repl_with_inputs(["/voice", "/status", "/quit"])
+        self.assertReplExitedCleanly(run)
+        self.assertIn(
+            "Prompt: default.pt",
+            run.output,
+            "Bare /voice must not clear the active prompt.",
+        )
 
     def test_preset_command(self):
+        """/preset NAME adopts a preset defined in config."""
         from qwen3_tts.interface.generate_interactive import run_repl
-        inputs = iter(["/preset fast", "/quit"])
+        printed = []
+        inputs = iter(["/preset fast", "/status", "/quit"])
         config = {"presets": {"fast": {"temperature": 0.3}}, "generation": {}}
         with patch("builtins.input", side_effect=inputs), \
-             patch("builtins.print"), \
+             patch("builtins.print", side_effect=lambda *a, **k: printed.append(" ".join(str(x) for x in a))), \
              patch("qwen3_tts.interface.generate_interactive.get_default_clone_prompt", return_value="default.pt"):
             run_repl(config, True)
+        output = "\n".join(printed)
+        self.assertIn("Exiting REPL.", output)
+        self.assertNotIn(
+            "Unknown preset",
+            output,
+            "A preset present in config was reported unknown.",
+        )
+        self.assertIn(
+            "Preset: fast",
+            output,
+            f"/preset did not become the active preset: {output!r}",
+        )
 
     def test_preset_not_found(self):
-        self._run_repl_with_inputs(["/preset nonexistent", "/quit"])
+        """An undefined preset is reported by name."""
+        run = self._run_repl_with_inputs(["/preset nonexistent", "/quit"])
+        self.assertIn("Exiting REPL.", run.output)
+        self.assertIn("Unknown preset: nonexistent", run.output)
 
     def test_preset_no_arg(self):
-        self._run_repl_with_inputs(["/preset", "/quit"])
+        """Bare /preset is a no-op, not an error."""
+        run = self._run_repl_with_inputs(["/preset", "/status", "/quit"])
+        self.assertReplExitedCleanly(run)
+        self.assertIn(
+            "Preset: default",
+            run.output,
+            "Bare /preset must leave the active preset alone.",
+        )
 
     def test_unknown_command(self):
-        self._run_repl_with_inputs(["/badcommand", "/quit"])
+        """An unrecognised slash command is named back to the user."""
+        run = self._run_repl_with_inputs(["/badcommand", "/quit"])
+        self.assertIn("Exiting REPL.", run.output)
+        self.assertIn("Unknown command: /badcommand", run.output)
+        self.assertFalse(
+            run.server.called,
+            "An unknown command must not be sent off as text to generate.",
+        )
 
     def test_empty_input_skipped(self):
-        self._run_repl_with_inputs(["", "/quit"])
+        """Empty input is skipped without reaching generation."""
+        run = self._run_repl_with_inputs(["", "/quit"])
+        self.assertReplExitedCleanly(run)
+        self.assertFalse(
+            run.server.called, "Empty input must not trigger a generation."
+        )
+        self.assertFalse(
+            run.write.called, "Empty input must not write an audio file."
+        )
 
     def test_eof_exits(self):
+        """EOF (Ctrl-D) exits the loop instead of propagating."""
         from qwen3_tts.interface.generate_interactive import run_repl
+        printed = []
         with patch("builtins.input", side_effect=EOFError), \
-             patch("builtins.print"), \
+             patch("builtins.print", side_effect=lambda *a, **k: printed.append(" ".join(str(x) for x in a))), \
              patch("qwen3_tts.interface.generate_interactive.get_default_clone_prompt", return_value="default.pt"):
             run_repl({}, True)
+        self.assertIn(
+            "=== TTS REPL Mode ===",
+            "\n".join(printed),
+            "REPL did not start before EOF was delivered.",
+        )
+
+    def _run_repl_capturing(self, inputs, extra_patches=()):
+        """Run the REPL with bespoke patches, returning the printed transcript."""
+        from qwen3_tts.interface.generate_interactive import run_repl
+        printed = []
+        started = [
+            patch("builtins.input", side_effect=iter(inputs)),
+            patch("builtins.print", side_effect=lambda *a, **k: printed.append(" ".join(str(x) for x in a))),
+            patch("qwen3_tts.interface.generate_interactive.get_default_clone_prompt", return_value="default.pt"),
+            *extra_patches,
+        ]
+        for p in started:
+            p.start()
+        self.addCleanup(lambda: [p.stop() for p in reversed(started)])
+        run_repl({}, True)
+        return "\n".join(printed)
 
     def test_prompt_command_found(self):
-        from qwen3_tts.interface.generate_interactive import run_repl
-        inputs = iter(["/prompt myvoice", "/quit"])
-        with patch("builtins.input", side_effect=inputs), \
-             patch("builtins.print"), \
-             patch("os.path.exists", return_value=True), \
-             patch("qwen3_tts.interface.generate_interactive.get_default_clone_prompt", return_value="default.pt"):
-            run_repl({}, True)
+        """/prompt NAME adopts an existing prompt file."""
+        output = self._run_repl_capturing(
+            ["/prompt myvoice", "/status", "/quit"],
+            [patch("os.path.exists", return_value=True)],
+        )
+        self.assertIn("Exiting REPL.", output)
+        self.assertNotIn("not found", output.lower())
+        self.assertIn(
+            "myvoice",
+            output,
+            f"/prompt did not adopt the named prompt: {output!r}",
+        )
 
     def test_prompt_command_not_found(self):
-        from qwen3_tts.interface.generate_interactive import run_repl
-        inputs = iter(["/prompt nonexistent", "/quit"])
-        with patch("builtins.input", side_effect=inputs), \
-             patch("builtins.print"), \
-             patch("os.path.exists", return_value=False), \
-             patch("qwen3_tts.interface.generate_interactive.get_default_clone_prompt", return_value="default.pt"):
-            run_repl({}, True)
+        """A missing prompt file is reported and the old prompt is kept."""
+        output = self._run_repl_capturing(
+            ["/prompt nonexistent", "/status", "/quit"],
+            [patch("os.path.exists", return_value=False)],
+        )
+        self.assertIn("Exiting REPL.", output)
+        self.assertIn(
+            "Prompt: default.pt",
+            output,
+            "A missing /prompt target must not replace the active prompt.",
+        )
 
     def test_prompt_no_arg(self):
-        self._run_repl_with_inputs(["/prompt", "/quit"])
+        """Bare /prompt is a no-op, not an error."""
+        run = self._run_repl_with_inputs(["/prompt", "/status", "/quit"])
+        self.assertReplExitedCleanly(run)
+        self.assertIn(
+            "Prompt: default.pt",
+            run.output,
+            "Bare /prompt must leave the active prompt alone.",
+        )
 
     def test_text_generation_server(self):
-        """Typing text generates audio via server."""
-        self._run_repl_with_inputs(["Hello world", "/quit"], use_server=True)
+        """Typing text routes to the server path and writes the audio out."""
+        run = self._run_repl_with_inputs(["Hello world", "/quit"], use_server=True)
+        self.assertReplExitedCleanly(run)
+        run.server.assert_called_once()
+        self.assertFalse(
+            run.local.called,
+            "Server mode must not fall back to local generation.",
+        )
+        self.assertIn("Hello world", str(run.server.call_args))
+        run.write.assert_called_once()
+        self.assertIn(".wav", run.output, "REPL did not report an output path.")
 
     def test_text_generation_local(self):
-        """Typing text generates audio locally."""
-        self._run_repl_with_inputs(["Hello world", "/quit"], use_server=False)
+        """With no server, typing text routes to local generation."""
+        run = self._run_repl_with_inputs(["Hello world", "/quit"], use_server=False)
+        self.assertReplExitedCleanly(run)
+        run.local.assert_called_once()
+        self.assertFalse(
+            run.server.called,
+            "Local mode must not call the server generation path.",
+        )
+        run.write.assert_called_once()
+        self.assertIn(".wav", run.output, "REPL did not report an output path.")
 
     def test_generation_error_handled(self):
-        """Generation errors are caught and printed."""
-        from qwen3_tts.interface.generate_interactive import run_repl
-        inputs = iter(["Hello", "/quit"])
-        with patch("builtins.input", side_effect=inputs), \
-             patch("builtins.print"), \
-             patch("qwen3_tts.interface.generate_interactive.get_default_clone_prompt", return_value="default.pt"), \
-             patch("qwen3_tts.interface.generate_server.generate_via_server", side_effect=RuntimeError("gen error")):
-            run_repl({}, True)
+        """A generation failure is reported and the REPL keeps running."""
+        output = self._run_repl_capturing(
+            ["Hello", "/quit"],
+            [patch(
+                "qwen3_tts.interface.generate_server.generate_via_server",
+                side_effect=RuntimeError("gen error"),
+            )],
+        )
+        self.assertIn(
+            "Exiting REPL.",
+            output,
+            "A generation error killed the REPL loop instead of being handled.",
+        )
+        self.assertIn(
+            "gen error",
+            output,
+            f"The generation failure was swallowed silently: {output!r}",
+        )
 
 
 class TestInteractiveMode(unittest.TestCase):
@@ -509,8 +743,16 @@ class TestProgressPollerRichPath(unittest.TestCase):
             "chunk_total": 2, "chunk_index": 0,
         }
         # Rich is imported lazily inside _run_rich — let it use real Rich
-        with patch("qwen3_tts.core.http_client.server_request", return_value=mock_resp):
+        with patch(
+            "qwen3_tts.core.http_client.server_request", return_value=mock_resp
+        ) as mock_req:
             poller._run_rich()
+
+        self.assertTrue(mock_req.called, "rich loop never polled /generation-status.")
+        self.assertTrue(mock_resp.json.called, "rich loop never read the poll payload.")
+        self.assertTrue(
+            poller._stop.is_set(), "rich loop did not terminate after the stop signal."
+        )
 
     def test_run_rich_batch_mode_with_eta(self):
         """Lines 257-263: Rich batch mode with ETA calculation."""
@@ -521,14 +763,34 @@ class TestProgressPollerRichPath(unittest.TestCase):
             "active": True, "elapsed_sec": 5, "eta_sec": 10,
             "batch_index": 1, "chunk_total": 1,
         }
-        with patch("qwen3_tts.core.http_client.server_request", return_value=mock_resp):
+        with patch(
+            "qwen3_tts.core.http_client.server_request", return_value=mock_resp
+        ) as mock_req:
             poller._run_rich()
+
+        self.assertTrue(mock_req.called, "batch rich loop never polled the server.")
+        self.assertTrue(mock_resp.json.called, "batch rich loop never read the payload.")
+        self.assertTrue(
+            poller._stop.is_set(),
+            "batch rich loop did not terminate after the stop signal.",
+        )
 
     def test_run_rich_request_error(self):
         """Lines 264-265: exception handling in Rich loop."""
         poller = self._make_poller_one_iter()
-        with patch("qwen3_tts.core.http_client.server_request", side_effect=ConnectionError("refused")):
+        with patch(
+            "qwen3_tts.core.http_client.server_request",
+            side_effect=ConnectionError("refused"),
+        ) as mock_req:
             poller._run_rich()
+
+        # A refused connection must be contained inside the loop, not raised
+        # out of the poller thread, and must still let the loop exit.
+        self.assertTrue(mock_req.called, "rich loop never attempted a poll.")
+        self.assertTrue(
+            poller._stop.is_set(),
+            "rich loop did not terminate after a connection error.",
+        )
 
 
 class TestProgressPollerFallbackDisplay(unittest.TestCase):
