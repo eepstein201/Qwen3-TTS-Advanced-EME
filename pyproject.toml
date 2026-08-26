@@ -78,7 +78,7 @@ dev = [
     "pytest-timeout>=2.4.0",    # catch hanging tests
     "pytest-random-order>=1.2.0", # find interdependent tests
     "pytest-cov>=7.1.0",        # coverage reporting
-    "ruff>=0.16.1",              # linting + formatting
+    "ruff>=0.16.4",              # linting + formatting
     "mypy>=2.3.0",             # static type checking
     "bandit>=1.9.4",            # security static analysis
 ]
