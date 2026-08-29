@@ -421,6 +421,79 @@ class TestGenerateStreaming(unittest.TestCase):
         self.assertEqual(sr, 24000)
         np.testing.assert_array_almost_equal(wav_chunk, samples)
 
+    def test_terminal_error_frame_raises_instead_of_yielding_garbage(self):
+        """U3: the sentinel frame (sample_rate 0) must raise, not be decoded.
+
+        Starlette commits the 200 headers before the body is iterated, so a
+        mid-stream failure arrives in band as a frame with sample_rate 0 whose
+        payload is JSON. The CLI path has handled this since WS2 2.5; the
+        public client (README:303) did not — it ran the JSON bytes through
+        np.frombuffer and yielded garbage samples with sr=0, so a failed
+        generation looked like a successful one with odd audio.
+        """
+        from qwen3_tts.core.config import GenerationError
+        from qwen3_tts.core.stream_protocol import encode_stream_error_frame
+
+        client, session = _client_with_server(self.cfg)
+
+        mock_resp = MagicMock()
+        mock_resp.status_code = 200
+        mock_resp.__enter__ = MagicMock(return_value=mock_resp)
+        mock_resp.__exit__ = MagicMock(return_value=False)
+        mock_resp.iter_content.return_value = [
+            encode_stream_error_frame("model exploded")
+        ]
+        session.post.return_value = mock_resp
+
+        with self.assertRaises(GenerationError) as ctx:
+            list(client.generate_streaming("hello", mode="custom", speaker="ryan"))
+        self.assertIn(
+            "model exploded", (ctx.exception.technical_detail or "").lower()
+        )
+
+    def test_partial_audio_before_error_frame_is_not_a_success(self):
+        """Audio already yielded must not be treated as a complete generation.
+
+        The failure can land after chunks have streamed. The consumer gets the
+        chunks, then the raise — it must never end cleanly and let a caller
+        save truncated audio as a successful generation.
+        """
+        import numpy as np
+
+        from qwen3_tts.core.config import GenerationError
+        from qwen3_tts.core.stream_protocol import encode_stream_error_frame
+
+        client, session = _client_with_server(self.cfg)
+
+        samples = np.array([0.1, 0.2], dtype=np.float32)
+        audio = samples.tobytes()
+        body = (
+            struct.pack("<II", 24000, len(audio))
+            + audio
+            + encode_stream_error_frame("died mid-stream")
+        )
+
+        mock_resp = MagicMock()
+        mock_resp.status_code = 200
+        mock_resp.__enter__ = MagicMock(return_value=mock_resp)
+        mock_resp.__exit__ = MagicMock(return_value=False)
+        mock_resp.iter_content.return_value = [body]
+        session.post.return_value = mock_resp
+
+        received = []
+        with self.assertRaises(GenerationError):
+            for chunk in client.generate_streaming(
+                "hello", mode="custom", speaker="ryan"
+            ):
+                received.append(chunk)
+
+        self.assertEqual(
+            len(received), 1, "the good chunk before the error should still arrive"
+        )
+        self.assertNotEqual(
+            received[0][1], 0, "a real chunk must never carry sample_rate 0"
+        )
+
     def test_error_status_raises(self):
         """Non-200 streaming response raises GenerationError."""
         from qwen3_tts.core.config import GenerationError

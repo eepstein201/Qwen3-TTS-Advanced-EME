@@ -5,7 +5,6 @@ Handles server-side generation (HTTP), streaming, local generation,
 server lifecycle, and UI launch.
 """
 
-import json
 import logging
 import os
 import subprocess  # nosec B404
@@ -19,19 +18,6 @@ class TTSGenericError(RuntimeError):
     """Raised for TTS server-interaction failures that have no more specific type."""
 
 
-# Upper bound on a single streamed audio chunk's declared byte length. The
-# length prefix in the wire format is an attacker-influenceable uint32 (up to
-# ~4 GB) — without a cap, a corrupt or hostile stream makes the reader wait
-# for and buffer an unbounded amount of data in memory.
-MAX_STREAM_CHUNK_BYTES = 200 * 1024 * 1024  # 200 MB
-
-# Terminal error frame sentinel (WS2 2.5). Mirrors
-# qwen3_tts.server.app_generation.STREAM_ERROR_SENTINEL_SR — duplicated rather
-# than imported so the CLI never pulls FastAPI in, and kept in lockstep by
-# tests/test_stream_error_frame.py. A real audio chunk always has a non-zero
-# sample rate, so 0 unambiguously marks an error frame whose payload is JSON.
-STREAM_ERROR_SENTINEL_SR = 0
-
 # get_server_url / load_config are part of this module's namespace contract: they
 # are patched by tests (see tests/test_generate_server.py). Keep them imported.
 from qwen3_tts.core.config import (  # noqa: E402, F401
@@ -42,6 +28,19 @@ from qwen3_tts.core.config import (  # noqa: E402, F401
     is_server_running,
     load_config,
     safe_path_join,
+)
+
+# Wire-format constants and the single shared frame parser. core.stream_protocol
+# imports no FastAPI, torch or mlx, so the CLI can share the server's definition
+# of the format instead of re-declaring it — these used to be local copies that
+# drifted (a 200 MB cap here vs 100 MB in TTSClient). The two constants are
+# re-exported because tests/test_stream_error_frame.py asserts this module's
+# names stay in lockstep with the server's.
+from qwen3_tts.core.stream_protocol import (  # noqa: E402, F401
+    MAX_STREAM_CHUNK_BYTES,
+    STREAM_ERROR_SENTINEL_SR,
+    StreamProtocolError,
+    iter_stream_chunks,
 )
 from qwen3_tts.interface.generate_helpers import (  # noqa: E402
     _build_generation_payload,
@@ -333,7 +332,6 @@ def generate_streaming(
     Streams from server and plays audio chunks as they arrive.
     Also saves the complete audio to output_path.
     """
-    import struct
     import tempfile
 
     import numpy as np
@@ -376,58 +374,14 @@ def generate_streaming(
         sample_rate = None
         chunk_count = 0
 
-        # Read streamed chunks with length-prefixed format:
-        # Each chunk: [sample_rate:4][length:4][audio:length]
-        buffer = b""
-        header_size = 8  # 4 bytes sample_rate + 4 bytes length
-
-        for data in resp.iter_content(chunk_size=4096):
-            buffer += data
-
-            # Process complete chunks in buffer
-            while len(buffer) >= header_size:
-                try:
-                    # Read header
-                    sr, audio_len = struct.unpack("<II", buffer[:header_size])
-
-                    if audio_len > MAX_STREAM_CHUNK_BYTES:
-                        raise RuntimeError(
-                            f"Streamed audio chunk length ({audio_len} bytes) "
-                            f"exceeds the {MAX_STREAM_CHUNK_BYTES}-byte limit"
-                        )
-
-                    # Check if we have the full audio chunk
-                    total_chunk_size = header_size + audio_len
-                    if len(buffer) < total_chunk_size:
-                        break  # Need more data
-
-                    # Terminal error frame (WS2 2.5): the server cannot change
-                    # the status code once streaming has begun, so a mid-stream
-                    # failure arrives in band with sample_rate 0 — never valid
-                    # for real audio. Surface it as an error rather than
-                    # decoding JSON as float32 samples, and never treat the
-                    # partial audio already received as a complete generation.
-                    if sr == STREAM_ERROR_SENTINEL_SR:
-                        payload = buffer[header_size:total_chunk_size]
-                        try:
-                            detail = json.loads(payload.decode("utf-8"))
-                            message = detail.get("error", "unknown streaming error")
-                        except (ValueError, UnicodeDecodeError):
-                            message = "server reported a streaming error"
-                        raise TTSGenericError(
-                            f"Server error during streaming: {message}"
-                        )
-
-                    if sample_rate is None:
-                        sample_rate = sr
-
-                    # Extract audio
-                    audio_bytes = buffer[header_size:total_chunk_size]
-                    chunk = np.frombuffer(audio_bytes, dtype="<f4")
-                except (struct.error, ValueError) as e:
-                    raise RuntimeError(
-                        f"Failed to parse streamed audio chunk: {e}"
-                    ) from e
+        # Wire-format parsing lives in core/stream_protocol.py — ONE parser
+        # shared with TTSClient.generate_streaming(). This used to be a private
+        # copy, and the two drifted (different size caps; only this one checked
+        # the terminal error sentinel).
+        try:
+            for chunk, sr in iter_stream_chunks(resp.iter_content(chunk_size=4096)):
+                if sample_rate is None:
+                    sample_rate = sr
 
                 all_chunks.append(chunk)
                 chunk_count += 1
@@ -441,9 +395,12 @@ def generate_streaming(
                     logger.debug("Streaming audio playback failed: skipping")
                 finally:
                     os.unlink(temp.name)
-
-                # Remove processed chunk from buffer
-                buffer = buffer[total_chunk_size:]
+        except StreamProtocolError as e:
+            # Terminal error frame: the server cannot change the status code
+            # once streaming has begun, so a mid-stream failure arrives in
+            # band. Never treat the partial audio already received as a
+            # complete generation.
+            raise TTSGenericError(f"Server error during streaming: {e}") from e
 
         print(f"Streaming complete: {chunk_count} chunks received")
 

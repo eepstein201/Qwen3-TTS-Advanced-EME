@@ -7,7 +7,6 @@ These are plain async functions called by thin endpoint wrappers in app.py.
 import asyncio
 import base64
 import io
-import json
 import logging
 import os
 import secrets
@@ -21,6 +20,19 @@ from fastapi import HTTPException, Response
 from fastapi.responses import StreamingResponse
 
 from qwen3_tts.core.config import get_generation_cache_max
+
+# Terminal error frame for the length-prefixed streaming wire format (WS2 2.5).
+# Frames are [sample_rate:4][length:4][payload:length]; a real chunk always
+# carries a non-zero sample rate, so 0 is a free sentinel and the payload is
+# JSON {"error": str, "code": str}. The definition and encoder live in
+# core/stream_protocol.py — one source of truth shared by the server, the CLI
+# and TTSClient — and are re-exported here so existing
+# `from app_generation import STREAM_ERROR_SENTINEL_SR` callers keep working.
+from qwen3_tts.core.stream_protocol import (  # noqa: F401
+    STREAM_ERROR_CODE_INFERENCE_FAILED,
+    STREAM_ERROR_SENTINEL_SR,
+    encode_stream_error_frame,
+)
 from qwen3_tts.server.app_lifespan import _check_memory_available
 from qwen3_tts.server.validation import (
     MAX_SEED,
@@ -98,22 +110,6 @@ def _stream_thread_join_timeout(
 
 # Back-compat alias: existing callers/tests reference the old constant name.
 _STREAM_THREAD_JOIN_TIMEOUT_SEC: float = _STREAM_THREAD_JOIN_FLOOR_SEC
-
-# Terminal error frame for the length-prefixed streaming wire format (WS2 2.5).
-# Frames are [sample_rate:4][length:4][payload:length]; a real chunk always
-# carries a non-zero sample rate, so 0 is a free sentinel. The payload is JSON
-# {"error": str, "code": str}. The client mirror of this constant lives in
-# qwen3_tts/interface/generate_server.py and is kept in lockstep by
-# tests/test_stream_error_frame.py.
-STREAM_ERROR_SENTINEL_SR: int = 0
-STREAM_ERROR_CODE_INFERENCE_FAILED = "inference_failed"
-
-
-def encode_stream_error_frame(message: str, code: str = STREAM_ERROR_CODE_INFERENCE_FAILED) -> bytes:
-    """Build a terminal error frame for the streaming wire format."""
-    payload = json.dumps({"error": message, "code": code}).encode("utf-8")
-    return struct.pack("<II", STREAM_ERROR_SENTINEL_SR, len(payload)) + payload
-
 
 async def _await_inference_thread_done(
     done_event: threading.Event,
