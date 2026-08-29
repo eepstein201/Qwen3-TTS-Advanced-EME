@@ -322,22 +322,85 @@ Phase 2d owns the e2e queuing tier. The one existing cancel e2e
 own comments tolerates the cancel timing out, so it never asserts on the
 `/generate` response shape and could not have caught 1c.
 
-## Deferred to the plan
+## Review follow-ups (1R4/1R5/1R6)
 
-Three review findings are recorded in the source plan as **Phase 1R4-1R6** rather
-than fixed on this branch — all LOW, none a correctness defect:
+Three LOW findings deferred when this work was first written; folded in here.
+None is a correctness defect, so all three land **GREEN on first run** — the
+honest RED gate is to prove each new assertion is *live* by inverting the
+**production** side and observing the failure (Phase 0a convention).
 
-1. `test_uncancelled_batch_reports_not_cancelled` uses
-   `assertFalse(result.get("cancelled"))`, which also passes when the key is
-   absent entirely. Tighten to `assertIn` + `assertIs(..., False)`.
-2. Nothing pins `cancelled` on the **wire**. All three 1c server tests call
-   `handle_generate` directly, bypassing `response_model`;
-   `tests/test_response_contracts.py` checks that every *per-result* field
-   survives response_model filtering but was not extended for the new
-   top-level flag. Verified working by hand
-   (`{"results":[],"cancelled":true}`), just unguarded.
-3. `_stream_thread_join_timeout`'s docstring says "`0`/`None` disables
-   chunking", but a request-level `max_chunk_chars=None` means "read from
-   config" (default 500) per `inference.py:1354`, not "no chunking". The join
-   then gets a whole-text timeout — over-generous, never too short, so
-   fail-safe. Pre-existing in the helper, not introduced by Phase 1.
+### 1R4 — an assertion that also passed when the key was gone
+
+`test_uncancelled_batch_reports_not_cancelled` asserted
+`assertFalse(result.get("cancelled"))`. `.get()` returns `None` for a missing
+key and `assertFalse(None)` passes, so the test could not distinguish "flag is
+False" from "flag was dropped" — the exact regression clients would break on.
+Tightened to `assertIn("cancelled", result)` + `assertIs(result["cancelled"], False)`.
+
+**Liveness proof.** Changed the uncancelled return in `app_generation.py` from
+`{"results": results, "cancelled": cancelled}` to `{"results": results}`:
+
+```
+E   AssertionError: 'cancelled' not found in {'results': [...]}
+FAILED tests/test_batch_generation_state_ownership.py::TestBatchResultCompleteness
+       ::test_uncancelled_batch_reports_not_cancelled
+```
+
+The old `assertFalse` form passes under that same inversion. Reverted; green.
+
+### 1R5 — the flag was never pinned on the wire
+
+Every 1c server test calls `handle_generate` directly, which bypasses FastAPI's
+`response_model` filtering entirely. `tests/test_response_contracts.py` exists
+precisely to assert fields survive that filter, but had only been extended for
+per-result fields. Added a top-level `assertIn("cancelled", payload)` +
+`assertIs(payload["cancelled"], False)` to `test_generate_matches_contract`.
+
+**Liveness proof — two inversions**, because the first attempt was a false
+negative worth recording: deleting `cancelled: bool` at `validation.py:194` did
+**not** fail the test. That line belongs to `GenerationStatusResponse`, not
+`GenerateResponse` — the wrong class. The real field is `validation.py:143`
+(`cancelled: bool = False`).
+
+```
+# A: delete cancelled from GenerateResponse (validation.py:143)
+E   AssertionError: 'cancelled' not found in {'results': [...]}   → FAILED
+
+# B: add response_model_exclude_defaults=True to the /generate route
+E   AssertionError: 'cancelled' not found in {'results': [...]}   → FAILED
+```
+
+Inversion B is the specific regression this finding named, and the field's
+`= False` default is exactly what makes `exclude_defaults` able to drop it.
+Both reverted; `git diff` on both files empty.
+
+### 1R6 — the docstring conflated `0` with `None`
+
+`_stream_thread_join_timeout`'s docstring claimed "`0`/`None` disables
+chunking". Only `0` does. A request-level `None` means "read
+`generation.max_chunk_chars` from config" (`inference.py:1354` →
+`_get_max_chunk_chars`, default 500), so the real chunk is normally 500 chars
+while the bound computed is the whole text.
+
+**Fix is the docstring, not the code.** Resolving `None` through config here
+would tighten the bound toward one chunk — i.e. make this timeout *shorter*.
+The only dangerous error for this join is one that is too short: it releases
+`inference_lock` with the model still generating, the precise race the join
+exists to prevent. Over-generous is the fail-safe direction, so the behavior
+stays and the docstring now says why.
+
+`tests/test_stream_error_frame.py` carried the same conflation — one subTest
+loop over `(0, None)` under the comment "0 disables chunking". Split into two
+named tests with their real, different reasons.
+
+**Liveness proof.** Added the rejected `if max_chunk_chars is None: max_chunk_chars = 500`
+resolution to the helper:
+
+```
+FAILED tests/test_stream_error_frame.py::TestStreamThreadJoinTimeoutScales
+       ::test_unspecified_chunk_size_is_deliberately_over_generous
+1 failed, 1 passed
+```
+
+The `None` case fails and the `0` case passes — the two are now genuinely
+independent, which the single merged subTest loop could not show. Reverted; green.

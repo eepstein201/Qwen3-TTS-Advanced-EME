@@ -197,9 +197,18 @@ class TestGenerationContracts(_ContractTestBase):
                 headers=self.auth,
             )
         self.assertEqual(resp.status_code, 200, resp.text)
-        model = GenerateResponse.model_validate(resp.json())
+        payload = resp.json()
+        model = GenerateResponse.model_validate(payload)
         self.assertEqual(len(model.results), 1)
-        row = resp.json()["results"][0]
+        # The top-level cancelled flag must survive response_model filtering
+        # too. Every server-side test calls handle_generate directly, which
+        # bypasses response_model entirely — so without this, a future
+        # response_model_exclude_defaults/_exclude_none would silently drop the
+        # flag on the wire and clients would go back to indexing results[0]
+        # on a short batch.
+        self.assertIn("cancelled", payload)
+        self.assertIs(payload["cancelled"], False)
+        row = payload["results"][0]
         # Every GenerateResult field must survive response_model filtering.
         for field in ("index", "audio_base64", "sample_rate", "peaks",
                       "chunks", "seed"):

@@ -545,7 +545,11 @@ class TestBatchResultCompleteness(unittest.TestCase):
                 )
 
             try:
-                self.assertFalse(result.get("cancelled"))
+                # assertFalse(result.get("cancelled")) would ALSO pass if the
+                # key were dropped entirely — the exact regression this test
+                # exists to catch, since clients branch on its presence.
+                self.assertIn("cancelled", result)
+                self.assertIs(result["cancelled"], False)
                 self.assertEqual(len(result["results"]), 1)
             finally:
                 for entry in state.gen_cache.values():
