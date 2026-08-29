@@ -351,6 +351,97 @@ class TestBackgroundLoad(unittest.TestCase):
             _background_load(state)
         # Should not raise
 
+    def test_unexpected_load_error_is_recorded_not_fatal(self):
+        """H2: a load failure outside the narrow catch tuple must be recorded,
+        not kill the loader thread.
+
+        Pre-fix the except caught only (ImportError, RuntimeError, OSError,
+        ValueError, MemoryError). Library API drift raises AttributeError or
+        TypeError instead — this repo has hit exactly that (the mlx-audio
+        max_new_tokens -> max_tokens kwarg rename). Such an exception escaped,
+        killed the daemon thread and left model_load_errors empty, so /health
+        reported no reason for a model that never appeared. The API path
+        (handle_load_model) has had a catch-all for this since PRF-5; the
+        startup path did not.
+        """
+        from qwen3_tts.server.app import _background_load
+        state = _make_app_state()
+        state.server_config = {"models": {"design": {"load_at_startup": True}}}
+        info = {"name": "DesignModel"}
+        with patch("qwen3_tts.core.engine.load_model",
+                   side_effect=AttributeError("'NoneType' has no attribute 'generate'")), \
+             patch("qwen3_tts.core.config.get_model_info", return_value=info), \
+             patch("qwen3_tts.core.engine.migrate_orphan_mlx_prompts"), \
+             patch(f"{_APP_LIFESPAN}.get_backend", return_value="mlx"):
+            _background_load(state)
+        self.assertIsNotNone(
+            state.model_load_errors["design"],
+            "unexpected load failure left no diagnostic on /health",
+        )
+        self.assertIsNone(state.models["design"])
+
+    def test_unexpected_load_error_still_signals_readiness(self):
+        """H2: the readiness event must fire even when a load blows up
+        unexpectedly, or the server wedges in 503 forever.
+
+        ``models_loaded.set()`` sits after the loop with no ``finally``, so any
+        escaping exception skips it. /ready then returns 503 permanently and
+        every request that waits on the event hangs — with no recorded error to
+        explain why.
+        """
+        from qwen3_tts.server.app import _background_load
+        state = _make_app_state()
+        state.server_config = {"models": {"clone": {"load_at_startup": True}}}
+        info = {"name": "CloneModel"}
+        with patch("qwen3_tts.core.engine.load_model",
+                   side_effect=KeyError("model_id")), \
+             patch("qwen3_tts.core.config.get_model_info", return_value=info), \
+             patch("qwen3_tts.core.engine.migrate_orphan_mlx_prompts"), \
+             patch(f"{_APP_LIFESPAN}.get_backend", return_value="mlx"):
+            _background_load(state)
+        self.assertTrue(
+            state.models_loaded.is_set(),
+            "startup wedged in 503: readiness never signalled after a failed load",
+        )
+
+    def test_unexpected_migration_error_still_signals_readiness(self):
+        """H2: the same wedge is reachable through the post-loop migration.
+
+        ``migrate_orphan_mlx_prompts`` is wrapped in its own narrow tuple; a
+        TypeError from it escapes and skips ``models_loaded.set()`` even though
+        every model loaded fine.
+        """
+        from qwen3_tts.server.app import _background_load
+        state = _make_app_state()
+        state.server_config = {"models": {"clone": {"load_at_startup": True}}}
+        info = {"name": "CloneModel"}
+        with patch("qwen3_tts.core.engine.load_model", return_value=MagicMock()), \
+             patch("qwen3_tts.core.config.get_model_info", return_value=info), \
+             patch("qwen3_tts.core.engine.migrate_orphan_mlx_prompts",
+                   side_effect=TypeError("unexpected keyword argument")), \
+             patch(f"{_APP_LIFESPAN}.get_backend", return_value="torch"):
+            _background_load(state)
+        self.assertTrue(
+            state.models_loaded.is_set(),
+            "startup wedged in 503: readiness never signalled after a failed "
+            "prompt migration",
+        )
+
+    def test_load_error_is_sanitized_for_public_health(self):
+        """/health is public, so a recorded startup error must not leak paths."""
+        from qwen3_tts.server.app import _background_load
+        state = _make_app_state()
+        state.server_config = {"models": {"design": {"load_at_startup": True}}}
+        info = {"name": "DesignModel"}
+        secret_path = "/Users/someone/models/design/weights.safetensors"
+        with patch("qwen3_tts.core.engine.load_model",
+                   side_effect=AttributeError(f"cannot read {secret_path}")), \
+             patch("qwen3_tts.core.config.get_model_info", return_value=info), \
+             patch("qwen3_tts.core.engine.migrate_orphan_mlx_prompts"), \
+             patch(f"{_APP_LIFESPAN}.get_backend", return_value="mlx"):
+            _background_load(state)
+        self.assertNotIn(secret_path, state.model_load_errors["design"])
+
 
 # ---------------------------------------------------------------------------
 # _get_real_client_ip

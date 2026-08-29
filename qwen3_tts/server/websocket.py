@@ -27,6 +27,7 @@ from qwen3_tts.core.config import sanitize_log
 from qwen3_tts.server.app_generation import (
     _await_inference_thread_done,
     _resolve_generation_seed,
+    _stream_thread_join_timeout,
 )
 
 logger = logging.getLogger("tts.server.websocket")
@@ -527,7 +528,22 @@ async def _stream_generation(
             # out of its generate loop; awaiting done first risks deadlock if
             # the thread is mid-chunk and waiting for the stop signal.
             stop_event.set()
-            await _await_inference_thread_done(done)
+            # The join must cover ONE chunk's generation, so it scales with the
+            # text length and the configured chunk size — same rule as the HTTP
+            # streaming path (app_generation.py). A flat timeout sized for the
+            # 500-char default expires mid-generation once max_chunk_chars is
+            # raised, releasing inference_lock while model.generate() is still
+            # on the GPU. Never reintroduce a constant here.
+            join_timeout = _stream_thread_join_timeout(
+                len(text), req.max_chunk_chars
+            )
+            finished = await _await_inference_thread_done(done, timeout=join_timeout)
+            if not finished:
+                logger.error(
+                    "WebSocket inference thread did not stop within %ss; "
+                    "releasing inference_lock",
+                    join_timeout,
+                )
             # Release the shared generation_state slot, but only if this
             # generation still owns it (a concurrent request may have
             # overwritten generation_id). Mirrors app_generation.py:514/754.

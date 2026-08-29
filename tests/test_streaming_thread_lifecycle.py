@@ -448,5 +448,123 @@ class TestStreamingThreadLifecycle(unittest.IsolatedAsyncioTestCase):
             _reset_state(state)
 
 
+@_skip
+class TestWsStreamJoinTimeout(unittest.IsolatedAsyncioTestCase):
+    """H1: the /ws consumer must scale its inference-thread join with the text
+    length and configured chunk size, exactly like the HTTP path.
+
+    Pre-fix ``websocket.py`` called ``_await_inference_thread_done(done)`` with
+    no timeout, so the wait fell back to the flat 90 s floor. The join must
+    cover ONE chunk's generation; once ``max_chunk_chars`` is raised above the
+    500-char default a 90 s wait expires mid-generation and the consumer
+    releases ``inference_lock`` while ``model.generate()`` is still on the GPU
+    — the precise race the join exists to prevent. Only the HTTP call site and
+    the helper itself were pinned; nothing pinned /ws.
+    """
+
+    async def _run_ws_generation(self, text, max_chunk_chars, join_stub):
+        """Drive ``_stream_generation`` to completion with the join call stubbed.
+
+        Returns the recorded call kwargs of ``_await_inference_thread_done``.
+        """
+        from qwen3_tts.server.websocket import _stream_generation
+
+        state = _make_state()
+
+        def quick_inference(**kwargs):
+            yield (np.zeros(100, dtype=np.float32), 24000)
+
+        ws = MagicMock()
+        ws.send_bytes = AsyncMock()
+        ws.send_json = AsyncMock()
+
+        try:
+            with patch(
+                "qwen3_tts.core.engine.run_inference_streaming",
+                side_effect=quick_inference,
+            ), patch(
+                "qwen3_tts.server.validation._validate_generation_request"
+            ), patch(
+                "qwen3_tts.server.app_lifespan._check_memory_available",
+                return_value=(True, 4096),
+            ), patch(
+                "qwen3_tts.server.websocket._await_inference_thread_done",
+                side_effect=join_stub,
+            ) as join_mock:
+                await asyncio.wait_for(
+                    _stream_generation(
+                        websocket=ws,
+                        app_state=state,
+                        text=text,
+                        mode="custom",
+                        data={
+                            "text": text,
+                            "mode": "custom",
+                            "max_chunk_chars": max_chunk_chars,
+                        },
+                        stop_event=threading.Event(),
+                        disconnect_event=threading.Event(),
+                    ),
+                    timeout=10,
+                )
+                return join_mock
+        finally:
+            _reset_state(state)
+
+    async def test_ws_join_timeout_scales_with_text_and_chunk_size(self):
+        """/ws must pass ``_stream_thread_join_timeout(len(text),
+        req.max_chunk_chars)`` — not the flat floor."""
+        from qwen3_tts.server.app_generation import (
+            _STREAM_THREAD_JOIN_FLOOR_SEC,
+            _stream_thread_join_timeout,
+        )
+
+        text = "a" * 2000
+        max_chunk_chars = 1500
+
+        async def join_stub(done, timeout=None):
+            return True
+
+        join_mock = await self._run_ws_generation(text, max_chunk_chars, join_stub)
+
+        self.assertEqual(
+            join_mock.call_count, 1, "consumer did not await the inference thread"
+        )
+        passed = join_mock.call_args.kwargs.get("timeout")
+        expected = _stream_thread_join_timeout(len(text), max_chunk_chars)
+        self.assertEqual(
+            passed,
+            expected,
+            "/ws join timeout must be derived from the text length and "
+            f"max_chunk_chars (expected {expected}s, got {passed})",
+        )
+        # Guards against a regression that silently reinstates the constant:
+        # this request is large enough that the derived value clears the floor.
+        self.assertGreater(
+            expected,
+            _STREAM_THREAD_JOIN_FLOOR_SEC,
+            "test fixture too small to distinguish the derived value "
+            "from the floor",
+        )
+
+    async def test_ws_logs_when_inference_thread_outlives_the_join(self):
+        """A join that times out releases ``inference_lock`` with the thread
+        still running; that must be logged, not silent (HTTP path parity)."""
+
+        async def timing_out_join(done, timeout=None):
+            return False
+
+        with self.assertLogs("tts.server.websocket", level="ERROR") as captured:
+            await self._run_ws_generation("hello world", 500, timing_out_join)
+
+        self.assertTrue(
+            any(
+                "did not stop" in message
+                for message in captured.output
+            ),
+            f"no timeout warning logged; got {captured.output}",
+        )
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)

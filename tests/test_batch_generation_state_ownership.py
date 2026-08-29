@@ -376,5 +376,185 @@ class TestBatchGenerationStateOwnership(unittest.TestCase):
         asyncio.run(run())
 
 
+@_skip
+class TestBatchResultCompleteness(unittest.TestCase):
+    """H3: every requested text must produce a result, or say why not.
+
+    The client indexes ``resp.json()["results"][0]`` unconditionally
+    (``server/client/generator.py``), so a response that is silently short an
+    item surfaces as an opaque ``IndexError`` on a 200.
+    """
+
+    def test_vanished_cache_file_regenerates_instead_of_dropping_result(self):
+        """A cache entry whose backing file disappeared must fall through to
+        generation, not silently drop the item from the batch.
+
+        The post-lock cache branch put its ``continue`` OUTSIDE the
+        ``os.path.exists`` guard: entry present + file gone meant the loop
+        advanced without appending anything. The pre-lock branch (:270-286)
+        has always fallen through correctly. The file genuinely can vanish —
+        cleanup_resources() unlinks cache files, and cache eviction races a
+        long batch.
+        """
+
+        async def run():
+            from qwen3_tts.server.app_generation import handle_generate
+            from qwen3_tts.server.validation import GenerateRequest
+
+            state = _make_state()
+            fake_wav = np.zeros(500, dtype=np.float32)
+
+            # Prime a cache entry for the SECOND text, then delete its file.
+            # Missing at pre-lock too, so the item reaches the post-lock branch.
+            stale_path = _prime_cache_for_design("stale cached text", state)
+            os.unlink(stale_path)
+            self.assertFalse(os.path.exists(stale_path))
+
+            def mock_inference(model, text, **kwargs):
+                return fake_wav, 24000
+
+            req = GenerateRequest(
+                texts=["fresh text", "stale cached text"],
+                mode="design",
+                voice_description="friendly",
+            )
+            request = _make_request(state)
+            with patch(
+                f"{_APP_GENERATION}._check_memory_available",
+                return_value=(True, 4096),
+            ), patch(
+                "qwen3_tts.server.validation._validate_generation_request"
+            ), patch(
+                f"{_ENGINE}.run_inference", side_effect=mock_inference
+            ):
+                result = await handle_generate(
+                    request=request,
+                    state=state,
+                    req=req,
+                    security={"max_text_length": 50000, "max_batch_size": 20},
+                    config_provider=None,
+                )
+
+            try:
+                self.assertEqual(
+                    len(result["results"]),
+                    2,
+                    "batch returned fewer results than texts: a cache entry "
+                    "with a vanished file dropped its item instead of "
+                    "regenerating (client would raise IndexError on a 200)",
+                )
+                self.assertEqual(
+                    [r["index"] for r in result["results"]],
+                    [0, 1],
+                    "result indices do not cover every requested text",
+                )
+            finally:
+                for entry in state.gen_cache.values():
+                    path = entry.get("main_file") or entry.get("file")
+                    if path and os.path.exists(path):
+                        os.unlink(path)
+
+        asyncio.run(run())
+
+    def test_cancelled_batch_marks_the_response_cancelled(self):
+        """A batch cancelled part-way must say so explicitly.
+
+        Pre-fix the loop just ``break``s and returns ``{"results": [...]}``
+        with no indication of why it is short — a fully cancelled batch is a
+        200 with ``results: []``, indistinguishable from success and fatal to
+        the client's ``results[0]``.
+        """
+
+        async def run():
+            from qwen3_tts.server.app_generation import handle_generate
+            from qwen3_tts.server.validation import GenerateRequest
+
+            state = _make_state()
+            fake_wav = np.zeros(500, dtype=np.float32)
+
+            def mock_inference(model, text, **kwargs):
+                # A /cancel-generation lands while the first item generates.
+                state.generation_state["cancelled"] = True
+                return fake_wav, 24000
+
+            req = GenerateRequest(
+                texts=["first", "second"],
+                mode="design",
+                voice_description="friendly",
+            )
+            request = _make_request(state)
+            with patch(
+                f"{_APP_GENERATION}._check_memory_available",
+                return_value=(True, 4096),
+            ), patch(
+                "qwen3_tts.server.validation._validate_generation_request"
+            ), patch(
+                f"{_ENGINE}.run_inference", side_effect=mock_inference
+            ):
+                result = await handle_generate(
+                    request=request,
+                    state=state,
+                    req=req,
+                    security={"max_text_length": 50000, "max_batch_size": 20},
+                    config_provider=None,
+                )
+
+            try:
+                self.assertTrue(
+                    result.get("cancelled"),
+                    "a truncated batch did not report cancelled=True; the "
+                    "client cannot tell it apart from a complete response",
+                )
+                self.assertEqual(len(result["results"]), 1)
+            finally:
+                for entry in state.gen_cache.values():
+                    path = entry.get("main_file") or entry.get("file")
+                    if path and os.path.exists(path):
+                        os.unlink(path)
+
+        asyncio.run(run())
+
+    def test_uncancelled_batch_reports_not_cancelled(self):
+        """The flag must be honest in the normal case, not always-true."""
+
+        async def run():
+            from qwen3_tts.server.app_generation import handle_generate
+            from qwen3_tts.server.validation import GenerateRequest
+
+            state = _make_state()
+            fake_wav = np.zeros(500, dtype=np.float32)
+
+            req = GenerateRequest(
+                text="hello world", mode="design", voice_description="friendly"
+            )
+            request = _make_request(state)
+            with patch(
+                f"{_APP_GENERATION}._check_memory_available",
+                return_value=(True, 4096),
+            ), patch(
+                "qwen3_tts.server.validation._validate_generation_request"
+            ), patch(
+                f"{_ENGINE}.run_inference", return_value=(fake_wav, 24000)
+            ):
+                result = await handle_generate(
+                    request=request,
+                    state=state,
+                    req=req,
+                    security={"max_text_length": 50000, "max_batch_size": 20},
+                    config_provider=None,
+                )
+
+            try:
+                self.assertFalse(result.get("cancelled"))
+                self.assertEqual(len(result["results"]), 1)
+            finally:
+                for entry in state.gen_cache.values():
+                    path = entry.get("main_file") or entry.get("file")
+                    if path and os.path.exists(path):
+                        os.unlink(path)
+
+        asyncio.run(run())
+
+
 if __name__ == "__main__":
     unittest.main()

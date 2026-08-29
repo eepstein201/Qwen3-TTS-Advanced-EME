@@ -262,7 +262,17 @@ class GeneratorMixin:
 
         import soundfile as sf
 
-        result = resp.json()["results"][0]
+        # A 200 does not guarantee a result: a batch cancelled before its first
+        # item returns an empty list. Indexing straight into it surfaced as a
+        # bare IndexError with no hint of the cause.
+        payload = resp.json()
+        results = payload.get("results") or []
+        if not results:
+            if payload.get("cancelled"):
+                raise GenerationError("Generation was cancelled before any audio was produced")
+            raise GenerationError("Server returned no audio for this request")
+
+        result = results[0]
         audio_bytes = base64.b64decode(result["audio_base64"])
         wav, sr = sf.read(io.BytesIO(audio_bytes))
         self.last_chunk_count = result.get("chunks", 0)

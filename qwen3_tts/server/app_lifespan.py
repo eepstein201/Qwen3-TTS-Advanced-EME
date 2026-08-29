@@ -594,47 +594,67 @@ def _background_load(app_state):
             "Loading %d model(s): %s", len(models_to_load), ", ".join(models_to_load)
         )
 
-    for model_type in models_to_load:
-        loading_map = getattr(app_state, "models_loading", None)
-        if loading_map is not None:
-            loading_map[model_type] = True
-        try:
-            from qwen3_tts.core.config import get_model_info
-
-            info = get_model_info(model_type)
-            model_name = info.get("name", info.get("name_template", model_type))
-            logger.info("Loading %s...", sanitize_log(model_name))
-            t0 = time.time()
-            # Load without the warm-up; it runs serialized below (#192).
-            model = load_model(model_type, warmup=False)
-            _run_warmup_under_inference_lock(app_state, model, model_type)
-            app_state.models[model_type] = model
-            app_state.model_load_times[model_type] = round(time.time() - t0, 1)
-            logger.info(
-                "Loaded %s model successfully in %.1fs.",
-                model_type,
-                app_state.model_load_times[model_type],
-            )
-        except (ImportError, RuntimeError, OSError, ValueError, MemoryError) as e:
-            error_msg = str(e)
-            logger.error(
-                "Failed to load %s model: %s", model_type, error_msg, exc_info=True
-            )
-            # Sanitize before storing — /health is a public endpoint
-            app_state.model_load_errors[model_type] = _sanitize_error(error_msg)
-        finally:
+    # Everything below runs under a finally that signals readiness. This thread
+    # is the ONLY producer of models_loaded; if an exception escapes it, /ready
+    # answers 503 forever and every waiter hangs, with no recorded reason. The
+    # thread is also a daemon, so the failure is otherwise invisible.
+    try:
+        for model_type in models_to_load:
+            loading_map = getattr(app_state, "models_loading", None)
             if loading_map is not None:
-                loading_map[model_type] = False
+                loading_map[model_type] = True
+            try:
+                from qwen3_tts.core.config import get_model_info
 
-    # MLX prompt migration for torch backend
-    if get_backend() == "torch":
-        try:
-            migrate_orphan_mlx_prompts(clone_model=app_state.models.get("clone"))
-        except (ImportError, RuntimeError, OSError, ValueError) as e:
-            logger.warning("MLX prompt migration failed: %s", e)
+                info = get_model_info(model_type)
+                model_name = info.get("name", info.get("name_template", model_type))
+                logger.info("Loading %s...", sanitize_log(model_name))
+                t0 = time.time()
+                # Load without the warm-up; it runs serialized below (#192).
+                model = load_model(model_type, warmup=False)
+                _run_warmup_under_inference_lock(app_state, model, model_type)
+                app_state.models[model_type] = model
+                app_state.model_load_times[model_type] = round(time.time() - t0, 1)
+                logger.info(
+                    "Loaded %s model successfully in %.1fs.",
+                    model_type,
+                    app_state.model_load_times[model_type],
+                )
+            except (ImportError, RuntimeError, OSError, ValueError, MemoryError) as e:
+                error_msg = str(e)
+                logger.error(
+                    "Failed to load %s model: %s", model_type, error_msg, exc_info=True
+                )
+                # Sanitize before storing — /health is a public endpoint
+                app_state.model_load_errors[model_type] = _sanitize_error(error_msg)
+            except Exception as e:  # noqa: BLE001 — one model must not kill startup
+                # Mirrors handle_load_model's catch-all (app_models.py). Library
+                # API drift surfaces as AttributeError/TypeError/KeyError, which
+                # the tuple above misses; without this the loader thread dies
+                # mid-list, later models never load and no error is recorded.
+                error_msg = str(e)
+                logger.error(
+                    "Unexpected error loading %s model: %s",
+                    sanitize_log(model_type),
+                    sanitize_log(error_msg),
+                    exc_info=True,
+                )
+                app_state.model_load_errors[model_type] = _sanitize_error(error_msg)
+            finally:
+                if loading_map is not None:
+                    loading_map[model_type] = False
 
-    app_state.models_loaded.set()
-    logger.info("Background model loading complete.")
+        # MLX prompt migration for torch backend
+        if get_backend() == "torch":
+            try:
+                migrate_orphan_mlx_prompts(clone_model=app_state.models.get("clone"))
+            except Exception as e:  # noqa: BLE001 — migration is best-effort
+                logger.warning(
+                    "MLX prompt migration failed: %s", sanitize_log(e)
+                )
+    finally:
+        app_state.models_loaded.set()
+        logger.info("Background model loading complete.")
 
 
 def cleanup_resources(app_state):
