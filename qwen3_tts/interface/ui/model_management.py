@@ -183,14 +183,24 @@ def toggle_asr(action):
         ProgressIndicator(mode="indeterminate", message="Loading ASR model…")
 
     try:
-        from qwen3_tts.core.http_client import server_request
+        from qwen3_tts.core.http_client import (
+            UNLOAD_ASR_TIMEOUT_SEC,
+            server_request,
+        )
 
         if action == "load":
             path = "/load-asr"
+            # /load-asr does not take inference_lock, so it does not queue
+            # behind a generation. Its 60s is pre-existing (audit M6, owned by
+            # plan Phase 3c) — not introduced or worsened here.
+            timeout = 60
         else:
             path = "/unload-asr"
+            # /unload-asr now acquires inference_lock (#214 item 2), so it can
+            # queue behind a whole in-flight generation.
+            timeout = UNLOAD_ASR_TIMEOUT_SEC
 
-        resp = server_request("POST", path, timeout=60)
+        resp = server_request("POST", path, timeout=timeout)
 
         if resp.status_code == 200:
             result = resp.json()

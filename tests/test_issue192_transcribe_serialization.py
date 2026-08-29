@@ -94,6 +94,18 @@ class TestTranscribeSerialization(unittest.TestCase):
 
         events = []
 
+        # Model the REAL is_asr_loaded contract: it reports actual state, so a
+        # successful load flips it True. A fixed return_value=False claimed
+        # "still not loaded" even after load_asr_model() returned, which no
+        # longer describes anything reachable — handle_transcribe re-checks
+        # under inference_lock (#214 item 2) and correctly reads a permanent
+        # False as "an /unload-asr raced in". Every ordering assertion below is
+        # unchanged; only the stub's fidelity improved.
+        asr_state = {"loaded": asr_preloaded}
+
+        def _is_asr_loaded(*args, **kwargs):
+            return asr_state["loaded"]
+
         def _load(*args, **kwargs):
             events.append(
                 {
@@ -103,6 +115,7 @@ class TestTranscribeSerialization(unittest.TestCase):
                     is not threading.main_thread(),
                 }
             )
+            asr_state["loaded"] = True
 
         def _transcribe(*args, **kwargs):
             events.append(
@@ -120,7 +133,7 @@ class TestTranscribeSerialization(unittest.TestCase):
         with (
             patch(
                 "qwen3_tts.core.engine.is_asr_loaded",
-                return_value=asr_preloaded,
+                side_effect=_is_asr_loaded,
             ),
             patch("qwen3_tts.core.engine.load_asr_model", side_effect=_load),
             patch(

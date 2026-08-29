@@ -614,10 +614,33 @@ async def handle_transcribe(state, req):
             await asyncio.to_thread(load_asr_model)
 
         async with state.inference_lock:
+            # Re-check under the lock (#214 item 2). The ensure above is
+            # deliberately unlocked, which leaves a check-then-use window: a
+            # /unload-asr landing in it means transcribe_audio — which lazily
+            # loads on first call — would rebuild the model INSIDE
+            # inference_lock, blocking every /generate for minutes. Bail
+            # instead and let the caller retry; re-loading here would trade a
+            # cheap 503 for the starvation this lock exists to prevent.
+            if not is_asr_loaded():
+                logger.warning(
+                    "ASR was unloaded while /transcribe waited for "
+                    "inference_lock; asking the caller to retry"
+                )
+                _error_response(
+                    503, "asr_unloaded", "ASR model was unloaded concurrently", "retry"
+                )
+                return  # explicit guard — _error_response raises, but it is
+                # typed -> None, not NoReturn, so nothing structurally stops a
+                # fall-through into transcribe_audio with ASR unloaded.
             transcript = await asyncio.to_thread(
                 transcribe_audio, tmp_path, req.language
             )
         return {"transcript": transcript}
+    except HTTPException:
+        # _error_response raises HTTPException; the catch-all below would
+        # otherwise rewrap the 503 above as recovery="bug" and strip its
+        # retry classification.
+        raise
     except ImportError as e:
         logger.error("ASR not available: %s", sanitize_log(e))
         _error_response(500, "import_error", _sanitize_error(str(e)), "config")

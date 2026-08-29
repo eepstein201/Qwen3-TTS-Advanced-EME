@@ -707,10 +707,29 @@ async def load_asr(request: Request, _auth: None = Depends(verify_auth)):
 @app.post("/unload-asr", response_model=UnloadAsrResponse, response_model_exclude_unset=True)
 @_rate_limit(_model_limit, strategy="hybrid")
 async def unload_asr(request: Request, _auth: None = Depends(verify_auth)):
-    """Unload the ASR model to free memory."""
+    """Unload the ASR model to free memory.
+
+    Holds ``inference_lock`` for the unload (#214 item 2). ``_asr_lock`` alone
+    only narrows the race: an unload could still land between /transcribe's
+    post-lock ``is_asr_loaded()`` recheck and ``transcribe_audio``'s own
+    ``if _asr_model_mlx is None`` (asr.py:168) — or before
+    ``_transcribe_torch``'s unconditional ``_ensure_asr_torch_loaded()``
+    (asr.py:190) — and lazily rebuild the model INSIDE the serialized section,
+    which is the starvation this whole item exists to prevent.
+
+    Taking the lock here closes it structurally, and closes the identical
+    check-then-use on the ICL echo-trim probe (``inference.py:1155`` → ``:1163``)
+    for free: that runs inside ``run_inference`` with ``inference_lock`` already
+    held, so a lock-taking unload can never interleave with it.
+
+    Leaf acquisition — the route holds nothing else, preserving the global
+    inference_lock-outermost order. The unload consequently queues behind an
+    in-flight generation, so clients must use ``UNLOAD_ASR_TIMEOUT_SEC``.
+    """
     state = request.app.state
     reset_activity_timer(state)
-    return await asyncio.to_thread(handle_unload_asr, state)
+    async with state.inference_lock:
+        return await asyncio.to_thread(handle_unload_asr, state)
 
 
 @app.post("/transcribe", response_model=TranscribeResponse, response_model_exclude_unset=True)

@@ -23,6 +23,7 @@ __all__ = [
     "CREATE_PROMPT_TIMEOUT_SEC",
     "LOAD_MODEL_TIMEOUT_SEC",
     "TRANSCRIBE_TIMEOUT_SEC",
+    "UNLOAD_ASR_TIMEOUT_SEC",
     "server_request",
 ]
 
@@ -54,6 +55,16 @@ TRANSCRIBE_TIMEOUT_SEC = 900
 # /create-voice-prompt caller must use this constant (guarded by
 # tests/test_issue192_create_prompt_serialization.py).
 CREATE_PROMPT_TIMEOUT_SEC = 900
+
+# /unload-asr acquires inference_lock (#214 item 2) so an unload can never
+# interleave with in-flight inference and trigger a lazy ASR rebuild inside
+# the serialized section. That makes the unload block behind a running
+# generation, so the UI's old hardcoded 60s would time out client-side while
+# the server completed the unload anyway — reporting failure for work that
+# succeeded, and leaving a stale ASR badge. Same defect class as the
+# /load-model 120s and /transcribe 60s above. Every /unload-asr caller must
+# use this constant (guarded by tests/test_issue214_unload_asr_race.py).
+UNLOAD_ASR_TIMEOUT_SEC = 900
 
 _ALLOWED_METHODS = frozenset(
     {"GET", "POST", "PUT", "DELETE", "PATCH", "HEAD", "OPTIONS"}
