@@ -289,6 +289,30 @@ def generate_via_server(
             "Server response missing expected 'results' key; "
             f"top-level keys present: {sorted(response_json.keys())}"
         )
+
+    # A 200 with a SHORT results list is the cancellation shape: the server
+    # stops the batch mid-loop and reports it with a top-level `cancelled`
+    # flag. Returning the short list let callers under-deliver silently —
+    # cli/srt.py and cli/dialogue.py index results[0] (bare IndexError), and
+    # interface/generate.py iterates it, writing fewer .wav files than the
+    # user asked for with exit code 0 and no warning. Fail loudly instead.
+    # Mirror handle_generate's own normalization: a bare string is one text.
+    expected = 1 if isinstance(texts, str) else len(texts)
+    if len(results) != expected:
+        reason = (
+            "generation was cancelled"
+            if response_json.get("cancelled")
+            else "the server returned an incomplete batch"
+        )
+        if not results:
+            raise TTSGenericError(
+                f"Server returned no audio for {expected} requested text(s): "
+                f"{reason}."
+            )
+        raise TTSGenericError(
+            f"Server returned {len(results)} result(s) for {expected} "
+            f"requested text(s): {reason}."
+        )
     return results
 
 

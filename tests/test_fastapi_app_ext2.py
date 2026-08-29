@@ -442,6 +442,47 @@ class TestBackgroundLoad(unittest.TestCase):
             _background_load(state)
         self.assertNotIn(secret_path, state.model_load_errors["design"])
 
+    def test_engine_import_failure_still_signals_readiness(self):
+        """The engine import itself must not be able to wedge startup.
+
+        ``_background_load`` opens with a function-local ``from
+        qwen3_tts.core.engine import load_model, migrate_orphan_mlx_prompts``.
+        That line sat ABOVE the try/finally, so a broken native install (the
+        transformers/numba class of breakage this repo has hit) raised
+        ImportError straight out of the daemon thread, ``models_loaded`` was
+        never set and /ready answered 503 forever.
+        """
+        import sys
+
+        from qwen3_tts.server.app import _background_load
+        state = _make_app_state()
+        state.server_config = {"models": {"clone": {"load_at_startup": True}}}
+        with patch.dict(sys.modules, {"qwen3_tts.core.engine": None}):
+            _background_load(state)
+        self.assertTrue(
+            state.models_loaded.is_set(),
+            "startup wedged in 503: the engine import escaped before the "
+            "try/finally that signals readiness",
+        )
+
+    def test_malformed_models_config_still_signals_readiness(self):
+        """A hand-edited config.json must not wedge startup either.
+
+        Building ``models_to_load`` calls ``settings.get("load_at_startup")``
+        on each value under ``models``. A config that maps a model to a bool
+        instead of a dict raises AttributeError there — also above the
+        try/finally — for the same permanent 503.
+        """
+        from qwen3_tts.server.app import _background_load
+        state = _make_app_state()
+        state.server_config = {"models": {"clone": True}}
+        _background_load(state)
+        self.assertTrue(
+            state.models_loaded.is_set(),
+            "startup wedged in 503: malformed models config escaped before "
+            "the try/finally that signals readiness",
+        )
+
 
 # ---------------------------------------------------------------------------
 # _get_real_client_ip

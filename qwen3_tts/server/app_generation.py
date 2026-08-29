@@ -78,8 +78,17 @@ def _stream_thread_join_timeout(
     here (same failure mode as the old hardcoded ``timeout=600`` in
     generate_via_server).
 
-    ``max_chunk_chars`` of 0/None disables chunking, so the whole text is
-    generated in one call and the bound is the full text length.
+    ``max_chunk_chars=0`` genuinely disables chunking, so one call generates the
+    whole text and the bound is the full text length.
+
+    ``None`` is NOT the same thing, despite both landing on the same bound: a
+    request-level ``None`` means "read ``generation.max_chunk_chars`` from
+    config" (``inference.py`` ``_get_max_chunk_chars``, default 500), so the
+    real chunk is usually 500 chars and this bound is far larger than one chunk
+    needs. That is deliberate — the failure mode this join guards against is a
+    timeout that is too SHORT (lock released with the model still on the GPU),
+    so resolving config here to tighten the bound would trade a harmless wait
+    for the exact race. Over-generous is the fail-safe direction.
     """
     effective_chars = (
         min(max_chunk_chars, text_len) if max_chunk_chars else text_len

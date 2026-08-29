@@ -578,6 +578,52 @@ class TestGenerateDialogue(unittest.TestCase):
                     output="/tmp/dlg.wav",
                 )
 
+    def test_empty_results_raises_generation_error_not_indexerror(self):
+        """The dialogue path must guard ``results[0]`` like _generate_via_server.
+
+        generate_dialogue posts to /generate once per line and indexed
+        ``resp.json()["results"][0]`` unconditionally — the exact defect fixed
+        in _generate_via_server, in the same module. cancel_generation() is the
+        next method in this class, so cancelling mid-dialogue is the natural
+        trigger and produced a bare IndexError.
+        """
+        from qwen3_tts.core.config import GenerationError
+
+        client, session = _client_with_server(self.cfg)
+        resp = MagicMock()
+        resp.status_code = 200
+        resp.json.return_value = {"results": []}
+        session.post.return_value = resp
+
+        with patch.object(client, "is_server_running", return_value=True), \
+             patch("soundfile.write"):
+            with self.assertRaises(GenerationError) as ctx:
+                client.generate_dialogue(
+                    lines=[{"text": "Hello", "mode": "clone", "prompt": "a.pt"}],
+                    output="/tmp/dlg.wav",
+                )
+        self.assertNotIsInstance(ctx.exception, IndexError)
+        self.assertIn("no audio", (ctx.exception.technical_detail or "").lower())
+
+    def test_cancelled_empty_results_says_cancelled(self):
+        """A dialogue line cancelled mid-flight must name cancellation."""
+        from qwen3_tts.core.config import GenerationError
+
+        client, session = _client_with_server(self.cfg)
+        resp = MagicMock()
+        resp.status_code = 200
+        resp.json.return_value = {"results": [], "cancelled": True}
+        session.post.return_value = resp
+
+        with patch.object(client, "is_server_running", return_value=True), \
+             patch("soundfile.write"):
+            with self.assertRaises(GenerationError) as ctx:
+                client.generate_dialogue(
+                    lines=[{"text": "Hello", "mode": "clone", "prompt": "a.pt"}],
+                    output="/tmp/dlg.wav",
+                )
+        self.assertIn("cancel", (ctx.exception.technical_detail or "").lower())
+
 
 # ============================================================================
 # cancel_generation()

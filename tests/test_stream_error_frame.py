@@ -109,12 +109,24 @@ class TestStreamThreadJoinTimeoutScales(unittest.TestCase):
 
     def test_chunking_disabled_scales_with_whole_text(self):
         """0 disables chunking, so one call generates the entire text."""
-        for disabled in (0, None):
-            with self.subTest(max_chunk_chars=disabled):
-                self.assertGreaterEqual(
-                    app_generation._stream_thread_join_timeout(20_000, disabled),
-                    20_000 * app_generation._STREAM_SECONDS_PER_CHAR,
-                )
+        self.assertGreaterEqual(
+            app_generation._stream_thread_join_timeout(20_000, 0),
+            20_000 * app_generation._STREAM_SECONDS_PER_CHAR,
+        )
+
+    def test_unspecified_chunk_size_is_deliberately_over_generous(self):
+        """None means "read config" (default 500), NOT "chunking disabled".
+
+        Both land on the whole-text bound, but for different reasons, and the
+        docstring used to conflate them. Keep them as separate cases: this one
+        is over-generous on purpose, because the only dangerous error for this
+        join is a bound that is too SHORT — that releases inference_lock while
+        the model is still generating.
+        """
+        self.assertGreaterEqual(
+            app_generation._stream_thread_join_timeout(20_000, None),
+            20_000 * app_generation._STREAM_SECONDS_PER_CHAR,
+        )
 
     def test_never_below_the_floor_for_short_text(self):
         self.assertEqual(
