@@ -232,14 +232,46 @@ def transcribe_audio(audio_path, language="en"):
 
 
 def unload_asr_model():
-    """Free ASR model from memory to reclaim VRAM/RAM for TTS generation."""
+    """Free ASR model from memory to reclaim VRAM/RAM for TTS generation.
+
+    Takes ``_asr_lock`` (#214 item 2). Every loader in this module already
+    serializes on it — ``_ensure_asr_torch_loaded`` and the MLX loader — but
+    unload used to null the shared globals unsynchronized, so it could land
+    in the middle of a loader's check-then-assign and drop a model that had
+    just been constructed, or clear the slot between a caller's
+    ``is_asr_loaded()`` and its use.
+
+    Safe to take unconditionally: ``handle_unload_asr`` is the only caller and
+    holds nothing, so this is a leaf acquisition. ``threading.Lock`` is NOT
+    reentrant — never call this from a function that already holds the lock.
+
+    Only the reference drop is locked. ``gc.collect()`` and the CUDA cache
+    release run AFTER the lock: they are unbounded work that would otherwise
+    block every concurrent loader for no benefit.
+
+    Order matters — ``gc.collect()`` FIRST, then ``torch.cuda.empty_cache()``,
+    matching ``unload_model_cleanup``. Nulling the global only drops a
+    reference; the tensors return to the caching allocator when gc actually
+    collects the model. Calling ``empty_cache()`` before that releases the
+    allocator's free blocks while the model's are still live, so the VRAM this
+    function exists to reclaim stays with the process instead of the driver.
+    """
     global _asr_model_mlx, _asr_model_torch
-    if _asr_model_mlx is not None:
-        _asr_model_mlx = None
-        logger.info("Unloaded MLX ASR model")
-    if _asr_model_torch is not None:
-        _asr_model_torch = None
-        logger.info("Unloaded torch ASR model")
+    had_torch_model = False
+    with _asr_lock:
+        if _asr_model_mlx is not None:
+            _asr_model_mlx = None
+            logger.info("Unloaded MLX ASR model")
+        if _asr_model_torch is not None:
+            _asr_model_torch = None
+            had_torch_model = True
+            logger.info("Unloaded torch ASR model")
+
+    import gc
+
+    gc.collect()
+
+    if had_torch_model:
         try:
             import torch
 
@@ -247,9 +279,6 @@ def unload_asr_model():
                 torch.cuda.empty_cache()
         except ImportError:
             pass
-    import gc
-
-    gc.collect()
 
 
 def is_asr_available():

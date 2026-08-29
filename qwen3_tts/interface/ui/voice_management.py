@@ -273,8 +273,29 @@ def auto_transcribe_audio(audio_path):
         )
 
         if resp.status_code != 200:
-            error = resp.json().get("error", "Unknown error")
-            raise gr.Error(f"Transcription failed: {error}")
+            # FastAPI serializes HTTPException(detail={...}) as
+            # {"detail": {...}}, so the server's structured body from
+            # _error_response is NESTED. Reading resp.json()["error"] gets
+            # None and renders "Unknown error", discarding both the cause and
+            # the retry hint — including the 503 asr_unloaded a concurrent
+            # /unload-asr now produces (#214 item 2). Mirrors the handling in
+            # interface/generate_server.py.
+            try:
+                body = resp.json()
+            except ValueError:
+                body = {}
+            payload = body.get("detail")
+            if not isinstance(payload, dict):
+                payload = body if isinstance(body, dict) else {}
+
+            error = payload.get("error") or "Unknown error"
+            detail = payload.get("detail") or ""
+            msg = f"Transcription failed: {error}"
+            if detail:
+                msg += f" [{detail}]"
+            if payload.get("recovery") == "retry":
+                msg += "\n  Suggestion: Try again; the issue may be transient."
+            raise gr.Error(msg)
 
         return resp.json().get("transcript", "")
 
