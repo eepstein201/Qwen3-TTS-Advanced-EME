@@ -222,7 +222,15 @@ def _build_manage_voices_tab(clone_prompt):
                 f"{recent_warning}"
             )
 
-            new_state = delete_confirm_btn.click(state)
+            # Only the state dict belongs in delete_confirm_state.
+            # ConfirmButton.click returns (state, btn, status, confirmed);
+            # binding the whole tuple stored it in the gr.State and the second
+            # click then called .get() on a tuple, so this confirm could never
+            # reach its confirmed branch. The arity matched, so Gradio accepted
+            # it silently.
+            new_state, _btn_update, _status_update, _confirmed = (
+                delete_confirm_btn.click(state)
+            )
             return (
                 new_state,
                 gr.update(value="Confirm Delete? (click again)"),
@@ -389,7 +397,10 @@ def _build_manage_models_tab(
                 f"{startup_warning}"
             )
 
-            new_state = unload_confirm_btn.click(state)
+            # Same 4-tuple-into-gr.State defect as the delete confirm above.
+            new_state, _btn_update, _status_update, _confirmed = (
+                unload_confirm_btn.click(state)
+            )
             return (
                 new_state,
                 gr.update(value="Confirm Unload? (click again)"),

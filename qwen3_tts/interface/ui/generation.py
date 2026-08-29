@@ -670,11 +670,20 @@ def _wire_generation_tab(
                 status_msg, status_html_msg = cancel_streaming_generation()
                 return state, gr.update(), status_msg, status_html_msg
 
-            new_state = cancel_confirm_btn.click(state)
+            # ConfirmButton.click returns a 4-tuple; only the state dict goes
+            # into cancel_confirm_state. Binding the whole tuple to new_state
+            # stored a tuple in the gr.State, and the next click called .get()
+            # on it. Every branch must also return one value per wired output
+            # (cancel_confirm_state, cancel_btn, status, status_html) or Gradio
+            # raises ValueError from validate_outputs.
+            new_state, _btn_update, _status_update, _confirmed = (
+                cancel_confirm_btn.click(state)
+            )
             return (
                 new_state,
                 gr.update(value=STATUS_STOP_CONFIRM_ARM),
                 banner_msg,
+                gr.update(),
             )
 
         # Second click: user confirmed
@@ -682,7 +691,12 @@ def _wire_generation_tab(
             state
         )
         if not confirmed:
-            return new_state, gr.update(value=STATUS_STOP_LABEL), STATUS_STOP_CANCELED
+            return (
+                new_state,
+                gr.update(value=STATUS_STOP_LABEL),
+                STATUS_STOP_CANCELED,
+                gr.update(),
+            )
 
         status_msg, status_html_msg = cancel_streaming_generation()
         return new_state, gr.update(value=STATUS_STOP_LABEL), status_msg, status_html_msg

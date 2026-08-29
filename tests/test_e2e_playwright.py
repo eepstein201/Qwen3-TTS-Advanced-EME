@@ -268,6 +268,23 @@ class GradioPage:
         else:
             panel.locator("button").filter(has_text=text).first.click()
 
+    def click_confirm_button(self, text, timeout_ms=4_000):
+        """Click a two-step ConfirmButton through BOTH of its steps.
+
+        Destructive actions (Unload, Delete) are wired to ``ConfirmButton``:
+        the first click only ARMS the button and relabels it
+        "Confirm <text>? (click again)"; the action runs on a second click
+        within CONFIRM_TIMEOUT_S (5 s). Tests that clicked once and then waited
+        for the state to change could never pass — the second click was never
+        sent. The armed label is awaited (not slept on) so the two clicks stay
+        inside the 5 s window.
+        """
+        self.click_button(text, exact=True)
+        panel = self._get_visible_tab_panel()
+        armed = panel.locator(f"button >> text='Confirm {text}? (click again)'").first
+        armed.wait_for(state="visible", timeout=timeout_ms)
+        armed.click()
+
     def get_status_text(self):
         """Read the Gradio Status textbox value in the visible tab panel."""
         panel = self._get_visible_tab_panel()
@@ -937,7 +954,7 @@ class TestE2EPlaywright(unittest.TestCase):
             pass
         _wait_for_model_state("design", loaded=True, timeout=60)
 
-        self.gp.click_button("Unload", exact=True)
+        self.gp.click_confirm_button("Unload")
         try:
             self.gp.wait_for_any_textarea_contains(
                 ["unloaded", "Unloaded", "success"], timeout=30_000,
@@ -993,7 +1010,7 @@ class TestE2EPlaywright(unittest.TestCase):
                 self.assertIn("Loaded", design_row[0][1], "Should be loaded")
 
         # Unload
-        self.gp.click_button("Unload", exact=True)
+        self.gp.click_confirm_button("Unload")
         try:
             self.gp.wait_for_any_textarea_contains(
                 ["unloaded", "Unloaded", "success"], timeout=30_000,
