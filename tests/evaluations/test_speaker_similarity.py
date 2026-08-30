@@ -90,14 +90,25 @@ try:
     os.environ.setdefault("TRANSFORMERS_BACKEND", "pt")
     from transformers import WavLMForXVector  # noqa: F401
     HAS_SIM_DEPS = True
-except ImportError:
+except Exception:  # capability probe — see the HAS_TORCHCODEC note below
     HAS_SIM_DEPS = False
 
-# Check if TorchCodec is available (required by torchaudio 2.6+ for some formats)
+# Check if TorchCodec is available (required by torchaudio 2.6+ for some formats).
+#
+# Catch Exception, NOT ImportError: these are capability probes, and a package
+# that is installed but whose native library will not load raises at import
+# time with something else entirely. A partially-upgraded torch/torchaudio/
+# torchcodec triple makes `import torchcodec` raise
+# `RuntimeError: Could not load libtorchcodec...`, which sailed straight past
+# the old `except ImportError` and escaped at MODULE SCOPE. Under
+# `pytest tests/ -m "not e2e"` that is a collection error, so pytest reports
+# `Interrupted: 1 error during collection` and runs ZERO tests across the whole
+# suite — the local pre-push gate silently guards nothing. Same defect class as
+# the narrow except tuple fixed in PR #217 (1b).
 try:
     import torchcodec  # noqa: F401
     HAS_TORCHCODEC = True
-except ImportError:
+except Exception:  # see the note above — NOT ImportError
     HAS_TORCHCODEC = False
 
 
