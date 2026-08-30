@@ -144,6 +144,16 @@ The unload-asr race is CLOSED: `unload_asr_model` takes `_asr_lock` (it was the 
 
 `/transcribe` IS now serialized: `handle_transcribe` is async — the mlx-whisper `generate` (`transcribe_audio`) runs under `inference_lock` as a leaf acquisition via `to_thread`; the lazy ASR model load stays OUTSIDE the lock (`preload_asr_model` never preloads on MLX, so first-use load is a real path — minutes unlocked, mirroring the /load-model split); the UI client uses `TRANSCRIBE_TIMEOUT_SEC` (=900, `core/http_client.py`, drift-guarded by `tests/test_issue192_transcribe_serialization.py`) since the old 60s fails spuriously when queuing behind a generation.
 
+### Torch auto-create-from-`.wav` serialization (#214 item 1)
+
+**Torch backend only.** On torch, a `/generate` whose `.pt` voice prompt is missing or corrupt used to run real GPU inference *outside* `inference_lock`, as a side effect of "just loading a prompt": `load_voice_prompt` → `_load_voice_prompt_torch` → `_auto_create_pt_from_wav` calls both `load_model("clone")` and `create_voice_prompt(...)`. All three server call sites invoke it pre-lock. MLX is unaffected — `load_voice_prompt_mlx` only reads files and never creates, so the fix is a provable no-op there (pinned by `TestMlxBackendNoOp`).
+
+The engine cannot take the lock itself: `load_voice_prompt` is sync and reached via `asyncio.to_thread`. So the split lives in `server/prompt_loading.py::load_voice_prompt_serialized`, a drop-in replacement preserving the old `FileNotFoundError`/`None` contract: probe unlocked with `allow_create=False` (raising `VoicePromptCreateRequired`), then re-enter under `inference_lock` with `allow_create=True`.
+
+**`load_model()` is NOT memoized** (`core/engine/model_loader.py`) — every call is a full multi-minute weight construction. So the helper reuses `state.models["clone"]` when present, otherwise builds the model OUTSIDE the lock, and **forwards it via `clone_model=`**. Dropping that forwarding makes `_auto_create_pt_from_wav` reconstruct the model *inside* the lock — reintroducing exactly the starvation the #212 split exists to prevent. A mutation test pins this (`test_load_model_unlocked_then_create_locked`).
+
+`_load_voice_prompt_torch`'s top-of-function cache re-check is **load-bearing**: two callers racing the same missing prompt both probe, both queue, and the second finds the first's cached result rather than creating twice. Do not remove it without preserving that property. Guarded by `tests/test_issue214_prompt_create_serialization.py`.
+
 ## Constants
 
 | Constant | Location | Value | Purpose |

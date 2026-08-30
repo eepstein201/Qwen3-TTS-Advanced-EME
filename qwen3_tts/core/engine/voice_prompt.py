@@ -26,6 +26,19 @@ from qwen3_tts.core.engine.audio_processing import (
 logger = logging.getLogger("tts.engine")
 
 
+class VoicePromptCreateRequired(Exception):  # noqa: N818 -- signal, not an error (see docstring)
+    """Internal control-flow signal: allow_create=False but a create is needed.
+
+    Deliberately NOT in the TTSError hierarchy (core/config/errors.py) -- it is
+    raised in a worker thread, caught one frame later in the server helper
+    (server/prompt_loading.py), and never reaches a user.
+    """
+
+    def __init__(self, prompt_file: str) -> None:
+        super().__init__(prompt_file)
+        self.prompt_file = prompt_file
+
+
 def _evict_if_full(cache: OrderedDict, max_size: int) -> None:
     """Remove oldest entry from LRU cache if at or over capacity."""
     if len(cache) >= max_size:
@@ -52,11 +65,25 @@ def _store_in_torch_cache(prompt_file: str, result) -> None:
 
 
 def _auto_create_pt_from_wav(
-    base_name: str, wav_path: str, txt_path: str, prompt_path: str, prompt_file: str
+    base_name: str,
+    wav_path: str,
+    txt_path: str,
+    prompt_path: str,
+    prompt_file: str,
+    *,
+    model=None,
 ):
     """Create a .pt voice prompt from .wav + .txt files and cache the result.
 
     Returns the voice_prompt tensor, or None if wav_path does not exist.
+
+    Args:
+        model: Optional pre-loaded clone model (#214 item 1). load_model()
+            has NO memoization (model_loader.py) -- every call is a full
+            multi-minute weight construction -- so a caller that has already
+            built the model (e.g. server/prompt_loading.py, building it
+            OUTSIDE inference_lock before re-entering locked) must forward
+            it here. Only load_model("clone") internally when model is None.
     """
     import torch
 
@@ -73,9 +100,11 @@ def _auto_create_pt_from_wav(
             "No transcript for %s, using empty string", sanitize_log(base_name)
         )
     from qwen3_tts.core.engine.inference import create_voice_prompt
-    from qwen3_tts.core.engine.model_loader import load_model
 
-    model = load_model("clone")
+    if model is None:
+        from qwen3_tts.core.engine.model_loader import load_model
+
+        model = load_model("clone")
     voice_prompt = create_voice_prompt(
         model, ref_audio, ref_sr, transcript, x_vector_only_mode=not transcript
     )
@@ -124,7 +153,7 @@ def _load_pt_safe(prompt_path: str, prompt_file: str, device: str):
         )
 
 
-def _load_voice_prompt_torch(prompt_file):
+def _load_voice_prompt_torch(prompt_file, *, allow_create: bool = True, clone_model=None):
     """Load and cache a .pt voice prompt (torch backend).
 
     If the .pt file doesn't exist but .wav + .txt files do, auto-creates
@@ -132,23 +161,50 @@ def _load_voice_prompt_torch(prompt_file):
 
     Results are cached (up to cache.voice_prompt_max entries, default 10) for
     repeated lookups. Cache is config-aware and respects the voice_prompt_max setting.
+
+    Args:
+        allow_create: When False, raise VoicePromptCreateRequired instead of
+            running the (real GPU inference) create inline -- used by
+            server/prompt_loading.py to probe unlocked and only re-enter
+            under inference_lock when a create is actually needed (#214
+            item 1). When True (the default -- preserves every existing
+            direct caller, including tests/test_voice_prompts.py's
+            positional calls), the create runs inline exactly as before.
+        clone_model: Optional pre-loaded clone model forwarded straight
+            through to _auto_create_pt_from_wav (see its docstring for why
+            dropping this reconstructs the model under the lock).
     """
     global _torch_prompt_cache_hits
     import torch  # noqa: F401 — needed for cache type
 
     with _torch_prompt_cache_lock:
         if prompt_file in _torch_prompt_cache:
+            # Load-bearing for #214 item 1's concurrent-convergence guarantee:
+            # two callers racing the same missing prompt each run an unlocked
+            # allow_create=False probe (raises, no create), then serialize on
+            # inference_lock for the allow_create=True retry. The FIRST
+            # locked caller creates and populates this cache; by the time the
+            # SECOND locked caller reaches this check, the entry is already
+            # here, so it returns the cached result instead of creating a
+            # second time. Do not remove this without preserving that
+            # property some other way.
             _torch_prompt_cache.move_to_end(prompt_file)
             _torch_prompt_cache_hits += 1
             return _torch_prompt_cache[prompt_file]
 
-    prompt_path = safe_path_join(VOICE_PROMPTS_DIR, prompt_file)
+    prompt_path = safe_path_join(str(VOICE_PROMPTS_DIR), prompt_file)
     if not os.path.exists(prompt_path):
         base_name = prompt_file[:-3] if prompt_file.endswith(".pt") else prompt_file
-        wav_path = safe_path_join(VOICE_PROMPTS_DIR, f"{base_name}.wav")
-        txt_path = safe_path_join(VOICE_PROMPTS_DIR, f"{base_name}.txt")
+        wav_path = safe_path_join(str(VOICE_PROMPTS_DIR), f"{base_name}.wav")
+        txt_path = safe_path_join(str(VOICE_PROMPTS_DIR), f"{base_name}.txt")
+        # Duplicated exists() check (also done inside _auto_create_pt_from_wav
+        # at its own top) -- necessary because the allow_create decision must
+        # happen BEFORE calling it: we need to raise VoicePromptCreateRequired
+        # to the caller instead of ever starting the create.
+        if not allow_create and os.path.exists(wav_path):
+            raise VoicePromptCreateRequired(prompt_file)
         return _auto_create_pt_from_wav(
-            base_name, wav_path, txt_path, prompt_path, prompt_file
+            base_name, wav_path, txt_path, prompt_path, prompt_file, model=clone_model
         )
 
     from qwen3_tts.core.config import get_device
@@ -157,10 +213,13 @@ def _load_voice_prompt_torch(prompt_file):
         return _load_pt_safe(prompt_path, prompt_file, get_device())
     except (RuntimeError, ValueError):
         base_name = prompt_file[:-3] if prompt_file.endswith(".pt") else prompt_file
-        wav_path = safe_path_join(VOICE_PROMPTS_DIR, f"{base_name}.wav")
-        txt_path = safe_path_join(VOICE_PROMPTS_DIR, f"{base_name}.txt")
+        wav_path = safe_path_join(str(VOICE_PROMPTS_DIR), f"{base_name}.wav")
+        txt_path = safe_path_join(str(VOICE_PROMPTS_DIR), f"{base_name}.txt")
+        # Same duplicated check as above, on the corrupt-.pt fallback path.
+        if not allow_create and os.path.exists(wav_path):
+            raise VoicePromptCreateRequired(prompt_file) from None
         result = _auto_create_pt_from_wav(
-            base_name, wav_path, txt_path, prompt_path, prompt_file
+            base_name, wav_path, txt_path, prompt_path, prompt_file, model=clone_model
         )
         if result is not None:
             logger.warning(
@@ -171,16 +230,22 @@ def _load_voice_prompt_torch(prompt_file):
         raise
 
 
-def load_voice_prompt(prompt_file):
+def load_voice_prompt(prompt_file, *, allow_create: bool = True, clone_model=None):
     """Load a voice prompt, dispatching to the correct format for the backend.
 
     - torch backend: loads .pt tensor file
-    - mlx backend: loads .wav + .txt file pair as a dict
+    - mlx backend: loads .wav + .txt file pair as a dict (never creates --
+      load_voice_prompt_mlx never raises VoicePromptCreateRequired, so
+      allow_create/clone_model are no-ops on this backend)
+
+    allow_create=True (the default) never raises VoicePromptCreateRequired.
     """
     backend = get_backend()
     if backend == "mlx":
         return load_voice_prompt_mlx(prompt_file)
-    return _load_voice_prompt_torch(prompt_file)
+    return _load_voice_prompt_torch(
+        prompt_file, allow_create=allow_create, clone_model=clone_model
+    )
 
 
 def clear_voice_prompt_cache():

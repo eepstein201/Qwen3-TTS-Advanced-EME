@@ -375,7 +375,7 @@ async def _stream_generation(
     # thread can consume it via closure without a redundant load.
     voice_prompt = None
     if mode == "clone":
-        from qwen3_tts.core.engine import load_voice_prompt
+        from qwen3_tts.server.prompt_loading import load_voice_prompt_serialized
 
         if not req.prompt_file:
             await websocket.send_json(
@@ -383,8 +383,8 @@ async def _stream_generation(
             )
             return
         try:
-            voice_prompt = await asyncio.to_thread(
-                load_voice_prompt, req.prompt_file
+            voice_prompt = await load_voice_prompt_serialized(
+                app_state, req.prompt_file
             )
         except FileNotFoundError as e:
             # MLX loader raises (torch returns None) — report like the HTTP 404.
