@@ -265,7 +265,7 @@ python tests/run_batches.py --list     # List batches
 
 **Static gates:** `ruff check qwen3_tts tests` (config in `.ruff.toml`), `mypy qwen3_tts/{core,server,interface}` (config in `pyproject.toml`; vLLM modules excluded), `bandit -r qwen3_tts -c pyproject.toml` (target: 0 HIGH). **Docs gate:** `make check-config-docs` (or `python -m qwen3_tts.tools.check_config_docs`) fails when `docs/CONFIG.md` default values drift from `get_default_config()`. All ship in the `dev` extra.
 
-**Log level:** Controlled by `TTS_LOG_LEVEL` env var (default `INFO`). Set `TTS_LOG_LEVEL=DEBUG` for verbose output. See `docs/00-Foundations/ARCHITECTURE.md` ("Inference Serialization (#192 / #214)") for the warm-up, `/create-voice-prompt`, unload-asr, and `/transcribe` locking details. **Warm-up skip:** `TTS_SKIP_WARMUP=1` skips the warm-up inference entirely (ablation control for the knob-vs-fix experiment).
+**Log level:** Controlled by `TTS_LOG_LEVEL` env var (default `INFO`). Set `TTS_LOG_LEVEL=DEBUG` for verbose output. See `docs/00-Foundations/ARCHITECTURE.md` ("Inference Serialization (#192 / #214)") for the warm-up, `/create-voice-prompt`, unload-asr, `/transcribe`, and torch auto-create-from-`.wav` locking details. **Warm-up skip:** `TTS_SKIP_WARMUP=1` skips the warm-up inference entirely (ablation control for the knob-vs-fix experiment).
 
 **Models & PM2:** See `docs/00-Foundations/ARCHITECTURE.md` for HuggingFace model IDs and PM2 service commands.
 

@@ -146,7 +146,7 @@ The unload-asr race is CLOSED: `unload_asr_model` takes `_asr_lock` (it was the 
 
 ### Torch auto-create-from-`.wav` serialization (#214 item 1)
 
-**Torch backend only.** On torch, a `/generate` whose `.pt` voice prompt is missing or corrupt used to run real GPU inference *outside* `inference_lock`, as a side effect of "just loading a prompt": `load_voice_prompt` → `_load_voice_prompt_torch` → `_auto_create_pt_from_wav` calls both `load_model("clone")` and `create_voice_prompt(...)`. All three server call sites invoke it pre-lock. MLX is unaffected — `load_voice_prompt_mlx` only reads files and never creates, so the fix is a provable no-op there (pinned by `TestMlxBackendNoOp`).
+**Torch backend only.** On torch, a `/generate` whose `.pt` voice prompt is missing or corrupt used to run real GPU inference *outside* `inference_lock`, as a side effect of "just loading a prompt": `load_voice_prompt` → `_load_voice_prompt_torch` → `_auto_create_pt_from_wav` calls both `load_model("clone")` and `create_voice_prompt(...)`. All three server call sites invoke it pre-lock. MLX is unaffected — `load_voice_prompt_mlx` only reads files and never creates, so the fix is a provable no-op there (pinned by `TestLoadVoicePromptSerializedOrdering.test_mlx_is_a_provable_no_op`).
 
 The engine cannot take the lock itself: `load_voice_prompt` is sync and reached via `asyncio.to_thread`. So the split lives in `server/prompt_loading.py::load_voice_prompt_serialized`, a drop-in replacement preserving the old `FileNotFoundError`/`None` contract: probe unlocked with `allow_create=False` (raising `VoicePromptCreateRequired`), then re-enter under `inference_lock` with `allow_create=True`.
 

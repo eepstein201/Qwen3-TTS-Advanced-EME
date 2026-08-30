@@ -233,6 +233,12 @@ evidence above is the only available proof on this box.
   since only the CREATE is serialized). Tracked for a follow-up
   `test_issue214_load_model_dedup` module per the registration ordering note
   in the plan.
+- The fresh-build fallback runs `load_model("clone", warmup=False)`, dropping
+  the warm-up the old inline path ran (default `warmup=True`), so first-run
+  kernel-compile cost lands inside `inference_lock` on a cold create. Strictly
+  safer than the old arrangement — that warm-up ran unlocked and was itself
+  part of the defect — but if it ever matters, mirror
+  `app_lifespan._run_warmup_under_inference_lock`. (Santa round-1, Reviewer A.)
 - The pre-existing `tests/evaluations/test_speaker_similarity.py` collection
   failure (local ffmpeg/torchcodec dylib mismatch) is environmental, not a
   code defect, and out of scope for this change.

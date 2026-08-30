@@ -33,6 +33,9 @@ async def load_voice_prompt_serialized(state, prompt_file: str):
 
     model = state.models.get("clone")
     if model is None:
+        # Defensive only: all three server call sites 503 earlier on a None clone
+        # model, so this build runs just if the model was unloaded mid-flight.
+        # Not the hot path -- never memoized (see model_loader.load_model).
         from qwen3_tts.core.engine.model_loader import load_model
 
         model = await asyncio.to_thread(load_model, "clone", warmup=False)
