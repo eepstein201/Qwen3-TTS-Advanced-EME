@@ -126,6 +126,24 @@ with lock:
     # ... load and cache ...
 ```
 
+## Inference Serialization (#192 / #214)
+
+### Warm-up serialization (#192 structural fix)
+
+The design load-time warm-up (`_warmup_model`) is real MLX inference and now runs under `inference_lock` in BOTH server paths — `/load-model` (`handle_load_model` is async: load via `to_thread` unlocked, then warm-up locked as a leaf acquisition) and startup `_background_load` (schedules the locked warm-up onto `app.state.event_loop` via `run_coroutine_threadsafe(...).result(timeout=600)`; on loop-gone/timeout the wait is abandoned and the future cancelled — never run unsynchronized). Both paths design-guard AND knob-guard before the lock (clone/custom and `TTS_SKIP_WARMUP` skip the lock round-trip). Engine `load_model(model_type, *, warmup=False)` powers the split; never reintroduce an unlocked warm-up. All `/load-model` clients use `LOAD_MODEL_TIMEOUT_SEC` (=900, defined in `core/http_client.py`, drift-guarded) — a load issued mid-generation queues its warm-up behind it, so the old hardcoded 120s failed spuriously.
+
+### `/create-voice-prompt` serialization (#192, final reachable pair)
+
+`/create-voice-prompt` IS now serialized: `handle_create_voice_prompt` is async — `create_voice_prompt` (`create_voice_clone_prompt`) runs under `inference_lock` as a leaf acquisition via `to_thread`, with decode/staging and the `.pt` save outside the lock; with it ALL MLX inference reachable through the API serializes on `inference_lock` (remaining #192 items: /load-model in-flight dedup, e2e queuing coverage).
+
+### Unload-ASR race closure (#214 item 2)
+
+The unload-asr race is CLOSED: `unload_asr_model` takes `_asr_lock` (it was the module's only unsynchronized writer) AND `/unload-asr` acquires `inference_lock` — `_asr_lock` alone merely narrowed the window, since an unload could still land between `/transcribe`'s post-lock recheck and `transcribe_audio`'s own lazy-load check (`asr.py:168`, or `_transcribe_torch`'s unconditional `_ensure_asr_torch_loaded`) and rebuild the model INSIDE the serialized section. Locking the unload closes it structurally, and closes the identical check-then-use on the ICL echo-trim probe (`inference.py:1155`→`:1163`) for free, since that runs with `inference_lock` already held. `/transcribe` re-checks under the lock and returns a retryable 503 `asr_unloaded` rather than reloading; every `/unload-asr` client must use `UNLOAD_ASR_TIMEOUT_SEC` (=900, `core/http_client.py`) since the unload now queues behind a generation.
+
+### `/transcribe` serialization (#192 follow-up)
+
+`/transcribe` IS now serialized: `handle_transcribe` is async — the mlx-whisper `generate` (`transcribe_audio`) runs under `inference_lock` as a leaf acquisition via `to_thread`; the lazy ASR model load stays OUTSIDE the lock (`preload_asr_model` never preloads on MLX, so first-use load is a real path — minutes unlocked, mirroring the /load-model split); the UI client uses `TRANSCRIBE_TIMEOUT_SEC` (=900, `core/http_client.py`, drift-guarded by `tests/test_issue192_transcribe_serialization.py`) since the old 60s fails spuriously when queuing behind a generation.
+
 ## Constants
 
 | Constant | Location | Value | Purpose |
@@ -522,3 +540,11 @@ def calculate_waveform_peaks(audio, num_peaks=500):
 Pre-computed peaks eliminate ~200ms client-side delay, enabling instant waveform visualization when audio loads.
 
 **Validation Tests:** `tests/test_validation_ext.py`
+
+## Testing
+
+### E2E Gating and Rate Limiting
+
+**E2E gating:** All `tests/test_e2e_*.py` are marked `pytest.mark.e2e`; `pytest.ini` deselects them by default (`-m "not e2e"`) because they make real `/generate` calls and hang plain `pytest tests/` when a server is up. Opt in with `-m e2e`. The batch runner uses `unittest` (ignores markers), so all batches are unaffected.
+
+**E2E + rate limiting:** the live server's `/generate` limit (default 10/minute, configurable) is shared across e2e modules and starves suites that fire many requests, causing false 429 skips. `run_full_suite.py` starts its test server with `TTS_DISABLE_RATE_LIMITING=1`; for a manual run do the same (`TTS_DISABLE_RATE_LIMITING=1 tts server start`, or raise one limit via `TTS_RATE_LIMIT_GENERATE=120/minute`). The performance/stress e2e tests assert real audio output, so they now perform actual (slow) generation.
