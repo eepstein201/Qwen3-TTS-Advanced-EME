@@ -74,7 +74,15 @@ try:
 except ImportError:
     HAS_DEPS = False
 
+try:
+    import torch  # noqa: F401
+
+    HAS_TORCH = True
+except ImportError:
+    HAS_TORCH = False
+
 _skip = unittest.skipUnless(HAS_DEPS, "requires fastapi")
+_skip_torch = unittest.skipUnless(HAS_TORCH, "requires torch")
 
 
 def _make_state(clone_model=None):
@@ -260,8 +268,15 @@ class TestLoadVoicePromptSerializedOrdering(unittest.TestCase):
 
 
 @_skip
+@_skip_torch
 class TestEngineAllowCreateContract(unittest.TestCase):
-    """Engine-level: allow_create=False behavior contract, no server needed."""
+    """Engine-level: allow_create=False behavior contract, no server needed.
+
+    These five tests drive the REAL ``_load_voice_prompt_torch``, whose body
+    does a function-level ``import torch`` (voice_prompt.py) for the cache
+    type. Torchless environments (CI ``.[test]``, .venv-lock) cannot satisfy
+    it, so the whole class is gated on torch like the #192 sibling module.
+    """
 
     def setUp(self):
         from qwen3_tts.core.engine.voice_prompt import (

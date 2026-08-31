@@ -218,6 +218,22 @@ re-verified GREEN before moving to the next.
   test module, zero regressions.
 - `python tests/run_batches.py --batch 3` — Ran 675 tests, OK (skipped=3)
 
+## CI addendum (post-push): the torchless matrix caught a real gate gap
+
+The first push red'd every `Tests`/`coverage` leg: CI installs `.[test]`
+with **no torch**, and `TestEngineAllowCreateContract` drives the REAL
+`_load_voice_prompt_torch`, whose body does a function-level
+`import torch` (`voice_prompt.py`) — 3 of its 5 tests errored with
+`ModuleNotFoundError: No module named 'torch'` on every leg. The local
+gates above all ran in torch-capable envs, so the gap was invisible
+there; the torchless `.venv-310` repro matched CI exactly (same 3).
+Fixed with the repo's canonical optional-dep gate (mirrors
+`test_issue192_create_prompt_serialization.py:371`): class-level
+`@unittest.skipUnless(HAS_TORCH, "requires torch")`. Torchless env now
+runs 5 passed / 5 skipped; torch env still runs all 10. The 2
+corrupt-`.pt` tests in the class had passed on CI by mocking the load
+seam — they now skip there too, and still run in torch envs.
+
 ## Not covered
 
 No e2e test drives a real `/generate` against a live server with a missing
