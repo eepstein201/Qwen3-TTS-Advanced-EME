@@ -1127,6 +1127,43 @@ class TestBackgroundLoadWaits(unittest.TestCase):
 
 
 @_skip
+class TestBareStateRegression(unittest.TestCase):
+    """Regression (CI matrix + docker leg): the batch runner and the docker
+    test step run under bare unittest — no pytest conftest — so their
+    app.state carries no record table. The claim must initialize it instead
+    of raising AttributeError ('State' object has no attribute
+    'model_loads'), which red'd every matrix leg."""
+
+    def test_load_succeeds_and_table_is_created_on_a_bare_state(self):
+        from types import SimpleNamespace
+
+        from qwen3_tts.server.app_models import handle_load_model
+
+        state = SimpleNamespace(
+            models={"clone": None, "design": None, "custom": None},
+            model_load_times={},
+            model_load_errors={"clone": None, "design": None, "custom": None},
+            inference_lock=asyncio.Lock(),
+        )
+        self.assertFalse(hasattr(state, "model_loads"))
+
+        sentinel = object()
+        with (
+            patch("qwen3_tts.core.engine.load_model", return_value=sentinel),
+            patch(
+                "qwen3_tts.core.config.get_model_info",
+                return_value={"name": "qwen3-tts-clone"},
+            ),
+        ):
+            result = asyncio.run(handle_load_model(state, _req()))
+
+        self.assertEqual(result, {"status": "loaded", "model": "clone"})
+        self.assertIs(state.models["clone"], sentinel)
+        self.assertIsNone(state.model_loads["clone"], "claim must release")
+        self.assertEqual(getattr(state, "model_config_epoch", 0), 0)
+
+
+@_skip
 class TestReleaseFirstWriterWins(unittest.TestCase):
     """A superseder's CANCELLED is never stomped by a stale owner's FAILED.
 

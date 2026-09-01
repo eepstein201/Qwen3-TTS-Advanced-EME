@@ -157,6 +157,25 @@ def _is_superseded(state, record) -> bool:
     )
 
 
+def _ensure_load_table(state) -> dict:
+    """Return ``state.model_loads``, creating it when a state lacks it.
+
+    Production always initializes the table (app_lifespan setup_app_state).
+    The lazy branch exists for states built outside lifespan — batch-runner
+    tests run without the pytest conftest, so their app.state is bare. This
+    is NOT a fail-open degrade: the gate is the module-scope lock (which is
+    never consulted on state), and the record is still claimed and tracked.
+    """
+    table = getattr(state, "model_loads", None)
+    if table is None:
+        table = {"clone": None, "design": None, "custom": None}
+        try:
+            state.model_loads = table
+        except (AttributeError, TypeError):  # read-only state stand-in
+            pass
+    return table
+
+
 def claim_model_load(state, model_type: str):
     """Atomically claim the load slot, or attach to the in-flight record.
 
@@ -164,8 +183,9 @@ def claim_model_load(state, model_type: str):
     caller's to release; on ATTACH it is the in-flight owner's record.
     """
     with MODEL_LOAD_LOCK:
+        table = _ensure_load_table(state)
         epoch = getattr(state, "model_config_epoch", 0)
-        current = state.model_loads.get(model_type)
+        current = table.get(model_type)
         if current is not None and not current.done.is_set():
             if current.epoch == epoch:
                 return ClaimResult.ATTACH, current
@@ -177,7 +197,7 @@ def claim_model_load(state, model_type: str):
             current.error = "superseded by a newer model-config epoch"
             current.done.set()
         record = _LoadRecord(model_type=model_type, epoch=epoch)
-        state.model_loads[model_type] = record
+        table[model_type] = record
         return ClaimResult.CLAIMED, record
 
 
@@ -212,8 +232,9 @@ def release_model_load(
             record.code = code
             record.recovery = recovery
         record.done.set()
-        if state.model_loads.get(model_type) is record:
-            state.model_loads[model_type] = None
+        table = getattr(state, "model_loads", None)
+        if table is not None and table.get(model_type) is record:
+            table[model_type] = None
 
 
 async def await_in_flight_load(record, request=None) -> WaitResult:
