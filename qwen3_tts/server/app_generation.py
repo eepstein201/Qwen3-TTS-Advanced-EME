@@ -823,8 +823,27 @@ async def handle_generate_stream(request, state, req, security, config_provider)
 
             # T5: re-read the slot under the lock — the capture->acquire
             # window (prompt load, response startup) applies to streaming
-            # exactly as to the batch path.
-            _require_model_under_lock(state, mode)
+            # exactly as to the batch path. Response headers are already
+            # committed by the time this generator iterates, so the
+            # retryable 503 goes out as the in-band terminal error frame
+            # (the WS2 sentinel): raising here would truncate the
+            # connection with no terminal frame, indistinguishable from a
+            # network drop.
+            try:
+                _require_model_under_lock(state, mode)
+            except HTTPException as e:
+                _detail = e.detail
+                _message = (
+                    _detail
+                    if isinstance(_detail, str)
+                    else str(
+                        _detail.get("detail", _detail)
+                        if isinstance(_detail, dict)
+                        else _detail
+                    )
+                )
+                yield encode_stream_error_frame(_message)
+                return
 
             gen_id = str(uuid.uuid4())[:8]
             state.generation_state.update(

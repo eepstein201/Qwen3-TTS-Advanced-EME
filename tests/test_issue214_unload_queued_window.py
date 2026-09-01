@@ -641,14 +641,22 @@ class TestPostLockSlotReRead(unittest.TestCase):
             "inference_lock -- a pre-lock recheck leaves the window open",
         )
 
-    def test_streaming_bails_with_503_when_slot_nulled_before_iteration(self):
+    def test_streaming_emits_terminal_error_frame_when_slot_nulled(self):
         """Behavioral twin of the batch test, for /generate-stream: the
         model is captured into a local at handler time but the lock is only
         acquired when the response body is iterated — an unload landing in
-        between (here: between the handler call and iteration) must surface
-        as a retryable 503 from the under-lock re-read, with the streaming
-        inference NEVER started."""
-        from fastapi import HTTPException
+        between must surface as the in-band TERMINAL ERROR FRAME (the WS2
+        sentinel, sample_rate==0), NOT a raised HTTPException: response
+        headers are already committed when the generator iterates, so a
+        raise would truncate the connection with no terminal frame —
+        indistinguishable from a network drop. Streaming inference must
+        never start."""
+        import struct as _struct
+
+        from qwen3_tts.core.stream_protocol import (
+            STREAM_ERROR_SENTINEL_SR,
+            decode_stream_error_payload,
+        )
 
         # Hoisted for the assertions after the run.
         streaming_calls = []
@@ -675,8 +683,10 @@ class TestPostLockSlotReRead(unittest.TestCase):
             # local but BEFORE the response body is iterated.
             state.models["design"] = None
             # Iterate manually: Starlette would normally do this.
-            async for _chunk in response.body_iterator:
-                pass
+            chunks = []
+            async for chunk in response.body_iterator:
+                chunks.append(chunk)
+            return chunks
 
         with (
             patch(
@@ -691,14 +701,23 @@ class TestPostLockSlotReRead(unittest.TestCase):
                 side_effect=_stream_stub,
             ),
         ):
-            with self.assertRaises(HTTPException) as ctx:
-                asyncio.run(_scenario())
+            chunks = asyncio.run(_scenario())
 
-        detail = ctx.exception.detail
-        self.assertIsInstance(detail, dict, f"expected structured detail: {detail!r}")
-        self.assertEqual(ctx.exception.status_code, 503)
-        self.assertEqual(detail.get("error"), "model_unloaded")
-        self.assertEqual(detail.get("recovery"), "retry")
+        self.assertEqual(
+            len(chunks),
+            1,
+            f"expected exactly the terminal error frame, got {len(chunks)} chunks",
+        )
+        sample_rate, _length = _struct.unpack("<II", chunks[0][:8])
+        self.assertEqual(
+            sample_rate,
+            STREAM_ERROR_SENTINEL_SR,
+            "the 503 must arrive as the sr==0 terminal error frame, not as "
+            "a raised HTTPException (which would truncate the committed "
+            "stream) and not as audio",
+        )
+        message = decode_stream_error_payload(chunks[0][8:])
+        self.assertIn("unloaded", message, f"error frame message: {message!r}")
         self.assertEqual(
             streaming_calls,
             [],

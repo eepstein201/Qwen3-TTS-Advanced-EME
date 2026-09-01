@@ -466,19 +466,35 @@ class TestE2EQueueing:
             "test ordering: the unload fired after the design stream already "
             "finished — the choreography degenerated to a vacuous pass"
         )
-        assert stream_result["status"] == 200, f"design stream failed: {stream_result['status']}"
-        assert stream_result["bytes"] > 0, "design stream produced no audio"
 
-        # THE STATE CONTRACT: the unload must not complete before the queued
-        # generation it targets.
+        # THE STATE CONTRACT — two coherent outcomes and one defect:
+        # (A) FIFO held: the stream succeeded and the unload completed only
+        #     after it. (B) sanctioned overtake: the unload's acquire beat
+        #     the streamer's (the queue-status signal only proves
+        #     registration, not the acquire), the streamer then got the
+        #     post-lock re-read's error frame — a clean retry, never an
+        #     orphan run. The DEFECT (unfixed server) is: the stream
+        #     SUCCEEDED while the unload completed first (the lying 200),
+        #     which also re-opens the #233 double-allocation.
         assert u_status == 200, f"unload failed: {u_status} {u_body}"
-        assert t_unload_done >= stream_result["done"], (
-            "UNLOAD COMPLETED BEFORE THE QUEUED GENERATION — the lying 200: "
-            f"unload done at {t_unload_done:.2f}, design stream done at "
-            f"{stream_result['done']:.2f} (unfixed server: unload nulls the "
-            "slot while the generation is queued, and a later /load-model "
-            "would double-allocate)"
-        )
+        stream_ok = stream_result["status"] == 200 and stream_result["bytes"] > 0
+        if stream_ok:
+            assert t_unload_done >= stream_result["done"], (
+                "UNLOAD COMPLETED BEFORE THE QUEUED GENERATION — the lying "
+                f"200: unload done at {t_unload_done:.2f}, design stream "
+                f"done at {stream_result['done']:.2f}"
+            )
+        else:
+            # Outcome B: the stream must have failed CLEANLY (truncated is
+            # NOT acceptable — that is the pre-fix no-terminal-frame shape).
+            assert stream_result["bytes"] > 0, (
+                "design stream failed with NO error frame bytes — a raise/"
+                "truncate, not the in-band terminal frame"
+            )
+            assert t_unload_done >= stream_result["done"], (
+                "overtake outcome: the unload must still complete only "
+                "after the streamer's error frame closed the stream"
+            )
 
         assert len(results) == 1, "holder generate thread never completed"
         h_status, h_body, _ = results[0]
