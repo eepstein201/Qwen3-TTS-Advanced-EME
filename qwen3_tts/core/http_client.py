@@ -24,6 +24,7 @@ __all__ = [
     "LOAD_MODEL_TIMEOUT_SEC",
     "TRANSCRIBE_TIMEOUT_SEC",
     "UNLOAD_ASR_TIMEOUT_SEC",
+    "UNLOAD_MODEL_TIMEOUT_SEC",
     "server_request",
 ]
 
@@ -65,6 +66,16 @@ CREATE_PROMPT_TIMEOUT_SEC = 900
 # /load-model 120s and /transcribe 60s above. Every /unload-asr caller must
 # use this constant (guarded by tests/test_issue214_unload_asr_race.py).
 UNLOAD_ASR_TIMEOUT_SEC = 900
+
+# /unload-model acquires inference_lock (T5, #214) so an unload can never
+# interleave with a queued generation — which makes it block behind a
+# running or queued generation, exactly like /unload-asr above. The clients'
+# old hardcoded 10s timed out client-side while the server completed the
+# unload anyway. /update-model-config takes the same lock (it nulls ALL
+# model slots), so its client uses this constant too. Every /unload-model
+# and /update-model-config caller must use it (guarded by
+# tests/test_issue214_unload_queued_window.py).
+UNLOAD_MODEL_TIMEOUT_SEC = 900
 
 _ALLOWED_METHODS = frozenset(
     {"GET", "POST", "PUT", "DELETE", "PATCH", "HEAD", "OPTIONS"}

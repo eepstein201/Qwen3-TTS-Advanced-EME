@@ -471,6 +471,14 @@ async def _stream_generation(
     ws_gen_id = str(uuid.uuid4())[:8]
 
     async with app_state.inference_lock:
+        # T5: re-read the slot under the lock — /ws captures the model into
+        # a local long before this acquire, so an unload landing in between
+        # must surface as a retryable 503-shaped error frame, never as an
+        # orphan generation.
+        from qwen3_tts.server.app_generation import _require_model_under_lock
+
+        _require_model_under_lock(app_state, mode)
+
         # Mark this generation active in the shared generation_state so the
         # public /generation-status, /cancel-generation, and
         # detect_degraded_generation() see WebSocket work — without this the WS

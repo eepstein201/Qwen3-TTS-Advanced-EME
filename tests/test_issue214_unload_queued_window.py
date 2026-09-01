@@ -641,6 +641,75 @@ class TestPostLockSlotReRead(unittest.TestCase):
             "inference_lock -- a pre-lock recheck leaves the window open",
         )
 
+    def test_streaming_bails_with_503_when_slot_nulled_before_iteration(self):
+        """Behavioral twin of the batch test, for /generate-stream: the
+        model is captured into a local at handler time but the lock is only
+        acquired when the response body is iterated — an unload landing in
+        between (here: between the handler call and iteration) must surface
+        as a retryable 503 from the under-lock re-read, with the streaming
+        inference NEVER started."""
+        from fastapi import HTTPException
+
+        # Hoisted for the assertions after the run.
+        streaming_calls = []
+        state = _make_state()
+        state.inference_lock = _RecordingAsyncLock()
+
+        def _stream_stub(*args, **kwargs):
+            streaming_calls.append(1)
+            yield np.zeros(480, dtype=np.float32), 24000
+
+        async def _scenario():
+            from qwen3_tts.server.app_generation import handle_generate_stream
+            from qwen3_tts.server.validation import GenerateRequest
+
+            req = GenerateRequest(text="stream me", mode="design")
+            response = await handle_generate_stream(
+                request=_make_request(state),
+                state=state,
+                req=req,
+                security={"max_text_length": 50000, "max_batch_size": 20},
+                config_provider=None,
+            )
+            # The unload lands AFTER the handler captured the model into a
+            # local but BEFORE the response body is iterated.
+            state.models["design"] = None
+            # Iterate manually: Starlette would normally do this.
+            async for _chunk in response.body_iterator:
+                pass
+
+        with (
+            patch(
+                f"{_APP_GENERATION}._check_memory_available",
+                return_value=(True, 4096),
+            ),
+            patch(
+                "qwen3_tts.server.validation._validate_generation_request"
+            ),
+            patch(
+                "qwen3_tts.core.engine.run_inference_streaming",
+                side_effect=_stream_stub,
+            ),
+        ):
+            with self.assertRaises(HTTPException) as ctx:
+                asyncio.run(_scenario())
+
+        detail = ctx.exception.detail
+        self.assertIsInstance(detail, dict, f"expected structured detail: {detail!r}")
+        self.assertEqual(ctx.exception.status_code, 503)
+        self.assertEqual(detail.get("error"), "model_unloaded")
+        self.assertEqual(detail.get("recovery"), "retry")
+        self.assertEqual(
+            streaming_calls,
+            [],
+            "streaming inference started against the orphaned model",
+        )
+        self.assertGreaterEqual(
+            state.inference_lock.acquire_calls,
+            1,
+            "the streaming generator never acquired inference_lock",
+        )
+
     def test_streaming_and_ws_re_read_inside_their_locks(self):
         """Structural: the streaming generator and the /ws stream function
         must call the same under-lock re-read helper inside their
@@ -800,12 +869,11 @@ class TestUnloadModelClientTimeout(unittest.TestCase):
     def _post_timeout_is_constant(
         self, module_path, class_name, func_name, constant_name, call_needle
     ):
-        """AST: the ``timeout=`` keyword of the POST/server_request call in
-        *func_name* must be the named constant, not a literal. The call
-        target must match *call_needle* ("post" or "server_request") so a
-        second, unrelated timeout-bearing call cannot satisfy the check;
-        the module source must also reference the constant (covers the
-        import -- a missing import would only NameError at call time)."""
+        """AST: EVERY call matching *call_needle* with a ``timeout=`` keyword
+        in *func_name* must pass the named constant — not just the first
+        (a dead-code decoy call must not satisfy the check while the real
+        call keeps a literal). The module source must also reference the
+        constant (covers the import)."""
         module = importlib.import_module(module_path)
         self.assertIn(
             constant_name,
@@ -814,6 +882,7 @@ class TestUnloadModelClientTimeout(unittest.TestCase):
         )
         func = getattr(getattr(module, class_name), func_name)
         tree = ast.parse(textwrap.dedent(inspect.getsource(func)))
+        found = []
         for node in ast.walk(tree):
             if not isinstance(node, ast.Call) or call_needle not in ast.unparse(
                 node.func
@@ -821,20 +890,21 @@ class TestUnloadModelClientTimeout(unittest.TestCase):
                 continue
             for kw in node.keywords:
                 if kw.arg == "timeout":
-                    got = ast.unparse(kw.value)
-                    self.assertEqual(
-                        got,
-                        constant_name,
-                        f"{module_path}.{func_name} must pass {constant_name}, "
-                        f"got {got!r} -- a short client timeout fails "
-                        "spuriously once the unload queues behind a "
-                        "generation",
-                    )
-                    return
-        self.fail(
+                    found.append((ast.unparse(node), ast.unparse(kw.value)))
+        self.assertTrue(
+            found,
             f"no {call_needle}(timeout=...) call found in "
-            f"{module_path}.{func_name}"
+            f"{module_path}.{func_name}",
         )
+        for call_src, got in found:
+            self.assertEqual(
+                got,
+                constant_name,
+                f"{module_path}.{func_name} must pass {constant_name} on "
+                f"EVERY matching call ({call_src!r} passes {got!r}) -- a "
+                "short client timeout fails spuriously once the unload "
+                "queues behind a generation",
+            )
 
     def test_tts_client_unload_model_uses_the_constant(self):
         self._post_timeout_is_constant(
@@ -866,15 +936,17 @@ class TestUnloadModelClientTimeout(unittest.TestCase):
         from qwen3_tts.interface.ui import model_management
 
         tree = ast.parse(inspect.getsource(model_management.toggle_model))
-        # name -> RHS source, for branch-assigned timeouts
-        # (timeout = UNLOAD_MODEL_TIMEOUT_SEC if ... else ...).
-        assignments = {
-            t.id: ast.unparse(n.value)
-            for n in ast.walk(tree)
-            if isinstance(n, ast.Assign)
-            for t in n.targets
-            if isinstance(t, ast.Name)
-        }
+        # name -> ALL RHS sources ever assigned, for branch-assigned
+        # timeouts (timeout = UNLOAD_MODEL_TIMEOUT_SEC if ... else ...).
+        # EVERY assignment to the variable must derive from the constant:
+        # last-assignment-wins would let a swapped-branch mutant survive.
+        assignments = {}
+        for n in ast.walk(tree):
+            if isinstance(n, ast.Assign):
+                rhs = ast.unparse(n.value)
+                for t in n.targets:
+                    if isinstance(t, ast.Name):
+                        assignments.setdefault(t.id, []).append(rhs)
         matched = False
         for node in ast.walk(tree):
             if not isinstance(node, ast.Call) or "server_request" not in ast.unparse(
@@ -884,15 +956,40 @@ class TestUnloadModelClientTimeout(unittest.TestCase):
             for kw in node.keywords:
                 if kw.arg == "timeout":
                     got = ast.unparse(kw.value)
-                    resolved = assignments.get(got, got)
-                    self.assertEqual(
-                        resolved,
-                        "UNLOAD_MODEL_TIMEOUT_SEC",
-                        "toggle_model must pass UNLOAD_MODEL_TIMEOUT_SEC "
-                        "(directly or via a branch-assigned local, the "
-                        "toggle_asr shape) to server_request -- borrowing "
-                        "the load constant passes only by coincidence",
-                    )
+                    if got in assignments:
+                        # House shape: branch-assigned local. The unload
+                        # branch must derive from the constant, and NO
+                        # branch may assign a bare literal (kills the
+                        # swapped-branch mutant).
+                        rhs_sources = assignments[got]
+                        self.assertTrue(
+                            any(
+                                "UNLOAD_MODEL_TIMEOUT_SEC" in rhs
+                                for rhs in rhs_sources
+                            ),
+                            f"timeout local {got!r} is never assigned from "
+                            "UNLOAD_MODEL_TIMEOUT_SEC -- the unload path "
+                            "borrows another constant",
+                        )
+                        for rhs in rhs_sources:
+                            self.assertNotRegex(
+                                rhs,
+                                r"^\d+$",
+                                f"timeout local {got!r} is assigned a bare "
+                                f"literal ({rhs}) in some branch -- a "
+                                "swapped branch would silently keep a 10s "
+                                "timeout",
+                            )
+                    else:
+                        self.assertEqual(
+                            got,
+                            "UNLOAD_MODEL_TIMEOUT_SEC",
+                            "toggle_model must pass UNLOAD_MODEL_TIMEOUT_SEC "
+                            "(directly or via a branch-assigned local, the "
+                            "toggle_asr shape) to server_request -- "
+                            "borrowing the load constant passes only by "
+                            "coincidence",
+                        )
                     matched = True
         self.assertTrue(
             matched,

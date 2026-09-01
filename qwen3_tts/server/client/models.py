@@ -8,7 +8,10 @@ This module NEVER imports torch or qwen3_tts.core.engine at module scope.
 """
 
 from qwen3_tts.core.config import ModelError, auth_headers
-from qwen3_tts.core.http_client import LOAD_MODEL_TIMEOUT_SEC
+from qwen3_tts.core.http_client import (
+    LOAD_MODEL_TIMEOUT_SEC,
+    UNLOAD_MODEL_TIMEOUT_SEC,
+)
 from qwen3_tts.server.client._base import _extract_error_message, _require_server
 
 
@@ -48,7 +51,7 @@ class ModelManagerMixin:
         resp = self._session.post(
             f"{self.server_url}/unload-model",
             json={"model_type": mode},
-            timeout=10,
+            timeout=UNLOAD_MODEL_TIMEOUT_SEC,
             headers=auth_headers(),
         )
         if resp.status_code not in (200, 409):
@@ -95,7 +98,7 @@ class ModelManagerMixin:
         resp = self._session.post(
             f"{self.server_url}/update-model-config",
             json=data,
-            timeout=10,
+            timeout=UNLOAD_MODEL_TIMEOUT_SEC,
             headers=auth_headers(),
         )
         if resp.status_code != 200:

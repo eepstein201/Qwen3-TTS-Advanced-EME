@@ -122,19 +122,25 @@ def toggle_model(model_type, action):
     try:
         from qwen3_tts.core.http_client import (
             LOAD_MODEL_TIMEOUT_SEC,
+            UNLOAD_MODEL_TIMEOUT_SEC,
             server_request,
         )
 
         if action == "load":
             path = "/load-model"
+            timeout = LOAD_MODEL_TIMEOUT_SEC
         else:
             path = "/unload-model"
+            # /unload-model acquires inference_lock (T5), so an unload can
+            # queue behind a whole in-flight generation — same treatment
+            # as toggle_asr's /unload-asr.
+            timeout = UNLOAD_MODEL_TIMEOUT_SEC
 
         resp = server_request(
             "POST",
             path,
             json={"model_type": model_type},
-            timeout=LOAD_MODEL_TIMEOUT_SEC,
+            timeout=timeout,
         )
 
         if resp.status_code == 200:

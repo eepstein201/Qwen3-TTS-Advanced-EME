@@ -124,6 +124,40 @@ async def _await_inference_thread_done(
     return await asyncio.to_thread(done_event.wait, timeout)
 
 
+def _require_model_under_lock(state, mode) -> None:
+    """Re-read the model slot UNDER inference_lock and bail when it is gone.
+
+    Every generation path captures ``state.models[mode]`` into a local BEFORE
+    acquiring the lock (prompt loads, cache reads, and response startup sit
+    between the capture and the acquire). An /unload-model landing in that
+    capture->acquire window used to null the slot and answer 200 ``unloaded``
+    while this request still ran to completion against the orphaned local —
+    and a later /load-model, seeing slot ``None``, would build a second full
+    weight set (the #233 double-allocation, re-opened through a new route).
+
+    Callers MUST hold inference_lock. The canonical shape is
+    handle_transcribe's post-lock ASR recheck (503 ``asr_unloaded`` /
+    recovery ``retry``): re-loading here would trade a cheap 503 for the
+    multi-minute starved section this lock exists to prevent. Guarded by
+    tests/test_issue214_unload_queued_window.py (T5).
+    """
+    if state.models.get(mode) is None:
+        logger.warning(
+            "%s model was unloaded while the generation waited for "
+            "inference_lock; asking the caller to retry",
+            mode,
+        )
+        _error_response(
+            503,
+            "model_unloaded",
+            f"{mode} model was unloaded while the generation queued; retry",
+            "retry",
+        )
+        return  # explicit guard — _error_response raises, but it is
+        # typed -> None, not NoReturn, so nothing structurally stops a
+        # fall-through into inference with the slot gone.
+
+
 async def handle_generate(request, state, req, security, config_provider):
     """Core logic for the /generate endpoint.
 
@@ -393,6 +427,12 @@ async def handle_generate(request, state, req, security, config_provider):
             # encode/peaks. (generation_lock is a separate short-lived lock used
             # only for state updates.)
             async with state.inference_lock:
+                # T5: the slot was read into a local BEFORE this acquire;
+                # re-validate it here — an unload that landed in the
+                # capture->acquire window must surface as a retryable 503,
+                # never as an orphan generation.
+                _require_model_under_lock(state, mode)
+
                 # Brief lock to set generation state
                 async with state.generation_lock:
                     state.generation_state.update(
@@ -508,6 +548,36 @@ async def handle_generate(request, state, req, security, config_provider):
                 # releases would surface another generation's chunk count. This
                 # MUST stay inside the lock block.
                 chunk_count = state.generation_state.get("chunk_total", 0)
+
+                if i == len(texts) - 1:
+                    # T5: clear generation_state INSIDE the lock on the FINAL
+                    # item. The batch tail (encode / cache-write / peaks, each
+                    # an off-loop await) releases the lock long before the
+                    # outer finally runs, so a queued /unload-model would
+                    # otherwise acquire with stale active=True and 409 AFTER
+                    # waiting out the whole batch. Streaming and /ws already
+                    # reset in-lock; the outer finally stays as an idempotent
+                    # safety net (its generation_id guard makes it a no-op
+                    # after this reset).
+                    async with state.generation_lock:
+                        if (
+                            state.generation_state.get("generation_id")
+                            == batch_gen_id
+                        ):
+                            state.generation_state.update(
+                                {
+                                    "active": False,
+                                    "start_time": 0.0,
+                                    "text_length": 0,
+                                    "mode": "",
+                                    "batch_index": 0,
+                                    "batch_total": 0,
+                                    "chunk_index": 0,
+                                    "chunk_total": 0,
+                                    "generation_id": None,
+                                    "cancelled": False,
+                                }
+                            )
 
             # inference_lock is now RELEASED. Everything below is CPU-only and
             # operates on the local (wav, sr) arrays returned by inference, so
@@ -750,6 +820,11 @@ async def handle_generate_stream(request, state, req, security, config_provider)
             async with state.pending_lock:
                 if queue_entry in state.pending_requests:
                     state.pending_requests.remove(queue_entry)
+
+            # T5: re-read the slot under the lock — the capture->acquire
+            # window (prompt load, response startup) applies to streaming
+            # exactly as to the batch path.
+            _require_model_under_lock(state, mode)
 
             gen_id = str(uuid.uuid4())[:8]
             state.generation_state.update(
