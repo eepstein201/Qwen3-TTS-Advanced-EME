@@ -132,7 +132,10 @@ def _make_state(**overrides):
 
 def _make_request(state):
     """A REAL starlette Request (slowapi's decorator rejects Mocks) whose
-    ``app.state`` points at *state*."""
+    ``app.state`` points at *state*. ``client`` is a real Address: starlette
+    <1.6 returns the raw scope tuple, and slowapi's key_func calls
+    ``.host`` on it."""
+    from starlette.datastructures import Address
     from starlette.requests import Request
 
     scope = {
@@ -141,7 +144,7 @@ def _make_request(state):
         "headers": [],
         "path": "/unload-model",
         "method": "POST",
-        "client": ("127.0.0.1", 51000),
+        "client": Address("127.0.0.1", 51000),
         "query_string": b"",
     }
     return Request(scope)
@@ -213,18 +216,24 @@ def _async_with_contexts(tree):
 
 
 def _calls_matching(tree, needle):
-    """Unparsed source of every Call in *tree* whose text contains *needle*.
+    """Unparsed source of every Call in *tree* whose IDENTIFIER TEXT (names
+    and attributes, not string literals) contains *needle*.
 
-    Needle match is on the WHOLE call source (callee + args), so
-    ``asyncio.to_thread(handle_unload_model, ...)`` is matched by
-    "handle_unload_model" and cannot be confused with an unrelated name
-    that merely contains "to_thread".
+    Matching names only: a ``logger.info("dispatching handle_unload_model")``
+    inside the lock body must not satisfy the enclosure pin.
     """
-    return [
-        ast.unparse(sub)
-        for sub in ast.walk(tree)
-        if isinstance(sub, ast.Call) and needle in ast.unparse(sub)
-    ]
+    matches = []
+    for sub in ast.walk(tree):
+        if not isinstance(sub, ast.Call):
+            continue
+        identifier_text = " ".join(
+            ast.unparse(n)
+            for n in ast.walk(sub)
+            if isinstance(n, (ast.Name, ast.Attribute))
+        )
+        if needle in identifier_text:
+            matches.append(ast.unparse(sub))
+    return matches
 
 
 def _locked_with_contains_call(tree, needle):
@@ -518,13 +527,15 @@ class TestPostLockSlotReRead(unittest.TestCase):
         lock proves the acquire actually happened)."""
         from fastapi import HTTPException
 
+        # Hoisted so the assertRaises block below can assert on them: the
+        # 503 alone proves nothing about WHERE the re-read happened.
+        inference_calls = []
+        state = _make_state()
+        state.inference_lock = _RecordingAsyncLock()
+
         async def _scenario():
             from qwen3_tts.server.app_generation import handle_generate
             from qwen3_tts.server.validation import GenerateRequest
-
-            state = _make_state()
-            state.inference_lock = _RecordingAsyncLock()
-            inference_calls = []
 
             def _unload_in_window(state, prompt_file, *args, **kwargs):
                 # Runs pre-lock (the prompt load sits between the model
@@ -594,6 +605,20 @@ class TestPostLockSlotReRead(unittest.TestCase):
             "retry",
             "the caller queued behind a generation that never ran -- the "
             "error must be retryable",
+        )
+        self.assertEqual(
+            inference_calls,
+            [],
+            "inference ran against the orphaned model before the 503 -- "
+            "the re-read must precede run_inference INSIDE the lock (a "
+            "re-read placed after inference inside the lock would raise "
+            "the same 503 having already done the harm)",
+        )
+        self.assertGreaterEqual(
+            state.inference_lock.acquire_calls,
+            1,
+            "the handler never acquired inference_lock -- a pre-lock "
+            "recheck raises the same 503 while leaving the window open",
         )
 
     def test_batch_reread_is_enclosed_in_the_lock(self):
@@ -836,10 +861,20 @@ class TestUnloadModelClientTimeout(unittest.TestCase):
         value happens to match, but the drift guard must cover intent, not
         coincidence. AST on the server_request call's timeout keyword, NOT
         a substring scan: a docstring or comment mentioning the constant
-        would satisfy that."""
+        would satisfy that. Accepts the house shape toggle_asr uses too:
+        the kw may name a local assigned from the constant in a branch."""
         from qwen3_tts.interface.ui import model_management
 
         tree = ast.parse(inspect.getsource(model_management.toggle_model))
+        # name -> RHS source, for branch-assigned timeouts
+        # (timeout = UNLOAD_MODEL_TIMEOUT_SEC if ... else ...).
+        assignments = {
+            t.id: ast.unparse(n.value)
+            for n in ast.walk(tree)
+            if isinstance(n, ast.Assign)
+            for t in n.targets
+            if isinstance(t, ast.Name)
+        }
         matched = False
         for node in ast.walk(tree):
             if not isinstance(node, ast.Call) or "server_request" not in ast.unparse(
@@ -848,12 +883,15 @@ class TestUnloadModelClientTimeout(unittest.TestCase):
                 continue
             for kw in node.keywords:
                 if kw.arg == "timeout":
+                    got = ast.unparse(kw.value)
+                    resolved = assignments.get(got, got)
                     self.assertEqual(
-                        ast.unparse(kw.value),
+                        resolved,
                         "UNLOAD_MODEL_TIMEOUT_SEC",
-                        "toggle_model must pass UNLOAD_MODEL_TIMEOUT_SEC to "
-                        "server_request -- borrowing the load constant passes "
-                        "only by coincidence",
+                        "toggle_model must pass UNLOAD_MODEL_TIMEOUT_SEC "
+                        "(directly or via a branch-assigned local, the "
+                        "toggle_asr shape) to server_request -- borrowing "
+                        "the load constant passes only by coincidence",
                     )
                     matched = True
         self.assertTrue(
