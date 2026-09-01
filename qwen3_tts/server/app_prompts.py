@@ -353,47 +353,81 @@ def _save_pt(voice_prompt, pt_path):
     torch.save(voice_prompt, pt_path)
 
 
-async def handle_create_voice_prompt(state, req):
+async def handle_create_voice_prompt(state, req, backend=None):
     """Create a voice clone prompt from uploaded audio.
 
-    Decodes base64 audio, loads it for cloning, creates the voice prompt
-    tensor, and saves it to VOICE_PROMPTS_DIR.
+    Decodes base64 audio, then dispatches on backend:
 
-    Lock discipline (#192): engine ``create_voice_prompt`` is real MLX/torch
-    inference and runs UNDER ``state.inference_lock`` as a leaf acquisition
-    — the handler holds nothing else when it takes the lock, so the global
-    inference_lock-outermost order holds (unsynchronized concurrent
-    inference is upstream-unsafe: ml-explore/mlx#3078, Blaizzy/mlx-audio
-    #638/#733). Everything else stays OUTSIDE the lock: the b64 decode, the
-    tempfile staging and ``load_audio_for_cloning`` are blocking-but-
-    uncontended work that must not starve /generate (mirrors the
-    /transcribe and /load-model load/warm-up splits), and the .pt save is
-    disk IO that must not hold the GPU lock. The clone-model reference is
-    captured ONCE before the lock: a concurrent /unload-model then leaves
-    this handler an alive local reference — equal-or-better than the old
-    inline double read of ``state.models["clone"]``.
+    * **MLX** — the prompt is a ``.wav+.txt`` pair that generation consumes
+      at generation time (upstream ``prepare_zeroprompt``); creation is
+      INFERENCE-FREE (#236): validate the audio and store the pair via the
+      engine writer ``save_voice_prompt_mlx``. No clone-loaded gate and no
+      ``inference_lock`` — nothing GPU happens. Undecodable audio and
+      unrepairable sub-native-rate references are client-input problems and
+      map to 4xx, never 500. Overwrite semantics: an existing pair is
+      silently replaced; a ``.pt``-only name gains a pair (and with it,
+      MLX ``/prompts`` visibility).
+    * **torch** — unchanged flow: clone gate, unlocked load, engine
+      ``create_voice_prompt`` under ``inference_lock`` as a leaf (#192),
+      ``_save_pt`` after release.
+
+    Blank-transcript policy is BACKEND-INDEPENDENT (reviewed r2): blank
+    without ``no_transcript`` already fails on torch (upstream raises) and
+    would silently store a degraded prompt on MLX — 400 on both, strip-
+    based, before any decode.
 
     Args:
         state: app.state (provides loaded models and inference_lock)
         req: CreateVoicePromptRequest with audio_base64, name, transcript, no_transcript
+        backend: "mlx" | "torch" | None (None resolves via get_backend() at
+            call time; the route passes get_backend() explicitly)
 
     Returns:
         Dict with status and prompt name.
     """
+    if backend is None:
+        from qwen3_tts.core.config import get_backend
+
+        backend = get_backend()
+
     # Validate prompt name
     err = _validate_prompt_name(req.name)
     if err:
         raise HTTPException(status_code=err[1], detail=err[0]["error"])
 
     base = _strip_extension(req.name)
+    if not base:
+        _error_response(400, "invalid_name", "Name strips to an empty base", "config")
+        return  # explicit guard — _error_response raises, but it is
+        # typed -> None, not NoReturn, so nothing structurally stops a
+        # fall-through into a write named ".wav".
 
-    # Capture the model reference once, before any await.
-    model = state.models.get("clone")
-    if model is None:
-        raise HTTPException(
-            status_code=503,
-            detail="Clone model must be loaded to create voice prompts",
+    # Blank-transcript policy, strip-based, BEFORE decode (fail fast — a
+    # near-100 MB body should not be decoded only to be rejected). Torch
+    # keeps its raw transcript (x-vector detection uses it unchanged).
+    transcript = "" if req.no_transcript else (req.transcript or "").strip()
+    if not req.no_transcript and not transcript:
+        _error_response(
+            400,
+            "transcript_required",
+            "A non-blank transcript is required (or pass no_transcript=true "
+            "to store an empty one on purpose)",
+            "config",
         )
+        return  # explicit guard — _error_response raises, but it is
+        # typed -> None, not NoReturn, so nothing structurally stops a
+        # fall-through into storing an empty .txt.
+
+    # The clone gate is torch-only: the MLX branch runs no inference, so an
+    # unloaded clone model must not block an MLX create.
+    if backend != "mlx":
+        # Capture the model reference once, before any await.
+        model = state.models.get("clone")
+        if model is None:
+            raise HTTPException(
+                status_code=503,
+                detail="Clone model must be loaded to create voice prompts",
+            )
 
     # Decode audio. Off the event loop: b64decode of a near-100 MB body is
     # sub-second-but-blocking work (async-offload policy,
@@ -407,6 +441,57 @@ async def handle_create_voice_prompt(state, req):
     tmp_path = None
     try:
         tmp_path = await asyncio.to_thread(_stage_tempfile, audio_bytes)
+
+        if backend == "mlx":
+            # #236: inference-free MLX create — validate + store the pair.
+            # Client-input problems are 4xx, translated HERE rather than
+            # via the broad RuntimeError tuple below (a LibsndfileError is
+            # also a RuntimeError; conflating them produces the wrong
+            # message — see the UI comment in voice_management.py:127-131).
+            import soundfile as sf_local
+
+            from qwen3_tts.core.engine import (
+                UnsupportedReferenceAudioError,
+                save_voice_prompt_mlx,
+            )
+
+            try:
+                await asyncio.to_thread(
+                    save_voice_prompt_mlx, base, tmp_path, transcript
+                )
+            except UnsupportedReferenceAudioError as e:
+                logger.error(
+                    "Unsupported reference audio for '%s': %s",
+                    sanitize_log(base),
+                    sanitize_log(e),
+                )
+                _error_response(
+                    400,
+                    "unsupported_reference_audio",
+                    _sanitize_error(str(e)),
+                    "config",
+                )
+                return  # explicit guard (typed -> None, not NoReturn)
+            except (sf_local.LibsndfileError, ValueError) as e:
+                logger.error(
+                    "Undecodable reference audio for '%s': %s",
+                    sanitize_log(base),
+                    sanitize_log(e),
+                )
+                _error_response(
+                    400,
+                    "invalid_audio",
+                    "Audio could not be decoded (accepted: wav/flac/ogg; "
+                    "m4a/mp3 must be converted first)",
+                    "config",
+                )
+                return  # explicit guard
+            # Clear voice prompt cache so new prompt is visible
+            from qwen3_tts.core.engine import clear_voice_prompt_cache
+
+            clear_voice_prompt_cache()
+            logger.info("Created voice prompt '%s' (MLX pair)", sanitize_log(base))
+            return {"status": "created", "name": base}
 
         from qwen3_tts.core.engine import create_voice_prompt, load_audio_for_cloning
 

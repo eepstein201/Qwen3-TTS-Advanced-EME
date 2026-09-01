@@ -14,6 +14,7 @@ import os
 import shutil
 import subprocess  # nosec B404
 import sys
+import tempfile
 
 from qwen3_tts.core.config import (
     USER_FILES_DIR,
@@ -61,7 +62,11 @@ def create_and_save_voice_prompt(
             ext = "mp4"
         print(f"Converting {audio_path} to wav format...")
         audio = AudioSegment.from_file(audio_path, format=ext)
-        wav_path = os.path.join(USER_FILES_DIR, "temp_reference.wav")
+        # Unique temp name: the old fixed "temp_reference.wav" raced two
+        # concurrent creates (B's export overwrote A's input before A read
+        # it) and leaked the file on any failure between write and cleanup.
+        fd, wav_path = tempfile.mkstemp(suffix=".wav", dir=USER_FILES_DIR)
+        os.close(fd)
         audio.export(wav_path, format="wav")
         ref_audio, ref_sr = sf.read(wav_path)
         print(f"Audio loaded: {len(ref_audio) / ref_sr:.1f} seconds at {ref_sr}Hz")
@@ -92,7 +97,24 @@ def create_and_save_voice_prompt(
     base_name = prompt_name[:-3]
     validate_voice_name(base_name)
 
-    # --- Save MLX-compatible files (.wav + .txt) ---
+    if mlx_only:
+        # #236: MLX prompts are a .wav+.txt pair stored at write time — no
+        # model, no .pt, no torch. The ENGINE writer owns the validation +
+        # storage policy (one ensure_min_sample_rate implementation for the
+        # server endpoint and the CLI alike); the pydub conversion above is
+        # the CLI-only pre-step this layer keeps.
+        from qwen3_tts.core.engine import save_voice_prompt_mlx
+
+        mlx_wav_path = save_voice_prompt_mlx(base_name, wav_path or audio_path, transcript)
+        if wav_path and os.path.exists(wav_path):
+            os.remove(wav_path)
+        print(f"MLX files saved: {mlx_wav_path}")
+        print(
+            f'\nDone (MLX-only mode)! Use with: tts -p {prompt_name} "Your text here"'
+        )
+        return mlx_wav_path
+
+    # --- Save MLX-compatible files (.wav + .txt) --- (torch path: MLX interop)
     mlx_wav_path = safe_path_join(VOICE_PROMPTS_DIR, f"{base_name}.wav")
     mlx_txt_path = safe_path_join(VOICE_PROMPTS_DIR, f"{base_name}.txt")
 
@@ -108,15 +130,6 @@ def create_and_save_voice_prompt(
 
     print(f"MLX files saved: {mlx_wav_path}")
     print(f"                 {mlx_txt_path}")
-
-    if mlx_only:
-        # Clean up temp and exit early — no torch needed
-        if wav_path and os.path.exists(wav_path):
-            os.remove(wav_path)
-        print(
-            f'\nDone (MLX-only mode)! Use with: tts -p {prompt_name} "Your text here"'
-        )
-        return mlx_wav_path
 
     # --- Save PyTorch .pt file (requires torch + qwen-tts) ---
     import torch

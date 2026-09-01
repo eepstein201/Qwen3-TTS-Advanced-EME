@@ -83,11 +83,13 @@ from qwen3_tts.core.engine.model_loader import (
 
 # --- voice_prompt ---
 from qwen3_tts.core.engine.voice_prompt import (
+    UnsupportedReferenceAudioError,
     VoicePromptCreateRequired,
     clear_voice_prompt_cache,
     load_voice_prompt,
     load_voice_prompt_mlx,
     migrate_orphan_mlx_prompts,
+    save_voice_prompt_mlx,
     voice_prompt_cache_info,
 )
 
@@ -126,6 +128,8 @@ __all__ = [
     "voice_prompt_cache_info",
     "load_voice_prompt_mlx",
     "migrate_orphan_mlx_prompts",
+    "save_voice_prompt_mlx",
+    "UnsupportedReferenceAudioError",
     "VoicePromptCreateRequired",
     # model_loader
     "load_model",

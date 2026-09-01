@@ -417,3 +417,76 @@ def load_voice_prompt_mlx(prompt_name):
         _mlx_prompt_cache[prompt_name] = result
 
     return result
+
+
+class UnsupportedReferenceAudioError(RuntimeError):
+    """``ensure_min_sample_rate`` could not deliver a usable reference.
+
+    Subclasses ``RuntimeError`` so every existing ``except RuntimeError``
+    caller keeps working; the /create-voice-prompt MLX branch translates it
+    to a 400 (a sub-native-rate reference is a client-input problem, and
+    an 8 kHz prompt made MLX clone generation run to the token cap 3/3
+    times -- it must never be stored as-is).
+    """
+
+
+def save_voice_prompt_mlx(base: str, audio_path: str, transcript: str) -> str:
+    """Validate a reference clip and store an MLX voice prompt pair.
+
+    The server-side MLX create path (#236): MLX consumes prompts as a
+    ``.wav+.txt`` pair at generation time (``prepare_zeroprompt``) -- no
+    model, no ``.pt``, no inference. This writer validates the audio
+    (``ensure_min_sample_rate``: always mono, never downsamples, rewritten
+    to >=24 kHz or it raises) and stores the pair, mirroring the CLI/UI
+    write-time policy.
+
+    Args:
+        base: Prompt base name (no extension); caller has validated it.
+        audio_path: Reference audio file (any soundfile-decodable container;
+            the server stages uploads with a ``.wav`` suffix, so m4a/mp3 are
+            NOT convertible here -- that is a documented limitation).
+        transcript: Reference transcript; stored stripped.
+
+    Returns:
+        The written ``.wav`` path (str).
+
+    Raises:
+        UnsupportedReferenceAudioError: The sample-rate guarantee is undeliverable.
+        soundfile errors: The audio is undecodable (mapped to 400 by the handler).
+    """
+    import shutil
+
+    import soundfile as sf
+
+    from qwen3_tts.core.engine.audio_processing import ensure_min_sample_rate
+
+    ref_audio, ref_sr = sf.read(audio_path, dtype="float32")
+    if ref_audio.ndim > 1:
+        import numpy as np
+
+        ref_audio = np.mean(ref_audio, axis=-1).astype(np.float32)
+    try:
+        ref_audio, ref_sr, was_modified = ensure_min_sample_rate(ref_audio, ref_sr)
+    except RuntimeError as e:
+        raise UnsupportedReferenceAudioError(str(e)) from e
+
+    wav_path = safe_path_join(VOICE_PROMPTS_DIR, f"{base}.wav")
+    txt_path = safe_path_join(VOICE_PROMPTS_DIR, f"{base}.txt")
+
+    # Same write-vs-copy policy as the UI create path: rewriting identical
+    # audio is pointless; anything the rate check modified must be written.
+    if was_modified:
+        sf.write(wav_path, ref_audio, ref_sr)
+    else:
+        shutil.copy2(audio_path, wav_path)
+
+    with open(txt_path, "w") as f:
+        f.write((transcript or "").strip())
+
+    logger.info(
+        "Stored MLX voice prompt '%s' (%.1fs audio @ %d Hz)",
+        sanitize_log(base),
+        len(ref_audio) / ref_sr,
+        ref_sr,
+    )
+    return wav_path
