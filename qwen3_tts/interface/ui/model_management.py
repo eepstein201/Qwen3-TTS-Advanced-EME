@@ -153,8 +153,20 @@ def toggle_model(model_type, action):
                 format_status_display(),
             )
         else:
-            error = resp.json().get("error", "Unknown error")
-            return f"Failed: {error}", get_model_table_data(), format_status_display()
+            # _error_response nests the structured body under "detail"; the
+            # flat .get("error") read turned every classified 503 into
+            # "Unknown error" (same class as the voice_management fix).
+            from qwen3_tts.server.client._base import _error_payload
+
+            payload = _error_payload(resp)
+            error = (
+                payload.get("detail") or payload.get("error") or "Unknown error"
+            )
+            return (
+                f"Failed: {error}",
+                get_model_table_data(),
+                format_status_display(),
+            )
 
     except Exception as e:
         logger.error("Model toggle failed: %s", e)

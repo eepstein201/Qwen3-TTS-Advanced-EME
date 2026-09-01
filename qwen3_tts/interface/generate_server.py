@@ -166,7 +166,14 @@ def load_model_on_server(config, model_type):
         elif result.get("status") == "already_loaded":
             print(f"Model '{model_type}' was already loaded.")
             return True
-    print(f"Failed to load model: {resp.json().get('error', 'Unknown error')}")
+    # _error_response nests the structured body under "detail"; read it
+    # through the shared unwrap so the classified error/retry hint survives
+    # (identical defect class fixed in voice_management).
+    from qwen3_tts.server.client._base import _error_payload
+
+    payload = _error_payload(resp)
+    error = payload.get("detail") or payload.get("error") or "Unknown error"
+    print(f"Failed to load model: {error}")
     return False
 
 

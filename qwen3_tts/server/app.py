@@ -650,7 +650,9 @@ async def load_model_endpoint(
     """Load a model on demand."""
     state = request.app.state
     reset_activity_timer(state)
-    return await handle_load_model(state, req)
+    # request is forwarded so the dedup waiter can stop polling when this
+    # client disconnects (Phase 2c).
+    return await handle_load_model(state, req, request=request)
 
 
 @app.post("/unload-model", response_model=ModelOpResponse, response_model_exclude_unset=True)

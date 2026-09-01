@@ -276,6 +276,14 @@ class ModelOpResponse(BaseModel):
 
     status: str  # "loaded" | "already_loaded" | "unloaded" | "already_unloaded"
     model: str
+    # Phase 2c (#214 item 3): True only when this caller ATTACHED to an
+    # in-flight load instead of owning it. response_model_exclude_unset
+    # omits it otherwise — absence is the owner/already_loaded shape.
+    deduped: bool = False
+    # W1: True when the weights loaded cleanly but the design warm-up
+    # failed non-fatally (the model stays; the first request pays the cold
+    # start). Deliberately never mirrored into model_load_errors.
+    warmup_failed: bool = False
 
 
 class LoadAsrResponse(BaseModel):
