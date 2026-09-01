@@ -365,6 +365,10 @@ class TestE2EQueueing:
                 )
             assert c_status == 200, f"create-voice-prompt failed: {c_status} {c_body}"
             created = True
+            # Capture BEFORE the join: after join returns the generate is
+            # already done, and the ordering assertion would be vacuous
+            # (same shape as test_01).
+            done = _mono()
 
             gen.join(timeout=GEN_TIMEOUT + 60)
             assert len(results) == 1, "generate thread never completed"
@@ -372,8 +376,6 @@ class TestE2EQueueing:
             assert g_status == 200, f"generate failed: {g_status} {g_body}"
             assert _first_result(g_body).get("chunks", 0) >= 1
 
-            # Capture BEFORE the join would make it vacuous — see test_01.
-            done = _mono()
             assert done >= g_done, "create-voice-prompt completed before the generate finished"
             assert fired < g_done, "test ordering: create fired after the generate ended"
         except Exception as exc:
