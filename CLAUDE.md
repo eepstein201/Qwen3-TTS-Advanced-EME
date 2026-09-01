@@ -32,46 +32,17 @@ Features: pyrubberband audio processing (with librosa fallback), prosody presets
 | Command | Purpose |
 |---------|---------|
 | `tts [TEXT]` | Generate audio (default command) |
-| `tts server start` | Start persistent model server |
-| `tts server stop` | Graceful shutdown |
-| `tts server restart` | Stop then start |
-| `tts server status` | Health + models + memory |
-| `tts server log` | Tail server log |
-| `tts voice list` | List voice prompts |
-| `tts voice create [AUDIO]` | Create voice clone from audio |
-| `tts voice rebuild [NAME]` | Regenerate .pt prompts — torch-only (forces `TTS_BACKEND=torch`; needs `qwen_tts`, so run via `conda run -n qwen3-tts` on MLX setups) |
-| `tts voice delete NAME` | Delete a prompt |
-| `tts voice rename OLD NEW` | Rename a prompt |
-| `tts voice preview NAME` | Play a prompt |
-| `tts list speakers` | Premium speakers |
-| `tts list presets` | Generation presets |
-| `tts list aliases` | Voice aliases |
-| `tts list prosody` | Prosody presets |
-| `tts list models` | Models + load status |
-| `tts list backends` | Available backends |
-| `tts config` | Run config wizard |
-| `tts config show` | Show current settings |
+| `tts server {start,stop,restart,status,log,stats}` | Persistent model server lifecycle — health + models + memory, tail log, statistics |
+| `tts voice {list, create [AUDIO], rebuild [NAME], delete NAME, rename OLD NEW, preview NAME, info NAME}` | Voice-prompt CRUD; `rebuild` is torch-only (forces `TTS_BACKEND=torch`; needs `qwen_tts`, so run via `conda run -n qwen3-tts` on MLX setups); `info` = prompt metadata (via server) |
+| `tts list {speakers, presets, aliases, prosody, models, backends}` | Premium speakers · generation presets · voice aliases · prosody presets · models + load status · available backends |
+| `tts config` · `tts config {show, edit, path}` | Run config wizard · show current settings · edit settings (backend, model-size, etc.) · print config.json path |
 | `tts ui` | Launch Gradio web UI |
-| `tts history [N]` | Last N generations |
-| `tts stats` | Server statistics |
-| `tts batch FILE` | Batch JSON |
-| `tts srt FILE` | SRT subtitles |
-| `tts dialogue FILE` | Multi-speaker dialogue |
-| `tts repl` | Interactive REPL |
-| `tts watch DIR` | Watch for .txt files |
+| `tts history [N]` · `tts stats` | Last N generations · server statistics |
+| `tts batch FILE` · `tts srt FILE` · `tts dialogue FILE` | Batch JSON · SRT subtitles · multi-speaker dialogue |
+| `tts repl` · `tts watch DIR` | Interactive REPL · watch a directory for .txt files |
 | `tts doctor` | Check installation health |
-| `tts voice info NAME` | Show prompt metadata (via server) |
-| `tts config edit` | Edit config settings (backend, model-size, etc.) |
-| `tts config path` | Print config.json path |
-| `tts uninstall models` | Remove cached HuggingFace models |
-| `tts uninstall voices` | Remove all voice prompts |
-| `tts uninstall config` | Reset config.json to defaults |
-| `tts uninstall environment` | Print conda removal commands |
-| `tts uninstall all` | Run all uninstall steps |
-| `tts cache list` | List all cached models |
-| `tts cache size` | Show total cache size |
-| `tts cache prune` | Remove models unused for N days |
-| `tts cache clear` | Remove all cached models |
+| `tts uninstall {models, voices, config, environment, all}` | Remove cached HuggingFace models · remove all voice prompts · reset config.json to defaults · print conda removal commands · run all uninstall steps |
+| `tts cache {list, size, prune, clear}` | List all cached models · show total cache size · remove models unused for N days · remove all cached models |
 
 The unified CLI is built on Click and installed via pyproject.toml entry points.
 
@@ -123,19 +94,7 @@ config.json → qwen3_tts.core.config → qwen3_tts.core.engine (dispatch)
 
 ## File Layout
 
-```
-qwen3_tts/
-├── core/config/ (pkg), engine/{text_processing,audio_processing,voice_prompt,model_loader,inference,asr}.py
-├── server/app.py, app_lifespan.py, app_generation.py, app_models.py, app_prompts.py, websocket.py, validation.py, client/
-├── interface/generate.py, generate_helpers.py, generate_interactive.py, generate_server.py, ui/, cli/
-└── tools/create_voice.py, model_cache.py, healthcheck.py, uninstall.py, solid_analyzer.py, check_config_docs.py
-```
-
-Top-level: `pyproject.toml`, `config.json`, `install.sh`, `ecosystem.config.cjs`, `voice_prompts/`, `tests/`, `docs/`
-
-Runtime: `.voice_server.pid`, `.voice_server.log`
-
-See `docs/00-Foundations/ARCHITECTURE.md` for full annotated file tree.
+`qwen3_tts/`: `core/` (config pkg; engine: text_processing, audio_processing, voice_prompt, model_loader, inference, asr) · `server/` (app, app_lifespan, app_generation, app_models, app_prompts, websocket, validation, client/) · `interface/` (generate*, generate_helpers, generate_interactive, generate_server, ui/, cli/) · `tools/` (create_voice, model_cache, healthcheck, uninstall, solid_analyzer, check_config_docs). Top-level: `pyproject.toml`, `config.json`, `install.sh`, `ecosystem.config.cjs`, `voice_prompts/`, `tests/`, `docs/`. Runtime: `.voice_server.pid`, `.voice_server.log`. Full annotated tree: `docs/00-Foundations/ARCHITECTURE.md`.
 
 ## Server API
 
@@ -204,12 +163,7 @@ For full config.json structure, see `docs/00-Foundations/ARCHITECTURE.md`.
 
 ## Testing
 
-**Environment Independence:** Tests now work in any Python environment with test dependencies installed. No conda environment required.
-
-**Universal Installation (works on all platforms):**
-```bash
-pip install -e ".[test]"
-```
+**Environment independence — any Python env with test deps: `pip install -e ".[test]"`.** No conda required.
 
 **Reproducible installs:** `requirements.lock` pins the full `test+ui+dev` dependency tree (generated with `python -m piptools compile pyproject.toml --extra test --extra ui --extra dev --output-file requirements.lock`). Regenerate it after changing dependencies in `pyproject.toml`. Platform extras (`mlx`, `torch`) are excluded — they conflict on `transformers` and live in separate conda envs. **Never install the lock into the platform conda envs**: the lock is for standalone test/CI envs only (verified 2026-07-13: clean install on Linux py3.11/3.12; dry-run resolves in torch env but would break `pip check`). The conflict is **env-specific, not universal** (re-measured 2026-07-29): in `qwen3-tts` (torch) it is live — transformers 4.57.3 requires `huggingface-hub<1.0` while the lock's gradio 6.20 requires `>=1.2.0`, so no gradio floor ≥ ~6.15 is installable there; in `qwen3-tts-mlx` (transformers 5.0.0rc3 + hub 1.5.0) it cannot occur. Re-check both envs before trusting either half.
 
@@ -233,12 +187,7 @@ python tests/run_batches.py --batch 2  # Batch 2: Voice & CLI
 python tests/run_batches.py --batch 3  # Batch 3: Server infrastructure
 ```
 
-**Platform Support Matrix:**
-- Linux CPU: ✅ Full support
-- Linux GPU/CUDA: ✅ Full support with automatic CUDA detection
-- macOS MLX: ✅ Full support with MLX backend
-- Google Colab: ✅ Full support (free/pro tiers)
-- Docker: ✅ Full containerized support
+**Platform support:** Linux (CPU / GPU+CUDA auto-detect), macOS MLX, Google Colab, Docker — all full support.
 
 **Migration:** tests no longer require conda envs — `pip install -e ".[test]" && python -m unittest tests.test_module -v` works anywhere (conda envs still fine for development).
 
