@@ -241,7 +241,8 @@ async def handle_generate(request, state, req, security, config_provider):
     try:
         import soundfile as sf
 
-        from qwen3_tts.core.engine import load_voice_prompt, run_inference
+        from qwen3_tts.core.engine import run_inference
+        from qwen3_tts.server.prompt_loading import load_voice_prompt_serialized
 
         # Clear any stale cancellation flag from a prior request. Without this,
         # a cancel from a previous request would immediately abort this new one
@@ -359,7 +360,12 @@ async def handle_generate(request, state, req, security, config_provider):
             # tensor deserialize is not GPU work, so holding the GPU-serialization
             # lock during it needlessly blocks every other generation. Mirrors
             # the streaming path (:611 before lock :644) and the WS path
-            # (websocket.py:356 before :433).
+            # (websocket.py:356 before :433). On torch, a missing/corrupt .pt
+            # with a sibling .wav triggers a real create inference as a side
+            # effect of "just loading a prompt" — load_voice_prompt_serialized
+            # (#214 item 1) keeps that off the fast path and serializes it
+            # under inference_lock only when actually needed; it is otherwise
+            # a drop-in replacement (same FileNotFoundError/None contract).
             voice_prompt = None
             if mode == "clone":
                 if not prompt_file:
@@ -368,8 +374,8 @@ async def handle_generate(request, state, req, security, config_provider):
                         detail="prompt_file required for clone mode",
                     )
                 try:
-                    voice_prompt = await asyncio.to_thread(
-                        load_voice_prompt, prompt_file
+                    voice_prompt = await load_voice_prompt_serialized(
+                        state, prompt_file
                     )
                 except FileNotFoundError as e:
                     # MLX loader raises (torch returns None) — map both to 404.
@@ -693,7 +699,7 @@ async def handle_generate_stream(request, state, req, security, config_provider)
     seeded_params = {**gen_params, "seed": used_seed}
 
     # Prepare mode-specific params
-    from qwen3_tts.core.engine import load_voice_prompt
+    from qwen3_tts.server.prompt_loading import load_voice_prompt_serialized
 
     voice_prompt = None
     if mode == "clone":
@@ -703,7 +709,7 @@ async def handle_generate_stream(request, state, req, security, config_provider)
                 status_code=400, detail="prompt_file required for clone mode"
             )
         try:
-            voice_prompt = await asyncio.to_thread(load_voice_prompt, prompt_file)
+            voice_prompt = await load_voice_prompt_serialized(state, prompt_file)
         except FileNotFoundError as e:
             # MLX loader raises (torch returns None) — map both to 404.
             raise HTTPException(status_code=404, detail=str(e)) from e

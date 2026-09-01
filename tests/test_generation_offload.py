@@ -32,7 +32,28 @@ class TestGenerationOffload(unittest.TestCase):
         self.src = inspect.getsource(app_generation)
 
     def test_voice_prompt_load_is_offloaded(self):
-        self.assertTrue(_offloaded(self.src, "load_voice_prompt"))
+        """The offload now lives one layer down, in server/prompt_loading.py
+        (#214 item 1) -- load_voice_prompt_serialized wraps load_voice_prompt
+        in asyncio.to_thread internally so it can probe unlocked with
+        allow_create=False first, then re-enter under inference_lock only
+        when a torch auto-create is actually needed. app_generation.py now
+        calls that wrapper directly instead of
+        asyncio.to_thread(load_voice_prompt, ...) at its call sites -- the
+        offload property is preserved, just relocated.
+        """
+        self.assertTrue(
+            re.search(r"await\s+load_voice_prompt_serialized\(", self.src),
+            "app_generation.py must dispatch voice-prompt loading through "
+            "load_voice_prompt_serialized (server/prompt_loading.py)",
+        )
+        from qwen3_tts.server import prompt_loading
+
+        prompt_src = inspect.getsource(prompt_loading)
+        self.assertTrue(
+            _offloaded(prompt_src, "load_voice_prompt"),
+            "load_voice_prompt_serialized must dispatch load_voice_prompt "
+            "via asyncio.to_thread",
+        )
         # No direct (blocking) call remains.
         self.assertNotIn("= load_voice_prompt(prompt_file)", self.src)
 

@@ -151,6 +151,7 @@ BATCHES = {
             "tests.test_issue192_transcribe_serialization",
             "tests.test_issue192_create_prompt_serialization",
             "tests.test_issue214_unload_asr_race",
+            "tests.test_issue214_prompt_create_serialization",
             "tests.test_asr_endpoints",
             "tests.test_body_size_limit",
             "tests.test_client_generation_timeout",

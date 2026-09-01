@@ -77,12 +77,19 @@ class TestMLXVoicePrompt(unittest.TestCase):
             self.assertIn("tts voice create", str(ctx.exception))
 
     def test_load_voice_prompt_dispatch_torch(self):
-        """load_voice_prompt dispatches to torch backend."""
+        """load_voice_prompt dispatches to torch backend.
+
+        Forwards allow_create/clone_model with their defaults (#214 item 1 —
+        load_voice_prompt gained these kwargs to let server/prompt_loading.py
+        probe unlocked before serializing the torch auto-create under
+        inference_lock; every existing caller that omits them still gets the
+        pre-#214 create-inline behavior).
+        """
         from qwen3_tts.core.engine import load_voice_prompt
         with patch("qwen3_tts.core.engine.voice_prompt.get_backend", return_value="torch"):
             with patch("qwen3_tts.core.engine.voice_prompt._load_voice_prompt_torch", return_value="mock_tensor") as mock:
                 result = load_voice_prompt("test.pt")
-        mock.assert_called_once_with("test.pt")
+        mock.assert_called_once_with("test.pt", allow_create=True, clone_model=None)
         self.assertEqual(result, "mock_tensor")
 
     def test_load_voice_prompt_dispatch_mlx(self):
