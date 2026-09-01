@@ -1,71 +1,86 @@
 CODEMAP DIFF REPORT
-Generated:      2026-08-12
-Previous scan:  2026-08-10 (commit 79ce699)
-Current HEAD:   33a78c8 "fix(deps): pin starlette>=1.6.0 and regenerate stale lock (#167)"
-Mode:           UPDATE IN PLACE (change volume well under the 30% rewrite threshold)
+Generated:      2026-09-01
+Previous scan:  2026-08-12 (commit 33a78c8)
+Current HEAD:   c0314a9 "fix(server): serialize the torch auto-create-from-.wav inference (#214 item 1) (#231)"
+Mode:           UPDATE IN PLACE (this report documents a rewrite; change volume exceeds the
+                 30% threshold on raw diff stat, but the codebase is a linear continuation of
+                 the same architecture with no rewrite/rename churn, so no user approval gate
+                 was triggered)
 
 SCOPE
-  Source files:  71 .py, 25,253 LOC  (was ~25k)
-  Layers:        core/ 6,854 · server/ 5,818 · interface/ui/ 4,806
-  Tests:         166 test modules, 2,746 test functions
+  Source files:  72 .py, 26,550 LOC  (was 71 .py, 25,253 LOC)
+  Layers:        core/ 7,157 · server/ 6,520 · interface/ 9,031 (ui/ 5,076) · tools/ 2,214
+  Tests:         179 test modules, 3,127 test functions (was 166 modules, 2,746 tests)
+  Commits since last scan: 44
+  Source+test diff: 98 files changed, 10,743 insertions(+), 1,347 deletions(-)
 
-SOURCE FILES MODIFIED SINCE LAST SCAN (7)
-  qwen3_tts/core/config/io.py
-  qwen3_tts/core/engine/inference.py
-  qwen3_tts/interface/generate_helpers.py
-  qwen3_tts/interface/generate_server.py
-  qwen3_tts/server/app.py
-  qwen3_tts/server/app_generation.py
-  qwen3_tts/server/websocket.py
-
-  Files added:   none
-  Files removed: none
-  (13 test modules + tests/run_batches.py also touched; CI: .github/workflows/test.yml)
+SOURCE FILES ADDED / REMOVED
+  Added:   qwen3_tts/core/stream_protocol.py   (150 LOC — unified streaming wire-format module)
+           qwen3_tts/server/prompt_loading.py  (46 LOC — torch auto-create-from-.wav serialization)
+  Removed: qwen3_tts/core/protocols.py         (#179 — zero-caller dead module, grep-proven)
 
 ARCHITECTURE CHANGES
-  1. WS2 unified batch+streaming pipeline (#160, 3e535ec)
-     - New shared helper engine/inference.py::_postprocess_chunk (line 1103), called
-       from 4 sites across run_inference and run_inference_streaming, both backends.
-     - Order: ICL echo trim -> clone speed -> audio validation.
-     - LUFS intentionally excluded (EBU R128 gates the whole signal) => batch-only.
-     - Terminal stream error frame: sample_rate == 0 sentinel
-       (server/app_generation.py:99 STREAM_ERROR_SENTINEL_SR; duplicated client-side at
-       interface/generate_server.py:33 so the CLI never imports FastAPI).
-     - _stream_thread_join_timeout(text_len, max_chunk_chars) at app_generation.py:69
-       replaces a fixed 90s join.
-     - /ws closes with RFC 6455 1011 after an error message.
+  1. Issue #192 / #214 — GPU inference serialization series (7 PRs: #201, #210, #211, #212,
+     #213, #230, #231)
+     - state.inference_lock now serializes EVERY inference-reachable path, not just
+       /generate and /ws: design warm-up, /transcribe ASR generate, /create-voice-prompt,
+       torch auto-create-from-.wav (new prompt_loading.py), and /unload-asr.
+     - Consistent pattern: unlocked fast path / model-build stays unlocked; only the actual
+       inference re-enters as a LEAF acquisition, inference_lock-outermost order preserved.
+     - New long client timeouts: LOAD_MODEL_TIMEOUT_SEC / TRANSCRIBE_TIMEOUT_SEC /
+       CREATE_PROMPT_TIMEOUT_SEC / UNLOAD_ASR_TIMEOUT_SEC = 900s each, since requests can
+       now queue behind another's inference.
+     - TTS_SKIP_WARMUP=1 added as an ablation control.
+     - Streaming token-cap warning bug fixed (#201): mlx-audio's streaming branch returns
+       before yielding cumulative token_count, so per-chunk deltas must be accumulated
+       per segment_idx — comparing one chunk's delta to max_tokens was never true and
+       runaways were silent.
 
-  2. WS3 edge-case crash hardening (#157, 26a5a48)
-     - core/config/io.py: validate_config rejects non-dict input; load_config raises a
-       path-naming ValueError instead of silently substituting defaults.
-     - Bounded/error-checked streamed chunk parsing, hardened SSML break parsing and
-       history JSONL reads, typed errors replacing generic exceptions.
+  2. Wire-format consolidation (#229)
+     - core/stream_protocol.py is now the SINGLE implementation of the streaming sentinel,
+       error-frame encode/decode, and iter_stream_chunks parser, used by both
+       TTSClient.generate_streaming and the CLI. Previously duplicated (interface/
+       generate_server.py vs. TTSClient) and had drifted: only the CLI checked the
+       sample_rate==0 sentinel, so TTSClient decoded the JSON error payload as float32.
 
-  3. Test-infra enforcement (#159, 5a19dd9)
-     - tests/test_batches_coverage.py enforces BATCHES registration.
-     - run_batch() sends SIGABRT (PYTHONFAULTHANDLER=1) before SIGKILL to dump stacks.
+  3. UI confirm-flow repair (#218) + --port fix (#195)
+     - Stop / Delete Voice / Unload Model confirm flows repaired (second click had been
+       a no-op due to a wiring gap).
+     - tts ui --port now honored end-to-end; low-rate voice-prompt warning surfaced to
+       browser users.
 
-  No new routes, services, or modules. Route surface unchanged since 2026-08-10.
+  4. Dead code removal (#179) — core/protocols.py deleted, zero callers.
+
+  5. mypy debt cleared (#176) — server/app.py removed from the mypy exclusion list.
+
+  6. Response contracts (#185, prior wave, reconfirmed still current) — 18 response_model=
+     Pydantic contracts on app.py alone; 32 total validation.py models across all handler
+     modules, guarded by tests/test_response_contracts.py.
+
+  No new routes. Route surface unchanged (21 HTTP/WS endpoints).
 
 DEPENDENCY CHANGES
-  + starlette>=1.6.0,<2   (NEW explicit pin, #167 — was an unpinned fastapi transitive
-                           that requirements.lock had drifted down to 1.3.1)
-    requirements.lock regenerated.
-    Note: custom RequestBodySizeLimitMiddleware retained over starlette's native
-    max_body_size (pre-auth no-buffer ordering + Content-Length fast path).
-  No dependencies added or removed otherwise.
+  ~ mlx-audio >=0.4.6 -> >=0.4.7   (#164)
+  + librosa>=0.11.0 added to the `test` extra (ensure_min_sample_rate() now raises rather
+    than silently degrading, so the test suite needs it installed, not just optional)
+  requirements.lock regenerated.
 
 CODEMAPS UPDATED
-  docs/CODEMAPS/architecture.md   updated (generation flow, LOC table, layer sizes)
-  docs/CODEMAPS/backend.md        updated (streaming failure semantics, starlette pin, LOC)
-  docs/CODEMAPS/data.md           updated (config load/save contract)
-  docs/CODEMAPS/dependencies.md   updated (explicit server pin versions, gradio floor cap)
-  docs/CODEMAPS/frontend.md       header only — verified unchanged (no interface/ui/ edits)
+  docs/CODEMAPS/architecture.md   updated (protocols.py removal, stream_protocol.py,
+                                   inference-serialization section, LOC/layer refresh)
+  docs/CODEMAPS/backend.md        updated (prompt_loading.py, unified wire-format parser,
+                                   startup lock, unload-asr locking, LOC refresh)
+  docs/CODEMAPS/frontend.md       updated (confirm-flow repair, --port fix, ETA badge, LOC)
+  docs/CODEMAPS/data.md           updated (rate-limit config keys, language default,
+                                   waveform-peaks cache, .voice_server.lock)
+  docs/CODEMAPS/dependencies.md   updated (mlx-audio bump, librosa test extra, mypy scope)
 
 STALENESS
-  None. All five codemaps regenerated within 2 days of the previous scan; the
-  90-day cadence noted in CLAUDE.md is comfortably met.
+  None. Previous scan was 2026-08-12 (20 days prior) — well within the 90-day cadence.
 
-WATCH ITEMS (structural debt, unchanged status)
-  inference.py  1600 LOC  — exceeds the 800-line guideline (grew from 1532 via WS2)
-  app.py         963 LOC  — exceeds the 800-line guideline
+WATCH ITEMS (structural debt, updated)
+  inference.py      1769 LOC  — exceeds the 800-line guideline (grew from 1600)
+  app.py             1026 LOC  — exceeds the 800-line guideline (grew from 963)
+  app_generation.py   903 LOC  — NEWLY over 800 (was 858)
+  app_lifespan.py      732 LOC  — approaching 800 (was 545); grew substantially from the
+                                  startup-lock and inference-serialization work
