@@ -54,8 +54,17 @@ proves rate limiting disabled (skips otherwise); ≥0.6 s polls; ≥900 s
 model-op timeouts; uuid texts defeat the generation cache; prompt created
 then deleted in `finally`. Registered in `INTENTIONALLY_UNBATCHED`.
 
-Live run: see PR body (CI does not execute this tier — the manual run in
-the PR body is the only execution evidence, per the architect condition).
+Live run (2026-09-01, M2 Pro, MLX backend, clone loaded + design loaded by
+test 3, `TTS_DISABLE_RATE_LIMITING=1` server, 4m10s): **test_01 PASS,
+test_03 PASS, test_04 PASS, test_02 SKIP** — the skip is the pre-existing
+mlx-audio 0.4.8 engine gap documented above (create path, not queueing).
+CI does not execute this tier; this run and the PR body carry the
+execution evidence (the architect condition). Subsequent Gate B
+reviewers' mechanical fixes to this module (real ordering timestamps
+before the joins, `model_unloaded`/environment classification for
+in-thread results, wire-frame audio parsing, holder chunk-count comment,
+ASR teardown, cleanup-masking guard) were re-gated statically; the tier
+was not re-run live after those edits.
 
 ## Deliverable 3 — docs
 

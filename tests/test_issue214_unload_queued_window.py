@@ -945,6 +945,43 @@ class TestUnloadModelClientTimeout(unittest.TestCase):
             call_needle="post",
         )
 
+    def test_ui_apply_model_settings_uses_the_constant(self):
+        """Third /update-model-config caller (Gate B find): the Apply
+        Model Settings handler mixes timeouts per endpoint (5s /models
+        poll, 900s loads), so the pin targets ONLY the
+        /update-model-config call: its timeout must be the constant."""
+        from qwen3_tts.interface.ui import shared as ui_shared
+
+        tree = ast.parse(inspect.getsource(ui_shared.apply_model_settings))
+        matched = False
+        for node in ast.walk(tree):
+            if not isinstance(node, ast.Call) or "server_request" not in ast.unparse(
+                node.func
+            ):
+                continue
+            hits_endpoint = any(
+                isinstance(a, ast.Constant) and "/update-model-config" in str(a.value)
+                for a in node.args
+            )
+            if not hits_endpoint:
+                continue
+            for kw in node.keywords:
+                if kw.arg == "timeout":
+                    self.assertEqual(
+                        ast.unparse(kw.value),
+                        "UNLOAD_MODEL_TIMEOUT_SEC",
+                        "apply_model_settings must pass UNLOAD_MODEL_TIMEOUT_SEC "
+                        "to the /update-model-config call -- the route holds "
+                        "inference_lock (T5) and queues behind a whole "
+                        "generation; 10s fails spuriously",
+                    )
+                    matched = True
+        self.assertTrue(
+            matched,
+            "no server_request('/update-model-config', ...) call found in "
+            "apply_model_settings",
+        )
+
     def test_ui_toggle_model_uses_the_constant(self):
         """The UI borrows LOAD_MODEL_TIMEOUT_SEC for unload today -- the
         value happens to match, but the drift guard must cover intent, not

@@ -22,10 +22,13 @@ Rate limits are read at server import, so restarting under the default env
 makes the module SKIP via its preflight (never fail). Note
 `tests/run_full_suite.py --test-type e2e` picks this module up
 automatically, so the whole e2e profile inherits this requirement — see
-tests/README.md for the hazard note. Tests 3/4 unload/reload `design`
-(an unload wipes ALL of gen_cache and the design reload's warm-up stalls
-other generations), so they should not run against a shared production
-server. Never unloads `clone` — it is the module's shared input.
+tests/README.md for the hazard note. Server-state footprint: test_01
+loads ASR (unloaded again at module teardown, best-effort); test_03
+precondition-unloads then loads `design`; test_04 leaves `design`
+UNLOADED at the end. An unload wipes ALL of gen_cache and the design
+reload's warm-up stalls other generations, so tests 3/4 should not run
+against a shared production server. Never unloads `clone` — it is the
+module's shared input.
 
 Run: pytest tests/test_e2e_queueing.py -m e2e -v
 """
@@ -104,6 +107,9 @@ def rate_limit_preflight(check_server):
                 "TTS_DISABLE_RATE_LIMITING=1 tts server start"
             )
     yield
+    # Best-effort teardown: test_01 loads ASR (~1-1.6 GB resident); unload
+    # it so the module leaves no extra residency behind for later modules.
+    _make_request("/unload-asr", data={}, method="POST", timeout=60)
 
 
 def _get_auth_token():
@@ -159,9 +165,32 @@ def _status_or_skip(status, body, context):
         pytest.skip(f"Rate limited during {context} — restart with TTS_DISABLE_RATE_LIMITING=1")
     if status == 503 and isinstance(body, dict):
         code = (body.get("detail") or {}).get("error") or body.get("error")
-        if code in ("insufficient_memory", "model_not_loaded", "asr_unloaded"):
+        if code in (
+            "insufficient_memory",
+            "model_not_loaded",
+            "asr_unloaded",
+            "model_unloaded",  # T5's own retryable re-read code
+        ):
             pytest.skip(f"Server environment unavailable for {context}: {code}")
     return status, body
+
+
+def _stream_has_real_audio(body):
+    """Walk the length-prefixed frames: True iff at least one audio frame
+    (sample_rate != the WS2 error sentinel) is present. A terminal error
+    frame is 200-with-bytes but NOT audio — the shared parser's shape."""
+    import struct as _struct
+
+    from qwen3_tts.core.stream_protocol import STREAM_ERROR_SENTINEL_SR
+
+    offset = 0
+    has_audio = False
+    while offset + 8 <= len(body):
+        sr, length = _struct.unpack_from("<II", body, offset)
+        offset += 8 + length
+        if sr != STREAM_ERROR_SENTINEL_SR:
+            has_audio = True
+    return has_audio
 
 
 def _poll(endpoint, key, predicate, timeout, context):
@@ -183,6 +212,25 @@ def _poll(endpoint, key, predicate, timeout, context):
 
 def _mono():
     return time.monotonic()
+
+
+def _first_result(body):
+    """/generate's results[0] with the cancelled/short-batch guard (the
+    repo's _first_result contract: never index bare)."""
+    results = body.get("results") or []
+    if body.get("cancelled") or not results:
+        return {}
+    return results[0]
+
+
+def _classify_holder_failure(results):
+    """When the `active` poll times out, the worker's swallowed environment
+    failure (503 model_not_loaded / insufficient_memory, 429) must surface
+    as a skip, not a misleading 'generation never became active' failure."""
+    if results:
+        status, body, _ = results[0]
+        _status_or_skip(status, body, "holder generate (poll timeout)")
+    return False
 
 
 def _wav_bytes(seconds=1.5, rate=24000, freq=220.0):
@@ -237,6 +285,8 @@ class TestE2EQueueing:
         active = _poll(
             "/generation-status", "active", lambda v: v is True, 60, "generate start"
         )
+        if active is not True:
+            _classify_holder_failure(results)
         assert active is True, "generation never became active (generate thread may have failed)"
         t_transcribe_fired = _mono()
 
@@ -249,6 +299,10 @@ class TestE2EQueueing:
             ),
             "queued transcribe",
         )
+        # Capture BEFORE the join: after join returns the generate is
+        # already done, so any later timestamp would make the ordering
+        # assertion vacuous.
+        t_done = _mono()
         assert t_status == 200, f"transcribe failed: {t_status} {t_body}"
         assert isinstance(t_body.get("transcript"), str)
 
@@ -256,9 +310,8 @@ class TestE2EQueueing:
         assert len(results) == 1, "generate thread never completed"
         g_status, g_body, g_done = results[0]
         assert g_status == 200, f"generate failed: {g_status} {g_body}"
-        assert g_body["results"][0].get("chunks", 0) >= 1, "not a real generation (cache echo?)"
+        assert _first_result(g_body).get("chunks", 0) >= 1, "not a real generation (cache echo?)"
 
-        t_done = _mono()
         assert t_done >= g_done, (
             "transcribe completed BEFORE the generate finished — the two "
             "paths are not serializing on inference_lock"
@@ -280,11 +333,14 @@ class TestE2EQueueing:
         active = _poll(
             "/generation-status", "active", lambda v: v is True, 60, "generate start"
         )
+        if active is not True:
+            _classify_holder_failure(results)
         assert active is True, "generation never became active"
         fired = _mono()
 
         name = f"e2e_queueing_{uuid.uuid4().hex[:8]}"
         created = False
+        body_exc = None
         try:
             c_status, c_body = _status_or_skip(
                 *_make_request(
@@ -314,11 +370,17 @@ class TestE2EQueueing:
             assert len(results) == 1, "generate thread never completed"
             g_status, g_body, g_done = results[0]
             assert g_status == 200, f"generate failed: {g_status} {g_body}"
-            assert g_body["results"][0].get("chunks", 0) >= 1
+            assert _first_result(g_body).get("chunks", 0) >= 1
 
+            # Capture BEFORE the join would make it vacuous — see test_01.
             done = _mono()
             assert done >= g_done, "create-voice-prompt completed before the generate finished"
             assert fired < g_done, "test ordering: create fired after the generate ended"
+        except Exception as exc:
+            # Preserve the original failure: the finally's cleanup assert
+            # must never mask it.
+            body_exc = exc
+            raise
         finally:
             if created:
                 d_status, d_body = _make_request(
@@ -327,7 +389,8 @@ class TestE2EQueueing:
                     method="POST",
                     timeout=60,
                 )
-                assert d_status == 200, f"cleanup failed: {d_status} {d_body}"
+                if body_exc is None:
+                    assert d_status == 200, f"cleanup failed: {d_status} {d_body}"
 
     def test_03_load_model_dedup_live(self):
         """Two concurrent /load-model design POSTs coalesce: both 200,
@@ -366,6 +429,10 @@ class TestE2EQueueing:
             t.join(timeout=MODEL_OP_TIMEOUT + 60)
         assert len(results) == 2, "a load thread never completed"
 
+        # Classify in-main-thread: pytest.skip inside a worker thread would
+        # not propagate, so environment failures surface here.
+        for r_status, r_body in results:
+            _status_or_skip(r_status, r_body, "live design load")
         statuses = [r[0] for r in results]
         assert statuses == [200, 200], f"load statuses: {results}"
         deduped_count = sum(
@@ -404,8 +471,10 @@ class TestE2EQueueing:
             if l_status != 200:
                 pytest.skip(f"design load failed ({l_status}); environment unavailable")
 
-        # (i) long clone generate as the lock-holder (multi-sentence, still
-        # one chunk at the 500-char default so GEN_TIMEOUT holds).
+        # (i) long clone generate as the lock-holder. ~900 chars = 2 chunks
+        # at the 500-char default (~80-140s on M2 Pro; GEN_TIMEOUT=300 holds
+        # ~2x that — on a much slower machine this test may need a longer
+        # GEN_TIMEOUT, and the failure surfaces as holder status 0).
         filler = (
             "This sentence intentionally gives the server real work to do. "
         )
@@ -416,6 +485,8 @@ class TestE2EQueueing:
         active = _poll(
             "/generation-status", "active", lambda v: v is True, 60, "holder generate start"
         )
+        if active is not True:
+            _classify_holder_failure(results)
         assert active is True, "holder generation never became active"
 
         # (iii) design stream parks on the lock; pending_requests registers
@@ -428,12 +499,12 @@ class TestE2EQueueing:
                 "mode": "design",
             }
             started = _mono()
-            # _make_request returns (status, bytes) for non-JSON bodies.
+            # _make_request returns (status, raw bytes) for non-JSON bodies.
             status, body = _make_request(
                 "/generate-stream", data=payload, method="POST", timeout=MODEL_OP_TIMEOUT
             )
             stream_result.update(
-                {"status": status, "bytes": len(body) if isinstance(body, bytes) else 0,
+                {"status": status, "body": body if isinstance(body, bytes) else b"",
                  "started": started, "done": _mono()}
             )
 
@@ -464,20 +535,20 @@ class TestE2EQueueing:
         assert stream_result, "design stream thread never completed"
         assert t_unload_fired < stream_result["done"], (
             "test ordering: the unload fired after the design stream already "
-            "finished — the choreography degenerated to a vacuous pass"
+            "finished — the non-vacuous trigger check"
         )
+        assert u_status == 200, f"unload failed: {u_status} {u_body}"
 
         # THE STATE CONTRACT — two coherent outcomes and one defect:
-        # (A) FIFO held: the stream succeeded and the unload completed only
-        #     after it. (B) sanctioned overtake: the unload's acquire beat
-        #     the streamer's (the queue-status signal only proves
-        #     registration, not the acquire), the streamer then got the
-        #     post-lock re-read's error frame — a clean retry, never an
-        #     orphan run. The DEFECT (unfixed server) is: the stream
-        #     SUCCEEDED while the unload completed first (the lying 200),
-        #     which also re-opens the #233 double-allocation.
-        assert u_status == 200, f"unload failed: {u_status} {u_body}"
-        stream_ok = stream_result["status"] == 200 and stream_result["bytes"] > 0
+        # (A) FIFO held: real audio arrived AND the unload completed only
+        #     after the stream. (B) sanctioned overtake: the unload's
+        #     acquire beat the streamer's (queue-status proves registration,
+        #     not the acquire), so the streamer got the re-read's terminal
+        #     error frame — a clean retry, never an orphan run. The DEFECT
+        #     (unfixed server): real audio AND unload-done-first (the lying
+        #     200, #233 re-open); or a TRUNCATED stream (no error frame).
+        stream_body = stream_result.get("body")
+        stream_ok = stream_result["status"] == 200 and isinstance(stream_body, bytes) and _stream_has_real_audio(stream_body)
         if stream_ok:
             assert t_unload_done >= stream_result["done"], (
                 "UNLOAD COMPLETED BEFORE THE QUEUED GENERATION — the lying "
@@ -485,11 +556,12 @@ class TestE2EQueueing:
                 f"done at {stream_result['done']:.2f}"
             )
         else:
-            # Outcome B: the stream must have failed CLEANLY (truncated is
-            # NOT acceptable — that is the pre-fix no-terminal-frame shape).
-            assert stream_result["bytes"] > 0, (
-                "design stream failed with NO error frame bytes — a raise/"
-                "truncate, not the in-band terminal frame"
+            # Outcome B: the failure must be the in-band terminal frame —
+            # a bare truncate (transport error) is the pre-fix shape.
+            assert isinstance(stream_body, bytes) and stream_body, (
+                "design stream produced neither audio nor an error frame "
+                f"(status {stream_result['status']}) — truncated, not the "
+                "clean retryable abort"
             )
             assert t_unload_done >= stream_result["done"], (
                 "overtake outcome: the unload must still complete only "
@@ -499,7 +571,7 @@ class TestE2EQueueing:
         assert len(results) == 1, "holder generate thread never completed"
         h_status, h_body, _ = results[0]
         assert h_status == 200, f"holder generate failed: {h_status} {h_body}"
-        assert h_body["results"][0].get("chunks", 0) >= 1
+        assert _first_result(h_body).get("chunks", 0) >= 1
 
         # Final state: design unloaded (the unload DID run, after the stream).
         m_status, models = _make_request("/models", timeout=30)
