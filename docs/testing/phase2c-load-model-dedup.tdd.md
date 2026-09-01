@@ -99,3 +99,19 @@ Re-mutation of the two behavioral fixes: **M11 assign-guard-dropped KILLED, M12 
 ## Gates
 
 ruff clean · mypy clean (56 files) · bandit 0 HIGH (disconnect probe `# nosec B110` documented) · CLAUDE.md 293/300 · batches-coverage gate green.
+
+## CI round on PR #233 — bare-State AttributeError, caught by CI, not by local pytest
+
+PR #233's first push red'd **every** Tests matrix leg + docker: `AttributeError:
+'State' object has no attribute 'model_loads'` in `tests/test_voice_server.py::
+TestLoadModelEndpoint` (batch 2). The two tests pass under pytest (the conftest
+initializes the new attrs) but the batch runner and the docker step run bare
+unittest with **no conftest** — a harness dimension the pytest-only local gates
+cannot see. Fix (`fe71397`): `claim_model_load` lazily creates the table (the
+gate is the module-scope lock, never consulted on state — defensive-read pattern,
+not fail-open), `release_model_load` tolerates its absence, and
+`TestBareStateRegression` pins the bare-State path. Reproduced locally first via
+`python -m unittest tests.test_voice_server.TestLoadModelEndpoint` (the exact CI
+harness), fixed, re-verified: that suite OK, batch 3 at 705 passed, seven-module
+set 141+ green. Lesson recorded in memory: after touching server handlers that
+read new state attrs, run the owning batch via the batch runner, not just pytest.
