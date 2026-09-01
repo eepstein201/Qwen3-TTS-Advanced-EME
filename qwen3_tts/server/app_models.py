@@ -127,7 +127,10 @@ def handle_list_models(state, server_config):
     size_mlx_info = MLX_MODEL_INFO.get(model_size, MLX_MODEL_INFO["1.7B"])
 
     models_data = {}
-    loading_map = getattr(state, "models_loading", None) or {}
+    # One source of truth (Phase 2c): the per-load record table replaces the
+    # old write-only ``models_loading`` flag dict. Tolerant read — this is a
+    # display field, not the gate (the gate is model_loading.MODEL_LOAD_LOCK).
+    load_records = getattr(state, "model_loads", None) or {}
     for model_type, info in size_model_info.items():
         loaded = state.models.get(model_type) is not None
         models_cfg = server_config.get("models", {})
@@ -135,7 +138,10 @@ def handle_list_models(state, server_config):
         # `loading` is mutually exclusive with `loaded`: a model that is fully
         # loaded cannot also be in flight. UI polls this to drive Phase 1b
         # progress indicators (poll_model_loading_state in components.py).
-        loading = bool(loading_map.get(model_type, False)) and not loaded
+        inflight = load_records.get(model_type)
+        loading = (
+            inflight is not None and not inflight.done.is_set()
+        ) and not loaded
 
         entry = {
             "loaded": loaded,
@@ -167,47 +173,25 @@ def handle_list_models(state, server_config):
 
 
 def _recover_from_failed_load(state, model_type: str) -> None:
-    """Reclaim backend memory and reset state after a failed model swap (PRF-5).
+    """Deprecated alias — the implementation moved to model_loading (2c).
 
-    A partially-constructed model leaves allocations behind that slow down
-    every later generation (upstream mlx-audio #827 reports ~2.4x on Base
-    cloning, and the server has a known-red "dies under repeated
-    load/unload"). Recording the error is not enough — this mirrors the
-    cleanup the unload path runs and drops the state that would otherwise let
-    /models describe the model as healthy.
-
-    Never raises: the caller still has to surface the original load failure.
+    Kept only because historical stack traces and grep-based habits point
+    here; the owner body that called it now lives in
+    ``model_loading.load_model_deduped``. Do not add new callers.
     """
-    try:
-        state.models[model_type] = None
-        state.model_load_times.pop(model_type, None)
+    from qwen3_tts.server.model_loading import _recover_from_failed_load as _fn
 
-        from qwen3_tts.core.engine import unload_model_cleanup
-
-        unload_model_cleanup()
-    except Exception as e:
-        logger.warning(
-            "Recovery after failed %s load did not complete: %s",
-            sanitize_log(model_type),
-            sanitize_log(e),
-        )
+    _fn(state, model_type)
 
 
-async def handle_load_model(state, req):
-    """Load a model on demand.
+async def handle_load_model(state, req, request=None):
+    """Load a model on demand (validation + delegation).
 
-    The load itself runs WITHOUT inference_lock — minutes of download and
-    weight construction must not starve /generate. The design warm-up
-    inference afterwards runs UNDER inference_lock, acquired as a leaf
-    (nothing else held), matching the global lock order where
-    inference_lock is outermost (/generate at app_generation.py, /ws).
-    Warm-up-vs-generation was the issue #192 trigger pair — the one this
-    closes. /transcribe and /create-voice-prompt were the same class and
-    are both serialized now (leaf acquisitions) — with them, every MLX
-    inference reachable through the API serializes on inference_lock.
-
-    Raises HTTPException on invalid model_type or load failure.
-    Returns status dict.
+    The whole owner body — claim/attach/release, the #192 leaf-locked
+    warm-up, the W1 warm-up-keeps-the-model policy — lives in
+    ``model_loading.load_model_deduped`` (Phase 2c, #214 item 3), which is
+    the single producer of load records. ``request`` is forwarded so the
+    waiter can stop polling when its client disconnects.
     """
     model_type = req.model_type
 
@@ -218,87 +202,9 @@ async def handle_load_model(state, req):
             detail=f"Unknown model type: {model_type}. Valid: {', '.join(valid_types)}",
         )
 
-    # Check if already loaded
-    if state.models.get(model_type) is not None:
-        return {"status": "already_loaded", "model": model_type}
+    from qwen3_tts.server.model_loading import load_model_deduped
 
-    # Mark loading=True so /models polling reflects in-flight state.
-    loading_map = getattr(state, "models_loading", None)
-    if loading_map is not None:
-        loading_map[model_type] = True
-
-    # Load the model
-    try:
-        from qwen3_tts.core.config import get_model_info
-        from qwen3_tts.core.engine import load_model
-        from qwen3_tts.core.engine.model_loader import (
-            _warmup_disabled,
-            _warmup_model,
-        )
-
-        info = get_model_info(model_type)
-        model_name = info.get("name", info.get("name_template", model_type))
-        logger.info("Loading %s...", sanitize_log(model_name))
-        t0 = time.time()
-        # Load without the warm-up — the server serializes it below so the
-        # warm-up never runs concurrently with a generation (#192).
-        model = await asyncio.to_thread(load_model, model_type, warmup=False)
-        # Only design weights warm up (see _warmup_model's own guard — keep
-        # in sync), and the knob is checked BEFORE the lock so ablation
-        # runs don't queue behind generations for a no-op; clone/custom
-        # skip the lock round-trip entirely.
-        if model_type == "design" and not _warmup_disabled():
-            async with state.inference_lock:
-                await asyncio.to_thread(
-                    _warmup_model, model, model_type, get_backend()
-                )
-        state.models[model_type] = model
-        state.model_load_times[model_type] = round(time.time() - t0, 1)
-        logger.info(
-            "Loaded %s model successfully in %.1fs.",
-            sanitize_log(model_type),
-            state.model_load_times[model_type],
-        )
-        # Clear any previous load error for this model
-        state.model_load_errors[model_type] = None
-    except ImportError as e:
-        logger.error(
-            "Backend not available for model loading %s: %s",
-            sanitize_log(model_type),
-            sanitize_log(e),
-            exc_info=True,
-        )
-        state.model_load_errors[model_type] = _sanitize_error(str(e))
-        _recover_from_failed_load(state, model_type)
-        _error_response(500, "import_error", _sanitize_error(str(e)), "config")
-        return  # explicit guard — _error_response raises, but this ensures no fall-through
-    except (RuntimeError, OSError, ValueError) as e:
-        logger.error(
-            "Failed to load model %s: %s",
-            sanitize_log(model_type),
-            sanitize_log(e),
-            exc_info=True,
-        )
-        state.model_load_errors[model_type] = _sanitize_error(str(e))
-        _recover_from_failed_load(state, model_type)
-        _error_response(500, "load_failed", _sanitize_error(str(e)), "restart")
-        return
-    except Exception as e:
-        logger.error(
-            "Unexpected error loading model %s: %s",
-            sanitize_log(model_type),
-            sanitize_log(e),
-            exc_info=True,
-        )
-        state.model_load_errors[model_type] = _sanitize_error(str(e))
-        _recover_from_failed_load(state, model_type)
-        _error_response(500, "unknown_error", _sanitize_error(str(e)), "bug")
-        return
-    finally:
-        if loading_map is not None:
-            loading_map[model_type] = False
-
-    return {"status": "loaded", "model": model_type}
+    return await load_model_deduped(state, model_type, request=request)
 
 
 def handle_unload_model(state, req):
@@ -326,10 +232,29 @@ def handle_unload_model(state, req):
             detail=f"Cannot unload {model_type} model while generation is active",
         )
 
+    # An in-flight load owns this slot — an "unloaded" reply here would be
+    # silently undone by the owner's assign when it finishes (H4a).
+    inflight = getattr(state, "model_loads", {}).get(model_type)
+    if inflight is not None and not inflight.done.is_set():
+        _error_response(
+            409,
+            "load_in_progress",
+            f"Cannot unload {model_type} model while a load is in flight",
+            "retry",
+        )
+
     if state.models.get(model_type) is None:
         return {"status": "already_unloaded", "model": model_type}
 
-    state.models[model_type] = None
+    # Nulling the slot invalidates any claim's view of the world (C1) — an
+    # attach after this point must not serve a pre-unload record. Under
+    # MODEL_LOAD_LOCK so an owner's assign/epoch check is atomic against
+    # the bump.
+    from qwen3_tts.server.model_loading import MODEL_LOAD_LOCK
+
+    with MODEL_LOAD_LOCK:
+        state.models[model_type] = None
+        state.model_config_epoch = getattr(state, "model_config_epoch", 0) + 1
 
     from qwen3_tts.core.engine import unload_model_cleanup
 
@@ -403,6 +328,15 @@ async def handle_update_model_config(state, req, config_fn):
     async with state.generation_lock:
         for name in ("clone", "design", "custom"):
             state.models[name] = None
+    # The slots just changed under every model type (C1): a load claimed
+    # before this point carries the OLD config — bump the epoch so no waiter
+    # attaches to it and /models ends up reporting new settings over old
+    # weights. Under MODEL_LOAD_LOCK so an in-flight owner's assign/epoch
+    # check is atomic against the bump.
+    from qwen3_tts.server.model_loading import MODEL_LOAD_LOCK
+
+    with MODEL_LOAD_LOCK:
+        state.model_config_epoch = getattr(state, "model_config_epoch", 0) + 1
 
     # Invalidate generation cache
     with state.gen_cache_lock:

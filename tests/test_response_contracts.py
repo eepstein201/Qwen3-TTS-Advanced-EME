@@ -14,6 +14,7 @@ Run: conda run -n qwen3-tts-mlx python -m pytest tests/test_response_contracts.p
 """
 
 import os
+import time
 import unittest
 from unittest.mock import MagicMock, patch
 
@@ -465,6 +466,149 @@ class TestOpenApiContract(unittest.TestCase):
         spec = app_mod.app.openapi()
         resp = spec["paths"]["/prompt-details"]["get"]["responses"]["200"]
         self.assertIn("anyOf", resp["content"]["application/json"]["schema"])
+
+
+@_skip
+class TestLoadModelDedupContracts(_ContractTestBase):
+    """Phase 2c (#214 item 3): the ``deduped`` / ``warmup_failed`` fields.
+
+    ``test_load_model_matches_contract`` presets ``models["clone"]`` and can
+    only ever reach ``already_loaded`` — these are NEW round-trips, not
+    extensions of it. Raw-payload assertions (``resp.json()[...]``) on the
+    coalesced shape, because ``model_validate`` alone would mask an
+    ASGI-layer field-stripping bug behind the Pydantic default
+    (``response_model_exclude_unset=True`` omits unset fields).
+    """
+
+    def test_load_model_deduped_absent_on_already_loaded(self):
+        """Characterization (GREEN-on-first-run): no attach, no field."""
+        from qwen3_tts.server.validation import ModelOpResponse
+
+        self.app.state.models["clone"] = MagicMock()
+        resp = self.client.post(
+            "/load-model", json={"model_type": "clone"}, headers=self.auth
+        )
+        self.assertEqual(resp.status_code, 200, resp.text)
+        body = resp.json()
+        self.assertEqual(body["status"], "already_loaded")
+        self.assertNotIn(
+            "deduped",
+            body,
+            "already_loaded never attaches — the field must stay unset so "
+            "exclude_unset omits it (no client-visible wire drift)",
+        )
+        # Pydantic defaults exist for programmatic consumers of the model.
+        model = ModelOpResponse.model_validate(body)
+        self.assertFalse(model.deduped)
+        self.assertFalse(model.warmup_failed)
+
+    def test_load_model_deduped_true_on_coalesced_round_trip(self):
+        """The real proof: a second POST attaches to the in-flight load and
+        the RAW response carries ``deduped: true``."""
+        import threading
+
+        calls = []
+        release = threading.Event()
+        sentinel = MagicMock()
+        timer = threading.Timer(0.3, release.set)
+        self.addCleanup(timer.cancel)
+        timer.start()
+
+        def _load(model_type, warmup=False):
+            calls.append(model_type)
+            if len(calls) == 1:
+                release.wait(timeout=10)
+            return sentinel
+
+        box = {}
+        # Explicit reset: _restore_app_state skips keys whose saved value is
+        # None, so a prior test's model entry would leak in here.
+        self.app.state.models["clone"] = None
+
+        def _first_post():
+            box["first"] = self.client.post(
+                "/load-model", json={"model_type": "clone"}, headers=self.auth
+            )
+
+        first = threading.Thread(target=_first_post, daemon=True)
+        try:
+            with (
+                patch("qwen3_tts.core.engine.load_model", side_effect=_load),
+                patch(
+                    "qwen3_tts.core.config.get_model_info",
+                    return_value={"name": "qwen3-tts-clone"},
+                ),
+            ):
+                # Start INSIDE the patch context — outside it, the thread can
+                # win the race and hit the real engine (a multi-GB load).
+                first.start()
+                for _ in range(500):
+                    if self.app.state.model_loads["clone"] is not None:
+                        break
+                    time.sleep(0.01)
+                second = self.client.post(
+                    "/load-model", json={"model_type": "clone"}, headers=self.auth
+                )
+                first.join(timeout=10)
+        finally:
+            release.set()
+
+        self.assertEqual(calls, ["clone"], "one construction for two POSTs")
+        self.assertEqual(second.status_code, 200, second.text)
+        self.assertIsNotNone(box.get("first"), "first POST never completed")
+        self.assertEqual(box["first"].status_code, 200, box["first"].text)
+        self.assertEqual(
+            box["first"].json().get("deduped"),
+            None,
+            "the owner must not claim deduped (exclude_unset omits it)",
+        )
+        self.assertEqual(
+            second.json().get("deduped"),
+            True,
+            "the attaching duplicate's raw payload must carry deduped: true",
+        )
+        self.assertEqual(second.json().get("status"), "loaded")
+
+    def test_load_model_warmup_failed_field_contract(self):
+        """W1: warm-up throws -> 200 with ``warmup_failed: true``, model kept."""
+        sentinel = MagicMock()
+        cleanup_calls = []
+        self.app.state.models["design"] = None
+
+        with (
+            patch(
+                "qwen3_tts.core.engine.load_model", return_value=sentinel
+            ),
+            patch(
+                "qwen3_tts.core.engine.model_loader._warmup_disabled",
+                return_value=False,
+            ),
+            patch(
+                "qwen3_tts.core.engine.model_loader._warmup_model",
+                side_effect=RuntimeError("warmup boom"),
+            ),
+            patch(
+                "qwen3_tts.core.engine.unload_model_cleanup",
+                side_effect=lambda: cleanup_calls.append(1),
+            ),
+        ):
+            resp = self.client.post(
+                "/load-model", json={"model_type": "design"}, headers=self.auth
+            )
+
+        self.assertEqual(resp.status_code, 200, resp.text)
+        self.assertEqual(resp.json().get("status"), "loaded")
+        self.assertEqual(
+            resp.json().get("warmup_failed"),
+            True,
+            "raw payload must carry warmup_failed: true (W1)",
+        )
+        self.assertIs(
+            self.app.state.models["design"],
+            sentinel,
+            "the model must stay assigned after a warm-up failure",
+        )
+        self.assertEqual(cleanup_calls, [], "no recovery cleanup may run")
 
 
 if __name__ == "__main__":

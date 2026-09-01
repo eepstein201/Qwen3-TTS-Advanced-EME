@@ -53,7 +53,8 @@ def _make_state():
     """A state double whose mutable maps are real containers."""
     state = MagicMock()
     state.models = {"clone": None, "design": None, "custom": None}
-    state.models_loading = {"clone": False, "design": False, "custom": False}
+    state.model_loads = {"clone": None, "design": None, "custom": None}
+    state.model_config_epoch = 0
     state.model_load_errors = {"clone": None, "design": None, "custom": None}
     # Stale timing left over from a previous successful load of this type.
     state.model_load_times = {"clone": 12.3}
@@ -160,10 +161,13 @@ class TestFailedLoadLeavesConsistentState(unittest.TestCase):
         self._run_failed_load(state)
         self.assertNotIn("clone", state.model_load_times)
 
-    def test_loading_flag_cleared(self):
+    def test_claim_slot_released(self):
         state = _make_state()
         self._run_failed_load(state)
-        self.assertFalse(state.models_loading["clone"])
+        self.assertIsNone(
+            state.model_loads["clone"],
+            "the claim slot must release on the failure path",
+        )
 
     def test_error_is_recorded(self):
         state = _make_state()
@@ -192,7 +196,7 @@ class TestRecoveryIsNonFatal(unittest.TestCase):
         self.assertEqual(ctx.exception.status_code, 500)
         self.assertNotIn("cleanup blew up", str(ctx.exception.detail))
 
-    def test_cleanup_failure_still_clears_loading_flag(self):
+    def test_cleanup_failure_still_releases_claim(self):
         from qwen3_tts.server.app_models import handle_load_model
 
         state = _make_state()
@@ -204,7 +208,10 @@ class TestRecoveryIsNonFatal(unittest.TestCase):
             with self.assertRaises(HTTPException):
                 asyncio.run(handle_load_model(state, _req()))
 
-        self.assertFalse(state.models_loading["clone"])
+        self.assertIsNone(
+            state.model_loads["clone"],
+            "the claim slot must release even when cleanup itself fails",
+        )
 
 
 if __name__ == "__main__":

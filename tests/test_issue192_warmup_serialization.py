@@ -67,7 +67,8 @@ def _make_state(event_loop=None):
     """
     state = MagicMock()
     state.models = {"clone": None, "design": None, "custom": None}
-    state.models_loading = {"clone": False, "design": False, "custom": False}
+    state.model_loads = {"clone": None, "design": None, "custom": None}
+    state.model_config_epoch = 0
     state.model_load_times = {}
     state.model_load_errors = {"clone": None, "design": None, "custom": None}
     state.inference_lock = asyncio.Lock()
@@ -339,7 +340,7 @@ class TestBackgroundLoadWarmupSerialization(unittest.TestCase):
             warm_calls[0]["lock_held"],
             "startup warm-up must run with inference_lock held",
         )
-        self.assertFalse(state.models_loading["design"])
+        self.assertIsNone(state.model_loads["design"])
         self.assertIsNotNone(state.models["design"])
 
     def _run_startup_no_lock_acquire(self, state):
@@ -382,7 +383,7 @@ class TestBackgroundLoadWarmupSerialization(unittest.TestCase):
             state.models["design"],
             "the load itself must succeed without the warm-up",
         )
-        self.assertFalse(state.models_loading["design"])
+        self.assertIsNone(state.model_loads["design"])
 
     def test_startup_warmup_skipped_when_event_loop_closed(self):
         """A REAL closed loop (not a mock) — shutdown race exercises the
@@ -400,7 +401,7 @@ class TestBackgroundLoadWarmupSerialization(unittest.TestCase):
             "unsynchronized",
         )
         self.assertIsNotNone(state.models["design"])
-        self.assertFalse(state.models_loading["design"])
+        self.assertIsNone(state.model_loads["design"])
 
     def test_startup_clone_load_skips_warmup_scheduling(self):
         """clone/custom startup loads never schedule the warm-up at all."""
@@ -425,7 +426,7 @@ class TestBackgroundLoadWarmupSerialization(unittest.TestCase):
 
         self.assertEqual(warm_calls, [])
         self.assertIsNotNone(state.models["clone"])
-        self.assertFalse(state.models_loading["clone"])
+        self.assertIsNone(state.model_loads["clone"])
 
 
 @_skip

@@ -147,6 +147,10 @@ def _init_app_state(app, auth_token="test_token"):
     app.state.eta_cache = {"median_rate": None, "last_updated": 0}
     app.state.eta_cache_lock = threading.Lock()
     app.state.model_load_errors = {"clone": None, "design": None, "custom": None}
+    # Per-load records (Phase 2c, #214 item 3) — /load-model claims from
+    # this table; /models derives its `loading` display flag from it.
+    app.state.model_loads = {"clone": None, "design": None, "custom": None}
+    app.state.model_config_epoch = 0
     app.state.shutdown_timer = None
     app.state.pending_lock = asyncio.Lock()
     app.state.pending_requests = []

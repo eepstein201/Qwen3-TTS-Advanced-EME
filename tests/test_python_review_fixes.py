@@ -136,7 +136,11 @@ class TestErrorResponseReturnGuard(unittest.TestCase):
         return state
 
     def test_handle_load_model_no_success_on_import_error(self):
-        """handle_load_model must not return success dict when ImportError occurs."""
+        """handle_load_model must not return success dict when ImportError occurs.
+
+        Phase 2c moved the owner body to ``model_loading.load_model_deduped``;
+        the guard — and therefore this test's patch seam — moved with it.
+        """
         from qwen3_tts.server.app_models import handle_load_model
 
         state = self._make_state()
@@ -146,7 +150,7 @@ class TestErrorResponseReturnGuard(unittest.TestCase):
         req.model_type = "clone"
 
         # Mock _error_response to NOT raise — simulates future refactor safety
-        with patch("qwen3_tts.server.app_models._error_response") as mock_err:
+        with patch("qwen3_tts.server.model_loading._error_response") as mock_err:
             mock_err.return_value = None  # doesn't raise
             with patch("qwen3_tts.core.engine.load_model", side_effect=ImportError("no backend")):
                 result = asyncio.run(handle_load_model(state, req))

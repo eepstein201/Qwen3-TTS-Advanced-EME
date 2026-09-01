@@ -31,6 +31,13 @@ from qwen3_tts.core.config import (
     load_config,
     sanitize_log,
 )
+from qwen3_tts.server.model_loading import (
+    MODEL_LOAD_WAIT_TIMEOUT_SEC,
+    ClaimResult,
+    LoadOutcome,
+    claim_model_load,
+    release_model_load,
+)
 
 # Optional memory monitoring for OOM safeguard
 try:
@@ -426,9 +433,14 @@ async def lifespan(app):
     # Model load error tracking
     app.state.model_load_errors = {"clone": None, "design": None, "custom": None}
 
-    # Per-model loading flag — flipped True while load_model is in flight, False after.
-    # UI polls /models to surface this as a live progress indicator (Phase 1b).
-    app.state.models_loading = {"clone": False, "design": False, "custom": False}
+    # Per-load records (Phase 2c, #214 item 3) — the single source of truth
+    # for in-flight loads. claim/release in model_loading own the mutations;
+    # /models derives its `loading` display flag from this. The epoch is
+    # bumped by /update-model-config and /unload-model — the mutators of the
+    # model slots outside this module — so waiters never attach to a load
+    # built from superseded settings.
+    app.state.model_loads = {"clone": None, "design": None, "custom": None}
+    app.state.model_config_epoch = 0
 
     # Auto-shutdown timer
     app.state.shutdown_timer = None
@@ -609,9 +621,58 @@ def _background_load(app_state):
             )
 
         for model_type in models_to_load:
-            loading_map = getattr(app_state, "models_loading", None)
-            if loading_map is not None:
-                loading_map[model_type] = True
+            if app_state.models.get(model_type) is not None:
+                # Already loaded — a concurrent HTTP load finished while the
+                # loader worked through earlier startup models. Claiming and
+                # building again here would orphan a ~2.5 GB copy: the exact
+                # defect this phase exists to kill.
+                logger.info(
+                    "%s already loaded; skipping the startup build.", model_type
+                )
+                continue
+            result, record = claim_model_load(app_state, model_type)
+            if result is ClaimResult.ATTACH:
+                # An HTTP-owned load is already building this model. WAIT,
+                # never skip: skipping would drop the model and fall through
+                # to models_loaded.set() below — which gates /ready — so
+                # /ready would answer 200 while the HTTP-owned load is
+                # minutes away (H2). Blocking is fine: this is a plain
+                # thread, and the HTTP owner assigns + releases the record.
+                logger.info(
+                    "Waiting for the in-flight %s load owned by an HTTP "
+                    "request instead of building it a second time...",
+                    model_type,
+                )
+                record.done.wait(timeout=MODEL_LOAD_WAIT_TIMEOUT_SEC)
+                if not record.done.is_set():
+                    logger.error(
+                        "In-flight %s load still running after %ss — giving "
+                        "up the wait (the load may complete on its own; "
+                        "recorded in model_load_errors so /health surfaces "
+                        "it)",
+                        model_type,
+                        MODEL_LOAD_WAIT_TIMEOUT_SEC,
+                    )
+                    app_state.model_load_errors[model_type] = (
+                        "startup wait for the in-flight load timed out"
+                    )
+                elif record.outcome is not LoadOutcome.OK:
+                    logger.error(
+                        "The in-flight %s load startup was waiting on failed: %s",
+                        model_type,
+                        record.error,
+                    )
+                    app_state.model_load_errors[model_type] = (
+                        record.error or "the in-flight load failed"
+                    )
+                else:
+                    logger.info(
+                        "In-flight %s load completed; model is loaded.", model_type
+                    )
+                continue
+
+            outcome = LoadOutcome.OK
+            error_msg: str | None = None
             try:
                 from qwen3_tts.core.config import get_model_info
 
@@ -630,6 +691,7 @@ def _background_load(app_state):
                     app_state.model_load_times[model_type],
                 )
             except (ImportError, RuntimeError, OSError, ValueError, MemoryError) as e:
+                outcome = LoadOutcome.FAILED
                 error_msg = str(e)
                 logger.error(
                     "Failed to load %s model: %s", model_type, error_msg, exc_info=True
@@ -641,6 +703,7 @@ def _background_load(app_state):
                 # API drift surfaces as AttributeError/TypeError/KeyError, which
                 # the tuple above misses; without this the loader thread dies
                 # mid-list, later models never load and no error is recorded.
+                outcome = LoadOutcome.FAILED
                 error_msg = str(e)
                 logger.error(
                     "Unexpected error loading %s model: %s",
@@ -650,8 +713,18 @@ def _background_load(app_state):
                 )
                 app_state.model_load_errors[model_type] = _sanitize_error(error_msg)
             finally:
-                if loading_map is not None:
-                    loading_map[model_type] = False
+                # The startup loader deliberately does NOT run
+                # _recover_from_failed_load (pre-existing asymmetry, tracked
+                # as a follow-up) — but it always releases its claim, with
+                # the error so attached waiters surface the cause instead of
+                # a generic 503.
+                release_model_load(
+                    app_state,
+                    model_type,
+                    record,
+                    outcome,
+                    error=_sanitize_error(error_msg) if error_msg else None,
+                )
 
         # MLX prompt migration for torch backend
         if get_backend() == "torch":
