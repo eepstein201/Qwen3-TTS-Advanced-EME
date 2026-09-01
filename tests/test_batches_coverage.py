@@ -35,6 +35,7 @@ INTENTIONALLY_UNBATCHED = {
     # exception: batch 6 exists to drive it with models preloaded.
     "tests.test_e2e_gradio_guard": "e2e: run via `pytest -m e2e`",
     "tests.test_e2e_history_clear_copy": "e2e: run via `pytest -m e2e`",
+    "tests.test_e2e_queueing": "e2e: run via `pytest -m e2e`",
     "tests.test_e2e_performance_batch": "e2e: run via `pytest -m e2e`",
     "tests.test_e2e_performance_stress": "e2e: run via `pytest -m e2e`",
     "tests.test_e2e_security_auth": "e2e: run via `pytest -m e2e`",

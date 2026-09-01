@@ -471,6 +471,33 @@ async def _stream_generation(
     ws_gen_id = str(uuid.uuid4())[:8]
 
     async with app_state.inference_lock:
+        # T5: re-read the slot under the lock — /ws captures the model into
+        # a local long before this acquire, so an unload landing in between
+        # must surface as a clean retryable error message, never as an
+        # orphan generation. Same shape as the validation handler above:
+        # send the structured message, return (the lock releases with the
+        # async with) — letting the HTTPException escape would stringify it
+        # in the generic except and mangle the payload.
+        from fastapi import HTTPException as _HTTPException
+
+        from qwen3_tts.server.app_generation import _require_model_under_lock
+
+        try:
+            _require_model_under_lock(app_state, mode)
+        except _HTTPException as e:
+            _detail = e.detail
+            _message = (
+                _detail
+                if isinstance(_detail, str)
+                else str(
+                    _detail.get("detail", _detail)
+                    if isinstance(_detail, dict)
+                    else _detail
+                )
+            )
+            await websocket.send_json({"error": _message})
+            return
+
         # Mark this generation active in the shared generation_state so the
         # public /generation-status, /cancel-generation, and
         # detect_degraded_generation() see WebSocket work — without this the WS

@@ -660,10 +660,31 @@ async def load_model_endpoint(
 async def unload_model(
     request: Request, req: UnloadModelRequest, _auth: None = Depends(verify_auth)
 ):
-    """Unload a model to free memory."""
+    """Unload a model to free memory.
+
+    Holds ``inference_lock`` while the unload runs (T5, mirroring
+    /unload-asr): every generation path captures the model into a local
+    BEFORE acquiring the lock and only sets ``active`` AFTER it, so an
+    unload landing in the queue-wait window used to null the slot and
+    reply 200 ``unloaded`` while the queued generation ran to completion
+    against the orphaned local — and a later /load-model, seeing the empty
+    slot, double-allocated (the #233 pathology, re-opened). With the lock,
+    FIFO ordering puts this unload behind every queued acquire.
+
+    The lock orders lock ACQUISITIONS, not HTTP arrivals: a generation
+    still in its pre-lock section can be overtaken (it then gets the
+    post-lock slot re-read's retryable 503, never an orphan run); a
+    mid-batch unload 409s fast and honestly while the batch is genuinely
+    active; and the lock is global, so unloading an idle model waits
+    behind ANY model's generation (a cross-model stall on
+    ``already_unloaded`` is accepted). Clients must use
+    ``UNLOAD_MODEL_TIMEOUT_SEC`` — the old 10s client timeout failed
+    spuriously whenever anything was queued.
+    """
     state = request.app.state
     reset_activity_timer(state)
-    return await asyncio.to_thread(handle_unload_model, state, req)
+    async with state.inference_lock:
+        return await asyncio.to_thread(handle_unload_model, state, req)
 
 
 @app.post("/update-model-config", response_model=UpdateModelConfigResponse, response_model_exclude_unset=True)
@@ -671,10 +692,18 @@ async def unload_model(
 async def update_model_config(
     request: Request, req: UpdateModelConfigRequest, _auth: None = Depends(verify_auth)
 ):
-    """Update model size and/or quantization settings."""
+    """Update model size and/or quantization settings.
+
+    Holds ``inference_lock`` (T5): this handler nulls ALL THREE model slots
+    and wipes the generation cache with no active-generation guard at all —
+    strictly weaker than pre-fix /unload-model. ``save_config`` runs in a
+    worker thread (off the event loop) while the lock is held — bounded,
+    and config persistence is not inference work.
+    """
     state = request.app.state
     reset_activity_timer(state)
-    return await handle_update_model_config(state, req, _get_app_config)
+    async with state.inference_lock:
+        return await handle_update_model_config(state, req, _get_app_config)
 
 
 @app.post("/update-startup-config", response_model=UpdateStartupConfigResponse, response_model_exclude_unset=True)

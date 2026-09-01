@@ -264,7 +264,15 @@ def apply_model_settings(model_size, mlx_quantization):
         if backend == "mlx" and mlx_quantization:
             payload["mlx_quantization"] = mlx_quantization
 
-        resp = server_request("POST", "/update-model-config", json=payload, timeout=10)
+        # /update-model-config holds inference_lock (T5) and nulls every
+        # model slot, so it queues behind a whole in-flight generation — a
+        # short client timeout fails spuriously while the server completes
+        # the change anyway.
+        from qwen3_tts.core.http_client import UNLOAD_MODEL_TIMEOUT_SEC
+
+        resp = server_request(
+            "POST", "/update-model-config", json=payload, timeout=UNLOAD_MODEL_TIMEOUT_SEC
+        )
         if resp.status_code != 200:
             error = resp.json().get("error", "Unknown error")
             return f"Failed: {error}", format_status_display()
