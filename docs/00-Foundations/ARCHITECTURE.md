@@ -333,9 +333,9 @@ Generation button was broken: JS streaming completed but Gradio Status textbox s
 - CSS passed via `demo.launch(css=...)` (Gradio 6 moved `css` from `Blocks()` to `launch()`)
 - E2E Playwright tests: fixed `unittest.SkipTest` being swallowed by `except Exception: pass`
 
-## Streaming Wire Format (R-25)
+## Streaming Wire Format (R-25, consolidated #229)
 
-The `/generate-stream` endpoint returns audio chunks in a binary format with length-prefixed headers.
+The `/generate-stream` endpoint returns audio chunks in a binary format with length-prefixed headers. The format's single implementation lives in `core/stream_protocol.py` (no FastAPI/torch/mlx imports, so the CLI can share it) — it defines the sentinel, the frame cap, `encode_stream_error_frame`, and the `iter_stream_chunks` parser used by both `TTSClient.generate_streaming` and the CLI. It was previously implemented twice (server + client) and had drifted (#229): only the CLI checked the terminal sentinel, so `TTSClient` decoded the JSON error payload as float32 garbage. Guarded by `tests/test_stream_protocol.py` (incl. anti-re-fork assertions) and `tests/test_stream_error_frame.py`.
 
 ### Binary Format
 
@@ -347,35 +347,49 @@ The `/generate-stream` endpoint returns audio chunks in a binary format with len
 | length | 4 bytes | uint32 LE | Number of bytes in the audio data |
 | audio | variable | float32 LE | PCM audio samples (little-endian) |
 
+### Terminal error frame
+
+Starlette commits the 200 response headers before the body streams, so a mid-stream failure cannot change the HTTP status code, and simply dropping the connection is indistinguishable from a network failure. Instead, the server emits one final frame with **`sample_rate == 0`** (`STREAM_ERROR_SENTINEL_SR`, never a valid rate for real audio) whose payload is JSON `{"error": "...", "code": "..."}`. Any consumer of this wire format — in any language — MUST check for `sample_rate == 0` on every frame and treat it as a terminal error, not decode it as audio samples.
+
 ### Python Example
 
-```python
-import struct
-import requests
-import numpy as np
+The two examples below both need to (1) buffer across `iter_content`/reader chunk boundaries, since a frame can straddle two network reads, and (2) check the sentinel. This mirrors the reference parser in `core/stream_protocol.py::iter_stream_chunks`.
 
-response = requests.post(
+```python
+import json
+import struct
+import httpx
+
+def read_exact(raw, n):
+    buf = b""
+    while len(buf) < n:
+        part = raw.read(n - len(buf))
+        if not part:
+            raise EOFError("stream ended mid-frame")
+        buf += part
+    return buf
+
+with httpx.stream(
+    "POST",
     "http://127.0.0.1:5123/generate-stream",
     headers={"Authorization": f"Bearer {token}"},
     json={"text": "Hello world", "mode": "design"},
-    stream=True,
-)
-
-all_audio = []
-
-for chunk in response.iter_content(chunk_size=8192):
-    data = chunk
-    while len(data) >= 8:  # Need at least header
-        sr, length = struct.unpack("<II", data[:8])
-        audio_bytes = data[8:8+length]
-        data = data[8+length:]
-        
-        # Convert to numpy float32 array
-        wav = np.frombuffer(audio_bytes, dtype="<f4")
-        all_audio.append(wav)
-
-# Combine all chunks
-full_audio = np.concatenate(all_audio)
+) as response:
+    response.raise_for_status()
+    raw = response.raw  # sync byte stream
+    all_audio = []
+    while True:
+        try:
+            header = read_exact(raw, 8)
+        except EOFError:
+            break  # clean end of stream
+        sample_rate, length = struct.unpack("<II", header)
+        payload = read_exact(raw, length)
+        if sample_rate == 0:
+            err = json.loads(payload)  # terminal error frame — not audio
+            raise RuntimeError(f"server error: {err['error']} ({err['code']})")
+        samples = struct.unpack(f"<{length // 4}f", payload)
+        all_audio.extend(samples)
 ```
 
 ### JavaScript Example
@@ -392,27 +406,35 @@ const response = await fetch('http://127.0.0.1:5123/generate-stream', {
 
 const reader = response.body.getReader();
 const audioChunks = [];
+let pending = new Uint8Array(0);
+
+function appendBuffer(a, b) {
+  const out = new Uint8Array(a.length + b.length);
+  out.set(a, 0);
+  out.set(b, a.length);
+  return out;
+}
 
 while (true) {
   const { done, value } = await reader.read();
-  if (done) break;
+  if (value) pending = appendBuffer(pending, value);
+  if (done && pending.length === 0) break;
 
-  let offset = 0;
-  const data = new Uint8Array(value);
+  while (pending.length >= 8) {
+    const view = new DataView(pending.buffer, pending.byteOffset, 8);
+    const sampleRate = view.getUint32(0, true);
+    const length = view.getUint32(4, true);
+    if (pending.length < 8 + length) break; // frame not fully buffered yet
 
-  while (offset + 8 <= data.length) {
-    // Read header: sample_rate (4 bytes) + length (4 bytes)
-    const srView = new DataView(data.buffer, offset, 4);
-    const lenView = new DataView(data.buffer, offset + 4, 4);
-    const sr = srView.getUint32(0, true);  // little-endian
-    const length = lenView.getUint32(0, true);
-
-    // Read audio data
-    const audioBytes = data.slice(offset + 8, offset + 8 + length);
-    audioChunks.push(audioBytes);
-
-    offset += 8 + length;
+    const payload = pending.slice(8, 8 + length);
+    if (sampleRate === 0) {
+      const err = JSON.parse(new TextDecoder().decode(payload));
+      throw new Error(`server error: ${err.error} (${err.code})`);
+    }
+    audioChunks.push(payload);
+    pending = pending.slice(8 + length);
   }
+  if (done) break;
 }
 
 // Combine all chunks
