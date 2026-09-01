@@ -743,13 +743,18 @@ class TestWaiterDisconnect(unittest.TestCase):
                 # Start the owner INSIDE the patch context (same trap as the
                 # stale-epoch test above: outside, it calls the real engine).
                 box, thread = _run_handler_thread(state)
-                waiter = threading.Thread(target=_waiter, daemon=True)
-                waiter.start()
+                # Deterministic claim order: the OWNER must claim first.
+                # Starting the waiter before the claim is confirmed lets it
+                # win the race on fast CI machines — it then becomes the
+                # owner and its (correctly) deduped-less response fails the
+                # final assertion.
                 _poll_until(
                     self,
                     lambda: state.model_loads["clone"] is not None,
                     message="owner never claimed",
                 )
+                waiter = threading.Thread(target=_waiter, daemon=True)
+                waiter.start()
                 waiter.join(timeout=0.5)  # stays parked while the load blocks
                 self.assertTrue(
                     waiter.is_alive(), "waiter finished while the load was blocked"
