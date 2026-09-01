@@ -48,9 +48,11 @@ loop-bound RuntimeError, which masquerades as "didn't complete").
 Run: pytest tests/test_issue214_unload_queued_window.py -v --tb=short
 """
 
-import asyncio
 import ast
+import asyncio
+import importlib
 import inspect
+import os
 import textwrap
 import threading
 import unittest
@@ -151,6 +153,21 @@ def _unload_req(model_type="design"):
     return req
 
 
+def _cleanup_gen_cache_files(state):
+    """Unlink the empty cache files handle_generate's cache-write step
+    creates (NamedTemporaryFile is real even with soundfile.write patched
+    -- only the CONTENT is patched away). Mirrors the precedent cleanup in
+    tests/test_batch_generation_state_ownership.py."""
+    for entry in list(getattr(state, "gen_cache", {}).values()):
+        main_file = entry.get("main_file") or entry.get("file")
+        if main_file and os.path.exists(main_file):
+            try:
+                os.remove(main_file)
+            except OSError:
+                pass
+    state.gen_cache.clear()
+
+
 class _RecordingAsyncLock:
     """Wraps a real asyncio.Lock, recording every acquire/release.
 
@@ -195,20 +212,32 @@ def _async_with_contexts(tree):
     ]
 
 
-def _call_is_descendant_of_locked_with(tree, call_name_substring):
-    """True iff a call whose source contains *call_name_substring* appears
-    inside the body of an ``async with ... inference_lock`` node."""
+def _calls_matching(tree, needle):
+    """Unparsed source of every Call in *tree* whose text contains *needle*.
+
+    Needle match is on the WHOLE call source (callee + args), so
+    ``asyncio.to_thread(handle_unload_model, ...)`` is matched by
+    "handle_unload_model" and cannot be confused with an unrelated name
+    that merely contains "to_thread".
+    """
+    return [
+        ast.unparse(sub)
+        for sub in ast.walk(tree)
+        if isinstance(sub, ast.Call) and needle in ast.unparse(sub)
+    ]
+
+
+def _locked_with_contains_call(tree, needle):
+    """True iff a call matching *needle* appears inside the body of an
+    ``async with ... inference_lock`` node — the enclosure pin."""
     for node in ast.walk(tree):
         if not isinstance(node, ast.AsyncWith):
             continue
         contexts = [ast.unparse(item.context_expr) for item in node.items]
         if not any("inference_lock" in ctx for ctx in contexts):
             continue
-        for sub in ast.walk(node):
-            if isinstance(sub, ast.Call) and call_name_substring in ast.unparse(
-                sub.func
-            ):
-                return True
+        if any(needle in src for src in _calls_matching(node, needle)):
+            return True
     return False
 
 
@@ -231,6 +260,11 @@ class TestUnloadModelRouteSerializesOnInferenceLock(unittest.TestCase):
         state = _make_state()
         design_model = state.models["design"]
         cleanup_done = threading.Event()
+        # Lock state observed INSIDE the handler: proves the lock is held
+        # while the unload's own work runs, not merely that the route waited
+        # out the test's hold and then released early (the
+        # acquire-then-release mutant).
+        locked_at_cleanup = {}
 
         async def _scenario():
             route_task = None
@@ -261,9 +295,13 @@ class TestUnloadModelRouteSerializesOnInferenceLock(unittest.TestCase):
             result = await asyncio.wait_for(route_task, timeout=5)
             return result
 
+        def _cleanup():
+            locked_at_cleanup["held"] = state.inference_lock.locked()
+            cleanup_done.set()
+
         with patch(
             "qwen3_tts.core.engine.unload_model_cleanup",
-            side_effect=lambda: cleanup_done.set(),
+            side_effect=_cleanup,
         ):
             result = asyncio.run(_scenario())
 
@@ -271,6 +309,12 @@ class TestUnloadModelRouteSerializesOnInferenceLock(unittest.TestCase):
         self.assertIsNone(state.models["design"], "the slot must be nulled once the unload finally runs")
         cleanup_done_seen = cleanup_done.is_set()
         self.assertTrue(cleanup_done_seen, "cleanup never ran after release")
+        self.assertIs(
+            locked_at_cleanup.get("held"),
+            True,
+            "the handler's own work ran WITHOUT inference_lock held -- the "
+            "route may have acquired and released before dispatching (T5)",
+        )
 
     def test_route_source_encloses_to_thread_in_inference_lock(self):
         """AST-enclosure pin on the real route.
@@ -289,8 +333,14 @@ class TestUnloadModelRouteSerializesOnInferenceLock(unittest.TestCase):
         tree = ast.parse(
             textwrap.dedent(inspect.getsource(app_module.unload_model))
         )
+        dispatches = _calls_matching(tree, "handle_unload_model")
         self.assertTrue(
-            _call_is_descendant_of_locked_with(tree, "to_thread"),
+            dispatches,
+            "the to_thread(handle_unload_model) dispatch itself disappeared "
+            "from the route -- the test target is gone",
+        )
+        self.assertTrue(
+            _locked_with_contains_call(tree, "handle_unload_model"),
             "/unload-model must hold inference_lock AROUND the "
             "to_thread(handle_unload_model) dispatch so the unload cannot "
             "interleave with a queued generation (T5). async-with contexts "
@@ -373,34 +423,37 @@ class TestBatchResetsGenerationStateInsideLock(unittest.TestCase):
             req = GenerateRequest(
                 texts=list(texts), mode="design", voice_description="friendly"
             )
-            with (
-                patch(
-                    f"{_APP_GENERATION}._check_memory_available",
-                    return_value=(True, 4096),
-                ),
-                patch(
-                    "qwen3_tts.server.validation._validate_generation_request"
-                ),
-                patch(
-                    "qwen3_tts.core.engine.run_inference",
-                    side_effect=_spawn_waiter,
-                ),
-                patch("soundfile.write"),
-                patch(
-                    "qwen3_tts.core.engine.audio_processing.calculate_waveform_peaks",
-                    return_value=[0.1] * 500,
-                ),
-            ):
-                result = await asyncio.wait_for(
-                    handle_generate(
-                        request=_make_request(state),
-                        state=state,
-                        req=req,
-                        security={"max_text_length": 50000, "max_batch_size": 20},
-                        config_provider=None,
+            try:
+                with (
+                    patch(
+                        f"{_APP_GENERATION}._check_memory_available",
+                        return_value=(True, 4096),
                     ),
-                    timeout=15,
-                )
+                    patch(
+                        "qwen3_tts.server.validation._validate_generation_request"
+                    ),
+                    patch(f"{_ENGINE}.run_inference", side_effect=_spawn_waiter),
+                    patch("soundfile.write"),
+                    patch(
+                        "qwen3_tts.core.engine.audio_processing.calculate_waveform_peaks",
+                        return_value=[0.1] * 500,
+                    ),
+                ):
+                    result = await asyncio.wait_for(
+                        handle_generate(
+                            request=_make_request(state),
+                            state=state,
+                            req=req,
+                            security={
+                                "max_text_length": 50000,
+                                "max_batch_size": 20,
+                            },
+                            config_provider=None,
+                        ),
+                        timeout=15,
+                    )
+            finally:
+                _cleanup_gen_cache_files(state)
             return result, observed_actives, state
 
         return asyncio.run(_scenario())
@@ -458,9 +511,11 @@ class TestPostLockSlotReRead(unittest.TestCase):
 
     def test_batch_bails_with_retryable_503_when_slot_nulled_while_queued(self):
         """An unload lands between the model capture and the lock: the
-        handler must re-read the slot under inference_lock and bail with a
-        retryable 503 -- NOT run inference against the orphaned local (the
-        lying-200/orphan-run this PR exists to close)."""
+        handler must acquire inference_lock, re-read the slot UNDER it, and
+        bail with a retryable 503 -- NOT run inference against the orphaned
+        local, and NOT pass because of a pre-lock re-read (a check before
+        the acquire leaves the capture->acquire window open; the recording
+        lock proves the acquire actually happened)."""
         from fastapi import HTTPException
 
         async def _scenario():
@@ -468,6 +523,7 @@ class TestPostLockSlotReRead(unittest.TestCase):
             from qwen3_tts.server.validation import GenerateRequest
 
             state = _make_state()
+            state.inference_lock = _RecordingAsyncLock()
             inference_calls = []
 
             def _unload_in_window(state, prompt_file, *args, **kwargs):
@@ -484,38 +540,41 @@ class TestPostLockSlotReRead(unittest.TestCase):
             req = GenerateRequest(
                 text="hello clone", mode="clone", prompt_file="voice.wav"
             )
-            with (
-                patch(
-                    f"{_APP_GENERATION}._check_memory_available",
-                    return_value=(True, 4096),
-                ),
-                patch(
-                    "qwen3_tts.server.validation._validate_generation_request"
-                ),
-                patch(
-                    "qwen3_tts.server.prompt_loading.load_voice_prompt_serialized",
-                    side_effect=_unload_in_window,
-                ),
-                patch(
-                    "qwen3_tts.core.engine.run_inference",
-                    side_effect=_run_inference,
-                ),
-                patch("soundfile.write"),
-                patch(
-                    "qwen3_tts.core.engine.audio_processing.calculate_waveform_peaks",
-                    return_value=[0.1] * 500,
-                ),
-            ):
-                result = await asyncio.wait_for(
-                    handle_generate(
-                        request=_make_request(state),
-                        state=state,
-                        req=req,
-                        security={"max_text_length": 50000, "max_batch_size": 20},
-                        config_provider=None,
+            try:
+                with (
+                    patch(
+                        f"{_APP_GENERATION}._check_memory_available",
+                        return_value=(True, 4096),
                     ),
-                    timeout=15,
-                )
+                    patch(
+                        "qwen3_tts.server.validation._validate_generation_request"
+                    ),
+                    patch(
+                        "qwen3_tts.server.prompt_loading.load_voice_prompt_serialized",
+                        side_effect=_unload_in_window,
+                    ),
+                    patch(f"{_ENGINE}.run_inference", side_effect=_run_inference),
+                    patch("soundfile.write"),
+                    patch(
+                        "qwen3_tts.core.engine.audio_processing.calculate_waveform_peaks",
+                        return_value=[0.1] * 500,
+                    ),
+                ):
+                    result = await asyncio.wait_for(
+                        handle_generate(
+                            request=_make_request(state),
+                            state=state,
+                            req=req,
+                            security={
+                                "max_text_length": 50000,
+                                "max_batch_size": 20,
+                            },
+                            config_provider=None,
+                        ),
+                        timeout=15,
+                    )
+            finally:
+                _cleanup_gen_cache_files(state)
             return result, inference_calls
 
         with self.assertRaises(HTTPException) as ctx:
@@ -537,26 +596,50 @@ class TestPostLockSlotReRead(unittest.TestCase):
             "error must be retryable",
         )
 
+    def test_batch_reread_is_enclosed_in_the_lock(self):
+        """Structural companion to the behavioral test above: the
+        handle_generate re-read must sit INSIDE the
+        ``async with ... inference_lock`` body. A pre-lock recheck would
+        raise the same 503 while leaving the capture->acquire window open --
+        this pin kills that mutant."""
+        from qwen3_tts.server.app_generation import handle_generate
+
+        tree = ast.parse(textwrap.dedent(inspect.getsource(handle_generate)))
+        self.assertTrue(
+            _calls_matching(tree, "_require_model_under_lock"),
+            "the under-lock re-read helper disappeared from handle_generate "
+            "-- the capture->acquire gap is unpinned",
+        )
+        self.assertTrue(
+            _locked_with_contains_call(tree, "_require_model_under_lock"),
+            "handle_generate must re-read the model slot UNDER "
+            "inference_lock -- a pre-lock recheck leaves the window open",
+        )
+
     def test_streaming_and_ws_re_read_inside_their_locks(self):
-        """Structural: the streaming generator and the /ws handler must call
-        the same under-lock re-read helper inside their
+        """Structural: the streaming generator and the /ws stream function
+        must call the same under-lock re-read helper inside their
         ``async with ... inference_lock`` bodies (behavioral coverage is the
-        batch test above; these paths share the helper)."""
+        batch test above; these paths share the helper). A missing target is
+        a LOUD failure -- a rename must update this test, not silently
+        unpin it."""
         import qwen3_tts.server.app_generation as appgen
         import qwen3_tts.server.websocket as wsmod
 
         for module, func_name in (
             (appgen, "handle_generate_stream"),
-            (wsmod, "websocket_endpoint"),
+            (wsmod, "_stream_generation"),
         ):
             func = getattr(module, func_name, None)
-            if func is None:  # pragma: no cover - guards a rename
-                continue
+            if func is None:
+                self.fail(
+                    f"{module.__name__}.{func_name} not found -- the "
+                    "streaming/WS re-read pin has lost its target; repoint "
+                    "it, do not delete it"
+                )
             tree = ast.parse(textwrap.dedent(inspect.getsource(func)))
             self.assertTrue(
-                _call_is_descendant_of_locked_with(
-                    tree, "_require_model_under_lock"
-                ),
+                _locked_with_contains_call(tree, "_require_model_under_lock"),
                 f"{module.__name__}.{func_name} must re-read the model slot "
                 "under inference_lock (the capture->acquire gap leaves the "
                 "streaming/WS paths running inference on an orphaned model)",
@@ -579,6 +662,13 @@ class TestUpdateModelConfigRouteLock(unittest.TestCase):
 
         state = _make_state()
         save_calls = []
+        # Lock state observed INSIDE the handler (at save time): kills the
+        # acquire-then-release-early mutant, same as the unload-route test.
+        locked_at_save = {}
+
+        def _save(cfg):
+            locked_at_save["held"] = state.inference_lock.locked()
+            save_calls.append(cfg)
 
         async def _scenario():
             route_task = None
@@ -615,26 +705,37 @@ class TestUpdateModelConfigRouteLock(unittest.TestCase):
             patch("qwen3_tts.server.app._get_app_config", return_value={}),
             patch(
                 "qwen3_tts.server.app_models.save_config",
-                side_effect=lambda cfg: save_calls.append(cfg),
+                side_effect=_save,
             ),
         ):
             result = asyncio.run(_scenario())
 
         self.assertEqual(result.get("status"), "config_updated")
         self.assertEqual(len(save_calls), 1, "config must save exactly once")
+        self.assertIs(
+            locked_at_save.get("held"),
+            True,
+            "the config save (and the slot-nulling around it) ran WITHOUT "
+            "inference_lock held -- the route may acquire and release "
+            "before dispatching (T5 item 4)",
+        )
 
     def test_update_config_source_encloses_handler_in_inference_lock(self):
-        """AST-enclosure pin: the handle_update_model_config call must be a
-        descendant of the route's ``async with ... inference_lock`` body."""
+        """AST-enclosure pin: the handle_update_model_config dispatch must
+        sit inside the route's ``async with ... inference_lock`` body, and
+        must still exist."""
         from qwen3_tts.server import app as app_module
 
         tree = ast.parse(
             textwrap.dedent(inspect.getsource(app_module.update_model_config))
         )
         self.assertTrue(
-            _call_is_descendant_of_locked_with(
-                tree, "handle_update_model_config"
-            ),
+            _calls_matching(tree, "handle_update_model_config"),
+            "the handle_update_model_config dispatch disappeared from the "
+            "route -- the test target is gone",
+        )
+        self.assertTrue(
+            _locked_with_contains_call(tree, "handle_update_model_config"),
             "/update-model-config must hold inference_lock around the "
             "handler (it nulls all three slots with no active guard -- the "
             "same queued-generation window as /unload-model). async-with "
@@ -671,16 +772,27 @@ class TestUnloadModelClientTimeout(unittest.TestCase):
             "keep the queue-behind-inference timeouts in lockstep",
         )
 
-    def _post_timeout_is_constant(self, module_path, class_name, func_name, constant_name):
-        """AST: the ``timeout=`` keyword of the session.post call in
-        *func_name* must be the named constant, not a literal."""
-        import importlib
-
+    def _post_timeout_is_constant(
+        self, module_path, class_name, func_name, constant_name, call_needle
+    ):
+        """AST: the ``timeout=`` keyword of the POST/server_request call in
+        *func_name* must be the named constant, not a literal. The call
+        target must match *call_needle* ("post" or "server_request") so a
+        second, unrelated timeout-bearing call cannot satisfy the check;
+        the module source must also reference the constant (covers the
+        import -- a missing import would only NameError at call time)."""
         module = importlib.import_module(module_path)
+        self.assertIn(
+            constant_name,
+            inspect.getsource(module),
+            f"{module_path} must import {constant_name}",
+        )
         func = getattr(getattr(module, class_name), func_name)
         tree = ast.parse(textwrap.dedent(inspect.getsource(func)))
         for node in ast.walk(tree):
-            if not isinstance(node, ast.Call):
+            if not isinstance(node, ast.Call) or call_needle not in ast.unparse(
+                node.func
+            ):
                 continue
             for kw in node.keywords:
                 if kw.arg == "timeout":
@@ -694,7 +806,10 @@ class TestUnloadModelClientTimeout(unittest.TestCase):
                         "generation",
                     )
                     return
-        self.fail(f"no timeout= keyword found in {module_path}.{func_name}")
+        self.fail(
+            f"no {call_needle}(timeout=...) call found in "
+            f"{module_path}.{func_name}"
+        )
 
     def test_tts_client_unload_model_uses_the_constant(self):
         self._post_timeout_is_constant(
@@ -702,6 +817,7 @@ class TestUnloadModelClientTimeout(unittest.TestCase):
             "ModelManagerMixin",
             "unload_model",
             "UNLOAD_MODEL_TIMEOUT_SEC",
+            call_needle="post",
         )
 
     def test_tts_client_update_model_config_uses_the_constant(self):
@@ -712,23 +828,37 @@ class TestUnloadModelClientTimeout(unittest.TestCase):
             "ModelManagerMixin",
             "update_model_config",
             "UNLOAD_MODEL_TIMEOUT_SEC",
+            call_needle="post",
         )
 
     def test_ui_toggle_model_uses_the_constant(self):
         """The UI borrows LOAD_MODEL_TIMEOUT_SEC for unload today -- the
         value happens to match, but the drift guard must cover intent, not
-        coincidence."""
-        import inspect
-
+        coincidence. AST on the server_request call's timeout keyword, NOT
+        a substring scan: a docstring or comment mentioning the constant
+        would satisfy that."""
         from qwen3_tts.interface.ui import model_management
 
-        src = inspect.getsource(model_management.toggle_model)
-        self.assertIn(
-            "UNLOAD_MODEL_TIMEOUT_SEC",
-            src,
-            "toggle_model must import and use UNLOAD_MODEL_TIMEOUT_SEC for "
-            "the unload path -- borrowing the load constant passes only by "
-            "coincidence",
+        tree = ast.parse(inspect.getsource(model_management.toggle_model))
+        matched = False
+        for node in ast.walk(tree):
+            if not isinstance(node, ast.Call) or "server_request" not in ast.unparse(
+                node.func
+            ):
+                continue
+            for kw in node.keywords:
+                if kw.arg == "timeout":
+                    self.assertEqual(
+                        ast.unparse(kw.value),
+                        "UNLOAD_MODEL_TIMEOUT_SEC",
+                        "toggle_model must pass UNLOAD_MODEL_TIMEOUT_SEC to "
+                        "server_request -- borrowing the load constant passes "
+                        "only by coincidence",
+                    )
+                    matched = True
+        self.assertTrue(
+            matched,
+            "no server_request(timeout=...) call found in toggle_model",
         )
 
 
