@@ -1,4 +1,4 @@
-<!-- Generated: 2026-09-01 | Token estimate: ~440 -->
+<!-- Generated: 2026-09-02 | Token estimate: ~440 -->
 
 # Dependencies — Qwen3-TTS
 
@@ -7,7 +7,7 @@
 
 ## Backends
 - **torch** → `qwen_tts` (env `qwen3-tts`, transformers 4.57)
-- **mlx** → `mlx_audio>=0.4.7` (env `qwen3-tts-mlx`, Apple Silicon, transformers 5.0rc) — bumped from 0.4.6 (#164)
+- **mlx** → `mlx_audio>=0.5.0` (env `qwen3-tts-mlx`, Apple Silicon, transformers 5.0rc) — bumped from >=0.4.7 (#222; evaluated 0.4.8→0.5.1, GO — `docs/reviews/mlx-audio-0.5.1-evaluation-2026-09-01.md`)
 - **vllm** → `core/engine_vllm.py` + `server/vllm_client.py` (CUDA)
 
 Note: FA2 NaN risk (upstream #333) → default SDPA. A `transformers<5` cap re-blocks the gradio floor (same knot).

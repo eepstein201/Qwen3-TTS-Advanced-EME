@@ -1,4 +1,4 @@
-<!-- Generated: 2026-09-01 | Files scanned: server/ (6.5k LOC) | Token estimate: ~600 -->
+<!-- Generated: 2026-09-02 | Files scanned: server/ (7.3k LOC) | Token estimate: ~620 -->
 
 # Backend — FastAPI Server (:5123)
 
@@ -7,7 +7,7 @@ Base `http://127.0.0.1:5123`. Bearer-token auth on all endpoints except the publ
 ## Routes (grouped by handler module)
 - **Generation** — `app_generation.py`, `websocket.py`: POST `/generate`, POST `/generate-stream`, WS `/ws`, POST `/cancel-generation`
 - **Models** — `app_models.py`: GET `/models`; POST `/load-model`, `/unload-model`, `/update-model-config`, `/update-startup-config`; POST `/load-asr`, `/unload-asr`, `/transcribe`
-- **Prompts** — `app_prompts.py`: GET `/prompts`, `/preview-prompt`, `/prompt-details`; POST `/create-voice-prompt`, `/delete-prompt`, `/rename-prompt`
+- **Prompts** — `app_prompts.py`: GET `/prompts`, `/preview-prompt`, `/prompt-details`; POST `/create-voice-prompt` (backend-dispatched — MLX is inference-free, #236), `/delete-prompt`, `/rename-prompt`
 - **System** — `app.py`, `app_lifespan.py`: GET `/health`, `/ready`, `/generation-status`, `/queue-status`, `/stats`; POST `/shutdown`
 
 **Public (no auth):** `/health` `/ready` `/generation-status` `/queue-status` — all registered as plain `@app.get(...)` decorators alongside authed routes; auth is enforced per-route via `Depends(verify_auth)`, not by route-registration style.
@@ -38,7 +38,9 @@ Stream path returns length-prefixed float32 chunks (`[sr:4][len:4][payload]`); `
 - `_stream_thread_join_timeout(text_len, max_chunk_chars)` (`app_generation.py`) scales the inference-thread join with configured chunk size for BOTH `/generate-stream` and `/ws` — never a constant, or a raised `max_chunk_chars`/slow join releases `inference_lock` mid-generation. Pinned by `tests/test_streaming_thread_lifecycle.py::TestWsStreamJoinTimeout`.
 
 ## Inference serialization (#192 / #214) — see architecture.md for the full picture
-`server/prompt_loading.py` (new) — `load_voice_prompt_serialized(state, prompt_file)`: fast path is an unlocked disk load; only when torch must BUILD the prompt does it re-enter under `inference_lock` as a leaf, with the clone model built OUTSIDE the lock and forwarded via `clone_model=` so the locked section is create-inference only. `/unload-asr` (`app.py`) now also acquires `inference_lock` for the unload itself, closing a race where an unload could interleave with in-flight ASR generate.
+`server/prompt_loading.py` — `load_voice_prompt_serialized(state, prompt_file)`: fast path is an unlocked disk load; only when torch must BUILD the prompt does it re-enter under `inference_lock` as a leaf, with the clone model built OUTSIDE the lock and forwarded via `clone_model=` so the locked section is create-inference only. `/unload-asr` (`app.py`) now also acquires `inference_lock` for the unload itself, closing a race where an unload could interleave with in-flight ASR generate. `/unload-model` (`app_models.py`) now holds `inference_lock` for the unload itself too, closing the queued-generation window (#214 item 4, closes #214).
+
+`server/model_loading.py` (new, #214 item 3) — per-load-type CAS records under `MODEL_LOAD_LOCK`: `claim_model_load` gives the first caller `OWNER` and any concurrent duplicate caller `ATTACH` (awaits the owner's `done` Event, `MODEL_LOAD_WAIT_TIMEOUT_SEC=870`, retryable 503 on timeout) instead of reissuing the load. `load_model_deduped` is the owner body; `release_model_load` runs in `finally`. `state.model_config_epoch` bumps on `/update-model-config`/`/unload-model` so a stale-epoch waiter never attaches to a now-irrelevant load.
 
 ## Key files (LOC)
-app.py 1026 · app_generation.py 903 · app_lifespan.py 732 · client/generator.py 620 · app_models.py 654 · websocket.py 593 · app_prompts.py 461 · validation.py 489 (32 Pydantic models) · vllm_client.py 332 · prompt_loading.py 46 (new)
+app.py 1064 · app_generation.py 997 · app_lifespan.py 805 · client/generator.py 620 · app_models.py 588 · websocket.py 620 · app_prompts.py 549 · validation.py 504 (32 Pydantic models) · model_loading.py 541 (new, #214 item 3) · vllm_client.py 332 · prompt_loading.py 46

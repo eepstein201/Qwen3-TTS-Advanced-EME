@@ -1,4 +1,4 @@
-<!-- Generated: 2026-09-01 | Files scanned: interface/ui/ (5.1k LOC) | Token estimate: ~440 -->
+<!-- Generated: 2026-09-02 | Files scanned: interface/ui/ (4.9k LOC) | Token estimate: ~440 -->
 
 # Frontend — Gradio Web UI (`interface/ui/`)
 
@@ -13,7 +13,7 @@ Gradio web UI, launched via `tts ui`. Pin gradio `!=6.14.*` (6.14.x recurses on 
 - **components.py** 484 — `ConfirmButton`, `confirm_step`, `ProgressIndicator`, `StatusBanner`, `status_badge`, `poll_model_loading_state`
 - **tabs_management.py** 460 — Create Voice / Manage Voices / Manage Models
 - **history_panel.py** 420 — Recent Generations (click routing + Clear All)
-- **model_management.py** 367 — model CRUD handlers; ETA badge during load
+- **model_management.py** 385 — model CRUD handlers; ETA badge during load
 
 ## Recent fixes (#218, #195)
 - **Confirm-flow repair** — Stop, Delete Voice, and Unload Model each use `ConfirmButton`/`confirm_step`'s two-step path correctly; a prior wiring gap let the second click no-op.
@@ -26,4 +26,4 @@ Gradio web UI, launched via `tts ui`. Pin gradio `!=6.14.*` (6.14.x recurses on 
 - `.then(fn=, js=)`: js-only `.then(fn=None, js=...)` never runs at runtime.
 
 ## HTTP only
-UI never imports torch/mlx; all generation goes through the local server (`TTSClient`), including the long-running leaf-locked paths (create-voice-prompt, transcribe, unload-asr — see backend.md) which now use extended client timeouts.
+UI never imports torch/mlx; all generation goes through the local server (`TTSClient`), including the long-running paths (create-voice-prompt on torch, transcribe, unload-asr — leaf-locked; create-voice-prompt on MLX is inference-free and unlocked, #236 — see backend.md) which use extended client timeouts.

@@ -1,86 +1,30 @@
-CODEMAP DIFF REPORT
-Generated:      2026-09-01
-Previous scan:  2026-08-12 (commit 33a78c8)
-Current HEAD:   c0314a9 "fix(server): serialize the torch auto-create-from-.wav inference (#214 item 1) (#231)"
-Mode:           UPDATE IN PLACE (this report documents a rewrite; change volume exceeds the
-                 30% threshold on raw diff stat, but the codebase is a linear continuation of
-                 the same architecture with no rewrite/rename churn, so no user approval gate
-                 was triggered)
+Codemap update — 2026-09-02
+Baseline: 5fb74af (2026-09-01 08:52:24, PR #232 refresh)
+Current:  c3e3a4a (2026-09-02 11:58:09)
+Diff size: 21 insertions / 16 deletions across 5 files (~20% of codemap lines) — updated in place, no approval needed.
 
-SCOPE
-  Source files:  72 .py, 26,550 LOC  (was 71 .py, 25,253 LOC)
-  Layers:        core/ 7,157 · server/ 6,520 · interface/ 9,031 (ui/ 5,076) · tools/ 2,214
-  Tests:         179 test modules, 3,127 test functions (was 166 modules, 2,746 tests)
-  Commits since last scan: 44
-  Source+test diff: 98 files changed, 10,743 insertions(+), 1,347 deletions(-)
+Commits since baseline (7):
+  3254cf6 fix(server): dedup in-flight /load-model via per-load records (#214 item 3) (#233)
+  9821172 docs: compact CLAUDE.md from 293 to 242 lines (#234)
+  d590572 fix(server): close the /unload-model queued-generation window; e2e queuing tier; #201 field watch (closes #214) (#235)
+  2f695f7 docs: mlx-audio 0.4.8->0.5.1 evaluation (#222) - GO on the bump, #236 premise corrected (#239)
+  1a774d8 chore(deps-dev): update mlx-audio requirement from >=0.4.7 to >=0.5.0 (#222)
+  c3e3a4a feat(server): MLX-native /create-voice-prompt - inference-free pair store (#236) (#246)
 
-SOURCE FILES ADDED / REMOVED
-  Added:   qwen3_tts/core/stream_protocol.py   (150 LOC — unified streaming wire-format module)
-           qwen3_tts/server/prompt_loading.py  (46 LOC — torch auto-create-from-.wav serialization)
-  Removed: qwen3_tts/core/protocols.py         (#179 — zero-caller dead module, grep-proven)
+Architecture changes captured:
+  - New module server/model_loading.py (541 LOC) - per-load CAS records dedup concurrent /load-model callers.
+  - /unload-model now holds inference_lock for the unload itself, closing the queued-generation race (#214 fully closed).
+  - /create-voice-prompt is now backend-dispatched: torch keeps the leaf-locked clone-gated flow; MLX is inference-free
+    (save_voice_prompt_mlx writes .wav+.txt directly, no clone gate, no lock). This invalidated a blanket
+    "leaf-locked" claim in frontend.md and the architecture.md serialization section - both corrected.
+  - mlx-audio dependency floor bumped >=0.4.7 -> >=0.5.0 (evaluated GO, corrects an earlier #236 premise).
 
-ARCHITECTURE CHANGES
-  1. Issue #192 / #214 — GPU inference serialization series (7 PRs: #201, #210, #211, #212,
-     #213, #230, #231)
-     - state.inference_lock now serializes EVERY inference-reachable path, not just
-       /generate and /ws: design warm-up, /transcribe ASR generate, /create-voice-prompt,
-       torch auto-create-from-.wav (new prompt_loading.py), and /unload-asr.
-     - Consistent pattern: unlocked fast path / model-build stays unlocked; only the actual
-       inference re-enters as a LEAF acquisition, inference_lock-outermost order preserved.
-     - New long client timeouts: LOAD_MODEL_TIMEOUT_SEC / TRANSCRIBE_TIMEOUT_SEC /
-       CREATE_PROMPT_TIMEOUT_SEC / UNLOAD_ASR_TIMEOUT_SEC = 900s each, since requests can
-       now queue behind another's inference.
-     - TTS_SKIP_WARMUP=1 added as an ablation control.
-     - Streaming token-cap warning bug fixed (#201): mlx-audio's streaming branch returns
-       before yielding cumulative token_count, so per-chunk deltas must be accumulated
-       per segment_idx — comparing one chunk's delta to max_tokens was never true and
-       runaways were silent.
+New dependencies detected: none (mlx-audio floor bump only, no new package).
 
-  2. Wire-format consolidation (#229)
-     - core/stream_protocol.py is now the SINGLE implementation of the streaming sentinel,
-       error-frame encode/decode, and iter_stream_chunks parser, used by both
-       TTSClient.generate_streaming and the CLI. Previously duplicated (interface/
-       generate_server.py vs. TTSClient) and had drifted: only the CLI checked the
-       sample_rate==0 sentinel, so TTSClient decoded the JSON error payload as float32.
+Staleness warnings: none - all 5 codemaps now dated 2026-09-02, oldest prior dating was 1 day.
 
-  3. UI confirm-flow repair (#218) + --port fix (#195)
-     - Stop / Delete Voice / Unload Model confirm flows repaired (second click had been
-       a no-op due to a wiring gap).
-     - tts ui --port now honored end-to-end; low-rate voice-prompt warning surfaced to
-       browser users.
-
-  4. Dead code removal (#179) — core/protocols.py deleted, zero callers.
-
-  5. mypy debt cleared (#176) — server/app.py removed from the mypy exclusion list.
-
-  6. Response contracts (#185, prior wave, reconfirmed still current) — 18 response_model=
-     Pydantic contracts on app.py alone; 32 total validation.py models across all handler
-     modules, guarded by tests/test_response_contracts.py.
-
-  No new routes. Route surface unchanged (21 HTTP/WS endpoints).
-
-DEPENDENCY CHANGES
-  ~ mlx-audio >=0.4.6 -> >=0.4.7   (#164)
-  + librosa>=0.11.0 added to the `test` extra (ensure_min_sample_rate() now raises rather
-    than silently degrading, so the test suite needs it installed, not just optional)
-  requirements.lock regenerated.
-
-CODEMAPS UPDATED
-  docs/CODEMAPS/architecture.md   updated (protocols.py removal, stream_protocol.py,
-                                   inference-serialization section, LOC/layer refresh)
-  docs/CODEMAPS/backend.md        updated (prompt_loading.py, unified wire-format parser,
-                                   startup lock, unload-asr locking, LOC refresh)
-  docs/CODEMAPS/frontend.md       updated (confirm-flow repair, --port fix, ETA badge, LOC)
-  docs/CODEMAPS/data.md           updated (rate-limit config keys, language default,
-                                   waveform-peaks cache, .voice_server.lock)
-  docs/CODEMAPS/dependencies.md   updated (mlx-audio bump, librosa test extra, mypy scope)
-
-STALENESS
-  None. Previous scan was 2026-08-12 (20 days prior) — well within the 90-day cadence.
-
-WATCH ITEMS (structural debt, updated)
-  inference.py      1769 LOC  — exceeds the 800-line guideline (grew from 1600)
-  app.py             1026 LOC  — exceeds the 800-line guideline (grew from 963)
-  app_generation.py   903 LOC  — NEWLY over 800 (was 858)
-  app_lifespan.py      732 LOC  — approaching 800 (was 545); grew substantially from the
-                                  startup-lock and inference-serialization work
+LOC drift (informational, all within normal iteration):
+  73 .py files / 27.6k LOC total (was 72 / 26.6k)
+  server/ 7.3k (was 6.5k) - model_loading.py is new; app_generation/app_lifespan/app_prompts grew
+  interface/ui/ 4.9k (was reported 5.1k; corrected count from direct wc -l)
+  tests/ 194 modules, 3208 test functions (was 179 modules, 3127 functions)
