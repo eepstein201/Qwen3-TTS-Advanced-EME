@@ -107,3 +107,30 @@ librosa and passes).
 
 e2e `test_02` (create-queuing behind a real `/generate`) flips from skip to
 expected PASS on the MLX server — see the PR body for the run output.
+
+## Post-PR addendum: CodeQL py/path-injection on the copy source
+
+CI CodeQL flagged 1 HIGH (`py/path-injection`, alert 3289) at the writer's
+`shutil.copy2`. SARIF codeFlows pulled via
+`gh api repos/.../code-scanning/analyses/<id> -H "Accept: application/sarif+json"`
+showed all three taint paths end at the **copy SOURCE** (`audio_path`), sourced
+from CLI `input()` and Gradio history rows — NOT the server handler (its staged
+`NamedTemporaryFile` path is server-generated and cleared). The UI already
+enforces home containment (tabs_generation.py), but the guard does not survive
+the call boundary: the sanitizer credit requires a startswith check dominating
+the sink on the exact receiver.
+
+Fix: the writer realpath-normalizes `audio_path` FIRST and admits only
+`home ∪ tempfile.gettempdir()` (server staging root + the UI's existing policy)
+before any sink. Temp dir admission keeps the server flow working (macOS TMPDIR
+`/var/folders/...` is outside home). Trade-off: a CLI reference on an external
+volume is now rejected with a clear message (escape hatch: any path under home;
+`_resolve_audio_path`'s Downloads fallback still works).
+
+Tests (+2, `TestReferenceSourceContainment`, writer-direct because the handler
+cannot reach the reject path): outside-root → ValueError before decode, no pair
+written (a dropped guard dies differently — LibsndfileError — so the assertion
+kills it; mutant M-g verified); under-home (patched `expanduser`) admitted. The
+existing handler tests double as the tempdir-admission pin (they stage into the
+real TMPDIR). Gates: 3109 passed / 0 failed, batch 3 both dimensions, ruff,
+mypy (56 files), bandit clean.

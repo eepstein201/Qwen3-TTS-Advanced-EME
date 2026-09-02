@@ -781,5 +781,59 @@ class TestLoadPathStaysCreateFree(unittest.TestCase):
         self.assertNotIn("sf.write", src)
 
 
+@_skip
+class TestReferenceSourceContainment(unittest.TestCase):
+    """The writer reads references only from home or the system tempdir.
+
+    The engine writer is the single choke point every reference path flows
+    through (server handler stages into tempfile.gettempdir(); the CLI reads
+    operator files under home; the UI already enforces home containment for
+    history paths). Guarding here -- with the normalized path checked by the
+    exact variable the copy/decode sinks use -- is both the CodeQL
+    py/path-injection clearing shape (PR #200: caller guards do not survive
+    the call boundary) and a harmonization of the UI's existing policy.
+
+    These are writer-DIRECT: the handler cannot reach the reject path (it
+    stages into TMPDIR by construction), so the reject case must drive
+    save_voice_prompt_mlx itself.
+    """
+
+    def test_reference_outside_allowed_roots_rejected(self):
+        """A reference outside home AND the tempdir is refused before any
+        decode, and no pair is written. The path need not exist -- the guard
+        fires first (a dropped guard dies differently: sf.read raises a
+        LibsndfileError, not a ValueError)."""
+        from qwen3_tts.core.engine import save_voice_prompt_mlx
+
+        outside = "/qqq_outside_home_and_tmpdir/clip.wav"
+        with tempfile.TemporaryDirectory() as tmpdir:
+            with patch(
+                f"{_ENGINE_VOICE_PROMPT}.VOICE_PROMPTS_DIR", tmpdir
+            ):
+                with self.assertRaises(ValueError) as ctx:
+                    save_voice_prompt_mlx("evil_voice", outside, "hello")
+            self.assertIn("home directory", str(ctx.exception))
+            self.assertEqual(os.listdir(tmpdir), [], "no pair may be written")
+
+    def test_reference_under_home_is_admitted(self):
+        """A reference under home passes the guard and the pair lands (the
+        UI path's shape: history entries are home-contained). os.path.
+        expanduser is patched so the test's tmpdir plays the home role
+        portably; tempfile.gettempdir() is cached by the time this runs, so
+        the patch cannot disturb it."""
+        from qwen3_tts.core.engine import save_voice_prompt_mlx
+
+        with tempfile.TemporaryDirectory() as fake_home, tempfile.TemporaryDirectory() as prompts:
+            src_wav = os.path.join(fake_home, "ref.wav")
+            sf.write(src_wav, np.zeros((24000, 1), dtype=np.float32), 24000)
+            with patch(
+                f"{_ENGINE_VOICE_PROMPT}.VOICE_PROMPTS_DIR", prompts
+            ), patch("os.path.expanduser", return_value=fake_home):
+                out = save_voice_prompt_mlx("home_voice", src_wav, "hello")
+            self.assertTrue(os.path.exists(os.path.join(prompts, "home_voice.wav")))
+            self.assertTrue(os.path.exists(os.path.join(prompts, "home_voice.txt")))
+            self.assertEqual(out, os.path.realpath(os.path.join(prompts, "home_voice.wav")))
+
+
 if __name__ == "__main__":
     unittest.main()
