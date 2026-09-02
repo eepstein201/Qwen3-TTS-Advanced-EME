@@ -79,6 +79,30 @@ Three adversarial reviews, FAIL→fixed:
 in `.venv-310` (16 kHz fixtures + no librosa; CI's `[test]` extra supplies
 librosa and passes).
 
+## Gate B round 1 (agy FAIL→fixed; fastapi 6 LOWs; python PASS with 1 HIGH)
+
+- **agy CRITICAL (empirically confirmed):** the writer's redundant pre-downmix
+  ran OUTSIDE `ensure_min_sample_rate`, so a native-rate STEREO file left
+  `was_modified=False` and the write-vs-copy policy byte-copied the ORIGINAL
+  STEREO file (probe: `channels=2` out). Fixed by removing the pre-mix (the
+  helper owns the downmix); +2 always-on regression tests
+  (`test_native_rate_stereo_still_downmixed`, `test_native_rate_mono_is_a_faithful_copy`)
+  — module now **20 tests: 19 passed + 1 librosa-gated skip**.
+- **agy HIGH:** the tool's mkstemp conversion temp leaked on any failure after
+  conversion → one outer `try/finally` now wraps everything after staging
+  (validation, rate check, writer, torch save).
+- **fastapi 6 LOWs:** decode-vs-store phase split (only `sf.read` failures map
+  to 400 `invalid_audio`; write/copy failures re-raise as plain RuntimeError →
+  500 server-fault); non-atomic pair guard (.txt failure unlinks the .wav);
+  zero-frame rejection; `CreateVoicePromptResponse` added to the OpenAPI
+  schema tuple; the CLI raw→stripped transcript delta documented + pinned
+  (`test_mlx_only_strips_padded_transcript`); temp-leak completeness.
+- **python-reviewer PASS findings folded:** `@_skip` actually applied to the
+  five classes (was a dead variable); TDD-doc staleness corrected (this
+  addendum); faithful-copy docstring reworded to what it asserts; blank-line
+  + backend-allowlist comment + double-`ensure_min_sample_rate` note +
+  writer container/torch-raw docstring clauses.
+
 ## Live payoff
 
 e2e `test_02` (create-queuing behind a real `/generate`) flips from skip to

@@ -478,6 +478,7 @@ class TestOpenApiContract(unittest.TestCase):
             "ReadyResponse",
             "QueueStatusResponse",
             "GenerationStatusResponse",
+            "CreateVoicePromptResponse",
             "GenerateResponse",
             "TranscribeResponse",
             "ModelOpResponse",

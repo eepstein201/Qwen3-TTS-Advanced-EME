@@ -420,6 +420,9 @@ async def handle_create_voice_prompt(state, req, backend=None):
 
     # The clone gate is torch-only: the MLX branch runs no inference, so an
     # unloaded clone model must not block an MLX create.
+    # Deliberate allowlist-of-one: MLX is the inference-free branch; every
+    # other backend (torch today, vllm later) takes the torch-shaped path,
+    # exactly as pre-#236.
     if backend != "mlx":
         # Capture the model reference once, before any await.
         model = state.models.get("clone")

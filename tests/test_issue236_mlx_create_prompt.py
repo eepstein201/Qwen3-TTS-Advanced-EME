@@ -214,6 +214,7 @@ def _drive_mlx(tmpdir, req, state=None):
     return result, writer_calls, tools_calls
 
 
+@_skip
 class TestMlxBranchCreatesPair(unittest.TestCase):
     """The MLX branch: no model, no lock, no tools, no .pt -- just a
     validated .wav+.txt pair."""
@@ -288,7 +289,8 @@ class TestMlxBranchCreatesPair(unittest.TestCase):
             self.assertEqual(info.samplerate, 24000)
 
     def test_native_rate_mono_is_a_faithful_copy(self):
-        """The copy path stays byte-exact for an already-24 kHz mono file."""
+        """The copy path keeps the same rate and sample length for an
+        already-24 kHz mono file (round-trip exactness, not byte-exactness)."""
         with tempfile.TemporaryDirectory() as tmpdir:
             result, _w, _t = _drive_mlx(tmpdir, _req())
             self.assertEqual(result.get("status"), "created")
@@ -370,6 +372,7 @@ class TestMlxBranchCreatesPair(unittest.TestCase):
                 )
 
 
+@_skip
 class TestTranscriptPolicy(unittest.TestCase):
     """Blank transcript + no_transcript=False -> 400 on BOTH backends
     (torch already fails this request with a 500; 400 is strictly better).
@@ -471,6 +474,7 @@ class TestTranscriptPolicy(unittest.TestCase):
                 self.assertEqual(f.read(), "")
 
 
+@_skip
 class TestMlxBranchErrorMapping(unittest.TestCase):
     """Client-input problems are 4xx on the MLX branch -- never 500
     creation_failed/unknown_error."""
@@ -597,6 +601,7 @@ class TestMlxBranchErrorMapping(unittest.TestCase):
         self.assertEqual(ctx.exception.detail.get("error"), "unsupported_reference_audio")
 
 
+@_skip
 class TestCacheAndListing(unittest.TestCase):
     """Cache invalidation after create; /prompts intersection listing."""
 
@@ -674,6 +679,7 @@ class TestCacheAndListing(unittest.TestCase):
         )
 
 
+@_skip
 class TestRouteDispatch(unittest.TestCase):
     """M-e killers: the route must pass get_backend() INTO the handler
     call (AST: an argument, not a mention), and the dispatch must behave

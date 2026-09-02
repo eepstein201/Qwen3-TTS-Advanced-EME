@@ -453,6 +453,11 @@ def save_voice_prompt_mlx(base: str, audio_path: str, transcript: str) -> str:
     Raises:
         UnsupportedReferenceAudioError: The sample-rate guarantee is undeliverable.
         soundfile errors: The audio is undecodable (mapped to 400 by the handler).
+
+    Notes: a >=24 kHz mono FLAC/OGG upload is byte-copied under the ``.wav``
+    name (soundfile sniffs content, so generation still works — same policy
+    as the UI path). The torch CLI path (``tools/create_voice.py``) still
+    writes its transcript raw; only this writer strips.
     """
     import shutil
 
@@ -465,7 +470,17 @@ def save_voice_prompt_mlx(base: str, audio_path: str, transcript: str) -> str:
     # report False for a stereo file (nothing left to change), and the
     # write-vs-copy policy below would byte-copy the ORIGINAL STEREO file
     # (Gate B round 1, agy CRITICAL — confirmed empirically).
+    #
+    # DECODE vs STORE phase split (Gate B round 1, fastapi): only sf.read
+    # failures map to the handler's 400 invalid_audio; a write/copy failure
+    # after a successful decode is a SERVER fault and must stay 500, so it
+    # is re-raised as a plain RuntimeError (the handler's 500 tuple), never
+    # as a LibsndfileError.
     ref_audio, ref_sr = sf.read(audio_path, dtype="float32")
+    if len(ref_audio) == 0:
+        raise UnsupportedReferenceAudioError(
+            "reference audio contains no samples"
+        )
     try:
         ref_audio, ref_sr, was_modified = ensure_min_sample_rate(ref_audio, ref_sr)
     except RuntimeError as e:
@@ -478,13 +493,21 @@ def save_voice_prompt_mlx(base: str, audio_path: str, transcript: str) -> str:
 
     # Same write-vs-copy policy as the UI create path: rewriting identical
     # audio is pointless; anything the rate check modified must be written.
-    if was_modified:
-        sf.write(wav_path, ref_audio, ref_sr)
-    else:
-        shutil.copy2(audio_path, wav_path)
-
-    with open(txt_path, "w") as f:
-        f.write((transcript or "").strip())
+    try:
+        if was_modified:
+            sf.write(wav_path, ref_audio, ref_sr)
+        else:
+            shutil.copy2(audio_path, wav_path)
+        # Non-atomic pair guard: a .txt failure must not orphan a .wav (the
+        # MLX /prompts listing would show a prompt that cannot load).
+        with open(txt_path, "w") as f:
+            f.write((transcript or "").strip())
+    except Exception:
+        try:
+            os.remove(wav_path)
+        except OSError:
+            pass
+        raise
 
     logger.info(
         "Stored MLX voice prompt '%s' (%.1fs audio @ %d Hz)",

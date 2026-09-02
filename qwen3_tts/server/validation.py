@@ -108,6 +108,7 @@ class CreateVoicePromptRequest(BaseModel):
     name: str
     no_transcript: bool = False
 
+
 class CreateVoicePromptResponse(BaseModel):
     """Response for /create-voice-prompt (previously an untyped JSON route)."""
 

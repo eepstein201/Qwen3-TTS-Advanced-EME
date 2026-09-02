@@ -64,15 +64,13 @@ def create_and_save_voice_prompt(
         audio = AudioSegment.from_file(audio_path, format=ext)
         # Unique temp name: the old fixed "temp_reference.wav" raced two
         # concurrent creates (B's export overwrote A's input before A read
-        # it) and leaked the file on any failure between write and cleanup.
+        # it). Cleanup is guaranteed by the try/finally below, which wraps
+        # EVERYTHING after staging — any failure (validation, the writer,
+        # torch save) removes the temp instead of orphaning it.
         fd, wav_path = tempfile.mkstemp(suffix=".wav", dir=USER_FILES_DIR)
         os.close(fd)
-        try:
-            audio.export(wav_path, format="wav")
-            ref_audio, ref_sr = sf.read(wav_path)
-        except Exception:
-            os.remove(wav_path)
-            raise
+        audio.export(wav_path, format="wav")
+        ref_audio, ref_sr = sf.read(wav_path)
         print(f"Audio loaded: {len(ref_audio) / ref_sr:.1f} seconds at {ref_sr}Hz")
 
     # Reference audio below the model's native rate makes MLX clone
@@ -83,7 +81,10 @@ def create_and_save_voice_prompt(
 
     # was_modified covers a resample, a stereo downmix, or both — the flag
     # gates whether the .wav below is written from this array or byte-copied
-    # from the original, so it must not be read as "was resampled".
+    # from the original, so it must not be read as "was resampled". This call
+    # also feeds the printouts + the torch path; the mlx_only delegation
+    # re-validates inside the engine writer (idempotent — do not consolidate
+    # away the call here without moving the prints).
     ref_audio, new_sr, was_modified = ensure_min_sample_rate(ref_audio, ref_sr)
     if was_modified:
         if new_sr != ref_sr:
@@ -101,97 +102,102 @@ def create_and_save_voice_prompt(
     base_name = prompt_name[:-3]
     validate_voice_name(base_name)
 
-    if mlx_only:
-        # #236: MLX prompts are a .wav+.txt pair stored at write time — no
-        # model, no .pt, no torch. The ENGINE writer owns the validation +
-        # storage policy (one ensure_min_sample_rate implementation for the
-        # server endpoint and the CLI alike); the pydub conversion above is
-        # the CLI-only pre-step this layer keeps.
-        from qwen3_tts.core.engine import save_voice_prompt_mlx
+    try:
+            if mlx_only:
+                # #236: MLX prompts are a .wav+.txt pair stored at write time —
+                # no model, no .pt, no torch. The ENGINE writer owns the
+                # validation + storage policy (one ensure_min_sample_rate
+                # implementation for the server endpoint and the CLI alike);
+                # the pydub conversion above is the CLI-only pre-step this layer
+                # keeps. Transcript note: the writer stores it STRIPPED (the
+                # old inline write stored it raw; every loader strips on read,
+                # so generation behavior is unchanged).
+                from qwen3_tts.core.engine import save_voice_prompt_mlx
 
-        try:
-            mlx_wav_path = save_voice_prompt_mlx(
-                base_name, wav_path or audio_path, transcript
+                mlx_wav_path = save_voice_prompt_mlx(
+                    base_name, wav_path or audio_path, transcript
+                )
+                print(f"MLX files saved: {mlx_wav_path}")
+                print(
+                    f'\nDone (MLX-only mode)! Use with: tts -p {prompt_name} "Your text here"'
+                )
+                return mlx_wav_path
+
+            # --- Save MLX-compatible files (.wav + .txt) --- (torch: MLX interop)
+            mlx_wav_path = safe_path_join(VOICE_PROMPTS_DIR, f"{base_name}.wav")
+            mlx_txt_path = safe_path_join(VOICE_PROMPTS_DIR, f"{base_name}.txt")
+
+            # Save .wav — copy from temp or write from loaded audio. A resampled
+            # clip must be written from the array; copying the temp file would
+            # restore the original low rate and undo the fix above.
+            if wav_path and not was_modified:
+                shutil.copy2(wav_path, mlx_wav_path)
+            else:
+                sf.write(mlx_wav_path, ref_audio, ref_sr)
+            with open(mlx_txt_path, "w") as f:
+                f.write(transcript)
+
+            print(f"MLX files saved: {mlx_wav_path}")
+            print(f"                 {mlx_txt_path}")
+
+            # --- Save PyTorch .pt file (requires torch + qwen-tts) ---
+            import torch
+
+            from qwen3_tts.core.engine import (
+                create_voice_prompt,
+                load_model,
+                run_inference,
             )
-        finally:
-            if wav_path and os.path.exists(wav_path):
-                os.remove(wav_path)
-        print(f"MLX files saved: {mlx_wav_path}")
-        print(
-            f'\nDone (MLX-only mode)! Use with: tts -p {prompt_name} "Your text here"'
-        )
-        return mlx_wav_path
 
-    # --- Save MLX-compatible files (.wav + .txt) --- (torch path: MLX interop)
-    mlx_wav_path = safe_path_join(VOICE_PROMPTS_DIR, f"{base_name}.wav")
-    mlx_txt_path = safe_path_join(VOICE_PROMPTS_DIR, f"{base_name}.txt")
+            print("Loading Qwen3-TTS Base model...")
+            model = load_model("clone")
 
-    # Save .wav — copy from temp or write from loaded audio. A resampled clip
-    # must be written from the array; copying the temp file would restore the
-    # original low rate and undo the fix above.
-    if wav_path and not was_modified:
-        shutil.copy2(wav_path, mlx_wav_path)
-    else:
-        sf.write(mlx_wav_path, ref_audio, ref_sr)
-    with open(mlx_txt_path, "w") as f:
-        f.write(transcript)
+            print("\nCreating voice clone prompt...")
+            voice_prompt = create_voice_prompt(
+                model, ref_audio, ref_sr, transcript, x_vector_only_mode=x_vector_only_mode
+            )
 
-    print(f"MLX files saved: {mlx_wav_path}")
-    print(f"                 {mlx_txt_path}")
+            output_path = safe_path_join(VOICE_PROMPTS_DIR, prompt_name)
+            torch.save(voice_prompt, output_path)
+            print(f"Torch file saved: {output_path}")
 
-    # --- Save PyTorch .pt file (requires torch + qwen-tts) ---
-    import torch
+            # Optional test generation
+            if test_generation:
+                print("\nGenerating test audio with cloned voice...")
+                test_text = "This is a test of the cloned voice. How does it sound?"
 
-    from qwen3_tts.core.engine import create_voice_prompt, load_model, run_inference
+                wav, sr = run_inference(
+                    model=model,
+                    text=test_text,
+                    mode="clone",
+                    gen_params={
+                        "temperature": 0.7,
+                        "top_k": 50,
+                        "top_p": 0.95,
+                        "repetition_penalty": 1.05,
+                    },
+                    language="English",
+                    voice_prompt=voice_prompt,
+                    x_vector_only_mode=x_vector_only_mode,
+                )
 
-    print("Loading Qwen3-TTS Base model...")
-    model = load_model("clone")
+                test_output = safe_path_join(USER_FILES_DIR, f"test_{base_name}.wav")
+                sf.write(test_output, wav, sr)
+                print(f"Test audio saved to: {test_output}")
+                from qwen3_tts.core.config import IS_LINUX, IS_MACOS
 
-    print("\nCreating voice clone prompt...")
-    voice_prompt = create_voice_prompt(
-        model, ref_audio, ref_sr, transcript, x_vector_only_mode=x_vector_only_mode
-    )
-
-    output_path = safe_path_join(VOICE_PROMPTS_DIR, prompt_name)
-    torch.save(voice_prompt, output_path)
-    print(f"Torch file saved: {output_path}")
-
-    # Optional test generation
-    if test_generation:
-        print("\nGenerating test audio with cloned voice...")
-        test_text = "This is a test of the cloned voice. How does it sound?"
-
-        wav, sr = run_inference(
-            model=model,
-            text=test_text,
-            mode="clone",
-            gen_params={
-                "temperature": 0.7,
-                "top_k": 50,
-                "top_p": 0.95,
-                "repetition_penalty": 1.05,
-            },
-            language="English",
-            voice_prompt=voice_prompt,
-            x_vector_only_mode=x_vector_only_mode,
-        )
-
-        test_output = safe_path_join(USER_FILES_DIR, f"test_{base_name}.wav")
-        sf.write(test_output, wav, sr)
-        print(f"Test audio saved to: {test_output}")
-        from qwen3_tts.core.config import IS_LINUX, IS_MACOS
-
-        if IS_MACOS:
-            subprocess.run(["open", test_output], timeout=10)  # nosec B603 B607
-        elif IS_LINUX:
-            subprocess.run(
-                ["xdg-open", test_output], stderr=subprocess.DEVNULL, timeout=10
-            )  # nosec B603 B607
-
-    # Cleanup temp file
-    if wav_path and os.path.exists(wav_path):
-        os.remove(wav_path)
-
+                if IS_MACOS:
+                    subprocess.run(["open", test_output], timeout=10)  # nosec B603 B607
+                elif IS_LINUX:
+                    subprocess.run(
+                        ["xdg-open", test_output], stderr=subprocess.DEVNULL, timeout=10
+                    )  # nosec B603 B607
+    finally:
+        # Guaranteed temp cleanup: any failure after staging (validation,
+        # the rate check, the writer, torch save) removes the mkstemp file
+        # instead of orphaning it in USER_FILES_DIR.
+        if wav_path and os.path.exists(wav_path):
+            os.remove(wav_path)
     print(f'\nDone! Use with: tts -p {prompt_name} "Your text here"')
     print("  (Works with both torch and MLX backends)")
     return output_path
