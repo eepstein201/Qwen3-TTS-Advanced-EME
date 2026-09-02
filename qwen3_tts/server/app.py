@@ -125,6 +125,7 @@ from qwen3_tts.server.app_prompts import (  # noqa: E402
 from qwen3_tts.server.validation import (  # noqa: E402
     MAX_AUDIO_BASE64_BYTES,
     CreateVoicePromptRequest,
+    CreateVoicePromptResponse,
     DeletePromptRequest,
     # Response contracts (GEN-2)
     DeletePromptResponse,
@@ -830,15 +831,21 @@ async def prompt_details(request: Request, _auth: None = Depends(verify_auth)):
     )
 
 
-@app.post("/create-voice-prompt")
+@app.post("/create-voice-prompt", response_model=CreateVoicePromptResponse, response_model_exclude_unset=True)
 @_rate_limit(_prompt_ops_limit)
 async def create_voice_prompt_endpoint(
     request: Request, req: CreateVoicePromptRequest, _auth: None = Depends(verify_auth)
 ):
-    """Create a voice clone prompt from uploaded audio."""
+    """Create a voice clone prompt from uploaded audio.
+
+    MLX: inference-free — validates the reference and stores the
+    ``.wav+.txt`` pair generation consumes (#236); no clone model needed.
+    torch: unchanged (engine create under ``inference_lock``, ``.pt``).
+    Blank transcript without ``no_transcript`` is a 400 on both backends.
+    """
     state = request.app.state
     reset_activity_timer(state)
-    return await handle_create_voice_prompt(state, req)
+    return await handle_create_voice_prompt(state, req, get_backend())
 
 
 @app.post("/cancel-generation")

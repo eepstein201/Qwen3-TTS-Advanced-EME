@@ -109,6 +109,13 @@ class CreateVoicePromptRequest(BaseModel):
     no_transcript: bool = False
 
 
+class CreateVoicePromptResponse(BaseModel):
+    """Response for /create-voice-prompt (previously an untyped JSON route)."""
+
+    status: str
+    name: str
+
+
 # ---------------------------------------------------------------------------
 # Pydantic models for response validation
 # ---------------------------------------------------------------------------

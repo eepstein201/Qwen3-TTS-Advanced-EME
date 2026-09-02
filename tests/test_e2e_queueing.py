@@ -345,7 +345,14 @@ class TestE2EQueueing:
             c_status, c_body = _status_or_skip(
                 *_make_request(
                     "/create-voice-prompt",
-                    data={"audio_base64": _wav_bytes(seconds=8), "name": name},
+                    data={
+                        "audio_base64": _wav_bytes(seconds=8),
+                        "name": name,
+                        # #236: blank transcript without no_transcript is a
+                        # 400 on both backends — the prompt needs its
+                        # reference text anyway.
+                        "transcript": "e2e queueing tier reference transcript",
+                    },
                     method="POST",
                     timeout=MODEL_OP_TIMEOUT,
                 ),
@@ -354,19 +361,21 @@ class TestE2EQueueing:
             if c_status == 500 and isinstance(c_body, dict) and "create_voice_clone_prompt" in json.dumps(
                 c_body
             ):
+                # Stale-server canary: this branch is dead on a fixed server
+                # (the MLX create path is now inference-free and never calls
+                # that API on ANY mlx-audio version — see the #236 re-scope).
+                # Kept so a partially-upgraded server degrades to a skip.
                 pytest.skip(
-                    "PRE-EXISTING ENGINE GAP (not queueing): the MLX "
-                    "create path calls model.create_voice_clone_prompt(), "
-                    "which mlx-audio 0.4.8 does not implement — "
-                    "/create-voice-prompt cannot run on this backend "
-                    "(possibly fixed by the mlx-audio>=0.5.0 bump). The "
-                    "create-queueing property stays unit-covered by "
+                    "STALE SERVER (pre-#236): the create path still calls "
+                    "model.create_voice_clone_prompt(), which no mlx-audio "
+                    "version implements. The create-queueing property stays "
+                    "unit-covered by "
                     "tests/test_issue192_create_prompt_serialization.py."
                 )
             assert c_status == 200, f"create-voice-prompt failed: {c_status} {c_body}"
             created = True
             # Capture BEFORE the join: after join returns the generate is
-            # already done, and the ordering assertion would be vacuous
+            # already done, and any timestamp taken later would be vacuous
             # (same shape as test_01).
             done = _mono()
 
@@ -376,7 +385,26 @@ class TestE2EQueueing:
             assert g_status == 200, f"generate failed: {g_status} {g_body}"
             assert _first_result(g_body).get("chunks", 0) >= 1
 
-            assert done >= g_done, "create-voice-prompt completed before the generate finished"
+            # The contract is backend-dependent BY DESIGN (#236): torch
+            # creation is real inference and queues behind the generate
+            # (ordering asserted); the MLX creation is INFERENCE-FREE — it
+            # runs concurrently and must NOT wait out the generate (the
+            # fix's whole point: creates no longer starve behind
+            # generation). done < g_done is therefore the MLX success
+            # signature, not a defect.
+            m_status, m_body = _make_request("/models", timeout=30)
+            server_backend = m_body.get("backend", "mlx") if m_status == 200 else "mlx"
+            if server_backend == "mlx":
+                assert done < g_done, (
+                    "MLX create-voice-prompt waited out the generate — the "
+                    "inference-free design is not engaging end-to-end"
+                )
+            else:
+                assert done >= g_done, (
+                    "create-voice-prompt completed before the generate "
+                    "finished — torch creation is not serializing on "
+                    "inference_lock"
+                )
             assert fired < g_done, "test ordering: create fired after the generate ended"
         except Exception as exc:
             # Preserve the original failure: the finally's cleanup assert

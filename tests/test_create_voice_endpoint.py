@@ -72,15 +72,20 @@ class TestCreateVoicePromptEndpoint(unittest.TestCase):
         mock_create.return_value = MagicMock()  # fake voice prompt tensor
 
         audio_b64 = base64.b64encode(b"fake_wav_bytes").decode()
-        resp = self.client.post(
-            "/create-voice-prompt",
-            json={
-                "audio_base64": audio_b64,
-                "transcript": "Hello world",
-                "name": "test_voice",
-            },
-            headers=self.headers,
-        )
+        # Torch branch FORCED via the app.get_backend seam: the torch-shaped
+        # patches above only intercept the torch branch, and the ambient
+        # backend must not choose for us (mlx machines would take the MLX
+        # branch and 400 on the undecodable b"fake_wav_bytes").
+        with patch("qwen3_tts.server.app.get_backend", return_value="torch"):
+            resp = self.client.post(
+                "/create-voice-prompt",
+                json={
+                    "audio_base64": audio_b64,
+                    "transcript": "Hello world",
+                    "name": "test_voice",
+                },
+                headers=self.headers,
+            )
         self.assertEqual(resp.status_code, 200)
         data = resp.json()
         self.assertEqual(data["status"], "created")
@@ -118,18 +123,22 @@ class TestCreateVoicePromptEndpoint(unittest.TestCase):
         self.assertEqual(resp.status_code, 400)
 
     def test_create_prompt_clone_not_loaded(self):
-        """Should fail if clone model is not loaded."""
+        """Should fail if clone model is not loaded (torch branch, FORCED:
+        the MLX branch is inference-free and needs no clone model, so the
+        gate is pinned on the explicitly-selected backend rather than the
+        ambient one)."""
         self.app.state.models["clone"] = None
         audio_b64 = base64.b64encode(b"fake").decode()
-        resp = self.client.post(
-            "/create-voice-prompt",
-            json={
-                "audio_base64": audio_b64,
-                "name": "test_voice",
-                "transcript": "hello",
-            },
-            headers=self.headers,
-        )
+        with patch("qwen3_tts.server.app.get_backend", return_value="torch"):
+            resp = self.client.post(
+                "/create-voice-prompt",
+                json={
+                    "audio_base64": audio_b64,
+                    "name": "test_voice",
+                    "transcript": "hello",
+                },
+                headers=self.headers,
+            )
         self.assertEqual(resp.status_code, 503)
 
     @_skip_torch
@@ -144,15 +153,18 @@ class TestCreateVoicePromptEndpoint(unittest.TestCase):
         mock_create.return_value = MagicMock()
 
         audio_b64 = base64.b64encode(b"fake_wav_bytes").decode()
-        resp = self.client.post(
-            "/create-voice-prompt",
-            json={
-                "audio_base64": audio_b64,
-                "name": "test_voice_nt",
-                "no_transcript": True,
-            },
-            headers=self.headers,
-        )
+        # Torch branch FORCED (see test_create_prompt_success): the torch-
+        # shaped patches above only intercept the torch branch.
+        with patch("qwen3_tts.server.app.get_backend", return_value="torch"):
+            resp = self.client.post(
+                "/create-voice-prompt",
+                json={
+                    "audio_base64": audio_b64,
+                    "name": "test_voice_nt",
+                    "no_transcript": True,
+                },
+                headers=self.headers,
+            )
         self.assertEqual(resp.status_code, 200)
         data = resp.json()
         self.assertEqual(data["status"], "created")

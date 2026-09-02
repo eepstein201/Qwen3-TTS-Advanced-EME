@@ -13,6 +13,7 @@ Response objects).
 Run: conda run -n qwen3-tts-mlx python -m pytest tests/test_response_contracts.py -v
 """
 
+import base64
 import os
 import time
 import unittest
@@ -275,6 +276,37 @@ class TestOpsContracts(_ContractTestBase):
         self.assertEqual(model.status, "already_loaded")
         self.assertEqual(model.model, "clone")
 
+    def test_create_voice_prompt_matches_contract(self):
+        """#236: /create-voice-prompt gains a typed response model (it was
+        the one untyped JSON route). The MLX branch is driven through the
+        patched app.get_backend seam with the engine writer stubbed."""
+        from qwen3_tts.server.validation import CreateVoicePromptResponse
+
+        self.app.state.models["clone"] = None  # MLX branch must not need it
+        audio_b64 = base64.b64encode(b"placeholder").decode()
+        with (
+            patch("qwen3_tts.server.app.get_backend", return_value="mlx"),
+            patch(
+                "qwen3_tts.core.engine.save_voice_prompt_mlx",
+                create=True,
+                return_value="/tmp/test_voice.wav",
+            ),
+            patch("qwen3_tts.core.engine.clear_voice_prompt_cache"),
+        ):
+            resp = self.client.post(
+                "/create-voice-prompt",
+                json={
+                    "audio_base64": audio_b64,
+                    "name": "contract_voice",
+                    "transcript": "contract transcript",
+                },
+                headers=self.auth,
+            )
+        self.assertEqual(resp.status_code, 200, resp.text)
+        model = CreateVoicePromptResponse.model_validate(resp.json())
+        self.assertEqual(model.status, "created")
+        self.assertEqual(model.name, "contract_voice")
+
     def test_unload_model_matches_contract(self):
         from qwen3_tts.server.validation import ModelOpResponse
 
@@ -446,6 +478,7 @@ class TestOpenApiContract(unittest.TestCase):
             "ReadyResponse",
             "QueueStatusResponse",
             "GenerationStatusResponse",
+            "CreateVoicePromptResponse",
             "GenerateResponse",
             "TranscribeResponse",
             "ModelOpResponse",

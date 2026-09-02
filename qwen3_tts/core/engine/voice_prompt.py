@@ -417,3 +417,127 @@ def load_voice_prompt_mlx(prompt_name):
         _mlx_prompt_cache[prompt_name] = result
 
     return result
+
+
+class UnsupportedReferenceAudioError(RuntimeError):
+    """``ensure_min_sample_rate`` could not deliver a usable reference.
+
+    Subclasses ``RuntimeError`` so every existing ``except RuntimeError``
+    caller keeps working; the /create-voice-prompt MLX branch translates it
+    to a 400 (a sub-native-rate reference is a client-input problem, and
+    an 8 kHz prompt made MLX clone generation run to the token cap 3/3
+    times -- it must never be stored as-is).
+    """
+
+
+def save_voice_prompt_mlx(base: str, audio_path: str, transcript: str) -> str:
+    """Validate a reference clip and store an MLX voice prompt pair.
+
+    The server-side MLX create path (#236): MLX consumes prompts as a
+    ``.wav+.txt`` pair at generation time (``prepare_zeroprompt``) -- no
+    model, no ``.pt``, no inference. This writer validates the audio
+    (``ensure_min_sample_rate``: always mono, never downsamples, rewritten
+    to >=24 kHz or it raises) and stores the pair, mirroring the CLI/UI
+    write-time policy.
+
+    Args:
+        base: Prompt base name (no extension); caller has validated it.
+        audio_path: Reference audio file (any soundfile-decodable container;
+            the server stages uploads with a ``.wav`` suffix, so m4a/mp3 are
+            NOT convertible here -- that is a documented limitation).
+        transcript: Reference transcript; stored stripped.
+
+    Returns:
+        The written ``.wav`` path (str).
+
+    Raises:
+        UnsupportedReferenceAudioError: The sample-rate guarantee is undeliverable.
+        soundfile errors: The audio is undecodable (mapped to 400 by the handler).
+
+    Notes: a >=24 kHz mono FLAC/OGG upload is byte-copied under the ``.wav``
+    name (soundfile sniffs content, so generation still works — same policy
+    as the UI path). The torch CLI path (``tools/create_voice.py``) still
+    writes its transcript raw; only this writer strips.
+    """
+    import shutil
+    import tempfile
+
+    import soundfile as sf
+
+    from qwen3_tts.core.engine.audio_processing import ensure_min_sample_rate
+
+    # Reference-source containment (the same home-directory policy the UI
+    # create path enforces in tabs_generation.py, plus the platform tempdir
+    # where the server stages uploads). realpath-normalize FIRST and use the
+    # normalized variable at every sink below — a startswith check only
+    # sanitizes when the checked variable is the exact one the sink uses
+    # (guards in callers do not survive the call boundary; PR #200). The
+    # guard is ONE startswith call (tuple prefix form): a disjunction
+    # `a.startswith(x) or a.startswith(y)` measured NO barrier on the CI
+    # analyzer, and the single-call shape is the form PR #200 verified.
+    # Keep it inline — routing through a helper also loses the credit.
+    audio_path = os.path.realpath(audio_path)
+    home_root = os.path.realpath(os.path.expanduser("~")) + os.sep
+    tmp_root = os.path.realpath(tempfile.gettempdir()) + os.sep
+    if not audio_path.startswith((home_root, tmp_root)):
+        raise ValueError(
+            "Reference audio must live under the home directory or the "
+            f"system temp directory, got: {audio_path}"
+        )
+
+    # NO pre-downmix here: ensure_min_sample_rate downmixes internally and
+    # folds that into was_modified — pre-mixing outside would make the helper
+    # report False for a stereo file (nothing left to change), and the
+    # write-vs-copy policy below would byte-copy the ORIGINAL STEREO file
+    # (Gate B round 1, agy CRITICAL — confirmed empirically).
+    #
+    # DECODE vs STORE phase split (Gate B round 1, fastapi): only sf.read
+    # failures map to the handler's 400 invalid_audio; a write/copy failure
+    # after a successful decode is a SERVER fault and must stay 500, so it
+    # is re-raised as a plain RuntimeError (the handler's 500 tuple), never
+    # as a LibsndfileError.
+    ref_audio, ref_sr = sf.read(audio_path, dtype="float32")
+    if len(ref_audio) == 0:
+        raise UnsupportedReferenceAudioError(
+            "reference audio contains no samples"
+        )
+    try:
+        ref_audio, ref_sr, was_modified = ensure_min_sample_rate(ref_audio, ref_sr)
+    except RuntimeError as e:
+        raise UnsupportedReferenceAudioError(str(e)) from e
+
+    # str(): VOICE_PROMPTS_DIR is a Path; safe_path_join is str-typed (and
+    # returns a resolved str, matching what the loader stores in the cache).
+    wav_path = safe_path_join(str(VOICE_PROMPTS_DIR), f"{base}.wav")
+    txt_path = safe_path_join(str(VOICE_PROMPTS_DIR), f"{base}.txt")
+
+    # Same write-vs-copy policy as the UI create path: rewriting identical
+    # audio is pointless; anything the rate check modified must be written.
+    try:
+        if was_modified:
+            sf.write(wav_path, ref_audio, ref_sr)
+        else:
+            shutil.copy2(audio_path, wav_path)
+        # Non-atomic pair guard: a .txt failure must not orphan a .wav (the
+        # MLX /prompts listing would show a prompt that cannot load).
+        with open(txt_path, "w") as f:
+            f.write((transcript or "").strip())
+    except Exception as e:
+        try:
+            os.remove(wav_path)
+        except OSError:
+            pass
+        # STORE-phase failure: a server fault (disk, permissions), NOT client
+        # input — convert so the handler's 400 invalid_audio clause cannot
+        # swallow it (LibsndfileError is a RuntimeError subclass).
+        raise RuntimeError(
+            f"failed to store voice prompt '{base}': {e}"
+        ) from e
+
+    logger.info(
+        "Stored MLX voice prompt '%s' (%.1fs audio @ %d Hz)",
+        sanitize_log(base),
+        len(ref_audio) / ref_sr,
+        ref_sr,
+    )
+    return wav_path

@@ -138,7 +138,7 @@ Duplicate POSTs during a cold load used to build the weights twice (~2.5 GB doub
 
 ### `/create-voice-prompt` serialization (#192, final reachable pair)
 
-`/create-voice-prompt` IS now serialized: `handle_create_voice_prompt` is async — `create_voice_prompt` (`create_voice_clone_prompt`) runs under `inference_lock` as a leaf acquisition via `to_thread`, with decode/staging and the `.pt` save outside the lock; with it ALL MLX inference reachable through the API serializes on `inference_lock` (remaining #192 items: /load-model in-flight dedup, e2e queuing coverage).
+`/create-voice-prompt` IS now serialized on the torch branch: `handle_create_voice_prompt` is async — `create_voice_prompt` (`create_voice_clone_prompt`) runs under `inference_lock` as a leaf acquisition via `to_thread`, with decode/staging and the `.pt` save outside the lock; with it ALL **torch** create inference reachable through the API serializes on `inference_lock`. Since #236 the handler is backend-dispatched and the **MLX branch is inference-free by design**: it validates the reference (`ensure_min_sample_rate`, raising typed `UnsupportedReferenceAudioError`) and stores the `.wav+.txt` pair via the engine writer `save_voice_prompt_mlx` (beside `load_voice_prompt_mlx`; the tools layer delegates to it) — no clone gate, no lock, client-input errors as 4xx (`unsupported_reference_audio`/`invalid_audio`), blank transcript without `no_transcript` = 400 on both backends. Blank-transcript-without-`no_transcript` was already a failure on torch (upstream raises), so the 400 is strictly better there too. Guarded by `tests/test_issue236_mlx_create_prompt.py` + the response-model round-trip in `tests/test_response_contracts.py`.
 
 ### Unload-ASR race closure (#214 item 2)
 

@@ -153,6 +153,7 @@ BATCHES = {
             "tests.test_issue214_unload_asr_race",
             "tests.test_issue214_prompt_create_serialization",
             "tests.test_issue214_load_model_dedup",
+            "tests.test_issue236_mlx_create_prompt",
             "tests.test_issue214_unload_queued_window",
             "tests.test_asr_endpoints",
             "tests.test_body_size_limit",
