@@ -471,11 +471,15 @@ def save_voice_prompt_mlx(base: str, audio_path: str, transcript: str) -> str:
     # where the server stages uploads). realpath-normalize FIRST and use the
     # normalized variable at every sink below — a startswith check only
     # sanitizes when the checked variable is the exact one the sink uses
-    # (guards in callers do not survive the call boundary; PR #200).
+    # (guards in callers do not survive the call boundary; PR #200). The
+    # guard is ONE startswith call (tuple prefix form): a disjunction
+    # `a.startswith(x) or a.startswith(y)` measured NO barrier on the CI
+    # analyzer, and the single-call shape is the form PR #200 verified.
+    # Keep it inline — routing through a helper also loses the credit.
     audio_path = os.path.realpath(audio_path)
     home_root = os.path.realpath(os.path.expanduser("~")) + os.sep
     tmp_root = os.path.realpath(tempfile.gettempdir()) + os.sep
-    if not (audio_path.startswith(home_root) or audio_path.startswith(tmp_root)):
+    if not audio_path.startswith((home_root, tmp_root)):
         raise ValueError(
             "Reference audio must live under the home directory or the "
             f"system temp directory, got: {audio_path}"

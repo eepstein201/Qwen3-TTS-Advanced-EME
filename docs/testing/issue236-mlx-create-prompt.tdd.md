@@ -134,3 +134,20 @@ kills it; mutant M-g verified); under-home (patched `expanduser`) admitted. The
 existing handler tests double as the tempdir-admission pin (they stage into the
 real TMPDIR). Gates: 3109 passed / 0 failed, batch 3 both dimensions, ruff,
 mypy (56 files), bandit clean.
+
+### Round 2: the disjunction did NOT clear CI; tuple form is the candidate
+
+First attempt used the disjunction
+`if not (a.startswith(home) or a.startswith(tmp)): raise` — CI CodeQL still
+flagged the copy (same sink, shifted line; the codeFlows ran straight through
+the guard). Second attempt: the tuple-prefix form
+`a.startswith((home_root, tmp_root))` — ONE startswith call on the receiver,
+matching the single-root shape PR #200 verified.
+
+Local-harness control experiment (codeql 2.26.4, python-queries 1.8.9,
+`--threat-model=all`, repo DB with a known-vulnerable env→open probe staged at
+repo root): the writer flow produced **zero alerts with the guard ON and zero
+with it disabled** — and the probe did not fire either. The local harness is
+blind to this flow entirely, so local results prove nothing in either
+direction (the memory's "GitHub default setup ≠ local" caveat, reconfirmed);
+CI remains the sole arbiter for the tuple form.
