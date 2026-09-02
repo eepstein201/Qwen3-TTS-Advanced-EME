@@ -153,15 +153,18 @@ class TestCreateVoicePromptEndpoint(unittest.TestCase):
         mock_create.return_value = MagicMock()
 
         audio_b64 = base64.b64encode(b"fake_wav_bytes").decode()
-        resp = self.client.post(
-            "/create-voice-prompt",
-            json={
-                "audio_base64": audio_b64,
-                "name": "test_voice_nt",
-                "no_transcript": True,
-            },
-            headers=self.headers,
-        )
+        # Torch branch FORCED (see test_create_prompt_success): the torch-
+        # shaped patches above only intercept the torch branch.
+        with patch("qwen3_tts.server.app.get_backend", return_value="torch"):
+            resp = self.client.post(
+                "/create-voice-prompt",
+                json={
+                    "audio_base64": audio_b64,
+                    "name": "test_voice_nt",
+                    "no_transcript": True,
+                },
+                headers=self.headers,
+            )
         self.assertEqual(resp.status_code, 200)
         data = resp.json()
         self.assertEqual(data["status"], "created")
