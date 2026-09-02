@@ -502,12 +502,17 @@ def save_voice_prompt_mlx(base: str, audio_path: str, transcript: str) -> str:
         # MLX /prompts listing would show a prompt that cannot load).
         with open(txt_path, "w") as f:
             f.write((transcript or "").strip())
-    except Exception:
+    except Exception as e:
         try:
             os.remove(wav_path)
         except OSError:
             pass
-        raise
+        # STORE-phase failure: a server fault (disk, permissions), NOT client
+        # input — convert so the handler's 400 invalid_audio clause cannot
+        # swallow it (LibsndfileError is a RuntimeError subclass).
+        raise RuntimeError(
+            f"failed to store voice prompt '{base}': {e}"
+        ) from e
 
     logger.info(
         "Stored MLX voice prompt '%s' (%.1fs audio @ %d Hz)",

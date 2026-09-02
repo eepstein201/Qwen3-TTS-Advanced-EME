@@ -375,7 +375,7 @@ class TestE2EQueueing:
             assert c_status == 200, f"create-voice-prompt failed: {c_status} {c_body}"
             created = True
             # Capture BEFORE the join: after join returns the generate is
-            # already done, and the ordering assertion would be vacuous
+            # already done, and any timestamp taken later would be vacuous
             # (same shape as test_01).
             done = _mono()
 
@@ -385,7 +385,26 @@ class TestE2EQueueing:
             assert g_status == 200, f"generate failed: {g_status} {g_body}"
             assert _first_result(g_body).get("chunks", 0) >= 1
 
-            assert done >= g_done, "create-voice-prompt completed before the generate finished"
+            # The contract is backend-dependent BY DESIGN (#236): torch
+            # creation is real inference and queues behind the generate
+            # (ordering asserted); the MLX creation is INFERENCE-FREE — it
+            # runs concurrently and must NOT wait out the generate (the
+            # fix's whole point: creates no longer starve behind
+            # generation). done < g_done is therefore the MLX success
+            # signature, not a defect.
+            m_status, m_body = _make_request("/models", timeout=30)
+            server_backend = m_body.get("backend", "mlx") if m_status == 200 else "mlx"
+            if server_backend == "mlx":
+                assert done < g_done, (
+                    "MLX create-voice-prompt waited out the generate — the "
+                    "inference-free design is not engaging end-to-end"
+                )
+            else:
+                assert done >= g_done, (
+                    "create-voice-prompt completed before the generate "
+                    "finished — torch creation is not serializing on "
+                    "inference_lock"
+                )
             assert fired < g_done, "test ordering: create fired after the generate ended"
         except Exception as exc:
             # Preserve the original failure: the finally's cleanup assert
