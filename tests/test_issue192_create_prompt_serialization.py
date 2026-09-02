@@ -148,7 +148,7 @@ class TestCreatePromptSerialization(unittest.TestCase):
             patch("qwen3_tts.server.app_prompts._save_pt", side_effect=_save),
             patch("qwen3_tts.core.engine.clear_voice_prompt_cache"),
         ):
-            result = asyncio.run(handle_create_voice_prompt(state, _prompt_req()))
+            result = asyncio.run(handle_create_voice_prompt(state, _prompt_req(), backend="torch"))
         return result, events
 
     def test_create_runs_with_inference_lock_held(self):
@@ -284,7 +284,7 @@ class TestCreatePromptSerialization(unittest.TestCase):
             patch("qwen3_tts.server.app_prompts._save_pt"),
             patch("qwen3_tts.core.engine.clear_voice_prompt_cache"),
         ):
-            result = asyncio.run(handle_create_voice_prompt(state, _prompt_req()))
+            result = asyncio.run(handle_create_voice_prompt(state, _prompt_req(), backend="torch"))
 
         self.assertEqual(result, {"status": "created", "name": "test_voice"})
         by_kind = {e["kind"]: e for e in events}
@@ -340,7 +340,7 @@ class TestCreatePromptSerialization(unittest.TestCase):
                 # Simulate an in-flight generation holding the GPU lock.
                 async with state.inference_lock:
                     task = asyncio.ensure_future(
-                        handle_create_voice_prompt(state, _prompt_req())
+                        handle_create_voice_prompt(state, _prompt_req(), backend="torch")
                     )
                     # Let the handler run to its lock-acquire point.
                     await asyncio.sleep(0.05)

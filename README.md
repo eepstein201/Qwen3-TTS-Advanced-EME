@@ -476,7 +476,7 @@ The FastAPI server (port 5123) provides the following endpoints:
 | `POST /unload-asr` | Yes | Unload ASR model to free memory |
 | `POST /transcribe` | Yes | Transcribe audio to text using ASR |
 | `GET /prompts` | Yes | List voice prompts (supports `offset`/`limit` pagination) |
-| `POST /create-voice-prompt` | Yes | Create voice clone prompt from uploaded audio |
+| `POST /create-voice-prompt` | Yes | Create voice clone prompt from uploaded audio (requires a non-blank `transcript` unless `no_transcript` is true; MLX stores a `.wav+.txt` pair — no model needed) |
 | `POST /delete-prompt` | Yes | Delete a voice prompt |
 | `POST /rename-prompt` | Yes | Rename a voice prompt |
 | `GET /preview-prompt` | Yes | Return .wav audio bytes for a prompt |

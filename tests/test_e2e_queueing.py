@@ -345,7 +345,14 @@ class TestE2EQueueing:
             c_status, c_body = _status_or_skip(
                 *_make_request(
                     "/create-voice-prompt",
-                    data={"audio_base64": _wav_bytes(seconds=8), "name": name},
+                    data={
+                        "audio_base64": _wav_bytes(seconds=8),
+                        "name": name,
+                        # #236: blank transcript without no_transcript is a
+                        # 400 on both backends — the prompt needs its
+                        # reference text anyway.
+                        "transcript": "e2e queueing tier reference transcript",
+                    },
                     method="POST",
                     timeout=MODEL_OP_TIMEOUT,
                 ),
@@ -354,13 +361,15 @@ class TestE2EQueueing:
             if c_status == 500 and isinstance(c_body, dict) and "create_voice_clone_prompt" in json.dumps(
                 c_body
             ):
+                # Stale-server canary: this branch is dead on a fixed server
+                # (the MLX create path is now inference-free and never calls
+                # that API on ANY mlx-audio version — see the #236 re-scope).
+                # Kept so a partially-upgraded server degrades to a skip.
                 pytest.skip(
-                    "PRE-EXISTING ENGINE GAP (not queueing): the MLX "
-                    "create path calls model.create_voice_clone_prompt(), "
-                    "which mlx-audio 0.4.8 does not implement — "
-                    "/create-voice-prompt cannot run on this backend "
-                    "(possibly fixed by the mlx-audio>=0.5.0 bump). The "
-                    "create-queueing property stays unit-covered by "
+                    "STALE SERVER (pre-#236): the create path still calls "
+                    "model.create_voice_clone_prompt(), which no mlx-audio "
+                    "version implements. The create-queueing property stays "
+                    "unit-covered by "
                     "tests/test_issue192_create_prompt_serialization.py."
                 )
             assert c_status == 200, f"create-voice-prompt failed: {c_status} {c_body}"

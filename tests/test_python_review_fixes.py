@@ -221,7 +221,7 @@ class TestErrorResponseReturnGuard(unittest.TestCase):
         with patch("qwen3_tts.server.app_prompts._error_response") as mock_err:
             mock_err.return_value = None
             with patch("qwen3_tts.core.engine.load_audio_for_cloning", side_effect=ImportError("no torchaudio")):
-                result = asyncio.run(handle_create_voice_prompt(state, req))
+                result = asyncio.run(handle_create_voice_prompt(state, req, backend="torch"))
 
         self.assertIsNone(
             result,
