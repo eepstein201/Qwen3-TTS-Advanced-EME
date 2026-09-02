@@ -1,6 +1,6 @@
 # vLLM-Omni requirements for TTS with audio processing
 # Core vLLM with audio support
-vllm[audio]>=0.6.0
+vllm[audio]>=0.28.0
 
 # Audio processing dependencies
 soundfile>=0.14.0
