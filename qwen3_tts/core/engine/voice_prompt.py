@@ -460,11 +460,12 @@ def save_voice_prompt_mlx(base: str, audio_path: str, transcript: str) -> str:
 
     from qwen3_tts.core.engine.audio_processing import ensure_min_sample_rate
 
+    # NO pre-downmix here: ensure_min_sample_rate downmixes internally and
+    # folds that into was_modified — pre-mixing outside would make the helper
+    # report False for a stereo file (nothing left to change), and the
+    # write-vs-copy policy below would byte-copy the ORIGINAL STEREO file
+    # (Gate B round 1, agy CRITICAL — confirmed empirically).
     ref_audio, ref_sr = sf.read(audio_path, dtype="float32")
-    if ref_audio.ndim > 1:
-        import numpy as np
-
-        ref_audio = np.mean(ref_audio, axis=-1).astype(np.float32)
     try:
         ref_audio, ref_sr, was_modified = ensure_min_sample_rate(ref_audio, ref_sr)
     except RuntimeError as e:

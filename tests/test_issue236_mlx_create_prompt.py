@@ -273,6 +273,31 @@ class TestMlxBranchCreatesPair(unittest.TestCase):
             self.assertEqual(info.samplerate, 24000, "sub-24 kHz must be rewritten up")
             self.assertEqual(info.channels, 1, "stereo must be downmixed")
 
+    def test_native_rate_stereo_still_downmixed(self):
+        """Gate B round 1 (agy CRITICAL, empirically confirmed): a NATIVE-
+        rate stereo file must still land as mono. The helper folds its own
+        downmix into was_modified, so pre-mixing outside it made the writer
+        byte-copy the ORIGINAL STEREO file. Runs everywhere (no librosa)."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            result, _w, _t = _drive_mlx(
+                tmpdir, _req(audio_b64=_wav_bytes(seconds=0.5, channels=2))
+            )
+            self.assertEqual(result.get("status"), "created")
+            info = sf.info(os.path.join(tmpdir, "test_voice.wav"))
+            self.assertEqual(info.channels, 1, "stereo must be downmixed")
+            self.assertEqual(info.samplerate, 24000)
+
+    def test_native_rate_mono_is_a_faithful_copy(self):
+        """The copy path stays byte-exact for an already-24 kHz mono file."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            result, _w, _t = _drive_mlx(tmpdir, _req())
+            self.assertEqual(result.get("status"), "created")
+            src_wav = os.path.join(tmpdir, "test_voice.wav")
+            audio_in, sr_in = sf.read(io.BytesIO(base64.b64decode(_req().audio_base64)))
+            audio_out, sr_out = sf.read(src_wav)
+            self.assertEqual(sr_out, sr_in)
+            self.assertEqual(len(audio_out), len(audio_in))
+
     def test_mlx_branch_needs_neither_model_nor_lock(self):
         """Clone is None and inference_lock is never acquired: the MLX branch
         is inference-free by design. A recording wrapper around the REAL

@@ -67,8 +67,12 @@ def create_and_save_voice_prompt(
         # it) and leaked the file on any failure between write and cleanup.
         fd, wav_path = tempfile.mkstemp(suffix=".wav", dir=USER_FILES_DIR)
         os.close(fd)
-        audio.export(wav_path, format="wav")
-        ref_audio, ref_sr = sf.read(wav_path)
+        try:
+            audio.export(wav_path, format="wav")
+            ref_audio, ref_sr = sf.read(wav_path)
+        except Exception:
+            os.remove(wav_path)
+            raise
         print(f"Audio loaded: {len(ref_audio) / ref_sr:.1f} seconds at {ref_sr}Hz")
 
     # Reference audio below the model's native rate makes MLX clone
@@ -105,9 +109,13 @@ def create_and_save_voice_prompt(
         # the CLI-only pre-step this layer keeps.
         from qwen3_tts.core.engine import save_voice_prompt_mlx
 
-        mlx_wav_path = save_voice_prompt_mlx(base_name, wav_path or audio_path, transcript)
-        if wav_path and os.path.exists(wav_path):
-            os.remove(wav_path)
+        try:
+            mlx_wav_path = save_voice_prompt_mlx(
+                base_name, wav_path or audio_path, transcript
+            )
+        finally:
+            if wav_path and os.path.exists(wav_path):
+                os.remove(wav_path)
         print(f"MLX files saved: {mlx_wav_path}")
         print(
             f'\nDone (MLX-only mode)! Use with: tts -p {prompt_name} "Your text here"'
