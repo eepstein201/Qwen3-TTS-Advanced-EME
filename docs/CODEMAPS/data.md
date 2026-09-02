@@ -1,4 +1,4 @@
-<!-- Generated: 2026-09-01 | Token estimate: ~460 -->
+<!-- Generated: 2026-09-02 | Token estimate: ~460 -->
 
 # Data & Storage — Qwen3-TTS
 
@@ -14,7 +14,7 @@ No database. Persistence = config JSON + filesystem.
 - **history_output_directory** — `~/Downloads/Qwen3-TTS Output`
 
 ## File storage
-- **voice_prompts/** — `.pt` (torch) + `.wav`/`.txt` (mlx) dual format
+- **voice_prompts/** — `.pt` (torch) + `.wav`/`.txt` (mlx) dual format. MLX pair creation is now inference-free (`save_voice_prompt_mlx`, #236) — a direct write, no clone gate, no lock; torch still builds via clone inference
 - **Output** — `~/Downloads/Qwen3-TTS Output/{Automated Output` (generations; Remove = hard-delete), `Manual Downloads` (kept files)`}`
 - **Runtime** — `.voice_server.pid`, `.voice_server.log`, `.voice_server.lock` (startup-race exclusive flock)
 - **Auth token** — `~/.config/qwen3-tts/.voice_server_token` (legacy `~/.voice_server_token`); written atomically (temp file + fsync + `os.replace`)
