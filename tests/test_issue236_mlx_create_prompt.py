@@ -690,7 +690,6 @@ class TestRouteDispatch(unittest.TestCase):
         from starlette.datastructures import Address
         from starlette.requests import Request
 
-        from qwen3_tts.core.engine import voice_prompt as vp
         from qwen3_tts.server import app as app_module
 
         state = _make_state()
@@ -716,9 +715,11 @@ class TestRouteDispatch(unittest.TestCase):
                                 tmpdir, "test_voice.wav"
                             ),
                         ):
-                            with patch.object(
-                                vp,
-                                "create_voice_prompt",
+                            with patch(
+                                # Facade seam: the torch branch resolves
+                                # create_voice_prompt from the engine facade at
+                                # call time; a submodule patch is inert here.
+                                "qwen3_tts.core.engine.create_voice_prompt",
                                 side_effect=AssertionError("torch path must not run"),
                             ):
                                 return await app_module.create_voice_prompt_endpoint(

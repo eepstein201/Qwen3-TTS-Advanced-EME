@@ -321,7 +321,9 @@ class TestCreateAndSaveVoicePromptMlxOnly(unittest.TestCase):
             os.makedirs(prompts_dir)
 
             with mock.patch("qwen3_tts.tools.create_voice.VOICE_PROMPTS_DIR",
-                            prompts_dir):
+                            prompts_dir), mock.patch(
+                "qwen3_tts.core.engine.voice_prompt.VOICE_PROMPTS_DIR", prompts_dir
+            ):
                 with mock.patch("qwen3_tts.tools.create_voice.USER_FILES_DIR",
                                 tmpdir):
                     result = create_and_save_voice_prompt(
@@ -357,7 +359,9 @@ class TestCreateAndSaveVoicePromptMlxOnly(unittest.TestCase):
             os.makedirs(prompts_dir)
 
             with mock.patch("qwen3_tts.tools.create_voice.VOICE_PROMPTS_DIR",
-                            prompts_dir):
+                            prompts_dir), mock.patch(
+                "qwen3_tts.core.engine.voice_prompt.VOICE_PROMPTS_DIR", prompts_dir
+            ):
                 with mock.patch("qwen3_tts.tools.create_voice.USER_FILES_DIR",
                                 tmpdir):
                     create_and_save_voice_prompt(
@@ -389,7 +393,9 @@ class TestCreateAndSaveVoicePromptMlxOnly(unittest.TestCase):
             temp_wav = os.path.join(tmpdir, "temp_reference.wav")
 
             with mock.patch("qwen3_tts.tools.create_voice.VOICE_PROMPTS_DIR",
-                            prompts_dir):
+                            prompts_dir), mock.patch(
+                "qwen3_tts.core.engine.voice_prompt.VOICE_PROMPTS_DIR", prompts_dir
+            ):
                 with mock.patch("qwen3_tts.tools.create_voice.USER_FILES_DIR",
                                 tmpdir):
                     create_and_save_voice_prompt(
@@ -435,7 +441,9 @@ class TestCreateAndSaveVoicePromptTorch(unittest.TestCase):
             os.makedirs(prompts_dir)
 
             with mock.patch("qwen3_tts.tools.create_voice.VOICE_PROMPTS_DIR",
-                            prompts_dir):
+                            prompts_dir), mock.patch(
+                "qwen3_tts.core.engine.voice_prompt.VOICE_PROMPTS_DIR", prompts_dir
+            ):
                 with mock.patch("qwen3_tts.tools.create_voice.USER_FILES_DIR",
                                 tmpdir):
                     with mock.patch.dict(sys.modules, {"torch": mock_torch}):
@@ -489,7 +497,9 @@ class TestCreateAndSaveVoicePromptTorch(unittest.TestCase):
             os.makedirs(prompts_dir)
 
             with mock.patch("qwen3_tts.tools.create_voice.VOICE_PROMPTS_DIR",
-                            prompts_dir):
+                            prompts_dir), mock.patch(
+                "qwen3_tts.core.engine.voice_prompt.VOICE_PROMPTS_DIR", prompts_dir
+            ):
                 with mock.patch("qwen3_tts.tools.create_voice.USER_FILES_DIR",
                                 tmpdir):
                     with mock.patch.dict(sys.modules, {"torch": mock_torch}):
@@ -536,7 +546,9 @@ class TestCreateAndSaveVoicePromptTorch(unittest.TestCase):
             os.makedirs(prompts_dir)
 
             with mock.patch("qwen3_tts.tools.create_voice.VOICE_PROMPTS_DIR",
-                            prompts_dir):
+                            prompts_dir), mock.patch(
+                "qwen3_tts.core.engine.voice_prompt.VOICE_PROMPTS_DIR", prompts_dir
+            ):
                 with mock.patch("qwen3_tts.tools.create_voice.USER_FILES_DIR",
                                 tmpdir):
                     with mock.patch.dict(sys.modules, {"torch": mock_torch}):
@@ -616,7 +628,9 @@ class TestCreateAndSaveVoicePromptPydubFallback(unittest.TestCase):
              mock_pydub_module, mock_sf_read) = self._setup_pydub_test(tmpdir)
 
             with mock.patch("qwen3_tts.tools.create_voice.VOICE_PROMPTS_DIR",
-                            prompts_dir):
+                            prompts_dir), mock.patch(
+                "qwen3_tts.core.engine.voice_prompt.VOICE_PROMPTS_DIR", prompts_dir
+            ):
                 with mock.patch("qwen3_tts.tools.create_voice.USER_FILES_DIR",
                                 tmpdir):
                     with mock.patch("soundfile.read",
@@ -644,7 +658,9 @@ class TestCreateAndSaveVoicePromptPydubFallback(unittest.TestCase):
              mock_pydub_module, mock_sf_read) = self._setup_pydub_test(tmpdir)
 
             with mock.patch("qwen3_tts.tools.create_voice.VOICE_PROMPTS_DIR",
-                            prompts_dir):
+                            prompts_dir), mock.patch(
+                "qwen3_tts.core.engine.voice_prompt.VOICE_PROMPTS_DIR", prompts_dir
+            ):
                 with mock.patch("qwen3_tts.tools.create_voice.USER_FILES_DIR",
                                 tmpdir):
                     with mock.patch("soundfile.read",

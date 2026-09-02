@@ -470,8 +470,10 @@ def save_voice_prompt_mlx(base: str, audio_path: str, transcript: str) -> str:
     except RuntimeError as e:
         raise UnsupportedReferenceAudioError(str(e)) from e
 
-    wav_path = safe_path_join(VOICE_PROMPTS_DIR, f"{base}.wav")
-    txt_path = safe_path_join(VOICE_PROMPTS_DIR, f"{base}.txt")
+    # str(): VOICE_PROMPTS_DIR is a Path; safe_path_join is str-typed (and
+    # returns a resolved str, matching what the loader stores in the cache).
+    wav_path = safe_path_join(str(VOICE_PROMPTS_DIR), f"{base}.wav")
+    txt_path = safe_path_join(str(VOICE_PROMPTS_DIR), f"{base}.txt")
 
     # Same write-vs-copy policy as the UI create path: rewriting identical
     # audio is pointless; anything the rate check modified must be written.
