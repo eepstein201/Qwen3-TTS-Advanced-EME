@@ -9,7 +9,7 @@ import sys
 import tempfile
 import unittest
 from pathlib import Path
-from unittest.mock import Mock, patch
+from unittest.mock import MagicMock, Mock, patch
 
 try:
     import pytest
@@ -573,6 +573,154 @@ class TestCLIStartRewrite(unittest.TestCase):
 
                 self.assertTrue(fake_pid.exists())
                 self.assertEqual(fake_pid.read_text(), "54321")
+
+
+@pytest.mark.unit
+class TestCLIStartPM2Delegation(unittest.TestCase):
+    """start() must delegate to `pm2 start <name>` when a PM2 app is
+    registered for this port -- even fully stopped, since nothing is
+    listening yet for pm2_owner_of_port's PID-walk to find. Otherwise
+    start spawns a second, PM2-untracked daemon on the same port, which
+    then fights the PM2 app the next time it's started/restarted."""
+
+    @patch('qwen3_tts.cli_server._start_server_daemon')
+    def test_start_delegates_to_pm2_when_app_registered(self, mock_daemon):
+        from click.testing import CliRunner
+
+        from qwen3_tts.cli import server
+
+        pm2_result = subprocess.CompletedProcess(
+            args=["pm2", "start", "tts-server-5123"],
+            returncode=0, stdout="", stderr="",
+        )
+        # detect_server_state health check: not running. Poll after pm2 start: running.
+        running_returns = iter([False, True])
+        with patch(
+            'qwen3_tts.core.config.is_server_running',
+            side_effect=lambda _c=None: next(running_returns, True),
+        ), patch(
+            'qwen3_tts.core.config.load_config', return_value={"server": {"port": 5123}},
+        ), patch(
+            'qwen3_tts.core.config.pm2_registered_app', return_value='tts-server-5123',
+        ), patch(
+            'qwen3_tts.cli_server.subprocess.run', return_value=pm2_result,
+        ) as mock_run, patch(
+            'qwen3_tts.cli_server.time.sleep',
+        ):
+            runner = CliRunner()
+            result = runner.invoke(server, ['start'])
+
+        self.assertEqual(result.exit_code, 0, result.output)
+        self.assertIn("tts-server-5123", result.output)
+        mock_run.assert_called_once_with(
+            ["pm2", "start", "tts-server-5123"],
+            capture_output=True, text=True, timeout=30,
+        )
+        # Must never spawn a second, PM2-untracked daemon.
+        mock_daemon.assert_not_called()
+
+    @patch('qwen3_tts.cli_server._start_server_daemon')
+    def test_start_warns_public_flag_ignored_under_pm2(self, mock_daemon):
+        from click.testing import CliRunner
+
+        from qwen3_tts.cli import server
+
+        pm2_result = subprocess.CompletedProcess(
+            args=["pm2", "start", "tts-server-5123"],
+            returncode=0, stdout="", stderr="",
+        )
+        with patch(
+            'qwen3_tts.core.config.is_server_running', return_value=False,
+        ), patch(
+            'qwen3_tts.core.config.load_config', return_value={"server": {"port": 5123}},
+        ), patch(
+            'qwen3_tts.core.config.pm2_registered_app', return_value='tts-server-5123',
+        ), patch(
+            'qwen3_tts.cli_server.subprocess.run', return_value=pm2_result,
+        ), patch(
+            'qwen3_tts.cli_server.time.sleep',
+        ):
+            runner = CliRunner()
+            result = runner.invoke(server, ['start', '--public'])
+
+        self.assertIn("--public", result.output)
+        self.assertIn("ignored", result.output)
+        mock_daemon.assert_not_called()
+
+    @patch('qwen3_tts.cli_server._start_server_daemon')
+    def test_start_reports_pm2_command_failure(self, mock_daemon):
+        from click.testing import CliRunner
+
+        from qwen3_tts.cli import server
+
+        pm2_result = subprocess.CompletedProcess(
+            args=["pm2", "start", "tts-server-5123"],
+            returncode=1, stdout="", stderr="process not found",
+        )
+        with patch(
+            'qwen3_tts.core.config.is_server_running', return_value=False,
+        ), patch(
+            'qwen3_tts.core.config.load_config', return_value={"server": {"port": 5123}},
+        ), patch(
+            'qwen3_tts.core.config.pm2_registered_app', return_value='tts-server-5123',
+        ), patch(
+            'qwen3_tts.cli_server.subprocess.run', return_value=pm2_result,
+        ):
+            runner = CliRunner()
+            result = runner.invoke(server, ['start'])
+
+        self.assertNotEqual(result.exit_code, 0)
+        self.assertIn("process not found", result.output)
+        mock_daemon.assert_not_called()
+
+    @patch('qwen3_tts.cli_server._start_server_daemon')
+    def test_start_foreground_bypasses_pm2(self, mock_daemon):
+        """--foreground (Colab/notebooks) must never consult PM2 -- it
+        runs uvicorn in-process and never reaches _start_server_daemon."""
+        from click.testing import CliRunner
+
+        from qwen3_tts.cli import server
+
+        with patch(
+            'qwen3_tts.core.config.is_server_running', return_value=False,
+        ), patch(
+            'qwen3_tts.core.config.load_config', return_value={"server": {"port": 5123}},
+        ), patch(
+            'qwen3_tts.core.config.pm2_registered_app',
+        ) as mock_registered, patch(
+            'uvicorn.run',
+        ):
+            runner = CliRunner()
+            runner.invoke(server, ['start', '--foreground'])
+
+        mock_registered.assert_not_called()
+        mock_daemon.assert_not_called()
+
+    @patch('qwen3_tts.cli_server._start_server_daemon')
+    def test_start_uses_raw_daemon_when_no_pm2_app(self, mock_daemon):
+        """No PM2 app registered for this port -- falls back to the
+        original bare-daemon path unchanged."""
+        from click.testing import CliRunner
+
+        from qwen3_tts.cli import server
+
+        mock_proc = MagicMock()
+        mock_proc.pid = 55555
+        mock_daemon.return_value = mock_proc
+
+        with patch(
+            'qwen3_tts.core.config.is_server_running', return_value=False,
+        ), patch(
+            'qwen3_tts.core.config.load_config', return_value={"server": {"port": 5123}},
+        ), patch(
+            'qwen3_tts.core.config.pm2_registered_app', return_value=None,
+        ):
+            runner = CliRunner()
+            result = runner.invoke(server, ['start'])
+
+        self.assertEqual(result.exit_code, 0, result.output)
+        self.assertIn("55555", result.output)
+        mock_daemon.assert_called_once()
 
 
 @pytest.mark.unit

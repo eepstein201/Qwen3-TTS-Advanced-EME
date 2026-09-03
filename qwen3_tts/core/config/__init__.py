@@ -160,6 +160,7 @@ from qwen3_tts.core.config.pid import (
 # --- pm2 ---
 from qwen3_tts.core.config.pm2 import (
     pm2_owner_of_port,
+    pm2_registered_app,
 )
 
 # --- presets ---
@@ -245,6 +246,7 @@ __all__ = [
     "detect_server_state",
     # pm2
     "pm2_owner_of_port",
+    "pm2_registered_app",
     # runtime
     "ConfigLoader",
     "DefaultConfigLoader",

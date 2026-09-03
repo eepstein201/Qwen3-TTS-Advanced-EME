@@ -12,7 +12,7 @@ import subprocess
 import unittest
 from unittest.mock import patch
 
-from qwen3_tts.core.config.pm2 import pm2_owner_of_port
+from qwen3_tts.core.config.pm2 import pm2_owner_of_port, pm2_registered_app
 
 
 class TestPm2OwnerOfPort(unittest.TestCase):
@@ -115,6 +115,80 @@ class TestPm2OwnerOfPort(unittest.TestCase):
             side_effect=subprocess.TimeoutExpired(cmd="pm2", timeout=5),
         ):
             self.assertIsNone(pm2_owner_of_port(5123))
+
+
+class TestPm2RegisteredApp(unittest.TestCase):
+    """`tts server start` needs to detect a PM2 app registered for this
+    server even when it's fully stopped (nothing listening on the port
+    yet, so pm2_owner_of_port's PID-ancestry walk can't see it) --
+    otherwise start spawns a second, PM2-untracked daemon on the same
+    port. PM2 keeps an app's name/cwd/pid=0 registration in `jlist` even
+    while stopped, so this matches by the project's established naming
+    convention (`tts-server-<port>`, see CLAUDE.md's PM2 Services table)
+    instead of by PID."""
+
+    def test_returns_none_when_pm2_binary_missing(self):
+        with patch(
+            "qwen3_tts.core.config.pm2.subprocess.run", side_effect=FileNotFoundError
+        ):
+            self.assertIsNone(pm2_registered_app(5123))
+
+    def test_returns_none_when_no_apps_registered(self):
+        proc = subprocess.CompletedProcess(
+            args=[], returncode=0, stdout=json.dumps([]), stderr=""
+        )
+        with patch("qwen3_tts.core.config.pm2.subprocess.run", return_value=proc):
+            self.assertIsNone(pm2_registered_app(5123))
+
+    def test_returns_none_when_name_does_not_match_port(self):
+        apps = [
+            {"name": "some-other-app", "pid": 0, "pm2_env": {"status": "stopped"}}
+        ]
+        proc = subprocess.CompletedProcess(
+            args=[], returncode=0, stdout=json.dumps(apps), stderr=""
+        )
+        with patch("qwen3_tts.core.config.pm2.subprocess.run", return_value=proc):
+            self.assertIsNone(pm2_registered_app(5123))
+
+    def test_returns_name_when_app_is_stopped(self):
+        """The key case: nothing listens on the port, pid is 0, but PM2
+        still knows about the app -- this is what start() must catch."""
+        apps = [
+            {"name": "tts-server-5123", "pid": 0, "pm2_env": {"status": "stopped"}}
+        ]
+        proc = subprocess.CompletedProcess(
+            args=[], returncode=0, stdout=json.dumps(apps), stderr=""
+        )
+        with patch("qwen3_tts.core.config.pm2.subprocess.run", return_value=proc):
+            self.assertEqual(pm2_registered_app(5123), "tts-server-5123")
+
+    def test_returns_name_when_app_is_online(self):
+        apps = [
+            {"name": "tts-server-5123", "pid": 12345, "pm2_env": {"status": "online"}}
+        ]
+        proc = subprocess.CompletedProcess(
+            args=[], returncode=0, stdout=json.dumps(apps), stderr=""
+        )
+        with patch("qwen3_tts.core.config.pm2.subprocess.run", return_value=proc):
+            self.assertEqual(pm2_registered_app(5123), "tts-server-5123")
+
+    def test_returns_none_on_malformed_jlist(self):
+        proc = subprocess.CompletedProcess(
+            args=[], returncode=0, stdout="not json", stderr=""
+        )
+        with patch("qwen3_tts.core.config.pm2.subprocess.run", return_value=proc):
+            self.assertIsNone(pm2_registered_app(5123))
+
+    def test_uses_port_specific_name(self):
+        apps = [
+            {"name": "tts-server-9999", "pid": 0, "pm2_env": {"status": "stopped"}}
+        ]
+        proc = subprocess.CompletedProcess(
+            args=[], returncode=0, stdout=json.dumps(apps), stderr=""
+        )
+        with patch("qwen3_tts.core.config.pm2.subprocess.run", return_value=proc):
+            self.assertIsNone(pm2_registered_app(5123))
+            self.assertEqual(pm2_registered_app(9999), "tts-server-9999")
 
 
 class TestParentPid(unittest.TestCase):

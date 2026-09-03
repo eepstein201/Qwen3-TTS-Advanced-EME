@@ -39,6 +39,28 @@ def _parent_pid(pid: int) -> int | None:
         return None
 
 
+def _pm2_jlist() -> list | None:
+    """Return the parsed `pm2 jlist` app list, or None if pm2 is
+    unavailable/unusable (not installed, timed out, non-zero exit, or
+    malformed output)."""
+    try:
+        result = subprocess.run(  # nosec B603, B607  # hardcoded "pm2 jlist"; no user input
+            ["pm2", "jlist"],
+            capture_output=True,
+            text=True,
+            timeout=5,
+        )
+    except (subprocess.TimeoutExpired, FileNotFoundError):
+        return None
+    if result.returncode != 0 or not result.stdout.strip():
+        return None
+    try:
+        apps = json.loads(result.stdout)
+    except ValueError:
+        return None
+    return apps if isinstance(apps, list) else None
+
+
 def pm2_owner_of_port(port: int) -> str | None:
     """Return the PM2 app name managing the process listening on `port`, or None.
 
@@ -54,21 +76,8 @@ def pm2_owner_of_port(port: int) -> str | None:
     if pid is None:
         return None
 
-    try:
-        result = subprocess.run(  # nosec B603, B607  # hardcoded "pm2 jlist"; no user input
-            ["pm2", "jlist"],
-            capture_output=True,
-            text=True,
-            timeout=5,
-        )
-    except (subprocess.TimeoutExpired, FileNotFoundError):
-        return None
-    if result.returncode != 0 or not result.stdout.strip():
-        return None
-
-    try:
-        apps = json.loads(result.stdout)
-    except ValueError:
+    apps = _pm2_jlist()
+    if not apps:
         return None
 
     online_pids = {
@@ -89,4 +98,30 @@ def pm2_owner_of_port(port: int) -> str | None:
         if parent is None or parent <= 1:
             break
         current = parent
+    return None
+
+
+def pm2_registered_app(port: int) -> str | None:
+    """Return the PM2 app name for this server's port if PM2 has ANY
+    entry registered under it (any status -- online, stopped, errored),
+    or None.
+
+    `pm2_owner_of_port` can only see an app PM2 is *currently running*
+    (it walks the listening PID's ancestry, so it needs a live process).
+    `tts server start` needs to detect a *stopped* PM2 app too --
+    otherwise it spawns a second, PM2-untracked daemon on the same port
+    the next time the PM2 app is started. PM2 keeps an app's
+    registration (name, cwd, `pid: 0`) in `jlist` even while stopped, so
+    this matches by this project's established naming convention
+    (`tts-server-<port>`, see CLAUDE.md's PM2 Services table) rather
+    than by PID.
+    """
+    apps = _pm2_jlist()
+    if not apps:
+        return None
+
+    expected_name = f"tts-server-{port}"
+    for app in apps:
+        if isinstance(app, dict) and app.get("name") == expected_name:
+            return expected_name
     return None
