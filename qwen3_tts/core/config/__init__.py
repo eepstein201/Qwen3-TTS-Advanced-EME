@@ -16,6 +16,9 @@ Submodules:
                    default config template
     pid.py      — PID lifecycle helpers (read/write/cleanup, lsof lookup,
                    liveness, unified server-state detection)
+    pm2.py      — PM2 process-supervision detection (pm2_owner_of_port) so
+                   `tts server stop/restart` can delegate to `pm2 stop`/
+                   `pm2 restart` instead of fighting PM2's autorestart
     runtime.py  — ConfigLoader DI protocol, device/attention detection,
                    server URL validation, voice-prompt lookup, path/log/
                    voice-name safety helpers
@@ -154,6 +157,12 @@ from qwen3_tts.core.config.pid import (
     write_pid_file,
 )
 
+# --- pm2 ---
+from qwen3_tts.core.config.pm2 import (
+    pm2_owner_of_port,
+    pm2_registered_app,
+)
+
 # --- presets ---
 from qwen3_tts.core.config.presets import (
     DEFAULT_GENERATION_PRESETS,
@@ -191,6 +200,7 @@ from . import (
     models,
     paths,
     pid,
+    pm2,
     presets,
     runtime,
 )
@@ -203,6 +213,7 @@ __all__ = [
     "paths",
     "io",
     "pid",
+    "pm2",
     "runtime",
     "models",
     "presets",
@@ -233,6 +244,9 @@ __all__ = [
     "find_pid_by_port",
     "is_pid_alive",
     "detect_server_state",
+    # pm2
+    "pm2_owner_of_port",
+    "pm2_registered_app",
     # runtime
     "ConfigLoader",
     "DefaultConfigLoader",

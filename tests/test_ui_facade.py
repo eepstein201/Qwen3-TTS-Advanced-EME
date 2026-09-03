@@ -23,10 +23,12 @@ except ImportError:
 class TestStopServer(unittest.TestCase):
     """Tests for stop_server function."""
 
+    @patch("qwen3_tts.interface.ui._facade.pm2_owner_of_port", return_value=None)
+    @patch("qwen3_tts.interface.ui._facade.load_config", return_value={"server": {"port": 5123}})
     @patch("qwen3_tts.interface.ui._facade.format_status_display", return_value="<html>stopped</html>")
     @patch("qwen3_tts.interface.ui._facade.TTSClient")
     @patch("time.sleep")
-    def test_shutdown_success_immediate(self, _sleep, mock_client_cls, mock_format):
+    def test_shutdown_success_immediate(self, _sleep, mock_client_cls, mock_format, mock_load, mock_pm2):
         from qwen3_tts.interface.ui._facade import stop_server
         mock_client = MagicMock()
         mock_client_cls.return_value = mock_client
@@ -35,10 +37,12 @@ class TestStopServer(unittest.TestCase):
         mock_client.shutdown.assert_called_once()
         self.assertEqual(result, "<html>stopped</html>")
 
+    @patch("qwen3_tts.interface.ui._facade.pm2_owner_of_port", return_value=None)
+    @patch("qwen3_tts.interface.ui._facade.load_config", return_value={"server": {"port": 5123}})
     @patch("qwen3_tts.interface.ui._facade.format_status_display", return_value="<html>status</html>")
     @patch("qwen3_tts.interface.ui._facade.TTSClient")
     @patch("time.sleep")
-    def test_shutdown_polls_until_stopped(self, _sleep, mock_client_cls, mock_format):
+    def test_shutdown_polls_until_stopped(self, _sleep, mock_client_cls, mock_format, mock_load, mock_pm2):
         from qwen3_tts.interface.ui._facade import stop_server
         mock_client = MagicMock()
         mock_client_cls.return_value = mock_client
@@ -47,10 +51,12 @@ class TestStopServer(unittest.TestCase):
         stop_server()
         self.assertEqual(mock_client.is_server_running.call_count, 4)
 
+    @patch("qwen3_tts.interface.ui._facade.pm2_owner_of_port", return_value=None)
+    @patch("qwen3_tts.interface.ui._facade.load_config", return_value={"server": {"port": 5123}})
     @patch("qwen3_tts.interface.ui._facade.format_status_display", return_value="<html>timeout</html>")
     @patch("qwen3_tts.interface.ui._facade.TTSClient")
     @patch("time.sleep")
-    def test_shutdown_timeout(self, _sleep, mock_client_cls, mock_format):
+    def test_shutdown_timeout(self, _sleep, mock_client_cls, mock_format, mock_load, mock_pm2):
         from qwen3_tts.interface.ui._facade import stop_server
         mock_client = MagicMock()
         mock_client_cls.return_value = mock_client
@@ -59,10 +65,12 @@ class TestStopServer(unittest.TestCase):
         # Should have polled 10 times
         self.assertEqual(mock_client.is_server_running.call_count, 10)
 
+    @patch("qwen3_tts.interface.ui._facade.pm2_owner_of_port", return_value=None)
+    @patch("qwen3_tts.interface.ui._facade.load_config", return_value={"server": {"port": 5123}})
     @patch("qwen3_tts.interface.ui._facade.format_status_display", return_value="<html>err</html>")
     @patch("qwen3_tts.interface.ui._facade.TTSClient")
     @patch("time.sleep")
-    def test_shutdown_exception_handled(self, _sleep, mock_client_cls, mock_format):
+    def test_shutdown_exception_handled(self, _sleep, mock_client_cls, mock_format, mock_load, mock_pm2):
         from qwen3_tts.interface.ui._facade import stop_server
         mock_client = MagicMock()
         mock_client_cls.return_value = mock_client
@@ -71,6 +79,64 @@ class TestStopServer(unittest.TestCase):
         # Should not raise
         result = stop_server()
         self.assertIsNotNone(result)
+
+    @patch("qwen3_tts.interface.ui._facade.pm2_owner_of_port", return_value="tts-server-5123")
+    @patch("qwen3_tts.interface.ui._facade.load_config", return_value={"server": {"port": 5123}})
+    @patch("qwen3_tts.interface.ui._facade.format_status_display", return_value="<html>pm2-stopped</html>")
+    @patch("qwen3_tts.interface.ui._facade.TTSClient")
+    @patch("qwen3_tts.interface.ui._facade.subprocess.run")
+    @patch("time.sleep")
+    def test_stop_delegates_to_pm2_when_pm2_managed(
+        self, _sleep, mock_run, mock_client_cls, mock_format, mock_load, mock_pm2
+    ):
+        """The whole reason this branch exists: killing the process
+        directly is undone by PM2's autorestart within seconds, so a
+        PM2-managed server must go through `pm2 stop`, not /shutdown."""
+        import subprocess as _subprocess
+
+        from qwen3_tts.interface.ui._facade import stop_server
+
+        mock_client = MagicMock()
+        mock_client_cls.return_value = mock_client
+        mock_client.is_server_running.return_value = False
+        mock_run.return_value = _subprocess.CompletedProcess(
+            args=["pm2", "stop", "tts-server-5123"], returncode=0, stdout="", stderr="",
+        )
+
+        result = stop_server()
+
+        mock_run.assert_called_once_with(
+            ["pm2", "stop", "tts-server-5123"],
+            capture_output=True, text=True, timeout=15,
+        )
+        # Must NOT fall back to /shutdown.
+        mock_client.shutdown.assert_not_called()
+        self.assertEqual(result, "<html>pm2-stopped</html>")
+
+    @patch("qwen3_tts.interface.ui._facade.pm2_owner_of_port", return_value="tts-server-5123")
+    @patch("qwen3_tts.interface.ui._facade.load_config", return_value={"server": {"port": 5123}})
+    @patch("qwen3_tts.interface.ui._facade.format_status_display", return_value="<html>failed</html>")
+    @patch("qwen3_tts.interface.ui._facade.TTSClient")
+    @patch("qwen3_tts.interface.ui._facade.subprocess.run")
+    @patch("time.sleep")
+    def test_stop_pm2_command_failure_does_not_raise(
+        self, _sleep, mock_run, mock_client_cls, mock_format, mock_load, mock_pm2
+    ):
+        import subprocess as _subprocess
+
+        from qwen3_tts.interface.ui._facade import stop_server
+
+        mock_client = MagicMock()
+        mock_client_cls.return_value = mock_client
+        mock_run.return_value = _subprocess.CompletedProcess(
+            args=["pm2", "stop", "tts-server-5123"],
+            returncode=1, stdout="", stderr="process not found",
+        )
+
+        result = stop_server()
+
+        mock_client.shutdown.assert_not_called()
+        self.assertEqual(result, "<html>failed</html>")
 
 
 class TestFindAvailablePort(unittest.TestCase):

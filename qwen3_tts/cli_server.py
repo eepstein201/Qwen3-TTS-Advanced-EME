@@ -43,6 +43,42 @@ def server():
     pass
 
 
+def _start_via_pm2(name, config, public):
+    """Start a registered-but-stopped PM2-managed server via `pm2 start <name>`.
+
+    Falling through to `_start_server_daemon()` here would spawn a
+    second, PM2-untracked process bound to the same port as soon as the
+    PM2 app is next started or restarted -- `pm2 start` is PM2's own way
+    to bring a registered-but-stopped app back up.
+    """
+    from qwen3_tts.core.config import is_server_running
+
+    if public:
+        click.echo(
+            "Warning: --public is ignored when the server is managed by PM2; "
+            "edit ecosystem.config.cjs instead."
+        )
+    click.echo(f"Server is managed by PM2 (app '{name}') — using `pm2 start {name}`.")
+    result = subprocess.run(  # nosec B603, B607  # hardcoded "pm2 start <name>"; name derives from the configured port, not user input
+        ["pm2", "start", name],
+        capture_output=True,
+        text=True,
+        timeout=30,
+    )
+    if result.returncode != 0:
+        click.echo(f"pm2 start failed: {(result.stderr or result.stdout).strip()}")
+        sys.exit(1)
+
+    for _ in range(20):
+        time.sleep(0.5)
+        if is_server_running(config):
+            click.echo("TTS Server started via PM2.")
+            sys.exit(0)
+
+    click.echo("Error: server did not come up in time.")
+    sys.exit(1)
+
+
 @server.command()
 @click.option("--public", is_flag=True, help="Bind to 0.0.0.0")
 @click.option(
@@ -88,12 +124,25 @@ def start(public, foreground):
             host = "0.0.0.0"  # nosec B104  # intentional --public network bind
         port = config.get("server", {}).get("port", 5123)
         uvicorn.run(app, host=host, port=port, log_level="info")
-    else:
-        proc = _start_server_daemon(public=public)
-        click.echo(f"TTS Server started with PID {proc.pid}")
-        from qwen3_tts.core.config import LOG_FILE
+        return
 
-        click.echo(f"Logs: {LOG_FILE}")
+    # A PM2-registered app for this port (even fully stopped, with
+    # nothing yet listening) must be started through PM2 -- see
+    # _start_via_pm2. --foreground (above) never applies here: it's the
+    # explicit non-daemon, non-PM2 escape hatch for Colab/notebooks.
+    from qwen3_tts.core.config import pm2_registered_app
+
+    port = config.get("server", {}).get("port", 5123)
+    pm2_name = pm2_registered_app(port)
+    if pm2_name:
+        _start_via_pm2(pm2_name, config, public)
+        return
+
+    proc = _start_server_daemon(public=public)
+    click.echo(f"TTS Server started with PID {proc.pid}")
+    from qwen3_tts.core.config import LOG_FILE
+
+    click.echo(f"Logs: {LOG_FILE}")
 
 
 def _reject_if_not_stoppable(state):
@@ -206,16 +255,60 @@ def _report_stop_result(config, port):
     click.echo("TTS Server stopped.")
 
 
+def _stop_via_pm2(name, config, port):
+    """Stop a PM2-managed server via `pm2 stop <name>`.
+
+    Killing the process directly (SIGTERM/SIGKILL, or letting /shutdown
+    exit it) is indistinguishable to PM2 from a crash, so its
+    `autorestart: true` respawns the server within `restart_delay`
+    seconds and the stop silently undoes itself. `pm2 stop` marks the
+    app as intentionally stopped, which suppresses autorestart.
+    """
+    from qwen3_tts.core.config import is_server_running
+
+    click.echo(f"Server is managed by PM2 (app '{name}') — using `pm2 stop {name}`.")
+    result = subprocess.run(  # nosec B603, B607  # hardcoded "pm2 stop <name>"; name comes from pm2's own jlist, not user input
+        ["pm2", "stop", name],
+        capture_output=True,
+        text=True,
+        timeout=15,
+    )
+    if result.returncode != 0:
+        click.echo(f"pm2 stop failed: {(result.stderr or result.stdout).strip()}")
+        sys.exit(1)
+
+    for _ in range(10):
+        time.sleep(0.5)
+        if not is_server_running(config):
+            click.echo("TTS Server stopped.")
+            sys.exit(0)
+
+    click.echo(
+        f"Error: TTS Server is still running on port {port} after `pm2 stop {name}`."
+    )
+    sys.exit(1)
+
+
 @server.command()
 def stop():
     """Stop the TTS server."""
-    from qwen3_tts.core.config import detect_server_state, load_config
+    from qwen3_tts.core.config import (
+        detect_server_state,
+        load_config,
+        pm2_owner_of_port,
+    )
 
     config = load_config()
     port = config.get("server", {}).get("port", 5123)
     state = detect_server_state(config)
 
     _reject_if_not_stoppable(state)
+
+    # A PM2-supervised server must be stopped through PM2 -- see _stop_via_pm2.
+    pm2_name = pm2_owner_of_port(port)
+    if pm2_name:
+        _stop_via_pm2(pm2_name, config, port)
+        return
 
     # Server is running — attempt graceful shutdown via /shutdown
     _attempt_graceful_shutdown(state, config)
@@ -226,14 +319,56 @@ def stop():
     _report_stop_result(config, port)
 
 
+def _restart_via_pm2(name, config, public):
+    """Restart a PM2-managed server via `pm2 restart <name>`.
+
+    Stopping through the normal daemon path (`_start_server_daemon`)
+    after a PM2-delegated stop would spawn a second, PM2-untracked
+    process on the same port -- `pm2 restart` is the single atomic
+    operation PM2 offers for this case.
+    """
+    from qwen3_tts.core.config import is_server_running
+
+    if public:
+        click.echo(
+            "Warning: --public is ignored when the server is managed by PM2; "
+            "edit ecosystem.config.cjs instead."
+        )
+    click.echo(f"Server is managed by PM2 (app '{name}') — using `pm2 restart {name}`.")
+    result = subprocess.run(  # nosec B603, B607  # hardcoded "pm2 restart <name>"; name comes from pm2's own jlist, not user input
+        ["pm2", "restart", name],
+        capture_output=True,
+        text=True,
+        timeout=30,
+    )
+    if result.returncode != 0:
+        click.echo(f"pm2 restart failed: {(result.stderr or result.stdout).strip()}")
+        sys.exit(1)
+
+    for _ in range(20):
+        time.sleep(0.5)
+        if is_server_running(config):
+            click.echo("TTS Server restarted via PM2.")
+            sys.exit(0)
+
+    click.echo("Error: server did not come back up in time.")
+    sys.exit(1)
+
+
 @server.command()
 @click.option("--public", is_flag=True, help="Bind to 0.0.0.0")
 @click.pass_context
 def restart(ctx, public):
     """Stop the server, then start it again (daemon mode)."""
-    from qwen3_tts.core.config import is_server_running, load_config
+    from qwen3_tts.core.config import is_server_running, load_config, pm2_owner_of_port
 
     config = load_config()
+    port = config.get("server", {}).get("port", 5123)
+
+    pm2_name = pm2_owner_of_port(port)
+    if pm2_name:
+        _restart_via_pm2(pm2_name, config, public)
+        return
 
     if is_server_running(config):
         try:

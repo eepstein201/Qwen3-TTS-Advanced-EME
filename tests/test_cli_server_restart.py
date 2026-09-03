@@ -1,5 +1,6 @@
 """Tests for tts server restart command."""
 
+import subprocess
 import unittest
 from unittest.mock import MagicMock, patch
 
@@ -22,6 +23,8 @@ class TestServerRestart(unittest.TestCase):
 
         with patch(
             "qwen3_tts.core.config.is_server_running", return_value=False
+        ), patch(
+            "qwen3_tts.core.config.pm2_owner_of_port", return_value=None,
         ), patch(
             "qwen3_tts.core.config.detect_server_state",
             return_value={"running": False, "stale_pid": False, "pid": None,
@@ -50,6 +53,8 @@ class TestServerRestart(unittest.TestCase):
         ), patch(
             "qwen3_tts.core.config.load_config",
             return_value={"server": {"port": 5123}},
+        ), patch(
+            "qwen3_tts.core.config.pm2_owner_of_port", return_value=None,
         ), patch(
             "qwen3_tts.core.config.detect_server_state",
             return_value={"running": True, "stale_pid": False, "pid": 1234,
@@ -84,6 +89,8 @@ class TestServerRestart(unittest.TestCase):
         with patch(
             "qwen3_tts.core.config.is_server_running", return_value=False,
         ), patch(
+            "qwen3_tts.core.config.pm2_owner_of_port", return_value=None,
+        ), patch(
             "qwen3_tts.core.config.load_config",
             return_value={"server": {"port": 5123}},
         ), patch(
@@ -99,6 +106,8 @@ class TestServerRestart(unittest.TestCase):
     def test_restart_fails_if_server_wont_stop(self):
         with patch(
             "qwen3_tts.core.config.is_server_running", return_value=True,
+        ), patch(
+            "qwen3_tts.core.config.pm2_owner_of_port", return_value=None,
         ), patch(
             "qwen3_tts.core.config.load_config",
             return_value={"server": {"port": 5123}},
@@ -131,6 +140,92 @@ class TestServerRestart(unittest.TestCase):
             or "failed to stop" in result.output,
             f"Unexpected output: {result.output}",
         )
+
+
+class TestServerRestartPM2Delegation(unittest.TestCase):
+    """restart() must delegate to `pm2 restart <name>` when PM2 owns the
+    process, rather than stopping it (which itself delegates to `pm2
+    stop`) and then spawning a *second*, PM2-untracked daemon via
+    `_start_server_daemon()` on the same port."""
+
+    def setUp(self):
+        self.runner = CliRunner()
+
+    @patch("qwen3_tts.cli_server._start_server_daemon")
+    def test_restart_delegates_to_pm2_when_pm2_managed(self, mock_start):
+        pm2_result = subprocess.CompletedProcess(
+            args=["pm2", "restart", "tts-server-5123"],
+            returncode=0, stdout="", stderr="",
+        )
+        with patch(
+            "qwen3_tts.core.config.load_config",
+            return_value={"server": {"port": 5123}},
+        ), patch(
+            "qwen3_tts.core.config.pm2_owner_of_port", return_value="tts-server-5123",
+        ), patch(
+            "qwen3_tts.core.config.is_server_running", return_value=True,
+        ), patch(
+            "qwen3_tts.cli_server.subprocess.run", return_value=pm2_result,
+        ) as mock_run, patch(
+            "qwen3_tts.cli_server.time.sleep",
+        ):
+            result = self.runner.invoke(server, ["restart"])
+
+        self.assertEqual(result.exit_code, 0, result.output)
+        self.assertIn("tts-server-5123", result.output)
+        mock_run.assert_called_once_with(
+            ["pm2", "restart", "tts-server-5123"],
+            capture_output=True, text=True, timeout=30,
+        )
+        # Must never spawn a second, PM2-untracked daemon.
+        mock_start.assert_not_called()
+
+    @patch("qwen3_tts.cli_server._start_server_daemon")
+    def test_restart_warns_public_flag_ignored_under_pm2(self, mock_start):
+        pm2_result = subprocess.CompletedProcess(
+            args=["pm2", "restart", "tts-server-5123"],
+            returncode=0, stdout="", stderr="",
+        )
+        with patch(
+            "qwen3_tts.core.config.load_config",
+            return_value={"server": {"port": 5123}},
+        ), patch(
+            "qwen3_tts.core.config.pm2_owner_of_port", return_value="tts-server-5123",
+        ), patch(
+            "qwen3_tts.core.config.is_server_running", return_value=True,
+        ), patch(
+            "qwen3_tts.cli_server.subprocess.run", return_value=pm2_result,
+        ), patch(
+            "qwen3_tts.cli_server.time.sleep",
+        ):
+            result = self.runner.invoke(server, ["restart", "--public"])
+
+        self.assertEqual(result.exit_code, 0, result.output)
+        self.assertIn("--public", result.output)
+        self.assertIn("ignored", result.output)
+        mock_start.assert_not_called()
+
+    @patch("qwen3_tts.cli_server._start_server_daemon")
+    def test_restart_reports_pm2_command_failure(self, mock_start):
+        pm2_result = subprocess.CompletedProcess(
+            args=["pm2", "restart", "tts-server-5123"],
+            returncode=1, stdout="", stderr="process not found",
+        )
+        with patch(
+            "qwen3_tts.core.config.load_config",
+            return_value={"server": {"port": 5123}},
+        ), patch(
+            "qwen3_tts.core.config.pm2_owner_of_port", return_value="tts-server-5123",
+        ), patch(
+            "qwen3_tts.core.config.is_server_running", return_value=True,
+        ), patch(
+            "qwen3_tts.cli_server.subprocess.run", return_value=pm2_result,
+        ):
+            result = self.runner.invoke(server, ["restart"])
+
+        self.assertNotEqual(result.exit_code, 0)
+        self.assertIn("process not found", result.output)
+        mock_start.assert_not_called()
 
 
 if __name__ == "__main__":

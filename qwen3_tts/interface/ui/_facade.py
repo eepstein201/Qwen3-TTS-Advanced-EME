@@ -13,6 +13,7 @@ The tab builders and the Recent Generations handlers live in sibling modules
 """
 
 import logging
+import subprocess  # nosec B404  # hardcoded "pm2 stop <name>"; name comes from pm2's own jlist, not user input
 import sys
 import time
 
@@ -23,6 +24,7 @@ from qwen3_tts.core.config import (
     VALID_MLX_QUANTIZATIONS,
     VALID_MODEL_SIZES,
     load_config,
+    pm2_owner_of_port,
 )
 
 # confirm_step is re-exported here as part of the UI confirm-pattern wiring
@@ -93,9 +95,52 @@ _MODEL_SIZE_DESCRIPTIONS = {
 STATUS_POLL_SECONDS = 5
 
 
+def _stop_server_via_pm2(name, client):
+    """Stop a PM2-managed server via `pm2 stop <name>`.
+
+    Mirrors `qwen3_tts.cli_server._stop_via_pm2`: POSTing /shutdown (or
+    any other direct kill) is indistinguishable to PM2 from a crash, so
+    its `autorestart: true` (ecosystem.config.cjs) respawns the server
+    within `restart_delay` -- before this function's own poll loop could
+    ever observe it as stopped.
+    """
+    logger.info("Server is managed by PM2 (app '%s') — using `pm2 stop %s`.", name, name)
+    try:
+        result = subprocess.run(  # nosec B603, B607
+            ["pm2", "stop", name],
+            capture_output=True,
+            text=True,
+            timeout=15,
+        )
+    except (subprocess.TimeoutExpired, FileNotFoundError) as e:
+        logger.warning("pm2 stop failed to run: %s", e)
+        return format_status_display()
+
+    if result.returncode != 0:
+        logger.warning(
+            "pm2 stop failed: %s", (result.stderr or result.stdout).strip()
+        )
+        return format_status_display()
+
+    for _ in range(10):
+        time.sleep(0.5)
+        if not client.is_server_running():
+            break
+
+    return format_status_display()
+
+
 def stop_server():
     """Stop the TTS server from the UI."""
+    config = load_config()
+    port = config.get("server", {}).get("port", 5123)
     client = TTSClient()
+
+    # A PM2-supervised server must be stopped through PM2 -- see
+    # _stop_server_via_pm2.
+    pm2_name = pm2_owner_of_port(port)
+    if pm2_name:
+        return _stop_server_via_pm2(pm2_name, client)
 
     try:
         result = client.shutdown()
