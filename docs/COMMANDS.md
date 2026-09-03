@@ -161,8 +161,8 @@ All generation commands support these options (use `tts generate --help` for ful
 
 | Command | Description |
 |---------|-------------|
-| `tts server start` | Start model server as a background daemon (default port 5123); `--public` binds 0.0.0.0, `--foreground` runs in the foreground (Colab/notebooks) |
-| `tts server stop` | Graceful server shutdown |
+| `tts server start` | Start model server as a background daemon (default port 5123). If PM2 is running and has a registered `tts-server-<port>` app (stopped or online), delegates to `pm2 start` instead. `--public` binds 0.0.0.0 (ignored under PM2; edit `ecosystem.config.cjs` instead), `--foreground` runs in the foreground (Colab/notebooks; non-PM2 escape hatch) |
+| `tts server stop` | Graceful server shutdown. If PM2 is running and has a listening server, delegates to `pm2 stop` to prevent autorestart from undoing the stop. Falls back to graceful shutdown (`/shutdown`) and SIGTERM/SIGKILL if no PM2 detected |
 | `tts server status` | Show server status and loaded models |
 | `tts server log` | Tail server log file |
-| `tts server restart` | Restart server (stop + start) |
+| `tts server restart` | Restart server. If PM2 is running and has a listening server, delegates to `pm2 restart`. Otherwise, invokes `stop` + `start` |

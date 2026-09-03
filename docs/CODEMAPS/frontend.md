@@ -1,4 +1,4 @@
-<!-- Generated: 2026-09-02 | Files scanned: interface/ui/ (4.9k LOC) | Token estimate: ~440 -->
+<!-- Generated: 2026-09-03 | Files scanned: interface/ui/ (4.9k LOC) | Token estimate: ~450 -->
 
 # Frontend — Gradio Web UI (`interface/ui/`)
 
@@ -7,7 +7,7 @@ Gradio web UI, launched via `tts ui`. Pin gradio `!=6.14.*` (6.14.x recurses on 
 ## Module map (LOC)
 - **shared.py** 879 — collaborators (`get_presets` etc.); referenced module-style so `mock.patch` targets the definition site
 - **generation.py** 726 — generation wiring (server calls via TTSClient)
-- **_facade.py** 540 — `build_ui` / `main` / `stop_server` + re-exports (every moved name re-exported so `from _facade import X` still works)
+- **_facade.py** 540 — `build_ui` / `main` / `stop_server` (now PM2-aware via `pm2_owner_of_port`, #248) + re-exports (every moved name re-exported so `from _facade import X` still works)
 - **voice_management.py** 513 — voice CRUD handlers; enforces `ensure_min_sample_rate` at write time
 - **tabs_generation.py** 502 — Clone / Design / Custom tab builders
 - **components.py** 484 — `ConfirmButton`, `confirm_step`, `ProgressIndicator`, `StatusBanner`, `status_badge`, `poll_model_loading_state`

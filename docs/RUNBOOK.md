@@ -90,6 +90,8 @@ The server runs as a daemon and does **not** auto-reload on code changes. To pic
 tts server stop && tts server start
 ```
 
+> **Note:** When PM2 is running (see below), `tts server start`/`stop`/`restart` commands automatically detect the PM2-managed server and delegate to `pm2 start`/`pm2 stop`/`pm2 restart`. This prevents PM2's autorestart from undoing an intentional stop.
+
 **Production mode with PM2 (recommended):**
 
 The repo ships an `ecosystem.config.cjs` defining the `tts-server-5123` app (runs `start.cjs`).

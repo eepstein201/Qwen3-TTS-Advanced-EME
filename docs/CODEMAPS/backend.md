@@ -1,4 +1,4 @@
-<!-- Generated: 2026-09-02 | Files scanned: server/ (7.3k LOC) | Token estimate: ~620 -->
+<!-- Generated: 2026-09-03 | Files scanned: server/ (7.3k LOC), config/pm2.py (128 LOC) | Token estimate: ~650 -->
 
 # Backend — FastAPI Server (:5123)
 
@@ -24,6 +24,7 @@ All JSON routes carry Pydantic `response_model=` contracts (`server/validation.p
 - **Error sanitization** — `/health` redacts filesystem paths to `<path>` (CWE-209)
 - **Startup lock** — `_acquire_startup_lock()` (`app_lifespan.py`) takes an exclusive non-blocking `flock` on `.voice_server.lock` before anything else in `lifespan()`, aborting a losing `tts server start`/`tts ui` process before it can clobber the winner's auth token
 - **starlette** pinned `>=1.6.0,<2` — custom body-size middleware retained over native `max_body_size` (pre-auth no-buffer ordering + Content-Length fast path)
+- **PM2 process-supervision (#248)** — new `core/config/pm2.py` detects PM2-managed servers via `pm2_owner_of_port(port)` (walks ancestor chain to find online PM2 app) and `pm2_registered_app(port)` (matches by naming convention for stopped apps). `cli_server.py` `start`/`stop`/`restart` commands now auto-delegate to `pm2 start`/`pm2 stop`/`pm2 restart` when detected, instead of spawning/killing directly (which PM2's autorestart would undo). `tts ui` stop button uses the same detection in `interface/ui/_facade.py`
 
 ## Client
 `server/client/` — `TTSClient` (generator / models / voices / config_fetcher / _base). CLI & UI call the server through this. Surfaces `last_seed`, `last_chunk_count`. Per-route timeouts scale for long-running ops: `_generation_timeout(len(text))` for `/generate`, `LOAD_MODEL_TIMEOUT_SEC`/`TRANSCRIBE_TIMEOUT_SEC`/`CREATE_PROMPT_TIMEOUT_SEC`/`UNLOAD_ASR_TIMEOUT_SEC` = 900s for the leaf-locked inference paths (#192/#214 — see architecture.md).

@@ -1,30 +1,156 @@
-Codemap update — 2026-09-02
-Baseline: 5fb74af (2026-09-01 08:52:24, PR #232 refresh)
-Current:  c3e3a4a (2026-09-02 11:58:09)
-Diff size: 21 insertions / 16 deletions across 5 files (~20% of codemap lines) — updated in place, no approval needed.
+CODEMAP UPDATE SUMMARY — 2026-09-03
+====================================
 
-Commits since baseline (7):
-  3254cf6 fix(server): dedup in-flight /load-model via per-load records (#214 item 3) (#233)
-  9821172 docs: compact CLAUDE.md from 293 to 242 lines (#234)
-  d590572 fix(server): close the /unload-model queued-generation window; e2e queuing tier; #201 field watch (closes #214) (#235)
-  2f695f7 docs: mlx-audio 0.4.8->0.5.1 evaluation (#222) - GO on the bump, #236 premise corrected (#239)
-  1a774d8 chore(deps-dev): update mlx-audio requirement from >=0.4.7 to >=0.5.0 (#222)
-  c3e3a4a feat(server): MLX-native /create-voice-prompt - inference-free pair store (#236) (#246)
+Commit: 3e3fbc0 (PR #248 squash-merged)
+Changes: PM2 process-supervision detection + CLI/UI auto-delegation to PM2 commands
 
-Architecture changes captured:
-  - New module server/model_loading.py (541 LOC) - per-load CAS records dedup concurrent /load-model callers.
-  - /unload-model now holds inference_lock for the unload itself, closing the queued-generation race (#214 fully closed).
-  - /create-voice-prompt is now backend-dispatched: torch keeps the leaf-locked clone-gated flow; MLX is inference-free
-    (save_voice_prompt_mlx writes .wav+.txt directly, no clone gate, no lock). This invalidated a blanket
-    "leaf-locked" claim in frontend.md and the architecture.md serialization section - both corrected.
-  - mlx-audio dependency floor bumped >=0.4.7 -> >=0.5.0 (evaluated GO, corrects an earlier #236 premise).
+DIFF: <30% churn (single, well-scoped PR) — updated in-place without approval gate.
 
-New dependencies detected: none (mlx-audio floor bump only, no new package).
+FILES CHANGED:
+==============
 
-Staleness warnings: none - all 5 codemaps now dated 2026-09-02, oldest prior dating was 1 day.
+1. docs/CODEMAPS/backend.md
+   - Freshness: 2026-09-02 → 2026-09-03
+   - Token estimate: ~620 → ~650 (+30 for PM2 section)
+   - Added: "PM2 process-supervision (#248)" bullet
+     * Explains pm2_owner_of_port() ancestor-chain walking for online apps
+     * Explains pm2_registered_app() naming-convention match for stopped apps
+     * Notes CLI start/stop/restart auto-delegation
+     * Notes UI stop-button PM2-awareness
+   - Location: After "starlette" pinned line (line 26)
 
-LOC drift (informational, all within normal iteration):
-  73 .py files / 27.6k LOC total (was 72 / 26.6k)
-  server/ 7.3k (was 6.5k) - model_loading.py is new; app_generation/app_lifespan/app_prompts grew
-  interface/ui/ 4.9k (was reported 5.1k; corrected count from direct wc -l)
-  tests/ 194 modules, 3208 test functions (was 179 modules, 3127 functions)
+2. docs/CODEMAPS/frontend.md
+   - Freshness: 2026-09-02 → 2026-09-03
+   - Token estimate: ~440 → ~450 (+10 for PM2 mention)
+   - Updated: "_facade.py" LOC line 10
+     * Added "(now PM2-aware via pm2_owner_of_port, #248)" after stop_server
+   - Rationale: Clarifies that stop_server behavior changed; directs readers to backend.md for details
+
+3. docs/CODEMAPS/dependencies.md
+   - Freshness: 2026-09-02 → 2026-09-03
+   - Token estimate: ~440 → ~450 (+10 for PM2 delegation note)
+   - Updated: "## Process management" line 24
+     * Added: "CLI/UI auto-detect PM2 supervision and delegate tts server start/stop/restart + UI stop-button to pm2 start/stop/restart (#248; prevents autorestart from undoing intentional stops)."
+   - Rationale: Surfaces the operational change at the dependency level so operators see it
+
+4. docs/RUNBOOK.md (operations documentation)
+   - Added: Inline note after "Starting the Server" section (line 91)
+     * Blockquote: "Note: When PM2 is running (see below), tts server start/stop/restart commands automatically detect the PM2-managed server and delegate to pm2 start/stop/restart. This prevents PM2's autorestart from undoing an intentional stop."
+   - Rationale: Operators following the runbook sequentially now learn about auto-delegation before they try PM2 commands manually, avoiding confusion
+
+UNCHANGED (AS EXPECTED):
+========================
+
+- docs/CODEMAPS/architecture.md (no new architecture, just operational behavior)
+- docs/CODEMAPS/data.md (no data model changes)
+- CLAUDE.md (already updated as part of PR #248 merge)
+
+CODE CHANGES ANALYZED (NOT EDITED; GROUND TRUTH FOR DOCS):
+===========================================================
+
+New module: qwen3_tts/core/config/pm2.py (128 LOC)
+  - pm2_owner_of_port(port: int) → str | None
+    * Finds listening PID on port via find_pid_by_port()
+    * Walks parent chain (up to 10 levels) against pm2 jlist online apps
+    * Returns matching app name or None
+  - pm2_registered_app(port: int) → str | None
+    * Queries pm2 jlist for any registration (online or stopped)
+    * Matches by naming convention "tts-server-<port>"
+    * Returns app name or None
+  - Lazy subprocess imports; no heavy dependencies
+
+Modified: qwen3_tts/cli_server.py
+  - start() command: calls pm2_registered_app(port) → delegates to _start_via_pm2() if registered
+  - stop() command: calls pm2_owner_of_port(port) → delegates to _stop_via_pm2() if online
+  - restart() command: calls pm2_owner_of_port(port) → delegates to _restart_via_pm2() if online
+  - --foreground flag remains non-PM2 escape hatch (Colab/notebooks)
+  - --public flag now warns-and-ignored under PM2 (ecosystem.config.cjs is the authority)
+
+Modified: qwen3_tts/interface/ui/_facade.py
+  - New helper: _stop_server_via_pm2(name, client)
+    * Mirrors cli_server._stop_via_pm2 behavior; subprocess.run(["pm2", "stop", name])
+    * Polls is_server_running() to confirm stop (up to 5 seconds)
+  - stop_server() entrypoint: calls pm2_owner_of_port(port) → delegates to _stop_server_via_pm2() if detected
+  - Fallback: POST /shutdown if no PM2 detected
+
+VERIFICATION NOTES:
+===================
+
+- All code edits grounded in actual source files (not inferred)
+- Token estimates are conservative (account for context, spacing)
+- Freshness headers updated with 2026-09-03 and current file/LOC scope
+- No structural refactoring; codemaps remain focused on architecture, not comprehensive LOC inventory
+- CLI/server lifecycle behavior change is user-facing (documented in RUNBOOK)
+- No changes to CLAUDE.md needed (already correct from PR #248)
+
+NEXT STEP (PARALLEL WORKFLOW):
+==============================
+
+Run the full docs update workflow using these freshly regenerated codemaps as the source of truth.
+
+
+DOCUMENTATION UPDATE SUMMARY (Phase 2)
+======================================
+
+Using the freshly regenerated codemaps as the source of truth, the following
+documentation files were updated to reflect PM2 auto-delegation behavior:
+
+FILES UPDATED:
+==============
+
+1. docs/COMMANDS.md (Server Commands section, lines 160-169)
+   - Added detailed descriptions for `tts server start`/`stop`/`restart`
+   - Clarified PM2 auto-detection behavior:
+     * start: delegates to `pm2 start` if PM2 has registered app
+     * stop: delegates to `pm2 stop` to prevent autorestart
+     * restart: delegates to `pm2 restart` if PM2 detected
+   - Noted that `--public` is ignored under PM2 (ecosystem.config.cjs is authority)
+   - Noted that `--foreground` is the explicit non-PM2 escape hatch for Colab/notebooks
+
+2. docs/RUNBOOK.md (Already updated in Phase 1)
+   - Added inline note after "Starting the Server" section
+   - Blockquote explains auto-delegation prevents PM2 autorestart from undoing stops
+   - Directs users to PM2 section below for details
+
+FILES UNCHANGED (AS EXPECTED):
+==============================
+
+- docs/CONTRIBUTING.md — contains only generic usage examples, no behavior descriptions
+- docs/README.md — documentation index, not affected by operational changes
+- docs/CONFIG.md — no config schema changes for PM2
+- docs/rate-limiting.md — no changes to rate-limiting architecture
+- docs/00-Foundations/ARCHITECTURE.md — no architectural changes (operational only)
+
+CROSS-REFERENCE CONSISTENCY:
+=============================
+
+All four documentation files (CODEMAPS/* and docs/{COMMANDS,RUNBOOK}.md) now
+consistently describe PM2 auto-delegation:
+
+- backend.md: Technical implementation (pm2.py module, CLI/UI integration)
+- frontend.md: UI stop-button PM2-awareness
+- dependencies.md: Process management overview
+- COMMANDS.md: CLI user-facing behavior
+- RUNBOOK.md: Operational procedures
+
+VERIFICATION CHECKLIST:
+=======================
+
+✓ Codemaps regenerated with freshness headers (2026-09-03)
+✓ Token estimates updated (+30 backend, +10 frontend, +10 dependencies)
+✓ PM2 module integration documented in backend.md
+✓ UI stop-button PM2-awareness noted in frontend.md
+✓ CLI/UI auto-delegation described in dependencies.md
+✓ Server lifecycle commands described in COMMANDS.md with full behavior details
+✓ RUNBOOK.md inline note about auto-delegation prevents operator confusion
+✓ All file paths verified to exist on disk
+✓ No obsolete references to removed code
+✓ No broken cross-references or wiki-style links
+
+NEXT STEPS (User's Responsibility):
+===================================
+
+1. Review the codemap files for accuracy
+2. Review the documentation updates for clarity
+3. Commit changes: `git add docs/ && git commit -m "docs: update codemaps and CLI/server docs for PM2 auto-delegation (#248)"`
+4. Optionally: push to remote and create PR for review
