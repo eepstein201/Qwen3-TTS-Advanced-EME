@@ -382,6 +382,7 @@ class TestCLIStopRewrite(unittest.TestCase):
              patch('qwen3_tts.core.config.read_pid_file', return_value=None), \
              patch('qwen3_tts.core.config.is_pid_alive', return_value=False), \
              patch('qwen3_tts.core.config.find_pid_by_port', return_value=None), \
+             patch('qwen3_tts.core.config.pm2_owner_of_port', return_value=None), \
              patch('qwen3_tts.core.http_client.server_request', return_value=mock_resp):
             runner = CliRunner()
             result = runner.invoke(server, ['stop'])
@@ -400,6 +401,7 @@ class TestCLIStopRewrite(unittest.TestCase):
         with patch('qwen3_tts.core.config.is_server_running', side_effect=[True, False]), \
              patch('qwen3_tts.core.config.read_pid_file', return_value=None), \
              patch('qwen3_tts.core.config.find_pid_by_port', return_value=99999), \
+             patch('qwen3_tts.core.config.pm2_owner_of_port', return_value=None), \
              patch('qwen3_tts.core.config.is_pid_alive', return_value=False), \
              patch('qwen3_tts.core.http_client.server_request', return_value=mock_resp):
             runner = CliRunner()
@@ -419,12 +421,103 @@ class TestCLIStopRewrite(unittest.TestCase):
         with patch('qwen3_tts.core.config.is_server_running', return_value=True), \
              patch('qwen3_tts.core.config.read_pid_file', return_value=None), \
              patch('qwen3_tts.core.config.find_pid_by_port', return_value=None), \
+             patch('qwen3_tts.core.config.pm2_owner_of_port', return_value=None), \
              patch('qwen3_tts.core.config.is_pid_alive', return_value=False), \
              patch('qwen3_tts.core.http_client.server_request', return_value=mock_resp):
             runner = CliRunner()
             result = runner.invoke(server, ['stop'])
             self.assertNotEqual(result.exit_code, 0)
             self.assertIn("still running", result.output)
+
+
+@pytest.mark.unit
+class TestCLIStopPM2Delegation(unittest.TestCase):
+    """stop() must delegate to `pm2 stop <name>` when PM2 owns the process,
+    instead of killing it directly -- a direct kill is immediately undone
+    by PM2's `autorestart: true`, which is what made `tts server stop`
+    appear to silently fail (see ecosystem.config.cjs)."""
+
+    def test_stop_delegates_to_pm2_when_pm2_managed(self):
+        from click.testing import CliRunner
+
+        from qwen3_tts.cli import server
+
+        pm2_result = subprocess.CompletedProcess(
+            args=["pm2", "stop", "tts-server-5123"],
+            returncode=0, stdout="", stderr="",
+        )
+        # First check (detect_server_state/health): running. Poll after pm2 stop: not running.
+        running_returns = iter([True, False])
+        with patch(
+            'qwen3_tts.core.config.is_server_running',
+            side_effect=lambda _c=None: next(running_returns, False),
+        ), patch(
+            'qwen3_tts.core.config.pm2_owner_of_port', return_value='tts-server-5123',
+        ), patch(
+            'qwen3_tts.cli_server.subprocess.run', return_value=pm2_result,
+        ) as mock_run, patch(
+            'qwen3_tts.core.http_client.server_request',
+        ) as mock_req, patch(
+            'qwen3_tts.cli_server.time.sleep',
+        ):
+            runner = CliRunner()
+            result = runner.invoke(server, ['stop'])
+
+        self.assertEqual(result.exit_code, 0, result.output)
+        self.assertIn("tts-server-5123", result.output)
+        self.assertIn("TTS Server stopped.", result.output)
+        mock_run.assert_called_once_with(
+            ["pm2", "stop", "tts-server-5123"],
+            capture_output=True, text=True, timeout=15,
+        )
+        # Must NOT fall back to /shutdown or direct signal killing.
+        mock_req.assert_not_called()
+
+    def test_stop_reports_pm2_command_failure(self):
+        from click.testing import CliRunner
+
+        from qwen3_tts.cli import server
+
+        pm2_result = subprocess.CompletedProcess(
+            args=["pm2", "stop", "tts-server-5123"],
+            returncode=1, stdout="", stderr="process not found",
+        )
+        with patch(
+            'qwen3_tts.core.config.is_server_running', return_value=True,
+        ), patch(
+            'qwen3_tts.core.config.pm2_owner_of_port', return_value='tts-server-5123',
+        ), patch(
+            'qwen3_tts.cli_server.subprocess.run', return_value=pm2_result,
+        ):
+            runner = CliRunner()
+            result = runner.invoke(server, ['stop'])
+
+        self.assertNotEqual(result.exit_code, 0)
+        self.assertIn("process not found", result.output)
+
+    def test_stop_reports_still_running_after_pm2_stop(self):
+        from click.testing import CliRunner
+
+        from qwen3_tts.cli import server
+
+        pm2_result = subprocess.CompletedProcess(
+            args=["pm2", "stop", "tts-server-5123"],
+            returncode=0, stdout="", stderr="",
+        )
+        with patch(
+            'qwen3_tts.core.config.is_server_running', return_value=True,
+        ), patch(
+            'qwen3_tts.core.config.pm2_owner_of_port', return_value='tts-server-5123',
+        ), patch(
+            'qwen3_tts.cli_server.subprocess.run', return_value=pm2_result,
+        ), patch(
+            'qwen3_tts.cli_server.time.sleep',
+        ):
+            runner = CliRunner()
+            result = runner.invoke(server, ['stop'])
+
+        self.assertNotEqual(result.exit_code, 0)
+        self.assertIn("still running", result.output)
 
 
 @pytest.mark.unit

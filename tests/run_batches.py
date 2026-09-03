@@ -107,6 +107,7 @@ BATCHES = {
             "tests.test_cli_model_size_choices",
             "tests.test_cli_server_restart",
             "tests.test_cli_voice_rebuild",
+            "tests.test_core_config_pm2",
         ],
         "timeout": 180,
     },
