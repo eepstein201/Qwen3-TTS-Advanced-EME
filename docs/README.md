@@ -6,6 +6,7 @@ Index of the project's reference documentation. For a product overview and quick
 
 | Doc | What it covers |
 |-----|----------------|
+| [ONBOARDING.md](ONBOARDING.md) | **Start here** — sequenced first-week path for new teammates through the docs below. |
 | [COMMANDS.md](COMMANDS.md) | Full `tts` CLI command reference — generation, server, voice, config, cache, testing. |
 | [CONFIG.md](CONFIG.md) | Every `config.json` key and environment variable, with defaults. Hand-maintained (no live generator since `config.py` became the `core/config/` package); its defaults are drift-checked against `get_default_config()` by `make check-config-docs`. |
 | [rate-limiting.md](rate-limiting.md) | Rate-limiting architecture (slowapi), strategies, and the `security.rate_limits` format. |
