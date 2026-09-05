@@ -8,7 +8,8 @@ updates:
     labels:
       - "dependencies"
     # Range-scoped: patch/minor bumps still flow; only the known-conflicting
-    # majors stop raising PRs (triage plan: docs/plans/2026-09-02-dependabot-triage.plan.md).
+    # majors (and gradio's 6.15+ band, per pyproject's ~6.15 guidance) stop
+    # raising PRs. Triage plan: docs/plans/2026-09-02-dependabot-triage.plan.md.
     ignore:
       - dependency-name: "gradio"
         versions: [">=6.15"]
