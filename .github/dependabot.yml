@@ -7,6 +7,15 @@ updates:
     open-pull-requests-limit: 10
     labels:
       - "dependencies"
+    # Range-scoped: patch/minor bumps still flow; only the known-conflicting
+    # majors stop raising PRs (triage plan: docs/plans/2026-09-02-dependabot-triage.plan.md).
+    ignore:
+      - dependency-name: "gradio"
+        versions: [">=6.15"]
+      - dependency-name: "transformers"
+        versions: [">=5"]
+      - dependency-name: "vllm"
+        versions: [">=0.9"]
 
   - package-ecosystem: "github-actions"
     directory: "/"
