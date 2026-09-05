@@ -124,7 +124,7 @@ mdurl==0.1.2
     # via markdown-it-py
 msgpack==1.2.1
     # via librosa
-mypy==2.3.0
+mypy==2.3.1
     # via qwen3-tts (pyproject.toml)
 mypy-extensions==1.1.0
     # via mypy
@@ -231,7 +231,7 @@ rich==15.0.0
     # via
     #   bandit
     #   typer
-ruff==0.16.2
+ruff==0.16.6
     # via qwen3-tts (pyproject.toml)
 safehttpx==0.1.7
     # via gradio
@@ -294,7 +294,7 @@ typing-inspection==0.4.2
     #   pydantic
 urllib3==2.7.0
     # via requests
-uvicorn[standard]==0.52.1
+uvicorn[standard]==0.52.4
     # via
     #   gradio
     #   qwen3-tts (pyproject.toml)
