@@ -160,8 +160,8 @@ deliberate:
 
 ## WS7 — Dependency CVEs
 **Branch:** `chore/dep-cves` · **Findings:** §6 · **Complexity:** Small
-- **python-multipart 0.0.22 → 0.0.31** (5 DoS CVEs; FastAPI multipart parser; reached by `/create-voice-prompt`). Bump in `pyproject.toml`; run `/create-voice-prompt` e2e.
-- Also bump in mlx env: `pillow`, `click`, `idna`, `msgpack`, `pygments`, `pytest` (dev), `pip`.
+- ~~**python-multipart 0.0.22 → 0.0.31** (5 DoS CVEs; FastAPI multipart parser; reached by `/create-voice-prompt`). Bump in `pyproject.toml`; run `/create-voice-prompt` e2e.~~ **RESOLVED** — `requirements.lock` already pins `python-multipart==0.0.32` (past the fixed floor), verified 2026-09-06. No explicit floor exists in `pyproject.toml` itself (pulled in transitively) — low-risk residual, worth a one-line pin on a future touch of that file, not an active CVE.
+- Also bump in mlx env: `pillow`, `click`, `idna`, `msgpack`, `pygments`, `pytest` (dev), `pip` — not re-verified 2026-09-06, carried forward as-is.
 - **gradio 6.8.0 (torch env)** — leave tracked as known structural debt (transformers<5 knot); do NOT attempt in this plan.
 
 ## WS8 — Quality & complexity (lower priority)
