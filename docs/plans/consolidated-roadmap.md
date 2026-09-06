@@ -216,7 +216,7 @@ above (`config.py`, `_facade.py`, `inference.py`, `generate.py`, `app.py`). Full
 - [x] R-29/R-30 validation gaps closed (2026-07-21)
 - [x] Full test suite passes — ~2555 tests (2026-08-07 maintained baseline)
 - [x] **GEN-1:** concurrent generations interleave during encode — shipped #59, 2026-07-21 (`tests/test_generation_lock_scope.py`)
-- [ ] **GEN-2:** ≥80% of routes carry `response_model`
+- [x] **GEN-2:** ≥80% of routes carry `response_model` — shipped #185, 2026-08-15; re-verified 2026-09-06 (19/23 routes in `app.py`, the 4 gaps are the documented deliberate exceptions on binary/streaming routes). Checkbox had been left stale despite the Notes section already recording it as shipped.
 - [ ] **HIGH-1/MED-2:** vLLM params validated in a Docker environment
 - [ ] **HIGH-2:** FastAPI decoupled from vLLM — event loop not blocked during generation
 
