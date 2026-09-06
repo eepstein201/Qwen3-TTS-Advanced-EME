@@ -205,7 +205,6 @@ class _ProgressPoller:
         self._stop = threading.Event()
         self._thread = None
         self._rich_progress = None
-        self._rich_task_id = None
 
     def start(self):
         self._thread = threading.Thread(target=self._run, daemon=True)
