@@ -33,7 +33,7 @@ cffi==2.1.0
     # via soundfile
 charset-normalizer==3.4.9
     # via requests
-click==8.4.2
+click==8.5.0
     # via
     #   huggingface-hub
     #   qwen3-tts (pyproject.toml)
