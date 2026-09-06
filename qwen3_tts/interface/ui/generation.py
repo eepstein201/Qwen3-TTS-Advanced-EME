@@ -175,20 +175,6 @@ def _prepare_cancel_confirmation():
         return f"Error: {e}", True, 0, 0, "N/A"
 
 
-def _cancel_if_confirmed(confirmed: bool):
-    """Execute cancel if confirmed.
-
-    Args:
-        confirmed: Whether user confirmed the cancel
-
-    Returns:
-        Tuple of (status_message, status_html)
-    """
-    if not confirmed:
-        return STATUS_STOP_CANCELED, format_status_display()
-    return cancel_streaming_generation()
-
-
 def _prepare_streaming_config(
     mode,
     text,
