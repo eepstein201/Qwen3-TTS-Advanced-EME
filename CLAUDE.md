@@ -27,6 +27,8 @@ Features: pyrubberband audio processing (librosa fallback), prosody presets for 
 ```
 Enforced by committed PreToolUse hooks (`.claude/hooks/`, wired via tracked `.claude/settings.json` — hooks-only by guard test): `no-direct-push-main` (blocks push/merge/delete on main), `prepush-local-gates` (gate checklist on push), `claude-md-length-guard` (CLAUDE.md ≤300 lines).
 
+Project skills live in `.claude/skills/<name>/SKILL.md` (checked in, `name`+`description` frontmatter): `dependency-triage` — Dependabot PR batch triage (classify, two-version churn gate for engine-adjacent bumps, regen `requirements.lock`, verify in `.venv-310`, merge handoff).
+
 ## Commands
 
 | Command | Purpose |
