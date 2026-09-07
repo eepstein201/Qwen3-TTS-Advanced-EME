@@ -13,6 +13,11 @@ main, which pushes TO main even though no refspec names it. Each segment of a
 compound command is judged separately, so `git push origin fix/x && git
 checkout main` is not a false positive.
 
+Quoted spans are scrubbed BEFORE matching and splitting: a mention of
+"git push" inside quotes (grep patterns, printf bodies, commit messages) is
+data, not an invocation. An unbalanced quote leaves the command unscrubbed —
+fail toward blocking.
+
 Protocol: reads the PreToolUse payload on stdin; exit 2 blocks the call with
 stderr shown to the model. Unparseable input or non-matching commands exit 0
 (fail-open on payload shape, never on policy).
@@ -57,8 +62,47 @@ def _segment_violation(segment):
     return None
 
 
+def _strip_quoted(command):
+    """Drop quoted spans so a prose mention of 'git push' is not read as one.
+
+    Runs BEFORE segment splitting: a quoted span may itself contain the
+    &&/||/;/| separators the splitter keys on, and inside quotes those
+    characters are data. An unbalanced quote returns the command
+    unmodified — an unmatched quote may hide a real invocation past the
+    truncation point, so fail toward blocking.
+    """
+    kept = []
+    quote = None
+    i = 0
+    n = len(command)
+    while i < n:
+        ch = command[i]
+        if quote is not None:
+            if ch == "\\" and i + 1 < n:
+                i += 2
+                continue
+            if ch == quote:
+                quote = None
+            i += 1
+            continue
+        if ch in ("'", '"'):
+            quote = ch
+            i += 1
+            continue
+        if ch == "\\" and i + 1 < n:
+            kept.append(command[i : i + 2])
+            i += 2
+            continue
+        kept.append(ch)
+        i += 1
+    if quote is not None:
+        return command
+    return "".join(kept)
+
+
 def _violates(command):
-    for segment in _SEGMENT_SPLIT_RE.split(command):
+    scrubbed = _strip_quoted(command)
+    for segment in _SEGMENT_SPLIT_RE.split(scrubbed):
         reason = _segment_violation(segment.strip())
         if reason:
             return reason

@@ -294,6 +294,117 @@ class TestNoDirectPushMain(unittest.TestCase):
         self.assertEqual(proc.returncode, 0)
 
 
+class TestNoDirectPushMainQuotedText(unittest.TestCase):
+    """Quoted text must never read as an invocation.
+
+    The hook matches regexes against raw command text, so a mere MENTION of
+    "git push" inside a quoted grep pattern, printf body, or commit message
+    blocked harmless commands (observed live: a grep whose pattern contained
+    the literal rule string, and a printf appending to the gc log). Shell
+    semantics are the contract: quoted spans are data, not commands. The
+    scrubber must run BEFORE segment splitting too — quoted spans may
+    themselves contain the &&/||/;/| separators the splitter keys on.
+    """
+
+    def test_quoted_grep_pattern_mentioning_push_is_allowed(self):
+        proc = _run_hook(
+            PUSH_HOOK,
+            payload={
+                "tool_name": "Bash",
+                "tool_input": {"command": "grep -n 'git push' src/main.py"},
+            },
+        )
+        self.assertEqual(proc.returncode, 0)
+
+    def test_quoted_printf_body_mentioning_rule_string_is_allowed(self):
+        proc = _run_hook(
+            PUSH_HOOK,
+            payload={
+                "tool_name": "Bash",
+                "tool_input": {
+                    "command": (
+                        "printf '%s\\n' '- Bash(/opt/homebrew/bin/git push:*) removed'"
+                        " >> ~/.claude/gc_log.md"
+                    )
+                },
+            },
+        )
+        self.assertEqual(proc.returncode, 0)
+
+    def test_commit_message_mentioning_push_and_main_is_allowed(self):
+        proc = _run_hook(
+            PUSH_HOOK,
+            payload={
+                "tool_name": "Bash",
+                "tool_input": {"command": 'git commit -m "fix: handle git push on main"'},
+            },
+        )
+        self.assertEqual(proc.returncode, 0)
+
+    def test_quoted_prose_then_real_push_still_blocks(self):
+        proc = _run_hook(
+            PUSH_HOOK,
+            payload={
+                "tool_name": "Bash",
+                "tool_input": {
+                    "command": 'echo "git push is gated" && git push origin main'
+                },
+            },
+        )
+        self.assertEqual(proc.returncode, 2)
+
+    def test_unbalanced_quote_fails_toward_blocking(self):
+        """An unmatched quote may hide a real invocation past the truncation
+        point, so the scrubber must give up and match the raw text."""
+        proc = _run_hook(
+            PUSH_HOOK,
+            payload={
+                "tool_name": "Bash",
+                "tool_input": {"command": "echo ' && git push origin main"},
+            },
+        )
+        self.assertEqual(proc.returncode, 2)
+
+
+class TestNoDirectPushMainOnMainBranch(unittest.TestCase):
+    """The bare-push-on-main path, tested deterministically.
+
+    Blocking a bare `git push` requires the hook to see itself as running on
+    main, which a pipe test cannot control (CI checks out the PR branch) —
+    so these load the hook module and force `_current_branch` to return
+    "main". Each command here is prose in quotes; the bug being pinned is
+    that raw matching made the mention look like a bare push.
+    """
+
+    @staticmethod
+    def _hook_module():
+        spec = importlib.util.spec_from_file_location(
+            "no_direct_push_main_under_test", HOOKS_DIR / PUSH_HOOK
+        )
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+        return module
+
+    def _violates_on_main(self, command):
+        module = self._hook_module()
+        with mock.patch.object(module, "_current_branch", return_value="main"):
+            return module._violates(command)
+
+    def test_bare_push_mention_in_quotes_allowed_on_main(self):
+        self.assertIsNone(self._violates_on_main("echo 'git push now'"))
+
+    def test_printf_mention_allowed_on_main(self):
+        command = (
+            "printf '%s\\n' '- Bash(/opt/homebrew/bin/git push:*) removed'"
+            " >> ~/.claude/gc_log.md"
+        )
+        self.assertIsNone(self._violates_on_main(command))
+
+    def test_separators_inside_quotes_do_not_split_segments(self):
+        reason = self._violates_on_main("grep 'git push||main;rm' notes.md && git status")
+        self.assertIsNone(reason)
+
+
 class TestPrepushLocalGates(unittest.TestCase):
     def test_asks_on_push(self):
         proc = _run_hook(
