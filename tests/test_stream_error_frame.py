@@ -134,6 +134,19 @@ class TestStreamThreadJoinTimeoutScales(unittest.TestCase):
             app_generation._STREAM_THREAD_JOIN_FLOOR_SEC,
         )
 
+    def test_negative_max_chunk_chars_cannot_collapse_join_to_floor(self):
+        """A negative max_chunk_chars must not min() below zero and drop the
+        join to the 90 s floor — that releases inference_lock while the model
+        is still on the GPU. The Pydantic schema rejects negatives, but direct
+        engine callers bypass HTTP validation, so the clamp lives here too:
+        treat it like "chunking disabled" (whole-text bound). assertEqual on
+        purpose: it also catches an over-sized clamp, not just floor collapse.
+        """
+        self.assertEqual(
+            app_generation._stream_thread_join_timeout(50_000, -1),
+            50_000 * app_generation._STREAM_SECONDS_PER_CHAR,
+        )
+
 
 if __name__ == "__main__":
     unittest.main()
