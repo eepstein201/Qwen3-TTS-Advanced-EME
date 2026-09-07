@@ -91,10 +91,6 @@ config.json → qwen3_tts.core.config → qwen3_tts.core.engine (dispatch)
 - **Two conda envs** — `qwen3-tts` (torch) and `qwen3-tts-mlx` (mlx) due to `transformers` version conflict
 - **Three separate models** — Clone, Design, Custom are distinct HuggingFace models (~3.5GB torch, ~2.5GB MLX 8-bit each)
 
-## File Layout
-
-`qwen3_tts/`: `core/` (config pkg; engine: text_processing, audio_processing, voice_prompt, model_loader, inference, asr) · `server/` (app, app_lifespan, app_generation, app_models, app_prompts, websocket, validation, client/) · `interface/` (generate*, generate_helpers, generate_interactive, generate_server, ui/, cli/) · `tools/` (create_voice, model_cache, healthcheck, uninstall, solid_analyzer, check_config_docs). Top-level: `pyproject.toml`, `config.json`, `install.sh`, `ecosystem.config.cjs`, `voice_prompts/`, `tests/`, `docs/`. Runtime: `.voice_server.pid`, `.voice_server.log`. Full annotated tree: `docs/00-Foundations/ARCHITECTURE.md`.
-
 ## Server API
 
 Base: `http://127.0.0.1:5123`
@@ -196,14 +192,6 @@ make test-{core,voice,server,engine,optional,e2e} / make test-batch
 | Port | Name | Type |
 |------|------|------|
 | 5123 | tts-server-5123 | FastAPI (conda: qwen3-tts-mlx) |
-
-```bash
-pm2 start ecosystem.config.cjs        # first time; `pm2 start all` afterwards
-pm2 stop all / pm2 restart all
-pm2 start tts-server-5123 / pm2 stop tts-server-5123
-pm2 logs / pm2 status / pm2 monit
-pm2 save / pm2 resurrect              # save / restore process list
-```
 
 **Claude Commands:** /pm2-all, /pm2-all-stop, /pm2-all-restart, /pm2-5123, /pm2-5123-stop, /pm2-5123-restart, /pm2-logs, /pm2-status
 
