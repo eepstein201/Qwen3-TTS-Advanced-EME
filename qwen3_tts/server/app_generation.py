@@ -103,7 +103,9 @@ def _stream_thread_join_timeout(
     for the exact race. Over-generous is the fail-safe direction.
     """
     effective_chars = (
-        min(max_chunk_chars, text_len) if max_chunk_chars else text_len
+        min(max_chunk_chars, text_len)
+        if max_chunk_chars and max_chunk_chars > 0
+        else text_len
     )
     return max(_STREAM_THREAD_JOIN_FLOOR_SEC, effective_chars * _STREAM_SECONDS_PER_CHAR)
 
