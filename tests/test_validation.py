@@ -1,4 +1,6 @@
 """Tests for server validation module."""
+import unittest
+
 import pytest
 from fastapi import HTTPException
 
@@ -395,3 +397,39 @@ class TestErrorResponse:
         assert detail["error"] == "ServerError"
         assert detail["detail"] == "Something went wrong"
         assert detail["recovery"] == "restart"
+
+
+class TestMaxChunkCharsBounds(unittest.TestCase):
+    """max_chunk_chars is the only numeric GenerateRequest field without bounds.
+
+    A negative value fails the engine gate `max_chunk_chars > 0` so long text
+    becomes one uninterruptible chunk, and min(negative, text_len) collapses
+    _stream_thread_join_timeout to its 90 s floor — releasing inference_lock
+    mid-generation. docs/CONFIG.md defines the intended range as 0-10000;
+    the request path now enforces it. 0 (chunking disabled) and None (read
+    config) must stay legal.
+    """
+
+    def _req(self, **kwargs):
+        from qwen3_tts.server.validation import GenerateRequest
+        return GenerateRequest(text="hi", **kwargs)
+
+    def test_negative_max_chunk_chars_rejected(self):
+        from pydantic import ValidationError
+        with self.assertRaises(ValidationError):
+            self._req(max_chunk_chars=-1)
+
+    def test_max_chunk_chars_above_limit_rejected(self):
+        from pydantic import ValidationError
+        with self.assertRaises(ValidationError):
+            self._req(max_chunk_chars=10_001)
+
+    def test_max_chunk_chars_zero_still_accepted(self):
+        self.assertEqual(self._req(max_chunk_chars=0).max_chunk_chars, 0)
+
+    def test_max_chunk_chars_none_still_accepted(self):
+        self.assertIsNone(self._req(max_chunk_chars=None).max_chunk_chars)
+
+    def test_max_chunk_chars_boundaries_accepted(self):
+        self.assertEqual(self._req(max_chunk_chars=1).max_chunk_chars, 1)
+        self.assertEqual(self._req(max_chunk_chars=10_000).max_chunk_chars, 10_000)
