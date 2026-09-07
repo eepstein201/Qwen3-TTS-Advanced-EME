@@ -58,8 +58,12 @@ security gap and adding its test coverage belong in the same effort; see Step 0G
 
 ## Wave 0 — critical findings from the 2026-09-06 cross-cutting review (highest priority, ahead of Wave 1)
 
-### Step 0A — Bound `max_chunk_chars`: found independently by both python-review and security-scan
+### Step 0A — Bound `max_chunk_chars`: found independently by both python-review and security-scan (EXECUTED 2026-09-07, PR #263)
 
+- **Status: DONE (PR #263, squash `4c6daca`).** Both defense layers shipped: `Field(ge=0, le=10000)` on
+  `GenerateRequest.max_chunk_chars` and the `> 0` clamp in `_stream_thread_join_timeout`. RED/GREEN per task;
+  evidence: `docs/testing/max-chunk-chars-bounds.tdd.md`. Known gaps recorded there (config-side values stay
+  advisory; 422 surfacing verified by inspection only).
 - **Model tier:** default · **Branch:** `fix/max-chunk-chars-bounds` · **Parallel with:** 0B, 0D (different files); rebase against 0C/0E if those land first (shared files, see below)
 - **Context:** `GenerateRequest.max_chunk_chars` (`server/validation.py:51`) is the only numeric
   request field with no `Field(...)` bounds — every sibling (`temperature`, `max_new_tokens`,
