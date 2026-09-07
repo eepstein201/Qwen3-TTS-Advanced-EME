@@ -649,7 +649,7 @@ This installs all required dependencies including gradio, pytest, and playwright
 
 ### Test Execution
 
-**Run all tests using the batch runner (3,100+ tests across 179 modules, organized in 6 batches):
+**Run all tests using the batch runner (3,100+ tests across 180+ modules, organized in 6 batches):
 ```bash
 python tests/run_batches.py        # Run all batches
 python tests/run_batches.py --batch 1  # Run a specific batch
