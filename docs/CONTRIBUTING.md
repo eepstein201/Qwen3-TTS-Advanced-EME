@@ -118,7 +118,7 @@ qwen3-tts/
 │   ├── server/            # FastAPI server and client
 │   ├── interface/         # CLI and Gradio UI
 │   └── tools/             # Utilities (healthcheck, cache, voice)
-├── tests/                  # Test suite (2000+ tests)
+├── tests/                  # Test suite (3,100+ tests)
 ├── docs/                   # Documentation
 ├── config.json             # Configuration file
 └── pyproject.toml          # Package metadata
@@ -128,7 +128,7 @@ qwen3-tts/
 
 ### Test Suite Overview
 
-The project has **2000+ tests** across 100+ modules, organized into 6 batches
+The project has **3,100+ tests** across 180+ modules, organized into 6 batches
 (module counts from the `BATCHES` dict in `tests/run_batches.py`):
 
 | Batch | Name | Modules | Description | Server Required |
