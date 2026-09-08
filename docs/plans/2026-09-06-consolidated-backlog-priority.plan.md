@@ -155,8 +155,13 @@ security gap and adding its test coverage belong in the same effort; see Step 0G
     so they disagree with CLAUDE.md's scoped sentence until the next regen — optional
     one-line fix, or let the 90-day cadence absorb it.
 
-### Step 0C — `generation_state` threading discipline: guarded by the wrong lock type, mutated unlocked in places
+### Step 0C — `generation_state` threading discipline: guarded by the wrong lock type, mutated unlocked in places (EXECUTED 2026-09-08, PR #270)
 
+- **Status: DONE (PR #270, squash `b9c61f1`, 2026-09-08).** `GenerationStateGuard`
+  (`threading.Lock`) + `guard_for`, full routing at every former raw read/write site,
+  atomic `snapshot()` readers, and the raw-access structural pin. Evidence:
+  `docs/testing/generation-state-guard.tdd.md`. The 0C execution findings for Step 1A and
+  the recorded residual are inline below.
 - **Model tier:** strongest · **Branch:** `fix/generation-state-thread-safety` · **Files:** `app_generation.py`, `websocket.py`, `app_models.py`, `app.py` — **overlaps Step 1A's write surface (`app_generation.py`, `app.py`) and may be the deeper mechanism behind #237** (a lost cancel from a race on this exact dict). Resolve this step and Step 1A together, or do this one first and re-check whether #237's symptom still reproduces afterward — don't fix the same race twice independently.
 - **Context:** `state.generation_lock` is an `asyncio.Lock`, but `_chunk_progress`
   (`app_generation.py:454-460`, `:860-867`) mutates `generation_state` from inside

@@ -92,191 +92,197 @@ async def websocket_tts_handler(
         await websocket.close(code=1013, reason="Too many connections")
         return
 
-    await websocket.accept()
-
-    # Step 1: Authenticate
     try:
-        auth_msg = await asyncio.wait_for(websocket.receive_text(), timeout=10.0)
-        auth_data = json.loads(auth_msg)
-        # A valid-JSON non-object payload (e.g. "42", "[1]") must be rejected
-        # explicitly. Without this guard, auth_data.get() below raised
-        # AttributeError, which escaped the (previously narrow) except clause
-        # and skipped _ws_release — leaking a connection slot. Repeating 50x
-        # exhausted _WS_MAX_TOTAL (unauthenticated slot-exhaustion DoS).
-        if not isinstance(auth_data, dict):
-            logger.warning(
-                "WebSocket auth failed from %s: first message not a JSON object",
-                sanitize_log(client_ip),
-            )
-            await websocket.close(code=4001, reason="Authentication failed")
-            _ws_release(app_state, client_ip)
-            return
-        token = auth_data.get("token", "")
-        if not verify_token_fn(token):
-            logger.warning(
-                "WebSocket auth failed from %s: invalid token",
-                sanitize_log(client_ip),
-            )
-            await websocket.send_json({"error": "Authentication failed"})
-            await websocket.close(code=4001, reason="Authentication failed")
-            _ws_release(app_state, client_ip)
-            return
-        await websocket.send_json({"status": "authenticated"})
-    except Exception as e:
-        # Any auth-path failure (timeout, malformed JSON, disconnect, or an
-        # unexpected error) must release the reserved slot. Broad catch
-        # guarantees no leak regardless of payload shape.
-        logger.warning(
-            "WebSocket auth failed from %s: %s",
-            sanitize_log(client_ip),
-            sanitize_log(e),
-            exc_info=True,
-        )
-        await websocket.close(code=4001, reason="Authentication failed")
-        _ws_release(app_state, client_ip)
-        return
+        await websocket.accept()
 
-    # Step 2: Message loop
-    stop_event = threading.Event()
-    # Distinct from stop_event: set ONLY when the concurrent cancel-watcher
-    # observes a WebSocketDisconnect, so the consumer can tell a real cancel
-    # (stop_event alone) from a client disconnect (stop_event + disconnect_event)
-    # and avoid emitting a terminal "cancelled" frame on the dead socket.
-    disconnect_event = threading.Event()
-
-    try:
-        while True:
-            try:
-                message = await websocket.receive_text()
-            except WebSocketDisconnect:
-                break
-
-            # Reject oversized messages (64KB limit)
-            if len(message) > 65536:
-                await websocket.send_json({"error": "Message too large (max 64KB)"})
-                continue
-
-            try:
-                data = json.loads(message)
-            except json.JSONDecodeError:
-                await websocket.send_json({"error": "Invalid JSON"})
-                continue
-
-            # Handle control messages
-            action = data.get("action")
-            if action == "cancel":
-                # Set the flag and leave it set. Clearing it here (as this once
-                # did) raced the inference thread's stop_event.is_set() check:
-                # the flag could be cleared microseconds after being set,
-                # before inference observed it — losing the cancel. The flag is
-                # cleared at the start of the next generation instead.
-                stop_event.set()
-                await websocket.send_json({"status": "cancelled"})
-                continue
-
-            # Handle generation request
-            text = data.get("text", "")
-            if not text:
-                await websocket.send_json({"error": "No text provided"})
-                continue
-
-            # Enforce max text length (matches HTTP endpoint validation)
-            security = (
-                app_state.server_config.get("security", {})
-                if hasattr(app_state, "server_config")
-                else {}
-            )
-            max_text_length = security.get("max_text_length", 50000)
-            if len(text) > max_text_length:
-                await websocket.send_json(
-                    {"error": f"Text exceeds {max_text_length} character limit"}
+        # Step 1: Authenticate
+        try:
+            auth_msg = await asyncio.wait_for(websocket.receive_text(), timeout=10.0)
+            auth_data = json.loads(auth_msg)
+            # A valid-JSON non-object payload (e.g. "42", "[1]") must be
+            # rejected explicitly. Without this guard, auth_data.get() below
+            # raised AttributeError, which escaped the (previously narrow)
+            # except clause and — under the old per-branch releases — skipped
+            # the slot release; repeating 50x exhausted _WS_MAX_TOTAL
+            # (unauthenticated slot-exhaustion DoS). The invariant is now:
+            # every acquired slot is released by the handler-level finally
+            # below, wherever the handler exits or raises; the per-branch
+            # releases are gone because that one finally owns the release.
+            if not isinstance(auth_data, dict):
+                logger.warning(
+                    "WebSocket auth failed from %s: first message not a JSON object",
+                    sanitize_log(client_ip),
                 )
-                continue
+                await websocket.close(code=4001, reason="Authentication failed")
+                return
+            token = auth_data.get("token", "")
+            if not verify_token_fn(token):
+                logger.warning(
+                    "WebSocket auth failed from %s: invalid token",
+                    sanitize_log(client_ip),
+                )
+                await websocket.send_json({"error": "Authentication failed"})
+                await websocket.close(code=4001, reason="Authentication failed")
+                return
+            await websocket.send_json({"status": "authenticated"})
+        except Exception as e:
+            # Any auth-path failure (timeout, malformed JSON, disconnect, or
+            # an unexpected error) is logged and closed 4001 here. It does NOT
+            # release the reserved slot: the handler-level finally below owns
+            # the release for every exit, so a close() that raises here can no
+            # longer escape past a release line.
+            logger.warning(
+                "WebSocket auth failed from %s: %s",
+                sanitize_log(client_ip),
+                sanitize_log(e),
+                exc_info=True,
+            )
+            await websocket.close(code=4001, reason="Authentication failed")
+            return
 
-            mode = data.get("mode", "clone")
-            stop_event.clear()
+        # Step 2: Message loop
+        stop_event = threading.Event()
+        # Distinct from stop_event: set ONLY when the concurrent cancel-watcher
+        # observes a WebSocketDisconnect, so the consumer can tell a real cancel
+        # (stop_event alone) from a client disconnect (stop_event + disconnect_event)
+        # and avoid emitting a terminal "cancelled" frame on the dead socket.
+        disconnect_event = threading.Event()
 
-            # Concurrent cancel-watcher: the main loop is blocked inside
-            # _stream_generation for the duration of generation, so without a
-            # watcher a {"action":"cancel"} frame sent mid-generation is never
-            # read until generation finishes.  The watcher is the SOLE
-            # receive_text reader during generation (the main loop is blocked
-            # in the await below), so there is no concurrent-reader race.  On
-            # normal completion the finally cancels and reaps the watcher.
-            async def _cancel_watcher() -> None:
+        try:
+            while True:
                 try:
-                    while True:
-                        msg = await websocket.receive_text()
-                        try:
-                            frame = json.loads(msg)
-                        except json.JSONDecodeError:
-                            continue
-                        if isinstance(frame, dict) and frame.get("action") == "cancel":
-                            stop_event.set()
-                            return
-                        # Other frames mid-generation: ignore (client protocol
-                        # violation) — the main loop will resume after gen.
+                    message = await websocket.receive_text()
                 except WebSocketDisconnect:
-                    # The client went away. Signal disconnect BEFORE stop_event
-                    # so the consumer can distinguish a real cancel (stop_event
-                    # alone) from a disconnect and skip the terminal frame it
-                    # would otherwise send on the dead socket.
-                    disconnect_event.set()
+                    break
+
+                # Reject oversized messages (64KB limit)
+                if len(message) > 65536:
+                    await websocket.send_json({"error": "Message too large (max 64KB)"})
+                    continue
+
+                try:
+                    data = json.loads(message)
+                except json.JSONDecodeError:
+                    await websocket.send_json({"error": "Invalid JSON"})
+                    continue
+
+                # Handle control messages
+                action = data.get("action")
+                if action == "cancel":
+                    # Set the flag and leave it set. Clearing it here (as this once
+                    # did) raced the inference thread's stop_event.is_set() check:
+                    # the flag could be cleared microseconds after being set,
+                    # before inference observed it — losing the cancel. The flag is
+                    # cleared at the start of the next generation instead.
                     stop_event.set()
-                    return
-                except Exception:
-                    return  # a watcher error must never abort generation
+                    await websocket.send_json({"status": "cancelled"})
+                    continue
 
-            watcher = asyncio.create_task(_cancel_watcher())
-            try:
-                await _stream_generation(
-                    websocket=websocket,
-                    app_state=app_state,
-                    text=text,
-                    mode=mode,
-                    data=data,
-                    stop_event=stop_event,
-                    disconnect_event=disconnect_event,
-                    config_provider=config_provider,
+                # Handle generation request
+                text = data.get("text", "")
+                if not text:
+                    await websocket.send_json({"error": "No text provided"})
+                    continue
+
+                # Enforce max text length (matches HTTP endpoint validation)
+                security = (
+                    app_state.server_config.get("security", {})
+                    if hasattr(app_state, "server_config")
+                    else {}
                 )
-            except (ValueError, KeyError, json.JSONDecodeError) as e:
-                # Client validation errors - bad request data
-                logger.error("WebSocket generation request error: %s", e, exc_info=True)
-                await websocket.send_json({"error": f"Invalid request: {str(e)}"})
-            except (ConnectionError, OSError) as e:
-                # Network/connection issues
-                logger.error("WebSocket connection error: %s", e, exc_info=True)
-                await websocket.send_json({"error": "Connection error"})
-            except Exception as e:
-                # Unexpected errors during generation
-                logger.error("WebSocket generation error: %s", e, exc_info=True)
-                from qwen3_tts.server.app_lifespan import _sanitize_error
-
-                await websocket.send_json({"error": _sanitize_error(str(e))})
-                # RFC 6455 §7.4.1: 1011 means the server hit an unexpected
-                # condition. Without an explicit close code the socket ends as a
-                # normal 1000, so a client that missed the error message reads a
-                # server-side failure as a clean finish (WS2 2.5, the WebSocket
-                # counterpart of the HTTP terminal error frame).
-                with contextlib.suppress(RuntimeError):
-                    await websocket.close(
-                        code=1011, reason="Generation failed"
+                max_text_length = security.get("max_text_length", 50000)
+                if len(text) > max_text_length:
+                    await websocket.send_json(
+                        {"error": f"Text exceeds {max_text_length} character limit"}
                     )
-            finally:
-                watcher.cancel()
-                with contextlib.suppress(asyncio.CancelledError, Exception):
-                    await watcher
+                    continue
 
-    except WebSocketDisconnect:
-        logger.info("WebSocket client disconnected")
-    except (asyncio.TimeoutError, RuntimeError) as e:
-        # Async/await and runtime errors in WebSocket lifecycle
-        logger.error("WebSocket lifecycle error: %s", e, exc_info=True)
-    except Exception as e:
-        # Unexpected errors in WebSocket handler
-        logger.error("WebSocket handler error: %s", e, exc_info=True)
+                mode = data.get("mode", "clone")
+                stop_event.clear()
+
+                # Concurrent cancel-watcher: the main loop is blocked inside
+                # _stream_generation for the duration of generation, so without a
+                # watcher a {"action":"cancel"} frame sent mid-generation is never
+                # read until generation finishes.  The watcher is the SOLE
+                # receive_text reader during generation (the main loop is blocked
+                # in the await below), so there is no concurrent-reader race.  On
+                # normal completion the finally cancels and reaps the watcher.
+                async def _cancel_watcher() -> None:
+                    try:
+                        while True:
+                            msg = await websocket.receive_text()
+                            try:
+                                frame = json.loads(msg)
+                            except json.JSONDecodeError:
+                                continue
+                            if isinstance(frame, dict) and frame.get("action") == "cancel":
+                                stop_event.set()
+                                return
+                            # Other frames mid-generation: ignore (client protocol
+                            # violation) — the main loop will resume after gen.
+                    except WebSocketDisconnect:
+                        # The client went away. Signal disconnect BEFORE stop_event
+                        # so the consumer can distinguish a real cancel (stop_event
+                        # alone) from a disconnect and skip the terminal frame it
+                        # would otherwise send on the dead socket.
+                        disconnect_event.set()
+                        stop_event.set()
+                        return
+                    except Exception:
+                        return  # a watcher error must never abort generation
+
+                watcher = asyncio.create_task(_cancel_watcher())
+                try:
+                    await _stream_generation(
+                        websocket=websocket,
+                        app_state=app_state,
+                        text=text,
+                        mode=mode,
+                        data=data,
+                        stop_event=stop_event,
+                        disconnect_event=disconnect_event,
+                        config_provider=config_provider,
+                    )
+                except (ValueError, KeyError, json.JSONDecodeError) as e:
+                    # Client validation errors - bad request data
+                    logger.error("WebSocket generation request error: %s", e, exc_info=True)
+                    await websocket.send_json({"error": f"Invalid request: {str(e)}"})
+                except (ConnectionError, OSError) as e:
+                    # Network/connection issues
+                    logger.error("WebSocket connection error: %s", e, exc_info=True)
+                    await websocket.send_json({"error": "Connection error"})
+                except Exception as e:
+                    # Unexpected errors during generation
+                    logger.error("WebSocket generation error: %s", e, exc_info=True)
+                    from qwen3_tts.server.app_lifespan import _sanitize_error
+
+                    await websocket.send_json({"error": _sanitize_error(str(e))})
+                    # RFC 6455 §7.4.1: 1011 means the server hit an unexpected
+                    # condition. Without an explicit close code the socket ends as a
+                    # normal 1000, so a client that missed the error message reads a
+                    # server-side failure as a clean finish (WS2 2.5, the WebSocket
+                    # counterpart of the HTTP terminal error frame).
+                    with contextlib.suppress(RuntimeError):
+                        await websocket.close(
+                            code=1011, reason="Generation failed"
+                        )
+                finally:
+                    watcher.cancel()
+                    with contextlib.suppress(asyncio.CancelledError, Exception):
+                        await watcher
+
+        except WebSocketDisconnect:
+            logger.info("WebSocket client disconnected")
+        except (asyncio.TimeoutError, RuntimeError) as e:
+            # Async/await and runtime errors in WebSocket lifecycle
+            logger.error("WebSocket lifecycle error: %s", e, exc_info=True)
+        except Exception as e:
+            # Unexpected errors in WebSocket handler
+            logger.error("WebSocket handler error: %s", e, exc_info=True)
+        finally:
+            stop_event.set()
+
     finally:
-        stop_event.set()
         _ws_release(app_state, client_ip)
 
 
