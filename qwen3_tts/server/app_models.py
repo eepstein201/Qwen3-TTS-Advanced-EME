@@ -23,6 +23,7 @@ from qwen3_tts.core.config import (
     save_config,
 )
 from qwen3_tts.server.app_lifespan import _get_queue_size, _sanitize_error
+from qwen3_tts.server.generation_state_guard import guard_for
 from qwen3_tts.server.validation import _error_response
 
 logger = logging.getLogger("tts")
@@ -222,11 +223,11 @@ def handle_unload_model(state, req):
             detail=f"Unknown model type: {model_type}. Valid: {', '.join(valid_types)}",
         )
 
-    # Check if generation is active for this mode
-    if (
-        state.generation_state["active"]
-        and state.generation_state["mode"] == model_type
-    ):
+    # Check if generation is active for this mode — ONE atomic snapshot, so
+    # active and mode describe the same generation (and a missing key cannot
+    # raise mid-check).
+    gen_state = guard_for(state).snapshot(["active", "mode"])
+    if gen_state["active"] and gen_state["mode"] == model_type:
         raise HTTPException(
             status_code=409,
             detail=f"Cannot unload {model_type} model while generation is active",

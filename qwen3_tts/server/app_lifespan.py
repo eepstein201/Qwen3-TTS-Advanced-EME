@@ -31,7 +31,7 @@ from qwen3_tts.core.config import (
     load_config,
     sanitize_log,
 )
-from qwen3_tts.server.generation_state_guard import GenerationStateGuard
+from qwen3_tts.server.generation_state_guard import GenerationStateGuard, guard_for
 from qwen3_tts.server.model_loading import (
     MODEL_LOAD_WAIT_TIMEOUT_SEC,
     ClaimResult,
@@ -143,7 +143,14 @@ def detect_degraded_generation(app_state, now: float | None = None) -> dict:
     ``sec_per_char`` reveal the in-flight request's size, which is exactly what
     ``/generation-status`` strips for unauthenticated callers.
     """
-    gen_state = app_state.generation_state
+    # ONE atomic snapshot of exactly the keys this reader uses: a reset
+    # interleaving between two unlocked .get reads would compute elapsed and
+    # sec_per_char from two different generations. The explicit key list is
+    # also what lets a hand-rolled partial state (tests) resolve — the
+    # canonical full snapshot would raise on a key this reader never used.
+    gen_state = guard_for(app_state).snapshot(
+        ["active", "start_time", "text_length"]
+    )
     now = time.time() if now is None else now
 
     result = {
@@ -152,15 +159,16 @@ def detect_degraded_generation(app_state, now: float | None = None) -> dict:
         "sec_per_char": None,
         "threshold_sec_per_char": _DEGRADED_SEC_PER_CHAR,
     }
-    if not gen_state.get("active"):
+    if not gen_state["active"]:
         return result
 
-    elapsed = now - gen_state.get("start_time", 0.0)
+    elapsed = now - gen_state["start_time"]
     result["elapsed_sec"] = round(elapsed, 1)
     if elapsed < _DEGRADED_MIN_ELAPSED_SEC:
         return result
 
-    text_length = gen_state.get("text_length") or 0
+    # `or 0` kept deliberately: a None text_length still means "unknown size".
+    text_length = gen_state["text_length"] or 0
     if text_length <= 0:
         # Unknown size — fall back to elapsed time alone rather than dividing
         # by zero or silently declaring health.
