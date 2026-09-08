@@ -1043,11 +1043,6 @@ analysis rather than duplicated as a new step.)*
 - **Status:** deliberately held as its own isolated restart window since the 2026-09-05/06 dependabot session (two transport-library bumps in one week would be unattributable if something regressed). Confirmed 2026-09-06 still on 0.135.1.
 - **When to run:** anytime, isolated from the waves — pick a quiet window, bump, smoke-test `/generate` + `/generate-stream` + `/ws` per the #223 uvicorn-bump protocol precedent, restart, verify.
 
-### Track T3 — Disk-space reclamation Phases 1–2 (non-code, direct mode)
-
-- **Status:** fully audited, nothing executed. Plan: `~/.claude/plans/goal-reduce-storage-usage-ancient-adleman.md`. Free-space figures are explicitly volatile (iCloud eviction) — re-measure with `df`/`du` immediately before acting, not from the plan's cached figures.
-- **When to run:** anytime, entirely outside the git repo/branch/PR workflow — this is macOS housekeeping, not a code change.
-
 ### Standing watch — not an execution step
 
 - **Issue #112** (Upstream Watch) is a passive monthly-refreshed dashboard, not actionable work. No step needed; re-check only if a ⚡ blocker clears in its next auto-comment.
@@ -1058,8 +1053,7 @@ analysis rather than duplicated as a new step.)*
 
 **44 pending execution steps across 8 waves** — Wave 0: 0A–0G (7) · Wave 1: 1A–1E (5) · Wave 2: 2
 (1) · Wave 3: 3A–3E (5) · Wave 4: 4A–4D (4) · Wave 4B: 4B.1–4B.4 (4) · Wave 5: 5 (1) · Wave 6:
-6A–6Q (17) — **plus 3 independent tracks** (feature, dependency, and non-code housekeeping, none
-gated by the waves) **+ 1 passive watch** (no action). Step 6·0 (dead-code cleanup) was already
+6A–6Q (17) — **plus 2 independent tracks** (feature and dependency, neither gated by the waves) **+ 1 passive watch** (no action). Step 6·0 (dead-code cleanup) was already
 executed directly on 2026-09-06 and is recorded in Wave 6; it is not counted among the pending
 steps. Ordered by: critical correctness/security findings from the 2026-09-06 cross-cutting
 reviews first (Wave 0), then independent bug fixes and gate-integrity work (Wave 1), the
