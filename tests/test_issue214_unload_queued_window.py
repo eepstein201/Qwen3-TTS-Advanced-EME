@@ -758,6 +758,28 @@ class TestPostLockSlotReRead(unittest.TestCase):
                 "streaming/WS paths running inference on an orphaned model)",
             )
 
+    def test_guard_returns_the_slot_it_validates(self):
+        """The helper must hand back the CURRENT slot, not just validate it:
+        a raise-on-None guard cannot distinguish 'slot is the model I
+        captured' from 'slot was unloaded and RELOADED while I queued'."""
+        from fastapi import HTTPException
+
+        from qwen3_tts.server.app_generation import _require_model_under_lock
+
+        state = _make_state()
+        fresh = state.models["design"]
+        self.assertIs(
+            _require_model_under_lock(state, "design"),
+            fresh,
+            "the guard must return the re-read slot so callers can rebind",
+        )
+        state.models["design"] = None
+        with self.assertRaises(HTTPException) as ctx:
+            _require_model_under_lock(state, "design")
+        self.assertEqual(ctx.exception.status_code, 503)
+        self.assertEqual(ctx.exception.detail.get("error"), "model_unloaded")
+        self.assertEqual(ctx.exception.detail.get("recovery"), "retry")
+
 
 # ---------------------------------------------------------------------------
 # Item 4: /update-model-config takes the same route lock
