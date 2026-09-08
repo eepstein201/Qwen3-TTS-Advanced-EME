@@ -178,6 +178,7 @@ BATCHES = {
             "tests.test_stream_error_frame",
             "tests.test_stream_protocol",
             "tests.test_generation_state_guard",
+            "tests.test_generation_state_routing",
         ],
         "timeout": 180,  # Higher timeout for async operations
     },
