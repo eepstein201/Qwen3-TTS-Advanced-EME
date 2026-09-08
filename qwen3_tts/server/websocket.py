@@ -483,7 +483,12 @@ async def _stream_generation(
         from qwen3_tts.server.app_generation import _require_model_under_lock
 
         try:
-            _require_model_under_lock(app_state, mode)
+            # Rebind the re-read slot: inference_thread (nested above) reads
+            # `model` from THIS function's cell, so the rebind must land
+            # before thread.start() below — an unload->RELOAD in the
+            # capture->acquire window otherwise leaves the thread on the
+            # orphaned pre-unload object.
+            model = _require_model_under_lock(app_state, mode)
         except _HTTPException as e:
             _detail = e.detail
             _message = (

@@ -1027,6 +1027,84 @@ class TestWebSocketGenerationStateVisibility(unittest.IsolatedAsyncioTestCase):
 
 
 @_skip
+class TestWebSocketFreshSlotUnderLock(unittest.IsolatedAsyncioTestCase):
+    """T5 reload-half for /ws: the model is captured at handler entry, but
+    inference_lock is only acquired after validation + prompt load; an
+    unload->RELOAD in that window must leave the inference thread on the
+    CURRENT slot, not the orphaned capture."""
+
+    async def test_stream_generation_rebinds_model_under_lock(self):
+        from qwen3_tts.server.websocket import _stream_generation
+
+        streaming_models = []
+        reloaded = MagicMock(name="reloaded-clone")
+        state = types.SimpleNamespace(
+            models={"clone": MagicMock(name="original-clone")},
+            server_config={"security": {"max_text_length": 10000}},
+            inference_lock=asyncio.Lock(),
+            generation_lock=asyncio.Lock(),
+            generation_state={
+                "active": False,
+                "start_time": 0.0,
+                "text_length": 0,
+                "mode": "",
+                "batch_index": 0,
+                "batch_total": 0,
+                "chunk_index": 0,
+                "chunk_total": 0,
+                "generation_id": None,
+                "cancelled": False,
+            },
+        )
+        old_model = state.models["clone"]
+
+        def _swap_in_window(*args, **kwargs):
+            state.models["clone"] = reloaded
+            return MagicMock(name="voice-prompt")
+
+        def _stream_stub(*args, **kwargs):
+            streaming_models.append(kwargs["model"])
+            yield np.zeros(100, dtype=np.float32), 24000
+
+        ws = _FakeDisconnectWebSocket()
+        stop_event = threading.Event()
+        disconnect_event = threading.Event()
+        data = {"prompt_file": "test.pt", "text": "hi", "mode": "clone"}
+
+        with patch(
+            "qwen3_tts.core.engine.load_voice_prompt", side_effect=_swap_in_window
+        ), patch(
+            "qwen3_tts.core.engine.run_inference_streaming", side_effect=_stream_stub
+        ), patch(
+            "qwen3_tts.server.app_lifespan._check_memory_available",
+            return_value=(True, 10000),
+        ), patch(
+            "qwen3_tts.server.validation._validate_generation_request"
+        ):
+            await asyncio.wait_for(
+                _stream_generation(
+                    ws, state, "hi", "clone", data, stop_event, disconnect_event
+                ),
+                timeout=5.0,
+            )
+
+        self.assertEqual(len(streaming_models), 1, "ws inference never started")
+        self.assertIs(
+            streaming_models[0],
+            reloaded,
+            "the /ws inference thread ran on the pre-unload orphan — the "
+            "under-lock re-read is not rebound",
+        )
+        self.assertIsNot(
+            streaming_models[0], old_model, "the orphaned capture reached /ws inference"
+        )
+        error_frames = [m for m in ws.sent_json if "error" in m]
+        self.assertEqual(
+            error_frames, [], f"unexpected error frames: {error_frames!r}"
+        )
+
+
+@_skip
 class TestWSOriginValidation(unittest.TestCase):
     """P4: the WebSocket handshake must reject cross-origin browser requests
     (CSWSH defense). CORS protects HTTP only; the WS handshake is separate.
