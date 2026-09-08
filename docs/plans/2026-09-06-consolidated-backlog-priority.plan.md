@@ -385,6 +385,11 @@ incomplete.
   FOLLOWUP-1 was recorded in `consolidated-roadmap.md`.
 - **Tasks (after the decision is recorded):** write the failing test for the chosen behavior, RED,
   implement, GREEN, update `CLAUDE.md`'s `trim_icl_echo` row if the on-by-default claim changes.
+- **Reconciliation add-on (2026-09-08, WS9.4 of the remediation plan):** the multi-chunk echo-trim
+  cap belongs in this same decision — `_trim_icl_echo`'s 50%-of-output cap is shaped for the
+  single-chunk case, so on a multi-chunk batch it either over-trims or under-trims depending on
+  where the echo lands. Decide per-chunk-application vs. cap-scaling alongside (a)/(b) and fix in
+  the same PR. (Verified uncovered by any step before this addendum — 2026-09-08 grep.)
 - **Verify:** `conda run -n qwen3-tts-mlx python -m pytest tests/test_icl_echo_trim.py -v`; live clone smoke on a **freshly started server with ASR unloaded** (the exact repro condition) — `curl` `/generate` with a clone prompt and confirm the reference tail is absent (or confirm the doc now accurately says it can be present, if option (a) is chosen).
 - **Exit criteria:** decision recorded; either behavior fixed with a passing regression test, or CLAUDE.md corrected to stop overpromising — issue #193 closed either way, with the disposition stated in the closing comment.
 
@@ -519,6 +524,11 @@ unfalsifiable. 3e's M8 sub-item is dropped here — it's Step 1B above.)*
   did not originally list.
 - **Files:** `qwen3_tts/core/engine/inference.py` (both `run_inference` and `run_inference_streaming`), `qwen3_tts/server/app_generation.py` (streaming call site), `qwen3_tts/server/websocket.py` (streaming call site). `tests/test_seed_lock_chunks` exists and was registered in Batch 4 in a prior session, but only pins the *current* (still-unimplemented) inner seeding — it will need updating alongside the fix, not just unmocking.
 - **Tasks:** write the failing test asserting per-chunk seeds differ deterministically (`base_seed`, `base_seed+1`, ...) when `seed_lock_chunks=False` and a seed was supplied, for both `run_inference` and `run_inference_streaming`; RED; implement in `run_inference` (fix the existing logic) and add the equivalent parameter + logic to `run_inference_streaming` plus its two call sites; GREEN; update `tests/test_seed_lock_chunks` to pin the new inner seeding for both runners.
+- **Reconciliation add-on (2026-09-08, WS4.5):** while in this file, adopt per-call
+  `torch.Generator` seeding (global `torch.manual_seed` still at `inference.py:223,1269` as of
+  2026-09-08). Functionally safe under the single `inference_lock` today (the remediation plan's own
+  research confirms it), but it decouples reproducibility from the lock surviving — mandatory the
+  day concurrency is ever allowed. Same RED→GREEN treatment; same PR acceptable.
 - **Verify:** `conda run -n qwen3-tts-mlx python -m pytest tests/test_seed_lock_chunks.py tests/test_engine_streaming.py -v`; `ruff`; `mypy`.
 - **Exit criteria:** per-chunk derived seeding verified for both the batch and streaming runners; regression tests pinned for both.
 
@@ -803,6 +813,12 @@ disambiguates the `model_loader.py` gaps (item 12 below).
 - **Model tier:** default · **Branch:** `fix/vllm-docker-validation` (when unblocked)
 - **Context:** confirmed 2026-09-06 still open — no Docker+GPU validation of vLLM params, and the event loop is not yet proven non-blocked during vLLM generation. vLLM is this project's optional third backend (mlx/torch are default); this has been carried as blocked on unavailable hardware across multiple prior sessions.
 - **Tasks:** blocked until a Docker environment with GPU access for vLLM is available. When unblocked: validate vLLM params against a real Docker deployment (HIGH-1/MED-2); prove the event loop isn't blocked during vLLM generation across the full request path (`tests/test_vllm_async_nonblocking.py` already does this at the client-call level with a real detector — confirmed 2026-09-06, it drives the real `AsyncVLLMClient.generate()` with a heartbeat/elapsed-time bound, not a mock; extend the same pattern up through the FastAPI route handler if that layer isn't already covered) (HIGH-2).
+  **Reconciliation add-ons (2026-09-08, verified still open):** (a) vLLM clone temp-`.wav` leak —
+  the temp file is write-guarded (`engine_vllm.py:468-477`) but never unlinked after
+  `generate()`/`generate_stream()`, so every clone call leaks one file; add try/finally unlink of
+  `request["input"]["prompt_audio"]` (WS5.1). (b) `self._ready_event = asyncio.Event()` constructed
+  in `__init__` (`engine_vllm.py:169`, confirmed present 2026-09-08) — review loop-binding safety
+  for non-test contexts while the file is open (roadmap-backlog item).
 - **Verify:** N/A until unblocked — no code changes are made under this step while blocked.
 - **Exit criteria (this is a non-goal, not a completion condition — it never turns "done" on its own):** re-evaluate the moment a Docker+GPU environment becomes available for this project, or quarterly alongside the upstream-watch cadence (#112) in case vLLM's role in the project changes, whichever comes first. Do not attempt implementation without the environment.
 
@@ -858,6 +874,14 @@ analysis rather than duplicated as a new step.)*
 - **Model tier:** default · **Branch:** `refactor/p2-2-function-split`
 - **Context:** repo audit (2026-07-31) found 4 functions over the 50-line SRP guideline via `python -m qwen3_tts.tools.solid_analyzer qwen3_tts`: `edit` (109 lines), `rebuild` (106), `stop` (95), `_generation_options` (67). **Re-run the analyzer first** — these figures are 5+ weeks stale.
 - **Tasks:** re-run `solid_analyzer`; for each still-over-limit function, extract cohesive blocks (audit's own note: `edit`/`rebuild` are CLI command bodies and split cleanly into validate/apply/report phases). Characterize existing behavior with tests before extracting if coverage is thin.
+  **Reconciliation add-ons (2026-09-08):** (a) the cc-decomposition set the 2026-08-10 review named —
+  `handle_generate`, `_handle_generation`, `run_repl`, `websocket_tts_handler`/`_stream_generation` —
+  is a DISTINCT set from the four analyzer functions above; it surfaces under the same 50-line rule on
+  the re-run, and needs the characterize-first treatment that review prescribed (WS8.1). (b) Extract
+  the shared path-containment check into one `_ensure_path_under_home()` helper — the identical
+  `resolved.startswith(home + os.sep)` pattern now appears at EIGHT sites across six files
+  (`ui/shared.py:620,647,759,792`, `ui/tabs_generation.py:362`, `generate_interactive.py:690`,
+  `cli/dialogue.py:111`, `cli/srt.py:70`; re-count at implementation time) (WS8.2).
 - **Verify:** `python -m qwen3_tts.tools.solid_analyzer qwen3_tts` (confirm 0 or fewer violations); full non-E2E suite; `ruff`; `mypy`.
 - **Exit criteria:** each function at or under 50 lines (or a documented reason it can't cleanly split further); no behavior change (existing tests pass unmodified).
 
@@ -865,6 +889,10 @@ analysis rather than duplicated as a new step.)*
 
 - **Model tier:** strongest (structural risk — read [[mock_patch_seams_block_file_splits]] and [[codeql_dismissals_dont_follow_moved_code]] equivalents first: `grep` every `@patch("qwen3_tts.server.app.*")` across `tests/` before moving anything, and expect CodeQL to re-raise any previously-dismissed alert on relocated code) · **Branch:** `refactor/p2-1-split-app-py`
 - **Context:** grown from 821 (2026-07-31 audit) to 1064 lines. Route-thin-wrapper pattern already established (handlers live in `app_generation.py`/`app_models.py`/`app_prompts.py`); `app.py` itself likely still carries setup/middleware/route-registration bulk that can split along existing seams.
+  **Reconciliation add-on (2026-09-08):** `app_generation.py` is the fifth over-ceiling file and the
+  fastest-growing one — 788 lines when audit minor M4 flagged it, 997 today. Split it in this PR or a
+  tightly-paired one (same mock-patch-seam and CodeQL precautions; it owns the Step 0B/0C-guarded
+  capture paths, so grep `@patch("qwen3_tts.server.app_generation.*")` first).
 - **Tasks:** identify a natural split (e.g. middleware/CORS/rate-limit setup vs. route registration) that doesn't cross the response-contract test boundary (`tests/test_response_contracts.py`); move in one PR; re-run mock-patch-target greps after.
 - **Verify:** full non-E2E suite; `ruff`; `mypy`; CodeQL (via a full PR — not just the local harness, per this repo's own documented CodeQL blind spots).
 - **Exit criteria:** `app.py` under 800 lines; zero test collateral damage; no re-raised CodeQL alerts.
@@ -1118,6 +1146,69 @@ analysis rather than duplicated as a new step.)*
 - **Exit criteria:** all 11 items landed (or individually dispositioned in the PR with a
   reason); no behavior change beyond the fixes themselves.
 
+### Step 6R — Legacy-plan reconciliation batch (WS-remediation + 2026-08-03 audit survivors; all re-verified 2026-09-08)
+
+- **Model tier:** default · **Branch:** `chore/legacy-plan-reconciliation` (may split into 2–3 PRs
+  by theme: correctness / robustness / verify-probes) — composed as ONE batch step per the
+  small-same-shape-work convention. **Re-verify each item at implementation time.**
+- **Provenance:** open survivors of `docs/plans/remediation-plan-2026-08-10.md` (WS4–WS9; WS1–WS3
+  shipped as #154/#157/#160) and of the 2026-08-03 WS+concurrency audit, every item re-verified
+  against source at `a8ac23b` on 2026-09-08 (see the Provenance reconciliation addendum for the
+  closed half of both registers).
+- **Items:**
+  1. **Generation-cache TOCTOU 500** (`app_generation.py:317-341`): the pre-lock cache check reads
+     the entry under `gen_cache_lock` but reads the cache FILE after an `os.path.exists` probe with
+     no `FileNotFoundError` handling — an eviction/prune between probe and read 500s a request that
+     should be a cache miss. Catch `(FileNotFoundError, OSError)` → fall through to generation.
+     *(WS4.2)*
+  2. **Per-generation WS rate limit** (`websocket.py` — zero rate-limit references, verified
+     2026-09-08): 0D's connection slots cap concurrent sockets and the global pre-auth ceiling sees
+     only the upgrade request, so post-auth generation messages are unthrottled. Add a
+     per-connection or per-IP generation throttle consistent with `TTS_RATE_LIMIT_GENERATE`.
+     *(2026-08-03 audit MEDIUM)*
+  3. **`/stats` blocks the event loop** (`app.py:640`): `return handle_stats(...)` runs
+     synchronously (memory checks + lazy torch/mlx imports) — wrap in `asyncio.to_thread` like
+     every sibling endpoint. *(WS6.1)*
+  4. **`uninstall_config` non-atomic write** (`tools/uninstall.py:193`): raw
+     `open(CONFIG_PATH, "w")` → `save_config(default_config)` for the atomic write + cache
+     invalidation every other config writer uses. *(WS5.3)*
+  5. **Transcript file encodings** (`core/engine/voice_prompt.py:96,313,384` reads + `:523` write):
+     none passes `encoding="utf-8"` — platform-dependent default on Windows/Colab. *(WS9.1)*
+  6. **`_expand_time_match` out-of-range input** (`core/engine/text_processing.py:271+`): "99:99"
+     is spoken verbatim ("ninety-nine hours ninety-nine minutes") — return the original substring
+     when h/m/s are out of range. *(WS9.2)*
+  7. **Metal retry keyword too generic** (`core/engine/inference.py:1520`): the crash classifier
+     matches bare `"kernel"`, retrying non-Metal RuntimeErrors with sub-chunks — tighten to
+     Metal-specific phrases ("command buffer", "metal", "gpu"-qualified). *(WS9.5)*
+  8. **WS cancel-watcher silent except** (`websocket.py:231-232`): `except Exception: return` with
+     no log — add `logger.debug(..., exc_info=True)` for diagnosability. *(audit M1)*
+  9. **Cancel-test sleep flake** (`tests/test_websocket.py:825`): 0.3 s `time.sleep` — replace with
+     an event-driven wait. *(audit M2)*
+  10. **`update-model-config` 409 parity** (`app.py:704-707`): T5 `inference_lock` makes it
+      correct, but it queues behind a whole generation where `/unload-model` fails fast with 409 —
+      add the same active-generation 409 guard for parity, or record the asymmetry as deliberate in
+      the docstring. *(WS4.3 residual)*
+  11. **Raw `client_ip` in the rejection log** (`websocket.py:90,92`): the 1013 rejection log
+      interpolates raw `client_ip` while `:114/:122` use `sanitize_log` — wrap both. *(0D
+      final-review LOW; recorded as riding the next PR's paperwork — landing it here makes the
+      plan the durable register.)*
+  12. **`ProgressIndicator` no-op construction** (`interface/ui/model_management.py:201`, plus the
+      second site the 2026-08-10 review noted): constructed bare and never fed to a `gr.HTML`
+      component (the class docstring says its output is HTML to feed in) — wire it or drop it.
+      *(WS8.3 remainder; its prosody_preset half is closed — shipped as a live parameter.)*
+  13. **Verify-and-fix probes** (runtime behavior, not statically decidable): (a) `--stream` is
+      consumed only in server mode (`generate_server.py:530`) — confirm what the caller logs when
+      `generate_streaming` returns (the F7 claim: `None` → success logged) and decide whether
+      local-mode `--stream` should warn that it is ignored; (b) missing-prompt parity: the engine
+      now raises `FileNotFoundError` uniformly (`voice_prompt.py:374,380`) — probe whether the
+      generation route maps that to 404 or 500 and make the choice deliberate. *(F7 + 2026-08-03
+      audit)*
+- **Verify:** per-item targeted tests where applicable; `ruff`; `mypy`; full non-E2E suite; the WS
+  items re-run `tests/test_websocket_slot_release.py` + `tests/test_websocket_rate_limit.py` green
+  UNCHANGED.
+- **Exit criteria:** all 13 items landed (or individually dispositioned in the PR with a reason);
+  no behavior change beyond the fixes themselves.
+
 ---
 
 ## Wave 7 — Interface quality: Web UI · CLI · HTTP API (incorporated 2026-09-08)
@@ -1213,20 +1304,42 @@ analysis rather than duplicated as a new step.)*
 - **Status:** deliberately held as its own isolated restart window since the 2026-09-05/06 dependabot session (two transport-library bumps in one week would be unattributable if something regressed). Confirmed 2026-09-06 still on 0.135.1.
 - **When to run:** anytime, isolated from the waves — pick a quiet window, bump, smoke-test `/generate` + `/generate-stream` + `/ws` per the #223 uvicorn-bump protocol precedent, restart, verify.
 
+### Track T3 — Branch disposition register (decision-gated: user action only)
+
+- **Status verified 2026-09-08:** the pre-rewrite diverged branches older memory carried as
+  "do not delete without the user" (`feature/code-quality-sweep`, `feature/sec-3/4/5-*`,
+  `feature/ui-phase-1c-confirms`) and the two awaiting a value decision
+  (`feature/phase-1c-confirmation-dialogs`, `feature/test-batch-fix`) are GONE from both local and
+  origin. The register resolves to "already decided by deletion": the phase-1c confirm-dialog
+  content landed independently via Phase 1 (#218 UI confirms, #228 review gaps).
+- **Remaining deletable at the user's leisure** (content already in `main` via squash merges, so
+  `git branch --no-merged` still lists them): local `fix/require-model-under-lock-returns-model`,
+  `fix/generation-state-thread-safety`, `fix/ws-slot-leak-preauth`,
+  `docs/incorporate-interface-quality-plan`; and on origin, `docs/update-codemaps` (superseded —
+  #268's `c177acf` is the last codemap refresh on main) and `fix/makefile-docs-upkeep` (its end
+  state — `docs/development-roadmap.md` moved to `docs/plans/archive/` — is already on main; diff
+  the branch once before deleting to confirm nothing else rode it).
+- *(Unrelated namesake: the off-repo "T3 disk-space" plan at
+  `~/.claude/plans/goal-reduce-storage-usage-ancient-adleman.md` is a different track sharing the
+  number.)*
+- **Standing paperwork** (process, not a step): each merged step's status-mark rides the NEXT PR's
+  docs commit per the 0B–0D convention — the 0D status-mark is the one currently outstanding.
+
 ### Standing watch — not an execution step
 
 - **Issue #112** (Upstream Watch) is a passive monthly-refreshed dashboard, not actionable work. No step needed; re-check only if a ⚡ blocker clears in its next auto-comment.
+- **#214 item 5 / #201 cap-warning field watch** — `grep -n "token cap without emitting EOS" .voice_server.log*` stays the MLX cap-failure tripwire (CLAUDE.md documents the procedure). Watch-only; any hit after #192's closure is a new lead, not a recurrence.
 
 ---
 
 ## Summary
 
-**47 execution steps across 9 waves** — Wave 0: 0A–0G (7) · Wave 1: 1A–1E (5) · Wave 2: 2
+**48 execution steps across 9 waves** — Wave 0: 0A–0G (7) · Wave 1: 1A–1E (5) · Wave 2: 2
 (1) · Wave 3: 3A–3E (5) · Wave 4: 4A–4D (4) · Wave 4B: 4B.1–4B.4 (4) · Wave 5: 5 (1) · Wave 6:
-6A–6Q (17) · Wave 7: 7A–7C (3) — **plus 2 independent tracks** (feature and dependency, neither gated by the waves) **+ 1 passive watch** (no action). Step 6·0 (dead-code cleanup) was already
+6A–6R (18) · Wave 7: 7A–7C (3) — **plus 3 independent tracks** (feature, dependency, and the decision-gated branch register — none gated by the waves) **+ 1 passive watch** (no action). Step 6·0 (dead-code cleanup) was already
 executed directly on 2026-09-06 and is recorded in Wave 6; it is not counted among the pending
 steps. **Executed so far: 0A (PR #263), 0B (PR #269), 0C (PR #270), 0D (PR #271).** **6G is
-folded into Wave 7 Step 7C** (not independently pending). ***Open: 42.*** *(Wave 7 incorporated
+folded into Wave 7 Step 7C** (not independently pending). ***Open: 43.*** *(Wave 7 incorporated
 2026-09-08 from the Interface Quality Improvement Plan — a three-surface audit of Web UI, CLI,
 and HTTP API, user-scoped; tracked at `docs/plans/2026-09-07-interface-quality.plan.md`, which
 is the spec for 7A–7C.)* Ordered by: critical correctness/security findings from the 2026-09-06 cross-cutting
@@ -1237,7 +1350,7 @@ not merge order), the Phase-3 sweep closing out a whole prior plan (Wave 3), tha
 reliability question itself plus the E2E coverage it needs (Wave 4), coverage-gap closing
 (Wave 4B), infrastructure-blocked work (Wave 5), then mechanical low-severity cleanup last
 (Wave 6 — sequenced last because the code it touches is still being modified by the earlier
-waves; within Wave 6, the 6F–6Q small fixes may run before or alongside the 6A–6E splits, whose
+waves; within Wave 6, the 6F–6R small fixes may run before or alongside the 6A–6E splits, whose
 structural risk is what actually wants the last position).
 
 **Provenance of the additions:** the original 19-step plan (waves 1–6) was Blueprint-drafted and
@@ -1266,3 +1379,26 @@ batched modules the review surfaced); Step 3A's "all three runners" claim was fa
 needs a new parameter added, not just unmocking (corrected, write surface expanded). Full findings:
 `/private/tmp/claude-502/-Users-ericepstein-Qwen3-TTS-UserFiles/88bcce41-a83c-4f4c-9841-d27835b0ff60/tasks/a1204c7ae9cff963b.output`
 (session-local; not durable — the corrections themselves are what's durable, captured above).
+
+**Reconciliation addendum (2026-09-08):** two legacy registers that predated this plan were verified
+item-by-item against source at `a8ac23b` and absorbed, so they stop drifting outside it. **(1)
+`docs/plans/remediation-plan-2026-08-10.md`** — WS1/WS2/WS3 merged (#154/#157/#160); WS7 resolved
+(lock already pins `python-multipart==0.0.32`); verified CLOSED since that plan was written: WS4.1
+(ASR `_asr_lock`, PR #230 — `asr.py:17,147`), WS4.4 (vLLM `stop()` closes the client,
+`engine_vllm.py:415-420`), WS5.2 (`create_voice.py` try/finally cleanup), WS9.3 (`max_chunk_chars=0`
+gate at `inference.py:1243` matches the documented behavior); WS4.3 is SUPERSEDED by T5
+(`inference_lock` held — route docstring `app.py:704-707` documents the deliberate no-active-guard
+asymmetry; residual → 6R item 10). Survivors → Step 6R and in-place amendments to Steps 1C, 3A, 5,
+6A, 6B. **(2) The 2026-08-03 WS+concurrency audit** — all 7 HIGHs + I1 closed (#125/#126; I1 via the
+`disconnect_event` split, `websocket.py:146-149,223-243`). Of its durable MEDIUM/LOW register,
+verified CLOSED: LUFS skip now logs a warning (`audio_processing.py:336-337` — raising would wrongly
+promote an optional dep), `protocols.py` deleted, BATCHES registration enforced by
+`tests/test_batches_coverage.py`, the three named false-green tests verified real or fixed, WS
+`generation_state` visibility closed by 0C, `/health` redaction shipped (#153). Survivors → 6R items
+2/8/9/13 plus the amendments. The audit's full 24-item list was never durably recorded (session-local
+output); the durable subset is fully dispositioned here. **Also resolved by this pass:** #214 items
+1/4 closed (auto-create runs under the load lock per `voice_prompt.py:81`'s own docstring +
+`load_voice_prompt_serialized`; `tests/test_e2e_queueing.py` exists — e2e is deliberately unbatched),
+`test_e2e_playwright._get_auth_token` already delegates to the production token reader, and the
+pre-rewrite unmerged-branch register is empty (branches deleted; content superseded — see Track T3).
+Net effect on counts: 47→48 steps (Step 6R added), Open 42→43.
