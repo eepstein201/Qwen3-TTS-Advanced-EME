@@ -1210,7 +1210,7 @@ analysis rather than duplicated as a new step.)*
       phase (which the allowed-paths literal feeds) is live and healthy. Rewrite the generation
       phase to drive both chain steps, or scope the file explicitly to launch-only and drop the
       dead phase. Same stale-literal family:
-      `tests/test_e2e_history_clear_copy.py:144` still launches its UI subprocess with the
+      `tests/test_e2e_history_clear_copy.py:146` still launches its UI subprocess with the
       pre-0E blanket `~/Downloads` `allowed_paths` literal (share=False + loopback, so safe,
       but stale vs the narrowed production shape — modernize it the same way
       `tests/test_ui_headless.py` was). *(Discovered by 0E Task 2 / fix round 1; not owned by 0E.)*
