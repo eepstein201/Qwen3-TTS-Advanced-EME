@@ -2,16 +2,16 @@
 
 These are **point-in-time historical records** — completed implementation plans, one-off bug-fix plans, and research/review reports. They document *what was done and why* at the time they were written and are preserved for context. They are **not** current guidance and are not kept in sync with the code.
 
-For the live, actively-maintained roadmap, see the two files one level up:
+For the live, actively-maintained roadmap, see the file one level up:
 
 - [`../consolidated-roadmap.md`](../consolidated-roadmap.md) — authoritative status tracker (completed + open items)
-- [`../development-roadmap.md`](../development-roadmap.md) — companion tracking `R-*` items reconciled against source
 
 ## Contents
 
 | File | Type |
 |------|------|
 | `architectural-roadmap.md` | Original Gemini Deep Research architecture roadmap (superseded by consolidated-roadmap) |
+| `development-roadmap.md` | `R-*` companion tracker reconciled against source (superseded by consolidated-roadmap, archived 2026-09-07) |
 | `2026-03-18-architectural-roadmap-implementation.md` | 4-phase implementation of the above |
 | `2026-03-23-attention-mechanisms-research.md` | Research report on attention mechanisms |
 | `2026-03-23-speculative-decoding-research.md` | Feasibility research on speculative decoding |
