@@ -922,6 +922,7 @@ def get_gradio_launch_kwargs(config: dict, *, share: bool = False) -> dict:
         print("=" * 60)
         print("The Gradio UI is publicly shared and requires a login.")
         print(f"  Username: {user}")
+        # codeql[py/clear-text-logging-sensitive-data]: Deliberate one-time credential delivery — the print is the feature; disclosed in docs/testing/ui-share-auth.tdd.md and CLAUDE.md.
         print(f"  Password: {password}")
         print("=" * 60)
     kwargs["auth"] = (user, password)
