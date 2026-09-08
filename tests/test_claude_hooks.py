@@ -1,9 +1,10 @@
 """Guard tests for the repo-durable Claude Code PreToolUse hooks.
 
-The three hook scripts under .claude/hooks/ enforce repo policy at the
+The five hook scripts under .claude/hooks/ enforce repo policy at the
 harness level (no push/merge/delete on main, pre-push gate reminder,
-CLAUDE.md <=300 lines), but they only protect contributors if they actually
-ship with the repo:
+CLAUDE.md <=300 lines, batch-runner preference over raw suite pytest,
+server-ready confirmation before full-suite runs), but they only protect
+contributors if they actually ship with the repo:
 
 - the scripts are git-tracked (untracked scripts die with the clone),
 - the wiring lives in a TRACKED .claude/settings.json — the file is
@@ -12,7 +13,8 @@ ship with the repo:
   settings levels accumulate, so a duplicate double-fires every call.
 
 The behavioral pipe tests pin the block/allow contract each script promises
-in its docstring (exit 2 blocks; exit 0 allows; malformed stdin fails open).
+in its docstring (exit 2 blocks; ask-decision JSON with exit 0 warns;
+silent exit 0 allows; malformed stdin fails open).
 """
 
 import importlib.util
@@ -36,7 +38,15 @@ TEST_DOCKERFILE = REPO_ROOT / "Dockerfile.test"
 PUSH_HOOK = "no-direct-push-main.py"
 PREPUSH_HOOK = "prepush-local-gates.py"
 LENGTH_HOOK = "claude-md-length-guard.py"
-ALL_HOOKS = (PUSH_HOOK, PREPUSH_HOOK, LENGTH_HOOK)
+BATCH_RUNNER_HOOK = "prefer-batch-runner-over-raw-pytest.py"
+SERVER_READY_HOOK = "require-server-ready-before-full-test.py"
+ALL_HOOKS = (
+    PUSH_HOOK,
+    PREPUSH_HOOK,
+    LENGTH_HOOK,
+    BATCH_RUNNER_HOOK,
+    SERVER_READY_HOOK,
+)
 
 HOOK_TIMEOUT_S = 15
 CLAUDE_MD_MAX_LINES = 300
@@ -112,6 +122,38 @@ class TestHooksAreRepoDurable(unittest.TestCase):
         self.assertEqual(len(matchers), 1)
         self.assertIn("Write", matchers[0])
         self.assertIn("Edit", matchers[0])
+
+    def test_bash_hooks_wired_in_bash_matcher_block(self):
+        """event:bash rules must sit in a Bash matcher block.
+
+        Pipe tests invoke hook scripts directly and bypass settings
+        entirely, so a script wired under the wrong matcher passes every
+        pipe test while never seeing a real Bash call.
+        """
+        for script in (PUSH_HOOK, PREPUSH_HOOK, BATCH_RUNNER_HOOK, SERVER_READY_HOOK):
+            matchers = [
+                matcher
+                for matcher, cmd in _pretooluse_commands(SHARED_SETTINGS)
+                if script in cmd
+            ]
+            self.assertEqual(len(matchers), 1, script)
+            self.assertIn("Bash", matchers[0], script)
+
+    def test_dormant_hookify_rule_definitions_removed(self):
+        """The wired executors REPLACE the dormant hookify definitions.
+
+        Both .local.md files were git-tracked; leaving them in place lets a
+        dormant duplicate silently drift from the hook that owns the rule
+        (the same never-re-fork-the-protocol lesson as stream_protocol).
+        """
+        for name in (
+            "hookify.prefer-batch-runner-over-raw-pytest.local.md",
+            "hookify.require-server-ready-before-full-test.local.md",
+        ):
+            self.assertFalse(
+                (REPO_ROOT / ".claude" / name).exists(),
+                f"{name} still present — the wired hook owns this rule now",
+            )
 
     def test_shared_settings_are_hooks_only(self):
         """Secret-bearing sections (env/permissions/mcpServers) stay local.
@@ -292,6 +334,7 @@ class TestNoDirectPushMain(unittest.TestCase):
     def test_fails_open_on_malformed_stdin(self):
         proc = _run_hook(PUSH_HOOK, raw="{not json")
         self.assertEqual(proc.returncode, 0)
+        self.assertEqual(proc.stdout, "")
 
 
 class TestNoDirectPushMainQuotedText(unittest.TestCase):
@@ -427,6 +470,7 @@ class TestPrepushLocalGates(unittest.TestCase):
     def test_fails_open_on_malformed_stdin(self):
         proc = _run_hook(PREPUSH_HOOK, raw="{not json")
         self.assertEqual(proc.returncode, 0)
+        self.assertEqual(proc.stdout, "")
 
 
 class TestClaudeMdLengthGuard(unittest.TestCase):
@@ -497,6 +541,7 @@ class TestClaudeMdLengthGuard(unittest.TestCase):
     def test_fails_open_on_malformed_stdin(self):
         proc = _run_hook(LENGTH_HOOK, raw="{not json")
         self.assertEqual(proc.returncode, 0)
+        self.assertEqual(proc.stdout, "")
 
 
 class TestLengthGuardPathValidation(unittest.TestCase):
