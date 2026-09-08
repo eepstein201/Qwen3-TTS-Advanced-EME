@@ -506,17 +506,18 @@ async def _stream_generation(
             # orphaned pre-unload object.
             model = _require_model_under_lock(app_state, mode)
         except _HTTPException as e:
-            _detail = e.detail
-            _message = (
-                _detail
-                if isinstance(_detail, str)
-                else str(
-                    _detail.get("detail", _detail)
-                    if isinstance(_detail, dict)
-                    else _detail
-                )
+            # Same spread shape as the loader-site handler above: a classified
+            # detail dict is forwarded field-for-field (error / detail /
+            # recovery) so a client can branch on `recovery` wherever the
+            # unload landed. Flattening the dict to a human string dropped the
+            # `model_unloaded` code and the retry hint for this window only --
+            # the same condition already reached clients with both fields when
+            # the unload landed in the prompt-load window instead. A str detail
+            # has no fields to spread and keeps degrading to the bare frame.
+            _payload = (
+                dict(e.detail) if isinstance(e.detail, dict) else {"error": e.detail}
             )
-            await websocket.send_json({"error": _message})
+            await websocket.send_json(_payload)
             return
 
         # Mark this generation active in the shared generation_state so the
