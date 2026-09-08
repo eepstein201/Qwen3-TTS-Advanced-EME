@@ -179,6 +179,7 @@ BATCHES = {
             "tests.test_stream_protocol",
             "tests.test_generation_state_guard",
             "tests.test_generation_state_routing",
+            "tests.test_generation_state_readers",
         ],
         "timeout": 180,  # Higher timeout for async operations
     },
