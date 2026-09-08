@@ -621,6 +621,88 @@ class TestPostLockSlotReRead(unittest.TestCase):
             "recheck raises the same 503 while leaving the window open",
         )
 
+    def test_batch_runs_on_the_model_reloaded_while_queued(self):
+        """Twin of the 503 test for the reload half of the window: an
+        unload->RELOAD leaves the slot non-None, so only REBINDING the
+        re-read slot (not merely checking it) keeps inference off the
+        orphaned pre-unload object."""
+        inference_models = []
+        state = _make_state()
+        old_model = state.models["clone"]
+        reloaded = MagicMock(name="reloaded-clone")
+        state.inference_lock = _RecordingAsyncLock()
+
+        async def _scenario():
+            from qwen3_tts.server.app_generation import handle_generate
+            from qwen3_tts.server.validation import GenerateRequest
+
+            def _swap_in_window(state, prompt_file, *args, **kwargs):
+                # Runs pre-lock (the prompt load sits between the model
+                # capture and the acquire): unload -> RELOAD lands here.
+                state.models["clone"] = reloaded
+                return MagicMock(name="voice-prompt")
+
+            def _run_inference(*args, **kwargs):
+                inference_models.append(kwargs["model"])
+                return np.zeros(4800, dtype=np.float32), 24000
+
+            req = GenerateRequest(
+                text="hello clone", mode="clone", prompt_file="voice.wav"
+            )
+            try:
+                with (
+                    patch(
+                        f"{_APP_GENERATION}._check_memory_available",
+                        return_value=(True, 4096),
+                    ),
+                    patch(
+                        "qwen3_tts.server.validation._validate_generation_request"
+                    ),
+                    patch(
+                        "qwen3_tts.server.prompt_loading.load_voice_prompt_serialized",
+                        side_effect=_swap_in_window,
+                    ),
+                    patch(f"{_ENGINE}.run_inference", side_effect=_run_inference),
+                    patch("soundfile.write"),
+                    patch(
+                        "qwen3_tts.core.engine.audio_processing.calculate_waveform_peaks",
+                        return_value=[0.1] * 500,
+                    ),
+                ):
+                    return await asyncio.wait_for(
+                        handle_generate(
+                            request=_make_request(state),
+                            state=state,
+                            req=req,
+                            security={
+                                "max_text_length": 50000,
+                                "max_batch_size": 20,
+                            },
+                            config_provider=None,
+                        ),
+                        timeout=15,
+                    )
+            finally:
+                _cleanup_gen_cache_files(state)
+
+        asyncio.run(_scenario())
+        self.assertEqual(
+            len(inference_models),
+            1,
+            f"expected one inference, got {inference_models!r}",
+        )
+        self.assertIs(
+            inference_models[0],
+            reloaded,
+            "inference ran on the pre-unload orphan: the under-lock re-read "
+            "was checked but not rebound",
+        )
+        self.assertIsNot(
+            inference_models[0],
+            old_model,
+            "the orphaned capture reached run_inference",
+        )
+
     def test_batch_reread_is_enclosed_in_the_lock(self):
         """Structural companion to the behavioral test above: the
         handle_generate re-read must sit INSIDE the

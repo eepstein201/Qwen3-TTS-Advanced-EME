@@ -447,8 +447,11 @@ async def handle_generate(request, state, req, security, config_provider):
                 # T5: the slot was read into a local BEFORE this acquire;
                 # re-validate it here — an unload that landed in the
                 # capture->acquire window must surface as a retryable 503,
-                # never as an orphan generation.
-                _require_model_under_lock(state, mode)
+                # never as an orphan generation. Rebind the re-read slot: an
+                # unload->RELOAD in that window leaves the slot NON-None, so
+                # checking alone would still run inference on the orphaned
+                # pre-unload object.
+                model = _require_model_under_lock(state, mode)
 
                 # Brief lock to set generation state
                 async with state.generation_lock:
