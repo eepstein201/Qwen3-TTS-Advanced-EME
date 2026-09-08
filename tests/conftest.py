@@ -178,6 +178,34 @@ def _restore_app_state(app, original):
 
 
 @pytest.fixture(autouse=True)
+def _isolate_ui_share_credentials(tmp_path, monkeypatch):
+    """Repoint the shared-UI credentials seam away from the real config dir.
+
+    Tests that drive the share=True launch path (env-var, Colab-forced, or
+    generated credentials) write the generated password to
+    ``_ui_credentials_path()``. Without this fixture, such runs create or
+    overwrite the REAL ``~/.config/qwen3-tts/.ui_share_credentials`` — the
+    write also silently depends on the ambient ``TTS_UI_USERNAME``/``TTS_UI_PASSWORD``
+    environment, so it happens in some shells and not others. Applies to every
+    test (autouse), including unittest TestCases, so future share-path tests
+    are covered without having to remember the seam.
+    """
+    try:
+        import qwen3_tts.interface.ui.shared as ui_shared
+    except ImportError:
+        # gradio (a module-level import of shared.py) is unavailable; nothing
+        # in this process can reach the share path to write anything.
+        yield
+        return
+    monkeypatch.setattr(
+        ui_shared,
+        "_ui_credentials_path",
+        lambda: str(tmp_path / ".ui_share_credentials"),
+    )
+    yield
+
+
+@pytest.fixture(autouse=True)
 def initialize_app_state_for_xdist():
     """Auto-initialize app.state for all tests to support xdist parallel execution.
 

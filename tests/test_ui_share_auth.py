@@ -105,6 +105,19 @@ class TestShareRequiresAuthHelper(unittest.TestCase):
                 get_gradio_launch_kwargs({}, share=True)
         self.assertIn("credentials", str(ctx.exception).lower())
 
+    def test_autouse_fixture_repoints_the_seam_away_from_the_real_config_dir(self):
+        """conftest's autouse fixture repoints the credentials seam for EVERY
+        test, so no test run can create the real ~/.config file (fix round 4)."""
+        from qwen3_tts.interface.ui.shared import _ui_credentials_path
+
+        real_dir = os.path.expanduser("~/.config/qwen3-tts")
+        path = _ui_credentials_path()
+        self.assertNotEqual(
+            os.path.dirname(path),
+            real_dir,
+            f"credentials seam resolves into the real config dir: {path}",
+        )
+
     def test_share_true_prefers_both_env_vars_verbatim(self):
         from qwen3_tts.interface.ui.shared import get_gradio_launch_kwargs
 
