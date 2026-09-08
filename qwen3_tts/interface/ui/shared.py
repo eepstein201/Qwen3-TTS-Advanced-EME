@@ -869,19 +869,56 @@ def refresh_history_from_disk(
     )
 
 
-def get_gradio_launch_kwargs(config: dict) -> dict:
-    """Shared Gradio launch() kwargs -- single source of truth for all UI entry points."""
+def get_gradio_launch_kwargs(config: dict, *, share: bool = False) -> dict:
+    """Shared Gradio launch() kwargs -- single source of truth for all UI entry points.
+
+    When ``share`` is true the UI is reachable from a public URL, so the
+    returned kwargs carry an ``auth`` (user, password) tuple: the configured
+    ``TTS_UI_USERNAME``/``TTS_UI_PASSWORD`` pair when BOTH are set, otherwise
+    generated credentials printed to the console. Establishing credentials is
+    fail-closed — anything short of both env vars or a successful generation
+    raises RuntimeError instead of returning unauthenticated launch kwargs.
+    """
+    import secrets
     import tempfile
 
     from qwen3_tts.core.config import IN_COLAB
 
     output_dir = _resolve_output_dir(config)
-    downloads = os.path.realpath(os.path.expanduser("~/Downloads"))
-    allowed = list({output_dir, downloads, tempfile.gettempdir()})
+    # Only the output folder and the system tempdir are served: the old blanket
+    # ~/Downloads entry handed a public URL the user's whole Downloads tree.
+    allowed = list({output_dir, tempfile.gettempdir()})
 
-    return {
+    kwargs: dict = {
         "server_name": "0.0.0.0" if IN_COLAB else "127.0.0.1",  # nosec B104  # Colab only
         "allowed_paths": allowed,
         "theme": gr.themes.Soft(),
         "css": ".gr-hidden { display: none !important; height: 0 !important; overflow: hidden !important; }",
     }
+    if not share:
+        return kwargs
+
+    user = os.environ.get("TTS_UI_USERNAME")
+    password = os.environ.get("TTS_UI_PASSWORD")
+    if user or password:
+        if not (user and password):
+            raise RuntimeError(
+                "TTS_UI_USERNAME and TTS_UI_PASSWORD must both be set to share "
+                "the UI; refusing to launch a public UI with partial credentials."
+            )
+    else:
+        try:
+            user = "tts-" + secrets.token_urlsafe(4)  # 4 bytes -> 6 urlsafe chars
+            password = secrets.token_urlsafe(16)
+        except Exception as exc:
+            raise RuntimeError(
+                "Could not generate credentials for the shared UI; refusing to "
+                "launch it unauthenticated."
+            ) from exc
+        print("=" * 60)
+        print("The Gradio UI is publicly shared and requires a login.")
+        print(f"  Username: {user}")
+        print(f"  Password: {password}")
+        print("=" * 60)
+    kwargs["auth"] = (user, password)
+    return kwargs

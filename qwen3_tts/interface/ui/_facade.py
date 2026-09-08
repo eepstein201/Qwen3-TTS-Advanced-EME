@@ -577,7 +577,7 @@ def main():
         server_port=port,
         share=share,
         inbrowser=inbrowser,
-        **get_gradio_launch_kwargs(config),
+        **get_gradio_launch_kwargs(config, share=share),
     )
 
 
