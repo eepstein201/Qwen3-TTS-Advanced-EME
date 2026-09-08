@@ -120,6 +120,7 @@ from qwen3_tts.server.app_prompts import (  # noqa: E402
     handle_prompt_details,
     handle_rename_prompt,
 )
+from qwen3_tts.server.generation_state_guard import guard_for  # noqa: E402
 
 # Import validation module (models and helpers)
 from qwen3_tts.server.validation import (  # noqa: E402
@@ -593,7 +594,10 @@ async def ready(request: Request) -> dict:
 async def generation_status(request: Request) -> dict:
     """Get current generation status (public — sensitive fields stripped)."""
     state = request.app.state
-    gen_state = state.generation_state
+    # ONE atomic snapshot: active/start_time (and the coarse fields) must
+    # describe the SAME generation, or a reset interleaving between two
+    # unlocked reads reports elapsed_sec computed across two of them.
+    gen_state = guard_for(state).snapshot()
     # Public/no-auth endpoint: expose only liveness, cancellation, and coarse
     # progress position. Totals (batch_total, chunk_total) and eta_sec are
     # omitted because they reveal the batch size / text length of the in-flight
@@ -615,10 +619,12 @@ async def queue_status(request: Request) -> dict:
     state = request.app.state
     async with state.pending_lock:
         pending = list(state.pending_requests)
-    gen_state = state.generation_state
+    # pending_lock guards the QUEUE, not generation_state — the active flag
+    # is read through the generation-state guard instead.
+    active = guard_for(state).snapshot(["active"])["active"]
     return {
         "queue_length": len(pending),
-        "active": gen_state.get("active", False),
+        "active": active,
     }
 
 
@@ -856,14 +862,20 @@ async def cancel_generation(
     state = request.app.state
     reset_activity_timer(state)
 
-    async with state.generation_lock:
-        if not state.generation_state["active"]:
-            return {"status": "no_active_generation"}
-        state.generation_state["cancelled"] = True
-        logger.info("Generation cancellation requested")
+    # The old `async with state.generation_lock:` block excluded nothing here
+    # (an asyncio.Lock does not serialize against the worker threads that
+    # write this dict, and the id was read back OUTSIDE the block anyway).
+    # Both the active check and the flag write now go through the guard, so
+    # they cannot interleave with a begin/reset; the id is read AFTER the
+    # write, as before, and its own snapshot keeps that read atomic too.
+    guard = guard_for(state)
+    if not guard.snapshot(["active"])["active"]:
+        return {"status": "no_active_generation"}
+    guard.set_cancelled()
+    logger.info("Generation cancellation requested")
     return {
         "status": "cancellation_requested",
-        "generation_id": state.generation_state.get("generation_id"),
+        "generation_id": guard.snapshot(["generation_id"])["generation_id"],
     }
 
 

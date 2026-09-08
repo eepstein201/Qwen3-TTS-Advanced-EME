@@ -18,7 +18,6 @@ import json
 import logging
 import struct
 import threading
-import time
 import uuid
 
 from fastapi import WebSocket, WebSocketDisconnect
@@ -29,6 +28,7 @@ from qwen3_tts.server.app_generation import (
     _resolve_generation_seed,
     _stream_thread_join_timeout,
 )
+from qwen3_tts.server.generation_state_guard import guard_for
 
 logger = logging.getLogger("tts.server.websocket")
 
@@ -484,6 +484,15 @@ async def _stream_generation(
             done.set()
             loop.call_soon_threadsafe(queue.put_nowait, None)
 
+    # Every generation_state touch below goes through this guard (a
+    # threading.Lock — the only primitive that also excludes the daemon
+    # inference thread and the HTTP control plane's writes). Resolved ONCE
+    # per generation scope: on this persistent multi-request socket the
+    # handler calls _stream_generation per text message, so THIS function is
+    # the per-generation scope that owns the begin and the finally reset;
+    # guard_for is idempotent and late-binds app_state.generation_state.
+    guard = guard_for(app_state)
+
     ws_gen_id = str(uuid.uuid4())[:8]
 
     async with app_state.inference_lock:
@@ -525,20 +534,13 @@ async def _stream_generation(
         # detect_degraded_generation() see WebSocket work — without this the WS
         # path is invisible to the HTTP control plane (an HTTP /generate would
         # queue behind an unseen job, and the degraded-generation watchdog could
-        # not see a runaway WS generation). generation_lock is nested inside
-        # inference_lock (same order as app_generation.py:291-304) and held only
-        # for the dict mutation.
-        async with app_state.generation_lock:
-            app_state.generation_state.update(
-                {
-                    "active": True,
-                    "start_time": time.time(),
-                    "text_length": len(text),
-                    "mode": mode,
-                    "generation_id": ws_gen_id,
-                    "cancelled": False,
-                }
-            )
+        # not see a runaway WS generation). The guard's threading.Lock replaces
+        # the old generation_lock block (which was nested inside inference_lock
+        # here, same order as app_generation.py, and excluded nothing off the
+        # loop): /cancel-generation's write goes through the same guard, so the
+        # two can no longer interleave. The re-clear of cancelled is the
+        # deliberate #237 / Step 1A semantics, unchanged from the raw update.
+        guard.begin(ws_gen_id, mode=mode, text_length=len(text))
         # Event signals the inference thread has fully stopped; the consumer
         # awaits it in its finally BEFORE releasing inference_lock so an
         # in-flight model.generate() cannot race the next request.
@@ -594,22 +596,13 @@ async def _stream_generation(
                     join_timeout,
                 )
             # Release the shared generation_state slot, but only if this
-            # generation still owns it (a concurrent request may have
-            # overwritten generation_id). Mirrors app_generation.py:514/754.
-            async with app_state.generation_lock:
-                if app_state.generation_state.get("generation_id") == ws_gen_id:
-                    app_state.generation_state.update(
-                        {
-                            "active": False,
-                            "start_time": 0.0,
-                            "text_length": 0,
-                            "mode": "",
-                            "chunk_index": 0,
-                            "chunk_total": 0,
-                            "cancelled": False,
-                            "generation_id": None,
-                        }
-                    )
+            # generation still owns it — reset_if_owner re-checks
+            # generation_id inside the SAME locked step, so a concurrent
+            # request that overwrote generation_id is never clobbered, and
+            # the reset restores ALL ten idle keys (a cancelled WS stream
+            # cannot leave the shared flag dirty). Mirrors the streaming and
+            # batch resets in app_generation.py.
+            guard.reset_if_owner(ws_gen_id)
 
     # Terminal frame — branch on outcome (outside inference_lock so the lock
     # isn't held while sending the final JSON). Pre-fix this was an

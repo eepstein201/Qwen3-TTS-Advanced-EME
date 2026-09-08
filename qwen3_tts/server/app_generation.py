@@ -35,6 +35,7 @@ from qwen3_tts.core.stream_protocol import (  # noqa: F401
     encode_stream_error_frame,
 )
 from qwen3_tts.server.app_lifespan import _check_memory_available
+from qwen3_tts.server.generation_state_guard import guard_for
 from qwen3_tts.server.validation import (
     MAX_SEED,
     _error_response,
@@ -58,14 +59,16 @@ def _resolve_generation_seed(req_seed: int | None) -> int:
     return secrets.randbelow(MAX_SEED + 1)
 
 
-def _should_stop_streaming(stop_event, generation_state) -> bool:
+def _should_stop_streaming(stop_event, guard) -> bool:
     """Return True if streaming generation should stop.
 
     Stops when either the client disconnected (``stop_event`` set by the
-    generator's finally) or the user cancelled via /cancel-generation
-    (``generation_state['cancelled']``), matching the batch path's cancel check.
+    generator's finally) or the user cancelled via /cancel-generation — the
+    cancelled flag is read through the guard's ``is_cancelled``, i.e. under
+    the guard's ``threading.Lock``, which is what makes the read safe from
+    the streaming inference thread (matching the batch path's cancel check).
     """
-    return stop_event.is_set() or bool(generation_state.get("cancelled"))
+    return stop_event.is_set() or guard.is_cancelled()
 
 
 # Floor for the streaming inference thread join. The wait must cover ONE chunk's
@@ -185,6 +188,13 @@ async def handle_generate(request, state, req, security, config_provider):
         security: security config dict
         config_provider: optional ConfigLoader for DI
     """
+    # Every generation_state touch below goes through this guard (a
+    # threading.Lock — the only primitive that also excludes the worker
+    # thread the progress callback fires on). Resolved ONCE per handler
+    # invocation: guard_for takes a module-level construction lock per call,
+    # which is fine at handler frequency and wrong at chunk frequency.
+    guard = guard_for(state)
+
     # Validate and normalize request
     max_text_length = security.get("max_text_length", 50000)
     max_batch_size = security.get("max_batch_size", 20)
@@ -298,7 +308,7 @@ async def handle_generate(request, state, req, security, config_provider):
         # Clear any stale cancellation flag from a prior request. Without this,
         # a cancel from a previous request would immediately abort this new one
         # on the first loop iteration, returning an empty results array.
-        state.generation_state["cancelled"] = False
+        guard.clear_cancelled()
 
         def _read_cache_file_b64(filepath: str) -> str:
             with open(filepath, "rb") as f:
@@ -357,7 +367,7 @@ async def handle_generate(request, state, req, security, config_provider):
 
         for i, text in enumerate(texts):
             # Check for cancellation before each batch item (R-44)
-            if state.generation_state.get("cancelled"):
+            if guard.is_cancelled():
                 logger.info(
                     "Batch generation cancelled at item %d/%d", i + 1, len(texts)
                 )
@@ -441,8 +451,9 @@ async def handle_generate(request, state, req, security, config_provider):
             # and the inference call itself. Everything after chunk_count
             # capture is CPU-only on the local wav array and must run with the
             # lock released so other requests can inference in parallel with our
-            # encode/peaks. (generation_lock is a separate short-lived lock used
-            # only for state updates.)
+            # encode/peaks. (generation_state updates themselves are serialized
+            # by the guard's threading.Lock, not by an asyncio lock — see
+            # generation_state_guard.py.)
             async with state.inference_lock:
                 # T5: the slot was read into a local BEFORE this acquire;
                 # re-validate it here — an unload that landed in the
@@ -453,31 +464,28 @@ async def handle_generate(request, state, req, security, config_provider):
                 # pre-unload object.
                 model = _require_model_under_lock(state, mode)
 
-                # Brief lock to set generation state
-                async with state.generation_lock:
-                    state.generation_state.update(
-                        {
-                            "active": True,
-                            "start_time": time.time(),
-                            "text_length": len(text),
-                            "mode": mode,
-                            "batch_index": i,
-                            "batch_total": len(texts),
-                            "generation_id": batch_gen_id,
-                            # Re-clear per item so a stale flag left by a
-                            # concurrent request's cancel cannot truncate this
-                            # batch. Mirrors the streaming-path clear at :658.
-                            "cancelled": False,
-                        }
-                    )
+                # Atomically mark this batch active (one locked update)
+                guard.begin(
+                    batch_gen_id,
+                    mode=mode,
+                    text_length=len(text),
+                    batch_index=i,
+                    batch_total=len(texts),
+                )
+                # begin() re-clears "cancelled" per item so a stale flag left
+                # by a concurrent request's cancel cannot truncate this batch.
+                # Mirrors the streaming-path clear at :658. (That re-clear is
+                # itself a small race — issue #237 — deliberately preserved
+                # here until Step 1A moves it.)
 
                 def _chunk_progress(chunk_idx, chunk_total):
-                    state.generation_state.update(
-                        {
-                            "chunk_index": chunk_idx,
-                            "chunk_total": chunk_total,
-                        }
-                    )
+                    # Runs on the asyncio.to_thread WORKER thread inside
+                    # run_inference, off the event loop — which is exactly why
+                    # the guard is a threading.Lock: an asyncio lock would
+                    # exclude nothing here. update_progress writes the pair in
+                    # one locked step so a loop-side snapshot never reads the
+                    # two keys from different writes.
+                    guard.update_progress(chunk_idx, chunk_total)
 
                 # Apply the resolved seed for this generation. gen_params itself
                 # stays seed-free for blank-seed requests so the cache key is
@@ -567,7 +575,7 @@ async def handle_generate(request, state, req, security, config_provider):
                 # generation_state["chunk_total"], so reading it after the lock
                 # releases would surface another generation's chunk count. This
                 # MUST stay inside the lock block.
-                chunk_count = state.generation_state.get("chunk_total", 0)
+                chunk_count = guard.snapshot(["chunk_total"]).get("chunk_total", 0)
 
                 if i == len(texts) - 1:
                     # T5: clear generation_state INSIDE the lock on the FINAL
@@ -577,27 +585,9 @@ async def handle_generate(request, state, req, security, config_provider):
                     # otherwise acquire with stale active=True and 409 AFTER
                     # waiting out the whole batch. Streaming and /ws already
                     # reset in-lock; the outer finally stays as an idempotent
-                    # safety net (its generation_id guard makes it a no-op
-                    # after this reset).
-                    async with state.generation_lock:
-                        if (
-                            state.generation_state.get("generation_id")
-                            == batch_gen_id
-                        ):
-                            state.generation_state.update(
-                                {
-                                    "active": False,
-                                    "start_time": 0.0,
-                                    "text_length": 0,
-                                    "mode": "",
-                                    "batch_index": 0,
-                                    "batch_total": 0,
-                                    "chunk_index": 0,
-                                    "chunk_total": 0,
-                                    "generation_id": None,
-                                    "cancelled": False,
-                                }
-                            )
+                    # safety net (reset_if_owner's ownership check makes it a
+                    # no-op after this reset).
+                    guard.reset_if_owner(batch_gen_id)
 
             # inference_lock is now RELEASED. Everything below is CPU-only and
             # operates on the local (wav, sr) arrays returned by inference, so
@@ -692,29 +682,16 @@ async def handle_generate(request, state, req, security, config_provider):
             "retry",
         )
     finally:
-        # Reset generation_state ONLY if this batch still owns it.  A
-        # concurrent stream may have overwritten generation_id mid-batch;
-        # an all-cache-hit batch never stamped one at all.  In either case
-        # resetting would clobber the other request's state.  Mirrors the
-        # streaming-path guard at :729.
-        if state.generation_state.get("generation_id") == batch_gen_id:
-            state.generation_state.update(
-                {
-                    "active": False,
-                    "start_time": 0.0,
-                    "text_length": 0,
-                    "mode": "",
-                    "batch_index": 0,
-                    "batch_total": 0,
-                    "chunk_index": 0,
-                    "chunk_total": 0,
-                    "generation_id": None,
-                    # A cancelled batch must not leave the shared flag dirty
-                    # for the next request's cancel check (:249). Mirrors
-                    # the streaming finally reset at :764.
-                    "cancelled": False,
-                }
-            )
+        # Reset generation_state ONLY if this batch still owns it (the
+        # ownership check inside reset_if_owner).  A concurrent stream may
+        # have overwritten generation_id mid-batch; an all-cache-hit batch
+        # never stamped one at all.  In either case resetting would clobber
+        # the other request's state.  Mirrors the streaming-path guard at
+        # :729.  reset_if_owner restores ALL ten keys to the idle shape, so
+        # a cancelled batch cannot leave the shared flag dirty for the next
+        # request's cancel check (:249) — mirroring the streaming finally
+        # reset at :764.
+        guard.reset_if_owner(batch_gen_id)
         with state.request_queue_lock:
             state.request_queue.discard(request_id)
 
@@ -770,6 +747,14 @@ async def handle_generate_stream(request, state, req, security, config_provider)
                 "model_type": mode,
             },
         )
+
+    # Every generation_state touch below goes through this guard (a
+    # threading.Lock — the only primitive that also excludes the daemon
+    # inference thread the progress callback and the stop-check fire on).
+    # Resolved ONCE per handler invocation: guard_for takes a module-level
+    # construction lock per call, which is fine at request frequency and
+    # wrong at chunk frequency.
+    guard = guard_for(state)
 
     # Generation parameters
     gen_params = {
@@ -871,25 +856,23 @@ async def handle_generate_stream(request, state, req, security, config_provider)
                 return
 
             gen_id = str(uuid.uuid4())[:8]
-            state.generation_state.update(
-                {
-                    "active": True,
-                    "start_time": time.time(),
-                    "text_length": len(text),
-                    "mode": mode,
-                    "generation_id": gen_id,
-                    "cancelled": False,
-                }
-            )
+            # Same begin the batch path uses: one atomic update stamping
+            # active + the generation id, and RE-clearing cancelled (the
+            # erase race that re-clear carries is issue #237 / Step 1A,
+            # preserved unchanged from the raw update this replaces). Chunk
+            # counters are left to _chunk_progress.
+            guard.begin(gen_id, mode=mode, text_length=len(text))
 
             def _chunk_progress(chunk_idx, chunk_total):
-                """Update generation_state with chunk progress from streaming callback."""
-                state.generation_state.update(
-                    {
-                        "chunk_index": chunk_idx,
-                        "chunk_total": chunk_total,
-                    }
-                )
+                """Record chunk progress via the guard.
+
+                run_inference_streaming invokes this callback on the daemon
+                inference thread — off the event loop — so the write must go
+                through the guard's threading.Lock: an asyncio lock would
+                exclude nothing there (same reasoning as the batch path's
+                progress callback).
+                """
+                guard.update_progress(chunk_idx, chunk_total)
 
             def inference_thread():
                 """Run inference in a thread and push chunks to queue."""
@@ -911,9 +894,7 @@ async def handle_generate_stream(request, state, req, security, config_provider)
                         config_provider=config_provider,
                         progress_callback=_chunk_progress,
                     ):
-                        if _should_stop_streaming(
-                            stop_event, state.generation_state
-                        ):
+                        if _should_stop_streaming(stop_event, guard):
                             logger.info("Generation cancelled by user")
                             break
 
@@ -977,20 +958,14 @@ async def handle_generate_stream(request, state, req, security, config_provider)
                         "releasing inference_lock",
                         join_timeout,
                     )
-                # Reset generation state if still our generation
-                if state.generation_state.get("generation_id") == gen_id:
-                    state.generation_state.update(
-                        {
-                            "active": False,
-                            "start_time": 0.0,
-                            "text_length": 0,
-                            "mode": "",
-                            "chunk_index": 0,
-                            "chunk_total": 0,
-                            "generation_id": None,
-                            "cancelled": False,
-                        }
-                    )
+                # Reset generation state if still our generation:
+                # reset_if_owner re-checks ownership in the SAME locked step,
+                # so a generation that lost the slot (superseded by a newer
+                # one) can never clobber the new owner's progress — and the
+                # reset restores ALL ten idle keys, so a cancelled stream
+                # cannot leave the shared cancelled flag dirty (mirrors the
+                # batch path's finally at :692).
+                guard.reset_if_owner(gen_id)
             # Terminal error frame (WS2 Task 2.5). Starlette commits the 200
             # headers before the body is iterated, so once streaming starts we
             # cannot signal failure with a status code. Raising here would just

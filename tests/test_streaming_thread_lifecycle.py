@@ -63,7 +63,9 @@ def _make_state():
     state.gen_cache = {}
     state.gen_cache_lock = threading.Lock()
     state.inference_lock = asyncio.Lock()
-    # _stream_generation now stamps generation_state under generation_lock (P3).
+    # _stream_generation stamps generation_state through the
+    # generation_state_guard (threading.Lock, Step 0C); generation_lock
+    # remains only for the model-slot users (/update-model-config).
     state.generation_lock = asyncio.Lock()
     state.eta_cache = {"median_rate": None, "last_updated": 0}
     state.eta_cache_lock = threading.Lock()
