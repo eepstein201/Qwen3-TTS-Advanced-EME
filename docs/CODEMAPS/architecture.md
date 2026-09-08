@@ -1,4 +1,4 @@
-<!-- Generated: 2026-09-02 | Files scanned: 73 .py (27.6k LOC) | Token estimate: ~530 -->
+<!-- Generated: 2026-09-08 | Files scanned: 74 .py (27.9k LOC) | Token estimate: ~530 -->
 
 # Architecture — Qwen3-TTS
 
@@ -13,14 +13,14 @@ config.json → core.config → core.engine (dispatch on advanced.backend)
 ```
 
 ## Layers
-- **core/** — `config/` (io, models, runtime, pid, presets, paths, auth, errors) + `engine/` (text_processing, audio_processing, voice_prompt, model_loader, inference, asr) + `http_client` (single server chokepoint) + `stream_protocol` (wire-format: sentinel, cap, encode/decode/parse — shared by server AND CLI, no FastAPI/torch/mlx)
+- **core/** — `config/` (io, models, runtime, pid, presets, paths, auth, errors, pm2) + `engine/` (text_processing, audio_processing, voice_prompt, model_loader, inference, asr) + `http_client` (single server chokepoint) + `stream_protocol` (wire-format: sentinel, cap, encode/decode/parse — shared by server AND CLI, no FastAPI/torch/mlx)
 - **server/** — FastAPI :5123. `app.py` (routes + middleware) → `app_generation` / `app_models` / `app_prompts` (handlers) + `app_lifespan` + `websocket` + `validation` + `prompt_loading` (torch auto-create-from-.wav serialization) + `model_loading` (per-load CAS records, dedups concurrent `/load-model`) + `client/` (TTSClient)
 - **interface/** — `cli.py` (Click groups) + `generate*.py` (CLI gen) + `cli/` (batch, srt, dialogue) + `ui/` (Gradio)
 
 `core/protocols.py` removed (#179) — zero-caller dead module, grep-proven.
 
 ## Generation flow
-`text → _prepare_text_chunks (≤max_chunk_chars) → backend.generate → _postprocess_chunk → combine (phase-align crossfade) → LUFS norm → output file + history`
+`text → _prepare_text_chunks (≤max_chunk_chars, bounded 0–10000 at the request boundary in validation.py, #263) → backend.generate → _postprocess_chunk → combine (phase-align crossfade) → LUFS norm → output file + history`
 
 **Unified pipeline (WS2, #160):** `engine/inference.py::_postprocess_chunk` (echo-trim → clone speed → audio validation) is called by BOTH `run_inference` and `run_inference_streaming`, both backends — streaming output matches batch. LUFS is deliberately outside it (EBU R128 gates over the whole signal), so batch-only.
 
@@ -42,8 +42,8 @@ Every GPU-inference-reachable path now serializes on `state.inference_lock`, acq
 - 3 distinct HF models (Clone / Design / Custom)
 
 ## Heaviest modules (LOC)
-inference.py 1769 · app.py 1026 · app_generation.py 903 · generate.py 902 · ui/shared.py 879 · generate_interactive.py 781 · app_lifespan.py 732
+inference.py 1769 · app.py 1064 · app_generation.py 999 · generate.py 902 · ui/shared.py 887 · app_lifespan.py 805 · generate_interactive.py 780
 _(inference.py, app.py, app_generation.py, app_lifespan.py exceed the 800-line guideline — known structural debt, see project memory `project_open_structural_debt.md`)_
 
 ## Layer size
-core/ 7.3k · server/ 7.3k · interface/ui/ 4.9k · tools/ 2.2k · tests/ 194 modules, 3208 test functions
+core/ 7.4k · server/ 7.3k · interface/ 9.1k (ui/ 4.9k) · tools/ 2.2k · tests/ 184 modules, 3271 test functions

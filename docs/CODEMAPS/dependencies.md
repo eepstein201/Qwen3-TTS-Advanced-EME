@@ -1,4 +1,4 @@
-<!-- Generated: 2026-09-03 | Token estimate: ~450 -->
+<!-- Generated: 2026-09-08 | Token estimate: ~450 -->
 
 # Dependencies — Qwen3-TTS
 
@@ -16,7 +16,7 @@ Note: FA2 NaN risk (upstream #333) → default SDPA. A `transformers<5` cap re-b
 `pyrubberband` (primary, needs `rubberband` binary) + `librosa>=0.11.0` (fallback; now also in the `test` extra — `ensure_min_sample_rate()` raises rather than silently writing a below-native-rate reference, so tests need it installed to exercise the guarantee rather than skip) · `soundfile` · EBU R128 LUFS normalization (optional).
 
 ## Server / UI
-`fastapi>=0.141.1` · `starlette>=1.6.0,<2` (explicit floor, #167 — not a bare transitive) · `uvicorn[standard]>=0.52.1` · `slowapi>=0.1.10` · `gradio>=6.0.0,!=6.14.*,<7` · Click (CLI)
+`fastapi>=0.141.1` · `starlette>=1.6.0,<2` (explicit floor, #167 — not a bare transitive) · `uvicorn[standard]>=0.52.4` · `slowapi>=0.1.10` · `gradio>=6.0.0,!=6.14.*,<7` · Click (CLI)
 
 Gradio floor is capped in practice: `>=6.15` needs `huggingface-hub>=1.2`, which `transformers<4.58` (torch env) forbids. Do not raise it.
 

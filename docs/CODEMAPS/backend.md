@@ -1,4 +1,4 @@
-<!-- Generated: 2026-09-03 | Files scanned: server/ (7.3k LOC), config/pm2.py (128 LOC) | Token estimate: ~650 -->
+<!-- Generated: 2026-09-08 | Files scanned: server/ (7.3k LOC), config/pm2.py (128 LOC) | Token estimate: ~650 -->
 
 # Backend — FastAPI Server (:5123)
 
@@ -36,7 +36,8 @@ Stream path returns length-prefixed float32 chunks (`[sr:4][len:4][payload]`); `
 ## Streaming failure semantics
 - Headers commit before the body iterates → no mid-stream status code. Server emits a terminal frame with `sample_rate == 0` (`STREAM_ERROR_SENTINEL_SR`, now defined once in `core/stream_protocol.py`) carrying JSON `{"error","code"}`. `TTSClient.generate_streaming` and the CLI's `iter_stream_chunks` both parse it through the same module — previously duplicated and drifted (#229), fixed by consolidating to one parser + `tests/test_stream_protocol.py` anti-re-fork assertions.
 - `/ws` closes with RFC 6455 `1011` after its error message.
-- `_stream_thread_join_timeout(text_len, max_chunk_chars)` (`app_generation.py`) scales the inference-thread join with configured chunk size for BOTH `/generate-stream` and `/ws` — never a constant, or a raised `max_chunk_chars`/slow join releases `inference_lock` mid-generation. Pinned by `tests/test_streaming_thread_lifecycle.py::TestWsStreamJoinTimeout`.
+- `_stream_thread_join_timeout(text_len, max_chunk_chars)` (`app_generation.py`) scales the inference-thread join with configured chunk size for BOTH `/generate-stream` and `/ws` — never a constant, or a raised `max_chunk_chars`/slow join releases `inference_lock` mid-generation. Pinned by `tests/test_streaming_thread_lifecycle.py::TestWsStreamJoinTimeout` (#263: join timeout is clamped to a ceiling so an unbounded chunk-size × length product can't make it effectively infinite).
+- **Request-boundary bounds (#263):** `max_chunk_chars` is validated to 0–10000 in `server/validation.py` (the request schema), not trusted from config — a config value outside the range can't reach `_prepare_text_chunks`.
 
 ## Inference serialization (#192 / #214) — see architecture.md for the full picture
 `server/prompt_loading.py` — `load_voice_prompt_serialized(state, prompt_file)`: fast path is an unlocked disk load; only when torch must BUILD the prompt does it re-enter under `inference_lock` as a leaf, with the clone model built OUTSIDE the lock and forwarded via `clone_model=` so the locked section is create-inference only. `/unload-asr` (`app.py`) now also acquires `inference_lock` for the unload itself, closing a race where an unload could interleave with in-flight ASR generate. `/unload-model` (`app_models.py`) now holds `inference_lock` for the unload itself too, closing the queued-generation window (#214 item 4, closes #214).
@@ -44,4 +45,4 @@ Stream path returns length-prefixed float32 chunks (`[sr:4][len:4][payload]`); `
 `server/model_loading.py` (new, #214 item 3) — per-load-type CAS records under `MODEL_LOAD_LOCK`: `claim_model_load` gives the first caller `OWNER` and any concurrent duplicate caller `ATTACH` (awaits the owner's `done` Event, `MODEL_LOAD_WAIT_TIMEOUT_SEC=870`, retryable 503 on timeout) instead of reissuing the load. `load_model_deduped` is the owner body; `release_model_load` runs in `finally`. `state.model_config_epoch` bumps on `/update-model-config`/`/unload-model` so a stale-epoch waiter never attaches to a now-irrelevant load.
 
 ## Key files (LOC)
-app.py 1064 · app_generation.py 997 · app_lifespan.py 805 · client/generator.py 620 · app_models.py 588 · websocket.py 620 · app_prompts.py 549 · validation.py 504 (32 Pydantic models) · model_loading.py 541 (new, #214 item 3) · vllm_client.py 332 · prompt_loading.py 46
+app.py 1064 · app_generation.py 999 · app_lifespan.py 805 · client/generator.py 620 · app_models.py 588 · websocket.py 620 · app_prompts.py 549 · validation.py 505 (33 Pydantic models) · model_loading.py 541 (new, #214 item 3) · vllm_client.py 332 · prompt_loading.py 46
