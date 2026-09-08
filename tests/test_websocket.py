@@ -1078,9 +1078,12 @@ class TestWebSocketFreshSlotUnderLock(unittest.IsolatedAsyncioTestCase):
         ), patch(
             "qwen3_tts.server.app_lifespan._check_memory_available",
             return_value=(True, 10000),
-        ), patch(
-            "qwen3_tts.server.validation._validate_generation_request"
         ):
+            # No _validate_generation_request patch: websocket.py imports it
+            # function-locally, so a patch of the validation module attribute
+            # is LIVE here — it silently disabled real request validation for
+            # this test. The payload below validates for real (the loader-503
+            # class runs the identical payload unpatched).
             await asyncio.wait_for(
                 _stream_generation(
                     ws, state, "hi", "clone", data, stop_event, disconnect_event

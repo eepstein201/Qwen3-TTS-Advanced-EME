@@ -1159,6 +1159,15 @@ class TestPostLockSlotReRead(unittest.TestCase):
                 "local still points at the orphaned pre-unload model)",
             )
 
+    # The only sites that hand ``model`` to a thread through the enclosing
+    # scope's cell. The labels are the ones ``_guarded_site_trees`` produces.
+    _THREAD_HANDOFF_SITES = frozenset(
+        {
+            "qwen3_tts.server.app_generation.handle_generate_stream",
+            "qwen3_tts.server.websocket._stream_generation",
+        }
+    )
+
     def test_thread_starting_sites_rebind_before_start(self):
         """Ordering pin for the two sites that hand ``model`` to a thread.
 
@@ -1168,13 +1177,36 @@ class TestPostLockSlotReRead(unittest.TestCase):
         wins an unsynchronised race. The outcome is scheduling-dependent, not
         guaranteed (the mutant failed 10/10 runs on this host and could pass
         elsewhere), and invisible to the enclosure and assignment pins -- this
-        pin is what makes the detection deterministic."""
+        pin is what makes the detection deterministic.
+
+        The expected hand-off SET is pinned explicitly: the per-site loop
+        skips any site whose lock body no longer contains a ``.start()`` call,
+        so a hand-off refactor (a spawn helper, ``asyncio.create_task``,
+        ``run_in_executor``) would otherwise leave this pin green at every
+        site while nothing else in the suite counts hand-off sites -- the
+        ordering check goes vacuous and the exact regression it exists to
+        catch ships undetected. A hand-off refactor must repoint
+        ``_THREAD_HANDOFF_SITES`` consciously instead of silently unpinning
+        the ordering check."""
+        found = []
         for label, tree in self._guarded_site_trees():
             guard_at, start_at = _guard_and_thread_start_positions(
                 tree, "_require_model_under_lock"
             )
             if start_at is None:
                 continue  # no inference thread at this site
+            found.append((label, guard_at, start_at))
+
+        self.assertEqual(
+            {label for label, _guard_at, _start_at in found},
+            self._THREAD_HANDOFF_SITES,
+            "the set of thread hand-off sites changed. The ordering check "
+            "below only sees sites that still call ``.start()`` directly, so "
+            "a hand-off refactor must repoint _THREAD_HANDOFF_SITES here -- "
+            "otherwise the rebind ordering goes unpinned at every site and "
+            "the rebind-after-start race ships undetected",
+        )
+        for label, guard_at, start_at in found:
             self.assertIsNotNone(
                 guard_at,
                 f"{label} starts an inference thread under inference_lock "
