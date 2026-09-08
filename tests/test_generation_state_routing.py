@@ -1,21 +1,23 @@
-"""Batch ``/generate`` must route every ``generation_state`` touch through the guard.
+"""Every ``generation_state`` touch must route through the guard.
 
-Step 0C Task 2: ``handle_generate``'s batch path mutated
-``app.state.generation_state`` (a plain dict shared with worker threads) with
-no lock at all — the pre-loop ``cancelled`` clear, the loop cancel check, the
-per-item begin, the ``_chunk_progress`` callback, the ``chunk_total`` capture
-and both resets. Task 1 landed ``GenerationStateGuard`` (a ``threading.Lock``
-per app state); Task 2 routes the batch path through it, behavior-preserving.
+Step 0C Task 2 routed ``handle_generate``'s batch path; Task 3 routes the
+HTTP streaming path (``audio_stream_generator``) and the ``/ws`` path
+(``websocket._stream_generation``). All three paths mutate
+``app.state.generation_state`` (a plain dict shared with worker threads) —
+historically with no lock at all, or under an ``asyncio.Lock`` that excludes
+nothing off the loop. Task 1 landed ``GenerationStateGuard`` (a
+``threading.Lock`` per app state).
 
 These tests pin the ROUTING at the real call site: a recording proxy replaces
-``app_generation.guard_for`` so every guard method the handler calls is
-captured, while the calls still delegate to a real guard (so the writes land
+``guard_for`` in the module under test so every guard method the handler calls
+is captured, while the calls still delegate to a real guard (so the writes land
 in the dict and the handler behaves exactly as in production). Driving the
-full pipeline is impractical without a model, so ``run_inference`` is faked —
-but the fake invokes ``progress_callback`` from the executor thread, which is
-EXACTLY the thread production fires it on. That is why the guard must be a
-``threading.Lock``: the callback's write has to be serialized against the
-event loop, and an ``asyncio.Lock`` would exclude nothing there.
+full pipeline is impractical without a model, so ``run_inference`` /
+``run_inference_streaming`` are faked — but the streaming fakes run on a REAL
+daemon thread (the handler spawns ``inference_thread`` itself), which is
+EXACTLY the thread production fires the progress callback on. That is why the
+guard must be a ``threading.Lock``: the callback's write has to be serialized
+against the event loop, and an ``asyncio.Lock`` would exclude nothing there.
 
 Run: python -m pytest tests/test_generation_state_routing.py -v
 """
@@ -168,6 +170,184 @@ def _make_request(state):
     request.app.state = state
     request.headers = {"accept": "application/json"}
     return request
+
+
+def _generation_lock_tripwire(path_name):
+    """Return an ``AsyncMock`` side_effect that FAILS if the lock is touched.
+
+    Task 3 removed the last two ``generation_lock`` blocks that guarded
+    ``generation_state`` (both in ``websocket.py``); neither the streaming nor
+    the /ws path may need the asyncio lock again — a ``threading.Lock`` is the
+    only primitive that excludes the worker threads.
+    """
+
+    def _fail(*_args, **_kwargs):
+        raise AssertionError(
+            f"the {path_name} path used state.generation_lock -- the "
+            "threading.Lock generation-state guard is the only primitive "
+            "that excludes the worker threads"
+        )
+
+    return _fail
+
+
+def _make_stream_state():
+    """``_make_state`` plus what the HTTP streaming path needs.
+
+    ``audio_stream_generator`` takes ``state.pending_lock`` around the pending
+    queue, which the batch driver never touches.
+    """
+    state = _make_state()
+    state.pending_lock = asyncio.Lock()
+    state.generation_lock = AsyncMock(
+        side_effect=_generation_lock_tripwire("streaming")
+    )
+    return state
+
+
+def _make_ws_state():
+    """``_make_state`` with a /ws-specific ``generation_lock`` tripwire."""
+    state = _make_state()
+    state.generation_lock = AsyncMock(
+        side_effect=_generation_lock_tripwire("/ws")
+    )
+    return state
+
+
+def _make_stream_request(text, mode="custom"):
+    """Build the ``GenerateRequest`` the streaming driver sends."""
+    from qwen3_tts.server.validation import GenerateRequest
+
+    return GenerateRequest(text=text, mode=mode)
+
+
+async def _drive_stream_async(
+    state,
+    recording,
+    text="streaming routing probe",
+    progress_calls=_PROGRESS_CALLS,
+    on_stream_done=None,
+    guard_for_mock=None,
+):
+    """Drive one ``/generate-stream`` request through ``handle_generate_stream``.
+
+    Returns the raw streamed body. ``run_inference_streaming`` is faked: the
+    fake invokes the routed ``progress_callback`` and yields one chunk per
+    pair, so the callback fires on the handler's OWN daemon ``inference_thread``
+    — the identical thread production fires it on. ``on_stream_done`` runs on
+    that thread after the last routed write (the visibility probe).
+    """
+    fake_chunk = np.zeros(100, dtype=np.float32)
+
+    def fake_streaming(**kwargs):
+        callback = kwargs.get("progress_callback")
+        assert callback is not None, (
+            "handle_generate_stream passed no progress_callback to "
+            "run_inference_streaming; the streaming chunk progress is "
+            "unpinnable"
+        )
+        for chunk_index, chunk_total in progress_calls:
+            callback(chunk_index, chunk_total)
+            yield (fake_chunk, 24000)
+        if on_stream_done is not None:
+            on_stream_done()
+
+    from qwen3_tts.server.app_generation import handle_generate_stream
+
+    req = _make_stream_request(text)
+    if guard_for_mock is not None:
+        guard_patch = patch(f"{_APP_GENERATION}.guard_for", new=guard_for_mock)
+    else:
+        guard_patch = patch(f"{_APP_GENERATION}.guard_for", return_value=recording)
+    with patch(
+        f"{_APP_GENERATION}._check_memory_available",
+        return_value=(True, 4096),
+    ), patch(
+        "qwen3_tts.server.validation._validate_generation_request"
+    ), guard_patch, patch(
+        f"{_ENGINE}.run_inference_streaming", side_effect=fake_streaming
+    ):
+        response = await handle_generate_stream(
+            request=MagicMock(),
+            state=state,
+            req=req,
+            security={"max_text_length": 50000},
+            config_provider=None,
+        )
+        body = b""
+        async for part in response.body_iterator:
+            body += part
+        return body
+
+
+def _stream_frame_count(body):
+    """Count length-prefixed audio frames in a streamed body."""
+    import struct
+
+    offset, frames = 0, 0
+    while offset + 8 <= len(body):
+        _sr, length = struct.unpack("<II", body[offset : offset + 8])
+        offset += 8 + length
+        frames += 1
+    return frames
+
+
+async def _drive_ws_async(
+    state,
+    recording,
+    text="ws routing probe",
+    guard_for_mock=None,
+):
+    """Drive one /ws generation through ``websocket._stream_generation``.
+
+    ``guard_for`` is patched in ``qwen3_tts.server.websocket`` with
+    ``create=True``: before Task 3 the module has no such attribute at all,
+    and a created-but-never-called patch makes the RED failure an EMPTY
+    RECORDING assertion (the missing routing) rather than a patch-mechanics
+    AttributeError.
+    """
+    from qwen3_tts.server.websocket import _stream_generation
+
+    fake_chunk = np.zeros(100, dtype=np.float32)
+
+    def fake_streaming(**_kwargs):
+        yield (fake_chunk, 24000)
+
+    ws = MagicMock()
+    ws.send_bytes = AsyncMock()
+    ws.send_json = AsyncMock()
+
+    if guard_for_mock is not None:
+        guard_patch = patch(
+            "qwen3_tts.server.websocket.guard_for", new=guard_for_mock, create=True
+        )
+    else:
+        guard_patch = patch(
+            "qwen3_tts.server.websocket.guard_for",
+            return_value=recording,
+            create=True,
+        )
+    with patch(
+        f"{_ENGINE}.run_inference_streaming", side_effect=fake_streaming
+    ), patch(
+        "qwen3_tts.server.validation._validate_generation_request"
+    ), patch(
+        "qwen3_tts.server.app_lifespan._check_memory_available",
+        return_value=(True, 4096),
+    ), guard_patch:
+        await asyncio.wait_for(
+            _stream_generation(
+                websocket=ws,
+                app_state=state,
+                text=text,
+                mode="custom",
+                data={"text": text, "mode": "custom"},
+                stop_event=threading.Event(),
+                disconnect_event=threading.Event(),
+            ),
+            timeout=10,
+        )
+    return ws
 
 
 async def _drive_batch_async(
@@ -447,6 +627,241 @@ class TestBatchLifecycleRoutesThroughGuard(unittest.TestCase):
         # The cancel flag is cleared through the guard before the loop, so a
         # stale True from a prior request cannot abort this batch.
         self.assertFalse(self.state.generation_state["cancelled"])
+
+
+@_skip
+class TestStreamingRoutesThroughGuard(unittest.TestCase):
+    """The HTTP streaming path must touch generation_state ONLY via the guard."""
+
+    def setUp(self):
+        self.state = _make_stream_state()
+        from qwen3_tts.server.generation_state_guard import GenerationStateGuard
+
+        self.recording = _RecordingGuard(GenerationStateGuard(self.state))
+        self.text = "streaming routing probe"
+
+    def test_streaming_begin_and_finally_reset_route_through_the_guard(self):
+        """The unlocked pre-thread begin and the finally reset must both go
+        through the guard, bound to one generation id, in that order — the
+        reset only via ``reset_if_owner`` (ownership-checked), never a raw
+        idle write."""
+        body = asyncio.run(
+            _drive_stream_async(self.state, self.recording, text=self.text)
+        )
+
+        # The pipeline really ran: one audio frame per fed progress pair.
+        self.assertEqual(
+            _stream_frame_count(body),
+            len(_PROGRESS_CALLS),
+            "the fake streaming pipeline did not deliver the expected frames",
+        )
+
+        names = self.recording.names()
+        self.assertTrue(
+            names,
+            "the streaming path made NO guard calls at all -- its begin and "
+            "finally reset are not routed through the guard",
+        )
+        self.assertEqual(
+            names[0],
+            "begin",
+            "the streaming path did not route its begin through the guard",
+        )
+        self.assertEqual(
+            names[-1],
+            "reset_if_owner",
+            "the streaming finally did not route its reset through the guard",
+        )
+        self.assertEqual(
+            set(names),
+            {"begin", "update_progress", "is_cancelled", "reset_if_owner"},
+            "the streaming path touched generation_state outside the guard "
+            f"(recorded methods: {sorted(set(names))})",
+        )
+
+        # begin() carries the streaming fields — and NOT the batch fields,
+        # which the old 6-key streaming begin never wrote.
+        begin = self.recording.first("begin")
+        begin_gen_id, begin_kwargs = begin[1], dict(begin[2])
+        self.assertEqual(begin_kwargs["mode"], "custom")
+        self.assertEqual(begin_kwargs["text_length"], len(self.text))
+        self.assertNotIn(
+            "batch_index",
+            begin_kwargs,
+            "the streaming begin must not stamp batch progress",
+        )
+        self.assertNotIn("batch_total", begin_kwargs)
+        self.assertIsInstance(begin_gen_id, str)
+
+        # The finally reset is ownership-bound to begin's id.
+        self.assertEqual(
+            [call[1] for call in self.recording.all_of("reset_if_owner")],
+            [begin_gen_id],
+            "the streaming reset is not bound to the generation id begin() "
+            "stamped",
+        )
+
+        # Behavior preserved: the dict returns to the idle shape afterwards.
+        self.assertFalse(self.state.generation_state["active"])
+        self.assertIsNone(self.state.generation_state["generation_id"])
+        self.assertEqual(self.state.generation_state["chunk_total"], 0)
+        self.assertEqual(self.state.generation_state["chunk_index"], 0)
+
+    def test_streaming_progress_callback_routes_through_update_progress(self):
+        """The progress callback, fired on the handler's own daemon inference
+        thread, must reach the dict as atomic guard ``update_progress`` pairs
+        — and the stop-check must read via ``is_cancelled``."""
+        observed = []
+
+        def probe_from_inference_thread():
+            # Runs on the daemon inference thread, right after the last
+            # routed progress write: the pair must be visible and intact.
+            observed.append(
+                self.recording.snapshot(["chunk_index", "chunk_total"])
+            )
+
+        asyncio.run(
+            _drive_stream_async(
+                self.state,
+                self.recording,
+                text=self.text,
+                on_stream_done=probe_from_inference_thread,
+            )
+        )
+
+        self.assertEqual(
+            self.recording.all_of("update_progress"),
+            [("update_progress", ci, ct) for ci, ct in _PROGRESS_CALLS],
+            "the streaming progress callback did not route its writes "
+            "through the guard's update_progress",
+        )
+        # One stop-check per streamed chunk, each reading through the guard.
+        self.assertEqual(
+            len(self.recording.all_of("is_cancelled")),
+            len(_PROGRESS_CALLS),
+            "the streaming thread did not do its per-chunk cancel check "
+            "through the guard",
+        )
+        self.assertEqual(
+            observed,
+            [{"chunk_index": _PROGRESS_CALLS[-1][0],
+              "chunk_total": _PROGRESS_CALLS[-1][1]}],
+            "a snapshot taken from the inference thread right after the "
+            "routed callback did not observe the written pair",
+        )
+
+    def test_streaming_progress_never_observes_a_torn_pair(self):
+        """Serialization-PROPERTY pin, not a RED driver (same scope as the
+        batch twin below): while the daemon thread hammers the routed
+        callback, a loop-side snapshot through the SAME guard never observes
+        chunk_index from one write and chunk_total from another."""
+        torn = []
+        stop = threading.Event()
+        iterations = []
+
+        async def reader_until_stop():
+            count = 0
+            while not stop.is_set():
+                snap = self.recording.snapshot(["chunk_index", "chunk_total"])
+                if snap["chunk_total"] != 2 * snap["chunk_index"]:
+                    torn.append(snap)
+                count += 1
+                await asyncio.sleep(0)
+            iterations.append(count)
+
+        async def run():
+            reader = asyncio.ensure_future(reader_until_stop())
+            try:
+                await _drive_stream_async(self.state, self.recording)
+            finally:
+                stop.set()
+                await reader
+
+        asyncio.run(run())
+
+        self.assertEqual(
+            torn,
+            [],
+            f"snapshot observed torn progress pairs: {torn[:5]!r}",
+        )
+        self.assertGreater(iterations[0], 0, "the reader task never ran")
+
+    def test_streaming_guard_is_resolved_once_per_request(self):
+        """``guard_for`` must be called once per streaming request — not per
+        chunk (it takes a module-level construction lock per call)."""
+        guard_for_mock = MagicMock(return_value=self.recording)
+        asyncio.run(
+            _drive_stream_async(
+                self.state, self.recording, guard_for_mock=guard_for_mock
+            )
+        )
+        self.assertEqual(
+            guard_for_mock.call_count,
+            1,
+            "handle_generate_stream resolved the guard more than once for a "
+            "single request",
+        )
+
+
+@_skip
+class TestWsRoutesThroughGuard(unittest.TestCase):
+    """The /ws path must touch generation_state ONLY via the guard."""
+
+    def setUp(self):
+        self.state = _make_ws_state()
+        from qwen3_tts.server.generation_state_guard import GenerationStateGuard
+
+        self.recording = _RecordingGuard(GenerationStateGuard(self.state))
+        self.text = "ws routing probe"
+
+    def test_ws_begin_and_finally_reset_route_through_the_guard(self):
+        """The begin under the old ``generation_lock`` block and the finally
+        reset must both go through the guard — and ``generation_lock`` must
+        be untouched (the tripwire fails the test if it is)."""
+        asyncio.run(_drive_ws_async(self.state, self.recording, text=self.text))
+
+        names = self.recording.names()
+        self.assertEqual(
+            names,
+            ["begin", "reset_if_owner"],
+            "the /ws path touched generation_state outside the guard, or in "
+            f"an unexpected order (recorded: {names})",
+        )
+
+        begin = self.recording.first("begin")
+        begin_gen_id, begin_kwargs = begin[1], dict(begin[2])
+        self.assertEqual(begin_kwargs["mode"], "custom")
+        self.assertEqual(begin_kwargs["text_length"], len(self.text))
+        self.assertIsInstance(begin_gen_id, str)
+
+        self.assertEqual(
+            [call[1] for call in self.recording.all_of("reset_if_owner")],
+            [begin_gen_id],
+            "the /ws reset is not bound to the generation id begin() stamped",
+        )
+
+        # Behavior preserved: the dict returns to the idle shape afterwards.
+        self.assertFalse(self.state.generation_state["active"])
+        self.assertIsNone(self.state.generation_state["generation_id"])
+        self.assertEqual(self.state.generation_state["cancelled"], False)
+
+    def test_ws_guard_is_resolved_once_per_generation(self):
+        """``guard_for`` must be called once per /ws generation scope — the
+        route is a persistent multi-request socket, but the state object is
+        fixed, so per-``_stream_generation`` resolution is the scope that
+        owns begin/reset."""
+        guard_for_mock = MagicMock(return_value=self.recording)
+        asyncio.run(
+            _drive_ws_async(
+                self.state, self.recording, guard_for_mock=guard_for_mock
+            )
+        )
+        self.assertEqual(
+            guard_for_mock.call_count,
+            1,
+            "_stream_generation resolved the guard more than once for a "
+            "single generation",
+        )
 
 
 if __name__ == "__main__":
