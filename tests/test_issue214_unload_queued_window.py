@@ -309,8 +309,11 @@ def _guard_and_thread_start_positions(tree, needle):
     Either entry is ``None`` when that statement is absent. Ordering matters
     because the inference thread reads ``model`` from the enclosing function's
     cell: a rebind moved AFTER ``thread.start()`` leaves the thread reading
-    whichever value wins a GIL race -- a flake, not a failure, and invisible to
-    the enclosure and assignment pins alike.
+    whichever value wins a race nothing synchronises -- real, but
+    scheduling-dependent rather than a guaranteed failure (the mutant failed
+    ``TestWebSocketFreshSlotUnderLock`` 10/10 on this host and could pass
+    elsewhere), and invisible to the enclosure and assignment pins alike. This
+    pin is what makes the outcome deterministic.
     """
     for node in _inference_lock_bodies(tree):
         guard_at = start_at = None
@@ -831,18 +834,13 @@ class TestPostLockSlotReRead(unittest.TestCase):
                 inference_models.append(kwargs["model"])
                 return np.zeros(4800, dtype=np.float32), 24000
 
-            # A real speaker name: handle_generate binds
-            # _validate_generation_request at module import, so patching it on
-            # qwen3_tts.server.validation does NOT disarm the copy it calls.
+            # A real speaker name: the REAL _validate_generation_request runs.
             req = GenerateRequest(text="hello there", mode=mode, speaker="ryan")
             try:
                 with (
                     patch(
                         f"{_APP_GENERATION}._check_memory_available",
                         return_value=(True, 4096),
-                    ),
-                    patch(
-                        "qwen3_tts.server.validation._validate_generation_request"
                     ),
                     patch(f"{_ENGINE}.run_inference", side_effect=_run_inference),
                     patch("soundfile.write"),
@@ -1123,15 +1121,16 @@ class TestPostLockSlotReRead(unittest.TestCase):
                 ast.parse(textwrap.dedent(inspect.getsource(func))),
             )
 
-    def test_streaming_and_ws_re_read_inside_their_locks(self):
+    def test_all_guarded_sites_re_read_inside_their_locks(self):
         """Structural: every path that captures a model slot pre-lock must
         call the under-lock re-read helper inside its
         ``async with ... inference_lock`` body (behavioral coverage is the
         batch/streaming/WS tests above; these paths share the helper).
 
-        The tuple covers the streaming and /ws generators, both prompt-create
-        paths (``/create-voice-prompt``'s torch branch and the torch
-        auto-create-from-.wav loader), and the batch handler."""
+        The tuple covers all five capture paths: the batch handler, the
+        streaming and /ws generators, and both prompt-create paths
+        (``/create-voice-prompt``'s torch branch and the torch
+        auto-create-from-.wav loader)."""
         for label, tree in self._guarded_site_trees():
             self.assertTrue(
                 _locked_with_contains_call(tree, "_require_model_under_lock"),
@@ -1165,9 +1164,11 @@ class TestPostLockSlotReRead(unittest.TestCase):
 
         ``inference_thread`` is a nested function that resolves ``model`` from
         its enclosing scope's cell, so a rebind moved AFTER ``thread.start()``
-        does not fail — it races. The thread would read whichever value wins,
-        which is a flake in production and completely invisible to the
-        enclosure and assignment pins."""
+        races rather than failing outright: the thread reads whichever value
+        wins an unsynchronised race. The outcome is scheduling-dependent, not
+        guaranteed (the mutant failed 10/10 runs on this host and could pass
+        elsewhere), and invisible to the enclosure and assignment pins -- this
+        pin is what makes the detection deterministic."""
         for label, tree in self._guarded_site_trees():
             guard_at, start_at = _guard_and_thread_start_positions(
                 tree, "_require_model_under_lock"

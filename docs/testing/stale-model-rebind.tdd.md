@@ -26,7 +26,7 @@ unload/reload/generate traffic, not a crash.
 | 1 | Guard signature (`_require_model_under_lock`, `app_generation.py`) | `pytest tests/test_issue214_unload_queued_window.py::TestPostLockSlotReRead::test_guard_returns_the_slot_it_validates -v --tb=short` | `AssertionError: None is not <MagicMock name='design-model' id='4404528272'> : the guard must return the re-read slot so callers can rebind` | `PASSED` — `1 passed in 0.10s`; class regression `5 passed`; file regression `17 passed` |
 | 2 | Batch `/generate` (`handle_generate`) | `pytest tests/test_issue214_unload_queued_window.py::TestPostLockSlotReRead::test_batch_runs_on_the_model_reloaded_while_queued -v --tb=short` | `AssertionError: <MagicMock name='clone-model' id='4391907984'> is not <MagicMock name='reloaded-clone' id='4406629648'> : inference ran on the pre-unload orphan: the under-lock re-read was checked but not rebound` — `1 failed in 0.20s` | `PASSED`; class `6 passed in 0.13s`; file `18 passed in 2.81s`; broader sweep (23 files referencing `app_generation`/`handle_generate`) `452 passed` |
 | 3 | `/generate-stream` (`audio_stream_generator`, nested in `handle_generate_stream`) | `pytest tests/test_issue214_unload_queued_window.py::TestPostLockSlotReRead::test_streaming_uses_the_model_reloaded_before_body_iteration -v --tb=short` | `AssertionError: <MagicMock name='design-model' id='4605412240'> is not <MagicMock name='reloaded-design' id='4605679888'> : the stream thread ran on the pre-unload orphan — the under-lock re-read is not rebound into the thread's scope` — `1 failed in 0.21s` | `PASSED`; class `7 passed in 0.13s`; file `19 passed in 2.77s`; streaming-adjacent sweep (`-k "streaming or app_generation or generate_stream"`) `153 passed, 3108 deselected` |
-| 4 | `/ws` (`_stream_generation`, `websocket.py`) | `pytest tests/test_websocket.py::TestWebSocketFreshSlotUnderLock -v --tb=short` | `AssertionError: <MagicMock name='original-clone' id='4584008912'> is not <MagicMock name='reloaded-clone' id='4584178704'> : the /ws inference thread ran on the pre-unload orphan — the under-lock re-read is not rebound` — `1 failed in 0.16s` | `PASSED`; whole file `43 passed in 0.57s`; AST enclosure pin `test_streaming_and_ws_re_read_inside_their_locks` `1 passed` |
+| 4 | `/ws` (`_stream_generation`, `websocket.py`) | `pytest tests/test_websocket.py::TestWebSocketFreshSlotUnderLock -v --tb=short` | `AssertionError: <MagicMock name='original-clone' id='4584008912'> is not <MagicMock name='reloaded-clone' id='4584178704'> : the /ws inference thread ran on the pre-unload orphan — the under-lock re-read is not rebound` — `1 failed in 0.16s` | `PASSED`; whole file `43 passed in 0.57s`; AST enclosure pin `test_all_guarded_sites_re_read_inside_their_locks` `1 passed` |
 | 5 | `/create-voice-prompt` torch path (`handle_create_voice_prompt`, `app_prompts.py`) | `pytest tests/test_issue192_create_prompt_serialization.py::TestCreatePromptSerialization::test_create_rereads_clone_slot_under_lock_after_reload -v --tb=short` | `AssertionError: <MagicMock id='4543056400'> is not <MagicMock name='reloaded-clone' id='4543061648'> : the prompt was built on the pre-unload orphan — no under-lock re-read and rebind` — `1 failed in 0.93s` | `PASSED`; three-file run (`test_issue192_create_prompt_serialization.py` + `test_issue236_mlx_create_prompt.py` + `test_issue214_prompt_create_serialization.py`) `43 passed in 3.93s` |
 
 Every RED failure above was a genuine assertion failure at collection (not a
@@ -278,12 +278,17 @@ Commit list (in order):
 - `43195be` — `fix(server): /create-voice-prompt re-reads the clone slot under inference_lock (T5 reload half)`
 - this docs commit (evidence report + tracked plan copy)
 
-## Addendum — adversarial fix wave (six findings)
+## Addendum — adversarial fix wave (seven findings)
 
 An adversarial hunt over the five hunks above executed mutants against the
-suite and demonstrated six gaps. All six are now closed.
+suite and demonstrated seven findings, numbered 1–5, 7 and 8 in
+`.superpowers/sdd/detailed-step-0b-execution-floating-glacier/fix-wave-report.md`
+(finding 6 — the pre-existing no-op `_validate_generation_request` patches —
+was parked by controller ruling, not closed). All seven findings are closed:
+finding 1 below, findings 2–5 and 7 in the gap table, finding 8 in its last
+row.
 
-### 6 — a SIXTH capture path (`qwen3_tts/server/prompt_loading.py`)
+### Finding 1 — the fifth capture path (`qwen3_tts/server/prompt_loading.py`)
 
 `load_voice_prompt_serialized` captures `state.models["clone"]` and then waits
 on `inference_lock` — and that wait is a whole queued generation, the widest
@@ -315,11 +320,12 @@ before and after — it exists to fail an unconditional guard.
 | Gap | Mutant that survived | Pin added |
 |---|---|---|
 | The batch reload test swaps at the prompt-load seam, reachable only under `if mode == "clone":` | rebind only for clone, bare call otherwise — **3155/3155 other non-e2e tests green** | `test_batch_rebinds_for_{design,custom}_after_a_contended_wait`: hold the lock, park the handler on the acquire, swap, release |
-| The create path was structurally unpinned (`test_streaming_and_ws_re_read_inside_their_locks` iterated only streaming + `/ws`) | hoist the `/create-voice-prompt` re-read outside the lock — **3157/3157 other non-e2e tests green** | `_GUARDED_SITES`: one list of all five capture paths, used by three pins |
+| The create path was structurally unpinned (`test_all_guarded_sites_re_read_inside_their_locks`, then still named for the two sites it started from, iterated only streaming + `/ws`) | hoist the `/create-voice-prompt` re-read outside the lock — **3157/3157 other non-e2e tests green** | `_GUARDED_SITES`: one list of all five capture paths, used by three pins |
 | Nothing required the guard's result to be ASSIGNED | bare `_require_model_under_lock(...)` in `/ws` | `test_every_guarded_site_assigns_the_guard_result` (`ast.Assign` whose value is the call) |
 | Nothing pinned that the `/ws` rebind precedes `thread.start()` | move the rebind below `thread.start()` | `test_thread_starting_sites_rebind_before_start` (statement order inside the lock body) |
 | The `/ws` reload test's error check was a dict-KEY sniff (`"error" in m`); the real failure frame is `{"status": "error", "detail": …}` | a stub that records the model then raises — every assertion passed with zero audio | positive assertions on `sent_json[-1]["status"] == "complete"` and `len(sent_bytes)` |
 | The create path's null half was promised in a docstring, asserted nowhere | `model = state.models.get("clone") or model` | `test_create_bails_with_retryable_503_when_slot_nulled_in_window` |
+| `_RecordingAsyncLock` was installed on the reload and contended windows without asserting `acquire_calls` (finding 8) | a handler that never acquired `inference_lock` at all — a pre-lock rebind — satisfies every identity assertion while the capture→acquire window stays open | `acquire_calls >= 1` on the batch and streaming reload tests, `>= 2` on the two contended-window tests (the test's own acquire plus the handler's) |
 
 Partial refutation, recorded rather than dropped: the ordering finding assumed
 the reordered `/ws` rebind would be *a flake, not a failure*. On this host it
