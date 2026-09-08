@@ -223,7 +223,7 @@ class TestCreatePromptSerialization(unittest.TestCase):
     def test_create_rereads_clone_slot_under_lock_after_reload(self):
         """RELOAD half of the capture->acquire window.
 
-        The clone slot is captured four awaits before the lock (decode, stage,
+        The clone slot is captured three awaits before the lock (decode, stage,
         audio load); an unload->RELOAD in that window leaves the slot non-None,
         so only REBINDING the under-lock re-read keeps the create off the
         orphaned pre-unload object. The null half — an unload alone must raise

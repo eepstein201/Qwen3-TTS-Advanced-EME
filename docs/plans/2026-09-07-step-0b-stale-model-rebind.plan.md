@@ -469,7 +469,7 @@ git commit -m "fix(server): /ws rebinds the under-lock model slot before the inf
 
 ```python
     def test_create_rereads_clone_slot_under_lock_after_reload(self):
-        """The clone slot is captured four awaits before the lock (decode,
+        """The clone slot is captured three awaits before the lock (decode,
         stage, audio load); an unload->RELOAD in that window must leave the
         create on the CURRENT model, and an unload alone must surface the
         same retryable 503 the generation paths raise."""
@@ -525,7 +525,7 @@ Expected: FAIL — the create received `old_model`.
 
 ```python
         async with state.inference_lock:
-            # T5 sibling: the clone slot was captured before four awaits
+            # T5 sibling: the clone slot was captured before three awaits
             # (decode, stage, audio load). Re-read it UNDER the lock and
             # rebind, so an unload->RELOAD in that window builds the prompt
             # on the CURRENT model — and an unload alone surfaces as the

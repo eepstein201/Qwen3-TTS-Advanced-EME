@@ -424,7 +424,8 @@ async def handle_create_voice_prompt(state, req, backend=None):
     # other backend (torch today, vllm later) takes the torch-shaped path,
     # exactly as pre-#236.
     if backend != "mlx":
-        # Capture the model reference once, before any await.
+        # Gate: the clone model must be loaded to start; the authoritative
+        # reference is re-read under the lock below.
         model = state.models.get("clone")
         if model is None:
             raise HTTPException(
@@ -510,7 +511,7 @@ async def handle_create_voice_prompt(state, req, backend=None):
         # Real MLX/torch inference (#192) — leaf acquisition: the handler
         # holds nothing else, so inference_lock stays outermost.
         async with state.inference_lock:
-            # T5 sibling: the clone slot was captured before four awaits
+            # T5 sibling: the clone slot was captured before three awaits
             # (decode, stage, audio load). Re-read it UNDER the lock and
             # rebind, so an unload->RELOAD in that window builds the prompt
             # on the CURRENT model — and an unload alone surfaces as the

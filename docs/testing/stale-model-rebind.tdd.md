@@ -117,7 +117,7 @@ bug at an existing check site:
 
 ```diff
          async with state.inference_lock:
-+            # T5 sibling: the clone slot was captured before four awaits
++            # T5 sibling: the clone slot was captured before three awaits
 +            # (decode, stage, audio load). Re-read it UNDER the lock and
 +            # rebind, so an unload->RELOAD in that window builds the prompt
 +            # on the CURRENT model — and an unload alone surfaces as the
@@ -252,20 +252,27 @@ intercepts every caller that imports it by that name, including
 textually contains the `import` statement. Per this task's constraints, the
 plan copy is committed as-is (not edited); this section is the flag.
 
-## Test file summary (from Tasks 1–5)
+## Test file summary (from Tasks 1–5; totals refreshed at the fix round)
+
+Per-file numbers below were current when written; the **bold** figures are the
+shipped totals (recounted at the post-four-way-review fix round, see
+"Final state" at the end of this file).
 
 - `tests/test_issue214_unload_queued_window.py`: `TestPostLockSlotReRead` grew
   from 4 tests (pre-existing) to 8 (guard-return, batch-reload,
   streaming-reload, plus the two pre-existing null/AST-pin tests already in
-  the class), file total 19 tests, all green.
+  the class) — **11** after the wave. File total 19 tests, all green — **23**.
 - `tests/test_websocket.py`: new class `TestWebSocketFreshSlotUnderLock` (1
-  test), file total 43 tests (was 42), all green.
+  test), file total 43 tests (was 42), all green — **46** (the WS-503 fix
+  added `TestWebSocketPromptLoader503UnderLock`, the fix round added
+  `TestWebSocketInLockGuard503Shape`).
 - `tests/test_issue192_create_prompt_serialization.py`: new test
   `test_create_rereads_clone_slot_under_lock_after_reload`, plus a docstring/
   assertion-message rationale refresh (assertion logic unchanged) on
   `test_create_uses_captured_clone_model_reference`; module + two sibling
   files (`test_issue236_mlx_create_prompt.py`,
-  `test_issue214_prompt_create_serialization.py`) total 43 tests, all green.
+  `test_issue214_prompt_create_serialization.py`) total 43 tests, all green —
+  **48** (12 + 22 + 14).
 
 ## Merge evidence
 
@@ -276,7 +283,18 @@ Commit list (in order):
 - `83664a1` — `fix(server): /generate-stream rebinds the under-lock model slot into the inference thread's scope`
 - `d8a0cc0` — `fix(server): /ws rebinds the under-lock model slot before the inference thread starts`
 - `43195be` — `fix(server): /create-voice-prompt re-reads the clone slot under inference_lock (T5 reload half)`
-- this docs commit (evidence report + tracked plan copy)
+- `7248837` — `docs: TDD evidence report and execution plan for the stale-model rebind`
+- `548bbc5` — `fix(server): load_voice_prompt_serialized re-reads the clone slot under inference_lock`
+- `e68578c` — `test(server): pin the batch model rebind through the real contended window`
+- `3ddcd1c` — `test(server): tighten the under-lock rebind pins (enclosure, assignment, ordering)`
+- `eb9bdde` — `docs(testing): record the adversarial fix wave in the stale-model-rebind evidence`
+- `12ce975` — `docs(plan): record the non-memoized load_model fallback cost found during Step 0B`
+- `5f13c54` — `docs(plan): remove Track T3 (disk-space reclamation) — kept locally off-repo`
+- `e7390e1` — `fix(server): /ws delivers the classified model_unloaded 503 instead of a stringified frame`
+- `a2c5baf` — `test(server): drop an inert patch and align the rebind evidence with the record`
+- `ac56159` — `test(server): harden the ordering pin against hand-off refactors and drop a live validation mock`
+- `63c7cec` — `fix(server): /ws in-lock guard delivers the classified 503 frame shape`
+- this docs commit (final-state refresh, capture-path count corrections, drift one-liners)
 
 ## Addendum — adversarial fix wave (seven findings)
 
@@ -334,3 +352,32 @@ thread happened to win every time. The race is still real (nothing synchronises
 the thread's first read of `model` with the rebind); the structural pin makes
 the outcome deterministic instead of scheduling-dependent. The finding's other
 half — that the existing AST pin still passes — held.
+
+## Final state
+
+Recounted at the post-four-way-review fix round (`ac56159`–`63c7cec`); all
+figures below were collected and run, not carried over.
+
+Per-file test totals (`pytest <file> --collect-only -q`, `qwen3-tts-mlx`):
+
+- `tests/test_issue214_unload_queued_window.py` — 23
+  (`TestPostLockSlotReRead` 11, `TestLoadVoicePromptSerializedSlotReRead` 4)
+- `tests/test_websocket.py` — 46
+- `tests/test_issue192_create_prompt_serialization.py` — 12
+- `tests/test_issue236_mlx_create_prompt.py` — 22
+- `tests/test_issue214_prompt_create_serialization.py` — 14
+
+Gates at the fix round: 7-file gate 183 passed; ruff clean; mypy Success
+(57 files); torchless `.venv-310` proxy run-not-skip confirmed for the
+ordering pin and the three WS classes; full non-e2e **3163 passed / 4 skipped
+/ 92 deselected / 0 failures** with the gate convention
+(`--ignore=tests/evaluations`; the raw `pytest tests/ -m "not e2e"` figure is
+3178 passed / 5 skipped — `tests/evaluations` holds 16 collected tests the
+ignore excludes).
+
+The `/ws` in-lock guard now spreads `dict(e.detail)` like the loader-site
+handler (`63c7cec`), so both classified 503 producers on that route deliver
+`error` / `detail` / `recovery` as top-level fields and return without
+closing; the ordering pin also asserts the expected hand-off-site SET, so a
+hand-off refactor fails it loudly instead of silently unpinning the
+rebind-before-start check (`ac56159`).

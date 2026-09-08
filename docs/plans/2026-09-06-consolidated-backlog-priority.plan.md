@@ -92,21 +92,25 @@ security gap and adding its test coverage belong in the same effort; see Step 0G
 - **Model tier:** strongest (concurrency-correctness, same defect family as #192/#214) · **Branch:** `fix/require-model-under-lock-returns-model` · **Depends on:** rebase after Step 1B lands (both touch `model_loading.py`/`app_models.py` territory) and before Step 2 (Lane H reuses this exact mechanism — see its risk note)
 - **Context:** `_require_model_under_lock` (`app_generation.py:127-158`) only asserts
   `state.models[mode] is not None` — it does not return the model, and no caller rebinds. Capture
-  sites: `app_generation.py:223` (batch), `:742`/`:875` (stream), `websocket.py:306`/`:433` (ws). An
+  paths (five): `app_generation.py:223` (batch), `app_generation.py:742` (stream),
+  `websocket.py:306` (ws), `app_prompts.py:428` (`/create-voice-prompt` torch branch),
+  `prompt_loading.py:34` (`load_voice_prompt_serialized`, reached by the first three). The two
+  refs the earlier text counted as captures — `:875` (stream) and `:433` (ws) — are USE sites:
+  they consume the rebound value rather than capturing the slot. An
   unload **followed by a reload** inside the capture→acquire window passes the guard (slot is
   non-`None` again) while the request runs inference against the *old*, backend-cleaned-up model
   object — exactly the scenario the guard's own docstring warns about, just from the other
   direction. `/create-voice-prompt`'s torch path has the same gap with an even wider window and no
   post-lock recheck at all (`app_prompts.py:428-512` — see Step 0B's companion fix below).
 - **Tasks:** change the signature to `_require_model_under_lock(state, mode) -> Any` returning
-  `state.models[mode]`; rebind at all five call sites above (`model = _require_model_under_lock(...)`)
+  `state.models[mode]`; rebind at all five capture paths above (`model = _require_model_under_lock(...)`)
   before entering inference; apply the same fix to `/create-voice-prompt`'s capture at
   `app_prompts.py:428` (call it immediately inside `async with state.inference_lock`, use the
   returned model). Write a failing test that interleaves unload+reload inside the capture window and
   asserts the *new* model object is what actually runs; extend
   `tests/test_issue214_unload_queued_window.py`.
 - **Verify:** `pytest tests/test_issue214_unload_queued_window.py tests/test_voice_server.py -v`; `ruff`; `mypy`.
-- **Exit criteria:** an unload-then-reload interleaving is proven to use the fresh model object at every one of the six call sites, with a regression test per site (or one parametrized test covering all six).
+- **Exit criteria:** an unload-then-reload interleaving is proven to use the fresh model object at every one of the five capture paths, with a regression test per site (or one parametrized test covering all five).
 - **Follow-up found during 0B execution (NOT fixed by 0B — pre-existing, needs its own step):**
   `prompt_loading.load_voice_prompt_serialized`'s fallback branch calls the engine's
   `load_model("clone", warmup=False)` when the clone slot is empty. `load_model`
