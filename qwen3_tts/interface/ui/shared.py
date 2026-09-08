@@ -884,10 +884,14 @@ def get_gradio_launch_kwargs(config: dict, *, share: bool = False) -> dict:
 
     from qwen3_tts.core.config import IN_COLAB
 
-    output_dir = _resolve_output_dir(config)
-    # Only the output folder and the system tempdir are served: the old blanket
-    # ~/Downloads entry handed a public URL the user's whole Downloads tree.
-    allowed = list({output_dir, tempfile.gettempdir()})
+    # The history output root (default ~/Downloads/Qwen3-TTS Output) and the
+    # system tempdir are served. The resolver must be resolve_history_output_dir:
+    # _resolve_output_dir reads the legacy `output_directory` key whose default
+    # IS ~/Downloads, which made this narrowing a no-op under default config —
+    # the old blanket ~/Downloads entry handed a public URL the user's whole
+    # Downloads tree.
+    history_root = resolve_history_output_dir(config)
+    allowed = list({history_root, tempfile.gettempdir()})
 
     kwargs: dict = {
         "server_name": "0.0.0.0" if IN_COLAB else "127.0.0.1",  # nosec B104  # Colab only
