@@ -67,6 +67,7 @@ This document contains detailed architectural reference extracted from CLAUDE.md
 - Rate limiting via `slowapi` (optional) with X-Forwarded-For IP resolution for reverse proxies
 - Audit logging for auth failures with client IP
 - Server binds `127.0.0.1` by default; `--public` for `0.0.0.0`; Colab auto-binds `0.0.0.0`
+- Gradio UI surface: every launch site (`ui/_facade.py` `main()` and `generate_server.build_ui_and_launch`) routes launch kwargs through `get_gradio_launch_kwargs(config, share=...)` (`ui/shared.py`), which enforces share ⇒ auth: a shared (public) URL always launches behind a login — `TTS_UI_USERNAME`+`TTS_UI_PASSWORD` when BOTH are set, else generated credentials (`tts-` user, `token_urlsafe` password) printed once to the console (under PM2: the PM2 log file); a half-set env pair or a credential-generation failure raises RuntimeError instead of launching unauthenticated (fail-closed). `IN_COLAB` forces share at both sites, so the Colab path is authenticated too (the notebook cell mirrors the helper inline). Custody rationale: the UI process holds the server bearer token, so an unauthenticated shared URL would hand out the full authenticated server surface — generation, prompt delete/rename, `/update-model-config`, `/shutdown`, and hard-delete of output files. `allowed_paths` is narrowed to the app output directory + the system tempdir (the former blanket `~/Downloads` entry is gone; `~/Downloads` is served only when it IS the resolved output dir)
 
 ## Platform Support
 

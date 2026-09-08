@@ -38,7 +38,7 @@ Project skills live in `.claude/skills/<name>/SKILL.md` (checked in, `name`+`des
 | `tts voice {list, create [AUDIO], rebuild [NAME], delete NAME, rename OLD NEW, preview NAME, info NAME}` | Voice-prompt CRUD; `rebuild` is torch-only (forces `TTS_BACKEND=torch`; needs `qwen_tts`, so run via `conda run -n qwen3-tts` on MLX setups); `info` = prompt metadata (via server) |
 | `tts list {speakers, presets, aliases, prosody, models, backends}` | Premium speakers · presets · aliases · prosody · models + load status · backends |
 | `tts config` · `tts config {show, edit, path}` | Config wizard · show settings · edit (backend, model-size, …) · print config.json path |
-| `tts ui` | Launch Gradio web UI |
+| `tts ui` | Launch Gradio web UI — a shared launch requires auth at EVERY launch site (`get_gradio_launch_kwargs(share=...)`), `allowed_paths` is narrowed to the app output dir + temp, and generated credentials print once to the console (the PM2 log file under PM2) |
 | `tts history [N]` · `tts stats` | Last N generations · server statistics |
 | `tts batch FILE` · `tts srt FILE` · `tts dialogue FILE` | Batch JSON · SRT subtitles · multi-speaker dialogue |
 | `tts repl` · `tts watch DIR` | Interactive REPL · watch a directory for .txt files |
