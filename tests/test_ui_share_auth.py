@@ -105,16 +105,20 @@ class TestShareRequiresAuthHelper(unittest.TestCase):
                 get_gradio_launch_kwargs({}, share=True)
         self.assertIn("credentials", str(ctx.exception).lower())
 
-    @unittest.skipUnless(
-        "PYTEST_CURRENT_TEST" in os.environ,
-        "the isolation guarantee lives in conftest.py's autouse fixture, which "
-        "only fires under pytest; the unittest batch runner has no fixtures",
-    )
     def test_autouse_fixture_repoints_the_seam_away_from_the_real_config_dir(self):
         """conftest's autouse fixture repoints the credentials seam for EVERY
         pytest-run test, so no pytest run can create the real ~/.config file
         (fix round 4). The unittest batch runner subprocess bypasses conftest
         entirely — seam patches there must come from the tests themselves."""
+        # Runtime guard, NOT a skipUnless decorator: the decorator's condition
+        # evaluates at collection, before pytest sets PYTEST_CURRENT_TEST, so
+        # the pin would always report skipped under both runners.
+        if "PYTEST_CURRENT_TEST" not in os.environ:
+            self.skipTest(
+                "the isolation guarantee lives in conftest.py's autouse "
+                "fixture, which only fires under pytest; the unittest batch "
+                "runner has no fixtures"
+            )
         from qwen3_tts.interface.ui.shared import _ui_credentials_path
 
         real_dir = os.path.expanduser("~/.config/qwen3-tts")
