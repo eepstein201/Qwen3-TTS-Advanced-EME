@@ -267,6 +267,240 @@ class TestLoadVoicePromptSerializedOrdering(unittest.TestCase):
         self.assertFalse(state.inference_lock.locked())
 
 
+class _AcquireSignallingLock:
+    """A real ``asyncio.Lock`` that announces each acquire ATTEMPT.
+
+    ``acquire_attempted`` is set BEFORE the underlying acquire is awaited, so
+    a test that already holds the lock can observe "the coroutine under test
+    is now parked in its capture->acquire window" without polling private
+    asyncio internals or sleeping. Scheduling semantics are delegated to the
+    wrapped real lock -- this observes, it does not fake mutual exclusion (a
+    MagicMock lock would make every ``locked()`` assertion hollow).
+    """
+
+    def __init__(self):
+        self._lock = asyncio.Lock()
+        self.acquire_calls = 0
+        self.acquire_attempted = asyncio.Event()
+
+    async def acquire(self):
+        self.acquire_calls += 1
+        self.acquire_attempted.set()
+        return await self._lock.acquire()
+
+    def release(self):
+        self._lock.release()
+
+    async def __aenter__(self):
+        await self.acquire()
+        return self
+
+    async def __aexit__(self, *exc):
+        self.release()
+        return False
+
+    def locked(self):
+        return self._lock.locked()
+
+
+@_skip
+class TestLoadVoicePromptSerializedSlotReRead(unittest.TestCase):
+    """The FIFTH capture->acquire window (T5 sibling).
+
+    ``load_voice_prompt_serialized`` captures ``state.models['clone']`` into a
+    local and then waits on ``inference_lock`` -- and that wait is a whole
+    queued generation, the widest such window in the server. The locked call
+    runs REAL torch create inference, so an unload->RELOAD landing in the wait
+    must not build the prompt on the orphaned pre-unload object
+    (``unload_model_cleanup`` is gc.collect + a cache flush; the orphan keeps
+    working, so the defect is silent), and an unload alone must surface the
+    same retryable 503 the generation paths raise.
+
+    The window is exercised REALISTICALLY: the test holds ``inference_lock``,
+    launches the coroutine so it parks on the acquire, mutates the slot while
+    it is parked, then releases. No pre-lock seam is abused to fake it.
+    """
+
+    @staticmethod
+    def _probe_raises_then_records(state, events):
+        """Return a ``load_voice_prompt`` double: probe signals "create
+        required", the locked call records the forwarded model."""
+        from qwen3_tts.core.engine import VoicePromptCreateRequired
+
+        def _load_prompt(prompt_file, *, allow_create, clone_model=None):
+            if not allow_create:
+                raise VoicePromptCreateRequired(prompt_file)
+            events.append(
+                {
+                    "clone_model": clone_model,
+                    "lock_held": state.inference_lock.locked(),
+                }
+            )
+            return "created-prompt"
+
+        return _load_prompt
+
+    def _run_with_slot_mutated_while_parked(self, state, mutate, load_model=None):
+        """Run ``load_voice_prompt_serialized`` while the test holds the lock,
+        applying *mutate* once the coroutine is parked on the acquire.
+
+        Returns ``(result_or_exception, events)``; the exception is returned
+        rather than raised so callers assert on it explicitly.
+        """
+        from qwen3_tts.server.prompt_loading import load_voice_prompt_serialized
+
+        events = []
+        load_prompt = self._probe_raises_then_records(state, events)
+
+        async def _scenario():
+            with (
+                patch(
+                    "qwen3_tts.core.engine.load_voice_prompt",
+                    side_effect=load_prompt,
+                ),
+                patch(
+                    "qwen3_tts.core.engine.model_loader.load_model",
+                    side_effect=load_model or (lambda *a, **k: object()),
+                ),
+            ):
+                async with state.inference_lock:
+                    # Ours; watch for the coroutine's own attempt below.
+                    state.inference_lock.acquire_attempted.clear()
+                    task = asyncio.ensure_future(
+                        load_voice_prompt_serialized(state, "missing.pt")
+                    )
+                    await asyncio.wait_for(
+                        state.inference_lock.acquire_attempted.wait(), timeout=10
+                    )
+                    # The coroutine is now parked INSIDE acquire: the capture
+                    # already happened, the create has not.
+                    self.assertEqual(
+                        events, [], "the create ran before the lock was free"
+                    )
+                    mutate()
+                try:
+                    return await asyncio.wait_for(task, timeout=10)
+                except Exception as exc:  # returned, not swallowed
+                    return exc
+
+        return asyncio.run(_scenario()), events
+
+    def test_create_runs_on_the_model_reloaded_while_parked(self):
+        """unload->RELOAD in the window: the slot is non-None again, so only
+        REBINDING the under-lock re-read keeps the create off the orphan."""
+        state = _make_state(clone_model=MagicMock(name="original-clone"))
+        old_model = state.models["clone"]
+        reloaded = MagicMock(name="reloaded-clone")
+        state.inference_lock = _AcquireSignallingLock()
+
+        result, events = self._run_with_slot_mutated_while_parked(
+            state, lambda: state.models.__setitem__("clone", reloaded)
+        )
+
+        self.assertEqual(result, "created-prompt", result)
+        self.assertEqual(len(events), 1, f"expected one create, got {events!r}")
+        self.assertTrue(events[0]["lock_held"], "the create must run LOCKED")
+        self.assertIs(
+            events[0]["clone_model"],
+            reloaded,
+            "the prompt was created on the pre-unload orphan -- "
+            "load_voice_prompt_serialized never re-reads the clone slot under "
+            "inference_lock",
+        )
+        self.assertIsNot(
+            events[0]["clone_model"],
+            old_model,
+            "the orphaned capture reached the create inference",
+        )
+        self.assertGreaterEqual(
+            state.inference_lock.acquire_calls,
+            2,
+            "the coroutine never acquired inference_lock",
+        )
+
+    def test_unload_while_parked_raises_retryable_503(self):
+        """The null half: the slot was populated at capture time and is gone
+        under the lock -- a real unload. Same classified, retryable 503 the
+        generation paths raise, and the create must never run."""
+        from fastapi import HTTPException
+
+        state = _make_state(clone_model=MagicMock(name="original-clone"))
+        state.inference_lock = _AcquireSignallingLock()
+
+        result, events = self._run_with_slot_mutated_while_parked(
+            state, lambda: state.models.__setitem__("clone", None)
+        )
+
+        self.assertIsInstance(
+            result,
+            HTTPException,
+            f"expected a retryable 503, got result {result!r}",
+        )
+        self.assertEqual(result.status_code, 503)
+        self.assertIsInstance(result.detail, dict, f"detail: {result.detail!r}")
+        self.assertEqual(result.detail.get("error"), "model_unloaded")
+        self.assertEqual(result.detail.get("recovery"), "retry")
+        self.assertEqual(
+            events,
+            [],
+            "create inference ran against the orphaned model before the 503",
+        )
+
+    def test_locally_built_model_survives_an_empty_slot_under_the_lock(self):
+        """Behavior-preservation pin for the FALLBACK branch.
+
+        ``load_model`` (core/engine/model_loader.py) returns the model and
+        never writes ``state.models`` -- so when the slot was empty at capture
+        time it is STILL empty under the lock, by design. An unconditional
+        under-lock guard would 503 a path that works today; this pins that it
+        does not, and that the locally built model is the one forwarded.
+        """
+        state = _make_state(clone_model=None)
+        built = MagicMock(name="locally-built-clone")
+        state.inference_lock = _AcquireSignallingLock()
+
+        result, events = self._run_with_slot_mutated_while_parked(
+            state, lambda: None, load_model=lambda *a, **k: built
+        )
+
+        self.assertEqual(result, "created-prompt", result)
+        self.assertEqual(len(events), 1, f"expected one create, got {events!r}")
+        self.assertIs(
+            events[0]["clone_model"],
+            built,
+            "the locally built model must still reach the create when the "
+            "slot is legitimately empty -- 503-ing here is a regression",
+        )
+        self.assertIsNone(
+            state.models["clone"],
+            "load_model must not be assumed to populate the slot",
+        )
+
+    def test_fallback_prefers_a_slot_that_filled_while_parked(self):
+        """Fallback branch, other direction: a /load-model that finished
+        during the wait published the LIVE model into the slot, so the create
+        must use it rather than the private copy this call built."""
+        state = _make_state(clone_model=None)
+        built = MagicMock(name="locally-built-clone")
+        published = MagicMock(name="published-clone")
+        state.inference_lock = _AcquireSignallingLock()
+
+        result, events = self._run_with_slot_mutated_while_parked(
+            state,
+            lambda: state.models.__setitem__("clone", published),
+            load_model=lambda *a, **k: built,
+        )
+
+        self.assertEqual(result, "created-prompt", result)
+        self.assertEqual(len(events), 1, f"expected one create, got {events!r}")
+        self.assertIs(
+            events[0]["clone_model"],
+            published,
+            "the slot published while this call waited is the live model -- "
+            "the create must re-read it, not use the pre-lock capture",
+        )
+
+
 @_skip
 @_skip_torch
 class TestEngineAllowCreateContract(unittest.TestCase):
