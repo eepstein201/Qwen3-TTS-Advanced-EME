@@ -202,6 +202,7 @@ BATCHES = {
             "tests.test_ui_headless",
             "tests.test_ui_model_management",
             "tests.test_ui_facade",
+            "tests.test_ui_share_auth",
             "tests.test_ui_port_flag",
             "tests.test_ui_low_rate_prompt_warning",
             "tests.test_ui_shared_ext",
