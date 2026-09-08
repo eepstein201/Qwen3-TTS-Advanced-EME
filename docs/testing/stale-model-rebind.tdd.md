@@ -277,3 +277,54 @@ Commit list (in order):
 - `d8a0cc0` — `fix(server): /ws rebinds the under-lock model slot before the inference thread starts`
 - `43195be` — `fix(server): /create-voice-prompt re-reads the clone slot under inference_lock (T5 reload half)`
 - this docs commit (evidence report + tracked plan copy)
+
+## Addendum — adversarial fix wave (six findings)
+
+An adversarial hunt over the five hunks above executed mutants against the
+suite and demonstrated six gaps. All six are now closed.
+
+### 6 — a SIXTH capture path (`qwen3_tts/server/prompt_loading.py`)
+
+`load_voice_prompt_serialized` captures `state.models["clone"]` and then waits
+on `inference_lock` — and that wait is a whole queued generation, the widest
+capture→acquire window in the server. The locked call is REAL torch
+create inference (auto-create-from-`.wav`), and `_require_model_under_lock` was
+never called there.
+
+The guard is **provenance-split**, because `load_model()`
+(`core/engine/model_loader.py`) returns the model and never writes
+`state.models` — verified by reading its body: it dispatches to
+`_load_model_{mlx,torch}`, optionally warms up, and returns. So on the fallback
+branch the slot is legitimately still `None` under the lock, and an
+unconditional guard would 503 a path that works today:
+
+- captured from the slot → `model = _require_model_under_lock(state, "clone")`
+  (an empty slot now is a real unload → the same retryable 503)
+- built locally by the fallback → keep the built model, but prefer a slot that
+  a concurrent `/load-model` published while we waited.
+
+`tests/test_issue214_prompt_create_serialization.py::TestLoadVoicePromptSerializedSlotReRead`
+covers all four cases and drives the REAL contended window (the test holds
+`inference_lock`, the coroutine parks on the acquire, the slot is mutated while
+it waits, then the lock is released). The fallback-preservation case
+(`test_locally_built_model_survives_an_empty_slot_under_the_lock`) was green
+before and after — it exists to fail an unconditional guard.
+
+### Test-side gaps closed
+
+| Gap | Mutant that survived | Pin added |
+|---|---|---|
+| The batch reload test swaps at the prompt-load seam, reachable only under `if mode == "clone":` | rebind only for clone, bare call otherwise — **3155/3155 other non-e2e tests green** | `test_batch_rebinds_for_{design,custom}_after_a_contended_wait`: hold the lock, park the handler on the acquire, swap, release |
+| The create path was structurally unpinned (`test_streaming_and_ws_re_read_inside_their_locks` iterated only streaming + `/ws`) | hoist the `/create-voice-prompt` re-read outside the lock — **3157/3157 other non-e2e tests green** | `_GUARDED_SITES`: one list of all five capture paths, used by three pins |
+| Nothing required the guard's result to be ASSIGNED | bare `_require_model_under_lock(...)` in `/ws` | `test_every_guarded_site_assigns_the_guard_result` (`ast.Assign` whose value is the call) |
+| Nothing pinned that the `/ws` rebind precedes `thread.start()` | move the rebind below `thread.start()` | `test_thread_starting_sites_rebind_before_start` (statement order inside the lock body) |
+| The `/ws` reload test's error check was a dict-KEY sniff (`"error" in m`); the real failure frame is `{"status": "error", "detail": …}` | a stub that records the model then raises — every assertion passed with zero audio | positive assertions on `sent_json[-1]["status"] == "complete"` and `len(sent_bytes)` |
+| The create path's null half was promised in a docstring, asserted nowhere | `model = state.models.get("clone") or model` | `test_create_bails_with_retryable_503_when_slot_nulled_in_window` |
+
+Partial refutation, recorded rather than dropped: the ordering finding assumed
+the reordered `/ws` rebind would be *a flake, not a failure*. On this host it
+failed `TestWebSocketFreshSlotUnderLock` 10 out of 10 runs — the inference
+thread happened to win every time. The race is still real (nothing synchronises
+the thread's first read of `model` with the rebind); the structural pin makes
+the outcome deterministic instead of scheduling-dependent. The finding's other
+half — that the existing AST pin still passes — held.
