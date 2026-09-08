@@ -167,8 +167,8 @@ tail -f .voice_server.log
 
 **PM2 logs:**
 ```bash
-pm2 logs tts-server
-pm2 logs tts-server --lines 100
+pm2 logs tts-server-5123
+pm2 logs tts-server-5123 --lines 100
 ```
 
 ### Model Management

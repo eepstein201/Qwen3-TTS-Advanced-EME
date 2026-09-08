@@ -258,7 +258,7 @@ Periodically check (monthly) for upstream fixes that could remove local workarou
 
 ## Code Review Status (2026-03-03)
 
-Multi-agent review (8 agents, 56 deduplicated findings). **P1+P2 implemented** (R-1 through R-12). P3/P4 roadmap at `docs/plans/development-roadmap.md`.
+Multi-agent review (8 agents, 56 deduplicated findings). **P1+P2 implemented** (R-1 through R-12). P3/P4 roadmap archived at `docs/plans/archive/development-roadmap.md`.
 
 ### What was fixed (P1+P2)
 - Graceful shutdown replaces `os._exit(0)` (R-1)

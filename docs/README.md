@@ -20,7 +20,6 @@ Index of the project's reference documentation. For a product overview and quick
 | Doc | What it covers |
 |-----|----------------|
 | [plans/consolidated-roadmap.md](plans/consolidated-roadmap.md) | Authoritative status tracker: completed + open work, reconciled against source. |
-| [plans/development-roadmap.md](plans/development-roadmap.md) | Companion tracker for `R-*` items. |
 
 ## History
 

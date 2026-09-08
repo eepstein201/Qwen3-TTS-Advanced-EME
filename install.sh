@@ -403,7 +403,7 @@ _pip_install_linux() {
     index_url=$(get_torch_index_url)
 
     info "PyTorch index URL: $index_url"
-    pip install torch torchvision torchaudio --index-url "$index_url"
+    pip install torch torchaudio --index-url "$index_url"
 
     local extras="torch,server,audio,rich,ui"
     if [[ "$HAS_NVIDIA" == true ]] && [[ -n "$CUDA_VERSION" ]]; then
@@ -912,7 +912,7 @@ _create_torch_env_macos() {
     conda activate "$TORCH_ENV_NAME"
 
     info "Installing PyTorch with MPS support..."
-    pip install torch torchvision torchaudio
+    pip install torch torchaudio
 
     info "Installing Qwen3-TTS and dependencies..."
     pip install -e "$USER_FILES_DIR/[torch,server,audio,ui,rich]"
