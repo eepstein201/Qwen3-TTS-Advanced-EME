@@ -1,7 +1,7 @@
 # Qwen3-TTS Makefile
 # Provides convenient shortcuts for common development tasks
 
-.PHONY: help install test test-batch test-core test-voice test-server test-engine test-e2e clean lint format solid-score coverage check-config-docs
+.PHONY: help install install-mlx install-test-deps test test-batch test-batch-continue test-quick test-core test-optional test-voice test-server test-engine test-e2e clean lint format solid-score solid-score-fail coverage check-config-docs
 
 # Default target
 help:
@@ -15,6 +15,8 @@ help:
 	@echo "  install-test-deps Install test dependencies (works in any environment)"
 	@echo "  test             Run all tests (may hang, use test-batch)"
 	@echo "  test-batch       Run tests in isolated batches (recommended)"
+	@echo "  test-batch-continue Resume an interrupted batch run"
+	@echo "  test-optional    Optional-dependency tests (flash-attn, evaluations, ...)"
 	@echo "  test-quick       Quick test: core utilities only"
 	@echo "  test-core        Batch 1: Core utilities"
 	@echo "  test-voice       Batch 2: Voice & CLI"
@@ -25,6 +27,7 @@ help:
 	@echo "  lint             Run linters (if installed)"
 	@echo "  format           Format code with ruff"
 	@echo "  solid-score      Analyze SOLID principle compliance"
+	@echo "  solid-score-fail Analyze SOLID compliance, fail below threshold"
 	@echo "  check-config-docs Verify docs/CONFIG.md defaults match the code"
 	@echo "  coverage         Run tests with coverage report"
 
@@ -89,6 +92,7 @@ clean:
 	rm -rf .pytest_cache
 	rm -rf .voice_server.*
 	rm -rf ~/.voice_server_token
+	rm -rf ~/.config/qwen3-tts/.voice_server_token
 	rm -rf ~/.voice_history.jsonl
 	rm -rf ~/.voice_last_text
 
