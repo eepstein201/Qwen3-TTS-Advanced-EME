@@ -12,6 +12,10 @@ every method must be atomic with respect to ``threading.Lock`` and must
 resolve ``app_state.generation_state`` at EACH call (late binding), so tests
 can seed/replace the dict object and the guard must follow.
 
+Task 5 appends the Step 0C exit-criterion structural pin
+(``TestGenerationStateRawAccessIsPinnedToTheGuard``): production modules must
+not touch the dict raw at all.
+
 Run: python -m pytest tests/test_generation_state_guard.py -v
 """
 
@@ -454,3 +458,150 @@ class TestGenerationStateGuardConcurrency(unittest.TestCase):
 
         self.assertEqual(errors, [])
         self.assertEqual(failures, [])
+
+
+class TestGenerationStateRawAccessIsPinnedToTheGuard(unittest.TestCase):
+    """Step 0C exit criterion, held structurally: every production
+    ``generation_state`` read/write goes through the guard.
+
+    Tasks 1-4 routed every generation path and every reader through
+    ``GenerationStateGuard``. This pin keeps that true: the five production
+    modules that ever touched the dict are scanned at the TOKEN level, and
+    every surviving ``generation_state`` NAME occurrence must sit inside the
+    allowlist below.
+
+    Deliberate mechanics:
+
+    - The scan collects NAME tokens spelled exactly ``generation_state``.
+      Comments, docstrings and string literals are different token kinds, so
+      a comment mentioning the dict is not an access, and the attribute the
+      lifespan provisions (``generation_state_guard``) is a DIFFERENT
+      identifier that is not flagged.
+    - The allowlist is (file basename, line substring) tuples and every
+      entry must stay LIVE: an entry that no longer matches fails the pin,
+      so reformatting the init block forces a conscious allowlist update
+      instead of a silent widening.
+    - The scanned file list is asserted too: a rename, move or deletion of
+      any target module FAILS the pin rather than quietly unpinning it.
+
+    A new raw access fails this test on purpose: route it through
+    ``guard_for(...)`` / the guard's methods, or move the allowlist
+    consciously, with a reason in the diff.
+    """
+
+    #: (module, expected basename) — basename mismatch means the file was
+    #: renamed/moved and the pin's scan silently shrank.
+    TARGET_MODULES = (
+        ("qwen3_tts.server.app_generation", "app_generation.py"),
+        ("qwen3_tts.server.websocket", "websocket.py"),
+        ("qwen3_tts.server.app_models", "app_models.py"),
+        ("qwen3_tts.server.app", "app.py"),
+        ("qwen3_tts.server.app_lifespan", "app_lifespan.py"),
+    )
+
+    #: The only permitted raw ``generation_state`` references in production
+    #: code: app_lifespan's init block, which CREATES the dict the guard
+    #: then owns. Everything else must go through the guard.
+    ALLOWLIST = (
+        ("app_lifespan.py", "app.state.generation_state = {"),
+    )
+
+    def _flagged_occurrences(self):
+        """(scanned basenames, [(basename, lineno, stripped line), ...])."""
+        import importlib
+        import tokenize
+        from pathlib import Path
+
+        scanned = []
+        occurrences = []
+        for module_name, basename in self.TARGET_MODULES:
+            module = importlib.import_module(module_name)
+            path = Path(module.__file__).resolve()
+            self.assertEqual(
+                path.name,
+                basename,
+                f"{module_name} resolved to {path.name}, not {basename}: the "
+                "file was renamed or moved — update TARGET_MODULES loudly, "
+                "never let the pin silently shrink its scan",
+            )
+            self.assertTrue(
+                path.is_file(),
+                f"pin target {basename} does not exist at {path}: the scan "
+                "would silently pass over a missing file",
+            )
+            scanned.append(basename)
+            with open(path, "rb") as handle:
+                for token in tokenize.tokenize(handle.readline):
+                    is_generation_state_name = (
+                        token.type == tokenize.NAME
+                        and token.string == "generation_state"
+                    )
+                    if is_generation_state_name:
+                        occurrences.append(
+                            (basename, token.start[0], token.line.strip())
+                        )
+        return scanned, occurrences
+
+    def test_scan_covers_every_target_file(self):
+        scanned, _occurrences = self._flagged_occurrences()
+        self.assertEqual(scanned, [basename for _, basename in self.TARGET_MODULES])
+
+    def test_no_raw_generation_state_access_outside_the_allowlist(self):
+        _scanned, occurrences = self._flagged_occurrences()
+        unlisted = [
+            (basename, lineno, line)
+            for basename, lineno, line in occurrences
+            if not any(
+                basename == allowed_file and needle in line
+                for allowed_file, needle in self.ALLOWLIST
+            )
+        ]
+        self.assertEqual(
+            unlisted,
+            [],
+            "raw generation_state access(es) outside the guard: route them "
+            "through guard_for()/GenerationStateGuard, or extend "
+            "ALLOWLIST consciously with a reason in the diff",
+        )
+
+    def test_allowlist_entries_are_all_live(self):
+        _scanned, occurrences = self._flagged_occurrences()
+        for allowed_file, needle in self.ALLOWLIST:
+            matches = [
+                (basename, lineno, line)
+                for basename, lineno, line in occurrences
+                if basename == allowed_file and needle in line
+            ]
+            self.assertTrue(
+                matches,
+                f"allowlist entry ({allowed_file!r}, {needle!r}) matched "
+                "nothing: the init block moved or was reworded — update the "
+                "allowlist consciously, never leave a dead entry widening it",
+            )
+
+    def test_raw_occurrence_count_equals_the_allowlisted_count(self):
+        """Anti-vacuity: the allowlist must be the WHOLE raw surface, so the
+        total occurrence count must equal the allowlisted one. A second raw
+        access that happens to repeat an allowlisted line shape still fails
+        here."""
+        _scanned, occurrences = self._flagged_occurrences()
+        allowlisted = [
+            (basename, lineno, line)
+            for basename, lineno, line in occurrences
+            if any(
+                basename == allowed_file and needle in line
+                for allowed_file, needle in self.ALLOWLIST
+            )
+        ]
+        self.assertEqual(
+            len(occurrences),
+            len(allowlisted),
+            f"unexpected raw generation_state occurrence(s): {occurrences!r} "
+            f"vs allowlisted {allowlisted!r}",
+        )
+        self.assertEqual(
+            len(occurrences),
+            len(self.ALLOWLIST),
+            "the raw generation_state surface changed size: one raw "
+            "occurrence per ALLOWLIST entry is the whole permitted set",
+        )
