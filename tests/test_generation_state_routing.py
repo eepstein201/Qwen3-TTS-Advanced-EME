@@ -21,6 +21,8 @@ Run: python -m pytest tests/test_generation_state_routing.py -v
 """
 
 import asyncio
+import contextlib
+import os
 import threading
 import unittest
 from types import SimpleNamespace
@@ -222,13 +224,28 @@ async def _drive_batch_async(
     ), guard_patch, patch(
         f"{_ENGINE}.run_inference", side_effect=fake_inference
     ):
-        return await handle_generate(
-            request=_make_request(state),
-            state=state,
-            req=req,
-            security={"max_text_length": 50000, "max_batch_size": 20},
-            config_provider=None,
-        )
+        try:
+            return await handle_generate(
+                request=_make_request(state),
+                state=state,
+                req=req,
+                security={"max_text_length": 50000, "max_batch_size": 20},
+                config_provider=None,
+            )
+        finally:
+            # Hygiene: the batch path writes a real cache WAV per item
+            # (NamedTemporaryFile(delete=False)) into the test-local
+            # ``state.gen_cache`` and never unlinks it, so every drive
+            # leaks a file into the tempdir. Unlink what this drive left
+            # behind (the handler's own eviction path is what production
+            # relies on; a test has no reason to keep them).
+            for entry in list(state.gen_cache.values()):
+                cache_path = (
+                    entry.get("main_file") if isinstance(entry, dict) else None
+                )
+                if cache_path and os.path.exists(cache_path):
+                    with contextlib.suppress(OSError):
+                        os.unlink(cache_path)
 
 
 def _drive_batch(state, recording, **kwargs):
@@ -286,6 +303,16 @@ class TestBatchProgressRoutesThroughGuard(unittest.TestCase):
         """While a worker thread hammers the routed callback, a loop-side
         snapshot through the SAME guard never observes chunk_index from one
         write and chunk_total from another.
+
+        Scope note, stated in-file on purpose: this is a serialization-
+        PROPERTY pin, NOT a RED driver. Under CPython a raw two-key
+        ``dict.update`` is GIL-atomic, so this test cannot detect reverting
+        the callback to an unlocked single update — its detector power is
+        against SPLITTING the (chunk_index, chunk_total) pair across two
+        lock acquisitions, not against an unlocked two-key update. The RED
+        drivers for the routing are the call-record pins (see
+        ``test_progress_callback_routes_through_update_progress`` and the
+        lifecycle sequence test).
 
         Deterministic: the reader runs as a task on the event loop and yields
         with ``asyncio.sleep(0)`` — a scheduling yield with zero wall-clock
