@@ -212,7 +212,13 @@ attribute, not the dict. `generation_lock`'s only remaining user is
 ## Accepted residuals (all pre-existing, disclosed, owned elsewhere)
 
 1. **The live-batch cancel-erase** (above) — #237 / Step 1A, to be fixed at the
-   guard's atomic begin point.
+   guard's atomic begin point. The batch pre-loop `clear_cancelled()`
+   (`app_generation.py:311`) is a second, independent erase site in the #237 family: it
+   runs before `inference_lock` is acquired, so a cancel aimed at a live concurrent
+   generation (stream, `/ws`, or another batch) is erased by a request that never owned
+   the flag — stream begins, the user cancels (`cancelled=True`), a batch request's
+   pre-loop clear erases the flag, and the stream's stop-check then sees `False` and
+   runs to completion; 1A's fix must cover this site, not only `begin()`'s re-clear.
 2. **`/cancel-generation` takes the guard's lock twice** (active check, then the
    post-write id read) — matches the pre-guard observable ordering; two
    non-contended microsecond acquisitions per cancel.

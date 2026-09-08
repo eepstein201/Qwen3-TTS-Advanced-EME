@@ -189,7 +189,14 @@ security gap and adding its test coverage belong in the same effort; see Step 0G
   `cancelled: False` re-clear can erase a cancel targeting that live batch, which then runs to
   completion. `begin()` preserves this re-clear by design; **1A's fix must address the erase
   semantics at the guard's atomic begin point** (and move
-  `test_begin_re_clears_cancelled` with it).
+  `test_begin_re_clears_cancelled` with it). (3) The batch pre-loop
+  `clear_cancelled()` (`app_generation.py:311`) is a second, independent erase site in
+  the #237 family: it runs before `inference_lock` is acquired, so a cancel aimed at a
+  live concurrent generation (stream, `/ws`, or another batch) is erased by a request
+  that never owned the flag — stream begins, the user cancels (`cancelled=True`), a
+  batch request's pre-loop clear erases the flag, and the stream's stop-check then sees
+  `False` and runs to completion; 1A's fix must cover this site, not only `begin()`'s
+  re-clear.
 - **0C recorded residual (pre-existing, needs its own step):** `handle_generate_stream` caches
   `state.inference_lock` into a local at `~:821`; a lock replacement during a long request would
   not be observed by the in-flight body.
