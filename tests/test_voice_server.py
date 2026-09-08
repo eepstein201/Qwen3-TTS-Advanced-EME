@@ -654,13 +654,22 @@ class TestGenerateStreamIdCheck(unittest.TestCase):
         cls.auth = {"Authorization": "Bearer test_token"}
 
     def test_generate_stream_checks_generation_id(self):
-        """generate_stream only resets state if generation_id matches."""
+        """generate_stream only resets state if generation_id matches.
+
+        Step 0C Task 3 moved the ownership check inside the guard:
+        ``reset_if_owner`` re-checks generation_id in the same locked step it
+        resets in, so a superseded stream can never clobber the new owner's
+        slot. Behavioral pins for that property: the streaming routing test
+        (reset bound to begin's generation id) in
+        tests/test_generation_state_routing.py, and the refusal itself in
+        tests/test_generation_state_guard.py.
+        """
         import inspect
 
         from qwen3_tts.server import app_generation
         source = inspect.getsource(app_generation)
-        # Should check generation_id before resetting
-        self.assertIn('if state.generation_state.get("generation_id") == gen_id', source)
+        # Must reset through the ownership-checked guard path
+        self.assertIn("guard.reset_if_owner(gen_id)", source)
 
     def test_generation_state_has_generation_id(self):
         """generation_state includes generation_id field."""
