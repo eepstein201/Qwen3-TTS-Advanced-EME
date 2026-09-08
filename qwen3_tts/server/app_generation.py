@@ -850,7 +850,12 @@ async def handle_generate_stream(request, state, req, security, config_provider)
             # connection with no terminal frame, indistinguishable from a
             # network drop.
             try:
-                _require_model_under_lock(state, mode)
+                # Rebind, don't just check: this assignment makes `model` a
+                # local of audio_stream_generator, and inference_thread
+                # (nested below) resolves it from THIS scope's cell rather
+                # than handle_generate_stream's — so thread.start() below
+                # sees the re-read slot, never the pre-lock capture.
+                model = _require_model_under_lock(state, mode)
             except HTTPException as e:
                 _detail = e.detail
                 _message = (

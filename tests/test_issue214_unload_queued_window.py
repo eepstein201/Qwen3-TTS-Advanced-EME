@@ -811,6 +811,76 @@ class TestPostLockSlotReRead(unittest.TestCase):
             "the streaming generator never acquired inference_lock",
         )
 
+    def test_streaming_uses_the_model_reloaded_before_body_iteration(self):
+        """Reload (not unload) in the capture->iterate window: headers are
+        committed, the slot is non-None, so only a rebind keeps the
+        inference thread off the orphaned object. Behavioral twin of the
+        terminal-error-frame test, which pins the null half."""
+        import struct as _struct
+
+        streaming_models = []
+        state = _make_state()
+        old_model = state.models["design"]
+        reloaded = MagicMock(name="reloaded-design")
+        state.inference_lock = _RecordingAsyncLock()
+
+        def _stream_stub(*args, **kwargs):
+            streaming_models.append(kwargs["model"])
+            yield np.zeros(480, dtype=np.float32), 24000
+
+        async def _scenario():
+            from qwen3_tts.server.app_generation import handle_generate_stream
+            from qwen3_tts.server.validation import GenerateRequest
+
+            req = GenerateRequest(text="stream me", mode="design")
+            response = await handle_generate_stream(
+                request=_make_request(state),
+                state=state,
+                req=req,
+                security={"max_text_length": 50000, "max_batch_size": 20},
+                config_provider=None,
+            )
+            # Capture happened during the call above; the RELOAD lands
+            # before the body is iterated (Starlette would do this later).
+            state.models["design"] = reloaded
+            chunks = []
+            async for chunk in response.body_iterator:
+                chunks.append(chunk)
+            return chunks
+
+        with (
+            patch(
+                f"{_APP_GENERATION}._check_memory_available",
+                return_value=(True, 4096),
+            ),
+            patch(
+                "qwen3_tts.server.validation._validate_generation_request"
+            ),
+            patch(
+                "qwen3_tts.core.engine.run_inference_streaming",
+                side_effect=_stream_stub,
+            ),
+        ):
+            chunks = asyncio.run(_scenario())
+
+        self.assertEqual(len(chunks), 1, f"got {len(chunks)} chunks")
+        sample_rate, _length = _struct.unpack("<II", chunks[0][:8])
+        self.assertNotEqual(
+            sample_rate, 0, "got the terminal error frame instead of audio"
+        )
+        self.assertEqual(
+            len(streaming_models), 1, "streaming inference never started"
+        )
+        self.assertIs(
+            streaming_models[0],
+            reloaded,
+            "the stream thread ran on the pre-unload orphan — the under-lock "
+            "re-read is not rebound into the thread's scope",
+        )
+        self.assertIsNot(
+            streaming_models[0], old_model, "the orphaned capture reached streaming"
+        )
+
     def test_streaming_and_ws_re_read_inside_their_locks(self):
         """Structural: the streaming generator and the /ws stream function
         must call the same under-lock re-read helper inside their
