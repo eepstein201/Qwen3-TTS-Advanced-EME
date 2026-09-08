@@ -211,10 +211,10 @@ launch string, the notebook, and docs.
    running.", so the script cannot complete in either state. The batch runner only imports
    the module (unittest, 0 tests), so batch 4 is unaffected. Fix = drive both chain steps
    (or assert on the launch phase only); owned outside Step 0E — needs a plan line.
-2. **Generated share credentials print to stdout, not the log file.** For `tts server`-style
-   supervised launches the console IS the PM2 log; for a foreground `tts ui` it is the
-   terminal. There is no persistence beyond the one print — re-launching regenerates new
-   credentials by design (the env pair is the stable-credential path).
+2. **~~Generated share credentials print to stdout, not the log file.~~ RESOLVED (fix
+   round 3):** the password is no longer printed at all — hybrid delivery writes it to a
+   0600 file and prints only the username + file path, so no sensitive data reaches any
+   log sink (console, PM2 log, or otherwise). See Fix round 3 below.
 
 ## Fix round 1 (allowed-paths resolver swap)
 
@@ -247,3 +247,57 @@ traversal guard).
   modernized literal mirrors the same shape. CLAUDE.md's `tts ui` entry says
   "narrowed to the app output dir + temp" — names no config key and is true as written
   post-swap, so it was left untouched per the controller ruling.
+
+## Fix round 3 (hybrid credential delivery — CodeQL HIGH resolved by design change)
+
+**The finding:** CI CodeQL raised 1 HIGH, `py/clear-text-logging-sensitive-data`, at
+`ui/shared.py:925` — the generated-password `print()`. Fix round 2 (`dda0e94`)
+suppressed it inline with justification (the print WAS the credential-delivery design,
+and the PM2-log persistence was the disclosed residual). The user then approved a
+design change that replaces the suppression entirely: **hybrid credential delivery** —
+no sensitive data reaches any log sink, so there is nothing to suppress.
+
+**The new delivery contract (binding rulings, implemented):**
+
+- Generated path: the `token_urlsafe` password is written — as its sole single line —
+  to `~/.config/qwen3-tts/.ui_share_credentials` (the server-token dir, mirroring
+  `paths.py`'s `_TOKEN_DIR` base): `os.open(..., O_WRONLY|O_CREAT|O_TRUNC, 0o600)`,
+  directory created 0700 if absent, truncated on each generated launch. The console
+  banner prints the USERNAME and the FILE PATH (with the 0600 hint) — never the
+  password. The `dda0e94` suppression line is deleted.
+- Env-configured path (`TTS_UI_USERNAME`+`TTS_UI_PASSWORD` both set): unchanged —
+  NO file write, NO print (the user supplied them).
+- Fail-closed unchanged: partial env pair, `secrets` failure, or a credentials-file
+  write failure (`OSError` → RuntimeError naming the path) all raise BEFORE kwargs are
+  returned.
+- Reuse-over-reinvent: `core/config/auth.py` exposes only token READ helpers
+  (`read_auth_token`/`auth_headers`); the write side has no shared helper, so the path
+  seam mirrors `_TOKEN_DIR`'s literal base and the delivery lives in two small private
+  functions in `ui/shared.py` — `_ui_credentials_path()` (overridable seam; tests patch
+  at the definition site, so tests never touch the real `~/.config`) and
+  `_write_ui_credentials(path, password)`.
+- Notebook cell 6 mirrors the same semantics self-contained (computes its own path in
+  the same location, 0600 write, username + path printed); JSON validated, cell
+  `compile()`s.
+
+**Test deltas (`tests/test_ui_share_auth.py`, now 12 tests):** the generated-path pin
+became `test_share_true_delivers_password_via_0600_file` (username + path printed,
+password NEVER in captured prints, file content == password + "\n",
+`stat.S_IMODE == 0o600`); new `test_share_true_env_credentials_write_and_print_nothing`
+(no file, `print` never called) and `test_share_true_write_failure_fails_closed`
+(writer seam raises OSError ⇒ RuntimeError); both per-site tests patch the path seam so
+no test run can write the real config dir. RED (`475440a`) at then-HEAD was **5 failed /
+7 passed** — every failure `AttributeError: ... does not have the attribute
+'_ui_credentials_path'` (target API absent, the same right-reason class as round 1's
+`TypeError`); the seam patch precedes the helper call, so the print-content assertions
+only arm at GREEN.
+
+**Counted gates at fix-round-3 HEAD:** 12 passed + 2 subtests (module) on
+qwen3-tts-mlx and torchless `.venv-310` (RUN, not skip); ruff clean; mypy clean
+(entry-point form, 58 files); notebook JSON valid.
+
+**Watch item (per controller ruling):** if CI's CodeQL now raises
+`py/clear-text-storage-of-sensitive-information` on the 0600 file write, it is NOT to
+be self-suppressed — report back to the user. (A fresh random secret written 0600 to the
+user's own config dir is the same pattern as the server auth token, which CodeQL has
+never flagged.)
