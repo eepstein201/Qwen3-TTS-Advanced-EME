@@ -414,13 +414,20 @@ class TestGetGradioLaunchKwargs(unittest.TestCase):
         self.assertIn(tempfile.gettempdir(), kwargs["allowed_paths"])
 
     @patch("qwen3_tts.core.config.IN_COLAB", False)
-    def test_includes_downloads_in_allowed_paths(self):
+    def test_includes_history_root_not_downloads_in_allowed_paths(self):
+        """Re-pinned in the Step 0E fix round: under default config the grant is
+        the history output root (~/Downloads/Qwen3-TTS Output), never the
+        ~/Downloads blanket parent."""
         import os
 
         from qwen3_tts.interface.ui.shared import get_gradio_launch_kwargs
         kwargs = get_gradio_launch_kwargs({})
         downloads = os.path.realpath(os.path.expanduser("~/Downloads"))
-        self.assertIn(downloads, kwargs["allowed_paths"])
+        history_root = os.path.realpath(
+            os.path.expanduser("~/Downloads/Qwen3-TTS Output")
+        )
+        self.assertIn(history_root, kwargs["allowed_paths"])
+        self.assertNotIn(downloads, kwargs["allowed_paths"])
 
     @patch("qwen3_tts.core.config.IN_COLAB", False)
     def test_localhost_when_not_colab(self):

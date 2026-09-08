@@ -107,19 +107,41 @@ class TestShareRequiresAuthHelper(unittest.TestCase):
         self.assertNotIn("auth", kwargs)
         self.assertNotIn("Password", _printed(mock_print))
 
-    def test_allowed_paths_narrow_to_output_dir_and_tempdir(self):
+    def test_allowed_paths_narrow_to_history_root_and_tempdir(self):
         from qwen3_tts.interface.ui.shared import get_gradio_launch_kwargs
 
-        # The default web-UI output root lives UNDER ~/Downloads; granting the
-        # Downloads parent itself as a blanket entry is what this narrows away.
-        config = {"output_directory": "~/Downloads/Qwen3-TTS Output"}
+        # The grant keys on history_output_directory (the web-UI output root),
+        # NOT the legacy output_directory key whose default IS ~/Downloads.
+        config = {"history_output_directory": "~/TTSOutput"}
         kwargs = get_gradio_launch_kwargs(config)
         allowed = kwargs["allowed_paths"]
-        output_dir = os.path.realpath(
+        history_root = os.path.realpath(os.path.expanduser("~/TTSOutput"))
+        downloads = os.path.realpath(os.path.expanduser("~/Downloads"))
+        self.assertIn(history_root, allowed)
+        self.assertIn(tempfile.gettempdir(), allowed)
+        self.assertNotIn(downloads, allowed)
+        self.assertNotIn(
+            os.path.realpath(os.path.expanduser("~/Downloads/Qwen3-TTS Output")),
+            allowed,
+        )
+        self.assertEqual(len(allowed), 2)
+
+    def test_default_config_grants_history_root_not_downloads(self):
+        """Under ALL-default config the grant is the history root, not ~/Downloads.
+
+        The pre-fix resolver (`_resolve_output_dir`, the legacy `output_directory`
+        key whose default is `~/Downloads`) made the narrowing a no-op under
+        defaults: {~/Downloads, tempdir} equalled the effective BASE grant.
+        """
+        from qwen3_tts.interface.ui.shared import get_gradio_launch_kwargs
+
+        kwargs = get_gradio_launch_kwargs({})
+        allowed = kwargs["allowed_paths"]
+        downloads = os.path.realpath(os.path.expanduser("~/Downloads"))
+        history_root = os.path.realpath(
             os.path.expanduser("~/Downloads/Qwen3-TTS Output")
         )
-        downloads = os.path.realpath(os.path.expanduser("~/Downloads"))
-        self.assertIn(output_dir, allowed)
+        self.assertIn(history_root, allowed)
         self.assertIn(tempfile.gettempdir(), allowed)
         self.assertNotIn(downloads, allowed)
         self.assertEqual(len(allowed), 2)
