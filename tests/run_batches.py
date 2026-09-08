@@ -19,6 +19,7 @@ import os
 import signal
 import subprocess
 import sys
+import tempfile
 from pathlib import Path
 
 # Grace period for a timed-out child to print its faulthandler stack dump after
@@ -33,6 +34,12 @@ _ABORT_GRACE_SECONDS = 10
 # pytest/coverage, which leave this unset. setdefault so an explicit external
 # value still wins.
 os.environ.setdefault("TTS_DISABLE_RATE_LIMITING", "1")
+
+# Same isolation rationale as the rate-limit setdefault above: the unittest
+# batch subprocesses never see pytest's conftest autouse fixture, so point the
+# shared-UI credentials seam at the system tempdir instead of the real
+# ~/.config/qwen3-tts. setdefault so an explicit external value still wins.
+os.environ.setdefault("TTS_UI_CREDENTIALS_DIR", tempfile.gettempdir())
 
 # E2E helper for automatic Playwright toggle
 

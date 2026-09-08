@@ -301,3 +301,9 @@ qwen3-tts-mlx and torchless `.venv-310` (RUN, not skip); ruff clean; mypy clean
 be self-suppressed — report back to the user. (A fresh random secret written 0600 to the
 user's own config dir is the same pattern as the server auth token, which CodeQL has
 never flagged.)
+
+**Fix round 5:** `TTS_UI_CREDENTIALS_DIR` is the test-infra override knob for the
+credentials-file directory — `tests/run_batches.py` sets it to the system tempdir
+(because its unittest batch subprocesses bypass pytest's conftest autouse fixture),
+`tests/conftest.py` points every pytest test at its own `tmp_path`, and production
+leaves it unset (real config dir).
