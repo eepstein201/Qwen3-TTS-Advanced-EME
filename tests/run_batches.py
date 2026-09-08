@@ -177,6 +177,7 @@ BATCHES = {
             "tests.test_vllm_tempfile_cleanup",
             "tests.test_stream_error_frame",
             "tests.test_stream_protocol",
+            "tests.test_generation_state_guard",
         ],
         "timeout": 180,  # Higher timeout for async operations
     },

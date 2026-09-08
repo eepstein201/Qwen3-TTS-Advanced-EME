@@ -31,6 +31,7 @@ from qwen3_tts.core.config import (
     load_config,
     sanitize_log,
 )
+from qwen3_tts.server.generation_state_guard import GenerationStateGuard
 from qwen3_tts.server.model_loading import (
     MODEL_LOAD_WAIT_TIMEOUT_SEC,
     ClaimResult,
@@ -409,6 +410,12 @@ async def lifespan(app):
         "generation_id": None,
         "cancelled": False,
     }
+    # Thread-safety guard for the dict above: worker threads (progress
+    # callbacks, cancel watchers) cannot take the asyncio generation_lock,
+    # so dict mutations need a threading.Lock. Provisioned eagerly so the
+    # generation_state call sites route through it (see
+    # generation_state_guard for why a threading lock, and why late-bound).
+    app.state.generation_state_guard = GenerationStateGuard(app.state)
     app.state.request_queue = set()
     app.state.request_queue_lock = threading.Lock()
     app.state.pending_requests = []  # [{id, text_preview, mode, queued_at}]
