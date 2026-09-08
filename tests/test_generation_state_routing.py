@@ -104,14 +104,6 @@ class _RecordingGuard:
         return [call for call in self.calls if call[0] == name]
 
 
-def _fail_generation_lock(*_args, **_kwargs):
-    raise AssertionError(
-        "handle_generate used state.generation_lock on the batch path -- "
-        "Task 2 replaced it with the threading.Lock guard, which is the only "
-        "primitive that excludes the worker-thread progress callback"
-    )
-
-
 def _make_state():
     """Minimal app.state for exercising ``handle_generate``.
 
@@ -119,8 +111,9 @@ def _make_state():
     SimpleNamespace so the test is self-contained (no real FastAPI app). The
     guard is deliberately NOT pre-provisioned — the handler must resolve it
     lazily via ``guard_for`` exactly as production would on a bare state.
-    ``generation_lock`` is wired to FAIL if touched: the routed batch path
-    must no longer need it.
+    ``generation_lock`` is wired to FAIL if ENTERED (see
+    ``_generation_lock_tripwire``): the routed batch path must no longer
+    need it.
     """
     state = SimpleNamespace()
     state.auth_token = "test_token"  # nosec B105
@@ -145,7 +138,7 @@ def _make_state():
     }
     state.request_queue = set()
     state.request_queue_lock = threading.Lock()
-    state.generation_lock = AsyncMock(side_effect=_fail_generation_lock)
+    state.generation_lock = _generation_lock_tripwire("batch")
     state.pending_requests = []
     state.last_activity = 0
     state.models_loaded = threading.Event()
@@ -173,22 +166,36 @@ def _make_request(state):
 
 
 def _generation_lock_tripwire(path_name):
-    """Return an ``AsyncMock`` side_effect that FAILS if the lock is touched.
+    """Return a ``generation_lock`` stand-in that FAILS the test on ENTRY.
+
+    The side effect must live on the ``__aenter__`` CHILD mock, not on the
+    parent: an ``AsyncMock``'s dunder children do not inherit the parent's
+    ``side_effect``, so ``AsyncMock(side_effect=_fail)`` is INERT on
+    ``async with lock:`` — the exact statement these paths must never issue
+    again. With the side effect on ``__aenter__``, ANY entry raises.
+    ``__aexit__`` resolves falsy (never suppresses), so a tripped entry
+    surfaces the failure instead of being swallowed by an exit mocking
+    success. Mere attribute access is deliberately NOT detected: the
+    contract these paths are held to is "no entry".
 
     Task 3 removed the last two ``generation_lock`` blocks that guarded
-    ``generation_state`` (both in ``websocket.py``); neither the streaming nor
-    the /ws path may need the asyncio lock again — a ``threading.Lock`` is the
-    only primitive that excludes the worker threads.
+    ``generation_state`` (both in ``websocket.py``); Task 4 removes the
+    ``/cancel-generation`` block in ``app.py``. No generation path may take
+    the asyncio lock again — a ``threading.Lock`` is the only primitive that
+    excludes the worker threads.
     """
 
     def _fail(*_args, **_kwargs):
         raise AssertionError(
-            f"the {path_name} path used state.generation_lock -- the "
+            f"the {path_name} path entered state.generation_lock -- the "
             "threading.Lock generation-state guard is the only primitive "
             "that excludes the worker threads"
         )
 
-    return _fail
+    lock = AsyncMock(name=f"generation_lock[{path_name}]")
+    lock.__aenter__.side_effect = _fail
+    lock.__aexit__.return_value = False
+    return lock
 
 
 def _make_stream_state():
@@ -199,18 +206,14 @@ def _make_stream_state():
     """
     state = _make_state()
     state.pending_lock = asyncio.Lock()
-    state.generation_lock = AsyncMock(
-        side_effect=_generation_lock_tripwire("streaming")
-    )
+    state.generation_lock = _generation_lock_tripwire("streaming")
     return state
 
 
 def _make_ws_state():
     """``_make_state`` with a /ws-specific ``generation_lock`` tripwire."""
     state = _make_state()
-    state.generation_lock = AsyncMock(
-        side_effect=_generation_lock_tripwire("/ws")
-    )
+    state.generation_lock = _generation_lock_tripwire("/ws")
     return state
 
 
@@ -263,7 +266,12 @@ async def _drive_stream_async(
         f"{_APP_GENERATION}._check_memory_available",
         return_value=(True, 4096),
     ), patch(
-        "qwen3_tts.server.validation._validate_generation_request"
+        # The name the handler RESOLVES: app_generation imports
+        # _validate_generation_request at module scope, so patching the
+        # definition site in qwen3_tts.server.validation rebinds a symbol
+        # the handler never looks up (real validation ran — harmless, but
+        # the patch lied about being in control).
+        f"{_APP_GENERATION}._validate_generation_request"
     ), guard_patch, patch(
         f"{_ENGINE}.run_inference_streaming", side_effect=fake_streaming
     ):
@@ -330,6 +338,9 @@ async def _drive_ws_async(
     with patch(
         f"{_ENGINE}.run_inference_streaming", side_effect=fake_streaming
     ), patch(
+        # Left on the definition site DELIBERATELY: websocket.py imports
+        # _validate_generation_request INSIDE the function, so it resolves
+        # the definition site at call time and this patch IS live.
         "qwen3_tts.server.validation._validate_generation_request"
     ), patch(
         "qwen3_tts.server.app_lifespan._check_memory_available",
@@ -400,7 +411,9 @@ async def _drive_batch_async(
         f"{_APP_GENERATION}._check_memory_available",
         return_value=(True, 4096),
     ), patch(
-        "qwen3_tts.server.validation._validate_generation_request"
+        # The name the handler RESOLVES (module-scope import in
+        # app_generation) — see the same patch in _drive_stream_async.
+        f"{_APP_GENERATION}._validate_generation_request"
     ), guard_patch, patch(
         f"{_ENGINE}.run_inference", side_effect=fake_inference
     ):
@@ -431,6 +444,46 @@ async def _drive_batch_async(
 def _drive_batch(state, recording, **kwargs):
     """Run a single design-mode batch through ``handle_generate``."""
     return asyncio.run(_drive_batch_async(state, recording, **kwargs))
+
+
+class TestGenerationLockTripwireIsArmed(unittest.TestCase):
+    """The tripwire must TRIP — an inert tripwire guards nothing.
+
+    Step 0C Task 4 fold: the state factories used to build
+    ``AsyncMock(side_effect=_fail)``, which never fires on ``async with``
+    (a mock's dunder children do not inherit the parent's ``side_effect``),
+    so the tripwire was inert exactly where it mattered. These tests prove
+    the fixed construction raises on entry in every factory.
+    """
+
+    def test_entering_the_tripwired_lock_raises_in_every_factory(self):
+        """``async with state.generation_lock:`` must fail the test on all
+        three factory states (batch, streaming, /ws)."""
+        cases = (
+            (_make_state, "batch"),
+            (_make_stream_state, "streaming"),
+            (_make_ws_state, "/ws"),
+        )
+        for factory, path_name in cases:
+            with self.subTest(factory=factory.__name__):
+                lock = factory().generation_lock
+                with self.assertRaises(AssertionError) as caught:
+                    asyncio.run(lock.__aenter__())
+                self.assertIn(path_name, str(caught.exception))
+
+    def test_tripwire_exit_never_suppresses(self):
+        """``__aexit__`` resolves falsy, so a tripped entry surfaces the
+        failure instead of an exit mocking success."""
+        lock = _make_ws_state().generation_lock
+        self.assertFalse(asyncio.run(lock.__aexit__(None, None, None)))
+
+    def test_naive_side_effect_mock_is_inert_on_entry(self):
+        """Documents WHY the side effect lives on ``__aenter__``: the naive
+        parent-level construction this fold replaced does not trip on the
+        entry protocol at all. If this ever fails, mock dunder semantics
+        changed and the tripwire can be simplified back."""
+        naive = AsyncMock(side_effect=AssertionError("inert by construction"))
+        asyncio.run(naive.__aenter__())  # must NOT raise
 
 
 @_skip
@@ -816,8 +869,9 @@ class TestWsRoutesThroughGuard(unittest.TestCase):
 
     def test_ws_begin_and_finally_reset_route_through_the_guard(self):
         """The begin under the old ``generation_lock`` block and the finally
-        reset must both go through the guard — and ``generation_lock`` must
-        be untouched (the tripwire fails the test if it is)."""
+        reset must both go through the guard — and the asyncio lock must not
+        be ENTERED: the tripwire raises on ``async with`` entry (see
+        ``_generation_lock_tripwire``; attribute access is not detected)."""
         asyncio.run(_drive_ws_async(self.state, self.recording, text=self.text))
 
         names = self.recording.names()
