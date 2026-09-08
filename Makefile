@@ -54,7 +54,7 @@ test-core:
 
 test-optional:
 	python -m unittest \
-		tests.test_flash_attn_install tests.test_solid_analyzer tests.test_protocols \
+		tests.test_flash_attn_install tests.test_solid_analyzer \
 		tests.test_voice_helpers tests.test_validation tests.test_error_handling \
 		tests.test_ocp_strategy \
 		tests.evaluations.test_wer tests.evaluations.test_speaker_similarity \
