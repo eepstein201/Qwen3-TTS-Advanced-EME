@@ -17,7 +17,10 @@ the count stays 1 (leaked).
 
 A failed send implies the peer is gone, so a subsequent ``close()`` fails too;
 the dead-socket scenarios therefore raise on both operations, matching a real
-vanished peer rather than a selective failure no real socket produces.
+vanished peer rather than a selective failure no real socket produces. A
+``send_json``-only failure is NOT a leak — the auth except releases cleanly
+when its ``close()`` succeeds — so scenario 3 models both operations failing;
+that variant can never RED on either side of the fix.
 """
 
 import types
@@ -133,7 +136,10 @@ class TestWebSocketSlotRelease(unittest.IsolatedAsyncioTestCase):
         """Scenario 3: invalid token, send_json fails, the socket is dead.
 
         A failed send means the peer is gone, so the except block's close()
-        fails too and escapes before its release line.
+        fails too and escapes before its release line. A ``send_json``-only
+        failure is NOT a leak — the auth except releases cleanly when its
+        ``close()`` succeeds — so both operations raise here; that variant can
+        never RED on either side of the fix.
         """
         state = _app_state({})
         ws = _RaisingCloseWebSocket(
@@ -170,12 +176,14 @@ class TestWebSocketSlotRelease(unittest.IsolatedAsyncioTestCase):
         """Scenario 5: auth receive_text disconnects AND close() raises.
 
         The reachable double fault: the auth except block's own close() raises
-        fresh on the dead socket and escapes past its release line.
+        fresh on the dead socket and escapes past its release line. The message
+        pin holds the no-masking property: what surfaces is that close()
+        failure, not a substituted error nor the disconnect that started it.
         """
         state = _app_state({})
         ws = _RaisingCloseWebSocket(client_host="1.2.3.4", raises_on="close")
 
-        with self.assertRaises(RuntimeError):
+        with self.assertRaisesRegex(RuntimeError, "close failed"):
             await websocket_tts_handler(ws, state, lambda t: True)
 
         self._assert_slot_freed(state, "auth disconnect + close() raised")
