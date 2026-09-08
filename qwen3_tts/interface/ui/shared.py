@@ -869,14 +869,44 @@ def refresh_history_from_disk(
     )
 
 
+def _ui_credentials_path() -> str:
+    """Absolute path of the one-time shared-UI credentials file.
+
+    Mirrors paths.py's ``_TOKEN_DIR`` base (``~/.config/qwen3-tts``, the same
+    directory that holds the server auth token). Overridable seam: tests patch
+    this at the definition site so nothing touches the real config directory.
+    """
+    return os.path.join(
+        os.path.expanduser("~/.config/qwen3-tts"), ".ui_share_credentials"
+    )
+
+
+def _write_ui_credentials(path: str, password: str) -> None:
+    """Write ONLY the password to ``path`` as a single 0600 line.
+
+    Truncates any file left by a previous shared launch. The 0600 mode goes to
+    ``os.open`` itself (creation mode), so the secret is never briefly
+    readable by anything but the owner.
+    """
+    directory = os.path.dirname(path)
+    os.makedirs(directory, mode=0o700, exist_ok=True)
+    fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+    try:
+        os.write(fd, (password + "\n").encode("utf-8"))
+    finally:
+        os.close(fd)
+
+
 def get_gradio_launch_kwargs(config: dict, *, share: bool = False) -> dict:
     """Shared Gradio launch() kwargs -- single source of truth for all UI entry points.
 
     When ``share`` is true the UI is reachable from a public URL, so the
     returned kwargs carry an ``auth`` (user, password) tuple: the configured
     ``TTS_UI_USERNAME``/``TTS_UI_PASSWORD`` pair when BOTH are set, otherwise
-    generated credentials printed to the console. Establishing credentials is
-    fail-closed — anything short of both env vars or a successful generation
+    generated — with the password written to a 0600 credentials file and only
+    the username + file path printed, so the password string never reaches any
+    log sink. Establishing and delivering credentials is fail-closed —
+    anything short of both env vars or a successful generate-and-deliver
     raises RuntimeError instead of returning unauthenticated launch kwargs.
     """
     import secrets
@@ -919,11 +949,18 @@ def get_gradio_launch_kwargs(config: dict, *, share: bool = False) -> dict:
                 "Could not generate credentials for the shared UI; refusing to "
                 "launch it unauthenticated."
             ) from exc
+        cred_path = _ui_credentials_path()
+        try:
+            _write_ui_credentials(cred_path, password)
+        except OSError as exc:
+            raise RuntimeError(
+                f"Could not write the shared-UI credentials file at {cred_path}; "
+                "refusing to launch it with undelivered credentials."
+            ) from exc
         print("=" * 60)
         print("The Gradio UI is publicly shared and requires a login.")
         print(f"  Username: {user}")
-        # codeql[py/clear-text-logging-sensitive-data]: Deliberate one-time credential delivery — the print is the feature; disclosed in docs/testing/ui-share-auth.tdd.md and CLAUDE.md.
-        print(f"  Password: {password}")
+        print(f"  One-time password (0600 file): {cred_path}")
         print("=" * 60)
     kwargs["auth"] = (user, password)
     return kwargs
