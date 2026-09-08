@@ -87,8 +87,14 @@ security gap and adding its test coverage belong in the same effort; see Step 0G
 - **Exit criteria:** negative/out-of-bounds `max_chunk_chars` rejected at the API boundary; the join
   timeout can't collapse to the floor even if the schema guard is bypassed.
 
-### Step 0B — Fix stale model reference after an unload-then-reload race
+### Step 0B — Fix stale model reference after an unload-then-reload race (EXECUTED 2026-09-08, PR #269)
 
+- **Status: DONE (PR #269, squash `1bc081c`, 2026-09-08).** All five capture paths re-read and
+  rebind the slot under `inference_lock` (`model = _require_model_under_lock(state, mode)`):
+  batch `/generate`, `/generate-stream`, `/ws`, `/create-voice-prompt`'s torch branch, and
+  `load_voice_prompt_serialized` (the last with a provenance split). Evidence:
+  `docs/testing/stale-model-rebind.tdd.md`. Follow-ups from that execution are ledgered below
+  and under their owning steps (0F, 1E, 6G, 6K).
 - **Model tier:** strongest (concurrency-correctness, same defect family as #192/#214) · **Branch:** `fix/require-model-under-lock-returns-model` · **Depends on:** rebase after Step 1B lands (both touch `model_loading.py`/`app_models.py` territory) and before Step 2 (Lane H reuses this exact mechanism — see its risk note)
 - **Context:** `_require_model_under_lock` (`app_generation.py:127-158`) only asserts
   `state.models[mode] is not None` — it does not return the model, and no caller rebinds. Capture
@@ -126,7 +132,28 @@ security gap and adding its test coverage belong in the same effort; see Step 0G
   503/queue rather than build a private model. Cost is latency and memory, not
   correctness. 0B deliberately left the behavior intact and only added the under-lock
   re-read with a provenance split (slot-captured model → 503 on unload; privately built
-  model → kept, but a slot published while parked is preferred).
+  model → kept, but a slot published while parked is preferred). Related (same fix owns
+  it): the fallback runs via `asyncio.to_thread` OUTSIDE `inference_lock`/#214 records —
+  a load there can overlap a whole queued generation.
+- **Follow-up ledger from the 0B execution (2026-09-08) — recorded, NOT fixed by 0B:**
+  - `docs/testing/stale-model-rebind.tdd.md`'s Final-state parenthetical mis-attributes
+    `TestLoadVoicePromptSerializedSlotReRead`: it lives in
+    `tests/test_issue214_prompt_create_serialization.py:307`, not in
+    `test_issue214_unload_queued_window.py` (the counts are right, the home is wrong).
+  - This step's Context refs `app_generation.py:223/:742/:875` are stale post-0B — the
+    captures sit at `:240/:762` (the `:875` ref was already corrected to a use site above).
+  - `prompt_loading.py`: move the `current` slot read into the fallback `elif` and add
+    docstring lines for the re-read/provenance contract (the split is behavior-pinned but
+    the placement makes the slot read unconditional today).
+  - `docs/testing/issue192-create-prompt-serialization.tdd.md` row 5 + rename
+    `test_create_uses_captured_clone_model_reference` (its assertion now documents a
+    superseded contract; the reload-half regression is the newer test).
+  - Contended-window KIT extraction (`tests/_contended_window.py`: lock double +
+    parked-waiter + state factory) — the three-copies threshold is met across 0B's
+    reload/contended tests and 0C's routing drivers.
+  - CODEMAPS `backend.md` 1011 phrasing: #268 regenerated the codemaps from PRE-0B main,
+    so they disagree with CLAUDE.md's scoped sentence until the next regen — optional
+    one-line fix, or let the 90-day cadence absorb it.
 
 ### Step 0C — `generation_state` threading discipline: guarded by the wrong lock type, mutated unlocked in places
 
@@ -150,6 +177,22 @@ security gap and adding its test coverage belong in the same effort; see Step 0G
   scenario; RED; implement; GREEN; re-run Step 1A's tests (if landed) to confirm no regression.
 - **Verify:** full server test suite; `ruff`; `mypy`.
 - **Exit criteria:** every `generation_state` read/write goes through the guard; the previously-unguarded streaming clobber is fixed with a regression test; #237's fix (Step 1A) and this step don't duplicate work — cross-reference confirmed in both PR bodies.
+- **0C execution findings for Step 1A (2026-09-08, from the branch's verified mechanism):**
+  (1) The plan-named clobber — a cancel landing between the streaming acquire and the begin
+  write — is CONFIRMED IMPOSSIBLE, but not for the "no await" reason first assumed: the window
+  contains one await-shaped construct (`async with state.pending_lock`). It cannot clobber
+  because every prior generation's reset is in-lock on the SAME `inference_lock`, so `active`
+  is necessarily `False` there and `/cancel-generation` refuses with `no_active_generation`
+  without writing. (2) The REAL erasable window on the streaming side is a LIVE CONCURRENT
+  BATCH in its inter-item tail: the batch's in-lock reset fires only on the FINAL item, so
+  between items the state still reads `active=True` for that batch — and a streaming begin's
+  `cancelled: False` re-clear can erase a cancel targeting that live batch, which then runs to
+  completion. `begin()` preserves this re-clear by design; **1A's fix must address the erase
+  semantics at the guard's atomic begin point** (and move
+  `test_begin_re_clears_cancelled` with it).
+- **0C recorded residual (pre-existing, needs its own step):** `handle_generate_stream` caches
+  `state.inference_lock` into a local at `~:821`; a lock replacement during a long request would
+  not be observed by the in-flight body.
 
 ### Step 0D — WebSocket connection-slot leak on the pre-auth path
 
@@ -194,6 +237,10 @@ security gap and adding its test coverage belong in the same effort; see Step 0G
 - **Task 1 — `verify_auth` 500s instead of 401ing on a non-ASCII bearer token, skipping the audit log:** `secrets.compare_digest` (`app.py:251-252`) raises `TypeError` on non-ASCII input — it fails closed, but the R-26 audit-log line (`app.py:256-262`) never fires, so probing produces no "Auth failure" log entries and a 500+traceback instead of a cheap 401. Fix: compare as bytes (`token.encode("utf-8", "replace")` vs. the stored token's bytes) or wrap in `try/except TypeError` falling through to the existing 401 branch. While there, replace the three `.replace("Bearer ", "")` call sites (`app.py:211,233,251`) with a proper case-insensitive scheme strip (`removeprefix`) — a global `.replace()` mangles a token that happens to contain the substring "Bearer ".
 - **Task 2 — `/generate-stream`'s terminal error frame ships an unsanitized exception string:** `thread_error[0]` (raw `str(e)`, set at `app_generation.py:908`) is JSON-wrapped and sent as-is at `:982-983` — the `/ws` sibling correctly runs it through `_sanitize_error` (`websocket.py:603-608`) first. This is the one path shipping absolute filesystem paths / HF cache locations to the client, the same CWE-209 class already closed on `/health`. Fix: `yield encode_stream_error_frame(_sanitize_error(thread_error[0]))`.
 - **Verify:** a test posting a non-ASCII `Authorization` header and asserting 401 + an audit-log entry; a streaming-error test asserting the terminal frame's message is sanitized; `ruff`; `mypy`.
+- **Found during 0B execution (fold here):** the sibling HTTP route drops the classified `code`
+  field — `/generate-stream`'s 503 error body omits the machine-readable `code` the `/ws`
+  terminal frame carries (`app_generation.py:~870`). Fix in the same PR so both streaming
+  surfaces classify identically.
 - **Exit criteria:** both gaps closed with regression tests; no unsanitized exception text reaches any client-facing surface.
 
 ### Step 0G — MLX voice-prompt UI create bypasses the engine writer's security guards (closes security MEDIUM-4 + starts E2E gap G1)
@@ -391,6 +438,12 @@ incomplete.
   several small PRs (one per module or small module-group) rather than one giant PR — low risk,
   high count, good candidate for parallel sub-agents once the guard's flagged list is in hand.
 - **Verify:** the Step 1D guard reports zero flagged modules; `python -m unittest discover tests` and `pytest tests/` produce the same pass/fail set for every converted module.
+- **Also queued here (2026-09-08, from the 0B fix wave — test-infra, not hollowness):** finding-6
+  seam normalization — the repo's `mock.patch("qwen3_tts.server.validation._validate_generation_request")`
+  targets are split between the definition site and consuming modules (`app_generation.py` resolves
+  it at module scope, `websocket.py` function-locally), so some patches are inert no-ops. Sweep every
+  test driver onto the consuming-module target the handler actually resolves, and add the
+  resolution rule as a comment so the next driver does not drift.
 - **Exit criteria:** static guard passes clean; every batched module's tests actually execute under the batch runner.
 
 ---
@@ -842,6 +895,9 @@ analysis rather than duplicated as a new step.)*
   fall-through guard blocks across 4 files to exist purely to satisfy the checker.
 - **Tasks:** annotate `typing.NoReturn`; delete the 10 guards; if any deletion produces a mypy
   error, that call site had a real fall-through path — investigate it before forcing anything.
+  Scope correction from the 0B/0C executions (2026-09-08): the count is now **24 sites**, and
+  `_require_model_under_lock` needs `mode: str` in the same pass (it carries a bare `return`
+  fall-through guard today for exactly this reason).
 - **Verify:** `mypy qwen3_tts/{core,server,interface}`; full server test suite; `ruff`.
 - **Exit criteria:** guards deleted, mypy green, no new `# type: ignore` added anywhere.
 
@@ -902,6 +958,10 @@ analysis rather than duplicated as a new step.)*
   (sanitized via `_sanitize_error`, matching sibling paths); test that an `AttributeError` from
   a mocked engine produces the envelope, not a bare 500.
 - **Verify:** server test suite; `ruff`; `mypy`.
+- **Found during the 0B execution (fold here):** a mid-batch 503 (e.g. the model unloaded between
+  items) aborts the WHOLE batch after earlier items already generated — the residual is the same
+  envelope family this step owns. Decide explicitly whether remaining items 503 individually or the
+  batch truncates with `cancelled: true` semantics.
 - **Exit criteria:** no exception path in `handle_generate` bypasses `_error_response`.
 
 ### Step 6L — Extract `GenerationCache` (server-handler oversized functions)
