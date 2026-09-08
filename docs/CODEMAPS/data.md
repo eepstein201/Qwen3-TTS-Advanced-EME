@@ -1,4 +1,4 @@
-<!-- Generated: 2026-09-02 | Token estimate: ~460 -->
+<!-- Generated: 2026-09-08 | Token estimate: ~460 -->
 
 # Data & Storage — Qwen3-TTS
 
@@ -8,7 +8,7 @@ No database. Persistence = config JSON + filesystem.
 
 ## config.json (canonical schema)
 - **advanced**: `backend` (mlx/torch/vllm), `model_size` (1.7B/0.6B), `mlx_quantization` (4–8bit/bf16), `torch_quantization` (none/8bit/4bit), `audio_loader` (torchaudio/librosa), `attn_implementation` (auto = SDPA)
-- **generation**: `max_chunk_chars` (500), `lufs_normalize` (false), `lufs_target` (−16), `silence_gap_seconds` (0.0 = crossfade), `clone_speed` (0.5–2.0, PRF-6), `trim_icl_echo` (true, PRF-8), `language` (default `"auto"`)
+- **generation**: `max_chunk_chars` (500; bounded 0–10000 at the request boundary, #263), `lufs_normalize` (false), `lufs_target` (−16), `silence_gap_seconds` (0.0 = crossfade), `clone_speed` (0.5–2.0, PRF-6), `trim_icl_echo` (true, PRF-8), `language` (default `"auto"`)
 - **models.{clone,design,custom}.revision** — HF pin (default `"main"`); `load_at_startup` (clone: true; design/custom: false, on-demand by design)
 - **security.rate_limits** — `generate` (10/min), `model_ops` (5/min), `transcribe` (10/min), `config_ops` (2/min), `global` (120/min, decoupled from `generate`)
 - **history_output_directory** — `~/Downloads/Qwen3-TTS Output`

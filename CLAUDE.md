@@ -200,4 +200,4 @@ make test-{core,voice,server,engine,optional,e2e} / make test-batch
 ## Deep Dive Reference
 For security, caching, thread safety, platform support, hardware optimization, upstream dependency monitoring, and code review history, see `docs/00-Foundations/ARCHITECTURE.md`.
 
-For token-lean architecture/backend/frontend/data/dependencies maps (~2k tokens total), see `docs/CODEMAPS/` (generated 2026-08-10; 90-day cadence).
+For token-lean architecture/backend/frontend/data/dependencies maps (~2k tokens total), see `docs/CODEMAPS/` (refreshed 2026-09-08; 90-day cadence).
