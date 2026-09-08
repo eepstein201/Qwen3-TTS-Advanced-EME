@@ -390,6 +390,22 @@ async def _stream_generation(
             # MLX loader raises (torch returns None) — report like the HTTP 404.
             await websocket.send_json({"error": str(e)})
             return
+        except HTTPException as e:
+            # load_voice_prompt_serialized re-reads the clone slot under
+            # inference_lock and raises the same classified, retryable 503 the
+            # generation paths raise when an unload landed in its window. This
+            # statement sits OUTSIDE the validation try above whose
+            # `except HTTPException` delivers error payloads, so letting it
+            # escape would drop it into the endpoint's generic handler — which
+            # stringifies the dict detail and closes 1011, leaving the client
+            # with no `recovery` field to branch on. Forward the classified
+            # fields intact and keep the socket, as with every other classified
+            # error on this route.
+            detail = e.detail
+            await websocket.send_json(
+                dict(detail) if isinstance(detail, dict) else {"error": detail}
+            )
+            return
         if voice_prompt is None:
             await websocket.send_json(
                 {"error": f"Voice prompt not found: {req.prompt_file}"}

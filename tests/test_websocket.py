@@ -1116,6 +1116,218 @@ class TestWebSocketFreshSlotUnderLock(unittest.IsolatedAsyncioTestCase):
         )
 
 
+class _AcquireSignallingLock:
+    """``inference_lock`` double mirroring ``tests/
+    test_issue214_unload_queued_window.py::_RecordingAsyncLock``.
+
+    Delegates every locking semantic to a real ``asyncio.Lock`` (a MagicMock
+    lock is the documented anti-pattern: it makes ``locked()``-style
+    assertions hollow) and sets ``acquire_attempted`` BEFORE awaiting the
+    underlying acquire, so a test that already holds the lock can observe "the
+    handler is now parked in its capture->acquire window" without sleeping or
+    polling private asyncio internals.
+    """
+
+    def __init__(self):
+        self._lock = asyncio.Lock()
+        self.acquire_calls = 0
+        self.acquire_attempted = asyncio.Event()
+
+    async def acquire(self):
+        self.acquire_calls += 1
+        self.acquire_attempted.set()
+        return await self._lock.acquire()
+
+    def release(self):
+        self._lock.release()
+
+    async def __aenter__(self):
+        await self.acquire()
+        return self
+
+    async def __aexit__(self, *exc):
+        self.release()
+        return False
+
+    def locked(self):
+        return self._lock.locked()
+
+
+class _RecordingCloseWebSocket(_FakeDisconnectWebSocket):
+    """``_FakeDisconnectWebSocket`` that also records ``close()`` calls.
+
+    The classified-error contract on this route is "structured JSON frame, no
+    1011": the mangled path differs from the correct one only in the close it
+    chooses, so a fake that silently ignores ``close()`` cannot tell them
+    apart.
+    """
+
+    def __init__(self):
+        super().__init__()
+        self.closes: list[tuple[int, str]] = []
+
+    async def close(self, code: int = 1000, reason: str = "") -> None:
+        self.closes.append((code, reason))
+
+
+@_skip
+class TestWebSocketPromptLoader503UnderLock(unittest.IsolatedAsyncioTestCase):
+    """The classified 503 ``load_voice_prompt_serialized`` raises must reach the
+    client as the STRUCTURED payload, not a stringified dict.
+
+    The loader re-reads the clone slot under ``inference_lock`` and calls
+    ``_require_model_under_lock`` there: when the slot it captured was unloaded
+    during its wait, that raises the same classified, retryable
+    ``HTTPException`` (``model_unloaded`` / ``recovery: retry``) the generation
+    paths raise. That raise site sits OUTSIDE the validation ``try:`` whose
+    ``except HTTPException`` handler delivers error payloads on this route, and
+    the loader call site caught ``FileNotFoundError`` only — so the exception
+    escaped to ``websocket_tts_handler``'s generic handler, which sent
+    ``{"error": _sanitize_error(str(e))}`` (the literal string
+    ``"503: {'error': 'model_unloaded', ...}"``) and closed 1011, leaving the
+    client with no ``recovery`` field to branch on. The route's own in-lock
+    comment names exactly this mangling as the reason its guard handler exists.
+    """
+
+    async def _await_parked_on_acquire(self, state, task):
+        """Block until *task* is parked inside ``inference_lock.acquire``.
+
+        Mirrors ``tests/test_issue214_unload_queued_window.py``: waiting on the
+        task as well means a handler that raises before ever reaching the
+        acquire reports ITS failure instead of an opaque TimeoutError.
+        """
+        waiter = asyncio.ensure_future(state.inference_lock.acquire_attempted.wait())
+        try:
+            done, _pending = await asyncio.wait(
+                {task, waiter}, timeout=10, return_when=asyncio.FIRST_COMPLETED
+            )
+            if task in done:
+                task.result()  # re-raises the real failure, if any
+                self.fail(
+                    "the handler finished without ever waiting on "
+                    "inference_lock -- the window under test never opened"
+                )
+            if waiter not in done:
+                self.fail("the handler never attempted to acquire inference_lock")
+        finally:
+            waiter.cancel()
+
+    async def test_ws_delivers_structured_model_unloaded_when_slot_nulled_in_window(
+        self,
+    ):
+        """Realistic window: the clone slot is non-None at the handler's check,
+        another party holds ``inference_lock``, the slot is nulled while the
+        loader is parked on the acquire, then the lock is released — the
+        loader's guard must 503, and this route must forward the structured
+        payload (``error`` / ``detail`` / ``recovery`` intact) without closing
+        the socket."""
+        from qwen3_tts.core.engine import VoicePromptCreateRequired
+
+        ws = _RecordingCloseWebSocket()
+        ws.feed(json.dumps({"token": _TEST_TOKEN}))
+        ws.feed(
+            json.dumps({"text": "Hello", "mode": "clone", "prompt_file": "test.pt"})
+        )
+
+        state = types.SimpleNamespace(
+            models={"clone": MagicMock(name="original-clone")},
+            server_config={"security": {"max_text_length": 10000}},
+            inference_lock=_AcquireSignallingLock(),
+            generation_lock=asyncio.Lock(),
+            generation_state={
+                "active": False,
+                "start_time": 0.0,
+                "text_length": 0,
+                "mode": "",
+                "batch_index": 0,
+                "batch_total": 0,
+                "chunk_index": 0,
+                "chunk_total": 0,
+                "generation_id": None,
+                "cancelled": False,
+            },
+        )
+        loader_allow_create: list[bool] = []
+
+        def _load_voice_prompt(prompt_file, allow_create=False, clone_model=None):
+            loader_allow_create.append(allow_create)
+            if not allow_create:
+                # The fast path must hand off to the locked section — that is
+                # where the real guard, and so the real 503, lives.
+                raise VoicePromptCreateRequired(prompt_file)
+            return MagicMock(name="voice-prompt")
+
+        async def _scenario():
+            async with state.inference_lock:  # the contending party
+                # Ours; watch for the handler's own attempt below.
+                state.inference_lock.acquire_attempted.clear()
+                task = asyncio.ensure_future(
+                    websocket_tts_handler(
+                        ws, state, lambda token: token == _TEST_TOKEN
+                    )
+                )
+                await self._await_parked_on_acquire(state, task)
+                # The handler is parked INSIDE the loader's acquire: it captured
+                # a non-None clone slot and has built nothing.
+                self.assertEqual(
+                    loader_allow_create,
+                    [False],
+                    "the loader reached the locked section without the "
+                    "create-required hand-off",
+                )
+                # /unload-model lands in the window (it holds inference_lock,
+                # so it queues ahead of the loader and completes first).
+                state.models["clone"] = None
+            return await asyncio.wait_for(task, timeout=10)
+
+        with patch(
+            "qwen3_tts.core.engine.load_voice_prompt", side_effect=_load_voice_prompt
+        ):
+            await asyncio.wait_for(_scenario(), timeout=15)
+
+        # The loader never built a prompt: the guard fired first, so nothing
+        # ran on the orphaned pre-unload object.
+        self.assertEqual(
+            loader_allow_create,
+            [False],
+            "the loader built a prompt after its slot was unloaded mid-window",
+        )
+        self.assertGreaterEqual(
+            state.inference_lock.acquire_calls,
+            2,
+            "the handler never acquired inference_lock — the window under "
+            "test never actually opened",
+        )
+        self.assertEqual(ws.sent_bytes, [], "no audio may be streamed for a 503")
+        self.assertTrue(ws.sent_json, "no terminal frame was ever sent")
+        frame = ws.sent_json[-1]
+        # THE assertion — the classified payload, not a stringified dict.
+        self.assertEqual(
+            frame.get("error"),
+            "model_unloaded",
+            f"the classified code must survive delivery intact: {frame!r}",
+        )
+        self.assertEqual(
+            frame.get("recovery"),
+            "retry",
+            f"the recovery hint must arrive as a field, not inside a str(): "
+            f"{frame!r}",
+        )
+        self.assertIsInstance(frame.get("detail"), str)
+        self.assertEqual(
+            [msg["status"] for msg in ws.sent_json if "status" in msg],
+            ["authenticated"],
+            f"a pre-generation 503 must not be reported as a generation "
+            f"outcome: {ws.sent_json!r}",
+        )
+        # No 1011 "Generation failed": the socket stays usable for the retry
+        # the payload asks for, same as every other classified HTTPException
+        # delivered on this route.
+        self.assertEqual(
+            ws.closes, [], f"the route closed the socket anyway: {ws.closes!r}"
+        )
+
+
 @_skip
 class TestWSOriginValidation(unittest.TestCase):
     """P4: the WebSocket handshake must reject cross-origin browser requests
