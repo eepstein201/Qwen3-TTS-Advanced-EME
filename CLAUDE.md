@@ -25,7 +25,7 @@ Features: pyrubberband audio processing (librosa fallback), prosody presets for 
 4. User:   reviews, merges to main (PR or direct)
 5. Claude: git checkout main && git pull origin main
 ```
-Enforced by committed PreToolUse hooks (`.claude/hooks/`, wired via tracked `.claude/settings.json` — hooks-only by guard test): `no-direct-push-main` (blocks push/merge/delete on main), `prepush-local-gates` (gate checklist on push), `claude-md-length-guard` (CLAUDE.md ≤300 lines).
+Enforced by committed PreToolUse hooks (`.claude/hooks/`, wired via tracked `.claude/settings.json` — hooks-only by guard test): `no-direct-push-main` (blocks push/merge/delete on main), `prepush-local-gates` (gate checklist on push), `claude-md-length-guard` (CLAUDE.md ≤300 lines), `prefer-batch-runner-over-raw-pytest` (asks before raw suite-level pytest — use `tests/run_batches.py`), `require-server-ready-before-full-test` (asks before full-suite runs without a confirmed live server).
 
 Project skills live in `.claude/skills/<name>/SKILL.md` (checked in, `name`+`description` frontmatter): `dependency-triage` — Dependabot PR batch triage (classify, two-version churn gate for engine-adjacent bumps, regen `requirements.lock`, verify in `.venv-310`, merge handoff).
 
