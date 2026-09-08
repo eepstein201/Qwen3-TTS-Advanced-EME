@@ -4,22 +4,29 @@
 Pins, at the single launch-kwarg helper and at both real launch sites:
 - ``share=True`` forces a non-empty ``auth`` (user, password) tuple onto the
   launch kwargs, from both env vars when configured, else generated.
-- Generated credentials are printed to the console; ``share=False`` prints
-  nothing about credentials and returns no ``auth`` key.
+- Generated delivery is hybrid: the password is written — as its sole line —
+  to a 0600 credentials file, and only the USERNAME + FILE PATH are printed;
+  the password string never reaches any print/log argument. ``share=False``
+  prints nothing about credentials and returns no ``auth`` key.
+- Env-configured credentials (both set) write nothing and print nothing.
 - The env override is all-or-nothing: exactly one of ``TTS_UI_USERNAME`` /
   ``TTS_UI_PASSWORD`` fails closed with RuntimeError.
-- Credential generation failure fails closed (RuntimeError, never unauth
-  launch kwargs).
-- ``allowed_paths`` narrows to {output_dir, tempdir}: ``~/Downloads`` itself
-  is granted only when it IS the resolved output dir, never as a blanket
-  parent entry (the legacy third set-literal entry is gone).
+- Credential generation OR file-delivery failure fails closed (RuntimeError,
+  never unauth launch kwargs).
+- ``allowed_paths`` narrows to the history output root + tempdir:
+  ``~/Downloads`` itself is granted only when it IS the resolved root, never
+  as a blanket parent entry.
 """
 
 import os
+import stat
 import sys
 import tempfile
 import unittest
 from unittest.mock import MagicMock, patch
+
+_CREDENTIALS_SEAM = "qwen3_tts.interface.ui.shared._ui_credentials_path"
+_WRITER_SEAM = "qwen3_tts.interface.ui.shared._write_ui_credentials"
 
 
 def _printed(mock_print):
@@ -29,15 +36,25 @@ def _printed(mock_print):
     )
 
 
+def _patched_credentials_path(testcase):
+    """A throwaway credentials-file path with its tempdir cleaned up after."""
+    tmp = tempfile.TemporaryDirectory()
+    testcase.addCleanup(tmp.cleanup)
+    return os.path.join(tmp.name, ".ui_share_credentials")
+
+
 class TestShareRequiresAuthHelper(unittest.TestCase):
     """get_gradio_launch_kwargs(config, *, share) credential contract."""
 
-    def test_share_true_generates_and_prints_credentials(self):
+    def test_share_true_delivers_password_via_0600_file(self):
         from qwen3_tts.interface.ui.shared import get_gradio_launch_kwargs
 
         # Empty strings behave as unset so the ambient environment can't leak in.
         env = {"TTS_UI_USERNAME": "", "TTS_UI_PASSWORD": ""}
-        with patch.dict(os.environ, env), patch("builtins.print") as mock_print:
+        cred_path = _patched_credentials_path(self)
+        with patch.dict(os.environ, env), \
+             patch(_CREDENTIALS_SEAM, return_value=cred_path), \
+             patch("builtins.print") as mock_print:
             kwargs = get_gradio_launch_kwargs({}, share=True)
         auth = kwargs["auth"]
         self.assertIsInstance(auth, tuple)
@@ -49,9 +66,44 @@ class TestShareRequiresAuthHelper(unittest.TestCase):
         self.assertTrue(user.startswith("tts-"))
         # Design ruling: the user is "tts-" + 6 generated characters.
         self.assertEqual(len(user), len("tts-") + 6)
+
+        # Only the username and the credentials-file path are printed; the
+        # password string itself never appears in any print/log argument.
         printed = _printed(mock_print)
         self.assertIn(user, printed)
-        self.assertIn(password, printed)
+        self.assertIn(cred_path, printed)
+        self.assertNotIn(password, printed)
+
+        # The 0600 file carries the password as its sole single-line content.
+        with open(cred_path) as f:
+            self.assertEqual(f.read(), password + "\n")
+        self.assertEqual(stat.S_IMODE(os.stat(cred_path).st_mode), 0o600)
+
+    def test_share_true_env_credentials_write_and_print_nothing(self):
+        from qwen3_tts.interface.ui.shared import get_gradio_launch_kwargs
+
+        cred_path = _patched_credentials_path(self)
+        env = {"TTS_UI_USERNAME": "alice", "TTS_UI_PASSWORD": "s3cret"}
+        with patch.dict(os.environ, env), \
+             patch(_CREDENTIALS_SEAM, return_value=cred_path), \
+             patch("builtins.print") as mock_print:
+            kwargs = get_gradio_launch_kwargs({}, share=True)
+        self.assertEqual(kwargs["auth"], ("alice", "s3cret"))
+        # The user supplied both: no file delivery, no console banner.
+        self.assertFalse(os.path.exists(cred_path))
+        mock_print.assert_not_called()
+
+    def test_share_true_write_failure_fails_closed(self):
+        from qwen3_tts.interface.ui.shared import get_gradio_launch_kwargs
+
+        cred_path = _patched_credentials_path(self)
+        env = {"TTS_UI_USERNAME": "", "TTS_UI_PASSWORD": ""}
+        with patch.dict(os.environ, env), \
+             patch(_CREDENTIALS_SEAM, return_value=cred_path), \
+             patch(_WRITER_SEAM, side_effect=OSError("disk full")):
+            with self.assertRaises(RuntimeError) as ctx:
+                get_gradio_launch_kwargs({}, share=True)
+        self.assertIn("credentials", str(ctx.exception).lower())
 
     def test_share_true_prefers_both_env_vars_verbatim(self):
         from qwen3_tts.interface.ui.shared import get_gradio_launch_kwargs
@@ -163,12 +215,14 @@ class TestFacadeMainLaunchAuth(unittest.TestCase):
             return real_helper(config, **kwargs)
 
         env = {"TTS_UI_USERNAME": "", "TTS_UI_PASSWORD": ""}
+        cred_path = _patched_credentials_path(self)
         with patch.object(facade_mod, "build_ui", return_value=demo), \
              patch.object(facade_mod, "load_config", return_value={}), \
              patch.object(facade_mod, "_find_available_port", return_value=7860), \
              patch.object(facade_mod, "TTSClient"), \
              patch.object(facade_mod, "IN_COLAB", False), \
              patch.object(ui_shared, "get_gradio_launch_kwargs", spy), \
+             patch.object(ui_shared, "_ui_credentials_path", return_value=cred_path), \
              patch.dict(os.environ, env), \
              patch.object(sys, "argv", ["qwen3-tts-ui", "--share"]):
             facade_mod.main()
@@ -211,9 +265,11 @@ class TestBuildUiAndLaunchAuth(unittest.TestCase):
             "TTS_UI_USERNAME": "",
             "TTS_UI_PASSWORD": "",
         }
+        cred_path = _patched_credentials_path(self)
         with patch.object(facade_mod, "build_ui", return_value=demo), \
              patch.object(facade_mod, "_find_available_port", return_value=7860), \
              patch.object(ui_shared, "get_gradio_launch_kwargs", spy), \
+             patch.object(ui_shared, "_ui_credentials_path", return_value=cred_path), \
              patch.dict(os.environ, env):
             gs.build_ui_and_launch({})
 
