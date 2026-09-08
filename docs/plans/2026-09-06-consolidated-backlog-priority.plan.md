@@ -107,6 +107,22 @@ security gap and adding its test coverage belong in the same effort; see Step 0G
   `tests/test_issue214_unload_queued_window.py`.
 - **Verify:** `pytest tests/test_issue214_unload_queued_window.py tests/test_voice_server.py -v`; `ruff`; `mypy`.
 - **Exit criteria:** an unload-then-reload interleaving is proven to use the fresh model object at every one of the six call sites, with a regression test per site (or one parametrized test covering all six).
+- **Follow-up found during 0B execution (NOT fixed by 0B — pre-existing, needs its own step):**
+  `prompt_loading.load_voice_prompt_serialized`'s fallback branch calls the engine's
+  `load_model("clone", warmup=False)` when the clone slot is empty. `load_model`
+  (`core/engine/model_loader.py:552`) is **not memoized** and never publishes into
+  `state.models` — publication is deliberately the server's job, serialized by
+  `MODEL_LOAD_LOCK` and the per-load records in `model_loading.py` (#214). So every
+  fallback hit pays a **full multi-minute model load whose result is then discarded**
+  once the prompt is built; a second request in the same situation pays it again. The
+  layering is correct and should not change (an engine-level write-through would slip a
+  model into the slot outside the #214 machinery), so the fix belongs on the server side —
+  e.g. route the fallback through `claim_model_load`/`load_model_deduped` so it attaches
+  to an in-flight load and publishes once, or decide explicitly that this path should
+  503/queue rather than build a private model. Cost is latency and memory, not
+  correctness. 0B deliberately left the behavior intact and only added the under-lock
+  re-read with a provenance split (slot-captured model → 503 on unload; privately built
+  model → kept, but a slot published while parked is preferred).
 
 ### Step 0C — `generation_state` threading discipline: guarded by the wrong lock type, mutated unlocked in places
 
