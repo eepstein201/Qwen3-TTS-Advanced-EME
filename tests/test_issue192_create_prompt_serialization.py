@@ -23,9 +23,9 @@ Contract pinned by these tests:
   * decode/staging/load/create/save run in worker threads, never on the
     loop (pinned: the async rewrite must not lose the off-loop property
     the old route-level ``to_thread`` wrapper provided)
-  * the clone-model reference is captured ONCE before the lock — a
-    concurrent /unload-model then leaves an alive local reference,
-    equal-or-better than the old inline double read
+  * the under-lock re-read returns the live slot; identity-equal when
+    nothing swapped (the reload-half regression lives in
+    ``test_create_rereads_clone_slot_under_lock_after_reload``)
   * a held ``inference_lock`` DEFERS the create — the queueing behavior
     at the heart of the fix
   * the ``/create-voice-prompt`` route awaits the async handler directly
@@ -216,9 +216,53 @@ class TestCreatePromptSerialization(unittest.TestCase):
         self.assertIs(
             by_kind["create"]["args"][0],
             state.models["clone"],
-            "create_voice_prompt must receive the clone-model reference "
-            "captured once before the lock — a concurrent /unload-model "
-            "leaves an alive local reference",
+            "create_voice_prompt must receive the under-lock re-read of the "
+            "clone slot — identity-equal here because nothing swapped it",
+        )
+
+    def test_create_rereads_clone_slot_under_lock_after_reload(self):
+        """The clone slot is captured four awaits before the lock (decode,
+        stage, audio load); an unload->RELOAD in that window must leave the
+        create on the CURRENT model, and an unload alone must surface the
+        same retryable 503 the generation paths raise."""
+        from qwen3_tts.server.app_prompts import handle_create_voice_prompt
+
+        state = _make_state()
+        old_model = state.models["clone"]
+        reloaded = MagicMock(name="reloaded-clone")
+        create_models = []
+
+        def _swap_in_window(*args, **kwargs):
+            state.models["clone"] = reloaded
+            return ("fake-audio", 24000)
+
+        def _create(*args, **kwargs):
+            create_models.append(args[0])
+            return MagicMock()
+
+        with (
+            patch(
+                "qwen3_tts.core.engine.load_audio_for_cloning",
+                side_effect=_swap_in_window,
+            ),
+            patch("qwen3_tts.core.engine.create_voice_prompt", side_effect=_create),
+            patch("qwen3_tts.server.app_prompts._save_pt"),
+            patch("qwen3_tts.core.engine.clear_voice_prompt_cache"),
+        ):
+            result = asyncio.run(
+                handle_create_voice_prompt(state, _prompt_req(), backend="torch")
+            )
+
+        self.assertEqual(result, {"status": "created", "name": "test_voice"}, result)
+        self.assertEqual(len(create_models), 1, "the create never ran")
+        self.assertIs(
+            create_models[0],
+            reloaded,
+            "the prompt was built on the pre-unload orphan — no under-lock "
+            "re-read and rebind",
+        )
+        self.assertIsNot(
+            create_models[0], old_model, "the orphaned capture reached the create"
         )
 
     def test_decode_and_staging_run_off_event_loop_thread(self):

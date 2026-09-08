@@ -510,6 +510,16 @@ async def handle_create_voice_prompt(state, req, backend=None):
         # Real MLX/torch inference (#192) — leaf acquisition: the handler
         # holds nothing else, so inference_lock stays outermost.
         async with state.inference_lock:
+            # T5 sibling: the clone slot was captured before four awaits
+            # (decode, stage, audio load). Re-read it UNDER the lock and
+            # rebind, so an unload->RELOAD in that window builds the prompt
+            # on the CURRENT model — and an unload alone surfaces as the
+            # same retryable 503 the generation paths raise. Function-local
+            # import: same precedent as websocket.py; keeps this module free
+            # of a new module-level sibling-handler dependency.
+            from qwen3_tts.server.app_generation import _require_model_under_lock
+
+            model = _require_model_under_lock(state, "clone")
             voice_prompt = await asyncio.to_thread(
                 create_voice_prompt,
                 model,
