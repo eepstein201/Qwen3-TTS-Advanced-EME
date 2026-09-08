@@ -92,21 +92,41 @@ security gap and adding its test coverage belong in the same effort; see Step 0G
 - **Model tier:** strongest (concurrency-correctness, same defect family as #192/#214) · **Branch:** `fix/require-model-under-lock-returns-model` · **Depends on:** rebase after Step 1B lands (both touch `model_loading.py`/`app_models.py` territory) and before Step 2 (Lane H reuses this exact mechanism — see its risk note)
 - **Context:** `_require_model_under_lock` (`app_generation.py:127-158`) only asserts
   `state.models[mode] is not None` — it does not return the model, and no caller rebinds. Capture
-  sites: `app_generation.py:223` (batch), `:742`/`:875` (stream), `websocket.py:306`/`:433` (ws). An
+  paths (five): `app_generation.py:223` (batch), `app_generation.py:742` (stream),
+  `websocket.py:306` (ws), `app_prompts.py:428` (`/create-voice-prompt` torch branch),
+  `prompt_loading.py:34` (`load_voice_prompt_serialized`, reached by the first three). The two
+  refs the earlier text counted as captures — `:875` (stream) and `:433` (ws) — are USE sites:
+  they consume the rebound value rather than capturing the slot. An
   unload **followed by a reload** inside the capture→acquire window passes the guard (slot is
   non-`None` again) while the request runs inference against the *old*, backend-cleaned-up model
   object — exactly the scenario the guard's own docstring warns about, just from the other
   direction. `/create-voice-prompt`'s torch path has the same gap with an even wider window and no
   post-lock recheck at all (`app_prompts.py:428-512` — see Step 0B's companion fix below).
 - **Tasks:** change the signature to `_require_model_under_lock(state, mode) -> Any` returning
-  `state.models[mode]`; rebind at all five call sites above (`model = _require_model_under_lock(...)`)
+  `state.models[mode]`; rebind at all five capture paths above (`model = _require_model_under_lock(...)`)
   before entering inference; apply the same fix to `/create-voice-prompt`'s capture at
   `app_prompts.py:428` (call it immediately inside `async with state.inference_lock`, use the
   returned model). Write a failing test that interleaves unload+reload inside the capture window and
   asserts the *new* model object is what actually runs; extend
   `tests/test_issue214_unload_queued_window.py`.
 - **Verify:** `pytest tests/test_issue214_unload_queued_window.py tests/test_voice_server.py -v`; `ruff`; `mypy`.
-- **Exit criteria:** an unload-then-reload interleaving is proven to use the fresh model object at every one of the six call sites, with a regression test per site (or one parametrized test covering all six).
+- **Exit criteria:** an unload-then-reload interleaving is proven to use the fresh model object at every one of the five capture paths, with a regression test per site (or one parametrized test covering all five).
+- **Follow-up found during 0B execution (NOT fixed by 0B — pre-existing, needs its own step):**
+  `prompt_loading.load_voice_prompt_serialized`'s fallback branch calls the engine's
+  `load_model("clone", warmup=False)` when the clone slot is empty. `load_model`
+  (`core/engine/model_loader.py:552`) is **not memoized** and never publishes into
+  `state.models` — publication is deliberately the server's job, serialized by
+  `MODEL_LOAD_LOCK` and the per-load records in `model_loading.py` (#214). So every
+  fallback hit pays a **full multi-minute model load whose result is then discarded**
+  once the prompt is built; a second request in the same situation pays it again. The
+  layering is correct and should not change (an engine-level write-through would slip a
+  model into the slot outside the #214 machinery), so the fix belongs on the server side —
+  e.g. route the fallback through `claim_model_load`/`load_model_deduped` so it attaches
+  to an in-flight load and publishes once, or decide explicitly that this path should
+  503/queue rather than build a private model. Cost is latency and memory, not
+  correctness. 0B deliberately left the behavior intact and only added the under-lock
+  re-read with a provenance split (slot-captured model → 503 on unload; privately built
+  model → kept, but a slot published while parked is preferred).
 
 ### Step 0C — `generation_state` threading discipline: guarded by the wrong lock type, mutated unlocked in places
 
@@ -1027,11 +1047,6 @@ analysis rather than duplicated as a new step.)*
 - **Status:** deliberately held as its own isolated restart window since the 2026-09-05/06 dependabot session (two transport-library bumps in one week would be unattributable if something regressed). Confirmed 2026-09-06 still on 0.135.1.
 - **When to run:** anytime, isolated from the waves — pick a quiet window, bump, smoke-test `/generate` + `/generate-stream` + `/ws` per the #223 uvicorn-bump protocol precedent, restart, verify.
 
-### Track T3 — Disk-space reclamation Phases 1–2 (non-code, direct mode)
-
-- **Status:** fully audited, nothing executed. Plan: `~/.claude/plans/goal-reduce-storage-usage-ancient-adleman.md`. Free-space figures are explicitly volatile (iCloud eviction) — re-measure with `df`/`du` immediately before acting, not from the plan's cached figures.
-- **When to run:** anytime, entirely outside the git repo/branch/PR workflow — this is macOS housekeeping, not a code change.
-
 ### Standing watch — not an execution step
 
 - **Issue #112** (Upstream Watch) is a passive monthly-refreshed dashboard, not actionable work. No step needed; re-check only if a ⚡ blocker clears in its next auto-comment.
@@ -1042,8 +1057,7 @@ analysis rather than duplicated as a new step.)*
 
 **44 pending execution steps across 8 waves** — Wave 0: 0A–0G (7) · Wave 1: 1A–1E (5) · Wave 2: 2
 (1) · Wave 3: 3A–3E (5) · Wave 4: 4A–4D (4) · Wave 4B: 4B.1–4B.4 (4) · Wave 5: 5 (1) · Wave 6:
-6A–6Q (17) — **plus 3 independent tracks** (feature, dependency, and non-code housekeeping, none
-gated by the waves) **+ 1 passive watch** (no action). Step 6·0 (dead-code cleanup) was already
+6A–6Q (17) — **plus 2 independent tracks** (feature and dependency, neither gated by the waves) **+ 1 passive watch** (no action). Step 6·0 (dead-code cleanup) was already
 executed directly on 2026-09-06 and is recorded in Wave 6; it is not counted among the pending
 steps. Ordered by: critical correctness/security findings from the 2026-09-06 cross-cutting
 reviews first (Wave 0), then independent bug fixes and gate-integrity work (Wave 1), the

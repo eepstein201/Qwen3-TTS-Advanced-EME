@@ -390,6 +390,22 @@ async def _stream_generation(
             # MLX loader raises (torch returns None) — report like the HTTP 404.
             await websocket.send_json({"error": str(e)})
             return
+        except HTTPException as e:
+            # load_voice_prompt_serialized re-reads the clone slot under
+            # inference_lock and raises the same classified, retryable 503 the
+            # generation paths raise when an unload landed in its window. This
+            # statement sits OUTSIDE the validation try above whose
+            # `except HTTPException` delivers error payloads, so letting it
+            # escape would drop it into the endpoint's generic handler — which
+            # stringifies the dict detail and closes 1011, leaving the client
+            # with no `recovery` field to branch on. Forward the classified
+            # fields intact and keep the socket, as with every other classified
+            # error on this route.
+            detail = e.detail
+            await websocket.send_json(
+                dict(detail) if isinstance(detail, dict) else {"error": detail}
+            )
+            return
         if voice_prompt is None:
             await websocket.send_json(
                 {"error": f"Voice prompt not found: {req.prompt_file}"}
@@ -483,19 +499,25 @@ async def _stream_generation(
         from qwen3_tts.server.app_generation import _require_model_under_lock
 
         try:
-            _require_model_under_lock(app_state, mode)
+            # Rebind the re-read slot: inference_thread (nested above) reads
+            # `model` from THIS function's cell, so the rebind must land
+            # before thread.start() below — an unload->RELOAD in the
+            # capture->acquire window otherwise leaves the thread on the
+            # orphaned pre-unload object.
+            model = _require_model_under_lock(app_state, mode)
         except _HTTPException as e:
-            _detail = e.detail
-            _message = (
-                _detail
-                if isinstance(_detail, str)
-                else str(
-                    _detail.get("detail", _detail)
-                    if isinstance(_detail, dict)
-                    else _detail
-                )
+            # Same spread shape as the loader-site handler above: a classified
+            # detail dict is forwarded field-for-field (error / detail /
+            # recovery) so a client can branch on `recovery` wherever the
+            # unload landed. Flattening the dict to a human string dropped the
+            # `model_unloaded` code and the retry hint for this window only --
+            # the same condition already reached clients with both fields when
+            # the unload landed in the prompt-load window instead. A str detail
+            # has no fields to spread and keeps degrading to the bare frame.
+            _payload = (
+                dict(e.detail) if isinstance(e.detail, dict) else {"error": e.detail}
             )
-            await websocket.send_json({"error": _message})
+            await websocket.send_json(_payload)
             return
 
         # Mark this generation active in the shared generation_state so the

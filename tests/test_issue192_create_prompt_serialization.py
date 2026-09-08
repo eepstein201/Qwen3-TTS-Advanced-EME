@@ -23,9 +23,9 @@ Contract pinned by these tests:
   * decode/staging/load/create/save run in worker threads, never on the
     loop (pinned: the async rewrite must not lose the off-loop property
     the old route-level ``to_thread`` wrapper provided)
-  * the clone-model reference is captured ONCE before the lock — a
-    concurrent /unload-model then leaves an alive local reference,
-    equal-or-better than the old inline double read
+  * the under-lock re-read returns the live slot; identity-equal when
+    nothing swapped (the reload-half regression lives in
+    ``test_create_rereads_clone_slot_under_lock_after_reload``)
   * a held ``inference_lock`` DEFERS the create — the queueing behavior
     at the heart of the fix
   * the ``/create-voice-prompt`` route awaits the async handler directly
@@ -216,10 +216,114 @@ class TestCreatePromptSerialization(unittest.TestCase):
         self.assertIs(
             by_kind["create"]["args"][0],
             state.models["clone"],
-            "create_voice_prompt must receive the clone-model reference "
-            "captured once before the lock — a concurrent /unload-model "
-            "leaves an alive local reference",
+            "create_voice_prompt must receive the under-lock re-read of the "
+            "clone slot — identity-equal here because nothing swapped it",
         )
+
+    def test_create_rereads_clone_slot_under_lock_after_reload(self):
+        """RELOAD half of the capture->acquire window.
+
+        The clone slot is captured three awaits before the lock (decode, stage,
+        audio load); an unload->RELOAD in that window leaves the slot non-None,
+        so only REBINDING the under-lock re-read keeps the create off the
+        orphaned pre-unload object. The null half — an unload alone must raise
+        the same retryable 503 the generation paths raise — is asserted by
+        ``test_create_bails_with_retryable_503_when_slot_nulled_in_window``."""
+        from qwen3_tts.server.app_prompts import handle_create_voice_prompt
+
+        state = _make_state()
+        old_model = state.models["clone"]
+        reloaded = MagicMock(name="reloaded-clone")
+        create_models = []
+
+        def _swap_in_window(*args, **kwargs):
+            state.models["clone"] = reloaded
+            return ("fake-audio", 24000)
+
+        def _create(*args, **kwargs):
+            create_models.append(args[0])
+            return MagicMock()
+
+        with (
+            patch(
+                "qwen3_tts.core.engine.load_audio_for_cloning",
+                side_effect=_swap_in_window,
+            ),
+            patch("qwen3_tts.core.engine.create_voice_prompt", side_effect=_create),
+            patch("qwen3_tts.server.app_prompts._save_pt"),
+            patch("qwen3_tts.core.engine.clear_voice_prompt_cache"),
+        ):
+            result = asyncio.run(
+                handle_create_voice_prompt(state, _prompt_req(), backend="torch")
+            )
+
+        self.assertEqual(result, {"status": "created", "name": "test_voice"}, result)
+        self.assertEqual(len(create_models), 1, "the create never ran")
+        self.assertIs(
+            create_models[0],
+            reloaded,
+            "the prompt was built on the pre-unload orphan — no under-lock "
+            "re-read and rebind",
+        )
+        self.assertIsNot(
+            create_models[0], old_model, "the orphaned capture reached the create"
+        )
+
+    def test_create_bails_with_retryable_503_when_slot_nulled_in_window(self):
+        """NULL half of the same window, asserted rather than merely claimed.
+
+        An /unload-model landing between the clone-slot capture and the lock
+        must surface as the classified, retryable 503 the generation paths
+        raise — and the create must never run against the orphan. Without this
+        a non-raising rebind (``model = state.models.get("clone") or model``)
+        satisfies the reload test above while an unload silently builds the
+        prompt on a model nobody owns any more."""
+        from fastapi import HTTPException
+
+        from qwen3_tts.server.app_prompts import handle_create_voice_prompt
+
+        state = _make_state()
+        create_models = []
+
+        def _unload_in_window(*args, **kwargs):
+            # The audio load sits between the capture and the acquire.
+            state.models["clone"] = None
+            return ("fake-audio", 24000)
+
+        def _create(*args, **kwargs):
+            create_models.append(args[0])
+            return MagicMock()
+
+        with (
+            patch(
+                "qwen3_tts.core.engine.load_audio_for_cloning",
+                side_effect=_unload_in_window,
+            ),
+            patch("qwen3_tts.core.engine.create_voice_prompt", side_effect=_create),
+            patch("qwen3_tts.server.app_prompts._save_pt") as mock_save,
+            patch("qwen3_tts.core.engine.clear_voice_prompt_cache"),
+        ):
+            with self.assertRaises(HTTPException) as ctx:
+                asyncio.run(
+                    handle_create_voice_prompt(state, _prompt_req(), backend="torch")
+                )
+
+        self.assertEqual(ctx.exception.status_code, 503)
+        detail = ctx.exception.detail
+        self.assertIsInstance(detail, dict, f"expected structured detail: {detail!r}")
+        self.assertEqual(detail.get("error"), "model_unloaded")
+        self.assertEqual(
+            detail.get("recovery"),
+            "retry",
+            "the caller queued behind a generation that never ran — the error "
+            "must be retryable",
+        )
+        self.assertEqual(
+            create_models,
+            [],
+            "create inference ran against the orphaned model before the 503",
+        )
+        mock_save.assert_not_called()
 
     def test_decode_and_staging_run_off_event_loop_thread(self):
         """b64decode + the tempfile write are blocking CPU/file IO — they

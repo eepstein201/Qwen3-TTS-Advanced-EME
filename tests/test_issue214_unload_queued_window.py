@@ -178,15 +178,23 @@ class _RecordingAsyncLock:
     observes calls, it does not fake concurrency safety (a MagicMock lock
     is the documented anti-pattern: it makes ``locked()``-style assertions
     hollow).
+
+    ``acquire_attempted`` is set BEFORE the underlying acquire is awaited, so a
+    test that already holds the lock can observe "the handler under test is now
+    parked in its capture->acquire window" without polling private asyncio
+    internals or sleeping. Clear it after your own acquire to watch for the
+    handler's.
     """
 
     def __init__(self):
         self._lock = asyncio.Lock()
         self.acquire_calls = 0
         self.release_calls = 0
+        self.acquire_attempted = asyncio.Event()
 
     async def acquire(self):
         self.acquire_calls += 1
+        self.acquire_attempted.set()
         return await self._lock.acquire()
 
     def release(self):
@@ -248,6 +256,75 @@ def _locked_with_contains_call(tree, needle):
         if any(needle in src for src in _calls_matching(node, needle)):
             return True
     return False
+
+
+def _inference_lock_bodies(tree):
+    """Every ``async with ... inference_lock`` node in *tree*."""
+    return [
+        node
+        for node in ast.walk(tree)
+        if isinstance(node, ast.AsyncWith)
+        and any(
+            "inference_lock" in ast.unparse(item.context_expr) for item in node.items
+        )
+    ]
+
+
+def _locked_assignments_from_call(tree, needle):
+    """Unparsed source of every ``x = <call matching needle>`` INSIDE an
+    ``async with ... inference_lock`` body.
+
+    Assignment, not a bare call: the guard's entire second half is the value it
+    RETURNS. A bare ``_require_model_under_lock(state, mode)`` still raises on
+    an unloaded slot, so every null-half test stays green while the reload half
+    silently runs inference on the orphaned pre-unload object -- exactly the
+    discard this branch exists to remove. The enclosure pin above cannot see
+    the difference.
+    """
+    found = []
+    for node in _inference_lock_bodies(tree):
+        for sub in ast.walk(node):
+            if not isinstance(sub, ast.Assign):
+                continue
+            value = sub.value
+            if isinstance(value, ast.Call) and _calls_matching(value, needle):
+                found.append(ast.unparse(sub))
+    return found
+
+
+def _statement_has_call_named(stmt, attr):
+    """True iff *stmt* contains a ``<something>.<attr>()`` call anywhere."""
+    return any(
+        isinstance(sub, ast.Call)
+        and isinstance(sub.func, ast.Attribute)
+        and sub.func.attr == attr
+        for sub in ast.walk(stmt)
+    )
+
+
+def _guard_and_thread_start_positions(tree, needle):
+    """Statement indices of the guard call and of ``.start()`` within the
+    ``inference_lock`` body, as ``(guard_at, start_at)``.
+
+    Either entry is ``None`` when that statement is absent. Ordering matters
+    because the inference thread reads ``model`` from the enclosing function's
+    cell: a rebind moved AFTER ``thread.start()`` leaves the thread reading
+    whichever value wins a race nothing synchronises -- real, but
+    scheduling-dependent rather than a guaranteed failure (the mutant failed
+    ``TestWebSocketFreshSlotUnderLock`` 10/10 on this host and could pass
+    elsewhere), and invisible to the enclosure and assignment pins alike. This
+    pin is what makes the outcome deterministic.
+    """
+    for node in _inference_lock_bodies(tree):
+        guard_at = start_at = None
+        for index, stmt in enumerate(node.body):
+            if guard_at is None and _calls_matching(stmt, needle):
+                guard_at = index
+            if start_at is None and _statement_has_call_named(stmt, "start"):
+                start_at = index
+        if guard_at is not None or start_at is not None:
+            return guard_at, start_at
+    return None, None
 
 
 # ---------------------------------------------------------------------------
@@ -621,6 +698,217 @@ class TestPostLockSlotReRead(unittest.TestCase):
             "recheck raises the same 503 while leaving the window open",
         )
 
+    def test_batch_runs_on_the_model_reloaded_while_queued(self):
+        """Twin of the 503 test for the reload half of the window: an
+        unload->RELOAD leaves the slot non-None, so only REBINDING the
+        re-read slot (not merely checking it) keeps inference off the
+        orphaned pre-unload object."""
+        inference_models = []
+        state = _make_state()
+        old_model = state.models["clone"]
+        reloaded = MagicMock(name="reloaded-clone")
+        state.inference_lock = _RecordingAsyncLock()
+
+        async def _scenario():
+            from qwen3_tts.server.app_generation import handle_generate
+            from qwen3_tts.server.validation import GenerateRequest
+
+            def _swap_in_window(state, prompt_file, *args, **kwargs):
+                # Runs pre-lock (the prompt load sits between the model
+                # capture and the acquire): unload -> RELOAD lands here.
+                state.models["clone"] = reloaded
+                return MagicMock(name="voice-prompt")
+
+            def _run_inference(*args, **kwargs):
+                inference_models.append(kwargs["model"])
+                return np.zeros(4800, dtype=np.float32), 24000
+
+            req = GenerateRequest(
+                text="hello clone", mode="clone", prompt_file="voice.wav"
+            )
+            try:
+                with (
+                    patch(
+                        f"{_APP_GENERATION}._check_memory_available",
+                        return_value=(True, 4096),
+                    ),
+                    patch(
+                        "qwen3_tts.server.validation._validate_generation_request"
+                    ),
+                    patch(
+                        "qwen3_tts.server.prompt_loading.load_voice_prompt_serialized",
+                        side_effect=_swap_in_window,
+                    ),
+                    patch(f"{_ENGINE}.run_inference", side_effect=_run_inference),
+                    patch("soundfile.write"),
+                    patch(
+                        "qwen3_tts.core.engine.audio_processing.calculate_waveform_peaks",
+                        return_value=[0.1] * 500,
+                    ),
+                ):
+                    return await asyncio.wait_for(
+                        handle_generate(
+                            request=_make_request(state),
+                            state=state,
+                            req=req,
+                            security={
+                                "max_text_length": 50000,
+                                "max_batch_size": 20,
+                            },
+                            config_provider=None,
+                        ),
+                        timeout=15,
+                    )
+            finally:
+                _cleanup_gen_cache_files(state)
+
+        asyncio.run(_scenario())
+        self.assertEqual(
+            len(inference_models),
+            1,
+            f"expected one inference, got {inference_models!r}",
+        )
+        self.assertIs(
+            inference_models[0],
+            reloaded,
+            "inference ran on the pre-unload orphan: the under-lock re-read "
+            "was checked but not rebound",
+        )
+        self.assertIsNot(
+            inference_models[0],
+            old_model,
+            "the orphaned capture reached run_inference",
+        )
+        self.assertGreaterEqual(
+            state.inference_lock.acquire_calls,
+            1,
+            "the handler never acquired inference_lock -- a pre-lock rebind "
+            "leaves the capture->acquire window open",
+        )
+
+    async def _await_parked_on_acquire(self, state, task):
+        """Block until *task* is parked inside ``inference_lock.acquire``.
+
+        Waits on the task as well, so a handler that raises (or returns) before
+        ever reaching the acquire reports ITS failure instead of an opaque
+        TimeoutError from a lone event wait.
+        """
+        waiter = asyncio.ensure_future(state.inference_lock.acquire_attempted.wait())
+        try:
+            done, _pending = await asyncio.wait(
+                {task, waiter}, timeout=10, return_when=asyncio.FIRST_COMPLETED
+            )
+            if task in done:
+                task.result()  # re-raises the real failure, if any
+                self.fail(
+                    "the handler finished without ever waiting on "
+                    "inference_lock -- the window under test never opened"
+                )
+            if waiter not in done:
+                self.fail("the handler never attempted to acquire inference_lock")
+        finally:
+            waiter.cancel()
+
+    def _assert_batch_rebinds_after_a_contended_wait(self, mode):
+        """Drive handle_generate through the REALISTIC window for *mode*.
+
+        The prompt-load seam the reload test above swaps in only exists for
+        clone (``if mode == "clone":``), so design/custom never traverse the
+        rebind there -- a rebind written under that branch passes the whole
+        suite while design and custom run on the orphan. Here the window is
+        the real one: the test holds inference_lock, the handler parks on the
+        acquire, the slot is swapped while it waits, then the lock is
+        released. Mode-independent by construction.
+        """
+        inference_models = []
+        state = _make_state()
+        state.inference_lock = _RecordingAsyncLock()
+        old_model = state.models[mode]
+        reloaded = MagicMock(name=f"reloaded-{mode}")
+
+        async def _scenario():
+            from qwen3_tts.server.app_generation import handle_generate
+            from qwen3_tts.server.validation import GenerateRequest
+
+            def _run_inference(*args, **kwargs):
+                inference_models.append(kwargs["model"])
+                return np.zeros(4800, dtype=np.float32), 24000
+
+            # A real speaker name: the REAL _validate_generation_request runs.
+            req = GenerateRequest(text="hello there", mode=mode, speaker="ryan")
+            try:
+                with (
+                    patch(
+                        f"{_APP_GENERATION}._check_memory_available",
+                        return_value=(True, 4096),
+                    ),
+                    patch(f"{_ENGINE}.run_inference", side_effect=_run_inference),
+                    patch("soundfile.write"),
+                    patch(
+                        "qwen3_tts.core.engine.audio_processing."
+                        "calculate_waveform_peaks",
+                        return_value=[0.1] * 500,
+                    ),
+                ):
+                    async with state.inference_lock:
+                        # Ours; watch for the handler's own attempt below.
+                        state.inference_lock.acquire_attempted.clear()
+                        task = asyncio.ensure_future(
+                            handle_generate(
+                                request=_make_request(state),
+                                state=state,
+                                req=req,
+                                security={
+                                    "max_text_length": 50000,
+                                    "max_batch_size": 20,
+                                },
+                                config_provider=None,
+                            )
+                        )
+                        await self._await_parked_on_acquire(state, task)
+                        # The handler is parked INSIDE acquire: it captured the
+                        # model, it has not inferenced.
+                        self.assertEqual(
+                            inference_models,
+                            [],
+                            "inference ran before the lock was ever free",
+                        )
+                        state.models[mode] = reloaded
+                    return await asyncio.wait_for(task, timeout=15)
+            finally:
+                _cleanup_gen_cache_files(state)
+
+        asyncio.run(_scenario())
+
+        self.assertEqual(
+            len(inference_models),
+            1,
+            f"expected one inference for mode={mode}, got {inference_models!r}",
+        )
+        self.assertIs(
+            inference_models[0],
+            reloaded,
+            f"mode={mode}: inference ran on the pre-unload orphan -- the "
+            "under-lock rebind does not cover this mode (a clone-only rebind "
+            "passes every other test in this suite)",
+        )
+        self.assertIsNot(
+            inference_models[0],
+            old_model,
+            f"mode={mode}: the orphaned capture reached run_inference",
+        )
+        self.assertGreaterEqual(
+            state.inference_lock.acquire_calls,
+            2,
+            "the handler never acquired inference_lock",
+        )
+
+    def test_batch_rebinds_for_design_after_a_contended_wait(self):
+        self._assert_batch_rebinds_after_a_contended_wait("design")
+
+    def test_batch_rebinds_for_custom_after_a_contended_wait(self):
+        self._assert_batch_rebinds_after_a_contended_wait("custom")
+
     def test_batch_reread_is_enclosed_in_the_lock(self):
         """Structural companion to the behavioral test above: the
         handle_generate re-read must sit INSIDE the
@@ -729,34 +1017,230 @@ class TestPostLockSlotReRead(unittest.TestCase):
             "the streaming generator never acquired inference_lock",
         )
 
-    def test_streaming_and_ws_re_read_inside_their_locks(self):
-        """Structural: the streaming generator and the /ws stream function
-        must call the same under-lock re-read helper inside their
-        ``async with ... inference_lock`` bodies (behavioral coverage is the
-        batch test above; these paths share the helper). A missing target is
-        a LOUD failure -- a rename must update this test, not silently
-        unpin it."""
-        import qwen3_tts.server.app_generation as appgen
-        import qwen3_tts.server.websocket as wsmod
+    def test_streaming_uses_the_model_reloaded_before_body_iteration(self):
+        """Reload (not unload) in the capture->iterate window: headers are
+        committed, the slot is non-None, so only a rebind keeps the
+        inference thread off the orphaned object. Behavioral twin of the
+        terminal-error-frame test, which pins the null half."""
+        import struct as _struct
 
-        for module, func_name in (
-            (appgen, "handle_generate_stream"),
-            (wsmod, "_stream_generation"),
+        streaming_models = []
+        state = _make_state()
+        old_model = state.models["design"]
+        reloaded = MagicMock(name="reloaded-design")
+        state.inference_lock = _RecordingAsyncLock()
+
+        def _stream_stub(*args, **kwargs):
+            streaming_models.append(kwargs["model"])
+            yield np.zeros(480, dtype=np.float32), 24000
+
+        async def _scenario():
+            from qwen3_tts.server.app_generation import handle_generate_stream
+            from qwen3_tts.server.validation import GenerateRequest
+
+            req = GenerateRequest(text="stream me", mode="design")
+            response = await handle_generate_stream(
+                request=_make_request(state),
+                state=state,
+                req=req,
+                security={"max_text_length": 50000, "max_batch_size": 20},
+                config_provider=None,
+            )
+            # Capture happened during the call above; the RELOAD lands
+            # before the body is iterated (Starlette would do this later).
+            state.models["design"] = reloaded
+            chunks = []
+            async for chunk in response.body_iterator:
+                chunks.append(chunk)
+            return chunks
+
+        with (
+            patch(
+                f"{_APP_GENERATION}._check_memory_available",
+                return_value=(True, 4096),
+            ),
+            patch(
+                "qwen3_tts.server.validation._validate_generation_request"
+            ),
+            patch(
+                "qwen3_tts.core.engine.run_inference_streaming",
+                side_effect=_stream_stub,
+            ),
         ):
+            chunks = asyncio.run(_scenario())
+
+        self.assertEqual(len(chunks), 1, f"got {len(chunks)} chunks")
+        sample_rate, _length = _struct.unpack("<II", chunks[0][:8])
+        self.assertNotEqual(
+            sample_rate, 0, "got the terminal error frame instead of audio"
+        )
+        self.assertEqual(
+            len(streaming_models), 1, "streaming inference never started"
+        )
+        self.assertIs(
+            streaming_models[0],
+            reloaded,
+            "the stream thread ran on the pre-unload orphan — the under-lock "
+            "re-read is not rebound into the thread's scope",
+        )
+        self.assertIsNot(
+            streaming_models[0], old_model, "the orphaned capture reached streaming"
+        )
+        self.assertGreaterEqual(
+            state.inference_lock.acquire_calls,
+            1,
+            "the streaming generator never acquired inference_lock",
+        )
+
+    # Every site that captures a model slot pre-lock and then runs inference
+    # (or create inference) under it. Kept as one list so a new capture path
+    # is added in ONE place -- prompt_loading.py was the fifth such path and
+    # went unpinned for a whole branch.
+    _GUARDED_SITES = (
+        ("qwen3_tts.server.app_generation", "handle_generate"),
+        ("qwen3_tts.server.app_generation", "handle_generate_stream"),
+        ("qwen3_tts.server.websocket", "_stream_generation"),
+        ("qwen3_tts.server.app_prompts", "handle_create_voice_prompt"),
+        ("qwen3_tts.server.prompt_loading", "load_voice_prompt_serialized"),
+    )
+
+    def _guarded_site_trees(self):
+        """Yield ``(label, tree)`` for every guarded site. A missing target is
+        a LOUD failure -- a rename must repoint these pins, not unpin them."""
+        for module_name, func_name in self._GUARDED_SITES:
+            module = importlib.import_module(module_name)
             func = getattr(module, func_name, None)
             if func is None:
                 self.fail(
-                    f"{module.__name__}.{func_name} not found -- the "
-                    "streaming/WS re-read pin has lost its target; repoint "
-                    "it, do not delete it"
+                    f"{module_name}.{func_name} not found -- an under-lock "
+                    "re-read pin has lost its target; repoint it, do not "
+                    "delete it"
                 )
-            tree = ast.parse(textwrap.dedent(inspect.getsource(func)))
+            yield (
+                f"{module_name}.{func_name}",
+                ast.parse(textwrap.dedent(inspect.getsource(func))),
+            )
+
+    def test_all_guarded_sites_re_read_inside_their_locks(self):
+        """Structural: every path that captures a model slot pre-lock must
+        call the under-lock re-read helper inside its
+        ``async with ... inference_lock`` body (behavioral coverage is the
+        batch/streaming/WS tests above; these paths share the helper).
+
+        The tuple covers all five capture paths: the batch handler, the
+        streaming and /ws generators, and both prompt-create paths
+        (``/create-voice-prompt``'s torch branch and the torch
+        auto-create-from-.wav loader)."""
+        for label, tree in self._guarded_site_trees():
             self.assertTrue(
                 _locked_with_contains_call(tree, "_require_model_under_lock"),
-                f"{module.__name__}.{func_name} must re-read the model slot "
-                "under inference_lock (the capture->acquire gap leaves the "
-                "streaming/WS paths running inference on an orphaned model)",
+                f"{label} must re-read the model slot under inference_lock "
+                "(the capture->acquire gap otherwise leaves it running "
+                "inference on an orphaned model)",
             )
+
+    def test_every_guarded_site_assigns_the_guard_result(self):
+        """The re-read must be REBOUND, not merely called.
+
+        The enclosure pin above matches a bare
+        ``_require_model_under_lock(state, mode)`` just as happily as an
+        assignment -- and a bare call still raises the retryable 503 on an
+        unloaded slot, so every null-half test in this suite stays green while
+        the reload half runs inference on the orphaned pre-unload object. This
+        pin requires an ``ast.Assign`` whose value is the guard call."""
+        for label, tree in self._guarded_site_trees():
+            assignments = _locked_assignments_from_call(
+                tree, "_require_model_under_lock"
+            )
+            self.assertTrue(
+                assignments,
+                f"{label} calls the under-lock re-read but discards its "
+                "return value -- the reload half of the window is open (the "
+                "local still points at the orphaned pre-unload model)",
+            )
+
+    # The only sites that hand ``model`` to a thread through the enclosing
+    # scope's cell. The labels are the ones ``_guarded_site_trees`` produces.
+    _THREAD_HANDOFF_SITES = frozenset(
+        {
+            "qwen3_tts.server.app_generation.handle_generate_stream",
+            "qwen3_tts.server.websocket._stream_generation",
+        }
+    )
+
+    def test_thread_starting_sites_rebind_before_start(self):
+        """Ordering pin for the two sites that hand ``model`` to a thread.
+
+        ``inference_thread`` is a nested function that resolves ``model`` from
+        its enclosing scope's cell, so a rebind moved AFTER ``thread.start()``
+        races rather than failing outright: the thread reads whichever value
+        wins an unsynchronised race. The outcome is scheduling-dependent, not
+        guaranteed (the mutant failed 10/10 runs on this host and could pass
+        elsewhere), and invisible to the enclosure and assignment pins -- this
+        pin is what makes the detection deterministic.
+
+        The expected hand-off SET is pinned explicitly: the per-site loop
+        skips any site whose lock body no longer contains a ``.start()`` call,
+        so a hand-off refactor (a spawn helper, ``asyncio.create_task``,
+        ``run_in_executor``) would otherwise leave this pin green at every
+        site while nothing else in the suite counts hand-off sites -- the
+        ordering check goes vacuous and the exact regression it exists to
+        catch ships undetected. A hand-off refactor must repoint
+        ``_THREAD_HANDOFF_SITES`` consciously instead of silently unpinning
+        the ordering check."""
+        found = []
+        for label, tree in self._guarded_site_trees():
+            guard_at, start_at = _guard_and_thread_start_positions(
+                tree, "_require_model_under_lock"
+            )
+            if start_at is None:
+                continue  # no inference thread at this site
+            found.append((label, guard_at, start_at))
+
+        self.assertEqual(
+            {label for label, _guard_at, _start_at in found},
+            self._THREAD_HANDOFF_SITES,
+            "the set of thread hand-off sites changed. The ordering check "
+            "below only sees sites that still call ``.start()`` directly, so "
+            "a hand-off refactor must repoint _THREAD_HANDOFF_SITES here -- "
+            "otherwise the rebind ordering goes unpinned at every site and "
+            "the rebind-after-start race ships undetected",
+        )
+        for label, guard_at, start_at in found:
+            self.assertIsNotNone(
+                guard_at,
+                f"{label} starts an inference thread under inference_lock "
+                "with no under-lock re-read before it",
+            )
+            self.assertLess(
+                guard_at,
+                start_at,
+                f"{label} rebinds the model slot AFTER starting the inference "
+                "thread -- the thread reads `model` from this scope's cell, so "
+                "the rebind must precede start() or the two race",
+            )
+
+    def test_guard_returns_the_slot_it_validates(self):
+        """The helper must hand back the CURRENT slot, not just validate it:
+        a raise-on-None guard cannot distinguish 'slot is the model I
+        captured' from 'slot was unloaded and RELOADED while I queued'."""
+        from fastapi import HTTPException
+
+        from qwen3_tts.server.app_generation import _require_model_under_lock
+
+        state = _make_state()
+        fresh = state.models["design"]
+        self.assertIs(
+            _require_model_under_lock(state, "design"),
+            fresh,
+            "the guard must return the re-read slot so callers can rebind",
+        )
+        state.models["design"] = None
+        with self.assertRaises(HTTPException) as ctx:
+            _require_model_under_lock(state, "design")
+        self.assertEqual(ctx.exception.status_code, 503)
+        self.assertEqual(ctx.exception.detail.get("error"), "model_unloaded")
+        self.assertEqual(ctx.exception.detail.get("recovery"), "retry")
 
 
 # ---------------------------------------------------------------------------

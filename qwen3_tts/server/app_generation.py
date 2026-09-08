@@ -15,6 +15,7 @@ import tempfile
 import threading
 import time
 import uuid
+from typing import Any
 
 from fastapi import HTTPException, Response
 from fastapi.responses import StreamingResponse
@@ -126,7 +127,7 @@ async def _await_inference_thread_done(
     return await asyncio.to_thread(done_event.wait, timeout)
 
 
-def _require_model_under_lock(state, mode) -> None:
+def _require_model_under_lock(state, mode) -> Any:
     """Re-read the model slot UNDER inference_lock and bail when it is gone.
 
     Every generation path captures ``state.models[mode]`` into a local BEFORE
@@ -142,8 +143,21 @@ def _require_model_under_lock(state, mode) -> None:
     recovery ``retry``): re-loading here would trade a cheap 503 for the
     multi-minute starved section this lock exists to prevent. Guarded by
     tests/test_issue214_unload_queued_window.py (T5).
+
+    Returns:
+        The object currently occupying ``state.models[mode]`` — NOT the local
+        the caller captured pre-lock. Callers MUST rebind: ``model =
+        _require_model_under_lock(state, mode)``. Returning the re-read slot
+        closes the second half of the window: an unload→RELOAD between capture
+        and acquire leaves the slot non-None, so a None check alone passes and
+        inference runs on the ORPHANED pre-unload object (``unload_model_cleanup``
+        is gc.collect + cache flush — it never destroys weights). Residual,
+        accepted: /load-model assigns its slot without inference_lock, so a
+        load finishing between this return and the inference call is not
+        observed.
     """
-    if state.models.get(mode) is None:
+    current = state.models.get(mode)  # .get(), never [mode]: partial-dict test states exist
+    if current is None:
         logger.warning(
             "%s model was unloaded while the generation waited for "
             "inference_lock; asking the caller to retry",
@@ -158,6 +172,7 @@ def _require_model_under_lock(state, mode) -> None:
         return  # explicit guard — _error_response raises, but it is
         # typed -> None, not NoReturn, so nothing structurally stops a
         # fall-through into inference with the slot gone.
+    return current
 
 
 async def handle_generate(request, state, req, security, config_provider):
@@ -432,8 +447,11 @@ async def handle_generate(request, state, req, security, config_provider):
                 # T5: the slot was read into a local BEFORE this acquire;
                 # re-validate it here — an unload that landed in the
                 # capture->acquire window must surface as a retryable 503,
-                # never as an orphan generation.
-                _require_model_under_lock(state, mode)
+                # never as an orphan generation. Rebind the re-read slot: an
+                # unload->RELOAD in that window leaves the slot NON-None, so
+                # checking alone would still run inference on the orphaned
+                # pre-unload object.
+                model = _require_model_under_lock(state, mode)
 
                 # Brief lock to set generation state
                 async with state.generation_lock:
@@ -832,7 +850,12 @@ async def handle_generate_stream(request, state, req, security, config_provider)
             # connection with no terminal frame, indistinguishable from a
             # network drop.
             try:
-                _require_model_under_lock(state, mode)
+                # Rebind, don't just check: this assignment makes `model` a
+                # local of audio_stream_generator, and inference_thread
+                # (nested below) resolves it from THIS scope's cell rather
+                # than handle_generate_stream's — so thread.start() below
+                # sees the re-read slot, never the pre-lock capture.
+                model = _require_model_under_lock(state, mode)
             except HTTPException as e:
                 _detail = e.detail
                 _message = (
