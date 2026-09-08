@@ -178,15 +178,23 @@ class _RecordingAsyncLock:
     observes calls, it does not fake concurrency safety (a MagicMock lock
     is the documented anti-pattern: it makes ``locked()``-style assertions
     hollow).
+
+    ``acquire_attempted`` is set BEFORE the underlying acquire is awaited, so a
+    test that already holds the lock can observe "the handler under test is now
+    parked in its capture->acquire window" without polling private asyncio
+    internals or sleeping. Clear it after your own acquire to watch for the
+    handler's.
     """
 
     def __init__(self):
         self._lock = asyncio.Lock()
         self.acquire_calls = 0
         self.release_calls = 0
+        self.acquire_attempted = asyncio.Event()
 
     async def acquire(self):
         self.acquire_calls += 1
+        self.acquire_attempted.set()
         return await self._lock.acquire()
 
     def release(self):
@@ -702,6 +710,140 @@ class TestPostLockSlotReRead(unittest.TestCase):
             old_model,
             "the orphaned capture reached run_inference",
         )
+        self.assertGreaterEqual(
+            state.inference_lock.acquire_calls,
+            1,
+            "the handler never acquired inference_lock -- a pre-lock rebind "
+            "leaves the capture->acquire window open",
+        )
+
+    async def _await_parked_on_acquire(self, state, task):
+        """Block until *task* is parked inside ``inference_lock.acquire``.
+
+        Waits on the task as well, so a handler that raises (or returns) before
+        ever reaching the acquire reports ITS failure instead of an opaque
+        TimeoutError from a lone event wait.
+        """
+        waiter = asyncio.ensure_future(state.inference_lock.acquire_attempted.wait())
+        try:
+            done, _pending = await asyncio.wait(
+                {task, waiter}, timeout=10, return_when=asyncio.FIRST_COMPLETED
+            )
+            if task in done:
+                task.result()  # re-raises the real failure, if any
+                self.fail(
+                    "the handler finished without ever waiting on "
+                    "inference_lock -- the window under test never opened"
+                )
+            if waiter not in done:
+                self.fail("the handler never attempted to acquire inference_lock")
+        finally:
+            waiter.cancel()
+
+    def _assert_batch_rebinds_after_a_contended_wait(self, mode):
+        """Drive handle_generate through the REALISTIC window for *mode*.
+
+        The prompt-load seam the reload test above swaps in only exists for
+        clone (``if mode == "clone":``), so design/custom never traverse the
+        rebind there -- a rebind written under that branch passes the whole
+        suite while design and custom run on the orphan. Here the window is
+        the real one: the test holds inference_lock, the handler parks on the
+        acquire, the slot is swapped while it waits, then the lock is
+        released. Mode-independent by construction.
+        """
+        inference_models = []
+        state = _make_state()
+        state.inference_lock = _RecordingAsyncLock()
+        old_model = state.models[mode]
+        reloaded = MagicMock(name=f"reloaded-{mode}")
+
+        async def _scenario():
+            from qwen3_tts.server.app_generation import handle_generate
+            from qwen3_tts.server.validation import GenerateRequest
+
+            def _run_inference(*args, **kwargs):
+                inference_models.append(kwargs["model"])
+                return np.zeros(4800, dtype=np.float32), 24000
+
+            # A real speaker name: handle_generate binds
+            # _validate_generation_request at module import, so patching it on
+            # qwen3_tts.server.validation does NOT disarm the copy it calls.
+            req = GenerateRequest(text="hello there", mode=mode, speaker="ryan")
+            try:
+                with (
+                    patch(
+                        f"{_APP_GENERATION}._check_memory_available",
+                        return_value=(True, 4096),
+                    ),
+                    patch(
+                        "qwen3_tts.server.validation._validate_generation_request"
+                    ),
+                    patch(f"{_ENGINE}.run_inference", side_effect=_run_inference),
+                    patch("soundfile.write"),
+                    patch(
+                        "qwen3_tts.core.engine.audio_processing."
+                        "calculate_waveform_peaks",
+                        return_value=[0.1] * 500,
+                    ),
+                ):
+                    async with state.inference_lock:
+                        # Ours; watch for the handler's own attempt below.
+                        state.inference_lock.acquire_attempted.clear()
+                        task = asyncio.ensure_future(
+                            handle_generate(
+                                request=_make_request(state),
+                                state=state,
+                                req=req,
+                                security={
+                                    "max_text_length": 50000,
+                                    "max_batch_size": 20,
+                                },
+                                config_provider=None,
+                            )
+                        )
+                        await self._await_parked_on_acquire(state, task)
+                        # The handler is parked INSIDE acquire: it captured the
+                        # model, it has not inferenced.
+                        self.assertEqual(
+                            inference_models,
+                            [],
+                            "inference ran before the lock was ever free",
+                        )
+                        state.models[mode] = reloaded
+                    return await asyncio.wait_for(task, timeout=15)
+            finally:
+                _cleanup_gen_cache_files(state)
+
+        asyncio.run(_scenario())
+
+        self.assertEqual(
+            len(inference_models),
+            1,
+            f"expected one inference for mode={mode}, got {inference_models!r}",
+        )
+        self.assertIs(
+            inference_models[0],
+            reloaded,
+            f"mode={mode}: inference ran on the pre-unload orphan -- the "
+            "under-lock rebind does not cover this mode (a clone-only rebind "
+            "passes every other test in this suite)",
+        )
+        self.assertIsNot(
+            inference_models[0],
+            old_model,
+            f"mode={mode}: the orphaned capture reached run_inference",
+        )
+        self.assertGreaterEqual(
+            state.inference_lock.acquire_calls,
+            2,
+            "the handler never acquired inference_lock",
+        )
+
+    def test_batch_rebinds_for_design_after_a_contended_wait(self):
+        self._assert_batch_rebinds_after_a_contended_wait("design")
+
+    def test_batch_rebinds_for_custom_after_a_contended_wait(self):
+        self._assert_batch_rebinds_after_a_contended_wait("custom")
 
     def test_batch_reread_is_enclosed_in_the_lock(self):
         """Structural companion to the behavioral test above: the
