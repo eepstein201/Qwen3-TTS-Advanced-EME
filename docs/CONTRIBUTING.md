@@ -128,16 +128,16 @@ qwen3-tts/
 
 ### Test Suite Overview
 
-The project has **3,100+ tests** across 180+ modules, organized into 6 batches
+The project has **3,200+ tests** across 184 modules, organized into 6 batches
 (module counts from the `BATCHES` dict in `tests/run_batches.py`):
 
 | Batch | Name | Modules | Description | Server Required |
 |-------|------|---------|-------------|-----------------|
-| 1 | Core | 22 | Core utilities, config, validation | No |
-| 2 | Voice | 23 | Voice prompts, CLI commands | No |
-| 3 | Server | 51 | Server infrastructure, API endpoints | No |
-| 4 | Engine | 36 | Engine components, UI logic | No |
-| 5 | Optional | 16 | Optional-dependency features | No |
+| 1 | Core | 28 | Core utilities, config, validation | No |
+| 2 | Voice | 24 | Voice prompts, CLI commands | No |
+| 3 | Server | 62 | Server infrastructure, API endpoints | No |
+| 4 | Engine | 39 | Engine components, UI logic | No |
+| 5 | Optional | 15 | Optional-dependency features | No |
 | 6 | E2E | 1 | End-to-end Playwright tests | **Yes** |
 
 Note: batch 6 runs only `tests.test_e2e_playwright`. The rest of the

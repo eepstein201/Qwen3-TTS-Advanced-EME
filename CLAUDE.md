@@ -177,7 +177,7 @@ python tests/run_batches.py                     # batch runner (hang-isolated), 
 python tests/run_full_suite.py --full --env {mlx,torch,all}   # multi-env; --test-type unit, --dry-run
 make test-{core,voice,server,engine,optional,e2e} / make test-batch
 ```
-2163+ tests across 108 modules. No GPU, models, or running server required (except E2E); auto-skip when optional deps are missing. E2E gating + live `/generate` rate-limit interaction: ARCHITECTURE.md ("E2E Gating and Rate Limiting").
+3,200+ tests across 184 modules. No GPU, models, or running server required (except E2E); auto-skip when optional deps are missing. E2E gating + live `/generate` rate-limit interaction: ARCHITECTURE.md ("E2E Gating and Rate Limiting").
 
 **Test hygiene (enforced):** `async def test_*` on a plain `unittest.TestCase` never runs yet reports **ok** (plus a never-awaited RuntimeWarning) — use `unittest.IsolatedAsyncioTestCase` or `@pytest.mark.asyncio` outside a TestCase (pytest-asyncio is `strict`; unmarked coroutines are skipped). Statically guarded by `tests/test_async_test_hygiene.py`. New test modules MUST be registered in `BATCHES` in `tests/run_batches.py` (explicit list, not discovery) — enforced by `tests/test_batches_coverage.py` (absent from both `BATCHES` and the reason-carrying `INTENTIONALLY_UNBATCHED` allowlist = fail). `test_rate_limiting` + `test_e2e_*` are deliberately unbatched: the batch runner sets `TTS_DISABLE_RATE_LIMITING=1` and ignores pytest markers, so they would pass hollowly.
 

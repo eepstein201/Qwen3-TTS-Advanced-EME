@@ -86,14 +86,14 @@
 
 | Command | Description |
 |---------|-------------|
-| `make test` | Run full test suite (pytest) |
+| `make test` | Run full test suite (`unittest discover`; may hang — prefer `make test-batch`) |
 | `make test-batch` | Run all test batches (1-6) |
 | `make test-quick` | Run quick subset of tests |
 | `make test-core` | Run Batch 1: Core utilities |
 | `make test-voice` | Run Batch 2: Voice & CLI |
 | `make test-server` | Run Batch 3: Server infrastructure |
 | `make test-engine` | Run Batch 4: Engine & UI |
-| `make test-optional` | Run Batch 5: Optional (pytest-dependent) |
+| `make test-optional` | Run optional-dependency tests via unittest (9-module subset of batch 5; the pytest-dependent remainder needs `python tests/run_batches.py --batch 5`) |
 | `make test-e2e` | Run Batch 6: the `tests.test_e2e_playwright` module (requires a live server + Playwright; the runner sets `TTS_DISABLE_RATE_LIMITING=1` and preloads all three models). The rest of the `test_e2e_*` suite is excluded from batches — run it with `pytest -m e2e` against a server started with `TTS_DISABLE_RATE_LIMITING=1` |
 | `make test-batch-continue` | Run all test batches, continuing past failures |
 | `make install-mlx` | Install with MLX backend dependencies |
