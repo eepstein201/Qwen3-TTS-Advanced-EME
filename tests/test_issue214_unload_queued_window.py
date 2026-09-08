@@ -258,6 +258,72 @@ def _locked_with_contains_call(tree, needle):
     return False
 
 
+def _inference_lock_bodies(tree):
+    """Every ``async with ... inference_lock`` node in *tree*."""
+    return [
+        node
+        for node in ast.walk(tree)
+        if isinstance(node, ast.AsyncWith)
+        and any(
+            "inference_lock" in ast.unparse(item.context_expr) for item in node.items
+        )
+    ]
+
+
+def _locked_assignments_from_call(tree, needle):
+    """Unparsed source of every ``x = <call matching needle>`` INSIDE an
+    ``async with ... inference_lock`` body.
+
+    Assignment, not a bare call: the guard's entire second half is the value it
+    RETURNS. A bare ``_require_model_under_lock(state, mode)`` still raises on
+    an unloaded slot, so every null-half test stays green while the reload half
+    silently runs inference on the orphaned pre-unload object -- exactly the
+    discard this branch exists to remove. The enclosure pin above cannot see
+    the difference.
+    """
+    found = []
+    for node in _inference_lock_bodies(tree):
+        for sub in ast.walk(node):
+            if not isinstance(sub, ast.Assign):
+                continue
+            value = sub.value
+            if isinstance(value, ast.Call) and _calls_matching(value, needle):
+                found.append(ast.unparse(sub))
+    return found
+
+
+def _statement_has_call_named(stmt, attr):
+    """True iff *stmt* contains a ``<something>.<attr>()`` call anywhere."""
+    return any(
+        isinstance(sub, ast.Call)
+        and isinstance(sub.func, ast.Attribute)
+        and sub.func.attr == attr
+        for sub in ast.walk(stmt)
+    )
+
+
+def _guard_and_thread_start_positions(tree, needle):
+    """Statement indices of the guard call and of ``.start()`` within the
+    ``inference_lock`` body, as ``(guard_at, start_at)``.
+
+    Either entry is ``None`` when that statement is absent. Ordering matters
+    because the inference thread reads ``model`` from the enclosing function's
+    cell: a rebind moved AFTER ``thread.start()`` leaves the thread reading
+    whichever value wins a GIL race -- a flake, not a failure, and invisible to
+    the enclosure and assignment pins alike.
+    """
+    for node in _inference_lock_bodies(tree):
+        guard_at = start_at = None
+        for index, stmt in enumerate(node.body):
+            if guard_at is None and _calls_matching(stmt, needle):
+                guard_at = index
+            if start_at is None and _statement_has_call_named(stmt, "start"):
+                start_at = index
+        if guard_at is not None or start_at is not None:
+            return guard_at, start_at
+    return None, None
+
+
 # ---------------------------------------------------------------------------
 # Item 1: the /unload-model route takes inference_lock
 # ---------------------------------------------------------------------------
@@ -1022,34 +1088,103 @@ class TestPostLockSlotReRead(unittest.TestCase):
         self.assertIsNot(
             streaming_models[0], old_model, "the orphaned capture reached streaming"
         )
+        self.assertGreaterEqual(
+            state.inference_lock.acquire_calls,
+            1,
+            "the streaming generator never acquired inference_lock",
+        )
 
-    def test_streaming_and_ws_re_read_inside_their_locks(self):
-        """Structural: the streaming generator and the /ws stream function
-        must call the same under-lock re-read helper inside their
-        ``async with ... inference_lock`` bodies (behavioral coverage is the
-        batch test above; these paths share the helper). A missing target is
-        a LOUD failure -- a rename must update this test, not silently
-        unpin it."""
-        import qwen3_tts.server.app_generation as appgen
-        import qwen3_tts.server.websocket as wsmod
+    # Every site that captures a model slot pre-lock and then runs inference
+    # (or create inference) under it. Kept as one list so a new capture path
+    # is added in ONE place -- prompt_loading.py was the fifth such path and
+    # went unpinned for a whole branch.
+    _GUARDED_SITES = (
+        ("qwen3_tts.server.app_generation", "handle_generate"),
+        ("qwen3_tts.server.app_generation", "handle_generate_stream"),
+        ("qwen3_tts.server.websocket", "_stream_generation"),
+        ("qwen3_tts.server.app_prompts", "handle_create_voice_prompt"),
+        ("qwen3_tts.server.prompt_loading", "load_voice_prompt_serialized"),
+    )
 
-        for module, func_name in (
-            (appgen, "handle_generate_stream"),
-            (wsmod, "_stream_generation"),
-        ):
+    def _guarded_site_trees(self):
+        """Yield ``(label, tree)`` for every guarded site. A missing target is
+        a LOUD failure -- a rename must repoint these pins, not unpin them."""
+        for module_name, func_name in self._GUARDED_SITES:
+            module = importlib.import_module(module_name)
             func = getattr(module, func_name, None)
             if func is None:
                 self.fail(
-                    f"{module.__name__}.{func_name} not found -- the "
-                    "streaming/WS re-read pin has lost its target; repoint "
-                    "it, do not delete it"
+                    f"{module_name}.{func_name} not found -- an under-lock "
+                    "re-read pin has lost its target; repoint it, do not "
+                    "delete it"
                 )
-            tree = ast.parse(textwrap.dedent(inspect.getsource(func)))
+            yield (
+                f"{module_name}.{func_name}",
+                ast.parse(textwrap.dedent(inspect.getsource(func))),
+            )
+
+    def test_streaming_and_ws_re_read_inside_their_locks(self):
+        """Structural: every path that captures a model slot pre-lock must
+        call the under-lock re-read helper inside its
+        ``async with ... inference_lock`` body (behavioral coverage is the
+        batch/streaming/WS tests above; these paths share the helper).
+
+        The tuple covers the streaming and /ws generators, both prompt-create
+        paths (``/create-voice-prompt``'s torch branch and the torch
+        auto-create-from-.wav loader), and the batch handler."""
+        for label, tree in self._guarded_site_trees():
             self.assertTrue(
                 _locked_with_contains_call(tree, "_require_model_under_lock"),
-                f"{module.__name__}.{func_name} must re-read the model slot "
-                "under inference_lock (the capture->acquire gap leaves the "
-                "streaming/WS paths running inference on an orphaned model)",
+                f"{label} must re-read the model slot under inference_lock "
+                "(the capture->acquire gap otherwise leaves it running "
+                "inference on an orphaned model)",
+            )
+
+    def test_every_guarded_site_assigns_the_guard_result(self):
+        """The re-read must be REBOUND, not merely called.
+
+        The enclosure pin above matches a bare
+        ``_require_model_under_lock(state, mode)`` just as happily as an
+        assignment -- and a bare call still raises the retryable 503 on an
+        unloaded slot, so every null-half test in this suite stays green while
+        the reload half runs inference on the orphaned pre-unload object. This
+        pin requires an ``ast.Assign`` whose value is the guard call."""
+        for label, tree in self._guarded_site_trees():
+            assignments = _locked_assignments_from_call(
+                tree, "_require_model_under_lock"
+            )
+            self.assertTrue(
+                assignments,
+                f"{label} calls the under-lock re-read but discards its "
+                "return value -- the reload half of the window is open (the "
+                "local still points at the orphaned pre-unload model)",
+            )
+
+    def test_thread_starting_sites_rebind_before_start(self):
+        """Ordering pin for the two sites that hand ``model`` to a thread.
+
+        ``inference_thread`` is a nested function that resolves ``model`` from
+        its enclosing scope's cell, so a rebind moved AFTER ``thread.start()``
+        does not fail — it races. The thread would read whichever value wins,
+        which is a flake in production and completely invisible to the
+        enclosure and assignment pins."""
+        for label, tree in self._guarded_site_trees():
+            guard_at, start_at = _guard_and_thread_start_positions(
+                tree, "_require_model_under_lock"
+            )
+            if start_at is None:
+                continue  # no inference thread at this site
+            self.assertIsNotNone(
+                guard_at,
+                f"{label} starts an inference thread under inference_lock "
+                "with no under-lock re-read before it",
+            )
+            self.assertLess(
+                guard_at,
+                start_at,
+                f"{label} rebinds the model slot AFTER starting the inference "
+                "thread -- the thread reads `model` from this scope's cell, so "
+                "the rebind must precede start() or the two race",
             )
 
     def test_guard_returns_the_slot_it_validates(self):

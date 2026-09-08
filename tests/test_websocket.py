@@ -1098,9 +1098,21 @@ class TestWebSocketFreshSlotUnderLock(unittest.IsolatedAsyncioTestCase):
         self.assertIsNot(
             streaming_models[0], old_model, "the orphaned capture reached /ws inference"
         )
-        error_frames = [m for m in ws.sent_json if "error" in m]
+        # Positive assertions on the OUTCOME, not a dict-key sniff: the real
+        # terminal failure frame is {"status": "error", "detail": ...}, which
+        # has no "error" key at all — so an inference stub that records the
+        # model and then raises used to satisfy every assertion above while
+        # producing zero audio.
+        self.assertTrue(ws.sent_json, "no terminal frame was ever sent")
         self.assertEqual(
-            error_frames, [], f"unexpected error frames: {error_frames!r}"
+            ws.sent_json[-1].get("status"),
+            "complete",
+            f"the generation did not finish cleanly: {ws.sent_json[-1]!r}",
+        )
+        self.assertEqual(
+            len(ws.sent_bytes),
+            1,
+            f"expected the one streamed audio chunk, got {len(ws.sent_bytes)}",
         )
 
 
