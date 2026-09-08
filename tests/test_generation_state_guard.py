@@ -203,6 +203,23 @@ class TestGenerationStateGuardSnapshot(unittest.TestCase):
         snap = self.guard.snapshot(["chunk_index", "chunk_total"])
         self.assertEqual(snap, {"chunk_index": 1, "chunk_total": 2})
 
+    def test_snapshot_materializes_keys_before_taking_the_lock(self):
+        # The keys argument is caller-supplied and may be a generator: its
+        # code must run BEFORE the lock is acquired, or a generator that
+        # itself touches the guard would deadlock on the non-reentrant lock.
+        # The probe reads _lock.locked() on purpose — "the lock is not held
+        # while caller code runs" is precisely the contract under test.
+        held_while_materializing = []
+
+        def keys_generator():
+            held_while_materializing.append(self.guard._lock.locked())
+            yield "chunk_index"
+            yield "chunk_total"
+
+        snap = self.guard.snapshot(keys_generator())
+        self.assertEqual(snap, {"chunk_index": 0, "chunk_total": 0})
+        self.assertEqual(held_while_materializing, [False])
+
     def test_snapshot_of_live_dict_is_consistent_across_keys(self):
         # A snapshot taken between two in-lock updates can legitimately differ
         # in TIME, but within one snapshot the pair must be the pair written
@@ -310,6 +327,46 @@ class TestGuardForProvisioning(unittest.TestCase):
         state.generation_state = dict(IDLE_STATE)
         guard_for(state)
         self.assertFalse(hasattr(state, "generation_lock"))
+
+    def test_concurrent_first_touch_returns_one_shared_guard(self):
+        # Simultaneous first-touches must all receive the SAME guard object.
+        # A last-writer-wins race here hands different threads guards backed
+        # by DIFFERENT threading.Locks — zero mutual exclusion. Release every
+        # contender from one Event (no sleeps); join with timeouts and assert
+        # completion.
+        state = _make_state()
+        release = threading.Event()
+        results = []
+        errors = []
+        THREADS = 4
+        JOIN_TIMEOUT_SEC = 30.0
+
+        def touch():
+            try:
+                release.wait(timeout=JOIN_TIMEOUT_SEC)
+                results.append(guard_for(state))
+            except Exception as exc:  # pragma: no cover - defensive
+                errors.append(exc)
+
+        threads = [
+            threading.Thread(target=touch, name=f"first-touch-{n}")
+            for n in range(THREADS)
+        ]
+        for thread in threads:
+            thread.start()
+        release.set()
+        for thread in threads:
+            thread.join(timeout=JOIN_TIMEOUT_SEC)
+            self.assertFalse(
+                thread.is_alive(),
+                f"{thread.name} did not finish within {JOIN_TIMEOUT_SEC}s",
+            )
+
+        self.assertEqual(errors, [])
+        self.assertEqual(len(results), THREADS)
+        for guard in results:
+            self.assertIs(guard, results[0])
+        self.assertIs(state.generation_state_guard, results[0])
 
 
 class TestLifespanWiring(unittest.TestCase):

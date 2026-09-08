@@ -49,6 +49,13 @@ from typing import Any
 
 __all__ = ["GenerationStateGuard", "guard_for"]
 
+# Serializes guard_for()'s lazy check-then-set so simultaneous first-touches
+# cannot each construct a guard and last-write the attribute (which would
+# hand different threads guards backed by different threading.Locks).
+# Production never hits this path — app_lifespan provisions eagerly — so
+# this lock only serves fake/test states touched from several threads.
+_CONSTRUCTION_LOCK = threading.Lock()
+
 # The ten canonical keys of ``generation_state`` (see the idle shape in
 # ``app_lifespan.lifespan``). ``snapshot()`` defaults to exactly these, so
 # callers never receive a dict with surprise keys.
@@ -176,12 +183,18 @@ class GenerationStateGuard:
         Callers never receive the live dict, so a snapshot can be read
         without the lock and cannot be used to bypass the guard. Within one
         snapshot the keys are mutually consistent (read in one locked step).
+
+        ``keys`` is materialized BEFORE the lock is taken: it is
+        caller-supplied and may be a generator, and resuming caller code
+        while holding a non-reentrant lock would deadlock any generator that
+        touches the guard.
         """
+        requested = list(keys) if keys is not None else None
         with self._lock:
             state = self._state
-            if keys is None:
+            if requested is None:
                 return {name: state[name] for name in _CANONICAL_KEYS}
-            return {name: state[name] for name in keys}
+            return {name: state[name] for name in requested}
 
 
 def guard_for(app_state: Any) -> GenerationStateGuard:
@@ -190,11 +203,20 @@ def guard_for(app_state: Any) -> GenerationStateGuard:
     Production: ``app_lifespan`` provisions it eagerly (see the wiring in
     ``lifespan()``). Fake/test states that never provisioned one get a
     transient guard on first handler touch — late binding of
-    ``app_state.generation_state`` keeps both paths correct. Idempotent: the
-    first guard cached on the state wins.
+    ``app_state.generation_state`` keeps both paths correct.
+
+    Idempotent, including under concurrent first-touch: the check-then-set
+    runs inside the module-level ``_CONSTRUCTION_LOCK``, so the first guard
+    cached on the state wins and every contender receives the SAME object.
+    Unserialized, two simultaneous first-touches could each construct a
+    guard and last-write the attribute — leaving callers holding guards
+    backed by DIFFERENT ``threading.Lock`` s, i.e. zero mutual exclusion.
+    Production never hits the lazy path (lifespan provisions eagerly); the
+    construction lock covers fake/test states touched from multiple threads.
     """
-    guard = getattr(app_state, "generation_state_guard", None)
-    if guard is None:
-        guard = GenerationStateGuard(app_state)
-        app_state.generation_state_guard = guard
+    with _CONSTRUCTION_LOCK:
+        guard = getattr(app_state, "generation_state_guard", None)
+        if guard is None:
+            guard = GenerationStateGuard(app_state)
+            app_state.generation_state_guard = guard
     return guard
