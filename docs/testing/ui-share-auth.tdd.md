@@ -79,10 +79,15 @@ counted in the 9. Every failure was one of exactly three right-reasons:
   urlsafe chars; `password = secrets.token_urlsafe(16)`), both printed to the console via
   `print()`; `secrets.token_urlsafe` raising ⇒ chained `RuntimeError`. Every
   credential-establishment path either lands the tuple or raises BEFORE kwargs return.
-- `allowed_paths = list({output_dir, tempfile.gettempdir()})` — only the blanket
-  `~/Downloads` entry dropped; `output_dir` still comes from `_resolve_output_dir(config)`,
-  so when the configured output root IS `~/Downloads` (non-default), it stays served — as
-  the output dir itself, never as a blanket parent.
+- `allowed_paths = list({history_root, tempfile.gettempdir()})` — only the blanket
+  `~/Downloads` entry dropped. *(Corrected in fix round 1: this bullet originally said
+  `output_dir` still comes from `_resolve_output_dir(config)` and that `~/Downloads`
+  stays served as the output dir only when configured "(non-default)" — inverted, since
+  `~/Downloads` IS the `output_directory` default. The resolver is now
+  `resolve_history_output_dir(config)`, the `history_output_directory` key with default
+  `~/Downloads/Qwen3-TTS Output`; under `_resolve_output_dir` the default-config grant
+  `{~/Downloads, tempdir}` equalled the effective BASE grant, so the narrowing was a
+  no-op until the swap.)*
 - Both call sites: `**get_gradio_launch_kwargs(config, share=share)`; the helper returns no
   `share` key, so there is no duplicate-kwarg conflict with the site's own `share=share`.
 - GREEN runs: **9 passed + 2 subtests** on qwen3-tts-mlx (py3.11.14) and on torchless
@@ -210,3 +215,35 @@ launch string, the notebook, and docs.
    supervised launches the console IS the PM2 log; for a foreground `tts ui` it is the
    terminal. There is no persistence beyond the one print — re-launching regenerates new
    credentials by design (the env pair is the stable-credential path).
+
+## Fix round 1 (allowed-paths resolver swap)
+
+The whole-branch review's single MEDIUM: the GREEN used `_resolve_output_dir(config)` for
+the allowed-paths entry, but that reads the legacy `output_directory` key whose DEFAULT is
+`~/Downloads` — so under default config the grant `{~/Downloads, tempdir}` equalled the
+effective BASE grant and the narrowing was a no-op. The binding "output_dir is the parent
+of both app subfolders" means the HISTORY root: `resolve_history_output_dir(config)`
+(the `history_output_directory` key, default `~/Downloads/Qwen3-TTS Output`, same
+traversal guard).
+
+- **RED** (`a43afa8`): `test_allowed_paths_narrow_to_output_dir_and_tempdir` re-keyed onto
+  `history_output_directory` and renamed to
+  `test_allowed_paths_narrow_to_history_root_and_tempdir`; NEW
+  `test_default_config_grants_history_root_not_downloads` pins the all-default grant
+  (history root PRESENT, realpath(~/Downloads) ABSENT); the legacy
+  `tests/test_ui_facade.py` test that PINS Downloads-present under `{}` was re-pinned
+  (controller-authorized for exactly this test) to
+  `test_includes_history_root_not_downloads_in_allowed_paths`. RED run: **3 failed / 80
+  passed** — all three failures show the history root missing while `~/Downloads` is
+  still in the granted set (the wrong-resolver reason).
+- **GREEN** (`705e3bc`): the one-line resolver swap in `get_gradio_launch_kwargs`
+  (`_resolve_output_dir` → `resolve_history_output_dir`, local renamed `output_dir` →
+  `history_root`). Mutation-verified: reverting the resolver briefly → exactly the same
+  3 narrowing tests RED → restored (grep/diff clean) → green again. New module is now
+  **10 tests** on both interpreters; the full non-e2e count moves accordingly.
+- **Downstream alignment verified, no edits:** `colab_notebook.ipynb` cell 6 hard-codes
+  `os.path.realpath(os.path.expanduser('~/Downloads/Qwen3-TTS Output'))` (ipynb line
+  ~175) — the exact default-config grant post-swap; `tests/test_ui_headless.py`'s
+  modernized literal mirrors the same shape. CLAUDE.md's `tts ui` entry says
+  "narrowed to the app output dir + temp" — names no config key and is true as written
+  post-swap, so it was left untouched per the controller ruling.
