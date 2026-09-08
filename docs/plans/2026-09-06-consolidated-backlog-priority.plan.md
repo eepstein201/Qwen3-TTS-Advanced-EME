@@ -565,12 +565,19 @@ unfalsifiable. 3e's M8 sub-item is dropped here — it's Step 1B above.)*
   6. `max_chunk_chars` gets Pydantic `Field` bounds (currently likely unbounded int).
   7. `FileNotFoundError` detail messages get path-sanitized before reaching the client (CWE-209
      pattern, matching the `/health` redaction already done elsewhere).
+- **2026-09-08 reconciliation:** items 5 and 6 are SUPERSEDED by the Wave 0 executions — item 5
+  (streaming `generation_state` guarding) is 0C's entire scope (PR #270, `b9c61f1`); item 6
+  (`max_chunk_chars` Pydantic bounds) is 0A's exact fix (PR #263, `4c6daca`). Verify-and-mark at
+  execution; 3D is a five-item step.
 - **Verify:** server test suite + `ruff` + `mypy` + bandit (touches error-detail sanitization).
 - **Exit criteria:** all 7 sub-items above verified fixed with regression tests; master plan updated to mark 3e done (minus M8, already closed in Step 1B), citing this PR.
 
 ### Step 3E — 3g: CLI/tools bundle
 
 - **Model tier:** default · **Branch:** `fix/phase3-cli-tools-bundle` · **Parallel with:** 3C, 3D
+- **Coordination (2026-09-08):** Wave 7 Step 7B sequences AFTER this step — its CLI-idiom
+  migration absorbs items 4 (healthcheck formatting → `cli_output.fmt_bytes`) and 5 (help text
+  → T2.6).
 - **Context/tasks (inlined during adversarial review; not individually re-verified against
   current source this pass — re-check each first):**
   1. `tts voice create` returns a non-zero exit code on failure (confirm it currently returns 0
@@ -902,6 +909,10 @@ analysis rather than duplicated as a new step.)*
 
 - **Model tier:** default · **Branch:** `refactor/error-response-noreturn` · **Source:**
   python-review M2
+- **FOLDED (2026-09-08) into Wave 7 Step 7C** — interface plan T3.1 rewrites `_error_response`
+  as `-> NoReturn` with the typed signature, so 7C carries this step's exit criteria (the
+  24-site fall-through-guard audit + `mode: str` on `_require_model_under_lock`) as
+  deliverables; the standalone branch is retired. Body below retained for the criteria detail.
 - **Context:** `_error_response` (`validation.py:487-504`) is typed `-> None` although it always
   raises — so mypy can't prove unreachability after a call, forcing ~10 hand-written
   fall-through guard blocks across 4 files to exist purely to satisfy the checker.
@@ -975,6 +986,9 @@ analysis rather than duplicated as a new step.)*
   envelope family this step owns. Decide explicitly whether remaining items 503 individually or the
   batch truncates with `cancelled: true` semantics.
 - **Exit criteria:** no exception path in `handle_generate` bypasses `_error_response`.
+- **Coordination (2026-09-08):** execute before or within Wave 7 Step 7C so the catch-all maps
+  into the typed envelope (`unknown_error` is in 7C's enum); the mid-batch-503 semantics
+  decision above rides along.
 
 ### Step 6L — Extract `GenerationCache` (server-handler oversized functions)
 
@@ -1106,13 +1120,93 @@ analysis rather than duplicated as a new step.)*
 
 ---
 
+## Wave 7 — Interface quality: Web UI · CLI · HTTP API (incorporated 2026-09-08)
+
+> **Source plan:** `docs/plans/2026-09-07-interface-quality.plan.md` (tracked copy of the
+> Interface Quality Improvement Plan — a three-surface audit of the Gradio web UI, the CLI, and
+> the HTTP API, user-scoped: polish not retheme, breaking API response shapes acceptable, one
+> document in three phases). **The tracked copy is THE spec for all three steps** — task-level
+> detail (interfaces, RED/GREEN steps, risk register, non-goals) lives there; this section
+> carries ownership, sequencing, and the reconciliation against the 0B/0C/0D executions the
+> source plan predates (its line numbers are pre-0B — locate by content, standing rule).
+>
+> **Execution position (branch-creation order, not file order — same convention as Wave 2):**
+> Wave 7 runs AFTER Waves 1–2 (it modifies `app_generation.py` and `app.py`, whose semantics
+> those waves own) and BEFORE Wave 6's 6A–6E splits (whose "last" rationale — the code is still
+> being modified — applies to these phases equally). 3E lands before 7B (see the 3E note). Each
+> phase is an independent branch + PR; within a phase the source plan's task order holds.
+
+### Step 7A — Phase 1: Web UI polish pass
+
+- **Model tier:** strongest (Gradio 6 semantics + a verified latent defect) · **Branch:**
+  `feat/ui-polish-pass`
+- **Spec:** interface plan Phase 1, Tasks 1.0–1.9 in the given order (T1.0 is the shared
+  enabler: auth-gated progress details on `/generation-status`, consumed later by 7B's poller).
+- **Reconciliation against the Wave 0 executions (re-verify at dispatch):**
+  - T1.0's `_chunk_progress` closures are now guard-routed (`guard.update_progress`, 0C) — the
+    normalized `progress_pct` computation extends the guard call sites, NOT direct dict writes;
+    raw `generation_state` access is pinned against by the 0C structural pin (allowlist =
+    lifespan init only).
+  - `/generation-status` reads via `guard.snapshot()` (0C) — the authed-details block extends
+    the snapshot result; the public-payload byte-identity constraint is the SAME invariant 0C
+    recorded in CLAUDE.md (sensitive fields stripped unauthenticated).
+  - The cancel-confirmation "Progress: 300%" defect fix (T1.6) touches `_prepare_cancel_confirmation`
+    — unchanged by 0C/0D, still latent.
+- **Verify:** as the source plan (unit/contract + UI batches in BOTH gradio envs + live
+  `curl`/browser pass after PM2 restart).
+- **Exit criteria:** Phase 1 tasks all landed; the public `/generation-status` payload
+  byte-identical; the fabricated-progress defect regression-tested away; CLAUDE.md UI section
+  updated.
+
+### Step 7B — Phase 2: CLI consistency
+
+- **Model tier:** default · **Branch:** `feat/cli-output-consistency`
+- **Spec:** interface plan Phase 2, Tasks 2.1–2.6 in order (2.1 `cli_output.py` tests first;
+  2.2 the exception boundary + exit-code contract; 2.4 consumes 7A's authed details and
+  degrades gracefully without them).
+- **Sequencing:** 3E lands FIRST (behavioral CLI fixes on the current idiom); 7B's sweep then
+  migrates the idiom — T2.1's `fmt_bytes` absorbs healthcheck's `size_str` (3E item 4) and
+  T2.6's help pass supersedes 3E item 5. T2.2 lands before 7C's T3.3 (typed errors need a CLI
+  catcher first).
+- **Verify:** as the source plan (`pytest -k cli` after each file's swap; golden-string renderer
+  tests; `tts list speakers` == `tts generate --list-speakers` unification contract; NO_COLOR
+  and tty-guard cases).
+- **Exit criteria:** one output idiom (`cli_output`), errors on stderr with exit 1 and no
+  tracebacks, the exit-code contract documented (0 / 1 / 2-reserved-success), one renderer per
+  resource, help text + metvars + `_FLAG_MAP` completeness.
+
+### Step 7C — Phase 3: API error/status contract
+
+- **Model tier:** default (wide but mechanical migration + enum design) · **Branch:**
+  `feat/api-error-contract`
+- **Spec:** interface plan Phase 3, Tasks 3.1–3.5 (3.4 independent). Breaking response shapes
+  ARE acceptable (sole consumers are this repo's CLI and UI — user-scoped decision).
+- **Folds and coordination:**
+  - **SUBSUMES Step 6G**: T3.1 rewrites `_error_response` as `-> NoReturn` with the typed
+    signature — 7C carries 6G's exit criteria (the 24-site fall-through-guard audit +
+    `mode: str` on `_require_model_under_lock`) as deliverables. 6G's standalone branch is
+    retired.
+  - **6K coordinates**: run 6K before or within 7C so the `handle_generate` catch-all maps into
+    the typed envelope (`unknown_error` is in T3.1's enum); its mid-batch-503 semantics decision
+    rides along.
+  - WS flat shapes stay as-is (source-plan non-goal; the 0B/0D frame conventions untouched).
+- **Verify:** as the source plan (sweep test over `app.openapi()["paths"]`; the grep-based
+  string-`detail` repo test with allowlist; live `curl` of a 503 envelope after PM2 restart;
+  full non-e2e + both-env rule).
+- **Exit criteria:** one structured error envelope with `ErrorCode`/`RecoveryAction` enums on
+  every documented 4xx/5xx; per-endpoint status vocabularies; `model_type`/`idle_sec` renames +
+  `text`→`texts` normalization; client single-raise path with typed mapping; OpenAPI metadata +
+  version single-sourced; `/health` version+uptime; 6G's guards deleted with mypy green.
+
+---
+
 ## Independent tracks (not gated by the waves above — different domain or decision-gated)
 
 ### Track T1 — Prosody preset builder v3 (feature, not backlog cleanup)
 
 - **Status:** fully speced, two 4-reviewer rounds already SHIP-WITH-EDITS. Plan: `~/.claude/plans/include-this-as-well-elegant-reef.md`.
 - **Gate:** **your explicit go-ahead** — this is new user-facing scope, not an autonomous bug fix. Confirmed 2026-09-06 still unimplemented (`core/config/presets.py` still 118 lines, no save/delete functions).
-- **When to run:** anytime after you approve it; does not depend on or block any wave above (touches `core/config/presets.py`, `interface/voice_helpers.py`, `interface/ui/tabs_generation.py`, `interface/ui/_facade.py` — no overlap with the waves).
+- **When to run:** anytime after you approve it; does not depend on or block any wave above (touches `core/config/presets.py`, `interface/voice_helpers.py`, `interface/ui/tabs_generation.py`, `interface/ui/_facade.py` — no overlap with the waves). **One exception (2026-09-08): Wave 7 Step 7A** modifies `interface/ui/tabs_generation.py` + `_facade.py` too — serialize T1 against 7A (T1 first on the current UI, or rebase T1 onto 7A's design layer if it lands second).
 
 ### Track T2 — mlx-env FastAPI repair (0.135.1 → 0.141.1)
 
@@ -1127,11 +1221,15 @@ analysis rather than duplicated as a new step.)*
 
 ## Summary
 
-**44 pending execution steps across 8 waves** — Wave 0: 0A–0G (7) · Wave 1: 1A–1E (5) · Wave 2: 2
+**47 execution steps across 9 waves** — Wave 0: 0A–0G (7) · Wave 1: 1A–1E (5) · Wave 2: 2
 (1) · Wave 3: 3A–3E (5) · Wave 4: 4A–4D (4) · Wave 4B: 4B.1–4B.4 (4) · Wave 5: 5 (1) · Wave 6:
-6A–6Q (17) — **plus 2 independent tracks** (feature and dependency, neither gated by the waves) **+ 1 passive watch** (no action). Step 6·0 (dead-code cleanup) was already
+6A–6Q (17) · Wave 7: 7A–7C (3) — **plus 2 independent tracks** (feature and dependency, neither gated by the waves) **+ 1 passive watch** (no action). Step 6·0 (dead-code cleanup) was already
 executed directly on 2026-09-06 and is recorded in Wave 6; it is not counted among the pending
-steps. Ordered by: critical correctness/security findings from the 2026-09-06 cross-cutting
+steps. **Executed so far: 0A (PR #263), 0B (PR #269), 0C (PR #270), 0D (PR #271).** **6G is
+folded into Wave 7 Step 7C** (not independently pending). ***Open: 42.*** *(Wave 7 incorporated
+2026-09-08 from the Interface Quality Improvement Plan — a three-surface audit of Web UI, CLI,
+and HTTP API, user-scoped; tracked at `docs/plans/2026-09-07-interface-quality.plan.md`, which
+is the spec for 7A–7C.)* Ordered by: critical correctness/security findings from the 2026-09-06 cross-cutting
 reviews first (Wave 0), then independent bug fixes and gate-integrity work (Wave 1), the
 on-demand-load feature gated on the reliability investigation it would otherwise multiply
 (Wave 2 — hard-gated on Wave 4's Step 4B; read "Wave 2 before Wave 4" as branch-creation order,
