@@ -129,6 +129,21 @@ class TestShareRequiresAuthHelper(unittest.TestCase):
             f"credentials seam resolves into the real config dir: {path}",
         )
 
+    def test_seam_honors_tts_ui_credentials_dir_override(self):
+        """``TTS_UI_CREDENTIALS_DIR`` moves the credentials file — the knob
+        that isolates the unittest batch subprocesses, which never see the
+        conftest fixture. Env-based, so this passes under BOTH runners."""
+        import qwen3_tts.interface.ui.shared as ui_shared
+
+        override = tempfile.TemporaryDirectory()
+        # Restore the ambient environment BEFORE mutating it (leak-safe order).
+        self.addCleanup(os.environ.pop, "TTS_UI_CREDENTIALS_DIR", None)
+        self.addCleanup(override.cleanup)
+        os.environ["TTS_UI_CREDENTIALS_DIR"] = override.name
+        path = ui_shared._ui_credentials_path()
+        self.assertEqual(os.path.dirname(path), override.name)
+        self.assertEqual(os.path.basename(path), ".ui_share_credentials")
+
     def test_share_true_prefers_both_env_vars_verbatim(self):
         from qwen3_tts.interface.ui.shared import get_gradio_launch_kwargs
 

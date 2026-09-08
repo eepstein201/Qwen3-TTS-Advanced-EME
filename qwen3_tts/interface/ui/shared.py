@@ -875,11 +875,17 @@ def _ui_credentials_path() -> str:
     Mirrors paths.py's ``_TOKEN_DIR`` base (``~/.config/qwen3-tts``, the same
     directory that holds the server auth token). Overridable seam: tests patch
     this at the definition site so nothing touches the real config directory.
+
+    ``TTS_UI_CREDENTIALS_DIR`` (test-infra knob, never set in production)
+    moves the file's directory — tests/conftest.py points every pytest test at
+    its tmp_path, and tests/run_batches.py points its unittest batch
+    subprocesses at the system tempdir, because those subprocesses never see
+    pytest fixtures.
     """
     # keep in sync with _TOKEN_DIR in core/config/paths.py
-    return os.path.join(
-        os.path.expanduser("~/.config/qwen3-tts"), ".ui_share_credentials"
-    )
+    override = os.environ.get("TTS_UI_CREDENTIALS_DIR")
+    base = override if override else os.path.expanduser("~/.config/qwen3-tts")
+    return os.path.join(base, ".ui_share_credentials")
 
 
 def _write_ui_credentials(path: str, password: str) -> None:
@@ -894,7 +900,11 @@ def _write_ui_credentials(path: str, password: str) -> None:
     os.makedirs(directory, mode=0o700, exist_ok=True)
     fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
     try:
-        os.fchmod(fd, 0o600)
+        # os.fchmod is Unix-only; Windows is not a supported platform, and a
+        # from-source run there degrades gracefully to the os.open creation
+        # mode instead of raising AttributeError.
+        if hasattr(os, "fchmod"):
+            os.fchmod(fd, 0o600)
         os.write(fd, (password + "\n").encode("utf-8"))
     finally:
         os.close(fd)
