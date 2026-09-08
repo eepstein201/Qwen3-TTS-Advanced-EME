@@ -876,6 +876,7 @@ def _ui_credentials_path() -> str:
     directory that holds the server auth token). Overridable seam: tests patch
     this at the definition site so nothing touches the real config directory.
     """
+    # keep in sync with _TOKEN_DIR in core/config/paths.py
     return os.path.join(
         os.path.expanduser("~/.config/qwen3-tts"), ".ui_share_credentials"
     )
@@ -885,13 +886,15 @@ def _write_ui_credentials(path: str, password: str) -> None:
     """Write ONLY the password to ``path`` as a single 0600 line.
 
     Truncates any file left by a previous shared launch. The 0600 mode goes to
-    ``os.open`` itself (creation mode), so the secret is never briefly
-    readable by anything but the owner.
+    ``os.open`` itself (creation mode), and ``os.fchmod`` re-asserts it on the
+    open descriptor — so the file is 0600 regardless of umask, and a
+    pre-existing looser-mode file is tightened on rewrite.
     """
     directory = os.path.dirname(path)
     os.makedirs(directory, mode=0o700, exist_ok=True)
     fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
     try:
+        os.fchmod(fd, 0o600)
         os.write(fd, (password + "\n").encode("utf-8"))
     finally:
         os.close(fd)
