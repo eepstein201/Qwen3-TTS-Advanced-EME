@@ -383,6 +383,24 @@ incomplete.
   transcript does nothing to change. An implementer who picks this option ships no fix at all.
   **Record the decision** (with rationale) in this plan file before writing code, the same way
   FOLLOWUP-1 was recorded in `consolidated-roadmap.md`.
+- **DECISION RECORDED (2026-09-09, controller ruling, user-approved — option (b), keep-loaded
+  variant):** when `trim_icl_echo=true`, `mode=clone`, and a transcript resolves but ASR is not
+  loaded, force-load ASR for the trim probe and **keep it loaded** (the measured warm load is
+  1.8–1.9s — banked research `~/.claude/session-data/2026-09-09-1c-decision-research.md` — and
+  amortizes to once per server lifetime via the process-lifetime ASR globals). Rationale:
+  `trim_icl_echo: true` is the documented default and option (b) makes that default true; the
+  accepted cost is the 3.2–7.3s probe per clone-generation (measured, 17 samples), serialized
+  inside `inference_lock` like the generation itself. Implementation notes: the in-engine
+  force-load is a documented deviation from `/load-asr`'s outside-`inference_lock` split and is
+  not limiter-governed (accepted — engine-side, operator's own server); the keep-loaded variant
+  makes the unload-after toggle unnecessary (drop that config-surface item — no new key beyond
+  what the probe needs, which is none: `trim_icl_echo` itself is the consent);
+  `tests/test_icl_echo_trim.py:218-226` pins today's gate and is rewritten. **Multi-chunk cap
+  co-decision (WS9.4): keep single application on the combined head** (the echo is a
+  generation-head artifact; per-chunk application would re-probe without catching more) **but
+  scale the 50% cap to the first chunk rather than the combined total** — today's
+  combined-audio cap can license trimming half of a multi-chunk output, far past any plausible
+  echo.
 - **Tasks (after the decision is recorded):** write the failing test for the chosen behavior, RED,
   implement, GREEN, update `CLAUDE.md`'s `trim_icl_echo` row if the on-by-default claim changes.
 - **Reconciliation add-on (2026-09-08, WS9.4 of the remediation plan):** the multi-chunk echo-trim
