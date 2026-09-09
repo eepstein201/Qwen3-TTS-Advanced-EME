@@ -106,10 +106,11 @@ both directions (too much to the client, too little to the operator):
 
 ## The RED run (verbatim)
 
-**Task 1** — 9 new RED tests + 2 rate-limit neighbours, run against `727391e^`
-(`conda run -n qwen3-tts-mlx python -m pytest <nodes> -v --tb=short`): **11 failed,
-1 passed** (the pass is `test_ascii_mismatch_still_401_and_audits`, the deliberate
-refactor guard, green before and after by design). Verbatim failure lines:
+**Task 1** — 9 new tests (8 RED + the deliberate-green guard) + 3 rate-limit
+neighbours, run against `727391e^` (`conda run -n qwen3-tts-mlx python -m pytest
+<nodes> -v --tb=short`): **11 failed, 1 passed** (the pass is
+`test_ascii_mismatch_still_401_and_audits`, the deliberate refactor guard, green
+before and after by design). Verbatim failure lines:
 
 ```
 FAILED tests/test_fastapi_app_ext2.py::TestVerifyAuthNonAscii::test_lowercase_bearer_scheme_authenticates - fastapi.exceptions.HTTPException: 401: Unauthorized
@@ -215,10 +216,12 @@ purpose.
    "clients reading ``detail`` saw None", but the JSON `null` rode the old
    `message` key — `message`-reading clients saw literal `null`, while
    `detail`-reading clients saw an ABSENT key. Same defect, mislabeled reader.
-3. **The `/ws` in-lock guard (`websocket.py:544-547`) spreads the classified dict
-   without sanitizing its human message** (`dict(e.detail)` → `send_json`). Safe
-   today — the dict detail is server-authored text ("…model was unloaded while the
-   generation queued; retry"), no exception interpolation — but it is now the ONE
-   terminal sink of its class without a `_sanitize_error` wrap, so a future edit
-   that routes client-influenced text through that detail would ship it verbatim.
-   Pre-existing, deferred as a future candidate.
+3. **Two `/ws` sinks spread a classified dict (or forward a raw str detail) without
+   sanitizing the human message** — the in-lock guard (`websocket.py:544-547`) and
+   the loader-503 dict-forward (`websocket.py:422-425`), the same spread shape (the
+   in-lock comment at `:536-537` names the pairing). Both are safe today — the
+   details are server-authored text ("…model was unloaded while the generation
+   queued; retry"), no exception interpolation — but they are the two terminal
+   sinks of their class without a `_sanitize_error` wrap, so a future edit that
+   routes client-influenced text through either detail would ship it verbatim.
+   Pre-existing, deferred as future candidates.
