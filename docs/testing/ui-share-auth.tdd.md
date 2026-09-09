@@ -302,15 +302,19 @@ be self-suppressed — report back to the user. (A fresh random secret written 0
 user's own config dir is the same pattern as the server auth token, which CodeQL has
 never flagged.)
 
-**Fix round 5:** `TTS_UI_CREDENTIALS_DIR` is the test-infra override knob for the
-credentials-file directory — `tests/run_batches.py` sets it to the system tempdir
-(because its unittest batch subprocesses bypass pytest's conftest autouse fixture),
-`tests/conftest.py` points every pytest test at its own `tmp_path`, and production
-leaves it unset (real config dir).
+**Fix round 5 (mechanism superseded by round 7):** the credentials-file directory is
+overridable by a **test-infra module global**, `_UI_CREDENTIALS_DIR_OVERRIDE` in
+`ui/shared.py` (set ONLY by tests): `tests/conftest.py` points every pytest test at its
+own `tmp_path` via the autouse fixture, and production leaves it `None` (the real
+config dir). The round-5 form was an environment-variable override set by
+`tests/run_batches.py` — deleted in round 7 along with its guard, so no env→path
+flow exists and the path-injection surface is gone by construction.
 
-**Fix round 6:** CodeQL raised 2 HIGH `py/path-injection` on the knob branch
-(env-controlled path expression). Resolution per the repo's documented shape
-(dominating startswith guard ON the sink — caller guards do not survive the call
-boundary): the override is realpath+expanduser'd and must resolve under the system
-tempdir, else RuntimeError (fail closed, never a silent fallback to the real config
-dir). Codifies what the two legitimate setters already satisfied.
+**Fix round 6 (guard superseded by round 7):** CodeQL raised 2 HIGH
+`py/path-injection` on the then-env knob branch. Round 6 added the repo's documented
+dominating-startswith guard scoped to the system tempdir; the alerts PERSISTED because
+the guard's own root (`TMPDIR`-derived `gettempdir()`) is itself tainted data to the
+query. The user then chose Option C — sever the five legacy launch tests' coupling to
+the credential writer instead (`_write_ui_credentials` patched at the five call sites
+via `tests/_ui_share_isolation.py`; env var and guard deleted; no suppressions), which
+removes the flow the query tracks.
