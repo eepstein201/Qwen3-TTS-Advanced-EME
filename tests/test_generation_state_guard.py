@@ -140,7 +140,7 @@ class TestGenerationStateGuardBegin(unittest.TestCase):
         self.guard.begin("gen-4")
         self.guard.set_cancelled("gen-4")
         self.guard.begin("gen-5")
-        self.assertFalse(self.guard.is_cancelled())
+        self.assertFalse(self.guard.snapshot(["cancelled"])["cancelled"])
         self.assertIsNone(self.guard.snapshot(["cancel_target_id"])["cancel_target_id"])
 
     def test_begin_preserves_a_cancel_targeted_at_the_same_id(self):
@@ -170,7 +170,7 @@ class TestGenerationStateGuardBegin(unittest.TestCase):
         # no target and asserts it SURVIVES begin().
         self.guard.set_cancelled()  # cancelled=True, cancel_target_id=None
         self.guard.begin("gen-7")
-        self.assertTrue(self.guard.is_cancelled())
+        self.assertTrue(self.guard.snapshot(["cancelled"])["cancelled"])
         self.assertIsNone(self.guard.snapshot(["cancel_target_id"])["cancel_target_id"])
 
     def test_begin_consumes_its_own_pending_registration(self):
@@ -297,21 +297,6 @@ class TestGenerationStateGuardCancellation(unittest.TestCase):
         self.state = _make_state()
         self.guard = GenerationStateGuard(self.state)
 
-    def test_set_cancelled_then_is_cancelled(self):
-        self.assertFalse(self.guard.is_cancelled())
-        self.guard.set_cancelled()
-        self.assertTrue(self.guard.is_cancelled())
-
-    def test_clear_cancelled_then_is_cancelled(self):
-        self.guard.set_cancelled()
-        self.assertTrue(self.guard.is_cancelled())
-        self.guard.clear_cancelled()
-        self.assertFalse(self.guard.is_cancelled())
-
-    def test_is_cancelled_reads_through_to_live_dict(self):
-        self.state.generation_state["cancelled"] = True
-        self.assertTrue(self.guard.is_cancelled())
-
     def test_set_cancelled_records_the_target_id(self):
         self.guard.set_cancelled("gen-1")
         snap = self.guard.snapshot(["cancelled", "cancel_target_id"])
@@ -394,7 +379,7 @@ class TestGenerationStateGuardPendingRegistry(unittest.TestCase):
         self.guard.register_pending("gen-x")
         self.guard.set_cancelled("gen-x")
         self.guard.deregister_pending("gen-x")
-        self.assertFalse(self.guard.is_cancelled())
+        self.assertFalse(self.guard.snapshot(["cancelled"])["cancelled"])
         self.assertIsNone(self.guard.snapshot(["cancel_target_id"])["cancel_target_id"])
 
     def test_deregister_pending_does_not_clear_a_cancel_targeted_elsewhere(self):
@@ -403,6 +388,28 @@ class TestGenerationStateGuardPendingRegistry(unittest.TestCase):
         self.guard.set_cancelled("gen-y")
         self.guard.deregister_pending("gen-x")
         self.assertTrue(self.guard.is_cancelled_for("gen-y"))
+
+    def test_peek_pending_target_returns_none_when_nothing_pending(self):
+        self.assertIsNone(self.guard.peek_pending_target())
+
+    def test_peek_pending_target_returns_the_only_pending_id(self):
+        self.guard.register_pending("gen-solo")
+        self.assertEqual(self.guard.peek_pending_target(), "gen-solo")
+
+    def test_peek_pending_target_is_deterministic_across_several_pending(self):
+        # Documented tie-break: lexicographically smallest of the pending
+        # ids. Registration order is reversed here on purpose to prove the
+        # result does not depend on insertion order.
+        self.guard.register_pending("gen-z")
+        self.guard.register_pending("gen-a")
+        self.guard.register_pending("gen-m")
+        self.assertEqual(self.guard.peek_pending_target(), "gen-a")
+
+    def test_peek_pending_target_does_not_consume_the_registration(self):
+        self.guard.register_pending("gen-1")
+        self.guard.peek_pending_target()
+        self.assertEqual(self.guard.peek_pending_target(), "gen-1")
+        self.assertTrue(self.guard._pop_pending_target("gen-1"))
 
 
 class TestGenerationStateGuardLateBinding(unittest.TestCase):
@@ -420,7 +427,7 @@ class TestGenerationStateGuardLateBinding(unittest.TestCase):
 
         # Swap in a fresh idle dict — the guard must operate on the NEW one.
         self.state.generation_state = dict(IDLE_STATE)
-        self.assertFalse(self.guard.is_cancelled())
+        self.assertFalse(self.guard.snapshot(["cancelled"])["cancelled"])
 
         self.guard.set_cancelled()
         self.assertTrue(self.state.generation_state["cancelled"])

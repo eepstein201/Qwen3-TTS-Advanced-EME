@@ -67,6 +67,7 @@ def _setup_fastapi_app_state(app, server_config=None):
         "chunk_total": 0,
         "generation_id": None,
         "cancelled": False,
+        "cancel_target_id": None,
     }
     app.state.request_queue = set()
     app.state.request_queue_lock = threading.Lock()

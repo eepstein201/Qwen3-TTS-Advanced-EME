@@ -892,25 +892,44 @@ async def create_voice_prompt_endpoint(
 async def cancel_generation(
     request: Request, _auth: None = Depends(verify_auth)
 ) -> dict:
-    """Cancel the current streaming generation."""
+    """Cancel the current (or, if none is active yet, pending) generation.
+
+    Cancel attribution (issue #237 / Step 1A): the write is now targeted at a
+    specific generation id, never a bare untargeted flag.
+    """
     state = request.app.state
     reset_activity_timer(state)
 
     # The old `async with state.generation_lock:` block excluded nothing here
     # (an asyncio.Lock does not serialize against the worker threads that
-    # write this dict, and the id was read back OUTSIDE the block anyway).
-    # Both the active check and the flag write now go through the guard, so
-    # they cannot interleave with a begin/reset; the id is read AFTER the
-    # write, as before, and its own snapshot keeps that read atomic too.
+    # write this dict). ``active`` and ``generation_id`` are now read in ONE
+    # snapshot BEFORE the write — the id must be known before set_cancelled
+    # so the cancel can be addressed to it, rather than read back after.
     guard = guard_for(state)
-    if not guard.snapshot(["active"])["active"]:
-        return {"status": "no_active_generation"}
-    guard.set_cancelled()
-    logger.info("Generation cancellation requested")
-    return {
-        "status": "cancellation_requested",
-        "generation_id": guard.snapshot(["generation_id"])["generation_id"],
-    }
+    snap = guard.snapshot(["active", "generation_id"])
+    if snap["active"]:
+        target_id = snap["generation_id"]
+        guard.set_cancelled(target_id)
+        logger.info("Generation cancellation requested")
+        return {
+            "status": "cancellation_requested",
+            "generation_id": target_id,
+        }
+
+    # Window 2 (issue #237 / Step 1A): nothing is active yet, but a batch may
+    # have minted its id and registered it pending before ever taking the
+    # lock. Latch the cancel onto that id so the batch's first item honors it
+    # instead of the request bouncing as no_active_generation.
+    pending_id = guard.peek_pending_target()
+    if pending_id is not None:
+        guard.set_cancelled(pending_id)
+        logger.info("Generation cancellation requested (pending)")
+        return {
+            "status": "cancellation_requested",
+            "generation_id": pending_id,
+        }
+
+    return {"status": "no_active_generation"}
 
 
 # ---------------------------------------------------------------------------

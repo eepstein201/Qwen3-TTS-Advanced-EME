@@ -38,10 +38,10 @@ three-case rule) — this is what fixes the two cancel-loss races: a cancel
 addressed to the running batch survives that batch's own next ``begin()``,
 and a cancel addressed to a batch that has been minted but not yet begun
 (tracked in the pending registry) survives an unrelated concurrent
-``begin()`` too. ``is_cancelled()`` and ``clear_cancelled()`` remain for
-this step only — production still calls them with no target — and are
-removed once Task 2 finishes rewiring the call sites onto the attributed
-API.
+``begin()`` too. Every production call site is now target-aware
+(``is_cancelled_for``); the untargeted ``is_cancelled()``/``clear_cancelled()``
+pair from Task 1 has been removed (Controller Ruling A) since an untargeted
+read/clear is precisely the erase that issue #237 is about.
 
 Stdlib only — no FastAPI, engine, torch, or mlx imports, so the module can
 be imported at module scope anywhere (the lazy-heavy-import rule is
@@ -205,29 +205,18 @@ class GenerationStateGuard:
             state["chunk_index"] = chunk_index
             state["chunk_total"] = chunk_total
 
-    def clear_cancelled(self) -> None:
-        """Set ``cancelled=False``, atomically."""
-        with self._lock:
-            self._state["cancelled"] = False
-
     def set_cancelled(self, target_id: str | None = None) -> None:
         """Set ``cancelled=True`` and ``cancel_target_id=target_id``, atomically.
 
-        The ``None`` default keeps the old zero-arg call valid: production
-        call sites are Task 2's job and still call this with no argument
-        this task. A cancel with ``cancel_target_id is None`` is honored by
-        nobody — new code never produces one; it exists only so that
-        zero-arg call remains callable until Task 2 rewrites it.
+        Every production call site (Task 2) now passes an explicit target —
+        the currently-active generation id or a pending one. A cancel with
+        ``cancel_target_id is None`` is honored by nobody; the default only
+        exists for direct unit-test convenience.
         """
         with self._lock:
             state = self._state
             state["cancelled"] = True
             state["cancel_target_id"] = target_id
-
-    def is_cancelled(self) -> bool:
-        """Read ``cancelled`` under the lock (no torn/stale reads)."""
-        with self._lock:
-            return bool(self._state["cancelled"])
 
     def is_cancelled_for(self, generation_id: str) -> bool:
         """True only when a cancel is set AND addressed to *generation_id*.
@@ -270,6 +259,29 @@ class GenerationStateGuard:
             if state.get("cancel_target_id") == generation_id:
                 state["cancelled"] = False
                 state["cancel_target_id"] = None
+
+    def peek_pending_target(self) -> str | None:
+        """Return an id to target a cancel at, or ``None`` if none is pending.
+
+        Answers "is anything pending, and what should I target?" for
+        ``/cancel-generation``'s inactive branch (issue #237 / Step 1A,
+        Window 2): a cancel arriving before any generation is active should
+        still latch onto whichever id gets there first.
+
+        Does not mutate the registry and does not hand out the mutable set
+        itself — a snapshot decision, consistent with every other read here.
+
+        When more than one id is pending, the lexicographically smallest is
+        returned. Pending ids are opaque ``uuid4`` hex prefixes with no
+        meaningful ordering (insertion order is not tracked — ``_pending_ids``
+        is a plain set), so this is an arbitrary but fully deterministic
+        tie-break: the same call against the same registry always returns
+        the same id.
+        """
+        with self._lock:
+            if not self._pending_ids:
+                return None
+            return min(self._pending_ids)
 
     def _pop_pending_target(self, generation_id: str) -> bool:
         """Discard *generation_id* from the pending registry; True if present.

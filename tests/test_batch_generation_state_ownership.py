@@ -323,28 +323,41 @@ class TestBatchGenerationStateOwnership(unittest.TestCase):
 
         The streaming finally resets ``cancelled`` (app_generation.py:764) but
         the batch finally historically did not.  A leftover ``cancelled=True``
-        is then seen by the next request's per-item cancel check (:249) and
-        silently truncates an unrelated in-flight batch.  The finally now
-        resets ``cancelled=False`` under the ownership guard, mirroring
-        streaming.  Verified by simulating a ``/cancel-generation`` landing
-        during this batch's inference and asserting the flag is cleared on
-        completion.
+        is then seen by the next request's per-item cancel check and silently
+        truncates an unrelated in-flight batch.  The finally now resets
+        ``cancelled=False`` under the ownership guard, mirroring streaming.
+
+        Issue #237 / Step 1A: a bare raw ``generation_state["cancelled"] =
+        True`` write carries no target and is legitimately ignored by the
+        attributed per-item check, so it would prove nothing here. The cancel
+        is instead set THROUGH the guard, targeted at the batch's own live id
+        (read off ``generation_state["generation_id"]``, stamped by item 0's
+        own ``begin()``) — a cancel this batch itself must honor. With two
+        items, item 1's pre-loop check now sees it and truncates the batch;
+        the finally must still leave no stale flag behind for the next
+        request.
         """
 
         async def run():
             from qwen3_tts.server.app_generation import handle_generate
+            from qwen3_tts.server.generation_state_guard import guard_for
             from qwen3_tts.server.validation import GenerateRequest
 
             state = _make_state()
             fake_wav = np.zeros(500, dtype=np.float32)
 
             def mock_inference(model, text, **kwargs):
-                # Simulate a /cancel-generation landing during this item.
-                state.generation_state["cancelled"] = True
+                # Simulate a /cancel-generation landing during item 0's
+                # inference, targeted at THIS batch's own live id.
+                guard = guard_for(state)
+                own_id = state.generation_state["generation_id"]
+                guard.set_cancelled(own_id)
                 return fake_wav, 24000
 
             req = GenerateRequest(
-                text="hello world", mode="design", voice_description="friendly"
+                texts=["first", "second"],
+                mode="design",
+                voice_description="friendly",
             )
             request = _make_request(state)
             with patch(
@@ -364,6 +377,11 @@ class TestBatchGenerationStateOwnership(unittest.TestCase):
                 )
             self.assertIn("results", result)
 
+            # The cancel targeted THIS batch's own id, so item 1 must never
+            # have run: truncated to item 0's result only.
+            self.assertEqual(len(result["results"]), 1)
+            self.assertTrue(result.get("cancelled"))
+
             # The batch owns generation_state here (no foreign takeover), so its
             # finally must clear the cancelled flag — no stale flag for the next
             # request's per-item cancel check.
@@ -372,6 +390,73 @@ class TestBatchGenerationStateOwnership(unittest.TestCase):
                 "Batch finally left cancelled=True; the next request's cancel "
                 "check would silently truncate an unrelated batch.",
             )
+            self.assertIsNone(
+                state.generation_state.get("cancel_target_id"),
+                "Batch finally left a stale cancel_target_id behind.",
+            )
+
+            for entry in state.gen_cache.values():
+                path = entry.get("main_file") or entry.get("file")
+                if path and os.path.exists(path):
+                    os.unlink(path)
+
+        asyncio.run(run())
+
+    def test_batch_not_stopped_by_a_differently_targeted_cancel(self):
+        """Controller Ruling E's stale-flag defense: a cancel addressed to
+        some OTHER generation must not stop this batch — target-matched
+        honoring is now the whole defense, since the pre-loop blanket
+        ``clear_cancelled()`` is gone. Same two-item shape as the sibling
+        test above, but the cancel targets a foreign id, so the batch must
+        run to completion untouched."""
+
+        async def run():
+            from qwen3_tts.server.app_generation import handle_generate
+            from qwen3_tts.server.generation_state_guard import guard_for
+            from qwen3_tts.server.validation import GenerateRequest
+
+            state = _make_state()
+            fake_wav = np.zeros(500, dtype=np.float32)
+
+            def mock_inference(model, text, **kwargs):
+                guard = guard_for(state)
+                guard.set_cancelled("some-unrelated-generation-id")
+                return fake_wav, 24000
+
+            req = GenerateRequest(
+                texts=["first", "second"],
+                mode="design",
+                voice_description="friendly",
+            )
+            request = _make_request(state)
+            with patch(
+                f"{_APP_GENERATION}._check_memory_available",
+                return_value=(True, 4096),
+            ), patch(
+                "qwen3_tts.server.validation._validate_generation_request"
+            ), patch(
+                f"{_ENGINE}.run_inference", side_effect=mock_inference
+            ):
+                result = await handle_generate(
+                    request=request,
+                    state=state,
+                    req=req,
+                    security={"max_text_length": 50000, "max_batch_size": 20},
+                    config_provider=None,
+                )
+
+            self.assertEqual(
+                len(result["results"]),
+                2,
+                "a cancel targeted at a different generation truncated this "
+                "batch",
+            )
+            self.assertFalse(result.get("cancelled"))
+
+            for entry in state.gen_cache.values():
+                path = entry.get("main_file") or entry.get("file")
+                if path and os.path.exists(path):
+                    os.unlink(path)
 
         asyncio.run(run())
 
@@ -463,18 +548,28 @@ class TestBatchResultCompleteness(unittest.TestCase):
         with no indication of why it is short — a fully cancelled batch is a
         200 with ``results: []``, indistinguishable from success and fatal to
         the client's ``results[0]``.
+
+        Issue #237 / Step 1A: a bare raw ``generation_state["cancelled"] =
+        True`` write carries no target and is legitimately ignored by the
+        attributed per-item check, so it would pass this test hollowly (or,
+        under the new implementation, simply never truncate). The cancel is
+        set THROUGH the guard, targeted at the batch's own live id.
         """
 
         async def run():
             from qwen3_tts.server.app_generation import handle_generate
+            from qwen3_tts.server.generation_state_guard import guard_for
             from qwen3_tts.server.validation import GenerateRequest
 
             state = _make_state()
             fake_wav = np.zeros(500, dtype=np.float32)
 
             def mock_inference(model, text, **kwargs):
-                # A /cancel-generation lands while the first item generates.
-                state.generation_state["cancelled"] = True
+                # A /cancel-generation lands while the first item generates,
+                # targeted at THIS batch's own live id.
+                guard = guard_for(state)
+                own_id = state.generation_state["generation_id"]
+                guard.set_cancelled(own_id)
                 return fake_wav, 24000
 
             req = GenerateRequest(
@@ -506,6 +601,59 @@ class TestBatchResultCompleteness(unittest.TestCase):
                     "client cannot tell it apart from a complete response",
                 )
                 self.assertEqual(len(result["results"]), 1)
+            finally:
+                for entry in state.gen_cache.values():
+                    path = entry.get("main_file") or entry.get("file")
+                    if path and os.path.exists(path):
+                        os.unlink(path)
+
+        asyncio.run(run())
+
+    def test_differently_targeted_cancel_does_not_truncate_the_batch(self):
+        """Controller Ruling E's stale-flag defense, mirrored against this
+        test's own scenario: a cancel addressed to some OTHER generation
+        during item 0's inference must not truncate this batch — it must
+        report ``cancelled: False`` with both results present, exactly like
+        the uncancelled case."""
+
+        async def run():
+            from qwen3_tts.server.app_generation import handle_generate
+            from qwen3_tts.server.generation_state_guard import guard_for
+            from qwen3_tts.server.validation import GenerateRequest
+
+            state = _make_state()
+            fake_wav = np.zeros(500, dtype=np.float32)
+
+            def mock_inference(model, text, **kwargs):
+                guard = guard_for(state)
+                guard.set_cancelled("some-unrelated-generation-id")
+                return fake_wav, 24000
+
+            req = GenerateRequest(
+                texts=["first", "second"],
+                mode="design",
+                voice_description="friendly",
+            )
+            request = _make_request(state)
+            with patch(
+                f"{_APP_GENERATION}._check_memory_available",
+                return_value=(True, 4096),
+            ), patch(
+                "qwen3_tts.server.validation._validate_generation_request"
+            ), patch(
+                f"{_ENGINE}.run_inference", side_effect=mock_inference
+            ):
+                result = await handle_generate(
+                    request=request,
+                    state=state,
+                    req=req,
+                    security={"max_text_length": 50000, "max_batch_size": 20},
+                    config_provider=None,
+                )
+
+            try:
+                self.assertFalse(result.get("cancelled"))
+                self.assertEqual(len(result["results"]), 2)
             finally:
                 for entry in state.gen_cache.values():
                     path = entry.get("main_file") or entry.get("file")
@@ -556,6 +704,105 @@ class TestBatchResultCompleteness(unittest.TestCase):
                     path = entry.get("main_file") or entry.get("file")
                     if path and os.path.exists(path):
                         os.unlink(path)
+
+        asyncio.run(run())
+
+
+@_skip
+class TestCancelGenerationPendingLatch(unittest.TestCase):
+    """Window 2 (issue #237 / Step 1A): a cancel arriving before item 0 ever
+    makes the state active must not bounce as ``no_active_generation`` — it
+    must latch onto the pending id and the batch must honor it as soon as it
+    checks, before it ever begins."""
+
+    def test_cancel_with_a_registered_pending_id_stops_the_batch_before_it_begins(
+        self,
+    ):
+        """A batch mints its id and registers pending; a cancel then lands
+        (nothing is active yet). ``/cancel-generation`` must target the
+        pending id and answer ``cancellation_requested`` — and once the batch
+        actually runs, its very first per-item check must see that cancel and
+        stop BEFORE calling ``begin()`` or running any inference at all."""
+        import uuid as uuid_module
+
+        from qwen3_tts.server.app import cancel_generation
+        from qwen3_tts.server.app_generation import handle_generate
+        from qwen3_tts.server.generation_state_guard import guard_for
+        from qwen3_tts.server.validation import GenerateRequest
+
+        pending_id = "aaaaaaaa"
+        fixed_uuid = uuid_module.UUID("aaaaaaaa-0000-0000-0000-000000000000")
+
+        async def run():
+            state = _make_state()
+            guard = guard_for(state)
+
+            # The batch's own mint-time registration, done up front here to
+            # deterministically create the pending window /cancel-generation
+            # must see — mirroring the ``register_pending`` call handle_generate
+            # makes immediately after minting its id, before any lock.
+            guard.register_pending(pending_id)
+
+            cancel_result = await cancel_generation(
+                _make_request(state), _auth=None
+            )
+            self.assertEqual(
+                cancel_result,
+                {
+                    "status": "cancellation_requested",
+                    "generation_id": pending_id,
+                },
+            )
+
+            run_inference_mock = MagicMock(
+                side_effect=AssertionError(
+                    "run_inference was called; the pending cancel should "
+                    "have stopped the batch before item 0 ever began"
+                )
+            )
+            req = GenerateRequest(
+                text="hello world", mode="design", voice_description="friendly"
+            )
+            request = _make_request(state)
+            with patch(
+                f"{_APP_GENERATION}._check_memory_available",
+                return_value=(True, 4096),
+            ), patch(
+                "qwen3_tts.server.validation._validate_generation_request"
+            ), patch(
+                f"{_ENGINE}.run_inference", run_inference_mock
+            ), patch(
+                f"{_APP_GENERATION}.uuid.uuid4", return_value=fixed_uuid
+            ):
+                result = await handle_generate(
+                    request=request,
+                    state=state,
+                    req=req,
+                    security={"max_text_length": 50000, "max_batch_size": 20},
+                    config_provider=None,
+                )
+
+            run_inference_mock.assert_not_called()
+            self.assertEqual(result["results"], [])
+            self.assertTrue(result.get("cancelled"))
+
+            # deregister_pending (in the finally) clears a cancel targeted at
+            # its own id — no stale flag left for the next request.
+            self.assertFalse(state.generation_state["cancelled"])
+            self.assertIsNone(state.generation_state.get("cancel_target_id"))
+
+        asyncio.run(run())
+
+    def test_cancel_with_nothing_active_and_nothing_pending_is_unchanged(self):
+        """No active generation and no pending registration: the response
+        must remain exactly ``no_active_generation`` (issue #237 / Step 1A
+        must not change this baseline case)."""
+        from qwen3_tts.server.app import cancel_generation
+
+        async def run():
+            state = _make_state()
+            result = await cancel_generation(_make_request(state), _auth=None)
+            self.assertEqual(result, {"status": "no_active_generation"})
 
         asyncio.run(run())
 

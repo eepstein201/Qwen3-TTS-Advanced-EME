@@ -136,6 +136,7 @@ def _init_app_state(app, auth_token="test_token"):
         "chunk_total": 0,
         "generation_id": None,
         "cancelled": False,
+        "cancel_target_id": None,
     }
     app.state.request_queue = set()
     app.state.request_queue_lock = threading.Lock()
