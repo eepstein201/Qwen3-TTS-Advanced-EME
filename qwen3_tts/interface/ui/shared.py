@@ -869,40 +869,26 @@ def refresh_history_from_disk(
     )
 
 
+# Test-infra knob: set ONLY by tests (tests/conftest.py's autouse fixture, or
+# a test patching it directly). Production code never touches it, so
+# production always writes the real config dir below.
+_UI_CREDENTIALS_DIR_OVERRIDE: str | None = None
+
+
 def _ui_credentials_path() -> str:
     """Absolute path of the one-time shared-UI credentials file.
 
     Mirrors paths.py's ``_TOKEN_DIR`` base (``~/.config/qwen3-tts``, the same
-    directory that holds the server auth token). Overridable seam: tests patch
-    this at the definition site so nothing touches the real config directory.
-
-    ``TTS_UI_CREDENTIALS_DIR`` (test-infra knob, never set in production)
-    moves the file's directory — tests/conftest.py points every pytest test at
-    its tmp_path, and tests/run_batches.py points its unittest batch
-    subprocesses at the system tempdir, because those subprocesses never see
-    pytest fixtures. The override is scoped to the system tempdir: anything
-    else raises, so a stray value can never point the credentials file at the
-    real config dir or anywhere else outside the sandbox.
+    directory that holds the server auth token). Tests never touch that real
+    file: tests/conftest.py points every pytest test at its own tmp_path via
+    the module-global knob above, and the legacy launch tests patch the
+    writer itself.
     """
     # keep in sync with _TOKEN_DIR in core/config/paths.py
-    override = os.environ.get("TTS_UI_CREDENTIALS_DIR")
-    if override:
-        import tempfile
-
-        resolved = os.path.realpath(os.path.expanduser(override))
-        tmp_root = os.path.realpath(tempfile.gettempdir())
-        # Dominating guard ON the sink (caller guards do not survive the call
-        # boundary): the knob is test-infra and may only place the file under
-        # the system tempdir, never at the real config dir or elsewhere.
-        if resolved == tmp_root or resolved.startswith(tmp_root + os.sep):
-            return os.path.join(resolved, ".ui_share_credentials")
-        raise RuntimeError(
-            "TTS_UI_CREDENTIALS_DIR override must resolve under the system "
-            f"tempdir (test-infra knob); got {resolved}"
-        )
-    return os.path.join(
-        os.path.expanduser("~/.config/qwen3-tts"), ".ui_share_credentials"
+    base = _UI_CREDENTIALS_DIR_OVERRIDE or os.path.expanduser(
+        "~/.config/qwen3-tts"
     )
+    return os.path.join(base, ".ui_share_credentials")
 
 
 def _write_ui_credentials(path: str, password: str) -> None:
