@@ -417,6 +417,7 @@ async def lifespan(app):
         "chunk_total": 0,
         "generation_id": None,
         "cancelled": False,
+        "cancel_target_id": None,
     }
     # Thread-safety guard for the dict above: worker threads (progress
     # callbacks, cancel watchers) cannot take the asyncio generation_lock,

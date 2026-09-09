@@ -41,6 +41,7 @@ CANONICAL_KEYS = frozenset(
         "chunk_total",
         "generation_id",
         "cancelled",
+        "cancel_target_id",
     }
 )
 
@@ -55,6 +56,7 @@ IDLE_STATE = {
     "chunk_total": 0,
     "generation_id": None,
     "cancelled": False,
+    "cancel_target_id": None,
 }
 
 
@@ -98,6 +100,7 @@ class TestGenerationStateGuardBegin(unittest.TestCase):
                 "chunk_total": 0,
                 "generation_id": "gen-1",
                 "cancelled": False,
+                "cancel_target_id": None,
             },
         )
 
@@ -127,28 +130,64 @@ class TestGenerationStateGuardBegin(unittest.TestCase):
         self.assertGreaterEqual(snap["start_time"], before)
         self.assertLessEqual(snap["start_time"], after)
 
-    def test_begin_re_clears_cancelled(self):
-        # Deliberate semantics preservation: today's begins re-clear a stale
-        # cancel flag. The #237 erase race is owned by a later step; this pin
-        # exists so that step must consciously move this assertion with it.
+    def test_begin_erases_a_stale_non_matching_non_pending_cancel(self):
+        # Step 1A moved this pin: begin() no longer blanket re-clears
+        # `cancelled` on every call. A cancel addressed to a DIFFERENT,
+        # non-pending generation id is genuinely stale by the time this
+        # begin() runs, so it is still erased here — preserving the old
+        # re-clear's status-surface hygiene for the one case where no live
+        # generation can ever honor it.
         self.guard.begin("gen-4")
-        self.guard.set_cancelled()
+        self.guard.set_cancelled("gen-4")
         self.guard.begin("gen-5")
         self.assertFalse(self.guard.is_cancelled())
+        self.assertIsNone(self.guard.snapshot(["cancel_target_id"])["cancel_target_id"])
+
+    def test_begin_preserves_a_cancel_targeted_at_the_same_id(self):
+        # Window 1's fix: a cancel addressed to THIS batch must survive its
+        # own next begin(), so every later item in the batch still sees it.
+        self.guard.begin("gen-6")
+        self.guard.set_cancelled("gen-6")
+        self.guard.begin("gen-6")
+        self.assertTrue(self.guard.is_cancelled_for("gen-6"))
+
+    def test_begin_preserves_a_cancel_targeted_at_a_pending_sibling(self):
+        # Window 2's fix (Controller Ruling D): a cancel addressed to a
+        # sibling generation that has minted but not yet begun must survive
+        # an unrelated begin() — otherwise an ordinary concurrent batch
+        # erases a cancel nobody has had the chance to honor yet.
+        self.guard.register_pending("gen-pending")
+        self.guard.set_cancelled("gen-pending")
+        self.guard.begin("gen-other")
+        self.assertTrue(self.guard.is_cancelled_for("gen-pending"))
+
+    def test_begin_leaves_cancelled_untouched_when_no_target_is_set(self):
+        # cancel_target_id is None: there is nothing to erase, so begin()
+        # must not touch `cancelled` at all.
+        self.guard.begin("gen-7")
+        self.assertFalse(self.guard.is_cancelled())
+        self.guard.begin("gen-8")
+        self.assertFalse(self.guard.is_cancelled())
+        self.assertIsNone(self.guard.snapshot(["cancel_target_id"])["cancel_target_id"])
+
+    def test_begin_consumes_its_own_pending_registration(self):
+        self.guard.register_pending("gen-9")
+        self.guard.begin("gen-9")
+        self.assertFalse(self.guard._pop_pending_target("gen-9"))
 
 
 class TestGenerationStateGuardOwnerReset(unittest.TestCase):
-    """reset_if_owner() resets all ten keys only when the id still owns."""
+    """reset_if_owner() resets all eleven keys only when the id still owns."""
 
     def setUp(self):
         self.state = _make_state()
         self.guard = GenerationStateGuard(self.state)
 
-    def test_reset_if_owner_true_path_resets_all_ten_keys(self):
+    def test_reset_if_owner_true_path_resets_all_eleven_keys(self):
         self.guard.begin("gen-1", mode="clone", text_length=42,
                          start_time=100.0, batch_index=1, batch_total=3)
         self.guard.update_progress(7, 9)
-        self.guard.set_cancelled()
+        self.guard.set_cancelled("gen-1")
 
         self.assertTrue(self.guard.reset_if_owner("gen-1"))
         snap = self.guard.snapshot()
@@ -269,6 +308,94 @@ class TestGenerationStateGuardCancellation(unittest.TestCase):
     def test_is_cancelled_reads_through_to_live_dict(self):
         self.state.generation_state["cancelled"] = True
         self.assertTrue(self.guard.is_cancelled())
+
+    def test_set_cancelled_records_the_target_id(self):
+        self.guard.set_cancelled("gen-1")
+        snap = self.guard.snapshot(["cancelled", "cancel_target_id"])
+        self.assertEqual(snap, {"cancelled": True, "cancel_target_id": "gen-1"})
+
+    def test_set_cancelled_defaults_target_to_none(self):
+        # The zero-arg call stays valid this task: production call sites are
+        # Task 2's job and still call set_cancelled() with no argument.
+        self.guard.set_cancelled()
+        snap = self.guard.snapshot(["cancelled", "cancel_target_id"])
+        self.assertEqual(snap, {"cancelled": True, "cancel_target_id": None})
+
+
+class TestGenerationStateGuardIsCancelledFor(unittest.TestCase):
+    """is_cancelled_for() is the target-matched read the fix relies on."""
+
+    def setUp(self):
+        self.state = _make_state()
+        self.guard = GenerationStateGuard(self.state)
+
+    def test_true_when_target_matches(self):
+        self.guard.set_cancelled("gen-1")
+        self.assertTrue(self.guard.is_cancelled_for("gen-1"))
+
+    def test_false_when_target_does_not_match(self):
+        self.guard.set_cancelled("gen-1")
+        self.assertFalse(self.guard.is_cancelled_for("gen-2"))
+
+    def test_false_when_cancelled_but_target_is_none(self):
+        # A cancel_target_id of None is honored by nobody, even though
+        # `cancelled` itself is True.
+        self.state.generation_state["cancelled"] = True
+        self.state.generation_state["cancel_target_id"] = None
+        self.assertFalse(self.guard.is_cancelled_for("gen-1"))
+
+    def test_does_not_keyerror_on_the_hand_rolled_ten_key_shape(self):
+        # 13 test modules elsewhere hand-roll the old ten-key state dict
+        # without cancel_target_id; is_cancelled_for must not KeyError on it.
+        ten_key_state = dict(IDLE_STATE)
+        del ten_key_state["cancel_target_id"]
+        ten_key_state["cancelled"] = True
+        self.state.generation_state = ten_key_state
+        self.assertFalse(self.guard.is_cancelled_for("gen-1"))
+
+
+class TestGenerationStateGuardPendingRegistry(unittest.TestCase):
+    """The pending registry tracks ids minted but not yet begun."""
+
+    def setUp(self):
+        self.state = _make_state()
+        self.guard = GenerationStateGuard(self.state)
+
+    def test_register_then_pop_round_trips(self):
+        self.guard.register_pending("gen-1")
+        self.assertTrue(self.guard._pop_pending_target("gen-1"))
+
+    def test_pop_returns_false_when_never_registered(self):
+        self.assertFalse(self.guard._pop_pending_target("gen-never"))
+
+    def test_pop_is_one_shot(self):
+        self.guard.register_pending("gen-1")
+        self.assertTrue(self.guard._pop_pending_target("gen-1"))
+        self.assertFalse(self.guard._pop_pending_target("gen-1"))
+
+    def test_deregister_pending_is_idempotent_on_an_unregistered_id(self):
+        # discard-style: deregistering an id that was never registered must
+        # not raise.
+        self.guard.deregister_pending("gen-never-registered")
+
+    def test_deregister_pending_removes_the_id(self):
+        self.guard.register_pending("gen-1")
+        self.guard.deregister_pending("gen-1")
+        self.assertFalse(self.guard._pop_pending_target("gen-1"))
+
+    def test_deregister_pending_clears_a_cancel_targeted_at_it(self):
+        self.guard.register_pending("gen-x")
+        self.guard.set_cancelled("gen-x")
+        self.guard.deregister_pending("gen-x")
+        self.assertFalse(self.guard.is_cancelled())
+        self.assertIsNone(self.guard.snapshot(["cancel_target_id"])["cancel_target_id"])
+
+    def test_deregister_pending_does_not_clear_a_cancel_targeted_elsewhere(self):
+        self.guard.register_pending("gen-x")
+        self.guard.register_pending("gen-y")
+        self.guard.set_cancelled("gen-y")
+        self.guard.deregister_pending("gen-x")
+        self.assertTrue(self.guard.is_cancelled_for("gen-y"))
 
 
 class TestGenerationStateGuardLateBinding(unittest.TestCase):
