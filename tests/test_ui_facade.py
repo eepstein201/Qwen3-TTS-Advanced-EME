@@ -13,6 +13,8 @@ Run: pytest tests/test_ui_facade.py -v
 import unittest
 from unittest.mock import MagicMock, patch
 
+from tests._ui_share_isolation import CredentialWriterIsolation
+
 try:
     import gradio as gr
     HAS_GRADIO = True
@@ -320,7 +322,7 @@ class TestBuildUI(unittest.TestCase):
 
 
 @unittest.skipUnless(HAS_GRADIO, "requires gradio")
-class TestMain(unittest.TestCase):
+class TestMain(CredentialWriterIsolation, unittest.TestCase):
     """Tests for main() CLI entry point."""
 
     @patch("qwen3_tts.interface.ui._facade.load_config", return_value={"ui": {"port": 7860}})

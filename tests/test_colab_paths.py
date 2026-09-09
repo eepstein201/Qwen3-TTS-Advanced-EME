@@ -41,6 +41,7 @@ except ImportError:
 from unittest.mock import MagicMock, patch
 
 import qwen3_tts.core.config as _cfg
+from tests._ui_share_isolation import CREDENTIALS_WRITER
 
 
 def _set_platform(colab=False, macos=False, linux=False):
@@ -146,7 +147,8 @@ def test_open_file_macos():
 # ---- build_ui_and_launch Colab paths ----
 
 @pytest.mark.unit
-def test_build_ui_and_launch_colab_share():
+@patch(CREDENTIALS_WRITER)
+def test_build_ui_and_launch_colab_share(_mock_writer):
     """build_ui_and_launch uses share=True, inbrowser=False in Colab."""
     from qwen3_tts.interface.generate_server import build_ui_and_launch
 
