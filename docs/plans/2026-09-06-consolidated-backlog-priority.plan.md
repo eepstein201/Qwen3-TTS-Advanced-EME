@@ -243,7 +243,7 @@ security gap and adding its test coverage belong in the same effort; see Step 0G
 - **Verify:** manual launch with `TTS_UI_SHARE=1` (or Colab-simulated), confirm a shared link requires the printed credentials; `ruff`; `mypy`.
 - **Exit criteria:** no code path launches a publicly-shared Gradio instance without authentication; `allowed_paths` narrowed; ARCHITECTURE.md updated.
 
-### Step 0F — Auth-failure error handling gaps (audit-log bypass + streaming error disclosure)
+### Step 0F — Auth-failure error handling gaps (audit-log bypass + streaming error disclosure) (EXECUTED 2026-09-09, PR #281)
 
 - **Model tier:** default · **Branch:** `fix/auth-and-stream-error-sanitization` · **Bundled: two related but distinct error-handling gaps, both small, same theme.**
 - **Task 1 — `verify_auth` 500s instead of 401ing on a non-ASCII bearer token, skipping the audit log:** `secrets.compare_digest` (`app.py:251-252`) raises `TypeError` on non-ASCII input — it fails closed, but the R-26 audit-log line (`app.py:256-262`) never fires, so probing produces no "Auth failure" log entries and a 500+traceback instead of a cheap 401. Fix: compare as bytes (`token.encode("utf-8", "replace")` vs. the stored token's bytes) or wrap in `try/except TypeError` falling through to the existing 401 branch. While there, replace the three `.replace("Bearer ", "")` call sites (`app.py:211,233,251`) with a proper case-insensitive scheme strip (`removeprefix`) — a global `.replace()` mangles a token that happens to contain the substring "Bearer ".
@@ -383,6 +383,24 @@ incomplete.
   transcript does nothing to change. An implementer who picks this option ships no fix at all.
   **Record the decision** (with rationale) in this plan file before writing code, the same way
   FOLLOWUP-1 was recorded in `consolidated-roadmap.md`.
+- **DECISION RECORDED (2026-09-09, controller ruling, user-approved — option (b), keep-loaded
+  variant):** when `trim_icl_echo=true`, `mode=clone`, and a transcript resolves but ASR is not
+  loaded, force-load ASR for the trim probe and **keep it loaded** (the measured warm load is
+  1.8–1.9s — banked research `~/.claude/session-data/2026-09-09-1c-decision-research.md` — and
+  amortizes to once per server lifetime via the process-lifetime ASR globals). Rationale:
+  `trim_icl_echo: true` is the documented default and option (b) makes that default true; the
+  accepted cost is the 3.2–7.3s probe per clone-generation (measured, 17 samples), serialized
+  inside `inference_lock` like the generation itself. Implementation notes: the in-engine
+  force-load is a documented deviation from `/load-asr`'s outside-`inference_lock` split and is
+  not limiter-governed (accepted — engine-side, operator's own server); the keep-loaded variant
+  makes the unload-after toggle unnecessary (drop that config-surface item — no new key beyond
+  what the probe needs, which is none: `trim_icl_echo` itself is the consent);
+  `tests/test_icl_echo_trim.py:218-226` pins today's gate and is rewritten. **Multi-chunk cap
+  co-decision (WS9.4): keep single application on the combined head** (the echo is a
+  generation-head artifact; per-chunk application would re-probe without catching more) **but
+  scale the 50% cap to the first chunk rather than the combined total** — today's
+  combined-audio cap can license trimming half of a multi-chunk output, far past any plausible
+  echo.
 - **Tasks (after the decision is recorded):** write the failing test for the chosen behavior, RED,
   implement, GREEN, update `CLAUDE.md`'s `trim_icl_echo` row if the on-by-default claim changes.
 - **Reconciliation add-on (2026-09-08, WS9.4 of the remediation plan):** the multi-chunk echo-trim
@@ -1214,10 +1232,23 @@ analysis rather than duplicated as a new step.)*
       pre-0E blanket `~/Downloads` `allowed_paths` literal (share=False + loopback, so safe,
       but stale vs the narrowed production shape — modernize it the same way
       `tests/test_ui_headless.py` was). *(Discovered by 0E Task 2 / fix round 1; not owned by 0E.)*
+  15. **`test_engine` migrate call runs against the REAL prompts dir** (`tests/test_engine.py:138-146`):
+      `test_migrate_orphan_does_not_call_load_model_when_model_provided` calls
+      `migrate_orphan_mlx_prompts(clone_model=mock_model)` unpatched, and its docstring assumes
+      "No orphan .wav files to migrate in test env" — any orphan pair left in the real
+      `voice_prompts/` by an earlier suite run is silently "migrated": `create_voice_prompt` is
+      driven with the MagicMock, `torch.save` writes a mid-pickle-corrupted ~668 B `.pt` stub, and
+      the failure is swallowed (`voice_prompt.py:328-329`), leaving user-visible corrupt entries in
+      `tts voice list`. Proven live during Step 0G Task 1's gate runs: 4 stubs (Sep 9 13:09)
+      appeared over Task 1's disclosed orphans (Sep 9 13:05). Fix = patch `VOICE_PROMPTS_DIR` in
+      the test. *(Discovered by the 0G Task 1 review; not owned by 0G.)*
+  16. **`decode_stream_error_payload` drops `code` before repo clients parse it**: the classified
+      code reaches the wire but not the exception the repo clients raise — completeness, not
+      exposure. *(0F final-review LOW-3; recorded here as the durable register.)*
 - **Verify:** per-item targeted tests where applicable; `ruff`; `mypy`; full non-E2E suite; the WS
   items re-run `tests/test_websocket_slot_release.py` + `tests/test_websocket_rate_limit.py` green
   UNCHANGED.
-- **Exit criteria:** all 14 items landed (or individually dispositioned in the PR with a reason);
+- **Exit criteria:** all 16 items landed (or individually dispositioned in the PR with a reason);
   no behavior change beyond the fixes themselves.
 
 ---
@@ -1358,8 +1389,8 @@ analysis rather than duplicated as a new step.)*
 (1) · Wave 3: 3A–3E (5) · Wave 4: 4A–4D (4) · Wave 4B: 4B.1–4B.4 (4) · Wave 5: 5 (1) · Wave 6:
 6A–6R (18) · Wave 7: 7A–7C (3) — **plus 3 independent tracks** (feature, dependency, and the decision-gated branch register — none gated by the waves) **+ 1 passive watch** (no action). Step 6·0 (dead-code cleanup) was already
 executed directly on 2026-09-06 and is recorded in Wave 6; it is not counted among the pending
-steps. **Executed so far: 0A (PR #263), 0B (PR #269), 0C (PR #270), 0D (PR #271), 0E (PR #276).** **6G is
-folded into Wave 7 Step 7C** (not independently pending). ***Open: 42.*** *(Wave 7 incorporated
+steps. **Executed so far: 0A (PR #263), 0B (PR #269), 0C (PR #270), 0D (PR #271), 0E (PR #276), 0F (PR #281).** **6G is
+folded into Wave 7 Step 7C** (not independently pending). ***Open: 41.*** *(Wave 7 incorporated
 2026-09-08 from the Interface Quality Improvement Plan — a three-surface audit of Web UI, CLI,
 and HTTP API, user-scoped; tracked at `docs/plans/2026-09-07-interface-quality.plan.md`, which
 is the spec for 7A–7C.)* Ordered by: critical correctness/security findings from the 2026-09-06 cross-cutting

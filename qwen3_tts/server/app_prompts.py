@@ -451,7 +451,8 @@ async def handle_create_voice_prompt(state, req, backend=None):
             # Client-input problems are 4xx, translated HERE rather than
             # via the broad RuntimeError tuple below (a LibsndfileError is
             # also a RuntimeError; conflating them produces the wrong
-            # message — see the UI comment in voice_management.py:127-131).
+            # message — the UI create path mirrors this mapping with
+            # gr.Error).
             import soundfile as sf_local
 
             from qwen3_tts.core.engine import (
