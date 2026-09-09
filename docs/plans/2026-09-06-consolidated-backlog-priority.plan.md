@@ -206,7 +206,7 @@ security gap and adding its test coverage belong in the same effort; see Step 0G
   `state.inference_lock` into a local at `~:821`; a lock replacement during a long request would
   not be observed by the in-flight body.
 
-### Step 0D — WebSocket connection-slot leak on the pre-auth path
+### Step 0D — WebSocket connection-slot leak on the pre-auth path (EXECUTED 2026-09-08, PR #271)
 
 - **Model tier:** default · **Branch:** `fix/ws-slot-leak-preauth` · **Parallel with:** 0A, 0B
 - **Context:** `_ws_try_acquire` (`websocket.py:90`) reserves a slot, but `_ws_release` is only
