@@ -869,19 +869,114 @@ def refresh_history_from_disk(
     )
 
 
-def get_gradio_launch_kwargs(config: dict) -> dict:
-    """Shared Gradio launch() kwargs -- single source of truth for all UI entry points."""
+# Test-infra knob: set ONLY by tests (tests/conftest.py's autouse fixture, or
+# a test patching it directly). Production code never touches it, so
+# production always writes the real config dir below.
+_UI_CREDENTIALS_DIR_OVERRIDE: str | None = None
+
+
+def _ui_credentials_path() -> str:
+    """Absolute path of the one-time shared-UI credentials file.
+
+    Mirrors paths.py's ``_TOKEN_DIR`` base (``~/.config/qwen3-tts``, the same
+    directory that holds the server auth token). Tests never touch that real
+    file: tests/conftest.py points every pytest test at its own tmp_path via
+    the module-global knob above, and the legacy launch tests patch the
+    writer itself.
+    """
+    # keep in sync with _TOKEN_DIR in core/config/paths.py
+    base = _UI_CREDENTIALS_DIR_OVERRIDE or os.path.expanduser(
+        "~/.config/qwen3-tts"
+    )
+    return os.path.join(base, ".ui_share_credentials")
+
+
+def _write_ui_credentials(path: str, password: str) -> None:
+    """Write ONLY the password to ``path`` as a single 0600 line.
+
+    Truncates any file left by a previous shared launch. The 0600 mode goes to
+    ``os.open`` itself (creation mode), and ``os.fchmod`` re-asserts it on the
+    open descriptor — so the file is 0600 regardless of umask, and a
+    pre-existing looser-mode file is tightened on rewrite.
+    """
+    directory = os.path.dirname(path)
+    os.makedirs(directory, mode=0o700, exist_ok=True)
+    fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+    try:
+        # os.fchmod is Unix-only; Windows is not a supported platform, and a
+        # from-source run there degrades gracefully to the os.open creation
+        # mode instead of raising AttributeError.
+        if hasattr(os, "fchmod"):
+            os.fchmod(fd, 0o600)
+        os.write(fd, (password + "\n").encode("utf-8"))
+    finally:
+        os.close(fd)
+
+
+def get_gradio_launch_kwargs(config: dict, *, share: bool = False) -> dict:
+    """Shared Gradio launch() kwargs -- single source of truth for all UI entry points.
+
+    When ``share`` is true the UI is reachable from a public URL, so the
+    returned kwargs carry an ``auth`` (user, password) tuple: the configured
+    ``TTS_UI_USERNAME``/``TTS_UI_PASSWORD`` pair when BOTH are set, otherwise
+    generated — with the password written to a 0600 credentials file and only
+    the username + file path printed, so the password string never reaches any
+    log sink. Establishing and delivering credentials is fail-closed —
+    anything short of both env vars or a successful generate-and-deliver
+    raises RuntimeError instead of returning unauthenticated launch kwargs.
+    """
+    import secrets
     import tempfile
 
     from qwen3_tts.core.config import IN_COLAB
 
-    output_dir = _resolve_output_dir(config)
-    downloads = os.path.realpath(os.path.expanduser("~/Downloads"))
-    allowed = list({output_dir, downloads, tempfile.gettempdir()})
+    # The history output root (default ~/Downloads/Qwen3-TTS Output) and the
+    # system tempdir are served. The resolver must be resolve_history_output_dir:
+    # _resolve_output_dir reads the legacy `output_directory` key whose default
+    # IS ~/Downloads, which made this narrowing a no-op under default config —
+    # the old blanket ~/Downloads entry handed a public URL the user's whole
+    # Downloads tree.
+    history_root = resolve_history_output_dir(config)
+    allowed = list({history_root, tempfile.gettempdir()})
 
-    return {
+    kwargs: dict = {
         "server_name": "0.0.0.0" if IN_COLAB else "127.0.0.1",  # nosec B104  # Colab only
         "allowed_paths": allowed,
         "theme": gr.themes.Soft(),
         "css": ".gr-hidden { display: none !important; height: 0 !important; overflow: hidden !important; }",
     }
+    if not share:
+        return kwargs
+
+    user = os.environ.get("TTS_UI_USERNAME")
+    password = os.environ.get("TTS_UI_PASSWORD")
+    if user or password:
+        if not (user and password):
+            raise RuntimeError(
+                "TTS_UI_USERNAME and TTS_UI_PASSWORD must both be set to share "
+                "the UI; refusing to launch a public UI with partial credentials."
+            )
+    else:
+        try:
+            user = "tts-" + secrets.token_urlsafe(4)  # 4 bytes -> 6 urlsafe chars
+            password = secrets.token_urlsafe(16)
+        except Exception as exc:
+            raise RuntimeError(
+                "Could not generate credentials for the shared UI; refusing to "
+                "launch it unauthenticated."
+            ) from exc
+        cred_path = _ui_credentials_path()
+        try:
+            _write_ui_credentials(cred_path, password)
+        except OSError as exc:
+            raise RuntimeError(
+                f"Could not write the shared-UI credentials file at {cred_path}; "
+                "refusing to launch it with undelivered credentials."
+            ) from exc
+        print("=" * 60)
+        print("The Gradio UI is publicly shared and requires a login.")
+        print(f"  Username: {user}")
+        print(f"  One-time password (0600 file): {cred_path}")
+        print("=" * 60)
+    kwargs["auth"] = (user, password)
+    return kwargs

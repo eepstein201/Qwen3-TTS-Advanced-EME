@@ -12,6 +12,8 @@ import os
 import unittest
 from unittest.mock import MagicMock, patch
 
+from tests._ui_share_isolation import CredentialWriterIsolation
+
 try:
     import pytest
     HAS_PYTEST = True
@@ -149,7 +151,7 @@ class TestAppHelperFunctions(unittest.TestCase):
 
 @pytest.mark.unit
 @_skip_gradio
-class TestBuildUIAndLaunch(unittest.TestCase):
+class TestBuildUIAndLaunch(CredentialWriterIsolation, unittest.TestCase):
     """build_ui_and_launch should respect TTS_UI_NO_BROWSER and TTS_UI_SHARE env vars."""
 
     @patch('qwen3_tts.interface.ui._find_available_port', return_value=7860)

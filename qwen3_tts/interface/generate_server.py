@@ -129,7 +129,7 @@ def build_ui_and_launch(config):
         server_port=port,
         share=share,
         inbrowser=inbrowser,
-        **get_gradio_launch_kwargs(config),
+        **get_gradio_launch_kwargs(config, share=share),
     )
 
 

@@ -54,7 +54,7 @@ def main():
              f"import os; "
              f"demo.launch(server_name='127.0.0.1', server_port={UI_PORT}, "
              f"share=False, show_error=True, "
-             f"allowed_paths=[os.path.expanduser('~/Downloads'), '/tmp'], "
+             f"allowed_paths=[os.path.realpath(os.path.expanduser('~/Downloads/Qwen3-TTS Output')), '/tmp'], "
              f"prevent_thread_lock=False)"],
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,

@@ -16,10 +16,12 @@ import os
 import unittest
 from unittest.mock import MagicMock, patch
 
+from tests._ui_share_isolation import CredentialWriterIsolation
+
 _UI_ENV = ("TTS_UI_PORT", "TTS_UI_SHARE", "TTS_UI_NO_BROWSER")
 
 
-class _LaunchHarness(unittest.TestCase):
+class _LaunchHarness(CredentialWriterIsolation, unittest.TestCase):
     """Drive build_ui_and_launch with the UI env vars under our control."""
 
     def setUp(self):

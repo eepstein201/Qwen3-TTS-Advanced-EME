@@ -1203,10 +1203,21 @@ analysis rather than duplicated as a new step.)*
       now raises `FileNotFoundError` uniformly (`voice_prompt.py:374,380`) — probe whether the
       generation route maps that to 404 or 500 and make the choice deliberate. *(F7 + 2026-08-03
       audit)*
+  14. **`test_ui_headless` generation phase stale** (`tests/test_ui_headless.py`): the file's single
+      `predict("/generate_clone")` runs only the two-step confirm chain's FIRST step, so it always
+      receives "Generating..." (or "server not running") and can never complete in either server
+      state — proven pre-existing during Step 0E Task 2 by stash→run→pop at `a8ac23b`. The launch
+      phase (which the allowed-paths literal feeds) is live and healthy. Rewrite the generation
+      phase to drive both chain steps, or scope the file explicitly to launch-only and drop the
+      dead phase. Same stale-literal family:
+      `tests/test_e2e_history_clear_copy.py:146` still launches its UI subprocess with the
+      pre-0E blanket `~/Downloads` `allowed_paths` literal (share=False + loopback, so safe,
+      but stale vs the narrowed production shape — modernize it the same way
+      `tests/test_ui_headless.py` was). *(Discovered by 0E Task 2 / fix round 1; not owned by 0E.)*
 - **Verify:** per-item targeted tests where applicable; `ruff`; `mypy`; full non-E2E suite; the WS
   items re-run `tests/test_websocket_slot_release.py` + `tests/test_websocket_rate_limit.py` green
   UNCHANGED.
-- **Exit criteria:** all 13 items landed (or individually dispositioned in the PR with a reason);
+- **Exit criteria:** all 14 items landed (or individually dispositioned in the PR with a reason);
   no behavior change beyond the fixes themselves.
 
 ---

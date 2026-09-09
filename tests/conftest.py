@@ -178,6 +178,30 @@ def _restore_app_state(app, original):
 
 
 @pytest.fixture(autouse=True)
+def _isolate_ui_share_credentials(tmp_path, monkeypatch):
+    """Point the shared-UI credentials file at this test's tmp dir.
+
+    Tests that drive the share=True launch path (env-var, Colab-forced, or
+    generated credentials) write the generated password via
+    ``_ui_credentials_path()``. Setting the module-global override (autouse:
+    every test, including unittest TestCases) keeps those writes out of the
+    real ``~/.config/qwen3-tts`` while leaving the production default
+    untouched. Belt-and-suspenders for future tests: the legacy launch tests
+    additionally patch the writer itself, so they are correct under the
+    unittest batch runner too, where this fixture never fires.
+    """
+    try:
+        import qwen3_tts.interface.ui.shared as ui_shared
+    except ImportError:
+        # gradio (a module-level import of shared.py) is unavailable; nothing
+        # in this process can reach the share path to write anything.
+        yield
+        return
+    monkeypatch.setattr(ui_shared, "_UI_CREDENTIALS_DIR_OVERRIDE", str(tmp_path))
+    yield
+
+
+@pytest.fixture(autouse=True)
 def initialize_app_state_for_xdist():
     """Auto-initialize app.state for all tests to support xdist parallel execution.
 
