@@ -157,17 +157,23 @@ Observed: `1 passed in 8.44s` live (server up, mlx env); inside batch 4 the
 line reads `... ok`; nothing new appears in the real `voice_prompts/` after
 the full suite + batch runs (37 files before, 37 after, 0 newer).
 
-## Gates (COUNTED, re-run from HEAD `ee56e8c` unless stated)
+## Gates (COUNTED, re-run from final HEAD `dec19d4`)
+
+The E2E case landed as `ee56e8c`, then a 3-line follow-up (`dec19d4`) closed
+the UI subprocess's PIPE streams in the test's cleanup (a ResourceWarning
+under the unittest runner). Because that follow-up touched the test file
+AFTER the first gate pass, every counted gate below was RE-RUN from
+`dec19d4` — the numbers are final-HEAD numbers, not the earlier pass.
 
 | Gate | Command | Result |
 |---|---|---|
-| Full non-e2e | `conda run -n qwen3-tts-mlx python -m pytest tests/ -m "not e2e" -q --tb=short --ignore=tests/evaluations` | **3300 passed, 4 skipped, 92 deselected, 0 failed** in 138.31 s — exactly +1 over Task 1's 3299 (the E2E case, RUN with server up) |
-| Batch 4 runner | `conda run -n qwen3-tts-mlx python tests/run_batches.py --batch 4` | **1/1 batches passed**; `Ran 786 tests … OK (skipped=1)` — the one skip is `test_ui_share_auth`'s pre-existing conftest-fixture-dependency test that skips by design under the unittest runner |
+| Full non-e2e | `conda run -n qwen3-tts-mlx python -m pytest tests/ -m "not e2e" -q --tb=short --ignore=tests/evaluations` | **3300 passed, 4 skipped, 92 deselected, 0 failed** in 118.39 s — exactly +1 over Task 1's 3299 (the E2E case, RUN with server up) |
+| Batch 4 runner | `conda run -n qwen3-tts-mlx python tests/run_batches.py --batch 4` | **1/1 batches passed**; `Ran 786 tests … OK (skipped=1)` — the one skip is `test_ui_share_auth`'s pre-existing conftest-fixture-dependency test that skips by design under the unittest runner; the new test's line reads `... ok` |
 | `test_ui_voice_mgmt` mlx | `conda run -n qwen3-tts-mlx python -m pytest tests/test_ui_voice_mgmt.py -q` | **29 passed** |
 | `test_ui_voice_mgmt` torchless | `./.venv-310/bin/python -m pytest tests/test_ui_voice_mgmt.py -q` | **29 passed, 1 warning** — RUN, not skip |
 | ruff | `conda run -n qwen3-tts-mlx ruff check qwen3_tts tests` | All checks passed (exit 0) |
 | mypy (entry-point form) | `conda run -n qwen3-tts-mlx mypy qwen3_tts/core qwen3_tts/server qwen3_tts/interface` | Success: no issues found in 58 source files (the known pre-existing `annotation-unchecked` notes only) |
-| `git diff -w` census | `git diff -w --stat d17c284..HEAD` | 1 file: `tests/test_ui_headless.py \| 193 ++++++++++…` (+192/-1); Task 1's census in its report |
+| `git diff -w` census | `git diff -w --stat d17c284..HEAD` | 4 files, +443/-6: `tests/test_ui_headless.py` +196/-1 (E2E case + pipe-close follow-up), evidence doc +230, plan +21/-5 (net), CLAUDE.md 1 clause; `config.json` never staged |
 | Isolation stat | `find voice_prompts -type f` before/after the batch-4 + full runs | 37 → **37**, 0 files newer than the runs — nothing new in the real dir |
 
 bandit was not re-run (not on this step's gate list): Task 2 touches only a
@@ -178,8 +184,10 @@ test module and docs.
 - `6260ae2` — `test(ui): pin containment and rollback on the voice-create path` (Task 1 RED)
 - `d17c284` — `fix(ui): route MLX voice-prompt creation through the engine writer` (Task 1 GREEN)
 - `ee56e8c` — `test(ui): e2e create-from-audio through the engine-writer path` (Task 2)
-- `docs(testing): UI voice-create engine-writer TDD evidence` — this file
-- `docs(plans): record the 0F status-mark and the voice-prompt test landmine` — consolidated plan + CLAUDE.md clause fix
+- `f3bc1b1` — `docs(testing): UI voice-create engine-writer TDD evidence` — this file
+- `570da67` — `docs(plans): record the 0F status-mark and the voice-prompt test landmine` — consolidated plan + CLAUDE.md clause fix
+- `dec19d4` — `test(ui): close the e2e UI subprocess pipes on cleanup` — follow-up that
+  triggered the from-HEAD gate re-run recorded above
 
 ## Accepted residuals (disclosed)
 
@@ -224,7 +232,8 @@ test module and docs.
    code instead of sharing `main()`'s, keeping `main()` byte-identical (its
    generation phase is the stale 6R item 14 surface, deliberately untouched
    here).
-6. **Batch-4 ResourceWarnings are pre-existing.** The ~60 unclosed-event-
-   loop warnings in the batch output come from modules byte-identical
+6. **Batch-4 ResourceWarnings are pre-existing.** The 48 unclosed-event-loop
+   warnings in the final batch output come from modules byte-identical
    between `d17c284` and HEAD (`test_ui_facade` et al.); the new test's own
-   result line is clean (its subprocess pipes are closed in cleanup).
+   result line is clean — the one warning it DID emit (an unclosed PIPE
+   stream) was fixed in `dec19d4`, dropping the count from 60 to 48.
