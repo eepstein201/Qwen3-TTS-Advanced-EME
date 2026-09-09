@@ -23,6 +23,7 @@ import os
 import threading
 import time
 import unittest
+from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock, patch
 
 _APP = "qwen3_tts.server.app"
@@ -555,6 +556,180 @@ class TestGetRealClientIp(unittest.TestCase):
 
 
 # ---------------------------------------------------------------------------
+# verify_auth: non-ASCII bearer tokens must 401 and audit (Step 0F)
+# ---------------------------------------------------------------------------
+
+
+def _auth_request(authorization_header):
+    """A mock Request carrying one Authorization header value."""
+    request = MagicMock()
+    request.headers = {"Authorization": authorization_header}
+    request.client.host = "10.0.0.9"
+    request.method = "POST"
+    request.url.path = "/generate"
+    request.app.state.auth_token = "expected-token"
+    return request
+
+
+class TestVerifyAuthNonAscii(unittest.TestCase):
+    """Step 0F Deliverables 1+2: the constant-time token comparison must not
+    blow up on non-ASCII input, and the scheme strip must be case-insensitive.
+
+    Pre-fix, secrets.compare_digest(str, str) raises TypeError on a non-ASCII
+    bearer token, turning a would-be 401 into an unhandled 500 AND skipping
+    the R-26 audit record; and the .replace("Bearer ", "") scheme strip was
+    case-sensitive, so RFC 6750-style "bearer <token>" requests 401'd.
+    """
+
+    def test_non_ascii_bearer_token_returns_401_not_500(self):
+        from fastapi import HTTPException
+
+        from qwen3_tts.server.app import verify_auth
+
+        request = _auth_request("Bearer tökén–wïth–ünïcode–→")
+        with self.assertRaises(HTTPException) as ctx:
+            asyncio.run(verify_auth(request))
+        self.assertEqual(ctx.exception.status_code, 401)
+
+    def test_non_ascii_bearer_token_still_audits_invalid_token(self):
+        from fastapi import HTTPException
+
+        from qwen3_tts.server.app import verify_auth
+
+        request = _auth_request("Bearer tökén–ünïcode")
+        with self.assertLogs("tts", level="WARNING") as logs:
+            with self.assertRaises(HTTPException) as ctx:
+                asyncio.run(verify_auth(request))
+        self.assertEqual(ctx.exception.status_code, 401)
+        joined = "\n".join(logs.output)
+        self.assertIn("Auth failure", joined)
+        self.assertIn("invalid_token", joined)
+
+    def test_lowercase_bearer_scheme_authenticates(self):
+        """RFC 6750 2.1: the scheme is case-insensitive, so a valid
+        credential sent as "bearer <token>" must authenticate."""
+        from qwen3_tts.server.app import verify_auth
+
+        asyncio.run(verify_auth(_auth_request("bearer expected-token")))
+
+    def test_ascii_mismatch_still_401_and_audits(self):
+        """Guard: the non-ASCII-safe comparison keeps rejecting a wrong ASCII
+        token and keeps the R-26 audit record."""
+        from fastapi import HTTPException
+
+        from qwen3_tts.server.app import verify_auth
+
+        request = _auth_request("Bearer wrong-token")
+        with self.assertLogs("tts", level="WARNING") as logs:
+            with self.assertRaises(HTTPException) as ctx:
+                asyncio.run(verify_auth(request))
+        self.assertEqual(ctx.exception.status_code, 401)
+        joined = "\n".join(logs.output)
+        self.assertIn("Auth failure", joined)
+        self.assertIn("invalid_token", joined)
+
+
+# ---------------------------------------------------------------------------
+# Batch /generate: clone-prompt 404 must be sanitized (Step 0F, CWE-209)
+# ---------------------------------------------------------------------------
+
+
+class TestBatchClonePromptErrorSanitized(unittest.TestCase):
+    """Step 0F Deliverable 4: the batch /generate clone 404 must not echo the
+    absolute filesystem path from the FileNotFoundError into the response
+    body (CWE-209) — it goes through _sanitize_error like the /ws error
+    frames already do.
+    """
+
+    def _make_state(self):
+        """Minimal app.state stand-in (SimpleNamespace, conftest-shaped)."""
+        state = SimpleNamespace()
+        state.auth_token = "test_token"  # nosec B105
+        state.models = {
+            "clone": MagicMock(name="clone-model"),
+            "design": MagicMock(name="design-model"),
+            "custom": MagicMock(name="custom-model"),
+        }
+        state.model_load_times = {}
+        state.model_load_errors = {"clone": None, "design": None, "custom": None}
+        state.model_loads = {"clone": None, "design": None, "custom": None}
+        state.model_config_epoch = 0
+        state.generation_state = {
+            "active": False,
+            "start_time": 0.0,
+            "text_length": 0,
+            "mode": "",
+            "batch_index": 0,
+            "batch_total": 0,
+            "chunk_index": 0,
+            "chunk_total": 0,
+            "generation_id": None,
+            "cancelled": False,
+        }
+        state.request_queue = set()
+        state.request_queue_lock = threading.Lock()
+        state.generation_lock = asyncio.Lock()
+        state.pending_requests = []
+        state.pending_lock = asyncio.Lock()
+        state.last_activity = 0
+        state.models_loaded = threading.Event()
+        state.models_loaded.set()
+        state.gen_cache = {}
+        state.gen_cache_lock = threading.Lock()
+        state.inference_lock = asyncio.Lock()
+        state.eta_cache = {"median_rate": None, "last_updated": 0}
+        state.eta_cache_lock = threading.Lock()
+        state.shutdown_timer = None
+        state.server_config = {
+            "security": {"max_text_length": 50000, "max_batch_size": 20},
+            "auto_shutdown_minutes": 0,
+        }
+        state.vllm_adapter = None
+        state.vllm_client = None
+        return state
+
+    def test_batch_prompt_not_found_sanitizes_path(self):
+        from fastapi import HTTPException
+
+        from qwen3_tts.server.app_generation import handle_generate
+        from qwen3_tts.server.validation import GenerateRequest
+
+        state = self._make_state()
+        request = MagicMock()
+        request.app.state = state
+
+        req = GenerateRequest(text="Hello", mode="clone", prompt_file="leaky.pt")
+
+        with patch(
+            "qwen3_tts.core.engine.load_voice_prompt",
+            side_effect=FileNotFoundError(
+                "[Errno 2] No such file or directory: "
+                "'/Users/victim/voices/leaky.pt'"
+            ),
+        ), patch(
+            f"{_APP_GENERATION}._check_memory_available",
+            return_value=(True, 4096),
+        ), patch(
+            "qwen3_tts.server.validation._validate_generation_request"
+        ):
+            with self.assertRaises(HTTPException) as ctx:
+                asyncio.run(
+                    handle_generate(
+                        request=request,
+                        state=state,
+                        req=req,
+                        security={"max_text_length": 50000, "max_batch_size": 20},
+                        config_provider=None,
+                    )
+                )
+
+        self.assertEqual(ctx.exception.status_code, 404)
+        detail = str(ctx.exception.detail)
+        self.assertIn("<path>", detail, f"unsanitized 404 detail: {detail!r}")
+        self.assertNotIn("/Users/victim", detail)
+
+
+# ---------------------------------------------------------------------------
 # GPU / MLX memory stats in /stats
 # ---------------------------------------------------------------------------
 
@@ -918,6 +1093,29 @@ class TestGenerateStream(unittest.TestCase):
                 headers={"Authorization": f"Bearer {token}"},
             )
         self.assertEqual(resp.status_code, 404)
+
+    def test_stream_prompt_not_found_sanitizes_path(self):
+        """Step 0F Deliverable 4: the streaming clone 404 must not echo the
+        absolute FileNotFoundError path into the response body (CWE-209)."""
+        client, token, state = self._setup_stream_client()
+        with patch(
+            "qwen3_tts.core.engine.load_voice_prompt",
+            side_effect=FileNotFoundError(
+                "[Errno 2] No such file or directory: "
+                "'/Users/victim/voices/leaky_clone.pt'"
+            ),
+        ), \
+             patch(f"{_APP_GENERATION}._check_memory_available", return_value=(True, 8000)), \
+             patch(f"{_APP_GENERATION}._validate_generation_request"):
+            resp = client.post(
+                "/generate-stream",
+                json={"text": "Hello", "mode": "clone", "prompt_file": "missing.wav"},
+                headers={"Authorization": f"Bearer {token}"},
+            )
+        self.assertEqual(resp.status_code, 404)
+        detail = str(resp.json().get("detail", ""))
+        self.assertIn("<path>", detail, f"unsanitized 404 detail: {detail!r}")
+        self.assertNotIn("/Users/victim", detail)
 
 
 if __name__ == "__main__":

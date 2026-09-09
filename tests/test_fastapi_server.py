@@ -106,6 +106,69 @@ def test_sanitize_error_caps_length():
     assert len(result) <= 200
 
 
+# ---------------------------------------------------------------------------
+# Step 0F: shared scheme strip + non-ASCII-safe token comparison helpers
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.unit
+@_skip
+def test_strip_bearer_scheme_canonical():
+    from qwen3_tts.server.app import _strip_bearer_scheme
+    assert _strip_bearer_scheme("Bearer tok123") == "tok123"
+
+
+@pytest.mark.unit
+@_skip
+def test_strip_bearer_scheme_is_case_insensitive():
+    """RFC 6750 2.1: the auth-scheme is case-insensitive."""
+    from qwen3_tts.server.app import _strip_bearer_scheme
+    assert _strip_bearer_scheme("bearer tok123") == "tok123"
+    assert _strip_bearer_scheme("BEARER tok123") == "tok123"
+    assert _strip_bearer_scheme("BeArEr tok123") == "tok123"
+
+
+@pytest.mark.unit
+@_skip
+def test_strip_bearer_scheme_preserves_midstring_bearer():
+    """Only ONE leading scheme token is stripped: a credential that contains
+    "Bearer " mid-string passes through intact (the old .replace() mangled
+    it, mis-hashing rate-limit buckets and failing auth)."""
+    from qwen3_tts.server.app import _strip_bearer_scheme
+    assert _strip_bearer_scheme("Bearer abc Bearer def") == "abc Bearer def"
+    assert _strip_bearer_scheme("abc Bearer def") == "abc Bearer def"
+
+
+@pytest.mark.unit
+@_skip
+def test_strip_bearer_scheme_passthrough_and_empty():
+    """No scheme, empty, and None-ish inputs come back unchanged/empty."""
+    from qwen3_tts.server.app import _strip_bearer_scheme
+    assert _strip_bearer_scheme("tok123") == "tok123"
+    assert _strip_bearer_scheme("") == ""
+    assert _strip_bearer_scheme("Bearer") == "Bearer"
+    assert _strip_bearer_scheme("Bearerx tok") == "Bearerx tok"  # no space
+
+
+@pytest.mark.unit
+@_skip
+def test_tokens_equal_matches_and_rejects_ascii():
+    from qwen3_tts.server.app import _tokens_equal
+    assert _tokens_equal("tok123", "tok123") is True
+    assert _tokens_equal("tok123", "other") is False
+
+
+@pytest.mark.unit
+@_skip
+def test_tokens_equal_survives_non_ascii():
+    """The whole point: compare_digest(str, str) raises TypeError on
+    non-ASCII; the byte comparison must return a bool instead."""
+    from qwen3_tts.server.app import _tokens_equal
+    assert _tokens_equal("tökén–→", "tökén–→") is True
+    assert _tokens_equal("tökén–→", "expected") is False
+    assert _tokens_equal("expected", "tökén–→") is False
+
+
 @pytest.mark.unit
 @_skip
 def test_get_real_client_ip_loopback_trusts_xff():

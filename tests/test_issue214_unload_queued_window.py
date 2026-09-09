@@ -1017,6 +1017,92 @@ class TestPostLockSlotReRead(unittest.TestCase):
             "the streaming generator never acquired inference_lock",
         )
 
+    def test_streaming_terminal_frame_keeps_the_classified_code(self):
+        """The in-lock guard's classified 503 must keep its classification
+        through the terminal error frame.
+
+        ``_require_model_under_lock`` raises via ``_error_response``, whose
+        detail dict is ``{"error": "model_unloaded", "detail": ..., "recovery":
+        "retry"}``. Flattening that dict to just its human message and emitting
+        the frame with the encoder's DEFAULT code stamps a retryable
+        queued-then-unloaded 503 as ``inference_failed`` -- the client cannot
+        tell "reload and retry" apart from a hard mid-generation failure.
+        Behavioral twin of the null-slot test above, asserted one layer down:
+        on the frame payload's ``code`` field, not its message."""
+        import json as _json
+        import struct as _struct
+
+        from qwen3_tts.core.stream_protocol import STREAM_ERROR_SENTINEL_SR
+
+        # Hoisted for the assertion after the run.
+        streaming_calls = []
+        state = _make_state()
+        state.inference_lock = _RecordingAsyncLock()
+
+        def _stream_stub(*args, **kwargs):
+            streaming_calls.append(1)
+            yield np.zeros(480, dtype=np.float32), 24000
+
+        async def _scenario():
+            from qwen3_tts.server.app_generation import handle_generate_stream
+            from qwen3_tts.server.validation import GenerateRequest
+
+            req = GenerateRequest(text="stream me", mode="design")
+            response = await handle_generate_stream(
+                request=_make_request(state),
+                state=state,
+                req=req,
+                security={"max_text_length": 50000, "max_batch_size": 20},
+                config_provider=None,
+            )
+            # The unload lands AFTER the handler captured the model into a
+            # local but BEFORE the response body is iterated.
+            state.models["design"] = None
+            chunks = []
+            async for chunk in response.body_iterator:
+                chunks.append(chunk)
+            return chunks
+
+        with (
+            patch(
+                f"{_APP_GENERATION}._check_memory_available",
+                return_value=(True, 4096),
+            ),
+            patch(
+                "qwen3_tts.server.validation._validate_generation_request"
+            ),
+            patch(
+                "qwen3_tts.core.engine.run_inference_streaming",
+                side_effect=_stream_stub,
+            ),
+        ):
+            chunks = asyncio.run(_scenario())
+
+        self.assertEqual(
+            len(chunks),
+            1,
+            f"expected exactly the terminal error frame, got {len(chunks)} chunks",
+        )
+        sample_rate, _length = _struct.unpack("<II", chunks[0][:8])
+        self.assertEqual(
+            sample_rate,
+            STREAM_ERROR_SENTINEL_SR,
+            "expected the sr==0 terminal error frame, not audio and not a "
+            "raised HTTPException",
+        )
+        payload = _json.loads(chunks[0][8:].decode("utf-8"))
+        self.assertEqual(
+            payload.get("code"),
+            "model_unloaded",
+            f"the in-lock guard's classified 503 was flattened to the "
+            f"default code: {payload!r}",
+        )
+        self.assertEqual(
+            streaming_calls,
+            [],
+            "streaming inference started against the orphaned model",
+        )
+
     def test_streaming_uses_the_model_reloaded_before_body_iteration(self):
         """Reload (not unload) in the capture->iterate window: headers are
         committed, the slot is non-None, so only a rebind keeps the
@@ -1241,6 +1327,152 @@ class TestPostLockSlotReRead(unittest.TestCase):
         self.assertEqual(ctx.exception.status_code, 503)
         self.assertEqual(ctx.exception.detail.get("error"), "model_unloaded")
         self.assertEqual(ctx.exception.detail.get("recovery"), "retry")
+
+
+@_skip
+class TestStreamingTerminalFrameContract(unittest.TestCase):
+    """Content contract of the streaming terminal error frame and the
+    pre-stream 503 body — the two shapes a /generate-stream client can see
+    for a model problem.
+
+    The wire contract (sentinel, framing, payload keys) lives in
+    tests/test_stream_error_frame.py; these pins are the SERVER-side content
+    of the frames that wire carries: an inference failure's absolute path
+    must not reach the client (CWE-209), and the pre-stream
+    ``model_not_loaded`` body must match the shape every sibling uses
+    (``{"error", "detail", "recovery", ...}`` — it used key ``message`` and
+    omitted ``recovery`` entirely, so clients reading ``detail`` saw None)."""
+
+    def test_streaming_terminal_frame_message_is_sanitized(self):
+        """A mid-stream inference failure reaches the client as the terminal
+        error frame; ``str(e)`` can carry an absolute filesystem path
+        (CWE-209), so the frame's message must be sanitized
+        (path -> ``<path>``), mirroring the websocket.py terminal branch."""
+        import struct as _struct
+
+        from qwen3_tts.core.stream_protocol import (
+            STREAM_ERROR_SENTINEL_SR,
+            decode_stream_error_payload,
+        )
+
+        _SECRET = "/Users/alice/secret-voices/bob/reference.wav"
+        state = _make_state()
+        state.inference_lock = _RecordingAsyncLock()
+
+        def _raising_stub(*args, **kwargs):
+            raise RuntimeError(
+                f"voice prompt unreadable: {_SECRET} (corrupt header)"
+            )
+
+        async def _scenario():
+            from qwen3_tts.server.app_generation import handle_generate_stream
+            from qwen3_tts.server.validation import GenerateRequest
+
+            req = GenerateRequest(text="stream me", mode="design")
+            response = await handle_generate_stream(
+                request=_make_request(state),
+                state=state,
+                req=req,
+                security={"max_text_length": 50000, "max_batch_size": 20},
+                config_provider=None,
+            )
+            # The model slot stays LOADED — the failure is mid-stream, inside
+            # the inference thread, not the in-lock guard.
+            chunks = []
+            async for chunk in response.body_iterator:
+                chunks.append(chunk)
+            return chunks
+
+        with (
+            patch(
+                f"{_APP_GENERATION}._check_memory_available",
+                return_value=(True, 4096),
+            ),
+            patch(
+                "qwen3_tts.server.validation._validate_generation_request"
+            ),
+            patch(
+                "qwen3_tts.core.engine.run_inference_streaming",
+                side_effect=_raising_stub,
+            ),
+        ):
+            chunks = asyncio.run(_scenario())
+
+        self.assertEqual(
+            len(chunks),
+            1,
+            f"expected exactly the terminal error frame, got {len(chunks)} chunks",
+        )
+        sample_rate, _length = _struct.unpack("<II", chunks[0][:8])
+        self.assertEqual(
+            sample_rate,
+            STREAM_ERROR_SENTINEL_SR,
+            "expected the sr==0 terminal error frame, not audio",
+        )
+        message = decode_stream_error_payload(chunks[0][8:])
+        self.assertIn(
+            "<path>",
+            message,
+            f"terminal frame message was not sanitized: {message!r}",
+        )
+        self.assertNotIn(
+            "/Users/alice",
+            message,
+            "an absolute filesystem path leaked into the terminal frame "
+            "(CWE-209)",
+        )
+
+    def test_pre_stream_model_not_loaded_body_carries_detail_and_recovery(self):
+        """The pre-stream ``model_not_loaded`` 503 body must carry ``detail``
+        and ``recovery`` keys, like every sibling body (``_error_response``'s
+        model_unloaded, insufficient_memory, and the batch path's identical
+        model_not_loaded check). It used key ``message`` and omitted
+        ``recovery`` entirely, so ``ModelNotLoadedError(detail=...)`` and any
+        ``detail``-reading client saw None."""
+        from fastapi import HTTPException
+
+        from qwen3_tts.server.app_generation import handle_generate_stream
+        from qwen3_tts.server.validation import GenerateRequest
+
+        state = _make_state()
+        state.models["design"] = None
+
+        async def _scenario():
+            req = GenerateRequest(text="stream me", mode="design")
+            return await handle_generate_stream(
+                request=_make_request(state),
+                state=state,
+                req=req,
+                security={"max_text_length": 50000, "max_batch_size": 20},
+                config_provider=None,
+            )
+
+        with (
+            patch(
+                f"{_APP_GENERATION}._check_memory_available",
+                return_value=(True, 4096),
+            ),
+            patch(
+                "qwen3_tts.server.validation._validate_generation_request"
+            ),
+        ):
+            with self.assertRaises(HTTPException) as ctx:
+                asyncio.run(_scenario())
+
+        self.assertEqual(ctx.exception.status_code, 503)
+        detail = ctx.exception.detail
+        self.assertIsInstance(detail, dict)
+        self.assertEqual(detail.get("error"), "model_not_loaded")
+        self.assertIn(
+            "detail",
+            detail,
+            f"pre-stream model_not_loaded body keys: {sorted(detail)}",
+        )
+        self.assertIn(
+            "recovery",
+            detail,
+            f"pre-stream model_not_loaded body keys: {sorted(detail)}",
+        )
 
 
 # ---------------------------------------------------------------------------

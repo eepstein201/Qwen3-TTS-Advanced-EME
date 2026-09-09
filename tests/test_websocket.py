@@ -129,6 +129,21 @@ class TestWebSocketAuth(unittest.TestCase):
             resp = ws.receive_json()
             self.assertEqual(resp["error"], "Authentication failed")
 
+    def test_non_ascii_token_gets_invalid_token_treatment(self):
+        """Step 0F Deliverable 3: a non-ASCII token must be treated exactly
+        like a wrong token — error frame first, then the 4001 close.
+
+        secrets.compare_digest(str, str) raises TypeError on non-ASCII input;
+        the broad auth except absorbed that into a bare 4001 with NO error
+        frame, an asymmetric failure clients could not distinguish from a
+        malformed handshake.
+        """
+        _setup_app_state()
+        with TestClient(app).websocket_connect("/ws") as ws:
+            ws.send_text(json.dumps({"token": "tökén–ünïcode–→"}))
+            resp = ws.receive_json()
+            self.assertEqual(resp["error"], "Authentication failed")
+
     def test_non_dict_first_message_releases_slot(self):
         """A valid-JSON non-object first message (e.g. "42") must not leak the
         connection slot. Pre-fix, auth_data.get() raised AttributeError, which
@@ -734,6 +749,36 @@ class TestWebSocketErrorReporting(unittest.TestCase):
                     resp["error"], "Voice prompt not found: missing.pt"
                 )
                 self.assertNotEqual(resp.get("status"), "generating")
+
+    @patch("qwen3_tts.core.engine.run_inference_streaming", return_value=iter([]))
+    @patch("qwen3_tts.server.validation._validate_generation_request")
+    def test_prompt_load_file_error_sanitizes_path(self, _mock_validate, _mock_inf):
+        """Step 0F Deliverable 4: the clone-prompt FileNotFoundError frame
+        must not echo the absolute loader path into the socket (CWE-209) —
+        it goes through the same sanitizer as the HTTP 404 bodies."""
+        _setup_app_state(
+            models={"clone": MagicMock(), "design": None, "custom": None},
+            server_config={"security": {}},
+        )
+        with patch(
+            "qwen3_tts.core.engine.load_voice_prompt",
+            side_effect=FileNotFoundError(
+                "[Errno 2] No such file or directory: "
+                "'/Users/victim/voices/leaky_clone.pt'"
+            ),
+        ):
+            with TestClient(app).websocket_connect("/ws") as ws:
+                self._authenticate(ws)
+                ws.send_text(json.dumps({
+                    "text": "Hello",
+                    "mode": "clone",
+                    "prompt_file": "leaky_clone.pt",
+                }))
+                resp = ws.receive_json()
+        self.assertIn(
+            "<path>", resp["error"], f"unsanitized ws error: {resp['error']!r}"
+        )
+        self.assertNotIn("/Users/victim", resp["error"])
 
 
 @_skip
@@ -1580,6 +1625,21 @@ class TestWebSocketStreamErrorCascade(unittest.TestCase):
     def test_value_error_sends_invalid_request(self):
         resp = self._first_frame_when_stream_raises(ValueError("bad payload"))
         self.assertIn("Invalid request", resp["error"])
+
+    def test_value_error_payload_is_sanitized(self):
+        """Step 0F Deliverable 4: even the "Invalid request" cascade frame
+        goes through the sanitizer — a ValueError carrying an absolute
+        filesystem path must not leak it to the client (CWE-209)."""
+        resp = self._first_frame_when_stream_raises(
+            ValueError(
+                "clone prompt missing: /Users/victim/voices/leaky_clone.pt"
+            )
+        )
+        self.assertIn("Invalid request", resp["error"])
+        self.assertIn(
+            "<path>", resp["error"], f"unsanitized ws error: {resp['error']!r}"
+        )
+        self.assertNotIn("/Users/victim", resp["error"])
 
     def test_connection_error_sends_connection_error(self):
         resp = self._first_frame_when_stream_raises(ConnectionError("broken pipe"))

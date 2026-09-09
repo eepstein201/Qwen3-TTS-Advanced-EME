@@ -440,7 +440,15 @@ async def handle_generate(request, state, req, security, config_provider):
                     )
                 except FileNotFoundError as e:
                     # MLX loader raises (torch returns None) — map both to 404.
-                    raise HTTPException(status_code=404, detail=str(e)) from e
+                    # Sanitized at the sink: str(e) carries the absolute loader
+                    # path, which must not reach the client (CWE-209). The
+                    # import sits on the exact sink per the websocket.py
+                    # late-import precedent.
+                    from qwen3_tts.server.app_lifespan import _sanitize_error
+
+                    raise HTTPException(
+                        status_code=404, detail=_sanitize_error(str(e))
+                    ) from e
                 if voice_prompt is None:
                     raise HTTPException(
                         status_code=404,
@@ -738,12 +746,17 @@ async def handle_generate_stream(request, state, req, security, config_provider)
     # Check if required model is loaded
     model = state.models.get(mode)
     if model is None:
-        error_msg = state.model_load_errors.get(mode, "Model not loaded")
+        # Same body shape as the batch path's identical check above
+        # ({"error", "detail", "recovery", "model_type"}): the streaming copy
+        # used key `message` and omitted `recovery`, so detail-reading clients
+        # (ModelNotLoadedError) saw None and no recovery hint.
+        error_msg = state.model_load_errors.get(mode) or "Model not loaded"
         raise HTTPException(
             status_code=503,
             detail={
                 "error": "model_not_loaded",
-                "message": error_msg,
+                "detail": error_msg,
+                "recovery": "restart",
                 "model_type": mode,
             },
         )
@@ -787,7 +800,14 @@ async def handle_generate_stream(request, state, req, security, config_provider)
             voice_prompt = await load_voice_prompt_serialized(state, prompt_file)
         except FileNotFoundError as e:
             # MLX loader raises (torch returns None) — map both to 404.
-            raise HTTPException(status_code=404, detail=str(e)) from e
+            # Sanitized at the sink: str(e) carries the absolute loader path,
+            # which must not reach the client (CWE-209). The import sits on
+            # the exact sink per the websocket.py late-import precedent.
+            from qwen3_tts.server.app_lifespan import _sanitize_error
+
+            raise HTTPException(
+                status_code=404, detail=_sanitize_error(str(e))
+            ) from e
         if voice_prompt is None:
             raise HTTPException(
                 status_code=404, detail=f"Voice prompt not found: {prompt_file}"
@@ -842,7 +862,26 @@ async def handle_generate_stream(request, state, req, security, config_provider)
                 # sees the re-read slot, never the pre-lock capture.
                 model = _require_model_under_lock(state, mode)
             except HTTPException as e:
+                # The message is sanitized at the sink: a non-dict detail can
+                # carry an absolute filesystem path, which must not reach the
+                # client (CWE-209). A CLASSIFIED 503 keeps its classification:
+                # _error_response's dict {"error", "detail", "recovery"} rides
+                # the frame's code field, so a retryable in-lock unload is not
+                # reported as the default "inference_failed". recovery is
+                # deliberately not carried — the frame payload contract is
+                # {"error", "code"} (core/stream_protocol.py, one wire format
+                # shared with the CLI and TTSClient), and for this error the
+                # message text already says "retry".
+                from qwen3_tts.server.app_lifespan import _sanitize_error
+
                 _detail = e.detail
+                _code = STREAM_ERROR_CODE_INFERENCE_FAILED
+                if isinstance(_detail, dict):
+                    _code = str(
+                        _detail.get("error")
+                        or _detail.get("code")
+                        or STREAM_ERROR_CODE_INFERENCE_FAILED
+                    )
                 _message = (
                     _detail
                     if isinstance(_detail, str)
@@ -852,7 +891,9 @@ async def handle_generate_stream(request, state, req, security, config_provider)
                         else _detail
                     )
                 )
-                yield encode_stream_error_frame(_message)
+                yield encode_stream_error_frame(
+                    _sanitize_error(_message), code=_code
+                )
                 return
 
             gen_id = str(uuid.uuid4())[:8]
@@ -980,7 +1021,12 @@ async def handle_generate_stream(request, state, req, security, config_provider)
             # On client disconnect the finally returns early via
             # GeneratorExit/aclose and this code is skipped.
             if thread_error[0] is not None:
-                yield encode_stream_error_frame(thread_error[0])
+                # Sanitized at the sink (CWE-209): str(e) can carry an
+                # absolute filesystem path, which must not reach the client.
+                # Late import per the websocket.py terminal-branch precedent.
+                from qwen3_tts.server.app_lifespan import _sanitize_error
+
+                yield encode_stream_error_frame(_sanitize_error(thread_error[0]))
 
     return StreamingResponse(
         audio_stream_generator(),
