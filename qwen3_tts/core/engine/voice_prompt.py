@@ -466,9 +466,10 @@ def save_voice_prompt_mlx(base: str, audio_path: str, transcript: str) -> str:
 
     from qwen3_tts.core.engine.audio_processing import ensure_min_sample_rate
 
-    # Reference-source containment (the same home-directory policy the UI
-    # create path enforces in tabs_generation.py, plus the platform tempdir
-    # where the server stages uploads). realpath-normalize FIRST and use the
+    # Reference-source containment (the server stages uploads into the
+    # platform tempdir, and since 0G the Gradio UI's MLX create path routes
+    # through THIS writer, so both surfaces share the home-directory
+    # policy). realpath-normalize FIRST and use the
     # normalized variable at every sink below — a startswith check only
     # sanitizes when the checked variable is the exact one the sink uses
     # (guards in callers do not survive the call boundary; PR #200). The

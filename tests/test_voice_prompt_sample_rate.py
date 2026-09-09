@@ -99,6 +99,13 @@ class TestGradioCreateVoiceUpsamples(unittest.TestCase):
     fully reachable from the primary GUI path even after tools/create_voice.py
     was fixed. MLX reads that .wav by path (voice_prompt.py returns
     {"ref_audio": wav_path}), so the on-disk rate is what the model sees.
+
+    0G: the UI store step now lives in the engine writer
+    (save_voice_prompt_mlx, called from voice_management.py), so the artifact
+    assertions here run through BOTH seams: the UI's VOICE_PROMPTS_DIR (the
+    already-exists pre-check) AND the writer's (the actual sink). Patching
+    only the UI seam would send the real store write at the real prompts
+    directory.
     """
 
     def setUp(self):
@@ -118,9 +125,12 @@ class TestGradioCreateVoiceUpsamples(unittest.TestCase):
         """Invoke the real UI handler against a temp prompts dir."""
         import soundfile as sf
 
+        from qwen3_tts.core.engine import voice_prompt as vp
         from qwen3_tts.interface.ui import voice_management as vm
 
         with patch.object(vm, "VOICE_PROMPTS_DIR", self.tmp.name), patch.object(
+            vp, "VOICE_PROMPTS_DIR", self.tmp.name
+        ), patch.object(
             vm, "load_config", return_value={"advanced": {"backend": "mlx"}}
         ), patch.object(vm, "get_voice_prompts", return_value=[]), patch.object(
             vm, "get_default_clone_prompt", return_value=None

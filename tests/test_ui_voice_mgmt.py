@@ -35,22 +35,6 @@ _ENGINE = "qwen3_tts.core.engine"
 _ENGINE_VOICE_PROMPT = "qwen3_tts.core.engine.voice_prompt"
 
 
-def _readable_audio():
-    """Patch soundfile.read to report an adequate-rate mono clip.
-
-    create_voice_prompt now REFUSES an upload whose sample rate it cannot
-    inspect, rather than byte-copying it unchecked — copying shipped exactly
-    the below-native-rate prompt that makes clone generation run to the token
-    cap. These tests pass a placeholder path that no decoder can open, so they
-    must supply the rate themselves to reach the plumbing they actually assert.
-    """
-    import numpy as np
-
-    return patch(
-        "soundfile.read", return_value=(np.zeros(24000, dtype="float32"), 24000)
-    )
-
-
 @unittest.skipUnless(HAS_GRADIO, "requires gradio")
 class TestCreateVoicePromptUI(unittest.TestCase):
     """Tests for create_voice_prompt."""
@@ -82,50 +66,51 @@ class TestCreateVoicePromptUI(unittest.TestCase):
 
     def test_mlx_creates_wav_and_txt(self):
         from qwen3_tts.interface.ui.voice_management import create_voice_prompt
-        with patch(f"{_MOD}.validate_prompt_name", return_value=None), \
+        with tempfile.TemporaryDirectory() as target, \
+             patch(f"{_MOD}.validate_prompt_name", return_value=None), \
              patch(f"{_MOD}.load_config", return_value={"advanced": {"backend": "mlx"}}), \
              patch(f"{_MOD}.strip_extension", return_value="new_voice"), \
-             patch("os.path.exists", return_value=False), \
-             _readable_audio(), \
-             patch("shutil.copy") as mock_copy, \
-             patch("builtins.open", mock_open()), \
+             patch(f"{_MOD}.VOICE_PROMPTS_DIR", target), \
+             patch(f"{_ENGINE}.save_voice_prompt_mlx", return_value="wav") as mock_writer, \
+             patch(f"{_ENGINE}.clear_voice_prompt_cache"), \
              patch(f"{_MOD}.get_voice_prompts", return_value=["new_voice.wav"]), \
              patch(f"{_MOD}.get_default_clone_prompt", return_value="new_voice.wav"):
             status, prompts, default = create_voice_prompt(
                 "/tmp/audio.wav", "Hello world", "new_voice", False,
             )
         self.assertIn("MLX", status)
-        mock_copy.assert_called_once()
+        mock_writer.assert_called_once_with(
+            "new_voice", "/tmp/audio.wav", "Hello world"
+        )
 
     def test_mlx_no_transcript_mode(self):
         from qwen3_tts.interface.ui.voice_management import create_voice_prompt
-        written = []
-        m = mock_open()
-        m.return_value.write = lambda x: written.append(x)
-        with patch(f"{_MOD}.validate_prompt_name", return_value=None), \
+        with tempfile.TemporaryDirectory() as target, \
+             patch(f"{_MOD}.validate_prompt_name", return_value=None), \
              patch(f"{_MOD}.load_config", return_value={"advanced": {"backend": "mlx"}}), \
              patch(f"{_MOD}.strip_extension", return_value="voice"), \
-             patch("os.path.exists", return_value=False), \
-             _readable_audio(), \
-             patch("shutil.copy"), \
-             patch("builtins.open", m), \
+             patch(f"{_MOD}.VOICE_PROMPTS_DIR", target), \
+             patch(f"{_ENGINE}.save_voice_prompt_mlx", return_value="wav") as mock_writer, \
+             patch(f"{_ENGINE}.clear_voice_prompt_cache"), \
              patch(f"{_MOD}.get_voice_prompts", return_value=["voice.wav"]), \
              patch(f"{_MOD}.get_default_clone_prompt", return_value="voice.wav"):
             status, _, _ = create_voice_prompt(
                 "/tmp/audio.wav", None, "voice", True,
             )
         self.assertIn("MLX", status)
+        mock_writer.assert_called_once_with("voice", "/tmp/audio.wav", None)
 
     def test_mlx_no_transcript_no_flag_raises(self):
         from qwen3_tts.interface.ui.voice_management import create_voice_prompt
-        with patch(f"{_MOD}.validate_prompt_name", return_value=None), \
+        with tempfile.TemporaryDirectory() as target, \
+             patch(f"{_MOD}.validate_prompt_name", return_value=None), \
              patch(f"{_MOD}.load_config", return_value={"advanced": {"backend": "mlx"}}), \
              patch(f"{_MOD}.strip_extension", return_value="voice"), \
-             patch("os.path.exists", return_value=False), \
-             patch("shutil.copy"), \
-             patch("os.remove"):
+             patch(f"{_MOD}.VOICE_PROMPTS_DIR", target), \
+             patch(f"{_ENGINE}.save_voice_prompt_mlx") as mock_writer:
             with self.assertRaises(gr.Error):
                 create_voice_prompt("/tmp/audio.wav", "", "voice", False)
+        mock_writer.assert_not_called()
 
 
 @unittest.skipUnless(HAS_GRADIO, "requires gradio")
@@ -439,8 +424,8 @@ class TestMlxCreateEngineWriterPins(unittest.TestCase):
             "the raw None must reach the writer; the UI must not .strip() it",
         )
         self.assertEqual(
-            os.listdir(self.target),
-            ["coerce_voice.wav", "coerce_voice.txt"],
+            sorted(os.listdir(self.target)),
+            ["coerce_voice.txt", "coerce_voice.wav"],
         )
         with open(os.path.join(self.target, "coerce_voice.txt")) as f:
             self.assertEqual(f.read(), "")
