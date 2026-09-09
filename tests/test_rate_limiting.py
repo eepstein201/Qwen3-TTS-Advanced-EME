@@ -117,6 +117,57 @@ class TestRateLimitKeyFunctions:
 
         assert result == "anonymous"
 
+    def test_get_token_key_preserves_midstring_bearer(self):
+        """Step 0F: a credential that CONTAINS "Bearer " mid-string must be
+        hashed whole. The old .replace("Bearer ", "") stripped every
+        occurrence anywhere in the string, silently mangling the credential
+        and re-bucketing the rate-limit key."""
+        import hashlib
+
+        request = MagicMock(spec=Request)
+        request.headers = {"Authorization": "Bearer abc Bearer def"}
+
+        from qwen3_tts.server.app import _get_token_key
+        result = _get_token_key(request)
+
+        expected = hashlib.sha256("abc Bearer def".encode()).hexdigest()[:16]
+        assert result == expected, (
+            f"credential was mangled: got hash of a stripped value "
+            f"({result!r}), expected the whole credential hashed ({expected!r})"
+        )
+
+    def test_get_rate_limit_key_preserves_midstring_bearer(self):
+        """Step 0F: the hybrid (IP:token-hash) key must hash the whole
+        credential too — same mangling failure, same fix."""
+        import hashlib
+
+        request = MagicMock(spec=Request)
+        request.client.host = "192.168.1.100"
+        request.headers = {"Authorization": "Bearer abc Bearer def"}
+
+        from qwen3_tts.server.app import _get_rate_limit_key
+        result = _get_rate_limit_key(request)
+
+        token_hash = hashlib.sha256("abc Bearer def".encode()).hexdigest()[:16]
+        assert result == f"192.168.1.100:{token_hash}"
+
+    def test_get_token_key_strips_lowercase_bearer_scheme(self):
+        """Step 0F: RFC 6750 2.1 makes the scheme case-insensitive, so
+        "bearer tok" and "Bearer tok" must hash the SAME credential."""
+        import hashlib
+
+        request = MagicMock(spec=Request)
+        request.headers = {"Authorization": "bearer tok123"}
+
+        from qwen3_tts.server.app import _get_token_key
+        result = _get_token_key(request)
+
+        expected = hashlib.sha256("tok123".encode()).hexdigest()[:16]
+        assert result == expected, (
+            f"lowercase scheme not stripped: got {result!r}, "
+            f"expected {expected!r}"
+        )
+
 
 class TestAIRegressionTokenHashing:
     """AI REGRESSION: Test token hash consistency (prevents token leakage bugs).
