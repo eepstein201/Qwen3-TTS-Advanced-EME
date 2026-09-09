@@ -129,39 +129,18 @@ class TestShareRequiresAuthHelper(unittest.TestCase):
             f"credentials seam resolves into the real config dir: {path}",
         )
 
-    def test_seam_honors_tts_ui_credentials_dir_override(self):
-        """``TTS_UI_CREDENTIALS_DIR`` moves the credentials file — the knob
-        that isolates the unittest batch subprocesses, which never see the
-        conftest fixture. Env-based, so this passes under BOTH runners."""
+    def test_seam_honors_the_module_global_override(self):
+        """``_UI_CREDENTIALS_DIR_OVERRIDE`` (test-infra knob, set only by
+        tests) moves the credentials file. Pure mock — passes under BOTH
+        runners."""
         import qwen3_tts.interface.ui.shared as ui_shared
 
         override = tempfile.TemporaryDirectory()
         self.addCleanup(override.cleanup)
-        # patch.dict restores the key EXACTLY (prior value, or absence) — a
-        # plain addCleanup(pop) would strip an AMBIENT knob set by the batch
-        # runner and leave every later test in the process unprotected.
-        with patch.dict(os.environ, {"TTS_UI_CREDENTIALS_DIR": override.name}):
+        with patch.object(ui_shared, "_UI_CREDENTIALS_DIR_OVERRIDE", override.name):
             path = ui_shared._ui_credentials_path()
-        # The seam resolves the override (realpath+expanduser) before joining.
-        self.assertEqual(
-            os.path.dirname(path),
-            os.path.realpath(os.path.expanduser(override.name)),
-        )
+        self.assertEqual(os.path.dirname(path), override.name)
         self.assertEqual(os.path.basename(path), ".ui_share_credentials")
-
-    def test_seam_rejects_override_outside_the_system_tempdir(self):
-        """The knob is test-infra: an override outside the system tempdir fails
-        closed instead of silently pointing the credentials file somewhere
-        else (CodeQL py/path-injection: dominating guard on the sink)."""
-        import qwen3_tts.interface.ui.shared as ui_shared
-
-        outside = os.path.expanduser("~")
-        with patch.dict(os.environ, {"TTS_UI_CREDENTIALS_DIR": outside}):
-            with self.assertRaises(RuntimeError) as ctx:
-                ui_shared._ui_credentials_path()
-        message = str(ctx.exception)
-        self.assertIn("TTS_UI_CREDENTIALS_DIR", message)
-        self.assertIn("tempdir", message)
 
     def test_share_true_prefers_both_env_vars_verbatim(self):
         from qwen3_tts.interface.ui.shared import get_gradio_launch_kwargs
