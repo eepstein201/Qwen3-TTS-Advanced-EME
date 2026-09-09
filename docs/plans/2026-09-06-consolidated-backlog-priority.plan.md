@@ -223,7 +223,7 @@ security gap and adding its test coverage belong in the same effort; see Step 0G
 - **Verify:** `pytest tests/test_websocket*.py -v`; `ruff`; `mypy`.
 - **Exit criteria:** slot count returns to baseline after a simulated mid-handshake disconnect and after each auth-failure branch, even when the close/send call itself raises.
 
-### Step 0E — Gradio UI can launch unauthenticated and publicly shared
+### Step 0E — Gradio UI can launch unauthenticated and publicly shared (EXECUTED 2026-09-08/09, PR #276)
 
 - **Model tier:** strongest (security-sensitive, user-facing default behavior change) · **Branch:** `fix/gradio-share-requires-auth`
 - **Context:** `share = bool(os.environ.get("TTS_UI_SHARE")) or IN_COLAB`
@@ -1317,6 +1317,15 @@ analysis rather than duplicated as a new step.)*
 
 ### Track T3 — Branch disposition register (decision-gated: user action only)
 
+- **Register emptied 2026-09-09:** all six remaining entries below are deleted — the
+  four locals (`fix/require-model-under-lock-returns-model`,
+  `fix/generation-state-thread-safety`, `fix/ws-slot-leak-preauth`,
+  `docs/incorporate-interface-quality-plan`) and the two origin branches
+  (`docs/update-codemaps` — superseded, #268's `c177acf` is the last codemap refresh
+  on main; `fix/makefile-docs-upkeep` — per-path diff confirmed nothing else rode it,
+  every path it touched is byte-identical on main's tip). The two origin-side
+  deletions leave unregistered local namesakes (`docs/update-codemaps`,
+  `fix/makefile-docs-upkeep`) in place; nothing further is pending in this register.
 - **Status verified 2026-09-08:** the pre-rewrite diverged branches older memory carried as
   "do not delete without the user" (`feature/code-quality-sweep`, `feature/sec-3/4/5-*`,
   `feature/ui-phase-1c-confirms`) and the two awaiting a value decision
@@ -1349,8 +1358,8 @@ analysis rather than duplicated as a new step.)*
 (1) · Wave 3: 3A–3E (5) · Wave 4: 4A–4D (4) · Wave 4B: 4B.1–4B.4 (4) · Wave 5: 5 (1) · Wave 6:
 6A–6R (18) · Wave 7: 7A–7C (3) — **plus 3 independent tracks** (feature, dependency, and the decision-gated branch register — none gated by the waves) **+ 1 passive watch** (no action). Step 6·0 (dead-code cleanup) was already
 executed directly on 2026-09-06 and is recorded in Wave 6; it is not counted among the pending
-steps. **Executed so far: 0A (PR #263), 0B (PR #269), 0C (PR #270), 0D (PR #271).** **6G is
-folded into Wave 7 Step 7C** (not independently pending). ***Open: 43.*** *(Wave 7 incorporated
+steps. **Executed so far: 0A (PR #263), 0B (PR #269), 0C (PR #270), 0D (PR #271), 0E (PR #276).** **6G is
+folded into Wave 7 Step 7C** (not independently pending). ***Open: 42.*** *(Wave 7 incorporated
 2026-09-08 from the Interface Quality Improvement Plan — a three-surface audit of Web UI, CLI,
 and HTTP API, user-scoped; tracked at `docs/plans/2026-09-07-interface-quality.plan.md`, which
 is the spec for 7A–7C.)* Ordered by: critical correctness/security findings from the 2026-09-06 cross-cutting
