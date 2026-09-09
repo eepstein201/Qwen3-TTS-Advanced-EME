@@ -136,11 +136,12 @@ class TestShareRequiresAuthHelper(unittest.TestCase):
         import qwen3_tts.interface.ui.shared as ui_shared
 
         override = tempfile.TemporaryDirectory()
-        # Restore the ambient environment BEFORE mutating it (leak-safe order).
-        self.addCleanup(os.environ.pop, "TTS_UI_CREDENTIALS_DIR", None)
         self.addCleanup(override.cleanup)
-        os.environ["TTS_UI_CREDENTIALS_DIR"] = override.name
-        path = ui_shared._ui_credentials_path()
+        # patch.dict restores the key EXACTLY (prior value, or absence) — a
+        # plain addCleanup(pop) would strip an AMBIENT knob set by the batch
+        # runner and leave every later test in the process unprotected.
+        with patch.dict(os.environ, {"TTS_UI_CREDENTIALS_DIR": override.name}):
+            path = ui_shared._ui_credentials_path()
         self.assertEqual(os.path.dirname(path), override.name)
         self.assertEqual(os.path.basename(path), ".ui_share_credentials")
 
