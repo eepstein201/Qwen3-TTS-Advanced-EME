@@ -163,8 +163,8 @@ The E2E case landed as `ee56e8c`, then a 3-line follow-up (`dec19d4`) closed
 the UI subprocess's PIPE streams in the test's cleanup (a ResourceWarning
 under the unittest runner). Because that follow-up touched the test file
 AFTER the first gate pass, every counted gate below was RE-RUN from
-`dec19d4`. The only later commit is `f63f336` (this doc's own sync), which
-touches nothing the gates execute; the census row is measured at final HEAD.
+`dec19d4`. The only later commits are docs-only (`f63f336` sync, `a7d5676`
+census fix), touching nothing the gates execute; the census row is measured at final HEAD.
 
 | Gate | Command | Result |
 |---|---|---|
@@ -174,7 +174,7 @@ touches nothing the gates execute; the census row is measured at final HEAD.
 | `test_ui_voice_mgmt` torchless | `./.venv-310/bin/python -m pytest tests/test_ui_voice_mgmt.py -q` | **29 passed, 1 warning** — RUN, not skip |
 | ruff | `conda run -n qwen3-tts-mlx ruff check qwen3_tts tests` | All checks passed (exit 0) |
 | mypy (entry-point form) | `conda run -n qwen3-tts-mlx mypy qwen3_tts/core qwen3_tts/server qwen3_tts/interface` | Success: no issues found in 58 source files (the known pre-existing `annotation-unchecked` notes only) |
-| `git diff -w` census | `git diff -w --stat d17c284..HEAD` | 4 files, +452/-6: `tests/test_ui_headless.py` +195/-1 (E2E case + pipe-close follow-up), evidence doc +239, plan +17/-4 (net), CLAUDE.md +1/-1; `config.json` never staged |
+| `git diff -w` census | `git diff -w --stat d17c284..HEAD` | 4 files, +457/-6: `tests/test_ui_headless.py` +195/-1 (E2E case + pipe-close follow-up), evidence doc +244, plan +17/-4 (net), CLAUDE.md +1/-1; `config.json` never staged |
 | Isolation stat | `find voice_prompts -type f` before/after the batch-4 + full runs | 37 → **37**, 0 files newer than the runs — nothing new in the real dir |
 
 bandit was not re-run (not on this step's gate list): Task 2 touches only a
