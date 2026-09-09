@@ -142,7 +142,11 @@ class TestShareRequiresAuthHelper(unittest.TestCase):
         # runner and leave every later test in the process unprotected.
         with patch.dict(os.environ, {"TTS_UI_CREDENTIALS_DIR": override.name}):
             path = ui_shared._ui_credentials_path()
-        self.assertEqual(os.path.dirname(path), override.name)
+        # The seam resolves the override (realpath+expanduser) before joining.
+        self.assertEqual(
+            os.path.dirname(path),
+            os.path.realpath(os.path.expanduser(override.name)),
+        )
         self.assertEqual(os.path.basename(path), ".ui_share_credentials")
 
     def test_seam_rejects_override_outside_the_system_tempdir(self):

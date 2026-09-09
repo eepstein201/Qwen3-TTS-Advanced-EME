@@ -307,3 +307,10 @@ credentials-file directory — `tests/run_batches.py` sets it to the system temp
 (because its unittest batch subprocesses bypass pytest's conftest autouse fixture),
 `tests/conftest.py` points every pytest test at its own `tmp_path`, and production
 leaves it unset (real config dir).
+
+**Fix round 6:** CodeQL raised 2 HIGH `py/path-injection` on the knob branch
+(env-controlled path expression). Resolution per the repo's documented shape
+(dominating startswith guard ON the sink — caller guards do not survive the call
+boundary): the override is realpath+expanduser'd and must resolve under the system
+tempdir, else RuntimeError (fail closed, never a silent fallback to the real config
+dir). Codifies what the two legitimate setters already satisfied.

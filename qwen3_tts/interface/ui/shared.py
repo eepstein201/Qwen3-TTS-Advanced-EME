@@ -880,12 +880,29 @@ def _ui_credentials_path() -> str:
     moves the file's directory — tests/conftest.py points every pytest test at
     its tmp_path, and tests/run_batches.py points its unittest batch
     subprocesses at the system tempdir, because those subprocesses never see
-    pytest fixtures.
+    pytest fixtures. The override is scoped to the system tempdir: anything
+    else raises, so a stray value can never point the credentials file at the
+    real config dir or anywhere else outside the sandbox.
     """
     # keep in sync with _TOKEN_DIR in core/config/paths.py
     override = os.environ.get("TTS_UI_CREDENTIALS_DIR")
-    base = override if override else os.path.expanduser("~/.config/qwen3-tts")
-    return os.path.join(base, ".ui_share_credentials")
+    if override:
+        import tempfile
+
+        resolved = os.path.realpath(os.path.expanduser(override))
+        tmp_root = os.path.realpath(tempfile.gettempdir())
+        # Dominating guard ON the sink (caller guards do not survive the call
+        # boundary): the knob is test-infra and may only place the file under
+        # the system tempdir, never at the real config dir or elsewhere.
+        if resolved == tmp_root or resolved.startswith(tmp_root + os.sep):
+            return os.path.join(resolved, ".ui_share_credentials")
+        raise RuntimeError(
+            "TTS_UI_CREDENTIALS_DIR override must resolve under the system "
+            f"tempdir (test-infra knob); got {resolved}"
+        )
+    return os.path.join(
+        os.path.expanduser("~/.config/qwen3-tts"), ".ui_share_credentials"
+    )
 
 
 def _write_ui_credentials(path: str, password: str) -> None:
