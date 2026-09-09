@@ -163,11 +163,14 @@ class TestGenerationStateGuardBegin(unittest.TestCase):
 
     def test_begin_leaves_cancelled_untouched_when_no_target_is_set(self):
         # cancel_target_id is None: there is nothing to erase, so begin()
-        # must not touch `cancelled` at all.
+        # must leave `cancelled` exactly as it found it — including when it
+        # is already True. Starting from cancelled=False (the idle default)
+        # would pass identically under a wrong blanket `cancelled = False`
+        # re-clear, so this pin deliberately starts from cancelled=True with
+        # no target and asserts it SURVIVES begin().
+        self.guard.set_cancelled()  # cancelled=True, cancel_target_id=None
         self.guard.begin("gen-7")
-        self.assertFalse(self.guard.is_cancelled())
-        self.guard.begin("gen-8")
-        self.assertFalse(self.guard.is_cancelled())
+        self.assertTrue(self.guard.is_cancelled())
         self.assertIsNone(self.guard.snapshot(["cancel_target_id"])["cancel_target_id"])
 
     def test_begin_consumes_its_own_pending_registration(self):
@@ -375,8 +378,12 @@ class TestGenerationStateGuardPendingRegistry(unittest.TestCase):
 
     def test_deregister_pending_is_idempotent_on_an_unregistered_id(self):
         # discard-style: deregistering an id that was never registered must
-        # not raise.
+        # not raise, must be safe to repeat, and must not disturb a cancel
+        # targeted at some unrelated id (there was nothing for it to match).
+        self.guard.set_cancelled("gen-1")
         self.guard.deregister_pending("gen-never-registered")
+        self.guard.deregister_pending("gen-never-registered")
+        self.assertTrue(self.guard.is_cancelled_for("gen-1"))
 
     def test_deregister_pending_removes_the_id(self):
         self.guard.register_pending("gen-1")
