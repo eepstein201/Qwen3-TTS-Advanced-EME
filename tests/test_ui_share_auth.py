@@ -145,6 +145,20 @@ class TestShareRequiresAuthHelper(unittest.TestCase):
         self.assertEqual(os.path.dirname(path), override.name)
         self.assertEqual(os.path.basename(path), ".ui_share_credentials")
 
+    def test_seam_rejects_override_outside_the_system_tempdir(self):
+        """The knob is test-infra: an override outside the system tempdir fails
+        closed instead of silently pointing the credentials file somewhere
+        else (CodeQL py/path-injection: dominating guard on the sink)."""
+        import qwen3_tts.interface.ui.shared as ui_shared
+
+        outside = os.path.expanduser("~")
+        with patch.dict(os.environ, {"TTS_UI_CREDENTIALS_DIR": outside}):
+            with self.assertRaises(RuntimeError) as ctx:
+                ui_shared._ui_credentials_path()
+        message = str(ctx.exception)
+        self.assertIn("TTS_UI_CREDENTIALS_DIR", message)
+        self.assertIn("tempdir", message)
+
     def test_share_true_prefers_both_env_vars_verbatim(self):
         from qwen3_tts.interface.ui.shared import get_gradio_launch_kwargs
 
