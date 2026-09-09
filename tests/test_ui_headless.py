@@ -287,6 +287,9 @@ class TestUiCreateFromAudioEngineWriter(unittest.TestCase):
             except subprocess.TimeoutExpired:
                 proc.kill()
                 proc.wait()
+        for stream in (proc.stdout, proc.stderr):
+            if stream is not None:
+                stream.close()
 
     @staticmethod
     def _choices(dropdown_result) -> list:
