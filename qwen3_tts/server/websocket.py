@@ -244,9 +244,16 @@ async def websocket_tts_handler(
                         config_provider=config_provider,
                     )
                 except (ValueError, KeyError, json.JSONDecodeError) as e:
-                    # Client validation errors - bad request data
+                    # Client validation errors - bad request data. The payload
+                    # is sanitized at the sink: str(e) can carry an absolute
+                    # filesystem path (CWE-209). Late import per the
+                    # terminal-frame precedent below.
+                    from qwen3_tts.server.app_lifespan import _sanitize_error
+
                     logger.error("WebSocket generation request error: %s", e, exc_info=True)
-                    await websocket.send_json({"error": f"Invalid request: {str(e)}"})
+                    await websocket.send_json(
+                        {"error": _sanitize_error(f"Invalid request: {str(e)}")}
+                    )
                 except (ConnectionError, OSError) as e:
                     # Network/connection issues
                     logger.error("WebSocket connection error: %s", e, exc_info=True)
@@ -394,7 +401,12 @@ async def _stream_generation(
             )
         except FileNotFoundError as e:
             # MLX loader raises (torch returns None) — report like the HTTP 404.
-            await websocket.send_json({"error": str(e)})
+            # Sanitized at the sink: str(e) carries the absolute loader path,
+            # which must not reach the client (CWE-209). Late import per the
+            # terminal-frame precedent below.
+            from qwen3_tts.server.app_lifespan import _sanitize_error
+
+            await websocket.send_json({"error": _sanitize_error(str(e))})
             return
         except HTTPException as e:
             # load_voice_prompt_serialized re-reads the clone slot under

@@ -440,7 +440,15 @@ async def handle_generate(request, state, req, security, config_provider):
                     )
                 except FileNotFoundError as e:
                     # MLX loader raises (torch returns None) — map both to 404.
-                    raise HTTPException(status_code=404, detail=str(e)) from e
+                    # Sanitized at the sink: str(e) carries the absolute loader
+                    # path, which must not reach the client (CWE-209). The
+                    # import sits on the exact sink per the websocket.py
+                    # late-import precedent.
+                    from qwen3_tts.server.app_lifespan import _sanitize_error
+
+                    raise HTTPException(
+                        status_code=404, detail=_sanitize_error(str(e))
+                    ) from e
                 if voice_prompt is None:
                     raise HTTPException(
                         status_code=404,
@@ -787,7 +795,14 @@ async def handle_generate_stream(request, state, req, security, config_provider)
             voice_prompt = await load_voice_prompt_serialized(state, prompt_file)
         except FileNotFoundError as e:
             # MLX loader raises (torch returns None) — map both to 404.
-            raise HTTPException(status_code=404, detail=str(e)) from e
+            # Sanitized at the sink: str(e) carries the absolute loader path,
+            # which must not reach the client (CWE-209). The import sits on
+            # the exact sink per the websocket.py late-import precedent.
+            from qwen3_tts.server.app_lifespan import _sanitize_error
+
+            raise HTTPException(
+                status_code=404, detail=_sanitize_error(str(e))
+            ) from e
         if voice_prompt is None:
             raise HTTPException(
                 status_code=404, detail=f"Voice prompt not found: {prompt_file}"

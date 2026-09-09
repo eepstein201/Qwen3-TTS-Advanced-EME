@@ -130,7 +130,7 @@ class TestRateLimitKeyFunctions:
         from qwen3_tts.server.app import _get_token_key
         result = _get_token_key(request)
 
-        expected = hashlib.sha256("abc Bearer def".encode()).hexdigest()[:16]
+        expected = hashlib.sha256(b"abc Bearer def").hexdigest()[:16]
         assert result == expected, (
             f"credential was mangled: got hash of a stripped value "
             f"({result!r}), expected the whole credential hashed ({expected!r})"
@@ -148,7 +148,7 @@ class TestRateLimitKeyFunctions:
         from qwen3_tts.server.app import _get_rate_limit_key
         result = _get_rate_limit_key(request)
 
-        token_hash = hashlib.sha256("abc Bearer def".encode()).hexdigest()[:16]
+        token_hash = hashlib.sha256(b"abc Bearer def").hexdigest()[:16]
         assert result == f"192.168.1.100:{token_hash}"
 
     def test_get_token_key_strips_lowercase_bearer_scheme(self):
@@ -162,7 +162,7 @@ class TestRateLimitKeyFunctions:
         from qwen3_tts.server.app import _get_token_key
         result = _get_token_key(request)
 
-        expected = hashlib.sha256("tok123".encode()).hexdigest()[:16]
+        expected = hashlib.sha256(b"tok123").hexdigest()[:16]
         assert result == expected, (
             f"lowercase scheme not stripped: got {result!r}, "
             f"expected {expected!r}"

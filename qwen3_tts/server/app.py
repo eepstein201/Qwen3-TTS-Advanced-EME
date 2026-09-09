@@ -203,13 +203,47 @@ def _get_real_client_ip(request: Request) -> str:
     return direct_host
 
 
+# len("Bearer ") — the scheme token a case-insensitive strip removes
+_BEARER_SCHEME_LEN = 7
+
+
+def _strip_bearer_scheme(header_value: str) -> str:
+    """Return the credential of an Authorization header value.
+
+    Strips ONE leading scheme token, case-insensitively (RFC 6750 2.1 — the
+    auth-scheme is case-insensitive), and nothing else. The old
+    ``.replace("Bearer ", "")`` was case-sensitive (so "bearer <tok>" was not
+    a credential at all) and removed EVERY occurrence anywhere in the string,
+    so a credential that merely contained "Bearer " mid-string was silently
+    mangled — mis-hashing rate-limit buckets and failing auth.
+    """
+    value = header_value or ""
+    if value[:_BEARER_SCHEME_LEN].lower() == "bearer ":
+        return value[_BEARER_SCHEME_LEN:]
+    return value
+
+
+def _tokens_equal(candidate: str, stored: str) -> bool:
+    """Constant-time token comparison that survives non-ASCII input.
+
+    ``secrets.compare_digest`` raises TypeError on str arguments containing
+    non-ASCII characters, so a non-ASCII bearer token turned a would-be 401
+    into an unhandled 500 (and skipped the audit log). Comparing UTF-8
+    encoded bytes keeps the constant-time property; "replace" also absorbs
+    lone surrogates, which strict UTF-8 encoding would reject.
+    """
+    return secrets.compare_digest(
+        candidate.encode("utf-8", "replace"), stored.encode("utf-8", "replace")
+    )
+
+
 def _get_rate_limit_key(request: Request) -> str:
     """Hybrid rate limit key: combine IP and token for strictest limits.
 
     This ensures both per-IP AND per-token limits are enforced simultaneously.
     """
     client_ip = _get_real_client_ip(request)
-    token = request.headers.get("Authorization", "").replace("Bearer ", "")
+    token = _strip_bearer_scheme(request.headers.get("Authorization", ""))
     # Hash token to avoid leaking sensitive data in rate limit keys
     token_hash = (
         hashlib.sha256(token.encode()).hexdigest()[:16] if token else "anonymous"
@@ -231,7 +265,7 @@ def _get_token_key(request: Request) -> str:
     Rate limits based on authentication token only.
     Useful for shared IP environments (NAT, corporate proxies).
     """
-    token = request.headers.get("Authorization", "").replace("Bearer ", "")
+    token = _strip_bearer_scheme(request.headers.get("Authorization", ""))
     if not token:
         return "anonymous"
     return hashlib.sha256(token.encode()).hexdigest()[:16]
@@ -249,8 +283,8 @@ async def verify_auth(request: Request) -> None:
     no-auth access by simply not declaring Depends(verify_auth); this function only
     ever runs for protected routes.
     """
-    token = request.headers.get("Authorization", "").replace("Bearer ", "")
-    if not secrets.compare_digest(token, request.app.state.auth_token):
+    token = _strip_bearer_scheme(request.headers.get("Authorization", ""))
+    if not _tokens_equal(token, request.app.state.auth_token):
         client_ip = _get_real_client_ip(request)
         # Determine failure reason for audit logging (R-26)
         failure_reason = "missing_token" if not token else "invalid_token"
@@ -956,7 +990,11 @@ async def websocket_endpoint(
     state = websocket.app.state
 
     def _verify_token(token: str) -> bool:
-        return secrets.compare_digest(token, state.auth_token)
+        # Same non-ASCII-safe comparison as verify_auth: a raw
+        # secrets.compare_digest(str, str) raises TypeError on non-ASCII
+        # input, which the handler's broad auth except absorbed into a bare
+        # 4001 close with no error frame — unlike a wrong token.
+        return _tokens_equal(token, state.auth_token)
 
     await websocket_tts_handler(
         websocket, state, _verify_token, _app_config_provider
