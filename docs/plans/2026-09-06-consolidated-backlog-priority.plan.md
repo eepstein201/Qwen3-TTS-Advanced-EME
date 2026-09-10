@@ -280,8 +280,14 @@ the correctness work in this and later waves relies on it. Fixing it last (Wave 
 for everything else) would mean every wave in between ran against a batch gate known to be silently
 incomplete.
 
-### Step 1A — Fix #237: cancel landing in a batch item's pre-lock window is erased
+### Step 1A — Fix #237: cancel landing in a batch item's pre-lock window is erased (EXECUTED 2026-09-10, PR #283)
 
+- **Status: DONE (PR #283, squash `8e44dad9`, 2026-09-10; issue #237 closed).** Attributed
+  cancellation shipped: `GenerationStateGuard` replaces the bare boolean with
+  `set_cancelled(target_id)` / `is_cancelled_for(generation_id)`, a pending registry latches
+  cancels arriving before item 0 goes active, and `begin()`'s erase rule is four-case (only a
+  genuinely stale target is erased) — both windows closed with zero client API change. Evidence:
+  `docs/reviews/issue-237-attributed-cancellation-2026-09-10.md`.
 - **Model tier:** default · **Branch:** `fix/issue237-batch-cancel-race` · **Parallel with:** 1B, 1C, 1D — but see the corrected write-surface note below; touches `app.py` in addition to `app_generation.py`, unlike any other Wave-1 step, so it stays parallel-safe only because nothing else in this wave touches `app.py`.
 - **Context (corrected during adversarial review — the original draft misdescribed both the window and the fix's write surface):**
   The race is real but bigger than one file. `/cancel-generation` (`app.py:862`) sets
@@ -1329,10 +1335,18 @@ analysis rather than duplicated as a new step.)*
       surface a warning in `tts voice list`/`info` for any prompt whose reference is below 24 kHz.
       Related: item 15 owns only the TEST that manufactures corrupt stubs, not this write-path gap.
       *(Discovered by the #214-item-5 standing watch during Step 1A; not owned by 1A.)*
+  19. **`/ws` clone generations: echo-trim stays opportunistic (no server-layer ensure-load —
+      Step 1C wires only the two `app_generation.py` handlers)**: a `/ws` clone generation does not
+      route through `_ensure_asr_for_echo_trim`, so on a fresh server (ASR unloaded — the common
+      case, ASR is not in `load_at_startup` defaults) a `/ws` clone stream ships untrimmed; same
+      symptom as #193 on that one surface. Fix = wire the same unlocked ensure-load into the WS
+      generation path (pre-generation, same three conditions: `trim_icl_echo` + `mode=clone` +
+      resolvable transcript), reusing the helper rather than duplicating it. *(Companion to item 17
+      — the /ws gap family; registered by Step 1C Task 3, 2026-09-10.)*
 - **Verify:** per-item targeted tests where applicable; `ruff`; `mypy`; full non-E2E suite; the WS
   items re-run `tests/test_websocket_slot_release.py` + `tests/test_websocket_rate_limit.py` green
   UNCHANGED.
-- **Exit criteria:** all 18 items landed (or individually dispositioned in the PR with a reason);
+- **Exit criteria:** all 19 items landed (or individually dispositioned in the PR with a reason);
   no behavior change beyond the fixes themselves.
 
 ---
@@ -1473,8 +1487,8 @@ analysis rather than duplicated as a new step.)*
 (1) · Wave 3: 3A–3E (5) · Wave 4: 4A–4D (4) · Wave 4B: 4B.1–4B.4 (4) · Wave 5: 5 (1) · Wave 6:
 6A–6R (18) · Wave 7: 7A–7C (3) — **plus 3 independent tracks** (feature, dependency, and the decision-gated branch register — none gated by the waves) **+ 1 passive watch** (no action). Step 6·0 (dead-code cleanup) was already
 executed directly on 2026-09-06 and is recorded in Wave 6; it is not counted among the pending
-steps. **Executed so far: 0A (PR #263), 0B (PR #269), 0C (PR #270), 0D (PR #271), 0E (PR #276), 0F (PR #281), 0G (PR #282).** **6G is
-folded into Wave 7 Step 7C** (not independently pending). ***Open: 40.*** *(Wave 7 incorporated
+steps. **Executed so far: 0A (PR #263), 0B (PR #269), 0C (PR #270), 0D (PR #271), 0E (PR #276), 0F (PR #281), 0G (PR #282), 1A (PR #283).** **6G is
+folded into Wave 7 Step 7C** (not independently pending). ***Open: 39.*** *(Wave 7 incorporated
 2026-09-08 from the Interface Quality Improvement Plan — a three-surface audit of Web UI, CLI,
 and HTTP API, user-scoped; tracked at `docs/plans/2026-09-07-interface-quality.plan.md`, which
 is the spec for 7A–7C.)* Ordered by: critical correctness/security findings from the 2026-09-06 cross-cutting
