@@ -137,7 +137,17 @@ class TestGenerationStateGuardBegin(unittest.TestCase):
         # begin() runs, so it is still erased here — preserving the old
         # re-clear's status-surface hygiene for the one case where no live
         # generation can ever honor it.
+        #
+        # Fix round 1 (Important 1): gen-4 must have actually FINISHED
+        # (reset_if_owner ran, returning generation_id to idle) before its
+        # cancel counts as stale here — while gen-4 is still the recorded
+        # owner, begin()'s fourth case now preserves a cancel targeted at
+        # it, exactly as a live-owner cancel must survive a sibling's
+        # begin(). The cancel is set AFTER reset_if_owner (modeling a cancel
+        # that arrives once gen-4 has already gone idle), so this exercises
+        # the genuinely-stale branch rather than the live-owner one.
         self.guard.begin("gen-4")
+        self.guard.reset_if_owner("gen-4")
         self.guard.set_cancelled("gen-4")
         self.guard.begin("gen-5")
         self.assertFalse(self.guard.snapshot(["cancelled"])["cancelled"])
@@ -160,6 +170,20 @@ class TestGenerationStateGuardBegin(unittest.TestCase):
         self.guard.set_cancelled("gen-pending")
         self.guard.begin("gen-other")
         self.assertTrue(self.guard.is_cancelled_for("gen-pending"))
+
+    def test_begin_preserves_a_cancel_targeted_at_the_live_owner_across_a_different_begin(self):
+        # Fix round 1 (Important 1): a cancel addressed to the CURRENT owner
+        # must survive a concurrent, different generation's begin(), not just
+        # its own. Batch A begins, is cancelled, releases the lock between
+        # items without reaching its own next begin() — a sibling's begin("B")
+        # must not erase A's still-live cancel. At the moment begin("B") runs,
+        # state["generation_id"] is still "A" (not yet overwritten), which is
+        # exactly the signal that distinguishes this from a genuinely stale
+        # target.
+        self.guard.begin("gen-A")
+        self.guard.set_cancelled("gen-A")
+        self.guard.begin("gen-B")
+        self.assertTrue(self.guard.is_cancelled_for("gen-A"))
 
     def test_begin_leaves_cancelled_untouched_when_no_target_is_set(self):
         # cancel_target_id is None: there is nothing to erase, so begin()
@@ -303,8 +327,9 @@ class TestGenerationStateGuardCancellation(unittest.TestCase):
         self.assertEqual(snap, {"cancelled": True, "cancel_target_id": "gen-1"})
 
     def test_set_cancelled_defaults_target_to_none(self):
-        # The zero-arg call stays valid this task: production call sites are
-        # Task 2's job and still call set_cancelled() with no argument.
+        # The zero-arg call stays valid: no production call site uses it any
+        # more (every one now passes an explicit target), but the default
+        # exists for direct unit-test convenience, per the guard's docstring.
         self.guard.set_cancelled()
         snap = self.guard.snapshot(["cancelled", "cancel_target_id"])
         self.assertEqual(snap, {"cancelled": True, "cancel_target_id": None})

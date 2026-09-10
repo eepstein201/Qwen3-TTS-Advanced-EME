@@ -159,7 +159,7 @@ class GenerationStateGuard:
         to now), and the four provided fields. Chunk counters are left to
         ``update_progress``.
 
-        Cancel handling (issue #237 / Step 1A) — three cases, in order:
+        Cancel handling (issue #237 / Step 1A) — four cases, in order:
 
         - ``cancel_target_id == generation_id``: preserved. A cancel
           addressed to THIS batch must survive its own next ``begin()`` so
@@ -168,10 +168,18 @@ class GenerationStateGuard:
           ``register_pending`` but not yet begun): preserved. Otherwise an
           ordinary concurrent batch's ``begin()`` would erase a cancel that
           sibling never had the chance to honor.
-        - ``cancel_target_id`` is set, non-matching, and NOT pending
-          (genuinely stale): erased — this is the status-surface hygiene
-          the old blanket re-clear gave us, kept for the one case where no
-          live generation can ever honor the cancel.
+        - ``cancel_target_id`` names the state's CURRENT owner (fix round 1,
+          Important 1) — i.e. ``state["generation_id"]`` at the moment this
+          runs, before it is overwritten with the incoming id: preserved.
+          A cancel addressed to a live, already-begun batch must survive a
+          concurrent, DIFFERENT generation's ``begin()`` too, not just its
+          own; once the true owner's own ``begin()`` or ``reset_if_owner``
+          has run, ``generation_id`` no longer names it, so this cannot
+          over-preserve a target that has genuinely gone stale.
+        - ``cancel_target_id`` is set, non-matching, NOT pending, and NOT
+          the current owner (genuinely stale): erased — this is the
+          status-surface hygiene the old blanket re-clear gave us, kept for
+          the one case where no live generation can ever honor the cancel.
         - ``cancel_target_id is None``: nothing to erase; ``cancelled`` is
           left untouched.
 
@@ -185,6 +193,7 @@ class GenerationStateGuard:
             if (
                 target is not None
                 and target != generation_id
+                and target != state.get("generation_id")
                 and target not in self._pending_ids
             ):
                 state["cancelled"] = False
@@ -266,7 +275,8 @@ class GenerationStateGuard:
         Answers "is anything pending, and what should I target?" for
         ``/cancel-generation``'s inactive branch (issue #237 / Step 1A,
         Window 2): a cancel arriving before any generation is active should
-        still latch onto whichever id gets there first.
+        still latch onto a pending id, deterministically chosen (see the
+        tie-break rule below).
 
         Does not mutate the registry and does not hand out the mutable set
         itself — a snapshot decision, consistent with every other read here.

@@ -460,6 +460,78 @@ class TestBatchGenerationStateOwnership(unittest.TestCase):
 
         asyncio.run(run())
 
+    def test_cancel_survives_a_concurrent_sibling_begin_mid_batch(self):
+        """Fix round 1 (Important 1): a cancel addressed to this batch's own
+        live id must survive a DIFFERENT, concurrent generation's begin() —
+        not just this batch's own next begin(). Simulates the interleaving
+        directly (no real threads needed, mirroring how the sibling tests
+        above simulate a cancel landing during inference): item 0's
+        inference sets the cancel on the batch's own id, THEN a concurrent
+        sibling generation calls begin() through the same guard before this
+        batch reaches item 1's check — reproducing 'batch A releases the
+        lock between items, a concurrent stream/batch begins as B, A's next
+        check must still see its own cancel'. Before the fix this erased the
+        cancel (B's begin() saw a non-matching, non-pending target); after
+        the fix it is preserved because state['generation_id'] still names A
+        at the moment B's begin() runs."""
+
+        async def run():
+            from qwen3_tts.server.app_generation import handle_generate
+            from qwen3_tts.server.generation_state_guard import guard_for
+            from qwen3_tts.server.validation import GenerateRequest
+
+            state = _make_state()
+            fake_wav = np.zeros(500, dtype=np.float32)
+
+            def mock_inference(model, text, **kwargs):
+                guard = guard_for(state)
+                own_id = state.generation_state["generation_id"]
+                guard.set_cancelled(own_id)
+                # A concurrent sibling generation begins while this batch is
+                # still the recorded owner and has not yet reached its own
+                # next begin() — the exact Important-1 interleaving.
+                guard.begin("concurrent-sibling-generation")
+                return fake_wav, 24000
+
+            req = GenerateRequest(
+                texts=["first", "second"],
+                mode="design",
+                voice_description="friendly",
+            )
+            request = _make_request(state)
+            with patch(
+                f"{_APP_GENERATION}._check_memory_available",
+                return_value=(True, 4096),
+            ), patch(
+                "qwen3_tts.server.validation._validate_generation_request"
+            ), patch(
+                f"{_ENGINE}.run_inference", side_effect=mock_inference
+            ):
+                result = await handle_generate(
+                    request=request,
+                    state=state,
+                    req=req,
+                    security={"max_text_length": 50000, "max_batch_size": 20},
+                    config_provider=None,
+                )
+            self.assertIn("results", result)
+
+            # The cancel targeted THIS batch's own id and must have survived
+            # the sibling's begin(), so item 1 must never have run.
+            self.assertEqual(
+                len(result["results"]),
+                1,
+                "the cancel was lost across a concurrent sibling's begin()",
+            )
+            self.assertTrue(result.get("cancelled"))
+
+            for entry in state.gen_cache.values():
+                path = entry.get("main_file") or entry.get("file")
+                if path and os.path.exists(path):
+                    os.unlink(path)
+
+        asyncio.run(run())
+
 
 @_skip
 class TestBatchResultCompleteness(unittest.TestCase):
