@@ -1135,11 +1135,18 @@ def _trim_icl_echo(
     mode,
     x_vector_only_mode,
     config=None,
+    trim_cap_samples: int | None = None,
 ):
     """Clip a reference-transcript echo from the head of cloned output (PRF-8).
 
     Returns (audio, sample_rate). Any failure returns the audio untouched — a
     missed trim is a cosmetic problem, losing a generation is not.
+
+    ``trim_cap_samples`` bounds the cut by ``_ICL_MAX_TRIM_FRACTION`` of that
+    basis instead of the whole signal. Callers trimming COMBINED multi-chunk
+    audio pass the first chunk's length (the echo is a head artifact of the
+    chunk that carried the reference); callers trimming a single chunk pass
+    nothing, since there the first chunk IS the whole signal.
     """
     if mode != "clone" or x_vector_only_mode or not reference_text:
         return audio, sample_rate
@@ -1150,8 +1157,11 @@ def _trim_icl_echo(
 
     from qwen3_tts.core.engine import asr
 
-    # Only opportunistic: pulling a heavy ASR model into a generation that
-    # never asked for one would cost more than the artifact it removes.
+    # Degradation path (#193 / Step 1C): the server layer ensure-loads ASR
+    # UNLOCKED before the generation queues for inference_lock, so a miss
+    # here under the lock means an unload landed in that window. Skip the
+    # trim — never rebuild in-lock. This check must sit before the probe
+    # because _transcribe_mlx lazily re-loads an unloaded model (asr.py).
     if not asr.is_asr_loaded():
         return audio, sample_rate
 
@@ -1175,7 +1185,8 @@ def _trim_icl_echo(
         estimate = int(probe_len * share)
 
         cut = _find_silence_boundary(audio, sample_rate, estimate)
-        max_cut = int(len(audio) * _ICL_MAX_TRIM_FRACTION)
+        cap_basis = trim_cap_samples if trim_cap_samples is not None else len(audio)
+        max_cut = int(cap_basis * _ICL_MAX_TRIM_FRACTION)
         cut = min(cut, max_cut)
         if cut <= 0:
             return audio, sample_rate
@@ -1277,6 +1288,7 @@ def _postprocess_chunk(
     config,
     reference_text=None,
     x_vector_only_mode=False,
+    trim_cap_samples: int | None = None,
 ):
     """Per-chunk post-processing shared by the batch and streaming paths (WS2).
 
@@ -1300,6 +1312,7 @@ def _postprocess_chunk(
         mode,
         x_vector_only_mode,
         config=config,
+        trim_cap_samples=trim_cap_samples,
     )
     audio, sample_rate = _maybe_apply_speed(
         audio, sample_rate, gen_params, mode, config=config
@@ -1452,7 +1465,9 @@ def run_inference(
 
     # Shared per-chunk steps run on the combined audio here (echo trim targets
     # the head of the whole generation), then loudness — LUFS is batch-only and
-    # must measure the audio that actually ships.
+    # must measure the audio that actually ships. The trim cap scales to the
+    # FIRST chunk (WS9.4): the echo is that chunk's head artifact, so half of
+    # the combined audio is never legitimate cut.
     result, sample_rate = _postprocess_chunk(
         result,
         sample_rate,
@@ -1461,6 +1476,7 @@ def run_inference(
         config,
         reference_text=reference_text or _reference_text_from_prompt(voice_prompt),
         x_vector_only_mode=x_vector_only_mode,
+        trim_cap_samples=len(all_audio[0]),
     )
     result, sample_rate = _maybe_apply_lufs(result, sample_rate, config=config)
 
