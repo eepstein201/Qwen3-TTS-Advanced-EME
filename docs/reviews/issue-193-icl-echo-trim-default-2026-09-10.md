@@ -195,7 +195,7 @@ ASR patched absent, probe and `load_asr_model` both patched spy — asserts the 
 called, `load_asr_model` is NEVER called (no in-lock rebuild), and the audio comes back untouched.
 
 **The end-to-end window-race pin** —
-`tests/test_echo_trim_asr_preload.py::TestBatchEchoTrimPreload::test_unload_in_window_degrades_to_untrimmed` (`:590`): drives the REAL `handle_generate`; the preload loads (mock sets the flag),
+`tests/test_echo_trim_asr_preload.py::TestBatchEchoTrimPreload::test_unload_in_window_degrades_to_untrimmed` (`:596`): drives the REAL `handle_generate`; the preload loads (mock sets the flag),
 then a concurrent unload "lands in the window" before the mocked inference runs the REAL
 `_trim_icl_echo`. Asserts the result still ships (1 result, never a 503), `load_asr_model` fired
 exactly once (the preload — the engine did not rebuild), the probe never ran, and the audio
@@ -315,16 +315,92 @@ OK: CONFIG.md defaults match get_default_config() (66 keys).
 ```
 
 Config surface is UNCHANGED by Step 1C (option (b) keep-loaded dropped the unload-after toggle —
-no new key), so this passes with no CONFIG.md edit, as expected.
+no new key). The controller's CONFIG.md prose sync updates the row's behavior description only;
+`trim_icl_echo` is not a `get_default_config()` key, so the drift checker does not inspect it.
 
 ---
 
 ## Part 1 — counted gate output (full non-E2E suite)
 
-**APPENDED AT GATE TIME BY THE CONTROLLER** — the counted suite
-(`conda run -n qwen3-tts-mlx python -m pytest tests/ -m "not e2e" --ignore=tests/evaluations -q`,
-counted against the 3325 passed / 5 skipped / 0 failed baseline) and the delta attribution run
-after this document's dispatch. Intentionally empty here; no output is fabricated.
+**Appended at gate time by the controller** (2026-09-10). Every invocation used
+`conda run -n qwen3-tts-mlx`.
+
+### Full non-E2E suite, counted
+
+```
+conda run -n qwen3-tts-mlx python -m pytest tests/ -m "not e2e" --ignore=tests/evaluations -q
+```
+
+```
+==== 3342 passed, 4 skipped, 92 deselected, 3 warnings in 109.62s (0:01:49) ====
+```
+
+Exit code: 0.
+
+**Delta from the 3325 passed / 5 skipped / 0 failed baseline (`8e44dad9`, pre-1C):**
+
+- **+17 passed.** `git diff --numstat 8e44dad9..HEAD -- 'tests/*.py'` confines every test-file
+  change to exactly this branch's own surface: `tests/test_echo_trim_asr_preload.py` (new,
+  765/0 — the 11 server pins), `tests/test_icl_echo_trim.py` (+163/−2 — the rewritten
+  degradation pin and the WS9.4 first-chunk cap pins), and `tests/run_batches.py` (+1 — the new
+  module's `BATCHES` registration). No unrelated test file moved; this accounts for the
+  pass-count increase.
+- **−1 skipped (4 vs 5).** The skip that cleared is the pre-existing server-liveness-conditional
+  `tests/test_ui_headless.py` create-from-audio case: the baseline run predated the live
+  server's start; this run had it up. Unrelated to this diff.
+- **0 failed**, matching the baseline.
+
+### Static gates
+
+```
+conda run -n qwen3-tts-mlx ruff check qwen3_tts tests
+```
+```
+All checks passed!
+```
+
+```
+conda run -n qwen3-tts-mlx mypy qwen3_tts/core qwen3_tts/server qwen3_tts/interface
+```
+```
+Success: no issues found in 58 source files
+```
+
+```
+conda run -n qwen3-tts-mlx bandit -r qwen3_tts -c pyproject.toml
+```
+```
+    Medium: 0
+    High: 0
+```
+Exit code: 0 — 0 HIGH, 0 Medium confirmed.
+
+### Torchless leg — RAN, not skipped
+
+```
+./.venv-310/bin/python -m pytest tests/test_icl_echo_trim.py \
+  tests/test_echo_trim_asr_preload.py tests/test_engine_streaming.py -q
+```
+```
+======================== 67 passed, 1 warning in 2.17s =========================
+```
+
+67 = 44 (`test_icl_echo_trim.py`) + 11 (`test_echo_trim_asr_preload.py`) + 12
+(`test_engine_streaming.py`), 0 skipped, on Python 3.10 without torch — the CI-proxy leg
+actually ran the touched modules.
+
+### Batch runner — owning batches 1, 3, 4
+
+```
+conda run -n qwen3-tts-mlx python tests/run_batches.py --batch {1,3,4}
+```
+```
+Total: 1/1 batches passed   (batch 1)
+Total: 1/1 batches passed   (batch 3)
+Total: 1/1 batches passed   (batch 4)
+```
+
+All exit codes: 0.
 
 ---
 
