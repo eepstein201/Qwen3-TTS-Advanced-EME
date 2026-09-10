@@ -20,6 +20,12 @@ with mocked inference (harness pattern from
 ``tests/test_batch_generation_state_ownership.py``) and patch at definition
 sites: ``qwen3_tts.core.engine.asr.*``, the prompt loader, the engine facade.
 
+Other handler-driving test modules rely on MagicMock voice prompts to stay
+clear of the preload: a bare ``MagicMock``'s attributes are not ``str``, so
+``_reference_text_from_prompt`` resolves no transcript and the gate stays
+closed. If a prompt mock ever gains a real transcript string, it MUST also
+patch the ASR facade or it will trigger a real ``load_asr_model``.
+
 Run: cd ~/Qwen3-TTS_UserFiles && conda run -n qwen3-tts-mlx python -m pytest tests/test_echo_trim_asr_preload.py -v
 
 No GPU, models, or running server required.
