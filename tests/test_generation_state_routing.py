@@ -72,17 +72,25 @@ class _RecordingGuard:
         self.calls.append(("update_progress", chunk_index, chunk_total))
         return self._inner.update_progress(chunk_index, chunk_total)
 
-    def clear_cancelled(self):
-        self.calls.append(("clear_cancelled",))
-        return self._inner.clear_cancelled()
+    def set_cancelled(self, target_id=None):
+        self.calls.append(("set_cancelled", target_id))
+        return self._inner.set_cancelled(target_id)
 
-    def set_cancelled(self):
-        self.calls.append(("set_cancelled",))
-        return self._inner.set_cancelled()
+    def is_cancelled_for(self, generation_id):
+        self.calls.append(("is_cancelled_for", generation_id))
+        return self._inner.is_cancelled_for(generation_id)
 
-    def is_cancelled(self):
-        self.calls.append(("is_cancelled",))
-        return self._inner.is_cancelled()
+    def register_pending(self, generation_id):
+        self.calls.append(("register_pending", generation_id))
+        return self._inner.register_pending(generation_id)
+
+    def deregister_pending(self, generation_id):
+        self.calls.append(("deregister_pending", generation_id))
+        return self._inner.deregister_pending(generation_id)
+
+    def peek_pending_target(self):
+        self.calls.append(("peek_pending_target",))
+        return self._inner.peek_pending_target()
 
     def reset_if_owner(self, generation_id):
         self.calls.append(("reset_if_owner", generation_id))
@@ -600,21 +608,27 @@ class TestBatchLifecycleRoutesThroughGuard(unittest.TestCase):
 
     def test_full_batch_call_sequence_goes_through_the_guard(self):
         """One single-item batch must touch the dict ONLY via the guard, in
-        the production order: pre-loop clear -> loop cancel check -> begin ->
-        progress -> chunk_total snapshot -> in-lock reset -> finally reset."""
+        the production order: mint-time pending registration -> loop
+        target-aware cancel check -> begin -> progress -> chunk_total
+        snapshot -> in-lock reset -> finally deregister -> finally reset.
+
+        The pre-loop blanket ``clear_cancelled`` is gone (Controller Ruling
+        E): it ran AFTER the pending registration and would erase a Window-2
+        cancel addressed to this very batch."""
         result = _drive_batch(self.state, self.recording)
 
         names = self.recording.names()
         self.assertEqual(
             names,
             [
-                "clear_cancelled",
-                "is_cancelled",
+                "register_pending",
+                "is_cancelled_for",
                 "begin",
                 # one update_progress per fed progress pair
                 *["update_progress"] * len(_PROGRESS_CALLS),
                 "snapshot",
                 "reset_if_owner",
+                "deregister_pending",
                 "reset_if_owner",
             ],
             "the batch path touched generation_state outside the guard, or "
@@ -642,6 +656,13 @@ class TestBatchLifecycleRoutesThroughGuard(unittest.TestCase):
             "the batch resets are not bound to the generation id begin() "
             "stamped",
         )
+
+        # ...the mint-time pending registration, the loop's target-aware
+        # cancel check, and the finally deregistration are all bound to the
+        # SAME id begin() stamped — one id, attributed end to end.
+        self.assertEqual(self.recording.first("register_pending")[1], begin_gen_id)
+        self.assertEqual(self.recording.first("is_cancelled_for")[1], begin_gen_id)
+        self.assertEqual(self.recording.first("deregister_pending")[1], begin_gen_id)
 
         # Behavior preserved: the routed snapshot feeds the response field.
         self.assertEqual(result["results"][0]["chunks"], _PROGRESS_CALLS[-1][1])
@@ -673,13 +694,16 @@ class TestBatchLifecycleRoutesThroughGuard(unittest.TestCase):
         )
 
     def test_cancel_check_reads_through_the_guard(self):
-        """The per-item cancel check must read via ``is_cancelled`` — a stale
-        unlocked read is exactly what the guard exists to prevent."""
+        """The per-item cancel check must read via ``is_cancelled_for`` — a
+        stale unlocked read is exactly what the guard exists to prevent, and
+        the check must be addressed to THIS batch's own id (Controller
+        Ruling E: there is no more pre-loop blanket clear to fall back on;
+        target-matched honoring is the whole stale-flag defense now)."""
         _drive_batch(self.state, self.recording)
-        self.assertEqual(self.recording.names().count("is_cancelled"), 1)
-        # The cancel flag is cleared through the guard before the loop, so a
-        # stale True from a prior request cannot abort this batch.
-        self.assertFalse(self.state.generation_state["cancelled"])
+        cancel_checks = self.recording.all_of("is_cancelled_for")
+        self.assertEqual(len(cancel_checks), 1)
+        begin_gen_id = self.recording.first("begin")[1]
+        self.assertEqual(cancel_checks[0][1], begin_gen_id)
 
 
 @_skip
@@ -727,7 +751,7 @@ class TestStreamingRoutesThroughGuard(unittest.TestCase):
         )
         self.assertEqual(
             set(names),
-            {"begin", "update_progress", "is_cancelled", "reset_if_owner"},
+            {"begin", "update_progress", "is_cancelled_for", "reset_if_owner"},
             "the streaming path touched generation_state outside the guard "
             f"(recorded methods: {sorted(set(names))})",
         )
@@ -763,7 +787,9 @@ class TestStreamingRoutesThroughGuard(unittest.TestCase):
     def test_streaming_progress_callback_routes_through_update_progress(self):
         """The progress callback, fired on the handler's own daemon inference
         thread, must reach the dict as atomic guard ``update_progress`` pairs
-        — and the stop-check must read via ``is_cancelled``."""
+        — and the stop-check must read via ``is_cancelled_for``, addressed to
+        this stream's own generation id (a cancel addressed to some OTHER
+        generation must not stop an unrelated stream)."""
         observed = []
 
         def probe_from_inference_thread():
@@ -788,12 +814,20 @@ class TestStreamingRoutesThroughGuard(unittest.TestCase):
             "the streaming progress callback did not route its writes "
             "through the guard's update_progress",
         )
-        # One stop-check per streamed chunk, each reading through the guard.
+        # One stop-check per streamed chunk, each reading through the guard,
+        # each addressed to THIS stream's own generation id.
+        cancel_checks = self.recording.all_of("is_cancelled_for")
         self.assertEqual(
-            len(self.recording.all_of("is_cancelled")),
+            len(cancel_checks),
             len(_PROGRESS_CALLS),
             "the streaming thread did not do its per-chunk cancel check "
             "through the guard",
+        )
+        begin_gen_id = self.recording.first("begin")[1]
+        self.assertTrue(
+            all(call[1] == begin_gen_id for call in cancel_checks),
+            "the streaming stop-check is not addressed to this stream's own "
+            "generation id",
         )
         self.assertEqual(
             observed,

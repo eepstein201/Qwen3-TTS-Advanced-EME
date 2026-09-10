@@ -172,9 +172,12 @@ class TestReadersRouteThroughGuard(unittest.IsolatedAsyncioTestCase):
     it — the recording proxy captures every guard call the handler makes."""
 
     async def test_cancel_active_generation_routes_through_the_guard(self):
-        """An active cancel flips the flag via ``set_cancelled`` and reads the
-        id back AFTER the write (today's ordering) — and never enters the
-        asyncio ``generation_lock`` (the tripwire fails the test if it does)."""
+        """An active cancel reads ``active``+``generation_id`` in ONE
+        snapshot BEFORE the write (issue #237 / Step 1A: the id must be known
+        before ``set_cancelled`` so the cancel can be targeted at it), then
+        targets that same id both in the write and the response body — and
+        never enters the asyncio ``generation_lock`` (the tripwire fails the
+        test if it does)."""
         from qwen3_tts.server.app import cancel_generation
 
         state = _make_reader_state(active=True, generation_id="gen-cancel-1")
@@ -190,17 +193,23 @@ class TestReadersRouteThroughGuard(unittest.IsolatedAsyncioTestCase):
         )
         self.assertEqual(
             recording.names(),
-            ["snapshot", "set_cancelled", "snapshot"],
+            ["snapshot", "set_cancelled"],
             "/cancel-generation touched generation_state outside the guard, "
             f"or in an unexpected order (recorded: {recording.names()})",
         )
-        self.assertEqual(recording.first("snapshot")[1], ("active",))
-        self.assertEqual(recording.all_of("snapshot")[1][1], ("generation_id",))
+        self.assertEqual(
+            recording.first("snapshot")[1], ("active", "generation_id")
+        )
+        self.assertEqual(recording.first("set_cancelled")[1], "gen-cancel-1")
         self.assertTrue(state.generation_state["cancelled"])
+        self.assertEqual(
+            state.generation_state["cancel_target_id"], "gen-cancel-1"
+        )
 
     async def test_cancel_without_active_generation_reads_the_flag_via_the_guard(self):
-        """The idle path answers ``no_active_generation`` from a guard
-        snapshot and writes nothing."""
+        """The idle-and-nothing-pending path answers ``no_active_generation``
+        from a guard snapshot plus a pending-registry consult, and writes
+        nothing."""
         from qwen3_tts.server.app import cancel_generation
 
         state = _make_reader_state()
@@ -211,9 +220,42 @@ class TestReadersRouteThroughGuard(unittest.IsolatedAsyncioTestCase):
             result = await cancel_generation(_request(state), _auth=None)
 
         self.assertEqual(result, {"status": "no_active_generation"})
-        self.assertEqual(recording.names(), ["snapshot"])
-        self.assertEqual(recording.first("snapshot")[1], ("active",))
+        self.assertEqual(recording.names(), ["snapshot", "peek_pending_target"])
+        self.assertEqual(
+            recording.first("snapshot")[1], ("active", "generation_id")
+        )
         self.assertFalse(state.generation_state["cancelled"])
+
+    async def test_cancel_with_a_pending_but_no_active_generation(self):
+        """Window 2 (issue #237 / Step 1A): nothing active yet, but a batch
+        has minted its id and registered pending — the cancel must latch onto
+        that id and answer ``cancellation_requested``, not bounce as
+        ``no_active_generation``."""
+        from qwen3_tts.server.app import cancel_generation
+
+        state = _make_reader_state()
+        state.generation_lock = _generation_lock_tripwire("/cancel-generation")
+        recording = _recording_for(state)
+        recording.register_pending("gen-pending-1")
+
+        with patch(f"{_APP}.guard_for", return_value=recording, create=True):
+            result = await cancel_generation(_request(state), _auth=None)
+
+        self.assertEqual(
+            result,
+            {"status": "cancellation_requested", "generation_id": "gen-pending-1"},
+        )
+        self.assertEqual(
+            recording.names(),
+            ["register_pending", "snapshot", "peek_pending_target", "set_cancelled"],
+        )
+        self.assertEqual(
+            recording.first("set_cancelled")[1], "gen-pending-1"
+        )
+        self.assertTrue(state.generation_state["cancelled"])
+        self.assertEqual(
+            state.generation_state["cancel_target_id"], "gen-pending-1"
+        )
 
     async def test_queue_status_reads_the_active_flag_through_the_guard(self):
         """The public queue probe reads ``active`` from a guard snapshot; the

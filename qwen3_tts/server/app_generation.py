@@ -59,16 +59,19 @@ def _resolve_generation_seed(req_seed: int | None) -> int:
     return secrets.randbelow(MAX_SEED + 1)
 
 
-def _should_stop_streaming(stop_event, guard) -> bool:
+def _should_stop_streaming(stop_event, guard, gen_id) -> bool:
     """Return True if streaming generation should stop.
 
     Stops when either the client disconnected (``stop_event`` set by the
-    generator's finally) or the user cancelled via /cancel-generation — the
-    cancelled flag is read through the guard's ``is_cancelled``, i.e. under
-    the guard's ``threading.Lock``, which is what makes the read safe from
-    the streaming inference thread (matching the batch path's cancel check).
+    generator's finally) or the user cancelled via /cancel-generation a
+    cancel ADDRESSED TO THIS generation (``gen_id``) — read through the
+    guard's ``is_cancelled_for``, i.e. under the guard's ``threading.Lock``,
+    which is what makes the read safe from the streaming inference thread
+    (matching the batch path's cancel check). Target-aware (issue #237 /
+    Step 1A): a cancel addressed to some OTHER generation must not stop this
+    unrelated stream.
     """
-    return stop_event.is_set() or guard.is_cancelled()
+    return stop_event.is_set() or guard.is_cancelled_for(gen_id)
 
 
 # Floor for the streaming inference thread join. The wait must cover ONE chunk's
@@ -298,17 +301,17 @@ async def handle_generate(request, state, req, security, config_provider):
     # state was since overwritten by a concurrent stream would clobber the
     # stream's generation_state.  Mirrors the streaming guard at :729.
     batch_gen_id = str(uuid.uuid4())[:8]
+    # Register pending BEFORE any lock is taken (issue #237 / Step 1A, Window
+    # 2): a cancel arriving before this batch ever reaches begin() must still
+    # be able to target it. /cancel-generation's inactive branch consults
+    # this registry and latches its cancel onto a pending id.
+    guard.register_pending(batch_gen_id)
 
     try:
         import soundfile as sf
 
         from qwen3_tts.core.engine import run_inference
         from qwen3_tts.server.prompt_loading import load_voice_prompt_serialized
-
-        # Clear any stale cancellation flag from a prior request. Without this,
-        # a cancel from a previous request would immediately abort this new one
-        # on the first loop iteration, returning an empty results array.
-        guard.clear_cancelled()
 
         def _read_cache_file_b64(filepath: str) -> str:
             with open(filepath, "rb") as f:
@@ -367,7 +370,7 @@ async def handle_generate(request, state, req, security, config_provider):
 
         for i, text in enumerate(texts):
             # Check for cancellation before each batch item (R-44)
-            if guard.is_cancelled():
+            if guard.is_cancelled_for(batch_gen_id):
                 logger.info(
                     "Batch generation cancelled at item %d/%d", i + 1, len(texts)
                 )
@@ -480,11 +483,14 @@ async def handle_generate(request, state, req, security, config_provider):
                     batch_index=i,
                     batch_total=len(texts),
                 )
-                # begin() re-clears "cancelled" per item so a stale flag left
-                # by a concurrent request's cancel cannot truncate this batch.
-                # Mirrors the streaming-path clear at :658. (That re-clear is
-                # itself a small race — issue #237 — deliberately preserved
-                # here until Step 1A moves it.)
+                # begin() preserves a cancel targeted at THIS batch's own id
+                # or at a still-pending sibling, and erases only a genuinely
+                # stale one targeted elsewhere (issue #237 / Step 1A — see
+                # GenerationStateGuard.begin()'s docstring for the four-case
+                # erase rule). Combined with the target-aware per-item check
+                # above,
+                # a cancel addressed to this batch now survives every
+                # subsequent item's begin() instead of being blanket-erased.
 
                 def _chunk_progress(chunk_idx, chunk_total):
                     # Runs on the asyncio.to_thread WORKER thread inside
@@ -690,14 +696,21 @@ async def handle_generate(request, state, req, security, config_provider):
             "retry",
         )
     finally:
+        # Release this batch's pending registration UNCONDITIONALLY, first —
+        # never gated on reset_if_owner's ownership check below (issue #237 /
+        # Step 1A): once this batch is done, nothing will ever check
+        # is_cancelled_for against its id again, so a cancel still targeting
+        # it must not linger as a phantom "pending" latch for the next
+        # request's /cancel-generation to (wrongly) find.
+        guard.deregister_pending(batch_gen_id)
         # Reset generation_state ONLY if this batch still owns it (the
         # ownership check inside reset_if_owner).  A concurrent stream may
         # have overwritten generation_id mid-batch; an all-cache-hit batch
         # never stamped one at all.  In either case resetting would clobber
         # the other request's state.  Mirrors the streaming-path guard at
-        # :729.  reset_if_owner restores ALL ten keys to the idle shape, so
-        # a cancelled batch cannot leave the shared flag dirty for the next
-        # request's cancel check (:249) — mirroring the streaming finally
+        # :729.  reset_if_owner restores ALL eleven keys to the idle shape,
+        # so a cancelled batch cannot leave the shared flag dirty for the
+        # next request's cancel check — mirroring the streaming finally
         # reset at :764.
         guard.reset_if_owner(batch_gen_id)
         with state.request_queue_lock:
@@ -898,10 +911,10 @@ async def handle_generate_stream(request, state, req, security, config_provider)
 
             gen_id = str(uuid.uuid4())[:8]
             # Same begin the batch path uses: one atomic update stamping
-            # active + the generation id, and RE-clearing cancelled (the
-            # erase race that re-clear carries is issue #237 / Step 1A,
-            # preserved unchanged from the raw update this replaces). Chunk
-            # counters are left to _chunk_progress.
+            # active + the generation id and applying begin()'s target-aware
+            # cancel handling (issue #237 / Step 1A) — only a cancel targeted
+            # elsewhere and genuinely stale is erased. Chunk counters are
+            # left to _chunk_progress.
             guard.begin(gen_id, mode=mode, text_length=len(text))
 
             def _chunk_progress(chunk_idx, chunk_total):
@@ -935,7 +948,7 @@ async def handle_generate_stream(request, state, req, security, config_provider)
                         config_provider=config_provider,
                         progress_callback=_chunk_progress,
                     ):
-                        if _should_stop_streaming(stop_event, guard):
+                        if _should_stop_streaming(stop_event, guard, gen_id):
                             logger.info("Generation cancelled by user")
                             break
 
@@ -1003,7 +1016,7 @@ async def handle_generate_stream(request, state, req, security, config_provider)
                 # reset_if_owner re-checks ownership in the SAME locked step,
                 # so a generation that lost the slot (superseded by a newer
                 # one) can never clobber the new owner's progress — and the
-                # reset restores ALL ten idle keys, so a cancelled stream
+                # reset restores ALL eleven idle keys, so a cancelled stream
                 # cannot leave the shared cancelled flag dirty (mirrors the
                 # batch path's finally at :692).
                 guard.reset_if_owner(gen_id)

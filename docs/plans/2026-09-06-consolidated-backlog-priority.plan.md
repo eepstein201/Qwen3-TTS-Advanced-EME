@@ -255,7 +255,7 @@ security gap and adding its test coverage belong in the same effort; see Step 0G
   surfaces classify identically.
 - **Exit criteria:** both gaps closed with regression tests; no unsanitized exception text reaches any client-facing surface.
 
-### Step 0G — MLX voice-prompt UI create bypasses the engine writer's security guards (closes security MEDIUM-4 + starts E2E gap G1)
+### Step 0G — MLX voice-prompt UI create bypasses the engine writer's security guards (closes security MEDIUM-4 + starts E2E gap G1) (EXECUTED 2026-09-09, PR #282)
 
 - **Model tier:** strongest (security-relevant write path + new test surface) · **Branch:** `fix/ui-voice-create-use-engine-writer`
 - **Context:** `interface/ui/voice_management.py:123-168` re-implements `save_voice_prompt_mlx`
@@ -323,7 +323,7 @@ incomplete.
 
 ### Step 1B — Fix #238 and Phase-3 3e/M8: `/update-model-config` resource-cleanup gap
 
-- **Model tier:** default · **Branch:** `fix/issue238-update-model-config-cleanup` · **Parallel with:** 1A, 1C, 1D
+- **Model tier:** default · **Branch:** `fix/issue238-update-model-config-cleanup` · **Parallel with:** 1C, 1D — **NOT 1A**: this step's fix sits in `app.py:747` (`handle_update_model_config`'s call site), which Step 1A also edits; branch AFTER 1A merges rather than in parallel with it. *(Correction from the 1B/1C execution survey, 2026-09-09; user-approved.)*
 - **Context:** `handle_update_model_config` (`qwen3_tts/server/app_models.py:280`) nulls all three
   model slots directly (`state.models[name] = None`, `:329-330`) but never calls
   `unload_model_cleanup()` and never pops `state.model_load_times`. Compare `handle_unload_model`
@@ -343,16 +343,30 @@ incomplete.
      covers 3e/M8.
   3. RED on both — today neither happens.
   4. Fix: in `handle_update_model_config`, after nulling the three model slots, call
-     `unload_model_cleanup()` **once** (it is a no-arg module-level function —
-     `core/engine/asr.py:328`, `gc.collect()` + a backend-wide `empty_cache()` — not a per-model
-     call; calling it three times would be redundant, not "more correct"), matching
-     `handle_unload_model`'s single call. Then pop `state.model_load_times` for each of the three
-     names. Keep the existing `model_config_epoch` bump logic unchanged — it's correct and unrelated
-     to this gap.
+     **`await asyncio.to_thread(unload_model_cleanup)`** — NOT a direct call. `unload_model_cleanup()`
+     is a no-arg module-level function (`core/engine/asr.py:328`, `gc.collect()` + a backend-wide
+     `empty_cache()`) — not a per-model call; calling it three times would be redundant, not "more
+     correct" — matching `handle_unload_model`'s single call, but the two call sites differ in one
+     load-bearing way: `handle_unload_model` is itself invoked via `asyncio.to_thread` from `/unload-model`
+     (`app.py:728`), while `/update-model-config`'s handler (`app.py:747`) `await`s
+     `handle_update_model_config` **directly** on the event loop. Taken literally, "call
+     `unload_model_cleanup()`" here would run `gc.collect()` and the backend cache flush **on the
+     event loop itself**, blocking it for the duration of collection/cache-empty instead of off-thread
+     like the `/unload-model` path does. Wrap the call in `asyncio.to_thread` to keep it off the loop.
+     *(Correction from the 1B/1C execution survey, 2026-09-09; user-approved.)* Then pop
+     `state.model_load_times` for each of the three names. Keep the existing `model_config_epoch`
+     bump logic unchanged — it's correct and unrelated to this gap.
   5. GREEN on both tests.
   6. Update `~/.claude/plans/review-entire-repo-for-ancient-possum.md`'s Phase-3 section to mark
      3e/M8 done, citing this PR — this is the step that closes that loop; Step 3D is explicitly told
      to skip M8, so if this step doesn't record the closure nothing else will.
+     **Correction (1B/1C execution survey, 2026-09-09; user-ruled):** that doc lives under
+     `~/.claude/plans/` and is NOT tracked in this repo (`git ls-files` confirms), so "the same PR"
+     cannot literally update it. Ruling: the doc is MOVED into `docs/plans/`, folded into **1B's
+     first commit**, and its dead M8 line reference (`app_models.py:402-406`, which no longer
+     matches this code) is corrected to the current location at the same time. This is 1B's own
+     work to do when it executes — this plan text is only being corrected so 1B's mandate is
+     satisfiable as written; nothing is moved by this paperwork pass.
 - **Verify:** `conda run -n qwen3-tts-mlx python -m pytest tests/test_voice_server.py -v -k update_model_config`; `ruff`; `mypy`.
 - **Exit criteria:** both new regression tests pass; issue #238 closed in the PR body; master plan's 3e/M8 marked done in the same PR (task 6 above) — do not re-do M8 in Step 3D.
 
@@ -401,6 +415,53 @@ incomplete.
   scale the 50% cap to the first chunk rather than the combined total** — today's
   combined-audio cap can license trimming half of a multi-chunk output, far past any plausible
   echo.
+- **AMENDMENT (2026-09-09, post-survey — implementation shape only; the ruling itself stands):**
+  the 1B/1C execution survey (`~/.claude/session-data/2026-09-09-1b-1c-survey.md`) found that the
+  recorded "1.8–1.9s warm load amortizes" cost model covers only the **warm** case. A **cold** ASR
+  load performs unbounded HuggingFace network I/O (MLX pulls `whisper-large-v3-turbo`,
+  `core/engine/asr.py:89-138`), and the recorded shape runs that load **in-engine — i.e. inside
+  `inference_lock`** — so a first-ever clone generation on a fresh machine stalls every other
+  generation for the length of a model download. The sentence in the bullet above accepting the
+  in-engine force-load as "a documented deviation from `/load-asr`'s outside-`inference_lock`
+  split" is **SUPERSEDED**: that deviation was accepted on warm-load reasoning that does not hold
+  cold.
+  **Option (b), keep-loaded, is UNCHANGED and still the ruling.** What changes is where the load
+  happens. The repository has already ratified the correct pattern for exactly this problem in
+  `/transcribe` (`server/app_models.py:545-560`), whose own comment states the principle — the load
+  "must complete before the generate queues for the lock, or the load would run inside the
+  generation-serialized section" — and which then re-checks under the lock and refuses to rebuild
+  there, tagged `#214 item 2`, because re-loading in-lock "would trade a cheap 503 for the
+  starvation this lock exists to prevent". 1C mirrors that pattern:
+  1. **Ensure-load ASR UNLOCKED at the server layer**, in the generate path before it queues for
+     `inference_lock`, gated on `trim_icl_echo` + `mode=clone` + a resolvable transcript (the same
+     three conditions the probe itself requires, so nothing loads for a generation that would not
+     use it).
+  2. **Re-check under the lock, and on a miss SKIP THE TRIM** rather than rebuilding in-lock or
+     failing the request. This deliberately diverges from `/transcribe`'s 503: a missing echo-trim
+     is cosmetic, so the correct degradation is to generate untrimmed. Closes the
+     `/unload-asr`-lands-in-the-window race without reintroducing in-lock loading.
+  3. **Wrap the pre-load in try/except; on failure log once and skip the trim.** Generation must
+     never fail because of a cosmetic probe. This subsumes the "failing load retries on every clone
+     generation forever" risk the survey raised, without inventing a failure-latch mechanism — and
+     it is why an earlier controller suggestion (time-box the cold load inside the lock, plus a
+     one-shot latch) was REJECTED: time-boxing can abort a nearly-complete download repeatedly, and
+     a hard latch fights `huggingface_hub`'s resume-partial behavior, so successive attempts would
+     never converge.
+  **Scope consequence:** deleting the opportunistic gate at `core/engine/inference.py:1150-1156`
+  is **necessary but NOT sufficient** — `_trim_icl_echo` runs inside the generation and therefore
+  inside `inference_lock`, so the unlocked pre-load cannot live there. 1C therefore also touches
+  `server/app_generation.py`. This widens 1C past the survey's "core/ only" framing; it does not
+  collide with Step 1A, which merges first.
+  **Cheaper-than-recorded finding (unchanged by the above):** `transcribe_audio` already lazily
+  loads (`core/engine/asr.py:167-168`, `:190`) and the lock order `inference_lock` → `_asr_lock` was
+  verified correct with no deadlock, so no new loader machinery is required — the work is the hoist,
+  the re-check, and the degradation, not a loader.
+  **Correction to the multi-chunk co-decision (WS9.4) above:** "keep single application on the
+  combined head" is **already the shipped behavior** (`core/engine/inference.py:1456-1464`), so it
+  is not work. The only real work in that co-decision is scaling the 50% cap to the FIRST chunk, it
+  **cannot** be done inside `_trim_icl_echo` (it needs a new kwarg threaded through
+  `_postprocess_chunk`), and the streaming path already scopes its cap to the first chunk — so this
+  fix is **batch-only**.
 - **Tasks (after the decision is recorded):** write the failing test for the chosen behavior, RED,
   implement, GREEN, update `CLAUDE.md`'s `trim_icl_echo` row if the on-by-default claim changes.
 - **Reconciliation add-on (2026-09-08, WS9.4 of the remediation plan):** the multi-chunk echo-trim
@@ -1245,10 +1306,33 @@ analysis rather than duplicated as a new step.)*
   16. **`decode_stream_error_payload` drops `code` before repo clients parse it**: the classified
       code reaches the wire but not the exception the repo clients raise — completeness, not
       exposure. *(0F final-review LOW-3; recorded here as the durable register.)*
+  17. **HTTP `/cancel-generation` cannot actually stop a `/ws` generation, nor address a
+      `/generate-stream` request while it sits queued**: the WS path cancels only via its in-band
+      `{"action":"cancel"}` frame setting `stop_event`; it never reads the guard's cancelled flag
+      (the only `is_cancelled*` consumers are `app_generation.py:74` and `:373`). So an HTTP cancel
+      during a WS generation answers `cancellation_requested` and does nothing. Same family,
+      pre-existing: the streaming path never registers pending — its `gen_id` is minted inside
+      `audio_stream_generator` only after `inference_lock` is acquired — so a cancel arriving while
+      a stream request queues behind a lock holder finds nothing active and nothing pending and
+      bounces `no_active_generation`. Fix = give the WS consumer a target-aware guard read against
+      `ws_gen_id` alongside its `stop_event` check, and register the stream's minted id (or
+      otherwise close its queued pre-begin window). *(WS half surfaced by the Step 1A pre-flight
+      scan, Ruling C; stream half by the 1A final whole-branch review; both deliberately out of 1A
+      scope — behavior additions, not race fixes.)*
+  18. **No repair path for legacy sub-24 kHz voice prompts**: `ensure_min_sample_rate` guards the
+      WRITE path only (all four create surfaces since 0G), so prompts created before it silently
+      drive clone generation past the token cap and truncate the audio — the reference `.wav` stays
+      below 24 kHz and `tts voice rebuild` does NOT repair it (it regenerates the `.pt` only, per
+      CLAUDE.md). Proven live 2026-09-09: `lt1.wav` at 8000 Hz produced 14 cap warnings across
+      `.voice_server.log*` (latest 2026-09-05) before the user deleted it. Fix = make `rebuild` run
+      the reference through `ensure_min_sample_rate` (or add an explicit repair subcommand), and
+      surface a warning in `tts voice list`/`info` for any prompt whose reference is below 24 kHz.
+      Related: item 15 owns only the TEST that manufactures corrupt stubs, not this write-path gap.
+      *(Discovered by the #214-item-5 standing watch during Step 1A; not owned by 1A.)*
 - **Verify:** per-item targeted tests where applicable; `ruff`; `mypy`; full non-E2E suite; the WS
   items re-run `tests/test_websocket_slot_release.py` + `tests/test_websocket_rate_limit.py` green
   UNCHANGED.
-- **Exit criteria:** all 16 items landed (or individually dispositioned in the PR with a reason);
+- **Exit criteria:** all 18 items landed (or individually dispositioned in the PR with a reason);
   no behavior change beyond the fixes themselves.
 
 ---
@@ -1389,8 +1473,8 @@ analysis rather than duplicated as a new step.)*
 (1) · Wave 3: 3A–3E (5) · Wave 4: 4A–4D (4) · Wave 4B: 4B.1–4B.4 (4) · Wave 5: 5 (1) · Wave 6:
 6A–6R (18) · Wave 7: 7A–7C (3) — **plus 3 independent tracks** (feature, dependency, and the decision-gated branch register — none gated by the waves) **+ 1 passive watch** (no action). Step 6·0 (dead-code cleanup) was already
 executed directly on 2026-09-06 and is recorded in Wave 6; it is not counted among the pending
-steps. **Executed so far: 0A (PR #263), 0B (PR #269), 0C (PR #270), 0D (PR #271), 0E (PR #276), 0F (PR #281).** **6G is
-folded into Wave 7 Step 7C** (not independently pending). ***Open: 41.*** *(Wave 7 incorporated
+steps. **Executed so far: 0A (PR #263), 0B (PR #269), 0C (PR #270), 0D (PR #271), 0E (PR #276), 0F (PR #281), 0G (PR #282).** **6G is
+folded into Wave 7 Step 7C** (not independently pending). ***Open: 40.*** *(Wave 7 incorporated
 2026-09-08 from the Interface Quality Improvement Plan — a three-surface audit of Web UI, CLI,
 and HTTP API, user-scoped; tracked at `docs/plans/2026-09-07-interface-quality.plan.md`, which
 is the spec for 7A–7C.)* Ordered by: critical correctness/security findings from the 2026-09-06 cross-cutting
