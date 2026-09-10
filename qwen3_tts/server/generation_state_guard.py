@@ -173,9 +173,10 @@ class GenerationStateGuard:
           runs, before it is overwritten with the incoming id: preserved.
           A cancel addressed to a live, already-begun batch must survive a
           concurrent, DIFFERENT generation's ``begin()`` too, not just its
-          own; once the true owner's own ``begin()`` or ``reset_if_owner``
-          has run, ``generation_id`` no longer names it, so this cannot
-          over-preserve a target that has genuinely gone stale.
+          own; once a different, subsequent generation's ``begin()`` or
+          this owner's own ``reset_if_owner`` has run, ``generation_id`` no
+          longer names it, so this cannot over-preserve a target that has
+          genuinely gone stale.
         - ``cancel_target_id`` is set, non-matching, NOT pending, and NOT
           the current owner (genuinely stale): erased — this is the
           status-surface hygiene the old blanket re-clear gave us, kept for
