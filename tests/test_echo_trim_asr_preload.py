@@ -155,9 +155,20 @@ class _Mocks(SimpleNamespace):
 
 
 def _make_mocks(events, threads, wav, *, streaming=False, transcript=REFERENCE):
-    """Build the mock set driving the real handlers without real models."""
+    """Build the mock set driving the real handlers without real models.
+
+    ASR state is modeled faithfully: the load mock flips a shared flag that
+    the is_asr_loaded mock reads, so a successful preload makes every later
+    check (the next batch item's, the engine's in-lock probe) see a warm
+    model. Tests override either mock to simulate colder scenarios.
+    """
+    asr_state = {"loaded": False}
+
+    def _is_asr_loaded():
+        return asr_state["loaded"]
 
     def _load_asr_model():
+        asr_state["loaded"] = True
         events.append("preload")
         threads.append(threading.current_thread())
         return True
@@ -178,7 +189,8 @@ def _make_mocks(events, threads, wav, *, streaming=False, transcript=REFERENCE):
         events=events,
         threads=threads,
         wav=wav,
-        is_asr_loaded=MagicMock(return_value=False),
+        asr_state=asr_state,
+        is_asr_loaded=MagicMock(side_effect=_is_asr_loaded),
         load_asr_model=MagicMock(side_effect=_load_asr_model),
         prompt_loader=AsyncMock(
             return_value={"transcript": transcript}
@@ -265,7 +277,6 @@ class TestBatchEchoTrimPreload(unittest.TestCase):
             from qwen3_tts.server.validation import GenerateRequest
 
             state = _make_state()
-            loop_thread = threading.current_thread()
             state.inference_lock = _RecordingLock(events)
             req = GenerateRequest(
                 texts=["first", "second"],
@@ -431,6 +442,7 @@ class TestBatchEchoTrimPreload(unittest.TestCase):
             from qwen3_tts.server.validation import GenerateRequest
 
             state = _make_state()
+            state.inference_lock = _RecordingLock(events)
             req = GenerateRequest(
                 text="hello world", mode="clone", prompt_file="voice.wav"
             )
@@ -589,9 +601,6 @@ class TestBatchEchoTrimPreload(unittest.TestCase):
         threads = []
         wav = np.zeros(500, dtype=np.float32)
         mocks = _make_mocks(events, threads, wav)
-        # Every check sees ASR unloaded: the preload check (so the load
-        # fires once) AND the in-lock engine check (so the trim degrades).
-        mocks.is_asr_loaded = MagicMock(return_value=False)
         probe = MagicMock()
 
         trimmed_lengths = []
@@ -599,6 +608,10 @@ class TestBatchEchoTrimPreload(unittest.TestCase):
         def _inference_with_real_trim(model, text, **kwargs):
             from qwen3_tts.core.engine.inference import _trim_icl_echo
 
+            # The preload loaded ASR (mock set the flag); NOW a concurrent
+            # /unload-asr lands in the window, so the engine's in-lock check
+            # must find the model gone.
+            mocks.asr_state["loaded"] = False
             trimmed, _ = _trim_icl_echo(
                 wav,
                 SR,

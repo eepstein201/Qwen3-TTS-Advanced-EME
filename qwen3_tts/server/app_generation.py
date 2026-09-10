@@ -20,7 +20,11 @@ from typing import Any
 from fastapi import HTTPException, Response
 from fastapi.responses import StreamingResponse
 
-from qwen3_tts.core.config import get_generation_cache_max
+from qwen3_tts.core.config import (
+    DefaultConfigLoader,
+    get_generation_cache_max,
+    sanitize_log,
+)
 
 # Terminal error frame for the length-prefixed streaming wire format (WS2 2.5).
 # Frames are [sample_rate:4][length:4][payload:length]; a real chunk always
@@ -179,6 +183,74 @@ def _require_model_under_lock(state, mode) -> Any:
         # typed -> None, not NoReturn, so nothing structurally stops a
         # fall-through into inference with the slot gone.
     return current
+
+
+async def _ensure_asr_for_echo_trim(
+    mode: str,
+    x_vector_only_mode: bool,
+    config: dict[str, Any],
+    voice_prompt: Any,
+) -> None:
+    """Ensure ASR is loaded when this generation's ICL echo trim needs it.
+
+    Issue #193 / Step 1C (ratified option (b), keep-loaded). The trim probe
+    runs under ``inference_lock`` (inside ``run_inference``), and a cold ASR
+    load is unbounded HF network I/O — exactly what must never happen
+    in-lock (#214 item 2 forbids the rebuild there). So the server layer
+    ensure-loads ASR UNLOCKED, here, BEFORE the generation queues for the
+    lock. Mirrors ``/transcribe``'s unlocked ensure-load
+    (``app_models.py``); callers pass the config resolved the same way the
+    engine resolves it (``(config_provider or DefaultConfigLoader()).load()``)
+    so the gate reads exactly what the probe will read.
+
+    Gated on the same three conditions ``_trim_icl_echo`` probes with, so
+    nothing loads for a generation that would not use it:
+      - ``generation.trim_icl_echo`` truthy (engine default TRUE — same
+        ``.get(...)`` chain as the probe's own read),
+      - ``mode == "clone"`` (echo is a clone-only artifact),
+      - a transcript resolvable off the voice prompt (no transcript, no
+        echo) — the real ``_reference_text_from_prompt``.
+    The ``is_asr_loaded()`` check makes per-item repeats in a batch free.
+
+    Failure path: log ONE warning and return — the generation proceeds and
+    the under-lock degradation in ``_trim_icl_echo`` skips the trim. A
+    missing echo trim is cosmetic; losing a generation is not. Deliberately
+    NO failure latch and NO retry suppression: a latch would fight
+    huggingface_hub's resume-partial behavior.
+
+    Window race: ``/unload-asr`` holds ``inference_lock``, so an unload can
+    only land between this unlocked load and the in-lock probe — the probe
+    then finds ASR absent and degrades to an untrimmed generation (pinned
+    by tests/test_icl_echo_trim.py and
+    tests/test_echo_trim_asr_preload.py).
+    """
+    if mode != "clone" or x_vector_only_mode:
+        return
+    # Same read as _trim_icl_echo's gate: default true.
+    if not config.get("generation", {}).get("trim_icl_echo", True):
+        return
+
+    # Lazy + module-style: attribute access on the modules keeps the mock
+    # seams at the definition sites (core.engine.asr.*, engine.inference),
+    # matching how _trim_icl_echo itself reaches them.
+    from qwen3_tts.core.engine import asr
+    from qwen3_tts.core.engine.inference import _reference_text_from_prompt
+
+    if not _reference_text_from_prompt(voice_prompt):
+        return
+    if asr.is_asr_loaded():
+        return
+    try:
+        # NEVER on the event loop (async-offload policy, cf.
+        # tests/test_server_async_offload.py): weight construction is
+        # seconds of blocking work, the cold path minutes of network I/O.
+        await asyncio.to_thread(asr.load_asr_model)
+    except Exception as e:
+        logger.warning(
+            "ASR ensure-load for the ICL echo trim failed (%s); generating "
+            "without the trim probe",
+            sanitize_log(e),
+        )
 
 
 async def handle_generate(request, state, req, security, config_provider):
@@ -457,6 +529,27 @@ async def handle_generate(request, state, req, security, config_provider):
                         status_code=404,
                         detail=f"Voice prompt not found: {prompt_file}",
                     )
+
+            # Ensure ASR for the ICL echo trim BEFORE queueing for
+            # inference_lock (#193 / Step 1C): a cold load is unbounded HF
+            # network I/O and must never run inside the GPU-serialization
+            # lock (mirrors /transcribe's unlocked ensure-load and the
+            # streaming path below). Unlocked here, gated on the same three
+            # conditions the probe itself requires, so nothing loads for a
+            # generation that would not use it; is_asr_loaded() makes
+            # per-item repeats free. /unload-asr holds inference_lock, so an
+            # unload can only land in this unlocked window — the in-lock
+            # check in _trim_icl_echo then degrades to an untrimmed
+            # generation, never an in-lock rebuild (#214 item 2). Cache-hit
+            # items continued above, so pure cache hits never trigger a load.
+            # Config resolved the same way the engine resolves it, so the
+            # gate reads exactly what the probe will read.
+            await _ensure_asr_for_echo_trim(
+                mode,
+                x_vector_only_mode,
+                (config_provider or DefaultConfigLoader()).load(),
+                voice_prompt,
+            )
 
             # Acquire inference_lock ONLY for GPU-bound work: the state update
             # and the inference call itself. Everything after chunk_count
@@ -831,6 +924,20 @@ async def handle_generate_stream(request, state, req, security, config_provider)
     speaker = req.speaker
     instruct = req.instruct
     x_vector_only_mode = req.x_vector_only_mode
+
+    # Ensure ASR for the ICL echo trim BEFORE the stream queues for
+    # inference_lock (#193 / Step 1C) — the same unlocked preload as the
+    # batch path above, mirroring /transcribe's ensure-load. The lock is
+    # acquired inside audio_stream_generator when the response body is
+    # iterated, so anything in the handler body is safely pre-queue.
+    # Config resolved the same way the engine resolves it, so the gate
+    # reads exactly what the probe will read.
+    await _ensure_asr_for_echo_trim(
+        mode,
+        x_vector_only_mode,
+        (config_provider or DefaultConfigLoader()).load(),
+        voice_prompt,
+    )
 
     # Create queue for streaming chunks
     queue: asyncio.Queue = asyncio.Queue()
