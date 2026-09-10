@@ -486,8 +486,9 @@ async def handle_generate(request, state, req, security, config_provider):
                 # begin() preserves a cancel targeted at THIS batch's own id
                 # or at a still-pending sibling, and erases only a genuinely
                 # stale one targeted elsewhere (issue #237 / Step 1A — see
-                # GenerationStateGuard.begin()'s docstring for the three-case
-                # rule). Combined with the target-aware per-item check above,
+                # GenerationStateGuard.begin()'s docstring for the four-case
+                # erase rule). Combined with the target-aware per-item check
+                # above,
                 # a cancel addressed to this batch now survives every
                 # subsequent item's begin() instead of being blanket-erased.
 
@@ -910,10 +911,10 @@ async def handle_generate_stream(request, state, req, security, config_provider)
 
             gen_id = str(uuid.uuid4())[:8]
             # Same begin the batch path uses: one atomic update stamping
-            # active + the generation id, and RE-clearing cancelled (the
-            # erase race that re-clear carries is issue #237 / Step 1A,
-            # preserved unchanged from the raw update this replaces). Chunk
-            # counters are left to _chunk_progress.
+            # active + the generation id and applying begin()'s target-aware
+            # cancel handling (issue #237 / Step 1A) — only a cancel targeted
+            # elsewhere and genuinely stale is erased. Chunk counters are
+            # left to _chunk_progress.
             guard.begin(gen_id, mode=mode, text_length=len(text))
 
             def _chunk_progress(chunk_idx, chunk_total):
@@ -1015,7 +1016,7 @@ async def handle_generate_stream(request, state, req, security, config_provider)
                 # reset_if_owner re-checks ownership in the SAME locked step,
                 # so a generation that lost the slot (superseded by a newer
                 # one) can never clobber the new owner's progress — and the
-                # reset restores ALL ten idle keys, so a cancelled stream
+                # reset restores ALL eleven idle keys, so a cancelled stream
                 # cannot leave the shared cancelled flag dirty (mirrors the
                 # batch path's finally at :692).
                 guard.reset_if_owner(gen_id)

@@ -34,7 +34,7 @@ WHICH generation it addresses in ``cancel_target_id``, and
 that generation should act on. ``begin()`` erases a stale cancel (one
 targeted at some OTHER, non-pending generation) but preserves one targeted
 at itself or at a still-pending sibling (see ``begin()``'s docstring for the
-three-case rule) — this is what fixes the two cancel-loss races: a cancel
+four-case erase rule) — this is what fixes the two cancel-loss races: a cancel
 addressed to the running batch survives that batch's own next ``begin()``,
 and a cancel addressed to a batch that has been minted but not yet begun
 (tracked in the pending registry) survives an unrelated concurrent
@@ -159,7 +159,8 @@ class GenerationStateGuard:
         to now), and the four provided fields. Chunk counters are left to
         ``update_progress``.
 
-        Cancel handling (issue #237 / Step 1A) — four cases, in order:
+        Cancel handling (issue #237 / Step 1A) — four erase cases, then the
+        no-target no-op:
 
         - ``cancel_target_id == generation_id``: preserved. A cancel
           addressed to THIS batch must survive its own next ``begin()`` so
