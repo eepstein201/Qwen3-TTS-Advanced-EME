@@ -1306,13 +1306,19 @@ analysis rather than duplicated as a new step.)*
   16. **`decode_stream_error_payload` drops `code` before repo clients parse it**: the classified
       code reaches the wire but not the exception the repo clients raise — completeness, not
       exposure. *(0F final-review LOW-3; recorded here as the durable register.)*
-  17. **HTTP `/cancel-generation` cannot actually stop a `/ws` generation**: the WS path cancels only
-      via its in-band `{"action":"cancel"}` frame setting `stop_event`; it never reads the guard's
-      cancelled flag (the only `is_cancelled*` consumers are `app_generation.py:71` and `:370`). So
-      an HTTP cancel during a WS generation answers `cancellation_requested` and does nothing. Fix =
-      give the WS consumer a target-aware guard read against `ws_gen_id` alongside its `stop_event`
-      check. *(Surfaced by the Step 1A pre-flight scan, Ruling C; deliberately out of 1A scope — a
-      behavior addition, not a race fix.)*
+  17. **HTTP `/cancel-generation` cannot actually stop a `/ws` generation, nor address a
+      `/generate-stream` request while it sits queued**: the WS path cancels only via its in-band
+      `{"action":"cancel"}` frame setting `stop_event`; it never reads the guard's cancelled flag
+      (the only `is_cancelled*` consumers are `app_generation.py:74` and `:373`). So an HTTP cancel
+      during a WS generation answers `cancellation_requested` and does nothing. Same family,
+      pre-existing: the streaming path never registers pending — its `gen_id` is minted inside
+      `audio_stream_generator` only after `inference_lock` is acquired — so a cancel arriving while
+      a stream request queues behind a lock holder finds nothing active and nothing pending and
+      bounces `no_active_generation`. Fix = give the WS consumer a target-aware guard read against
+      `ws_gen_id` alongside its `stop_event` check, and register the stream's minted id (or
+      otherwise close its queued pre-begin window). *(WS half surfaced by the Step 1A pre-flight
+      scan, Ruling C; stream half by the 1A final whole-branch review; both deliberately out of 1A
+      scope — behavior additions, not race fixes.)*
   18. **No repair path for legacy sub-24 kHz voice prompts**: `ensure_min_sample_rate` guards the
       WRITE path only (all four create surfaces since 0G), so prompts created before it silently
       drive clone generation past the token cap and truncate the audio — the reference `.wav` stays

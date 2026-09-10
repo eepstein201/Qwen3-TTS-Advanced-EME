@@ -35,7 +35,7 @@ below for the exact four-case rule).
 
 ## Window 1 closed — a cancel landing after item *i*'s check but before item *i+1*'s `begin()`
 
-**Mechanism.** `begin()` (`qwen3_tts/server/generation_state_guard.py:146-204`) erases
+**Mechanism.** `begin()` (`qwen3_tts/server/generation_state_guard.py:146-209`) erases
 `cancel_target_id` only when all four of these hold: a target is set, it does not equal the
 incoming `generation_id`, it does not equal the state's *current* owner (`state["generation_id"]`,
 read **before** this call overwrites it), and it is not a still-pending sibling id. The docstring
@@ -52,7 +52,7 @@ states the rule as four ordered cases:
   (genuinely stale): erased.
 ```
 
-The production code (`generation_state_guard.py:190-198`):
+The production code (`generation_state_guard.py:191-204`):
 
 ```python
 with self._lock:
@@ -113,7 +113,7 @@ next check must still see its own cancel'."
 
 ## Window 2 closed — a cancel arriving before item 0 makes the state active
 
-**Mechanism.** `/cancel-generation` (`qwen3_tts/server/app.py:891-928`) now has two branches. If a
+**Mechanism.** `/cancel-generation` (`qwen3_tts/server/app.py:891-932`) now has two branches. If a
 generation is already active, it targets the cancel at the active id as before. If nothing is
 active yet, it falls through to a second branch that did not exist pre-fix:
 
@@ -135,7 +135,7 @@ return {"status": "no_active_generation"}
 ```
 
 The latch is the **pending registry** (`register_pending` / `deregister_pending` /
-`peek_pending_target`, `generation_state_guard.py:245-284`): `handle_generate` registers its minted
+`peek_pending_target`, `generation_state_guard.py:245-293`): `handle_generate` registers its minted
 id as pending immediately, before it ever queues for the inference lock or calls `begin()`. A
 cancel that lands in that window now finds a target to attach to (`peek_pending_target()` — a
 non-mutating, deterministic `min()` over the pending set) instead of reading `active: False` and
