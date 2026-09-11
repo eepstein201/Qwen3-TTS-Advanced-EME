@@ -135,3 +135,31 @@ class TestStrategyDispatch(unittest.TestCase):
 
         # Clean up
         del _INFERENCE_STRATEGIES["mock_ocp_test"]
+
+
+class TestVllmBackendStrategy(unittest.TestCase):
+    """backend='vllm' is adapter-only; engine dispatch must say so clearly.
+
+    The strategy registry only holds torch and mlx. vLLM generation runs
+    through the server's VLLMAdapter (gated on vllm.enabled), so an engine
+    dispatch for 'vllm' (advanced.backend/TTS_BACKEND set to vllm with the
+    vLLM section disabled) used to surface as a generic "Unknown backend"
+    ValueError mid-generation. The error must name the config fix.
+    """
+
+    def test_vllm_raises_actionable_config_error(self):
+        from qwen3_tts.core.engine.inference import _get_backend_strategy
+
+        with self.assertRaises(ValueError) as ctx:
+            _get_backend_strategy("vllm")
+        msg = str(ctx.exception)
+        assert "vllm.enabled" in msg, f"error must name the vllm.enabled knob: {msg}"
+        assert "advanced.backend" in msg, f"error must name advanced.backend: {msg}"
+        assert "'torch' or 'mlx'" in msg, f"error must name valid backends: {msg}"
+
+    def test_other_unknown_backends_keep_generic_error(self):
+        from qwen3_tts.core.engine.inference import _get_backend_strategy
+
+        with self.assertRaises(ValueError) as ctx:
+            _get_backend_strategy("quantum")
+        assert "Unknown backend: quantum" in str(ctx.exception)
