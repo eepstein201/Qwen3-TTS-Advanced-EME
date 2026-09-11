@@ -593,8 +593,8 @@ Development environment setup and testing procedures, including:
 - Installation steps (MLX and Torch backends)
 - Available scripts and development tools
 - Project structure overview
-- Testing procedures (3,100+ tests across 6 batches)
-- Code style enforcement (black, ruff, mypy)
+- Testing procedures (3,200+ tests across 6 batches)
+- Code style enforcement (ruff, mypy, bandit)
 - Development workflow (feature branches, commits, PRs)
 - Troubleshooting common issues
 
@@ -649,7 +649,7 @@ This installs all required dependencies including gradio, pytest, and playwright
 
 ### Test Execution
 
-**Run all tests using the batch runner (3,100+ tests across 180+ modules, organized in 6 batches):
+**Run all tests using the batch runner (3,200+ tests across 180+ modules, organized in 6 batches):
 ```bash
 python tests/run_batches.py        # Run all batches
 python tests/run_batches.py --batch 1  # Run a specific batch

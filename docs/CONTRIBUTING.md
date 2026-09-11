@@ -118,7 +118,7 @@ qwen3-tts/
 │   ├── server/            # FastAPI server and client
 │   ├── interface/         # CLI and Gradio UI
 │   └── tools/             # Utilities (healthcheck, cache, voice)
-├── tests/                  # Test suite (3,100+ tests)
+├── tests/                  # Test suite (3,200+ tests)
 ├── docs/                   # Documentation
 ├── config.json             # Configuration file
 └── pyproject.toml          # Package metadata
@@ -133,10 +133,10 @@ The project has **3,200+ tests** across 184 modules, organized into 6 batches
 
 | Batch | Name | Modules | Description | Server Required |
 |-------|------|---------|-------------|-----------------|
-| 1 | Core | 28 | Core utilities, config, validation | No |
+| 1 | Core | 29 | Core utilities, config, validation | No |
 | 2 | Voice | 24 | Voice prompts, CLI commands | No |
-| 3 | Server | 62 | Server infrastructure, API endpoints | No |
-| 4 | Engine | 39 | Engine components, UI logic | No |
+| 3 | Server | 67 | Server infrastructure, API endpoints | No |
+| 4 | Engine | 40 | Engine components, UI logic | No |
 | 5 | Optional | 15 | Optional-dependency features | No |
 | 6 | E2E | 1 | End-to-end Playwright tests | **Yes** |
 
