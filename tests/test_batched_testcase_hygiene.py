@@ -48,11 +48,11 @@ _RUN_BATCHES = _TESTS_DIR / "run_batches.py"
 _TESTCASE_SUFFIX = "TestCase"
 
 # Modules registered in BATCHES whose top-level test classes are still
-# pytest-style. Each is hollow under the batch runner TODAY -- Step 1E converts
-# them and deletes the entry. Counts are from the 2026-09-11 scan.
-KNOWN_HOLLOW = {
-    "tests.test_solid_analyzer": "Step 1E: 10 classes",
-}
+# pytest-style. EMPTY since the Step 1E sweep completed (2026-09-11): every
+# batched module now collects under `python -m unittest`. Kept as a ratchet
+# so a new pytest-style class in a batched module fails here instead of
+# silently running zero tests in the batch gate.
+KNOWN_HOLLOW = {}
 
 
 def _registered_modules() -> set[str]:

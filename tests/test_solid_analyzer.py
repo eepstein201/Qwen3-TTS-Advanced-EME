@@ -1,9 +1,26 @@
 """Tests for SOLID analyzer tool."""
 
-import pytest
+import contextlib
+import io
+import tempfile
+import unittest
+from pathlib import Path
 
 
-class TestSOLIDScore:
+class _TmpDirTestCase(unittest.TestCase):
+    """Provides self.tmp_path (a per-test pathlib.Path scratch dir).
+
+    The unittest stand-in for pytest's tmp_path fixture (Step 1E) — mirroring
+    what the fastapi_client conversion did in test_fastapi_app_ext.py.
+    """
+
+    def setUp(self):
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        self.tmp_path = Path(tmp.name)
+
+
+class TestSOLIDScore(unittest.TestCase):
     """Tests for SOLIDScore dataclass."""
 
     def test_solid_score_has_all_principles(self):
@@ -53,7 +70,7 @@ class TestSOLIDScore:
         assert score.violations[0].principle == "SRP"
 
 
-class TestViolation:
+class TestViolation(unittest.TestCase):
     """Tests for Violation dataclass."""
 
     def test_violation_has_required_fields(self):
@@ -70,11 +87,10 @@ class TestViolation:
         assert v.line_number == 42
 
 
-class TestSRPScoring:
+class TestSRPScoring(unittest.TestCase):
     """Tests for Single Responsibility Principle scoring."""
 
-    @pytest.fixture
-    def god_class_code(self):
+    def _god_class_code(self):
         """Code with a class that has too many methods."""
         return '''
 class GodClass:
@@ -94,8 +110,7 @@ class GodClass:
     def method_12(self): pass
 '''
 
-    @pytest.fixture
-    def clean_class_code(self):
+    def _clean_class_code(self):
         """Code with a class that follows SRP."""
         return '''
 class CleanClass:
@@ -110,15 +125,17 @@ class CleanClass:
         pass
 '''
 
-    def test_srp_score_decreases_with_many_public_methods(self, god_class_code):
+    def test_srp_score_decreases_with_many_public_methods(self):
         """SRP score decreases when class has too many public methods."""
+        god_class_code = self._god_class_code()
         from qwen3_tts.tools.solid_analyzer import analyze_code
 
         result = analyze_code(god_class_code, "test_file.py")
         assert result.srp_score < 8.0  # 12 methods = lower score
 
-    def test_srp_score_high_for_clean_class(self, clean_class_code):
+    def test_srp_score_high_for_clean_class(self):
         """SRP score is high for class with few public methods."""
+        clean_class_code = self._clean_class_code()
         from qwen3_tts.tools.solid_analyzer import analyze_code
 
         result = analyze_code(clean_class_code, "test_file.py")
@@ -140,8 +157,9 @@ def very_long_function():
         result = analyze_code(long_function_code, "test_file.py")
         assert result.srp_score < 9.0
 
-    def test_srp_violation_includes_line_number(self, god_class_code):
+    def test_srp_violation_includes_line_number(self):
         """SRP violations include line numbers."""
+        god_class_code = self._god_class_code()
         from qwen3_tts.tools.solid_analyzer import analyze_code
 
         result = analyze_code(god_class_code, "test_file.py")
@@ -150,11 +168,10 @@ def very_long_function():
         assert all(v.line_number > 0 for v in srp_violations)
 
 
-class TestOCPScoring:
+class TestOCPScoring(unittest.TestCase):
     """Tests for Open/Closed Principle scoring."""
 
-    @pytest.fixture
-    def type_dispatch_code(self):
+    def _type_dispatch_code(self):
         """Code with if/else type dispatch (OCP violation)."""
         return '''
 def process_data(data):
@@ -173,8 +190,7 @@ def process_data(data):
         return process_default(data)
 '''
 
-    @pytest.fixture
-    def strategy_pattern_code(self):
+    def _strategy_pattern_code(self):
         """Code using strategy pattern (OCP compliant)."""
         return '''
 PROCESSORS = {
@@ -189,15 +205,17 @@ def process_data(data):
     return processor(data)
 '''
 
-    def test_ocp_score_decreases_for_if_else_chains(self, type_dispatch_code):
+    def test_ocp_score_decreases_for_if_else_chains(self):
         """OCP score decreases for if/else type dispatch."""
+        type_dispatch_code = self._type_dispatch_code()
         from qwen3_tts.tools.solid_analyzer import analyze_code
 
         result = analyze_code(type_dispatch_code, "test_file.py")
         assert result.ocp_score < 10.0  # 4 elif branches = lower score
 
-    def test_ocp_score_high_for_strategy_pattern(self, strategy_pattern_code):
+    def test_ocp_score_high_for_strategy_pattern(self):
         """OCP score is high for strategy pattern usage."""
+        strategy_pattern_code = self._strategy_pattern_code()
         from qwen3_tts.tools.solid_analyzer import analyze_code
 
         result = analyze_code(strategy_pattern_code, "test_file.py")
@@ -224,11 +242,10 @@ def run_inference(model, text, mode):
         assert result.ocp_score < 10.0  # 5 elif branches detected
 
 
-class TestLSPScoring:
+class TestLSPScoring(unittest.TestCase):
     """Tests for Liskov Substitution Principle scoring."""
 
-    @pytest.fixture
-    def lsp_violation_code(self):
+    def _lsp_violation_code(self):
         """Code with LSP violation (incompatible subclass method)."""
         return '''
 class Base:
@@ -240,8 +257,7 @@ class Derived(Base):
         return data * 2
 '''
 
-    @pytest.fixture
-    def lsp_compliant_code(self):
+    def _lsp_compliant_code(self):
         """Code that follows LSP."""
         return '''
 class Base:
@@ -253,26 +269,27 @@ class Derived(Base):
         return data.lower()
 '''
 
-    def test_lsp_score_decreases_for_incompatible_signatures(self, lsp_violation_code):
+    def test_lsp_score_decreases_for_incompatible_signatures(self):
         """LSP score decreases for incompatible method signatures."""
+        lsp_violation_code = self._lsp_violation_code()
         from qwen3_tts.tools.solid_analyzer import analyze_code
 
         result = analyze_code(lsp_violation_code, "test_file.py")
         assert result.lsp_score < 8.0
 
-    def test_lsp_score_high_for_compatible_signatures(self, lsp_compliant_code):
+    def test_lsp_score_high_for_compatible_signatures(self):
         """LSP score is high for compatible method signatures."""
+        lsp_compliant_code = self._lsp_compliant_code()
         from qwen3_tts.tools.solid_analyzer import analyze_code
 
         result = analyze_code(lsp_compliant_code, "test_file.py")
         assert result.lsp_score >= 8.0
 
 
-class TestISPScoring:
+class TestISPScoring(unittest.TestCase):
     """Tests for Interface Segregation Principle scoring."""
 
-    @pytest.fixture
-    def fat_interface_code(self):
+    def _fat_interface_code(self):
         """Code with a fat interface (ISP violation)."""
         return '''
 class MegaInterface:
@@ -290,8 +307,7 @@ class MegaInterface:
     def method_10(self): pass
 '''
 
-    @pytest.fixture
-    def segregated_interface_code(self):
+    def _segregated_interface_code(self):
         """Code with segregated interfaces (ISP compliant)."""
         return '''
 class ReaderInterface:
@@ -305,26 +321,27 @@ class ReaderWriter(ReaderInterface, WriterInterface):
     def write(self, data): pass
 '''
 
-    def test_isp_score_decreases_for_fat_interfaces(self, fat_interface_code):
+    def test_isp_score_decreases_for_fat_interfaces(self):
         """ISP score decreases for interfaces with many methods."""
+        fat_interface_code = self._fat_interface_code()
         from qwen3_tts.tools.solid_analyzer import analyze_code
 
         result = analyze_code(fat_interface_code, "test_file.py")
         assert result.isp_score < 7.0
 
-    def test_isp_score_high_for_segregated_interfaces(self, segregated_interface_code):
+    def test_isp_score_high_for_segregated_interfaces(self):
         """ISP score is high for small, focused interfaces."""
+        segregated_interface_code = self._segregated_interface_code()
         from qwen3_tts.tools.solid_analyzer import analyze_code
 
         result = analyze_code(segregated_interface_code, "test_file.py")
         assert result.isp_score >= 7.0
 
 
-class TestDIPScoring:
+class TestDIPScoring(unittest.TestCase):
     """Tests for Dependency Inversion Principle scoring."""
 
-    @pytest.fixture
-    def dip_violation_code(self):
+    def _dip_violation_code(self):
         """Code with DIP violation (direct concrete import)."""
         return '''
 from concrete_module import ConcreteImplementation
@@ -337,8 +354,7 @@ class Client:
         return self.impl.process()
 '''
 
-    @pytest.fixture
-    def dip_compliant_code(self):
+    def _dip_compliant_code(self):
         """Code that follows DIP (dependency injection)."""
         return '''
 class Client:
@@ -349,26 +365,29 @@ class Client:
         return self.impl.process()
 '''
 
-    def test_dip_score_decreases_for_direct_instantiation(self, dip_violation_code):
+    def test_dip_score_decreases_for_direct_instantiation(self):
         """DIP score decreases for direct concrete instantiation."""
+        dip_violation_code = self._dip_violation_code()
         from qwen3_tts.tools.solid_analyzer import analyze_code
 
         result = analyze_code(dip_violation_code, "test_file.py")
         assert result.dip_score < 10.0  # Should be lower than perfect
 
-    def test_dip_score_high_for_dependency_injection(self, dip_compliant_code):
+    def test_dip_score_high_for_dependency_injection(self):
         """DIP score is high for dependency injection pattern."""
+        dip_compliant_code = self._dip_compliant_code()
         from qwen3_tts.tools.solid_analyzer import analyze_code
 
         result = analyze_code(dip_compliant_code, "test_file.py")
         assert result.dip_score >= 8.0
 
 
-class TestAnalyzeModule:
+class TestAnalyzeModule(_TmpDirTestCase):
     """Tests for analyze_module function."""
 
-    def test_analyze_module_with_real_file(self, tmp_path):
+    def test_analyze_module_with_real_file(self):
         """analyze_module works with real file path."""
+        tmp_path = self.tmp_path
         from qwen3_tts.tools.solid_analyzer import analyze_module
 
         # Create a simple Python file
@@ -383,8 +402,9 @@ class SimpleClass:
         assert result.total_score > 0
         assert isinstance(result.violations, list)
 
-    def test_analyze_module_returns_solid_score(self, tmp_path):
+    def test_analyze_module_returns_solid_score(self):
         """analyze_module returns SOLIDScore instance."""
+        tmp_path = self.tmp_path
         from qwen3_tts.tools.solid_analyzer import SOLIDScore, analyze_module
 
         code_file = tmp_path / "test_module.py"
@@ -393,8 +413,9 @@ class SimpleClass:
         result = analyze_module(str(code_file))
         assert isinstance(result, SOLIDScore)
 
-    def test_analyze_module_handles_syntax_error(self, tmp_path):
+    def test_analyze_module_handles_syntax_error(self):
         """analyze_module handles files with syntax errors."""
+        tmp_path = self.tmp_path
         from qwen3_tts.tools.solid_analyzer import analyze_module
 
         code_file = tmp_path / "bad_syntax.py"
@@ -405,11 +426,12 @@ class SimpleClass:
         assert len(result.violations) > 0
 
 
-class TestAnalyzePackage:
+class TestAnalyzePackage(_TmpDirTestCase):
     """Tests for analyzing an entire package."""
 
-    def test_analyze_package_returns_dict(self, tmp_path):
+    def test_analyze_package_returns_dict(self):
         """analyze_package returns dict of module scores."""
+        tmp_path = self.tmp_path
         from qwen3_tts.tools.solid_analyzer import SOLIDScore, analyze_package
 
         # Create a mini package
@@ -423,8 +445,9 @@ class TestAnalyzePackage:
         assert isinstance(results, dict)
         assert all(isinstance(v, SOLIDScore) for v in results.values())
 
-    def test_analyze_package_ignores_non_python_files(self, tmp_path):
+    def test_analyze_package_ignores_non_python_files(self):
         """analyze_package ignores non-Python files."""
+        tmp_path = self.tmp_path
         from qwen3_tts.tools.solid_analyzer import analyze_package
 
         pkg = tmp_path / "test_pkg"
@@ -438,29 +461,37 @@ class TestAnalyzePackage:
         assert "readme.txt" not in results
 
 
-class TestCLI:
+class TestCLI(_TmpDirTestCase):
     """Tests for command-line interface."""
 
-    def test_cli_reports_score(self, tmp_path, capsys):
+    def test_cli_reports_score(self):
         """CLI reports total SOLID score."""
+        from unittest.mock import patch
+
         from qwen3_tts.tools.solid_analyzer import main
 
+        tmp_path = self.tmp_path
         code_file = tmp_path / "test.py"
         code_file.write_text("def hello(): pass")
 
-        with pytest.MonkeyPatch.context() as m:
-            m.setattr("sys.argv", ["solid_analyzer", str(code_file)])
-            try:
-                main()
-            except SystemExit:
-                pass
+        stdout = io.StringIO()
+        with patch("sys.argv", ["solid_analyzer", str(code_file)]):
+            with contextlib.redirect_stdout(stdout):
+                try:
+                    main()
+                except SystemExit:
+                    pass
 
-        captured = capsys.readouterr()
-        assert "SOLID" in captured.out or "score" in captured.out.lower()
+        out = stdout.getvalue()
+        assert "SOLID" in out or "score" in out.lower()
 
-    def test_cli_fail_below_threshold(self, tmp_path):
+    def test_cli_fail_below_threshold(self):
         """CLI exits with error when score below threshold."""
+        from unittest.mock import patch
+
         from qwen3_tts.tools.solid_analyzer import main
+
+        tmp_path = self.tmp_path
 
         # Create code with known violations - use a threshold we know it will fail
         bad_code = '''
@@ -481,8 +512,7 @@ class GodClass:
         code_file = tmp_path / "bad.py"
         code_file.write_text(bad_code)
 
-        with pytest.MonkeyPatch.context() as m:
-            m.setattr("sys.argv", ["solid_analyzer", str(code_file), "--fail-below", "45"])
-            with pytest.raises(SystemExit) as exc:
+        with patch("sys.argv", ["solid_analyzer", str(code_file), "--fail-below", "45"]):
+            with self.assertRaises(SystemExit) as cm:
                 main()
-            assert exc.value.code == 1
+            self.assertEqual(cm.exception.code, 1)
