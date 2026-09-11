@@ -477,6 +477,27 @@ class TestUninstallConfig(unittest.TestCase):
                 data = json.load(f)
             self.assertEqual(data, {"reset": True})
 
+    @mock.patch("qwen3_tts.core.config.save_config")
+    @mock.patch("qwen3_tts.core.config.get_default_config",
+                return_value={"reset": True})
+    @mock.patch("qwen3_tts.core.config.load_config",
+                return_value={"key": "old"})
+    def test_reset_writes_via_atomic_save_config(self, _mock_load,
+                                                 _mock_default, mock_save):
+        """Reset routes through save_config (temp file + os.replace), never a
+        direct truncate-in-place open()."""
+        from qwen3_tts.tools.uninstall import uninstall_config
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            config_path = pathlib.Path(tmpdir) / "config.json"
+            config_path.write_text(json.dumps({"key": "old"}))
+
+            with mock.patch("qwen3_tts.tools.uninstall.CONFIG_PATH",
+                            config_path):
+                uninstall_config()
+
+        mock_save.assert_called_once_with({"reset": True})
+
 
 # ---------------------------------------------------------------------------
 # print_environment_instructions
