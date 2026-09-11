@@ -332,7 +332,7 @@ def main():
 Examples:
   tts cache list                     List all cached models
   tts cache size                     Show total cache size
-  tts cache prune --unused 30d       Remove models not used in 30 days
+  tts cache prune --unused 30        Remove models not used in 30 days
   tts cache clear --force            Remove all cached models
         """,
     )
