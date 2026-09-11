@@ -14,6 +14,7 @@ Run: pytest tests/test_model_loader_extended.py -v
 """
 
 import sys
+import unittest
 
 try:
     import pytest
@@ -501,6 +502,69 @@ def test_load_model_warmup_kwarg_is_keyword_only():
 
     with pytest.raises(TypeError):
         load_model("design", False)
+
+
+# ---- _load_model_mlx revision wiring (backlog Step 3B / master-plan M7) ----
+
+
+class TestMlxRevisionWiring(unittest.TestCase):
+    """models.<type>.revision must reach the mlx_audio load call.
+
+    The torch path threads it end-to-end (_load_model_torch ->
+    from_pretrained/_is_model_cached/_patch_tokenizer); the MLX path
+    dropped it, so a pinned revision was silently ignored on the MLX
+    backend — the model always tracked the moving default branch.
+    mlx_audio's load_model forwards ``revision`` into its hub download
+    (base_load_model kwargs), so wiring it in is supported upstream.
+    """
+
+    def _load_mlx_with_revision(self, model_type, revision):
+        """Run _load_model_mlx with a stubbed mlx_audio and patched resolvers."""
+        from qwen3_tts.core.engine.model_loader import _load_model_mlx
+
+        mlx_utils = MagicMock()
+        with (
+            patch.dict(
+                sys.modules,
+                {
+                    "mlx_audio": MagicMock(),
+                    "mlx_audio.tts": MagicMock(),
+                    "mlx_audio.tts.utils": mlx_utils,
+                },
+            ),
+            patch(
+                "qwen3_tts.core.engine.model_loader.get_mlx_model_name",
+                return_value="mlx-community/test-repo",
+            ),
+            patch(
+                "qwen3_tts.core.engine.model_loader.get_model_size",
+                return_value="1.7B",
+            ),
+            patch(
+                "qwen3_tts.core.engine.model_loader.get_model_revision",
+                return_value=revision,
+            ),
+        ):
+            _load_model_mlx(model_type)
+        return mlx_utils.load_model
+
+    def test_pinned_revision_reaches_mlx_load_call(self):
+        """All three model types forward the resolved revision to mlx_audio."""
+        for model_type in ("clone", "design", "custom"):
+            with self.subTest(model_type=model_type):
+                load = self._load_mlx_with_revision(model_type, "deadbeef")
+                load.assert_called_once()
+                self.assertEqual(
+                    load.call_args.args[0], "mlx-community/test-repo"
+                )
+                self.assertEqual(
+                    load.call_args.kwargs.get("revision"), "deadbeef"
+                )
+
+    def test_default_main_revision_is_passed_through(self):
+        """Unpinned resolution passes revision='main' explicitly, never None."""
+        load = self._load_mlx_with_revision("clone", "main")
+        self.assertEqual(load.call_args.kwargs.get("revision"), "main")
 
 
 # ---- _apply_cuda_optimizations additional coverage ----
