@@ -15,10 +15,12 @@ Covers:
 Run: pytest tests/test_fastapi_app_ext.py -v
 """
 import os
+import socket
+import tempfile
 import time
+import unittest
+from pathlib import Path
 from unittest.mock import MagicMock, patch
-
-import pytest
 
 try:
     from qwen3_tts.server.app import app as _app
@@ -32,17 +34,95 @@ _APP_GENERATION = "qwen3_tts.server.app_generation"
 _APP_MODELS = "qwen3_tts.server.app_models"
 _APP_PROMPTS = "qwen3_tts.server.app_prompts"
 
-pytestmark = pytest.mark.skipif(not HAS_FASTAPI, reason="requires fastapi")
+
+class _FastApiTestCase(unittest.TestCase):
+    """unittest mirror of conftest's fastapi_client fixture (Step 1E).
+
+    The pytest fixture injects an auth-header-wrapping TestClient (plus a
+    scratch tmp_path for the prompt-dir tests); unittest has no fixture
+    injection, so the same setup runs here per test: app.state
+    snapshot/restore via the shared conftest helpers — the same house
+    pattern as _ContractTestBase in test_response_contracts.py — with
+    in-process rate limiters reset (unittest never sees conftest's autouse
+    fixture that does that under pytest).
+    """
+
+    def setUp(self):
+        if not HAS_FASTAPI:
+            self.skipTest("requires fastapi, soundfile, slowapi")
+        try:
+            import slowapi  # noqa: F401
+        except ImportError:
+            self.skipTest("requires fastapi, soundfile, slowapi")
+
+        from fastapi.testclient import TestClient
+
+        from tests.conftest import _init_app_state, _restore_app_state, _save_app_state
+
+        self._restore_app_state = _restore_app_state
+        self._original_state = _save_app_state(_app)
+        _init_app_state(_app, auth_token="test_token_fixture")  # nosec B105
+        with socket.socket() as sock:
+            sock.bind(("127.0.0.1", 0))
+            port = sock.getsockname()[1]
+        _app.state.test_port = port
+        _app.state.server_config = {
+            "default_clone_prompt": "test_voice.pt",
+            "server": {"host": "127.0.0.1", "port": port, "auto_shutdown_minutes": 0},
+            "models": {
+                "clone": {"load_at_startup": False},
+                "design": {"load_at_startup": False},
+                "custom": {"load_at_startup": False},
+            },
+            "security": {"max_text_length": 10000, "max_batch_size": 20},
+        }
+        self._reset_limiters()
+
+        token = "test_token_fixture"  # nosec B105
+
+        class _AuthenticatedTestClient:
+            """Adds the Authorization header on every request (fixture parity)."""
+
+            def __init__(self, client, token):
+                self._client = client
+                self._token = token
+
+            def get(self, path, **kwargs):
+                headers = kwargs.pop("headers", {})
+                headers["Authorization"] = f"Bearer {self._token}"
+                return self._client.get(path, headers=headers, **kwargs)
+
+            def post(self, path, **kwargs):
+                headers = kwargs.pop("headers", {})
+                headers["Authorization"] = f"Bearer {self._token}"
+                return self._client.post(path, headers=headers, **kwargs)
+
+        self.client = _AuthenticatedTestClient(TestClient(_app), token)
+
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        self.tmp_path = Path(tmp.name)
+
+    def tearDown(self):
+        self._restore_app_state(_app, self._original_state)
+
+    def _reset_limiters(self):
+        """Reset in-process rate limiters (house pattern; unittest ignores the
+        pytest autouse fixture in conftest.py)."""
+        for attr in ("limiter", "limiter_global", "limiter_hybrid", "limiter_ip", "limiter_token"):
+            limiter = getattr(_app.state, attr, None)
+            if limiter is not None and hasattr(limiter, "reset"):
+                limiter.reset()
 
 
 # ---------------------------------------------------------------------------
 # /load-model success + error paths
 # ---------------------------------------------------------------------------
 
-class TestLoadModelSuccess:
+class TestLoadModelSuccess(_FastApiTestCase):
 
-    def test_load_success(self, fastapi_client):
-        client = fastapi_client
+    def test_load_success(self):
+        client = self.client
         mock_model = MagicMock()
         info = {"name": "TestModel", "description": "Test"}
         with patch("qwen3_tts.core.engine.load_model", return_value=mock_model), \
@@ -53,8 +133,8 @@ class TestLoadModelSuccess:
         assert data["status"] == "loaded"
         assert _app.state.models["clone"] is mock_model
 
-    def test_load_import_error(self, fastapi_client):
-        client = fastapi_client
+    def test_load_import_error(self):
+        client = self.client
         info = {"name": "TestModel", "description": "Test"}
         with patch("qwen3_tts.core.engine.load_model", side_effect=ImportError("no mlx")), \
              patch("qwen3_tts.core.config.get_model_info", return_value=info):
@@ -63,8 +143,8 @@ class TestLoadModelSuccess:
         assert resp.status_code == 500
         assert _app.state.model_load_errors["design"] is not None
 
-    def test_load_runtime_error(self, fastapi_client):
-        client = fastapi_client
+    def test_load_runtime_error(self):
+        client = self.client
         info = {"name": "TestModel", "description": "Test"}
         with patch("qwen3_tts.core.engine.load_model", side_effect=RuntimeError("OOM")), \
              patch("qwen3_tts.core.config.get_model_info", return_value=info):
@@ -72,8 +152,8 @@ class TestLoadModelSuccess:
         assert resp.status_code == 500
         assert _app.state.model_load_errors["custom"] is not None
 
-    def test_load_unexpected_error(self, fastapi_client):
-        client = fastapi_client
+    def test_load_unexpected_error(self):
+        client = self.client
         info = {"name": "TestModel", "description": "Test"}
         with patch("qwen3_tts.core.engine.load_model", side_effect=TypeError("weird")), \
              patch("qwen3_tts.core.config.get_model_info", return_value=info):
@@ -85,10 +165,10 @@ class TestLoadModelSuccess:
 # /unload-model success path
 # ---------------------------------------------------------------------------
 
-class TestUnloadModelSuccess:
+class TestUnloadModelSuccess(_FastApiTestCase):
 
-    def test_unload_success(self, fastapi_client):
-        client = fastapi_client
+    def test_unload_success(self):
+        client = self.client
         _app.state.models["clone"] = MagicMock()
         _app.state.model_load_times["clone"] = 5.0
         with patch("qwen3_tts.core.engine.unload_model_cleanup"):
@@ -98,8 +178,9 @@ class TestUnloadModelSuccess:
         assert _app.state.models["clone"] is None
         assert "clone" not in _app.state.model_load_times
 
-    def test_unload_clears_gen_cache(self, fastapi_client, tmp_path):
-        client = fastapi_client
+    def test_unload_clears_gen_cache(self):
+        client = self.client
+        tmp_path = self.tmp_path
         _app.state.models["design"] = MagicMock()
         # Create a cache file
         cache_file = tmp_path / "cached.wav"
@@ -116,11 +197,11 @@ class TestUnloadModelSuccess:
 # /generate success path
 # ---------------------------------------------------------------------------
 
-class TestGenerateSuccess:
+class TestGenerateSuccess(_FastApiTestCase):
 
-    def test_generate_clone_success(self, fastapi_client):
+    def test_generate_clone_success(self):
         """Test the full generate success path with mocked inference."""
-        client = fastapi_client
+        client = self.client
         import numpy as np
         mock_model = MagicMock()
         _app.state.models["clone"] = mock_model
@@ -151,9 +232,10 @@ class TestGenerateSuccess:
         assert len(data["results"]) == 1
         assert "audio_base64" in data["results"][0]
 
-    def test_generate_cache_hit_pre_lock(self, fastapi_client, tmp_path):
+    def test_generate_cache_hit_pre_lock(self):
         """Test full cache hit (pre-lock) skips inference entirely."""
-        client = fastapi_client
+        client = self.client
+        tmp_path = self.tmp_path
         mock_model = MagicMock()
         _app.state.models["clone"] = mock_model
 
@@ -178,9 +260,9 @@ class TestGenerateSuccess:
         assert len(data["results"]) == 1
         assert "audio_base64" in data["results"][0]
 
-    def test_generate_design_mode(self, fastapi_client):
+    def test_generate_design_mode(self):
         """Test design mode generation (no prompt_file needed)."""
-        client = fastapi_client
+        client = self.client
         import numpy as np
         mock_model = MagicMock()
         _app.state.models["design"] = mock_model
@@ -205,9 +287,9 @@ class TestGenerateSuccess:
         data = resp.json()
         assert len(data["results"]) == 1
 
-    def test_generate_inference_error(self, fastapi_client):
+    def test_generate_inference_error(self):
         """Test error during inference returns 500."""
-        client = fastapi_client
+        client = self.client
         _app.state.models["clone"] = MagicMock()
 
         with patch(f"{_APP_GENERATION}._check_memory_available", return_value=(True, 4000)), \
@@ -221,9 +303,9 @@ class TestGenerateSuccess:
             })
         assert resp.status_code == 500
 
-    def test_generate_clone_no_prompt(self, fastapi_client):
+    def test_generate_clone_no_prompt(self):
         """Test clone mode without prompt_file raises 400."""
-        client = fastapi_client
+        client = self.client
         _app.state.models["clone"] = MagicMock()
 
         with patch(f"{_APP_GENERATION}._check_memory_available", return_value=(True, 4000)), \
@@ -239,10 +321,10 @@ class TestGenerateSuccess:
 # /shutdown endpoint
 # ---------------------------------------------------------------------------
 
-class TestShutdownEndpoint:
+class TestShutdownEndpoint(_FastApiTestCase):
 
-    def test_shutdown_returns_json(self, fastapi_client):
-        client = fastapi_client
+    def test_shutdown_returns_json(self):
+        client = self.client
         _app.state.shutdown_timer = None
         # Prevent the background task from actually sending SIGTERM
         with patch("os.kill"), \
@@ -254,8 +336,8 @@ class TestShutdownEndpoint:
         data = resp.json()
         assert data["status"] == "shutting_down"
 
-    def test_shutdown_cancels_timer(self, fastapi_client):
-        client = fastapi_client
+    def test_shutdown_cancels_timer(self):
+        client = self.client
         mock_timer = MagicMock()
         _app.state.shutdown_timer = mock_timer
         with patch("os.kill"), \
@@ -271,10 +353,11 @@ class TestShutdownEndpoint:
 # /rename-prompt success + rollback + default update
 # ---------------------------------------------------------------------------
 
-class TestRenamePromptSuccess:
+class TestRenamePromptSuccess(_FastApiTestCase):
 
-    def test_rename_success(self, fastapi_client, tmp_path):
-        client = fastapi_client
+    def test_rename_success(self):
+        client = self.client
+        tmp_path = self.tmp_path
         # Create prompt files
         wav_path = tmp_path / "old_voice.wav"
         txt_path = tmp_path / "old_voice.txt"
@@ -296,9 +379,10 @@ class TestRenamePromptSuccess:
         assert (tmp_path / "new_voice.txt").exists()
         assert not wav_path.exists()
 
-    def test_rename_updates_default(self, fastapi_client, tmp_path):
+    def test_rename_updates_default(self):
         """When the renamed prompt was the default, config is updated."""
-        client = fastapi_client
+        client = self.client
+        tmp_path = self.tmp_path
         (tmp_path / "my_voice.wav").write_text("audio")
         (tmp_path / "my_voice.txt").write_text("text")
         saved_config = {}
@@ -317,9 +401,10 @@ class TestRenamePromptSuccess:
         assert resp.status_code == 200
         assert saved_config.get("default_clone_prompt") == "renamed_voice"
 
-    def test_rename_rollback_on_failure(self, fastapi_client, tmp_path):
+    def test_rename_rollback_on_failure(self):
         """If rename fails mid-way, already-renamed files are rolled back."""
-        client = fastapi_client
+        client = self.client
+        tmp_path = self.tmp_path
         (tmp_path / "voice.wav").write_text("audio")
         (tmp_path / "voice.txt").write_text("text")
 
@@ -345,10 +430,11 @@ class TestRenamePromptSuccess:
 # /preview-prompt success
 # ---------------------------------------------------------------------------
 
-class TestPreviewPromptSuccess:
+class TestPreviewPromptSuccess(_FastApiTestCase):
 
-    def test_preview_returns_wav(self, fastapi_client, tmp_path):
-        client = fastapi_client
+    def test_preview_returns_wav(self):
+        client = self.client
+        tmp_path = self.tmp_path
         wav_path = tmp_path / "my_voice.wav"
         wav_path.write_bytes(b"RIFF" + b"\x00" * 40)
 
@@ -362,10 +448,11 @@ class TestPreviewPromptSuccess:
 # /prompt-details success
 # ---------------------------------------------------------------------------
 
-class TestPromptDetailsSuccess:
+class TestPromptDetailsSuccess(_FastApiTestCase):
 
-    def test_single_prompt_details(self, fastapi_client, tmp_path):
-        client = fastapi_client
+    def test_single_prompt_details(self):
+        client = self.client
+        tmp_path = self.tmp_path
         wav = tmp_path / "test_voice.wav"
         txt = tmp_path / "test_voice.txt"
         wav.write_bytes(b"RIFF" + b"\x00" * 40)
@@ -381,8 +468,9 @@ class TestPromptDetailsSuccess:
         assert ".txt" in data["formats"]
         assert data["is_default"] is True
 
-    def test_all_prompt_details(self, fastapi_client, tmp_path):
-        client = fastapi_client
+    def test_all_prompt_details(self):
+        client = self.client
+        tmp_path = self.tmp_path
         (tmp_path / "a.wav").write_text("audio")
         (tmp_path / "a.txt").write_text("text")
         (tmp_path / "b.pt").write_text("model")
@@ -394,8 +482,8 @@ class TestPromptDetailsSuccess:
         data = resp.json()
         assert len(data["prompts"]) == 2
 
-    def test_prompt_details_oserror(self, fastapi_client):
-        client = fastapi_client
+    def test_prompt_details_oserror(self):
+        client = self.client
         with patch(f"{_APP_PROMPTS}.VOICE_PROMPTS_DIR", "/nonexistent_dir_xyz"), \
              patch(f"{_APP_PROMPTS}.get_default_clone_prompt", return_value=""):
             resp = client.get("/prompt-details")
@@ -407,7 +495,8 @@ class TestPromptDetailsSuccess:
 # _background_load
 # ---------------------------------------------------------------------------
 
-class TestBackgroundLoad:
+@unittest.skipUnless(HAS_FASTAPI, "requires fastapi")
+class TestBackgroundLoad(unittest.TestCase):
 
     def test_loads_configured_models(self):
         from qwen3_tts.server.app import _background_load
@@ -490,7 +579,8 @@ class TestBackgroundLoad:
 # run_server basics
 # ---------------------------------------------------------------------------
 
-class TestRunServer:
+@unittest.skipUnless(HAS_FASTAPI, "requires fastapi")
+class TestRunServer(unittest.TestCase):
 
     def test_run_server_public_binds_all(self):
         from qwen3_tts.server.app import run_server
@@ -519,11 +609,12 @@ class TestRunServer:
 # /delete-prompt clears default config
 # ---------------------------------------------------------------------------
 
-class TestDeletePromptDefaultClear:
+class TestDeletePromptDefaultClear(_FastApiTestCase):
 
-    def test_delete_clears_default(self, fastapi_client, tmp_path):
+    def test_delete_clears_default(self):
         """When deleted prompt was the default, config.default_clone_prompt is cleared."""
-        client = fastapi_client
+        client = self.client
+        tmp_path = self.tmp_path
         (tmp_path / "def_voice.wav").write_text("audio")
         (tmp_path / "def_voice.txt").write_text("text")
         saved_config = {}
@@ -544,10 +635,10 @@ class TestDeletePromptDefaultClear:
 # /list-models (stats endpoint with model info)
 # ---------------------------------------------------------------------------
 
-class TestListModels:
+class TestListModels(_FastApiTestCase):
 
-    def test_list_models_with_loaded(self, fastapi_client):
-        client = fastapi_client
+    def test_list_models_with_loaded(self):
+        client = self.client
         _app.state.models["clone"] = MagicMock()
         _app.state.model_load_times["clone"] = 3.5
         _app.state.models_loaded.set()

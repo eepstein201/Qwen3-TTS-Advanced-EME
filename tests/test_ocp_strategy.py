@@ -1,8 +1,10 @@
 """Tests for OCP strategy pattern in inference module."""
+import unittest
+
 import numpy as np
 
 
-class TestInferenceStrategyRegistry:
+class TestInferenceStrategyRegistry(unittest.TestCase):
     """Tests for inference strategy registry."""
 
     def test_registry_exists(self):
@@ -26,7 +28,7 @@ class TestInferenceStrategyRegistry:
         assert callable(_INFERENCE_STRATEGIES["torch"])
 
 
-class TestRegisterBackend:
+class TestRegisterBackend(unittest.TestCase):
     """Tests for register_backend function."""
 
     def test_register_backend_exists(self):
@@ -62,7 +64,7 @@ class TestRegisterBackend:
         assert callable(_INFERENCE_STRATEGIES["test_callable"])
 
 
-class TestModeStrategyRegistry:
+class TestModeStrategyRegistry(unittest.TestCase):
     """Tests for mode strategy registry."""
 
     def test_mode_registry_exists(self):
@@ -97,7 +99,7 @@ class TestModeStrategyRegistry:
         assert isinstance(value, str) or callable(value)
 
 
-class TestStrategyDispatch:
+class TestStrategyDispatch(unittest.TestCase):
     """Tests for strategy-based dispatch."""
 
     def test_backend_dispatch_uses_registry(self):

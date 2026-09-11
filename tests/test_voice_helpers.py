@@ -1,7 +1,8 @@
 """Tests for voice_helpers module."""
+import unittest
 
 
-class TestGetProsodyChoices:
+class TestGetProsodyChoices(unittest.TestCase):
     """Tests for get_prosody_choices function."""
 
     def test_returns_list_with_none_first(self):
@@ -21,7 +22,7 @@ class TestGetProsodyChoices:
         assert len(choices) > 1
 
 
-class TestApplyProsodyPreset:
+class TestApplyProsodyPreset(unittest.TestCase):
     """Tests for apply_prosody_preset function."""
 
     def test_returns_empty_for_none_choice(self):
@@ -58,7 +59,7 @@ class TestApplyProsodyPreset:
         assert "calm" in result.lower()
 
 
-class TestComposeVoiceDescription:
+class TestComposeVoiceDescription(unittest.TestCase):
     """Tests for compose_voice_description function."""
 
     def test_returns_empty_for_all_none(self):
@@ -105,7 +106,7 @@ class TestComposeVoiceDescription:
         assert result.endswith(".")
 
 
-class TestStripExtension:
+class TestStripExtension(unittest.TestCase):
     """Tests for _strip_extension function (re-exported from validation)."""
 
     def test_strips_pt_extension(self):
@@ -139,7 +140,7 @@ class TestStripExtension:
         assert strip_extension("my.voice.prompt.pt") == "my.voice.prompt"
 
 
-class TestValidatePromptName:
+class TestValidatePromptName(unittest.TestCase):
     """Tests for validate_prompt_name function."""
 
     def test_accepts_valid_name(self):

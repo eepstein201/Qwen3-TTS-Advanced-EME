@@ -897,7 +897,7 @@ class TestXVectorOnlyModeCreation(unittest.TestCase):
             )
 
 
-class TestCreateVoiceMainArgv:
+class TestCreateVoiceMainArgv(unittest.TestCase):
     """R-43: main() must accept optional argv param (pytest-style)."""
 
     def test_main_accepts_argv_param(self):
@@ -909,21 +909,21 @@ class TestCreateVoiceMainArgv:
         sig = inspect.signature(main)
         assert "argv" in sig.parameters, "main() must accept argv parameter"
 
-    def test_main_returns_nonzero_on_missing_audio(self, tmp_path):
+    def test_main_returns_nonzero_on_missing_audio(self):
         """main(argv=...) returns non-zero when audio file does not exist."""
         from qwen3_tts.tools.create_voice import main
 
-        fake_path = str(tmp_path / "nonexistent.wav")
+        fake_path = os.path.join(tempfile.gettempdir(), "nonexistent.wav")
         result = main(argv=[fake_path, "-n", "test", "--no-test", "--no-transcript"])
         assert result != 0
 
-    def test_main_uses_argv_not_sys_argv(self, monkeypatch):
+    def test_main_uses_argv_not_sys_argv(self):
         """main() parses argv param and ignores sys.argv."""
         from qwen3_tts.tools.create_voice import main
 
         # Poison sys.argv — if main reads it, argparse will fail on unknown flag
-        monkeypatch.setattr("sys.argv", ["create_voice", "--bogus-flag-99"])
-        result = main(argv=["nonexistent.wav", "-n", "test", "--no-test", "--no-transcript"])
+        with mock.patch("sys.argv", ["create_voice", "--bogus-flag-99"]):
+            result = main(argv=["nonexistent.wav", "-n", "test", "--no-test", "--no-transcript"])
         # Fails on missing file, NOT on argparse error from sys.argv
         assert result != 0
 
@@ -934,7 +934,7 @@ class TestCreateVoiceMainArgv:
         result = main(argv=["nonexistent_file.wav", "-n", "x", "--no-transcript"])
         assert isinstance(result, int)
 
-    def test_main_passes_x_vector_only_mode_when_no_transcript(self, tmp_path):
+    def test_main_passes_x_vector_only_mode_when_no_transcript(self):
         """--no-transcript must set x_vector_only_mode=True on the creator.
 
         Previously --no-transcript printed "Using x-vector only mode" but never
@@ -943,16 +943,17 @@ class TestCreateVoiceMainArgv:
         """
         from qwen3_tts.tools import create_voice
 
-        audio = tmp_path / "ref.wav"
-        import numpy as np
-        import soundfile as sf
-        sf.write(str(audio), np.zeros(16000, dtype=np.float32), 16000)
+        with tempfile.TemporaryDirectory() as tmpdir:
+            audio = os.path.join(tmpdir, "ref.wav")
+            import numpy as np
+            import soundfile as sf
+            sf.write(audio, np.zeros(16000, dtype=np.float32), 16000)
 
-        with mock.patch.object(create_voice, "create_and_save_voice_prompt") as mock_save:
-            mock_save.return_value = str(audio)
-            rc = create_voice.main(
-                argv=[str(audio), "-n", "xv", "--no-test", "--no-transcript"]
-            )
+            with mock.patch.object(create_voice, "create_and_save_voice_prompt") as mock_save:
+                mock_save.return_value = audio
+                rc = create_voice.main(
+                    argv=[audio, "-n", "xv", "--no-test", "--no-transcript"]
+                )
 
         assert rc == 0
         mock_save.assert_called_once()

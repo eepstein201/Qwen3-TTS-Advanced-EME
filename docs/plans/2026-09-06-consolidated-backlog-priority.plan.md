@@ -327,8 +327,9 @@ incomplete.
 - **Verify:** `conda run -n qwen3-tts-mlx python -m pytest tests/test_voice_server.py tests/test_e2e_queueing.py -v`; register new tests in `tests/run_batches.py` if they land in a new module; `ruff check qwen3_tts tests`; `mypy qwen3_tts/{core,server,interface}`.
 - **Exit criteria:** both new tests prove their respective races fixed (fail pre-fix, pass post-fix); full non-E2E suite green; issue #237 closed in the PR body, explicitly noting both fixed windows.
 
-### Step 1B — Fix #238 and Phase-3 3e/M8: `/update-model-config` resource-cleanup gap
+### Step 1B — Fix #238 and Phase-3 3e/M8: `/update-model-config` resource-cleanup gap (EXECUTED 2026-09-11)
 
+- **Status: DONE (PR #287, squash `f8e3d3ee`, 2026-09-11; issue #238 closed).** `/update-model-config` now runs `unload_model_cleanup()` off-loop via `asyncio.to_thread` and drops stale `model_load_times`, matching `/unload-model`'s cleanup.
 - **Model tier:** default · **Branch:** `fix/issue238-update-model-config-cleanup` · **Parallel with:** 1C, 1D — **NOT 1A**: this step's fix sits in `app.py:747` (`handle_update_model_config`'s call site), which Step 1A also edits; branch AFTER 1A merges rather than in parallel with it. *(Correction from the 1B/1C execution survey, 2026-09-09; user-approved.)*
 - **Context:** `handle_update_model_config` (`qwen3_tts/server/app_models.py:280`) nulls all three
   model slots directly (`state.models[name] = None`, `:329-330`) but never calls
@@ -486,8 +487,9 @@ incomplete.
 - **Verify:** `conda run -n qwen3-tts-mlx python -m pytest tests/test_icl_echo_trim.py -v`; live clone smoke on a **freshly started server with ASR unloaded** (the exact repro condition) — `curl` `/generate` with a clone prompt and confirm the reference tail is absent (or confirm the doc now accurately says it can be present, if option (a) is chosen).
 - **Exit criteria:** decision recorded; either behavior fixed with a passing regression test, or CLAUDE.md corrected to stop overpromising — issue #193 closed either way, with the disposition stated in the closing comment.
 
-### Step 1D — Lane I: de-hollow `tests/test_server_peaks.py`, and add a static guard against the whole class of bug
+### Step 1D — Lane I: de-hollow `tests/test_server_peaks.py`, and add a static guard against the whole class of bug (EXECUTED 2026-09-11)
 
+- **Status: DONE (PR #289, squash `c54d015f`, 2026-09-11).** `tests/test_server_peaks.py` converted to `unittest.TestCase` (0→5 tests collected) plus the static AST guard `tests/test_batched_testcase_hygiene.py` with the `KNOWN_HOLLOW` ratchet (14 entries).
 - **Model tier:** default · **Branch:** `fix/test-server-peaks-unittest` · **Parallel with:** 1A, 1B, 1C
 - **Context:** confirmed 2026-09-06 — `tests/test_server_peaks.py`'s classes
   (`TestGenerateResultPeaksField`, `TestCalculateWaveformPeaksExistence`) are plain pytest-style
@@ -531,8 +533,9 @@ incomplete.
 - **Verify:** `conda run -n qwen3-tts-mlx python -m unittest tests.test_server_peaks -v` (confirm real test count) and `pytest tests/test_server_peaks.py -v`; confirm batch 3 (`run_batches.py:114,167` — the module's actual batch assignment, not its docstring, which doesn't mention batching) now runs it for real; run the new static guard against the current `BATCHES` list and confirm it flags the *other* hollow modules discovered this pass (expected — that's Step 1E's job, not this one's, but the guard should already be catching them).
 - **Exit criteria:** module runs identically (same pass/fail) under both runners; sabotage proof documented in the PR body; static guard merged and correctly flagging the remaining hollow modules (which Step 1E will then fix).
 
-### Step 1E — Sweep the remaining hollow batched test modules (inserted after adversarial review)
+### Step 1E — Sweep the remaining hollow batched test modules (inserted after adversarial review) (EXECUTED 2026-09-11)
 
+- **Status: DONE (branch `fix/hollow-batched-test-modules`, this PR, 2026-09-11).** All 14 `KNOWN_HOLLOW` ratchet entries resolved; the ratchet is now empty and the guard's exit criterion ("reports zero flagged modules") holds. Every module was sabotage-proved before conversion (mutate an asserted-on symbol → `python -m unittest` said `Ran 0 tests ... OK` or `TypeError ... not a test` while pytest caught it) and re-proved after (same sabotage → unittest FAIL); pytest/unittest pass sets matched post-conversion for every module. Three modules (`test_response_contracts`, `test_ui_low_rate_prompt_warning`, `test_ui_port_flag`) were **false positives**, not hollow — their shared bases already subclass `TestCase`, so the fix was in the GUARD (transitive module-local ancestry resolution, pinned by a synthetic regression test), not conversion. Notable conversions: `test_fastapi_app_ext` mirrors the conftest `fastapi_client` fixture in a `_FastApiTestCase` base (state snapshot/restore, auth-wrapping TestClient, limiter reset, per-test `tmp_path`); `test_server_vllm_integration` → `IsolatedAsyncioTestCase` (marks dropped — both runners drive it natively); `test_ai_regression` made unittest-safe (self-skipping via `unittest.SkipTest` helpers, URLError → clean offline skip, finally-restore guarded by a health probe) and verified live against the running :5123 server. **Carry:** the "Also queued" finding-6 seam normalization (`mock.patch` target-site sweep for `_validate_generation_request`) did NOT ride this PR — still open; the next test-infra PR owns it (1E's exit criteria are about hollowness and are fully met without it).
 - **Model tier:** default · **Branch:** `fix/hollow-batched-test-modules` · **Depends on:** Step 1D's static guard landing first (this step's exit criterion is that the guard goes quiet)
 - **Context:** the guard added in Step 1D will flag every batched module with a non-`TestCase`
   top-level test class. Known-hollow as of 2026-09-06: `tests/test_validation.py` (batch 5, 7
@@ -1483,7 +1486,8 @@ analysis rather than duplicated as a new step.)*
   `~/.claude/plans/goal-reduce-storage-usage-ancient-adleman.md` is a different track sharing the
   number.)*
 - **Standing paperwork** (process, not a step): each merged step's status-mark rides the NEXT PR's
-  docs commit per the 0B–0D convention — the 0D status-mark is the one currently outstanding.
+  docs commit per the 0B–0D convention — current through 1E (the 1B/1C-ride and 1D marks landed
+  with 1E's docs commit; no marks outstanding).
 
 ### Standing watch — not an execution step
 
@@ -1498,8 +1502,8 @@ analysis rather than duplicated as a new step.)*
 (1) · Wave 3: 3A–3E (5) · Wave 4: 4A–4D (4) · Wave 4B: 4B.1–4B.4 (4) · Wave 5: 5 (1) · Wave 6:
 6A–6R (18) · Wave 7: 7A–7C (3) — **plus 3 independent tracks** (feature, dependency, and the decision-gated branch register — none gated by the waves) **+ 1 passive watch** (no action). Step 6·0 (dead-code cleanup) was already
 executed directly on 2026-09-06 and is recorded in Wave 6; it is not counted among the pending
-steps. **Executed so far: 0A (PR #263), 0B (PR #269), 0C (PR #270), 0D (PR #271), 0E (PR #276), 0F (PR #281), 0G (PR #282), 1A (PR #283).** **6G is
-folded into Wave 7 Step 7C** (not independently pending). ***Open: 38.*** *(Wave 7 incorporated
+steps. **Executed so far: 0A (PR #263), 0B (PR #269), 0C (PR #270), 0D (PR #271), 0E (PR #276), 0F (PR #281), 0G (PR #282), 1A (PR #283), 1B (PR #287), 1C (PR #284), 1D (PR #289), 1E (this PR).** **6G is
+folded into Wave 7 Step 7C** (not independently pending). ***Open: 34.*** *(Wave 7 incorporated
 2026-09-08 from the Interface Quality Improvement Plan — a three-surface audit of Web UI, CLI,
 and HTTP API, user-scoped; tracked at `docs/plans/2026-09-07-interface-quality.plan.md`, which
 is the spec for 7A–7C.)* Ordered by: critical correctness/security findings from the 2026-09-06 cross-cutting

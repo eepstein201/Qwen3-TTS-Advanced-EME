@@ -33,31 +33,26 @@ from pathlib import Path
 _TESTS_DIR = Path(__file__).parent
 _RUN_BATCHES = _TESTS_DIR / "run_batches.py"
 
-# A class is collected by unittest iff some base name ends in "TestCase"
-# (unittest.TestCase, IsolatedAsyncioTestCase, and project-local subclasses all
-# qualify). Bases are compared by their final dotted segment so both
-# ``unittest.TestCase`` and a bare imported ``TestCase`` match.
+# A class is collected by unittest iff some ancestor base name ends in
+# "TestCase" (unittest.TestCase, IsolatedAsyncioTestCase, and project-local
+# subclasses all qualify) -- either directly or through a chain of
+# module-local base classes: unittest collects by real inheritance, not by
+# the textual base name, so ``TestX(_ContractTestBase)`` IS collected when
+# ``_ContractTestBase`` subclasses ``unittest.TestCase`` (proven 2026-09-11:
+# test_response_contracts / test_ui_low_rate_prompt_warning / test_ui_port_flag
+# ran identical test counts under both runners while the name-only check
+# flagged them). Bases are compared by their final dotted segment so both
+# ``unittest.TestCase`` and a bare imported ``TestCase`` match. A base that is
+# neither TestCase-suffixed nor defined in the module has unknown lineage and
+# does NOT count -- fail closed, the same posture as before.
 _TESTCASE_SUFFIX = "TestCase"
 
 # Modules registered in BATCHES whose top-level test classes are still
-# pytest-style. Each is hollow under the batch runner TODAY -- Step 1E converts
-# them and deletes the entry. Counts are from the 2026-09-11 scan.
-KNOWN_HOLLOW = {
-    "tests.test_ai_regression": "Step 1E: 3 classes",
-    "tests.test_audio_pipeline": "Step 1E: 3 classes (batch 1)",
-    "tests.test_create_voice_functions": "Step 1E: 1 class",
-    "tests.test_error_handling": "Step 1E: 4 classes",
-    "tests.test_fastapi_app_ext": "Step 1E: 11 classes",
-    "tests.test_ocp_strategy": "Step 1E: 4 classes",
-    "tests.test_response_contracts": "Step 1E: 4 classes",
-    "tests.test_server_vllm_integration": "Step 1E: 2 classes",
-    "tests.test_solid_analyzer": "Step 1E: 10 classes",
-    "tests.test_ui_low_rate_prompt_warning": "Step 1E: 2 classes",
-    "tests.test_ui_port_flag": "Step 1E: 2 classes",
-    "tests.test_validation": "Step 1E: 7 classes (batch 5)",
-    "tests.test_voice_helpers": "Step 1E: 5 classes",
-    "tests.test_voice_server": "Step 1E: 1 class",
-}
+# pytest-style. EMPTY since the Step 1E sweep completed (2026-09-11): every
+# batched module now collects under `python -m unittest`. Kept as a ratchet
+# so a new pytest-style class in a batched module fails here instead of
+# silently running zero tests in the batch gate.
+KNOWN_HOLLOW = {}
 
 
 def _registered_modules() -> set[str]:
@@ -70,23 +65,43 @@ def _module_path(dotted: str) -> Path:
     return _TESTS_DIR.parent / (dotted.replace(".", "/") + ".py")
 
 
-def _is_testcase(node: ast.ClassDef) -> bool:
-    """True if unittest will collect this class."""
-    return any(
-        ast.unparse(base).split(".")[-1].endswith(_TESTCASE_SUFFIX)
-        for base in node.bases
-    )
+def _class_bases(tree: ast.Module) -> dict[str, list[str]]:
+    """Map every top-level class name to its unparsed base expressions."""
+    return {
+        node.name: [ast.unparse(base) for base in node.bases]
+        for node in tree.body
+        if isinstance(node, ast.ClassDef)
+    }
+
+
+def _resolves_to_testcase(
+    name: str,
+    bases_by_class: dict[str, list[str]],
+    _seen: frozenset[str] = frozenset(),
+) -> bool:
+    """True if unittest will collect this class (transitively, in-module)."""
+    if name in _seen:
+        return False  # defensive: an inheritance cycle is not a TestCase chain
+    seen = _seen | {name}
+    for base in bases_by_class.get(name, []):
+        final = base.split(".")[-1]
+        if final.endswith(_TESTCASE_SUFFIX):
+            return True
+        if final in bases_by_class and _resolves_to_testcase(final, bases_by_class, seen):
+            return True
+    return False
 
 
 def _uncollected_classes(path: Path) -> list[str]:
     """Return top-level ``Test*`` classes unittest would silently skip."""
     tree = ast.parse(path.read_text(), filename=str(path))
+    bases_by_class = _class_bases(tree)
     return [
         node.name
         for node in tree.body
         if isinstance(node, ast.ClassDef)
         and node.name.startswith("Test")
-        and not _is_testcase(node)
+        and not _resolves_to_testcase(node.name, bases_by_class)
     ]
 
 
@@ -135,6 +150,29 @@ class TestBatchedModulesUseTestCase(unittest.TestCase):
             "KNOWN_HOLLOW entries that are no longer hollow -- delete them "
             f"from the allowlist (Step 1E ratchet): {stale}",
         )
+
+    def test_transitive_module_local_bases_resolve(self):
+        """A Test* class inheriting a module-local TestCase subclass is
+        collected by unittest; the guard must not flag it (2026-09-11 false
+        positives: test_response_contracts / test_ui_low_rate_prompt_warning /
+        test_ui_port_flag, whose helper bases already extend TestCase).
+        """
+        bases = {
+            "_ContractTestBase": ["unittest.TestCase"],
+            "TestPublicStatusContracts": ["_ContractTestBase"],
+            "TestPlainPytest": [],
+            "TestViaDirectMixin": ["_Mixin", "unittest.TestCase"],
+            "_Mixin": ["object"],
+            "TestUnknownImport": ["SomeImportedMixin"],
+        }
+        self.assertTrue(_resolves_to_testcase("TestPublicStatusContracts", bases))
+        self.assertTrue(_resolves_to_testcase("TestViaDirectMixin", bases))
+        self.assertFalse(_resolves_to_testcase("TestPlainPytest", bases))
+        # Imported base with unknown lineage fails closed
+        self.assertFalse(_resolves_to_testcase("TestUnknownImport", bases))
+        # An inheritance cycle is not a TestCase chain
+        cyclic = {"TestCycleA": ["TestCycleB"], "TestCycleB": ["TestCycleA"]}
+        self.assertFalse(_resolves_to_testcase("TestCycleA", cyclic))
 
     def test_known_hollow_modules_are_actually_batched(self):
         """An allowlist entry that isn't batched is dead weight."""

@@ -1,10 +1,11 @@
 """Tests for improved error handling in client.py."""
+import unittest
 from unittest import mock
 
 import pytest
 
 
-class TestClientErrorHandling:
+class TestClientErrorHandling(unittest.TestCase):
     """Tests for TTSClient error handling."""
 
     def test_load_model_raises_model_error_on_failure(self):
@@ -59,7 +60,7 @@ class TestClientErrorHandling:
                     client.generate("test text", mode="clone", prompt="default.pt")
 
 
-class TestVoicePromptError:
+class TestVoicePromptError(unittest.TestCase):
     """Tests for VoicePromptError class."""
 
     def test_voice_prompt_error_exists(self):
@@ -83,7 +84,7 @@ class TestVoicePromptError:
         assert error.recovery in ("config", "retry", "restart")
 
 
-class TestModelError:
+class TestModelError(unittest.TestCase):
     """Tests for ModelError class."""
 
     def test_model_error_exists(self):
@@ -100,7 +101,7 @@ class TestModelError:
         assert error.model_type == "clone"
 
 
-class TestExceptionChaining:
+class TestExceptionChaining(unittest.TestCase):
     """Tests for exception handling in client."""
 
     def test_client_raises_connection_error_directly(self):
