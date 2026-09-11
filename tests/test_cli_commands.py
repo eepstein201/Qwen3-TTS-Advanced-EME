@@ -88,6 +88,48 @@ def test_tts_group_server_mode_not_for_non_generation():
     assert result.exit_code == 0
 
 
+# ---- lifecycle-verb aliases (tts start/stop/restart/status/log) ----
+
+
+@pytest.mark.unit
+def test_lifecycle_verbs_registered_as_server_aliases():
+    """`tts start/stop/restart/status/log` resolve to the server group's commands.
+
+    TTSGroup otherwise prepends `generate` to any unknown first token, so a
+    bare `tts start` synthesized the word "start" instead of starting the
+    server. Registering the verbs as aliases of `tts server <verb>` makes the
+    dispatch table match user intent; `tts generate <text>` (alias `tts say`)
+    remains the explicit synthesis form.
+    """
+    from qwen3_tts.cli import cli
+    from qwen3_tts.cli_server import server
+
+    for verb in ("start", "stop", "restart", "status", "log"):
+        assert verb in cli.commands, f"missing bare alias: tts {verb}"
+        assert cli.commands[verb] is server.commands[verb]
+
+
+@pytest.mark.unit
+def test_lifecycle_verb_alias_routes_without_generate_prepend():
+    """`tts start --help` resolves to the server start command, not generate."""
+    from qwen3_tts.cli import cli
+
+    runner = CliRunner()
+    result = runner.invoke(cli, ["start", "--help"])
+    assert result.exit_code == 0
+    # Server start's own flag — generate's option set has no --public.
+    assert "--public" in result.output
+
+
+@pytest.mark.unit
+def test_say_registered_as_alias_of_generate():
+    """`tts say` is the explicit synthesis escape hatch (= `tts generate`)."""
+    from qwen3_tts.cli import cli
+
+    assert "say" in cli.commands
+    assert cli.commands["say"] is cli.commands["generate"]
+
+
 # ---- _call_generate flag mapping ----
 
 @pytest.mark.unit

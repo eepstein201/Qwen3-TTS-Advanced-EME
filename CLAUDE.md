@@ -33,8 +33,8 @@ Project skills live in `.claude/skills/<name>/SKILL.md` (checked in, `name`+`des
 
 | Command | Purpose |
 |---------|---------|
-| `tts [TEXT]` | Generate audio (default command) |
-| `tts server {start,stop,restart,status,log}` | Server lifecycle — health, models, memory, tail log (statistics = top-level `tts stats`) |
+| `tts [TEXT]` · `tts say [TEXT]` | Generate audio (default command; `say` is the explicit form — bare lifecycle verbs like `start` route to the server aliases below) |
+| `tts server {start,stop,restart,status,log}` — also bare `tts start/stop/restart/status/log` | Server lifecycle — health, models, memory, tail log (statistics = top-level `tts stats`) |
 | `tts voice {list, create [AUDIO], rebuild [NAME], delete NAME, rename OLD NEW, preview NAME, info NAME}` | Voice-prompt CRUD; `rebuild` is torch-only (forces `TTS_BACKEND=torch`; needs `qwen_tts`, so run via `conda run -n qwen3-tts` on MLX setups); `info` = prompt metadata (via server) |
 | `tts list {speakers, presets, aliases, prosody, models, backends}` | Premium speakers · presets · aliases · prosody · models + load status · backends |
 | `tts config` · `tts config {show, edit, path}` | Config wizard · show settings · edit (backend, model-size, …) · print config.json path |

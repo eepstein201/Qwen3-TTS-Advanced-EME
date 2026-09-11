@@ -39,6 +39,12 @@ def voice_prompt_exists(prompt_file):
         base = prompt_file
         if base.endswith(".pt"):
             base = base[:-3]
+        elif base.endswith(".wav"):
+            # get_default_clone_prompt() returns the stored filename
+            # ("LT_4.wav"); load_voice_prompt_mlx() strips .wav the same way,
+            # so the existence check must agree or the loader is never
+            # reached (local default-prompt generation exited 1 instead).
+            base = base[:-4]
         wav = safe_path_join(VOICE_PROMPTS_DIR, f"{base}.wav")
         txt = safe_path_join(VOICE_PROMPTS_DIR, f"{base}.txt")
         return os.path.exists(wav) and os.path.exists(txt)

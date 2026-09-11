@@ -295,6 +295,15 @@ cli.add_command(config)
 cli.add_command(uninstall)
 cli.add_command(cache)
 
+# Lifecycle-verb aliases: a bare `tts start` reads as server lifecycle, not
+# synthesis text — TTSGroup would otherwise route the unknown token to
+# `generate`, synthesizing the word "start". The same command objects as the
+# server group, registered under the bare verb names. Explicit synthesis
+# escape hatch: `tts generate <text>`, aliased here as `tts say`.
+for _verb in ("start", "stop", "restart", "status", "log"):
+    cli.add_command(server.commands[_verb], _verb)
+cli.add_command(generate, "say")
+
 
 # ---------------------------------------------------------------------------
 # Standalone commands from split modules (need Click decorators here)

@@ -69,6 +69,28 @@ class TestVoicePromptExists(unittest.TestCase):
         mock_exists.return_value = True
         self.assertTrue(voice_prompt_exists("my_voice.pt"))
 
+    @mock.patch("qwen3_tts.interface.generate_helpers.get_backend", return_value="mlx")
+    @mock.patch("qwen3_tts.interface.generate_helpers.os.path.exists")
+    def test_mlx_backend_strips_wav_suffix(self, mock_exists, _mock_backend):
+        """A prompt named WITH its .wav extension resolves to the same trio.
+
+        get_default_clone_prompt() returns the stored filename ("LT_4.wav")
+        and load_voice_prompt_mlx() strips .wav — the existence check must
+        strip it too, or a local default-prompt generation exits(1) probing
+        voice_prompts/LT_4.wav.wav (bare `tts start` repro, 2026-09-11).
+        """
+        from qwen3_tts.interface.generate_helpers import voice_prompt_exists
+        probed = []
+        mock_exists.side_effect = lambda p: (probed.append(p), True)[1]
+        self.assertTrue(voice_prompt_exists("LT_4.wav"))
+        wav_probes = [p for p in probed if p.endswith(".wav")]
+        self.assertTrue(wav_probes)
+        self.assertFalse(
+            wav_probes[0].endswith(".wav.wav"),
+            f"probed a double-extended path: {wav_probes[0]}",
+        )
+        self.assertTrue(wav_probes[0].endswith("/LT_4.wav"))
+
     @mock.patch("qwen3_tts.interface.generate_helpers.get_backend", return_value="torch")
     @mock.patch("qwen3_tts.interface.generate_helpers.os.path.exists", return_value=True)
     def test_torch_backend_checks_pt_file(self, mock_exists, _mock_backend):
