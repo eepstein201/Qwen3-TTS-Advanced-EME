@@ -1341,7 +1341,10 @@ analysis rather than duplicated as a new step.)*
       case, ASR is not in `load_at_startup` defaults) a `/ws` clone stream ships untrimmed; same
       symptom as #193 on that one surface. Fix = wire the same unlocked ensure-load into the WS
       generation path (pre-generation, same three conditions: `trim_icl_echo` + `mode=clone` +
-      resolvable transcript), reusing the helper rather than duplicating it. *(Companion to item 17
+      resolvable transcript), reusing the helper rather than duplicating it. **Also in scope: the
+      CLI-local fallback** (`interface/generate_server.py` local generation routes through
+      `run_inference` without the server layer, so it has the same fresh-server untrimmed symptom
+      — surfaced by the 1C final whole-branch review, 2026-09-10). *(Companion to item 17
       — the /ws gap family; registered by Step 1C Task 3, 2026-09-10.)*
 - **Verify:** per-item targeted tests where applicable; `ruff`; `mypy`; full non-E2E suite; the WS
   items re-run `tests/test_websocket_slot_release.py` + `tests/test_websocket_rate_limit.py` green
