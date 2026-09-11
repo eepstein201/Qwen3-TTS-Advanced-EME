@@ -31,7 +31,22 @@ def config(ctx):
         from qwen3_tts.core.config import USER_FILES_DIR
 
         wizard = os.path.join(USER_FILES_DIR, "install.sh")
-        subprocess.run([wizard, "--reconfigure"], timeout=300)  # nosec B603
+        if not os.path.isfile(wizard):
+            click.echo(
+                f"Configuration wizard not found: {wizard}\n"
+                "Re-run the installer, or edit settings directly: tts config edit",
+                err=True,
+            )
+            sys.exit(1)
+        try:
+            subprocess.run([wizard, "--reconfigure"], timeout=300)  # nosec B603
+        except subprocess.TimeoutExpired:
+            click.echo(
+                "Configuration wizard timed out after 300 seconds — "
+                "no changes were made.",
+                err=True,
+            )
+            sys.exit(1)
 
 
 @config.command()

@@ -414,7 +414,9 @@ class TestConfigWizard(unittest.TestCase):
                 result = runner.invoke(cli, ["config"])
         self.assertNotEqual(result.exit_code, 0)
         self.assertIn("Configuration wizard not found", result.output)
-        self.assertIsNone(result.exception)
+        self.assertTrue(
+            result.exception is None or isinstance(result.exception, SystemExit)
+        )
 
     def test_wizard_timeout_clear_message(self):
         import os
@@ -436,7 +438,9 @@ class TestConfigWizard(unittest.TestCase):
                 result = runner.invoke(cli, ["config"])
         self.assertNotEqual(result.exit_code, 0)
         self.assertIn("timed out", result.output)
-        self.assertIsNone(result.exception)
+        self.assertTrue(
+            result.exception is None or isinstance(result.exception, SystemExit)
+        )
 
 
 if __name__ == "__main__":
