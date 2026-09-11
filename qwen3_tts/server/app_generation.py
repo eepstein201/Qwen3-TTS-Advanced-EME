@@ -959,194 +959,210 @@ async def handle_generate_stream(request, state, req, security, config_provider)
         async with state.pending_lock:
             state.pending_requests.append(queue_entry)
 
-        # Acquire inference_lock to serialize GPU access
-        async with inference_lock:
-            # Remove from pending queue once we have the lock
+        # The lock is acquired inside a try/finally so the WAIT is
+        # guarded too: a stream closed while still queued (client
+        # disconnect / task cancellation before the lock is granted)
+        # never reaches the in-lock removal below and would otherwise
+        # leak its pending entry forever — /queue-status queue_length
+        # and X-Queue-Position would count a phantom request long
+        # after the stream died. The finally's removal is idempotent
+        # (the in-lock removal already ran on the normal path).
+        try:
+            # Acquire inference_lock to serialize GPU access
+            async with inference_lock:
+                # Remove from pending queue once we have the lock
+                async with state.pending_lock:
+                    if queue_entry in state.pending_requests:
+                        state.pending_requests.remove(queue_entry)
+
+                # T5: re-read the slot under the lock — the capture->acquire
+                # window (prompt load, response startup) applies to streaming
+                # exactly as to the batch path. Response headers are already
+                # committed by the time this generator iterates, so the
+                # retryable 503 goes out as the in-band terminal error frame
+                # (the WS2 sentinel): raising here would truncate the
+                # connection with no terminal frame, indistinguishable from a
+                # network drop.
+                try:
+                    # Rebind, don't just check: this assignment makes `model` a
+                    # local of audio_stream_generator, and inference_thread
+                    # (nested below) resolves it from THIS scope's cell rather
+                    # than handle_generate_stream's — so thread.start() below
+                    # sees the re-read slot, never the pre-lock capture.
+                    model = _require_model_under_lock(state, mode)
+                except HTTPException as e:
+                    # The message is sanitized at the sink: a non-dict detail can
+                    # carry an absolute filesystem path, which must not reach the
+                    # client (CWE-209). A CLASSIFIED 503 keeps its classification:
+                    # _error_response's dict {"error", "detail", "recovery"} rides
+                    # the frame's code field, so a retryable in-lock unload is not
+                    # reported as the default "inference_failed". recovery is
+                    # deliberately not carried — the frame payload contract is
+                    # {"error", "code"} (core/stream_protocol.py, one wire format
+                    # shared with the CLI and TTSClient), and for this error the
+                    # message text already says "retry".
+                    from qwen3_tts.server.app_lifespan import _sanitize_error
+
+                    _detail = e.detail
+                    _code = STREAM_ERROR_CODE_INFERENCE_FAILED
+                    if isinstance(_detail, dict):
+                        _code = str(
+                            _detail.get("error")
+                            or _detail.get("code")
+                            or STREAM_ERROR_CODE_INFERENCE_FAILED
+                        )
+                    _message = (
+                        _detail
+                        if isinstance(_detail, str)
+                        else str(
+                            _detail.get("detail", _detail)
+                            if isinstance(_detail, dict)
+                            else _detail
+                        )
+                    )
+                    yield encode_stream_error_frame(
+                        _sanitize_error(_message), code=_code
+                    )
+                    return
+
+                gen_id = str(uuid.uuid4())[:8]
+                # Same begin the batch path uses: one atomic update stamping
+                # active + the generation id and applying begin()'s target-aware
+                # cancel handling (issue #237 / Step 1A) — only a cancel targeted
+                # elsewhere and genuinely stale is erased. Chunk counters are
+                # left to _chunk_progress.
+                guard.begin(gen_id, mode=mode, text_length=len(text))
+
+                def _chunk_progress(chunk_idx, chunk_total):
+                    """Record chunk progress via the guard.
+
+                    run_inference_streaming invokes this callback on the daemon
+                    inference thread — off the event loop — so the write must go
+                    through the guard's threading.Lock: an asyncio lock would
+                    exclude nothing there (same reasoning as the batch path's
+                    progress callback).
+                    """
+                    guard.update_progress(chunk_idx, chunk_total)
+
+                def inference_thread():
+                    """Run inference in a thread and push chunks to queue."""
+                    try:
+                        from qwen3_tts.core.engine import run_inference_streaming
+
+                        for wav_chunk, sr in run_inference_streaming(
+                            model=model,
+                            text=text,
+                            mode=mode,
+                            gen_params=seeded_params,
+                            language=language,
+                            voice_prompt=voice_prompt,
+                            voice_description=voice_description,
+                            speaker=speaker,
+                            instruct=instruct,
+                            x_vector_only_mode=x_vector_only_mode,
+                            max_chunk_chars=req.max_chunk_chars,
+                            config_provider=config_provider,
+                            progress_callback=_chunk_progress,
+                        ):
+                            if _should_stop_streaming(stop_event, guard, gen_id):
+                                logger.info("Generation cancelled by user")
+                                break
+
+                            # Length-prefixed format: [sample_rate:4][length:4][audio:length]
+                            audio_bytes = wav_chunk.astype("<f4").tobytes()
+                            header = struct.pack("<II", sr, len(audio_bytes))
+
+                            # Use call_soon_threadsafe to safely put from thread to async queue
+                            loop.call_soon_threadsafe(
+                                queue.put_nowait, header + audio_bytes
+                            )
+
+                    except Exception as e:
+                        # Broad catch: any exception outside the old narrow tuple
+                        # (e.g. AttributeError) would otherwise kill the thread
+                        # without the None sentinel, deadlocking the consumer.
+                        thread_error[0] = str(e)
+                        logger.error("Streaming inference failed: %s", e, exc_info=True)
+                    finally:
+                        # Signal the consumer that the thread has fully stopped.
+                        # Separate from the queue-None sentinel (which means "no
+                        # more chunks"); done means "thread finished" and is awaited
+                        # by the consumer's finally BEFORE releasing inference_lock.
+                        done.set()
+                        # Always send the completion sentinel so the consumer never
+                        # blocks forever on queue.get() — even on unexpected errors
+                        # (deadlock fix, H3).
+                        loop.call_soon_threadsafe(queue.put_nowait, None)
+
+                # thread_error holds the stringified failure if the thread caught one
+                # (closure-captured by the thread and read by the consumer after it
+                # awaits done). chunk_count tracks delivered chunks so a pre-chunk
+                # error can be surfaced instead of a silent empty 200.
+                thread_error: list[str | None] = [None]
+                chunk_count = 0
+                # Event signals the inference thread has fully stopped; the consumer
+                # awaits it in its finally BEFORE releasing inference_lock so an
+                # in-flight model.generate() cannot race the next request.
+                done = threading.Event()
+                # Start inference thread
+                thread = threading.Thread(target=inference_thread, daemon=True)
+                thread.start()
+
+                try:
+                    # Yield chunks as they arrive
+                    while True:
+                        chunk = await queue.get()
+                        if chunk is None:
+                            break
+                        yield chunk
+                        chunk_count += 1
+                finally:
+                    stop_event.set()
+                    join_timeout = _stream_thread_join_timeout(
+                        len(text), req.max_chunk_chars
+                    )
+                    await _await_inference_thread_done(done, timeout=join_timeout)
+                    if not done.is_set():
+                        logger.error(
+                            "streaming inference thread did not stop within %ss; "
+                            "releasing inference_lock",
+                            join_timeout,
+                        )
+                    # Reset generation state if still our generation:
+                    # reset_if_owner re-checks ownership in the SAME locked step,
+                    # so a generation that lost the slot (superseded by a newer
+                    # one) can never clobber the new owner's progress — and the
+                    # reset restores ALL eleven idle keys, so a cancelled stream
+                    # cannot leave the shared cancelled flag dirty (mirrors the
+                    # batch path's finally at :692).
+                    guard.reset_if_owner(gen_id)
+                # Terminal error frame (WS2 Task 2.5). Starlette commits the 200
+                # headers before the body is iterated, so once streaming starts we
+                # cannot signal failure with a status code. Raising here would just
+                # truncate the connection, which the client cannot distinguish from
+                # a network drop and which carries no error context. Instead emit an
+                # in-band terminal frame — sample_rate 0 is never valid for real
+                # audio — and let the stream end cleanly.
+                #
+                # This fires whether or not chunks were already delivered: a
+                # mid-stream failure used to be dropped entirely, so the client
+                # accepted truncated audio as a complete generation.
+                # On client disconnect the finally returns early via
+                # GeneratorExit/aclose and this code is skipped.
+                if thread_error[0] is not None:
+                    # Sanitized at the sink (CWE-209): str(e) can carry an
+                    # absolute filesystem path, which must not reach the client.
+                    # Late import per the websocket.py terminal-branch precedent.
+                    from qwen3_tts.server.app_lifespan import _sanitize_error
+
+                    yield encode_stream_error_frame(_sanitize_error(thread_error[0]))
+        finally:
+            # pending_lock acquires without suspending when uncontended,
+            # so this cleanup is safe during cancellation/GeneratorExit
+            # unwind.
             async with state.pending_lock:
                 if queue_entry in state.pending_requests:
                     state.pending_requests.remove(queue_entry)
-
-            # T5: re-read the slot under the lock — the capture->acquire
-            # window (prompt load, response startup) applies to streaming
-            # exactly as to the batch path. Response headers are already
-            # committed by the time this generator iterates, so the
-            # retryable 503 goes out as the in-band terminal error frame
-            # (the WS2 sentinel): raising here would truncate the
-            # connection with no terminal frame, indistinguishable from a
-            # network drop.
-            try:
-                # Rebind, don't just check: this assignment makes `model` a
-                # local of audio_stream_generator, and inference_thread
-                # (nested below) resolves it from THIS scope's cell rather
-                # than handle_generate_stream's — so thread.start() below
-                # sees the re-read slot, never the pre-lock capture.
-                model = _require_model_under_lock(state, mode)
-            except HTTPException as e:
-                # The message is sanitized at the sink: a non-dict detail can
-                # carry an absolute filesystem path, which must not reach the
-                # client (CWE-209). A CLASSIFIED 503 keeps its classification:
-                # _error_response's dict {"error", "detail", "recovery"} rides
-                # the frame's code field, so a retryable in-lock unload is not
-                # reported as the default "inference_failed". recovery is
-                # deliberately not carried — the frame payload contract is
-                # {"error", "code"} (core/stream_protocol.py, one wire format
-                # shared with the CLI and TTSClient), and for this error the
-                # message text already says "retry".
-                from qwen3_tts.server.app_lifespan import _sanitize_error
-
-                _detail = e.detail
-                _code = STREAM_ERROR_CODE_INFERENCE_FAILED
-                if isinstance(_detail, dict):
-                    _code = str(
-                        _detail.get("error")
-                        or _detail.get("code")
-                        or STREAM_ERROR_CODE_INFERENCE_FAILED
-                    )
-                _message = (
-                    _detail
-                    if isinstance(_detail, str)
-                    else str(
-                        _detail.get("detail", _detail)
-                        if isinstance(_detail, dict)
-                        else _detail
-                    )
-                )
-                yield encode_stream_error_frame(
-                    _sanitize_error(_message), code=_code
-                )
-                return
-
-            gen_id = str(uuid.uuid4())[:8]
-            # Same begin the batch path uses: one atomic update stamping
-            # active + the generation id and applying begin()'s target-aware
-            # cancel handling (issue #237 / Step 1A) — only a cancel targeted
-            # elsewhere and genuinely stale is erased. Chunk counters are
-            # left to _chunk_progress.
-            guard.begin(gen_id, mode=mode, text_length=len(text))
-
-            def _chunk_progress(chunk_idx, chunk_total):
-                """Record chunk progress via the guard.
-
-                run_inference_streaming invokes this callback on the daemon
-                inference thread — off the event loop — so the write must go
-                through the guard's threading.Lock: an asyncio lock would
-                exclude nothing there (same reasoning as the batch path's
-                progress callback).
-                """
-                guard.update_progress(chunk_idx, chunk_total)
-
-            def inference_thread():
-                """Run inference in a thread and push chunks to queue."""
-                try:
-                    from qwen3_tts.core.engine import run_inference_streaming
-
-                    for wav_chunk, sr in run_inference_streaming(
-                        model=model,
-                        text=text,
-                        mode=mode,
-                        gen_params=seeded_params,
-                        language=language,
-                        voice_prompt=voice_prompt,
-                        voice_description=voice_description,
-                        speaker=speaker,
-                        instruct=instruct,
-                        x_vector_only_mode=x_vector_only_mode,
-                        max_chunk_chars=req.max_chunk_chars,
-                        config_provider=config_provider,
-                        progress_callback=_chunk_progress,
-                    ):
-                        if _should_stop_streaming(stop_event, guard, gen_id):
-                            logger.info("Generation cancelled by user")
-                            break
-
-                        # Length-prefixed format: [sample_rate:4][length:4][audio:length]
-                        audio_bytes = wav_chunk.astype("<f4").tobytes()
-                        header = struct.pack("<II", sr, len(audio_bytes))
-
-                        # Use call_soon_threadsafe to safely put from thread to async queue
-                        loop.call_soon_threadsafe(
-                            queue.put_nowait, header + audio_bytes
-                        )
-
-                except Exception as e:
-                    # Broad catch: any exception outside the old narrow tuple
-                    # (e.g. AttributeError) would otherwise kill the thread
-                    # without the None sentinel, deadlocking the consumer.
-                    thread_error[0] = str(e)
-                    logger.error("Streaming inference failed: %s", e, exc_info=True)
-                finally:
-                    # Signal the consumer that the thread has fully stopped.
-                    # Separate from the queue-None sentinel (which means "no
-                    # more chunks"); done means "thread finished" and is awaited
-                    # by the consumer's finally BEFORE releasing inference_lock.
-                    done.set()
-                    # Always send the completion sentinel so the consumer never
-                    # blocks forever on queue.get() — even on unexpected errors
-                    # (deadlock fix, H3).
-                    loop.call_soon_threadsafe(queue.put_nowait, None)
-
-            # thread_error holds the stringified failure if the thread caught one
-            # (closure-captured by the thread and read by the consumer after it
-            # awaits done). chunk_count tracks delivered chunks so a pre-chunk
-            # error can be surfaced instead of a silent empty 200.
-            thread_error: list[str | None] = [None]
-            chunk_count = 0
-            # Event signals the inference thread has fully stopped; the consumer
-            # awaits it in its finally BEFORE releasing inference_lock so an
-            # in-flight model.generate() cannot race the next request.
-            done = threading.Event()
-            # Start inference thread
-            thread = threading.Thread(target=inference_thread, daemon=True)
-            thread.start()
-
-            try:
-                # Yield chunks as they arrive
-                while True:
-                    chunk = await queue.get()
-                    if chunk is None:
-                        break
-                    yield chunk
-                    chunk_count += 1
-            finally:
-                stop_event.set()
-                join_timeout = _stream_thread_join_timeout(
-                    len(text), req.max_chunk_chars
-                )
-                await _await_inference_thread_done(done, timeout=join_timeout)
-                if not done.is_set():
-                    logger.error(
-                        "streaming inference thread did not stop within %ss; "
-                        "releasing inference_lock",
-                        join_timeout,
-                    )
-                # Reset generation state if still our generation:
-                # reset_if_owner re-checks ownership in the SAME locked step,
-                # so a generation that lost the slot (superseded by a newer
-                # one) can never clobber the new owner's progress — and the
-                # reset restores ALL eleven idle keys, so a cancelled stream
-                # cannot leave the shared cancelled flag dirty (mirrors the
-                # batch path's finally at :692).
-                guard.reset_if_owner(gen_id)
-            # Terminal error frame (WS2 Task 2.5). Starlette commits the 200
-            # headers before the body is iterated, so once streaming starts we
-            # cannot signal failure with a status code. Raising here would just
-            # truncate the connection, which the client cannot distinguish from
-            # a network drop and which carries no error context. Instead emit an
-            # in-band terminal frame — sample_rate 0 is never valid for real
-            # audio — and let the stream end cleanly.
-            #
-            # This fires whether or not chunks were already delivered: a
-            # mid-stream failure used to be dropped entirely, so the client
-            # accepted truncated audio as a complete generation.
-            # On client disconnect the finally returns early via
-            # GeneratorExit/aclose and this code is skipped.
-            if thread_error[0] is not None:
-                # Sanitized at the sink (CWE-209): str(e) can carry an
-                # absolute filesystem path, which must not reach the client.
-                # Late import per the websocket.py terminal-branch precedent.
-                from qwen3_tts.server.app_lifespan import _sanitize_error
-
-                yield encode_stream_error_frame(_sanitize_error(thread_error[0]))
 
     return StreamingResponse(
         audio_stream_generator(),
