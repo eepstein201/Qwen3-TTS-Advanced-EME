@@ -96,10 +96,18 @@ def create_and_save_voice_prompt(
             print("Reference audio downmixed to mono (model expects 1 channel)")
         ref_sr = new_sr
 
-    # Normalize prompt name
-    if not prompt_name.endswith(".pt"):
-        prompt_name += ".pt"
-    base_name = prompt_name[:-3]
+    # Normalize prompt name. Torch prompts are single .pt files; MLX prompts
+    # are .wav+.txt pairs addressed by base name (voice_prompt_exists and
+    # load_voice_prompt_mlx strip .pt/.wav), so mlx_only must not force a .pt
+    # that this mode never writes.
+    if mlx_only:
+        from qwen3_tts.interface.voice_helpers import strip_extension
+
+        base_name = strip_extension(prompt_name)
+    else:
+        if not prompt_name.endswith(".pt"):
+            prompt_name += ".pt"
+        base_name = prompt_name[:-3]
     validate_voice_name(base_name)
 
     try:
@@ -119,7 +127,7 @@ def create_and_save_voice_prompt(
             )
             print(f"MLX files saved: {mlx_wav_path}")
             print(
-                f'\nDone (MLX-only mode)! Use with: tts -p {prompt_name} "Your text here"'
+                f'\nDone (MLX-only mode)! Use with: tts -p {base_name}.wav "Your text here"'
             )
             return mlx_wav_path
 
