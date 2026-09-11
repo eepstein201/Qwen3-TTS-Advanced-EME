@@ -133,6 +133,7 @@ Expected response (once models are loaded):
 ```json
 {
   "status": "ok",
+  "degraded": false,
   "backend": "mlx",
   "model_size": "1.7B",
   "clone_model_loaded": true,
@@ -143,6 +144,11 @@ Expected response (once models are loaded):
   "mlx_quantization": "8bit"
 }
 ```
+
+`degraded` is a boolean-only liveness-plus-usability flag (the supporting
+numbers live on `/stats`, behind auth, because they reveal the in-flight
+request's size and `/health` is public). On the torch backend the example's
+`mlx_quantization` key is replaced by `dtype`.
 
 While models are still loading, `/health` returns `503` with `{"status": "loading", ...}`.
 
@@ -260,23 +266,38 @@ curl http://127.0.0.1:5123/stats \
   -H "Authorization: Bearer $(cat ~/.config/qwen3-tts/.voice_server_token)"
 ```
 
-Returns:
+Returns a flat payload (the `StatsResponse` contract in
+`qwen3_tts/server/validation.py` — there is no nested `memory`/`models`
+wrapper and no `generation_history` array):
 ```json
 {
-  "memory": {
-    "mlx_memory_active_mb": 2500.5
-  },
-  "models": {
-    "clone_model_loaded": true,
-    "design_model_loaded": false,
-    "custom_model_loaded": false
-  },
+  "status": "ok",
   "backend": "mlx",
+  "generation_health": {
+    "degraded": false,
+    "elapsed_sec": null,
+    "sec_per_char": null,
+    "threshold_sec_per_char": 30.0
+  },
   "model_size": "1.7B",
+  "clone_model_loaded": true,
+  "design_model_loaded": false,
+  "custom_model_loaded": false,
+  "voice_prompts_cached": 3,
+  "voice_prompts_cache_hits": 12,
+  "idle_seconds": 240,
+  "auto_shutdown_minutes": "disabled",
+  "generation_queue_size": 0,
   "mlx_quantization": "8bit",
-  "generation_history": []
+  "mlx_memory_active_mb": 2500.5,
+  "mlx_memory_peak_mb": 3100.25
 }
 ```
+`auto_shutdown_minutes` is the string `"disabled"` when idle auto-shutdown is
+off; `mlx_memory_active_mb`/`mlx_memory_peak_mb` appear only on the MLX
+backend (torch shows `mps_memory_allocated_mb` and/or
+`cuda_memory_allocated_mb`/`cuda_memory_reserved_mb` instead, and `dtype` in
+place of `mlx_quantization`).
 
 ### Performance Monitoring
 
