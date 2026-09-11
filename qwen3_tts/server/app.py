@@ -790,7 +790,7 @@ async def unload_asr(request: Request, _auth: None = Depends(verify_auth)):
     which is the starvation this whole item exists to prevent.
 
     Taking the lock here closes it structurally, and closes the identical
-    check-then-use on the ICL echo-trim probe (``inference.py:1155`` → ``:1163``)
+    check-then-use on the ICL echo-trim probe (``inference.py:1165`` → ``:1173``)
     for free: that runs inside ``run_inference`` with ``inference_lock`` already
     held, so a lock-taking unload can never interleave with it.
 

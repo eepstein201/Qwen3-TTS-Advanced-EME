@@ -149,6 +149,7 @@ BATCHES = {
             "tests.test_silent_failure_logging_part2",
             "tests.test_streaming_thread_lifecycle",
             "tests.test_batch_generation_state_ownership",
+            "tests.test_echo_trim_asr_preload",
             "tests.test_model_swap_recovery",
             "tests.test_issue192_warmup_serialization",
             "tests.test_issue192_transcribe_serialization",

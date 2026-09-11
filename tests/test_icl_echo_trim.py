@@ -214,14 +214,24 @@ class TestTrimIclEchoGuards(unittest.TestCase):
         probe.assert_not_called()
 
     def test_skips_when_asr_not_loaded(self):
-        """Don't pull a heavy ASR model into a generation that didn't ask."""
+        """ASR absent under the lock = an unload landed in the window.
+
+        The server layer ensure-loads ASR UNLOCKED before the generation
+        queues for inference_lock (#193 / Step 1C), so a miss inside
+        _trim_icl_echo means that load was undone mid-flight. The skip is
+        the documented degradation path: return the audio untouched, never
+        probe, and NEVER rebuild the model in-lock (#214 item 2).
+        """
         from qwen3_tts.core.engine.inference import _trim_icl_echo
 
         audio = _audio_with_echo()
         probe_p, asr_p = self._patched(asr_loaded=False)
-        with probe_p as probe, asr_p:
+        with probe_p as probe, asr_p, patch(
+            "qwen3_tts.core.engine.asr.load_asr_model"
+        ) as load_model:
             out, _ = _trim_icl_echo(audio, SR, REFERENCE, "clone", False, config=_cfg())
         probe.assert_not_called()
+        load_model.assert_not_called()
         np.testing.assert_array_equal(out, audio)
 
     def test_disabled_by_config(self):
@@ -554,6 +564,157 @@ class TestPromptTranscriptReachesEchoTrim(unittest.TestCase):
         # so the trim must see None and stand down.
         prompt = {"ref_audio": "voice.wav", "ref_text": None}
         self.assertIsNone(self._captured_reference_text(prompt))
+
+
+@pytest.mark.unit
+class TestTrimCapFirstChunk(unittest.TestCase):
+    """WS9.4: the 50% cut cap must scale to the FIRST chunk, not the total.
+
+    The echo is a head artifact of the first chunk. On a multi-chunk batch
+    the trim runs once on the COMBINED audio, so the old whole-audio basis
+    licensed cutting into half of chunks that were never echoed.
+    """
+
+    SR = 24000
+    CAP_S = 1.0
+
+    def _combined(self):
+        """First chunk carrying the echo head, tail chunk plain tone (~10 s)."""
+        first = np.concatenate([_tone(0.4), _silence(0.2), _tone(0.4)])
+        tail = _tone(9.0)
+        return np.concatenate([first, tail])
+
+    def _removed_seconds(self, audio, **kwargs):
+        from qwen3_tts.core.engine.inference import _trim_icl_echo
+
+        with patch(
+            "qwen3_tts.core.engine.inference._transcribe_probe",
+            return_value="thanks for listening. Now the real text.",
+        ), patch("qwen3_tts.core.engine.asr.is_asr_loaded", return_value=True):
+            out, _ = _trim_icl_echo(
+                audio, self.SR, REFERENCE, "clone", False, config=_cfg(), **kwargs
+            )
+        return (len(audio) - len(out)) / self.SR
+
+    def test_trim_cap_samples_bounds_the_cut(self):
+        """A ~10 s generation with a 1 s cap basis must lose at most 0.5 s."""
+        audio = self._combined()
+        removed = self._removed_seconds(
+            audio, trim_cap_samples=int(self.CAP_S * self.SR)
+        )
+        self.assertGreater(removed, 0.0, "cap was so tight nothing was trimmed")
+        self.assertLessEqual(
+            removed, self.CAP_S * 0.5, "cut exceeded half of trim_cap_samples"
+        )
+
+    def test_default_cap_basis_is_the_whole_audio(self):
+        """Without the kwarg the basis stays len(audio), so every caller that
+        passes nothing keeps today's behavior."""
+        audio = self._combined()
+        removed = self._removed_seconds(audio)
+        # The share-based estimate (~1.7 s) lands in the tail tone, so the
+        # whole-audio basis licenses a cut well past the first chunk.
+        self.assertGreater(removed, 1.2)
+        self.assertLess(removed, 2.3)
+
+
+@pytest.mark.unit
+class TestTrimCapWiredToSurfaces(unittest.TestCase):
+    """Which surface passes the first-chunk cap (WS9.4).
+
+    Multi-chunk batch trims the COMBINED audio once, so only that path must
+    pass trim_cap_samples=len(first chunk). Single-chunk batch and both
+    streaming sites trim audio whose first chunk IS the whole audio, so they
+    must pass nothing (cap basis stays len(audio)).
+    """
+
+    SR = 24000
+
+    class _ConfigProvider:
+        def load(self):
+            return {"generation": {}}
+
+    def _captured_kwargs(self, chunk_count=1, mlx_stream=False):
+        """Run the chosen surface, return the kwargs _postprocess_chunk saw."""
+        import qwen3_tts.core.engine.inference as inf
+
+        captured = {}
+        first_audio = np.zeros(self.SR, dtype=np.float32)
+        tail_audio = np.zeros(3 * self.SR, dtype=np.float32)
+
+        def _capture(a, sample_rate, *args, **kwargs):
+            captured.update(kwargs)
+            return a, sample_rate
+
+        with (
+            patch.object(inf, "_postprocess_chunk", side_effect=_capture),
+            patch.object(
+                inf, "_maybe_apply_lufs", side_effect=lambda a, s, **kw: (a, s)
+            ),
+        ):
+            if mlx_stream:
+                with (
+                    patch.object(inf, "get_backend", return_value="mlx"),
+                    patch.object(
+                        inf,
+                        "_run_inference_mlx_streaming",
+                        return_value=iter([(first_audio, self.SR)]),
+                    ),
+                ):
+                    list(
+                        inf.run_inference_streaming(
+                            model=object(),
+                            text="some text",
+                            mode="clone",
+                            gen_params={},
+                            config_provider=self._ConfigProvider(),
+                            voice_prompt={"ref_audio": "voice.wav", "ref_text": "hi"},
+                        )
+                    )
+            else:
+                combined = np.zeros(7 * self.SR, dtype=np.float32)
+                with (
+                    patch.object(
+                        inf,
+                        "_prepare_text_chunks",
+                        return_value=["x"] * chunk_count,
+                    ),
+                    patch.object(
+                        inf,
+                        "_run_inference_single",
+                        side_effect=[
+                            (first_audio, self.SR)
+                            if i == 0
+                            else (tail_audio, self.SR)
+                            for i in range(chunk_count)
+                        ],
+                    ),
+                    patch.object(inf, "_crossfade_chunks", return_value=combined),
+                ):
+                    inf.run_inference(
+                        model=object(),
+                        text="some text",
+                        mode="clone",
+                        gen_params={},
+                        config_provider=self._ConfigProvider(),
+                    )
+        return captured
+
+    def test_multi_chunk_batch_caps_at_the_first_chunk(self):
+        captured = self._captured_kwargs(chunk_count=3)
+        # The cap basis is the FIRST chunk's audio (all_audio[0] = 1 s here),
+        # not the combined result (stubbed to 7 s) the trim actually sees.
+        self.assertEqual(captured.get("trim_cap_samples"), self.SR)
+
+    def test_single_chunk_batch_passes_no_cap(self):
+        """There the trimmed audio IS the first chunk — no cap kwarg needed."""
+        captured = self._captured_kwargs(chunk_count=1)
+        self.assertIsNone(captured.get("trim_cap_samples"))
+
+    def test_streaming_passes_no_cap(self):
+        """Streaming scopes the trim to its first chunk already."""
+        captured = self._captured_kwargs(mlx_stream=True)
+        self.assertIsNone(captured.get("trim_cap_samples"))
 
 
 if __name__ == "__main__":
