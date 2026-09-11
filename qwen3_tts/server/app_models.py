@@ -339,6 +339,14 @@ async def handle_update_model_config(state, req, config_fn):
     with MODEL_LOAD_LOCK:
         state.model_config_epoch = getattr(state, "model_config_epoch", 0) + 1
 
+    # Nulling the slots is not an unload on its own (#238): without the
+    # backend cleanup the old weights stay resident, so the reload under the
+    # new settings runs on top of them. Off the event loop — the torch/MLX
+    # cleanup is blocking.
+    from qwen3_tts.core.engine import unload_model_cleanup
+
+    await asyncio.to_thread(unload_model_cleanup)
+
     # Invalidate generation cache
     with state.gen_cache_lock:
         for entry in state.gen_cache.values():
@@ -349,6 +357,13 @@ async def handle_update_model_config(state, req, config_fn):
             except OSError:
                 pass
         state.gen_cache.clear()
+
+    # The load times describe weights that are gone — /models reads
+    # model_load_times.get(model_type) regardless of the slot being None, so
+    # a surviving entry advertises a stale load_time_sec for an unloaded
+    # model (#238).
+    for name in ("clone", "design", "custom"):
+        state.model_load_times.pop(name, None)
 
     # Sync audio loader cache if config changed
     new_loader = adv.get("audio_loader")
