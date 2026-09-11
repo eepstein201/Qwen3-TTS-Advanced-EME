@@ -63,6 +63,45 @@ class TestGenerationOffload(unittest.TestCase):
     def test_waveform_peaks_is_offloaded(self):
         self.assertTrue(_offloaded(self.src, "calculate_waveform_peaks"))
 
+    def test_result_b64_encode_is_offloaded(self):
+        """The b64 ENCODE of generated audio (multi-MB payload) must leave the
+        event loop — sf.write being offloaded is not enough while the encode
+        of the same buffer runs inline afterwards."""
+        self.assertTrue(
+            _offloaded(self.src, "_b64_encode"),
+            "audio base64 encoding must be dispatched via asyncio.to_thread",
+        )
+        self.assertNotIn(
+            "b64_audio = base64.b64encode(", self.src,
+            "inline base64 encode remains in the generation path",
+        )
+
+    def test_cache_tempfile_creation_is_offloaded(self):
+        """The generation-cache tempfile creation (open + chmod) is blocking
+        file IO — same treatment as the writes that follow it."""
+        self.assertTrue(
+            _offloaded(self.src, "_stage_cache_tempfile"),
+            "cache tempfile creation must be dispatched via asyncio.to_thread",
+        )
+        self.assertNotIn(
+            "cache_file = tempfile.NamedTemporaryFile(", self.src,
+            "inline tempfile creation remains in the generation path",
+        )
+
+    def test_wav_response_decode_is_offloaded(self):
+        """The audio/wav content-negotiation path decodes the result's b64
+        payload back to bytes — blocking CPU on the same scale as the encode,
+        on the loop."""
+        self.assertTrue(
+            _offloaded(self.src, "base64.b64decode"),
+            "the audio/wav response path must decode base64 via "
+            "asyncio.to_thread",
+        )
+        self.assertNotIn(
+            "audio_bytes = base64.b64decode(", self.src,
+            "inline base64 decode remains in the audio/wav response path",
+        )
+
 
 if __name__ == "__main__":
     unittest.main()
