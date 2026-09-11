@@ -615,9 +615,9 @@ class TestReplPromptBackendAware(unittest.TestCase):
         """Run the REPL against a temp VOICE_PROMPTS_DIR holding *prompt_files*.
 
         The backend is pinned via the config facade (the /prompt branch
-        resolves it at call time); the prompts dir is patched in BOTH the
-        interactive module and generate_helpers (whose voice_prompt_exists /
-        list_voice_prompts read their own binding).
+        resolves it at call time) AND at generate_helpers' own binding
+        (voice_prompt_exists imported get_backend at module load); the
+        prompts dir is likewise patched in BOTH modules.
         """
         import tempfile
 
@@ -632,6 +632,7 @@ class TestReplPromptBackendAware(unittest.TestCase):
                  patch("builtins.print", side_effect=lambda *a, **k: printed.append(" ".join(str(x) for x in a))), \
                  patch("qwen3_tts.interface.generate_interactive.get_default_clone_prompt", return_value="default.pt"), \
                  patch("qwen3_tts.core.config.get_backend", return_value=backend), \
+                 patch("qwen3_tts.interface.generate_helpers.get_backend", return_value=backend), \
                  patch("qwen3_tts.interface.generate_interactive.VOICE_PROMPTS_DIR", tmpdir), \
                  patch("qwen3_tts.interface.generate_helpers.VOICE_PROMPTS_DIR", tmpdir):
                 run_repl({}, True)
