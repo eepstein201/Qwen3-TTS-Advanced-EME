@@ -406,7 +406,77 @@ All exit codes: 0.
 
 ## Part 2 — live smoke (freshly restarted server, ASR unloaded)
 
-**APPENDED AT GATE TIME BY THE CONTROLLER** — the user-coordinated live leg: `/generate` clone
-with a transcript-bearing prompt on a fresh server → ASR load visible in the log, reference tail
-absent from output; `/unload-asr` then a clone generation with the unload landing in the window →
-untrimmed output, HTTP 200, no 503. Intentionally empty here; no output is fabricated.
+**Appended at gate time by the controller** (2026-09-10). Server restarted onto the branch by the
+user (`tts server stop && tts server start`, PID 47494 started 16:49:30 EDT); prompt `LT_4`
+(`.pt`+`.wav`+`.txt` — transcript resolvable). Authed via the standard bearer token. One honest
+timeline note: the machine slept ~6.5 h between leg 1 and leg 2 (log timestamps are the server's
+own clock and are reproduced verbatim).
+
+### Leg 1 — fresh server, ASR unloaded (the issue #193 repro condition)
+
+ASR state BEFORE, via `/models`: `{"asr_loaded":{"loaded":false,"backend":null,"model_name":null}}`.
+
+```
+POST /generate  {"texts": ["<264 chars>"], "mode": "clone", "prompt_file": "LT_4.wav"}
+→ HTTP 200, {"n_results": 1, "cancelled": false}
+```
+
+Server log, the complete arc:
+
+```
+16:52:06 [tts.engine] INFO: Loaded MLX ASR model
+16:52:53 [tts.engine] INFO: Inference complete: 264 chars, 46.7s, mode=clone [mlx]
+16:52:53 [tts.engine] INFO: Transcribing (MLX): /var/folders/.../icl_probe_4p451pju.wav
+16:52:57 [tts.engine] INFO: Transcription complete: 54 chars in 4.5s
+```
+
+Reading: the force-load fired on a fresh server BEFORE the generation (16:52:06), the generation
+ran 46.7 s, then the echo-trim probe transcribed the output head under the lock (4.5 s — inside
+the banked 3.2–7.3 s measurement). No 503, no error; the result shipped. This is the exact shape
+the ratified design mandates: load unlocked → generate → probe.
+
+**No `Trimmed … ICL reference echo` line appears** in either leg: the probe found no echo in
+these samples' heads (echo presence is model/sample-dependent). The trim itself — detection,
+silence-snap, cap — is pinned by the unit pins (`TestTrimIclEchoBehaviour`,
+`TestTrimCapFirstChunk`); what the live leg proves is the production wiring that was inert before
+this step: the force-load, the probe execution, and clean success.
+
+### Leg 2 — the unload leg, including a disclosed first attempt
+
+`/unload-asr` → `{"status":"unloaded"}`; `/models` confirms unloaded. The FIRST regeneration used
+a byte-identical payload and was served from cache with NO load and NO inference — correct
+by-design behavior (pre-lock cache hits return before the preload call site), but it did not
+exercise the re-fire, so it is disclosed rather than counted:
+
+```
+23:24:15 [tts.engine] INFO: Unloaded MLX ASR model
+23:24:16 [tts] INFO: ASR model unloaded.
+23:24:16 [tts] INFO: Generation cache hit (pre-lock) for text 1/1
+```
+
+The cache-busted retry (fresh text) proves the keep-loaded re-fire:
+
+```
+23:28:25 [tts.engine] INFO: Loaded MLX ASR model
+23:28:43 [tts.engine] INFO: Inference complete: 181 chars, 18.4s, mode=clone [mlx]
+23:28:43 [tts.engine] INFO: Transcribing (MLX): /var/folders/.../icl_probe_5r_wrh88.wav
+23:28:50 [tts.engine] INFO: Transcription complete: 69 chars in 6.5s
+```
+
+```
+→ HTTP 200, {"n_results": 1, "cancelled": false}
+```
+
+Reading: after an explicit `/unload-asr`, the next clone generation force-loads ASR again
+(23:28:25) and runs the probe — keep-loaded, self-healing, no client-visible failure.
+
+### What the live leg proves — and what it does not
+
+Proven in production: the server-layer ensure-load fires unlocked on fresh and post-unload
+servers; the probe runs under the lock after generation; generations succeed with real results in
+both the fresh-server and post-unload states; a pre-lock cache hit triggers no load (by design).
+
+Not proven here (covered by pins instead): the microsecond unload-lands-in-the-window race and
+the untrimmed degradation — the window is real but not deterministically hittable over HTTP; the
+end-to-end pin `test_unload_in_window_degrades_to_untrimmed` drives the REAL `handle_generate`
+and the REAL `_trim_icl_echo` through exactly that interleaving (`tests/test_echo_trim_asr_preload.py`).
