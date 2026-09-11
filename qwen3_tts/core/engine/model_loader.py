@@ -446,6 +446,7 @@ def _load_model_mlx(model_type):
         )
 
     repo_id = get_mlx_model_name(model_type)
+    revision = get_model_revision(model_type)
     model_size = get_model_size()
     logger.info(
         "Loading %s (%s) size=%s [mlx backend]...",
@@ -466,7 +467,7 @@ def _load_model_mlx(model_type):
                 message=".*incorrect regex pattern.*fix_mistral_regex.*",
                 category=UserWarning,
             )
-            model = mlx_load_model(repo_id)
+            model = mlx_load_model(repo_id, revision=revision)
         elapsed = time.time() - t0
         logger.info("Loaded %s model in %.1fs [mlx]", model_type, elapsed)
         return model
