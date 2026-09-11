@@ -1,9 +1,10 @@
 """Guard tests for the repo-durable Claude Code PreToolUse hooks.
 
-The five hook scripts under .claude/hooks/ enforce repo policy at the
+The six hook scripts under .claude/hooks/ enforce repo policy at the
 harness level (no push/merge/delete on main, pre-push gate reminder,
-CLAUDE.md <=300 lines, batch-runner preference over raw suite pytest,
-server-ready confirmation before full-suite runs), but they only protect
+CLAUDE.md <=300 lines and MEMORY.md <=150, batch-runner preference over raw
+suite pytest, server-ready confirmation before full-suite runs, and no broad
+`git add` over untracked credential files), but they only protect
 contributors if they actually ship with the repo:
 
 - the scripts are git-tracked (untracked scripts die with the clone),
@@ -40,16 +41,19 @@ PREPUSH_HOOK = "prepush-local-gates.py"
 LENGTH_HOOK = "claude-md-length-guard.py"
 BATCH_RUNNER_HOOK = "prefer-batch-runner-over-raw-pytest.py"
 SERVER_READY_HOOK = "require-server-ready-before-full-test.py"
+HYGIENE_HOOK = "workspace-hygiene.py"
 ALL_HOOKS = (
     PUSH_HOOK,
     PREPUSH_HOOK,
     LENGTH_HOOK,
     BATCH_RUNNER_HOOK,
     SERVER_READY_HOOK,
+    HYGIENE_HOOK,
 )
 
 HOOK_TIMEOUT_S = 15
 CLAUDE_MD_MAX_LINES = 300
+MEMORY_MD_MAX_LINES = 150
 
 
 def _run_hook(script, payload=None, raw=None):
@@ -130,7 +134,13 @@ class TestHooksAreRepoDurable(unittest.TestCase):
         entirely, so a script wired under the wrong matcher passes every
         pipe test while never seeing a real Bash call.
         """
-        for script in (PUSH_HOOK, PREPUSH_HOOK, BATCH_RUNNER_HOOK, SERVER_READY_HOOK):
+        for script in (
+            PUSH_HOOK,
+            PREPUSH_HOOK,
+            BATCH_RUNNER_HOOK,
+            SERVER_READY_HOOK,
+            HYGIENE_HOOK,
+        ):
             matchers = [
                 matcher
                 for matcher, cmd in _pretooluse_commands(SHARED_SETTINGS)
@@ -542,6 +552,203 @@ class TestClaudeMdLengthGuard(unittest.TestCase):
         proc = _run_hook(LENGTH_HOOK, raw="{not json")
         self.assertEqual(proc.returncode, 0)
         self.assertEqual(proc.stdout, "")
+
+
+class TestMemoryIndexLengthGuard(unittest.TestCase):
+    """The <=150-line MEMORY.md rule must fire, not just be documented.
+
+    MEMORY.md lives OUTSIDE the repo (~/.claude/projects/<slug>/memory/), so
+    the guard uses a containment root there instead of the project-root
+    samefile check CLAUDE.md uses. These tests build a fake memory tree and
+    point the guard at it via HOME, so they never touch the real index.
+    """
+
+    def _payload(self, path, line_count):
+        return {
+            "tool_name": "Write",
+            "tool_input": {"file_path": str(path), "content": "line\n" * line_count},
+        }
+
+    def _run_in_fake_home(self, home, payload):
+        env = dict(os.environ, HOME=str(home))
+        return subprocess.run(
+            [sys.executable, str(HOOKS_DIR / LENGTH_HOOK)],
+            input=json.dumps(payload),
+            capture_output=True,
+            text=True,
+            timeout=HOOK_TIMEOUT_S,
+            cwd=REPO_ROOT,
+            env=env,
+        )
+
+    def _memory_index(self, home):
+        memory_dir = home / ".claude" / "projects" / "some-project" / "memory"
+        memory_dir.mkdir(parents=True)
+        index = memory_dir / "MEMORY.md"
+        index.write_text("existing\n")
+        return index
+
+    def test_blocks_write_over_memory_limit(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            home = Path(tmp)
+            index = self._memory_index(home)
+            proc = self._run_in_fake_home(
+                home, self._payload(index, MEMORY_MD_MAX_LINES + 1)
+            )
+            self.assertEqual(proc.returncode, 2, proc.stderr)
+            self.assertIn(str(MEMORY_MD_MAX_LINES + 1), proc.stderr)
+            self.assertIn("MEMORY.md", proc.stderr)
+
+    def test_allows_write_at_memory_limit(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            home = Path(tmp)
+            index = self._memory_index(home)
+            proc = self._run_in_fake_home(
+                home, self._payload(index, MEMORY_MD_MAX_LINES)
+            )
+            self.assertEqual(proc.returncode, 0, proc.stderr)
+
+    def test_memory_limit_is_not_the_claude_md_limit(self):
+        """A 200-line MEMORY.md is over its own budget, under CLAUDE.md's.
+
+        Pins that the two targets carry SEPARATE limits — a single shared
+        constant would let the memory index grow to 300 lines unchallenged.
+        """
+        self.assertLess(MEMORY_MD_MAX_LINES, CLAUDE_MD_MAX_LINES)
+        with tempfile.TemporaryDirectory() as tmp:
+            home = Path(tmp)
+            index = self._memory_index(home)
+            over = MEMORY_MD_MAX_LINES + 50
+            self.assertLess(over, CLAUDE_MD_MAX_LINES)
+            proc = self._run_in_fake_home(home, self._payload(index, over))
+            self.assertEqual(proc.returncode, 2, proc.stderr)
+
+    def test_ignores_memory_md_outside_the_memory_tree(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            home = Path(tmp)
+            self._memory_index(home)
+            stray = home / "MEMORY.md"
+            stray.write_text("existing\n")
+            proc = self._run_in_fake_home(
+                home, self._payload(stray, MEMORY_MD_MAX_LINES + 100)
+            )
+            self.assertEqual(proc.returncode, 0, proc.stderr)
+
+    def test_claude_md_guard_still_fires_with_memory_target_added(self):
+        """Regression: adding the second target must not shadow the first."""
+        proc = _run_hook(
+            LENGTH_HOOK,
+            payload={
+                "tool_name": "Write",
+                "tool_input": {
+                    "file_path": str(REPO_ROOT / "CLAUDE.md"),
+                    "content": "line\n" * (CLAUDE_MD_MAX_LINES + 1),
+                },
+            },
+        )
+        self.assertEqual(proc.returncode, 2)
+        self.assertIn("CLAUDE.md", proc.stderr)
+
+
+class TestWorkspaceHygiene(unittest.TestCase):
+    """Broad staging must be blocked while credential-ish files sit untracked.
+
+    origin is PUBLIC, so `git add -A` over an untracked .gd/credentials.json
+    publishes a live OAuth refresh token. Each test runs the hook inside a
+    throwaway git repo so the real working tree is never a variable.
+    """
+
+    def _run_in_repo(self, repo, command):
+        return subprocess.run(
+            [sys.executable, str(HOOKS_DIR / HYGIENE_HOOK)],
+            input=json.dumps({"tool_name": "Bash", "tool_input": {"command": command}}),
+            capture_output=True,
+            text=True,
+            timeout=HOOK_TIMEOUT_S,
+            cwd=str(repo),
+        )
+
+    @staticmethod
+    def _make_repo(tmp, files=(), gitignore=None):
+        repo = Path(tmp)
+        subprocess.run(["git", "init", "-q"], cwd=repo, timeout=HOOK_TIMEOUT_S)
+        if gitignore is not None:
+            (repo / ".gitignore").write_text(gitignore)
+        for rel in files:
+            target = repo / rel
+            target.parent.mkdir(parents=True, exist_ok=True)
+            target.write_text("x")
+        return repo
+
+    def test_blocks_add_all_when_credential_file_is_untracked(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = self._make_repo(tmp, files=[".gd/credentials.json"])
+            proc = self._run_in_repo(repo, "git add -A")
+            self.assertEqual(proc.returncode, 2, proc.stderr)
+            self.assertIn(".gd/credentials.json", proc.stderr)
+
+    def test_blocks_add_dot_and_commit_dash_a(self):
+        for command in ("git add .", "git commit -am 'wip'", "git commit -a"):
+            with self.subTest(command=command):
+                with tempfile.TemporaryDirectory() as tmp:
+                    repo = self._make_repo(tmp, files=["secrets.yaml"])
+                    proc = self._run_in_repo(repo, command)
+                    self.assertEqual(proc.returncode, 2, f"{command}: {proc.stderr}")
+
+    def test_allows_broad_add_once_the_file_is_gitignored(self):
+        """The .gitignore fix and the hook agree on what counts as at-risk."""
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = self._make_repo(
+                tmp, files=[".gd/credentials.json"], gitignore=".gd/\n"
+            )
+            proc = self._run_in_repo(repo, "git add -A")
+            self.assertEqual(proc.returncode, 0, proc.stderr)
+
+    def test_allows_broad_add_on_a_clean_tree(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = self._make_repo(tmp, files=["src/main.py", "README.md"])
+            proc = self._run_in_repo(repo, "git add -A")
+            self.assertEqual(proc.returncode, 0, proc.stderr)
+
+    def test_allows_explicit_paths_even_with_credentials_present(self):
+        """Naming paths is already explicit; only blind staging is blocked."""
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = self._make_repo(tmp, files=[".gd/credentials.json", "src/main.py"])
+            proc = self._run_in_repo(repo, "git add src/main.py")
+            self.assertEqual(proc.returncode, 0, proc.stderr)
+
+    def test_allows_add_u_which_stages_tracked_files_only(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = self._make_repo(tmp, files=[".gd/credentials.json"])
+            proc = self._run_in_repo(repo, "git add -u")
+            self.assertEqual(proc.returncode, 0, proc.stderr)
+
+    def test_quoted_mention_of_add_all_is_not_an_invocation(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = self._make_repo(tmp, files=[".gd/credentials.json"])
+            proc = self._run_in_repo(repo, "echo 'never run git add -A here'")
+            self.assertEqual(proc.returncode, 0, proc.stderr)
+
+    def test_source_file_named_for_tokens_is_not_a_finding(self):
+        """A bare token/auth stem in source must not block ordinary work."""
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = self._make_repo(
+                tmp, files=["tests/test_auth_token_write.py", "src/tokenizer.py"]
+            )
+            proc = self._run_in_repo(repo, "git add -A")
+            self.assertEqual(proc.returncode, 0, proc.stderr)
+
+    def test_fails_open_on_malformed_stdin(self):
+        proc = _run_hook(HYGIENE_HOOK, raw="{not json")
+        self.assertEqual(proc.returncode, 0)
+        self.assertEqual(proc.stdout, "")
+
+    def test_non_git_command_is_allowed(self):
+        proc = _run_hook(
+            HYGIENE_HOOK,
+            payload={"tool_name": "Bash", "tool_input": {"command": "ls -la"}},
+        )
+        self.assertEqual(proc.returncode, 0)
 
 
 class TestLengthGuardPathValidation(unittest.TestCase):
