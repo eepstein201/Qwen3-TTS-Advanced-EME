@@ -124,6 +124,19 @@ def _stream_thread_join_timeout(
 # Back-compat alias: existing callers/tests reference the old constant name.
 _STREAM_THREAD_JOIN_TIMEOUT_SEC: float = _STREAM_THREAD_JOIN_FLOOR_SEC
 
+
+def _b64_encode(data: bytes) -> str:
+    """Encode bytes as a base64 str (blocking CPU for multi-MB audio)."""
+    return base64.b64encode(data).decode("utf-8")
+
+
+def _stage_cache_tempfile() -> str:
+    """Create the 0600 generation-cache .wav tempfile (blocking file IO)."""
+    cache_file = tempfile.NamedTemporaryFile(suffix=".wav", delete=False)
+    cache_file.close()  # Close handle before sf.write to avoid leak
+    os.chmod(cache_file.name, 0o600)
+    return cache_file.name
+
 async def _await_inference_thread_done(
     done_event: threading.Event,
     timeout: float = _STREAM_THREAD_JOIN_TIMEOUT_SEC,
@@ -701,16 +714,16 @@ async def handle_generate(request, state, req, security, config_provider):
             # it does not need GPU serialization and can run concurrently with
             # another request's inference.
 
-            # Encode audio to base64 WAV in memory (off the event loop)
+            # Encode audio to base64 WAV in memory (off the event loop) —
+            # the b64 encode of the same multi-MB buffer is offloaded too.
             buf = io.BytesIO()
             await asyncio.to_thread(sf.write, buf, wav, sr, format="WAV")
-            b64_audio = base64.b64encode(buf.getvalue()).decode("utf-8")
+            b64_audio = await asyncio.to_thread(_b64_encode, buf.getvalue())
 
-            # Store persistent cache file for future hits
-            cache_file = tempfile.NamedTemporaryFile(suffix=".wav", delete=False)
-            cache_file.close()  # Close handle before sf.write to avoid leak
-            os.chmod(cache_file.name, 0o600)
-            await asyncio.to_thread(sf.write, cache_file.name, wav, sr)
+            # Store persistent cache file for future hits. Tempfile creation
+            # is blocking file IO — off the loop like the writes that follow.
+            cache_path = await asyncio.to_thread(_stage_cache_tempfile)
+            await asyncio.to_thread(sf.write, cache_path, wav, sr)
 
             # Compute waveform peaks BEFORE storing the cache entry so the
             # entry carries them and cache hits can echo them without
@@ -737,7 +750,7 @@ async def handle_generate(request, state, req, security, config_provider):
                         except OSError:
                             pass
                 state.gen_cache[cache_key] = {
-                    "main_file": cache_file.name,
+                    "main_file": cache_path,
                     "sample_rate": sr,
                     "timestamp": time.time(),
                     "chunks": chunk_count,
@@ -762,7 +775,9 @@ async def handle_generate(request, state, req, security, config_provider):
             # Single text generation with audio/wav Accept: return binary WAV directly
             result = results[0]
             if result.get("audio_base64"):
-                audio_bytes = base64.b64decode(result["audio_base64"])
+                audio_bytes = await asyncio.to_thread(
+                    base64.b64decode, result["audio_base64"]
+                )
                 return Response(
                     content=audio_bytes,
                     media_type="audio/wav",

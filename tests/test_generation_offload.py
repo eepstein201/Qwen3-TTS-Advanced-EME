@@ -83,8 +83,12 @@ class TestGenerationOffload(unittest.TestCase):
             _offloaded(self.src, "_stage_cache_tempfile"),
             "cache tempfile creation must be dispatched via asyncio.to_thread",
         )
-        self.assertNotIn(
-            "cache_file = tempfile.NamedTemporaryFile(", self.src,
+        # Exactly one NamedTemporaryFile site may remain: the helper's own
+        # body. A second occurrence means inline creation crept back into
+        # the generation path.
+        self.assertEqual(
+            self.src.count("tempfile.NamedTemporaryFile("),
+            1,
             "inline tempfile creation remains in the generation path",
         )
 
