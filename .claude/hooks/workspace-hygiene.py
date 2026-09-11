@@ -43,10 +43,6 @@ from _hook_shell import segments  # noqa: E402
 
 GIT_TIMEOUT_S = 10
 
-# Commands that stage without naming what they stage.
-_BROAD_ADD_RE = re.compile(r"\bgit\s+add\s+(?:-\S+\s+)*(?:-A\b|--all\b|\.(?:\s|$))")
-_COMMIT_ALL_RE = re.compile(r"\bgit\s+commit\s+(?:\S+\s+)*?-(?:a|[a-z]*a[a-z]*)\b")
-_COMMIT_ALL_LONG_RE = re.compile(r"\bgit\s+commit\s+.*--all\b")
 
 # Name fragments that mark a file as credential-bearing. Matched against each
 # path segment, case-insensitively.
@@ -73,13 +69,40 @@ _SOURCE_EXT = (
 )
 
 
+def _git_subcommand_args(segment, subcommand):
+    """Args following `git <subcommand>` in this segment, or None if absent.
+
+    Token scanning rather than a regex: matching `git commit ... -a` needs a
+    quantifier to skip intervening args, and every regex shape for that nests
+    quantifiers, which CodeQL reports as polynomial ReDoS (py/polynomial-redos)
+    since the command text is model/user-provided.
+    """
+    tokens = segment.split()
+    for index, token in enumerate(tokens):
+        if token == "git" and tokens[index + 1 : index + 2] == [subcommand]:
+            return tokens[index + 2 :]
+    return None
+
+
+def _has_short_flag(args, letter):
+    """True if any clustered short flag (`-a`, `-am`) carries this letter."""
+    return any(
+        arg.startswith("-") and not arg.startswith("--") and letter in arg[1:]
+        for arg in args
+    )
+
+
 def _is_broad_stage(command):
     """True if any segment stages indiscriminately."""
     for segment in segments(command):
-        if (
-            _BROAD_ADD_RE.search(segment)
-            or _COMMIT_ALL_RE.search(segment)
-            or _COMMIT_ALL_LONG_RE.search(segment)
+        add_args = _git_subcommand_args(segment, "add")
+        if add_args is not None and (
+            "." in add_args or "--all" in add_args or _has_short_flag(add_args, "A")
+        ):
+            return True
+        commit_args = _git_subcommand_args(segment, "commit")
+        if commit_args is not None and (
+            "--all" in commit_args or _has_short_flag(commit_args, "a")
         ):
             return True
     return False
