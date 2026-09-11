@@ -12,6 +12,7 @@ See docs/reviews/e2e-review-2026-07-01.md (Phase 5 FastAPI review, HIGH).
 """
 
 import asyncio
+import unittest
 
 import pytest
 
@@ -104,3 +105,44 @@ def test_prompt_handler_runs_off_event_loop(
         getattr(fastapi_client, method)(path, **kwargs)
     assert state["called"], f"{symbol} was never invoked (request rejected before handler)"
     assert state["off_loop"] is True, f"{symbol} ran ON the event loop; expected asyncio.to_thread offload"
+
+
+@unittest.skipUnless(HAS_FASTAPI, "requires fastapi")
+class TestStatsModelsOffload(unittest.TestCase):
+    """The /stats and /models handlers must run off the event loop thread.
+
+    Both are sync handlers whose first call lazily imports the engine package
+    (voice_prompt_cache_info / get_asr_model_info) and, for /stats, probes
+    torch/MLX memory — blocking work that stalls in-flight streaming
+    responses. They are the last sync model/stats siblings still invoked
+    directly by the async route wrappers; the /load-model-era offload
+    convention (asyncio.to_thread, e.g. app_models.py save_config /
+    unload_model_cleanup) applies. Asserted at the source level per the
+    test_generation_offload.py convention (driving /stats through the app
+    requires the conftest client fixture, which the unittest batch runner
+    cannot fire).
+    """
+
+    def _app_source(self) -> str:
+        import inspect
+
+        from qwen3_tts.server import app as app_module
+
+        return inspect.getsource(app_module)
+
+    def test_stats_handler_is_offloaded(self):
+        src = self._app_source()
+        self.assertRegex(
+            src,
+            r"asyncio\.to_thread\(\s*handle_stats\b",
+            "the /stats route must dispatch handle_stats via asyncio.to_thread",
+        )
+
+    def test_list_models_handler_is_offloaded(self):
+        src = self._app_source()
+        self.assertRegex(
+            src,
+            r"asyncio\.to_thread\(\s*handle_list_models\b",
+            "the /models route must dispatch handle_list_models via "
+            "asyncio.to_thread",
+        )
