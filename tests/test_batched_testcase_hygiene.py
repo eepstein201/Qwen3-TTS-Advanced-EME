@@ -52,7 +52,6 @@ _TESTCASE_SUFFIX = "TestCase"
 # them and deletes the entry. Counts are from the 2026-09-11 scan.
 KNOWN_HOLLOW = {
     "tests.test_ai_regression": "Step 1E: 3 classes",
-    "tests.test_server_vllm_integration": "Step 1E: 2 classes",
     "tests.test_solid_analyzer": "Step 1E: 10 classes",
     "tests.test_validation": "Step 1E: 7 classes (batch 5)",
 }
