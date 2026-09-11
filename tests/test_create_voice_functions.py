@@ -399,6 +399,48 @@ class TestCreateAndSaveVoicePromptMlxOnly(unittest.TestCase):
             self.assertTrue(os.path.exists(
                 os.path.join(prompts_dir, "myvoice.txt")))
 
+    def test_mlx_only_usage_hint_names_wav_not_pt(self):
+        """MLX-only mode's usage hint must not point at a .pt it never wrote.
+
+        MLX prompts are a .wav+.txt pair addressed by base name (loaders
+        strip .wav/.pt), but the unconditional .pt normalization made the
+        Done hint suggest 'tts -p <name>.pt' — a file this mode never
+        creates and the MLX loader cannot use as a prompt.
+        """
+        from qwen3_tts.tools.create_voice import create_and_save_voice_prompt
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            audio_path = os.path.join(tmpdir, "ref.wav")
+            soundfile.write(audio_path, np.zeros(24000, dtype=np.float32), 24000)
+
+            prompts_dir = os.path.join(tmpdir, "prompts")
+            os.makedirs(prompts_dir)
+
+            with mock.patch("qwen3_tts.tools.create_voice.VOICE_PROMPTS_DIR",
+                            prompts_dir), mock.patch(
+                "qwen3_tts.core.engine.voice_prompt.VOICE_PROMPTS_DIR", prompts_dir
+            ), mock.patch("qwen3_tts.tools.create_voice.USER_FILES_DIR", tmpdir), \
+                 mock.patch("builtins.print") as mock_print:
+                create_and_save_voice_prompt(
+                    audio_path, "Hello", "hint_voice",
+                    test_generation=False, mlx_only=True,
+                )
+
+            output = " ".join(
+                str(call.args[0]) for call in mock_print.call_args_list if call.args
+            )
+            self.assertIn(
+                "hint_voice.wav",
+                output,
+                "MLX-only Done hint must address the prompt by its .wav name",
+            )
+            self.assertNotIn(
+                "hint_voice.pt",
+                output,
+                "MLX-only mode never writes a .pt; the hint must not "
+                "suggest one (the .pt is torch-only)",
+            )
+
     def test_mlx_only_cleans_up_temp_wav(self):
         """MLX-only mode cleans up temp wav when pydub conversion was used."""
         from qwen3_tts.tools.create_voice import create_and_save_voice_prompt
