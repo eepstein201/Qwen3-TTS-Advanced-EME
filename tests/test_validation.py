@@ -5,22 +5,16 @@ import pytest
 from fastapi import HTTPException
 
 
-class TestValidateGenerationRequest:
+class TestValidateGenerationRequest(unittest.TestCase):
     """Tests for _validate_generation_request function."""
 
-    @pytest.fixture
-    def security_config(self):
-        """Standard security config."""
+    def _security_config(self):
+        """Standard security config (was a pytest fixture; Step 1E)."""
         return {"max_text_length": 10000, "max_batch_size": 20}
 
-    @pytest.fixture
-    def valid_request(self):
-        """Valid generation request."""
-        from qwen3_tts.server.validation import GenerateRequest
-        return GenerateRequest(texts=["Hello world"], mode="clone")
-
-    def test_rejects_invalid_mode(self, security_config, valid_request):
+    def test_rejects_invalid_mode(self):
         """Validation rejects modes other than clone/design/custom."""
+        security_config = self._security_config()
         from qwen3_tts.server.validation import (
             GenerateRequest,
             _validate_generation_request,
@@ -32,8 +26,9 @@ class TestValidateGenerationRequest:
         assert exc.value.status_code == 400
         assert "Invalid mode" in exc.value.detail
 
-    def test_rejects_path_traversal_in_prompt_file(self, security_config):
+    def test_rejects_path_traversal_in_prompt_file(self):
         """Validation rejects path traversal in prompt_file."""
+        security_config = self._security_config()
         from qwen3_tts.server.validation import (
             GenerateRequest,
             _validate_generation_request,
@@ -45,8 +40,9 @@ class TestValidateGenerationRequest:
         assert exc.value.status_code == 400
         assert "path traversal" in exc.value.detail.lower()
 
-    def test_accepts_subdir_path_in_prompt_file(self, security_config):
+    def test_accepts_subdir_path_in_prompt_file(self):
         """Validation accepts subdirectory path in prompt_file (pathlib-based check)."""
+        security_config = self._security_config()
         from qwen3_tts.server.validation import (
             GenerateRequest,
             _validate_generation_request,
@@ -56,8 +52,9 @@ class TestValidateGenerationRequest:
         # Should NOT raise — pathlib check allows paths that resolve within voice_prompts dir
         _validate_generation_request(req, security_config)
 
-    def test_rejects_absolute_path_in_prompt_file(self, security_config):
+    def test_rejects_absolute_path_in_prompt_file(self):
         """Validation rejects absolute path in prompt_file."""
+        security_config = self._security_config()
         from qwen3_tts.server.validation import (
             GenerateRequest,
             _validate_generation_request,
@@ -69,8 +66,9 @@ class TestValidateGenerationRequest:
         assert exc.value.status_code == 400
         assert "path traversal" in exc.value.detail.lower()
 
-    def test_rejects_invalid_speaker_for_custom_mode(self, security_config):
+    def test_rejects_invalid_speaker_for_custom_mode(self):
         """Validation rejects invalid speaker for custom mode."""
+        security_config = self._security_config()
         from qwen3_tts.server.validation import (
             GenerateRequest,
             _validate_generation_request,
@@ -82,8 +80,9 @@ class TestValidateGenerationRequest:
         assert exc.value.status_code == 400
         assert "Unknown speaker" in exc.value.detail
 
-    def test_accepts_valid_speaker_lowercase(self, security_config):
+    def test_accepts_valid_speaker_lowercase(self):
         """Validation accepts valid lowercase speaker."""
+        security_config = self._security_config()
         from qwen3_tts.server.validation import (
             GenerateRequest,
             _validate_generation_request,
@@ -93,8 +92,9 @@ class TestValidateGenerationRequest:
         req = GenerateRequest(texts=["test"], mode="custom", speaker="ryan")
         _validate_generation_request(req, security_config)  # No exception
 
-    def test_accepts_valid_clone_mode(self, security_config):
+    def test_accepts_valid_clone_mode(self):
         """Validation accepts clone mode."""
+        security_config = self._security_config()
         from qwen3_tts.server.validation import (
             GenerateRequest,
             _validate_generation_request,
@@ -103,8 +103,9 @@ class TestValidateGenerationRequest:
         req = GenerateRequest(texts=["test"], mode="clone", prompt_file="my_voice.pt")
         _validate_generation_request(req, security_config)  # No exception
 
-    def test_accepts_valid_design_mode(self, security_config):
+    def test_accepts_valid_design_mode(self):
         """Validation accepts design mode."""
+        security_config = self._security_config()
         from qwen3_tts.server.validation import (
             GenerateRequest,
             _validate_generation_request,
@@ -114,7 +115,7 @@ class TestValidateGenerationRequest:
         _validate_generation_request(req, security_config)  # No exception
 
 
-class TestValidatePromptName:
+class TestValidatePromptName(unittest.TestCase):
     """Tests for _validate_prompt_name function."""
 
     def test_rejects_empty_name(self):
@@ -178,7 +179,7 @@ class TestValidatePromptName:
         assert result is None
 
 
-class TestStripExtension:
+class TestStripExtension(unittest.TestCase):
     """Tests for _strip_extension function."""
 
     def test_strips_pt_extension(self):
@@ -212,7 +213,7 @@ class TestStripExtension:
         assert _strip_extension("my.voice.file.pt") == "my.voice.file"
 
 
-class TestGenCacheKey:
+class TestGenCacheKey(unittest.TestCase):
     """Tests for _gen_cache_key function."""
 
     def test_produces_consistent_hash(self):
@@ -313,32 +314,31 @@ class TestGenCacheKey:
         assert a == b
 
 
-class TestTranscribeRequestValidation:
-    """Tests for TranscribeRequest field validation (R-29, R-30)."""
+class TestTranscribeRequestValidation(unittest.TestCase):
+    """Tests for TranscribeRequest field validation (R-29, R-30).
 
-    @pytest.mark.parametrize("lang", ["en", "zh", "eng", "en-US", "zh-Hans"], ids=[
-        "two-letter", "two-letter-zh", "three-letter", "with-region", "with-script",
-    ])
-    def test_language_accepts_valid(self, lang):
+    The two language-code sweeps were pytest parametrize cases; under
+    unittest each case runs as a subTest so a single bad code still fails
+    with its value in the report.
+    """
+
+    def test_language_accepts_valid(self):
         """TranscribeRequest accepts valid BCP-47 language codes."""
         from qwen3_tts.server.validation import TranscribeRequest
-        req = TranscribeRequest(audio_base64="abc", language=lang)
-        assert req.language == lang
+        for lang in ("en", "zh", "eng", "en-US", "zh-Hans"):
+            with self.subTest(lang=lang):
+                req = TranscribeRequest(audio_base64="abc", language=lang)
+                self.assertEqual(req.language, lang)
 
-    @pytest.mark.parametrize("lang", [
-        "not_a_lang_code!!",
-        "toolongcode",
-        "EN",
-        "e",
-        "123",
-    ], ids=["special-chars", "too-long", "uppercase", "too-short", "digits"])
-    def test_language_rejects_invalid(self, lang):
+    def test_language_rejects_invalid(self):
         """TranscribeRequest rejects non-BCP-47 language codes."""
         from pydantic import ValidationError
 
         from qwen3_tts.server.validation import TranscribeRequest
-        with pytest.raises(ValidationError):
-            TranscribeRequest(audio_base64="abc", language=lang)
+        for lang in ("not_a_lang_code!!", "toolongcode", "EN", "e", "123"):
+            with self.subTest(lang=lang):
+                with self.assertRaises(ValidationError):
+                    TranscribeRequest(audio_base64="abc", language=lang)
 
     def test_audio_base64_rejects_oversized_payload(self):
         """TranscribeRequest rejects base64 strings over 50MB."""
@@ -357,7 +357,7 @@ class TestTranscribeRequestValidation:
         assert len(req.audio_base64) == 1024
 
 
-class TestCreateVoicePromptRequestValidation:
+class TestCreateVoicePromptRequestValidation(unittest.TestCase):
     """Tests for CreateVoicePromptRequest field validation (R-30)."""
 
     def test_audio_base64_rejects_oversized_payload(self):
@@ -376,7 +376,7 @@ class TestCreateVoicePromptRequestValidation:
         assert req.name == "test_voice"
 
 
-class TestErrorResponse:
+class TestErrorResponse(unittest.TestCase):
     """Tests for _error_response helper."""
 
     def test_raises_http_exception(self):

@@ -53,7 +53,6 @@ _TESTCASE_SUFFIX = "TestCase"
 KNOWN_HOLLOW = {
     "tests.test_ai_regression": "Step 1E: 3 classes",
     "tests.test_solid_analyzer": "Step 1E: 10 classes",
-    "tests.test_validation": "Step 1E: 7 classes (batch 5)",
 }
 
 
