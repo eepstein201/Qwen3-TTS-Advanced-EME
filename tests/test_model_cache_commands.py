@@ -35,6 +35,7 @@ except ImportError:
     pytest = _DummyPytest()
 
 import pathlib
+import unittest
 from datetime import datetime, timedelta
 from unittest.mock import MagicMock, patch
 
@@ -453,3 +454,31 @@ def test_get_model_dir_size_oserror_on_stat():
     mock_path.rglob.return_value = [good_file, bad_file]
     result = _get_model_dir_size(mock_path)
     assert result == 1000
+
+
+# ---- main() help epilog (unittest-discoverable so the batch runner sees it) ----
+
+class TestPruneEpilogExample(unittest.TestCase):
+    """The `tts cache prune` epilog example must be copy-pasteable.
+
+    The epilog advertised `--unused 30d`, but --unused is type=int — a
+    copy-pasted example was rejected by argparse. Pin that the advertised
+    value parses as the option's declared type.
+    """
+
+    def test_prune_epilog_unused_value_is_an_int(self):
+        import contextlib
+        import io
+        import re
+
+        from qwen3_tts.tools import model_cache
+
+        buf = io.StringIO()
+        with patch("sys.argv", ["model_cache", "--help"]), contextlib.redirect_stdout(buf):
+            with self.assertRaises(SystemExit) as cm:
+                model_cache.main()
+
+        self.assertEqual(cm.exception.code, 0)
+        match = re.search(r"prune --unused (\S+)", buf.getvalue())
+        self.assertIsNotNone(match, "epilog must show a --unused example")
+        int(match.group(1))  # raises ValueError if the example is not an int
