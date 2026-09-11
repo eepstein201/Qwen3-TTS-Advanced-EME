@@ -145,8 +145,18 @@ def preview_voice_prompt(prompt_name, config):
         }
         print(f"Generating preview for '{prompt_name}'...")
         from qwen3_tts.core.http_client import server_request
+        from qwen3_tts.server.client.generator import _generation_timeout
 
-        resp = server_request("POST", "/generate", json=payload, timeout=60)
+        # /generate serializes on inference_lock, so this preview can queue
+        # behind a whole in-flight generation — scale the read timeout the
+        # same way TTSClient does rather than a flat 60s that abandons work
+        # the server goes on to complete.
+        resp = server_request(
+            "POST",
+            "/generate",
+            json=payload,
+            timeout=_generation_timeout(len(payload["texts"][0])),
+        )
         if resp.status_code == 200:
             result = resp.json()["results"][0]
             print("Playing preview...")
@@ -555,14 +565,31 @@ def run_repl(config, use_server, gen_params=None):
                     print("Usage: /preset NAME")
             elif cmd == "/prompt":
                 if arg:
-                    prompt_name = arg if arg.endswith(".pt") else arg + ".pt"
-                    prompt_path = safe_path_join(VOICE_PROMPTS_DIR, prompt_name)
-                    if os.path.exists(prompt_path):
+                    # Backend-aware selection: torch prompts are single .pt
+                    # files, MLX prompts are .wav+.txt pairs (listed and
+                    # defaulted to as base.wav). The old unconditional .pt
+                    # append + raw file check made every MLX prompt
+                    # unfindable here even though generation supports it.
+                    from qwen3_tts.core.config import get_backend
+                    from qwen3_tts.interface.voice_helpers import strip_extension
+
+                    base = strip_extension(arg)
+                    prompt_name = (
+                        f"{base}.wav" if get_backend() == "mlx" else f"{base}.pt"
+                    )
+                    if voice_prompt_exists(prompt_name):
                         state["prompt"] = prompt_name
                         print(f"Switched to prompt: {prompt_name}")
                     else:
-                        print(f"Prompt not found: {prompt_name}")
+                        print(f"Prompt not found: {arg}")
                 else:
+                    prompts = list_voice_prompts()
+                    if prompts:
+                        print("Available voice prompts:")
+                        for p in prompts:
+                            print(f"  {p}")
+                    else:
+                        print("No voice prompts found.")
                     print("Usage: /prompt NAME")
             elif cmd == "/play":
                 if arg and arg.lower() in ("on", "off"):

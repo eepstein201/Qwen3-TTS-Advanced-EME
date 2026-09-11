@@ -202,6 +202,7 @@ def toggle_asr(action):
 
     try:
         from qwen3_tts.core.http_client import (
+            ASR_LOAD_TIMEOUT_SEC,
             UNLOAD_ASR_TIMEOUT_SEC,
             server_request,
         )
@@ -209,9 +210,10 @@ def toggle_asr(action):
         if action == "load":
             path = "/load-asr"
             # /load-asr does not take inference_lock, so it does not queue
-            # behind a generation. Its 60s is pre-existing (audit M6, owned by
-            # plan Phase 3c) — not introduced or worsened here.
-            timeout = 60
+            # behind a generation — but a COLD ASR load is a multi-minute
+            # download + load. The old 60s timed out client-side while the
+            # server kept loading, inviting a retry that double-loads.
+            timeout = ASR_LOAD_TIMEOUT_SEC
         else:
             path = "/unload-asr"
             # /unload-asr now acquires inference_lock (#214 item 2), so it can

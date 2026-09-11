@@ -20,6 +20,7 @@ from qwen3_tts.core.config import (
 )
 
 __all__ = [
+    "ASR_LOAD_TIMEOUT_SEC",
     "CREATE_PROMPT_TIMEOUT_SEC",
     "LOAD_MODEL_TIMEOUT_SEC",
     "TRANSCRIBE_TIMEOUT_SEC",
@@ -56,6 +57,15 @@ TRANSCRIBE_TIMEOUT_SEC = 900
 # /create-voice-prompt caller must use this constant (guarded by
 # tests/test_issue192_create_prompt_serialization.py).
 CREATE_PROMPT_TIMEOUT_SEC = 900
+
+# /load-asr does not take inference_lock, so it never queues behind a
+# generation — but a COLD ASR load is a multi-minute download + load of
+# its own. The UI's old hardcoded 60s timed out client-side while the
+# server kept loading, and the visible failure invited a retry that
+# double-loads — same defect class as the /load-model 120s above. Every
+# /load-asr caller must use this constant (guarded by
+# tests/test_issue214_unload_asr_race.py).
+ASR_LOAD_TIMEOUT_SEC = 900
 
 # /unload-asr acquires inference_lock (#214 item 2) so an unload can never
 # interleave with in-flight inference and trigger a lazy ASR rebuild inside

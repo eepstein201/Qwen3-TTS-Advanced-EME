@@ -152,6 +152,38 @@ class TestPreviewVoicePrompt(unittest.TestCase):
                            for call in mock_print.call_args_list)
         self.assertTrue(error_printed, "Expected error message about server not running")
 
+    @patch("qwen3_tts.interface.generate_interactive.voice_prompt_exists",
+           return_value=True)
+    @patch("qwen3_tts.interface.generate_interactive.is_server_running",
+           return_value=True)
+    def test_generate_uses_char_scaled_timeout(self, _mock_server, _mock_exists):
+        """/generate call scales its read timeout like TTSClient does.
+
+        /generate serializes on inference_lock, so a preview can queue
+        behind a whole in-flight generation — a flat 60s times out
+        client-side while the server goes on to complete the preview.
+        """
+        from qwen3_tts.interface.generate_interactive import preview_voice_prompt
+        from qwen3_tts.server.client.generator import _generation_timeout
+
+        resp = MagicMock()
+        resp.status_code = 500
+        resp.json.return_value = {"error": "boom"}
+
+        with patch("qwen3_tts.core.http_client.server_request",
+                   return_value=resp) as mock_req, \
+             patch("builtins.print"):
+            result = preview_voice_prompt("my_voice", {})
+
+        self.assertFalse(result)
+        texts = mock_req.call_args.kwargs["json"]["texts"]
+        self.assertEqual(
+            mock_req.call_args.kwargs["timeout"],
+            _generation_timeout(len(texts[0])),
+            "preview's /generate call must use the char-scaled "
+            "_generation_timeout (shared with TTSClient), not a flat 60s",
+        )
+
 
 if __name__ == "__main__":
     unittest.main()

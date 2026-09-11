@@ -603,6 +603,107 @@ class TestRunRepl(unittest.TestCase):
         )
 
 
+class TestReplPromptBackendAware(unittest.TestCase):
+    """/prompt must select prompts in the ACTIVE backend's format.
+
+    Old behavior appended .pt unconditionally and existence-checked the raw
+    .pt file, so MLX prompts (a .wav+.txt pair, no .pt on disk) were always
+    reported 'not found' in the REPL. Torch .pt selection must not regress.
+    """
+
+    def _run_repl_with_prompts(self, inputs, backend, prompt_files):
+        """Run the REPL against a temp VOICE_PROMPTS_DIR holding *prompt_files*.
+
+        The backend is pinned via the config facade (the /prompt branch
+        resolves it at call time) AND at generate_helpers' own binding
+        (voice_prompt_exists imported get_backend at module load); the
+        prompts dir is likewise patched in BOTH modules.
+        """
+        import tempfile
+
+        from qwen3_tts.interface.generate_interactive import run_repl
+
+        printed = []
+        with tempfile.TemporaryDirectory() as tmpdir:
+            for fname in prompt_files:
+                with open(os.path.join(tmpdir, fname), "w") as f:
+                    f.write("")
+            with patch("builtins.input", side_effect=iter(inputs)), \
+                 patch("builtins.print", side_effect=lambda *a, **k: printed.append(" ".join(str(x) for x in a))), \
+                 patch("qwen3_tts.interface.generate_interactive.get_default_clone_prompt", return_value="default.pt"), \
+                 patch("qwen3_tts.core.config.get_backend", return_value=backend), \
+                 patch("qwen3_tts.interface.generate_helpers.get_backend", return_value=backend), \
+                 patch("qwen3_tts.interface.generate_interactive.VOICE_PROMPTS_DIR", tmpdir), \
+                 patch("qwen3_tts.interface.generate_helpers.VOICE_PROMPTS_DIR", tmpdir):
+                run_repl({}, True)
+        return "\n".join(printed)
+
+    def test_prompt_mlx_pair_adopted_as_wav(self):
+        """/prompt adopts an MLX .wav+.txt pair (no .pt on disk)."""
+        output = self._run_repl_with_prompts(
+            ["/prompt myvoice", "/status", "/quit"],
+            "mlx",
+            ("myvoice.wav", "myvoice.txt"),
+        )
+        self.assertIn("Exiting REPL.", output)
+        self.assertIn(
+            "Switched to prompt: myvoice.wav",
+            output,
+            f"MLX pair not adopted as base.wav: {output!r}",
+        )
+        self.assertNotIn("not found", output.lower())
+        self.assertIn(
+            "Prompt: myvoice.wav",
+            output,
+            "the switch must update the REPL's active prompt state",
+        )
+
+    def test_prompt_mlx_missing_keeps_default(self):
+        """A name with neither pair nor .pt is reported and the default kept."""
+        output = self._run_repl_with_prompts(
+            ["/prompt ghost", "/status", "/quit"], "mlx", ()
+        )
+        self.assertIn("Exiting REPL.", output)
+        self.assertIn("Prompt not found", output)
+        self.assertIn(
+            "Prompt: default.pt",
+            output,
+            "a missing /prompt target must not replace the active prompt",
+        )
+
+    def test_prompt_torch_keeps_pt_naming(self):
+        """Torch selection still addresses the .pt file by name."""
+        output = self._run_repl_with_prompts(
+            ["/prompt myvoice", "/status", "/quit"],
+            "torch",
+            ("myvoice.pt",),
+        )
+        self.assertIn("Exiting REPL.", output)
+        self.assertIn("Switched to prompt: myvoice.pt", output)
+        self.assertIn("Prompt: myvoice.pt", output)
+
+    def test_prompt_no_arg_lists_backend_aware_prompts(self):
+        """Bare /prompt lists what the active backend can use, then usage."""
+        output = self._run_repl_with_prompts(
+            ["/prompt", "/status", "/quit"],
+            "mlx",
+            ("pair_voice.wav", "pair_voice.txt", "torch_voice.pt"),
+        )
+        self.assertIn("Exiting REPL.", output)
+        self.assertIn("Available voice prompts:", output)
+        self.assertIn(
+            "pair_voice.wav",
+            output,
+            "MLX pairs must be listed (as .wav) for the active backend",
+        )
+        self.assertIn("torch_voice.pt", output)
+        self.assertIn(
+            "Prompt: default.pt",
+            output,
+            "bare /prompt is a listing, not a state change",
+        )
+
+
 class TestInteractiveMode(unittest.TestCase):
     """Tests for interactive_mode."""
 
