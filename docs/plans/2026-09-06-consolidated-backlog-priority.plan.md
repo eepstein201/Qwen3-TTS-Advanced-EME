@@ -376,7 +376,15 @@ incomplete.
 - **Verify:** `conda run -n qwen3-tts-mlx python -m pytest tests/test_voice_server.py -v -k update_model_config`; `ruff`; `mypy`.
 - **Exit criteria:** both new regression tests pass; issue #238 closed in the PR body; master plan's 3e/M8 marked done in the same PR (task 6 above) — do not re-do M8 in Step 3D.
 
-### Step 1C — Decide, then fix, #193: clone output includes the re-spoken reference echo by default
+### Step 1C — Decide, then fix, #193: clone output includes the re-spoken reference echo by default (EXECUTED 2026-09-10, PR #284)
+
+- **Status: DONE (PR #284, squash `ae913296`, 2026-09-10; issue #193 closed).** ICL echo trim
+  keep-loaded (option (b), user-ratified): server-layer `_ensure_asr_for_echo_trim` unlocked
+  pre-lock ensure-load (batch + streaming handlers), under-lock ASR-miss degrades to skip-trim
+  (never 503, never in-lock rebuild), WS9.4 first-chunk cap (`trim_cap_samples`, batch-only).
+  `/ws` + CLI-local stay opportunistic → 6R item 19. Gates 3342/4/0; live smoke proved
+  force-load → probe → 200 and post-unload re-fire. Evidence:
+  `docs/reviews/issue-193-icl-echo-trim-default-2026-09-10.md`.
 
 - **Model tier:** strongest (genuine design tradeoff, not mechanical) · **Branch:** `fix/issue193-icl-echo-trim-default` · **Parallel with:** 1A, 1B, 1D
 - **Context:** `_trim_icl_echo` (`qwen3_tts/core/engine/inference.py:1131`) only runs when
@@ -1491,7 +1499,7 @@ analysis rather than duplicated as a new step.)*
 6A–6R (18) · Wave 7: 7A–7C (3) — **plus 3 independent tracks** (feature, dependency, and the decision-gated branch register — none gated by the waves) **+ 1 passive watch** (no action). Step 6·0 (dead-code cleanup) was already
 executed directly on 2026-09-06 and is recorded in Wave 6; it is not counted among the pending
 steps. **Executed so far: 0A (PR #263), 0B (PR #269), 0C (PR #270), 0D (PR #271), 0E (PR #276), 0F (PR #281), 0G (PR #282), 1A (PR #283).** **6G is
-folded into Wave 7 Step 7C** (not independently pending). ***Open: 39.*** *(Wave 7 incorporated
+folded into Wave 7 Step 7C** (not independently pending). ***Open: 38.*** *(Wave 7 incorporated
 2026-09-08 from the Interface Quality Improvement Plan — a three-surface audit of Web UI, CLI,
 and HTTP API, user-scoped; tracked at `docs/plans/2026-09-07-interface-quality.plan.md`, which
 is the spec for 7A–7C.)* Ordered by: critical correctness/security findings from the 2026-09-06 cross-cutting
