@@ -145,8 +145,18 @@ def preview_voice_prompt(prompt_name, config):
         }
         print(f"Generating preview for '{prompt_name}'...")
         from qwen3_tts.core.http_client import server_request
+        from qwen3_tts.server.client.generator import _generation_timeout
 
-        resp = server_request("POST", "/generate", json=payload, timeout=60)
+        # /generate serializes on inference_lock, so this preview can queue
+        # behind a whole in-flight generation — scale the read timeout the
+        # same way TTSClient does rather than a flat 60s that abandons work
+        # the server goes on to complete.
+        resp = server_request(
+            "POST",
+            "/generate",
+            json=payload,
+            timeout=_generation_timeout(len(payload["texts"][0])),
+        )
         if resp.status_code == 200:
             result = resp.json()["results"][0]
             print("Playing preview...")
