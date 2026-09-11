@@ -418,7 +418,8 @@ class TestUninstallConfig(unittest.TestCase):
             config_path.write_text(json.dumps({"key": "old"}))
 
             with mock.patch("qwen3_tts.tools.uninstall.CONFIG_PATH",
-                            config_path):
+                            config_path), mock.patch(
+                "qwen3_tts.core.config.CONFIG_PATH", config_path):
                 uninstall_config()
 
             # Backup should exist
@@ -443,7 +444,8 @@ class TestUninstallConfig(unittest.TestCase):
             config_path.write_text("not json")
 
             with mock.patch("qwen3_tts.tools.uninstall.CONFIG_PATH",
-                            config_path):
+                            config_path), mock.patch(
+                "qwen3_tts.core.config.CONFIG_PATH", config_path):
                 uninstall_config()
 
             with open(config_path) as f:
@@ -465,7 +467,8 @@ class TestUninstallConfig(unittest.TestCase):
             config_path.write_text(json.dumps({"key": "old"}))
 
             with mock.patch("qwen3_tts.tools.uninstall.CONFIG_PATH",
-                            config_path):
+                            config_path), mock.patch(
+                "qwen3_tts.core.config.CONFIG_PATH", config_path):
                 with mock.patch("builtins.print") as mock_print:
                     uninstall_config()
 
