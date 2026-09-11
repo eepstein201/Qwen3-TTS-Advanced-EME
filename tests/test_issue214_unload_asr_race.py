@@ -458,6 +458,41 @@ class TestUnloadAsrClientTimeout(unittest.TestCase):
 
 
 @_skip
+class TestLoadAsrClientTimeout(unittest.TestCase):
+    """A cold ASR load takes minutes; the old 60 s client failed it spuriously.
+
+    /load-asr does not take inference_lock, but a cold whisper load is a
+    multi-minute download + load. The UI's 60 s read timeout failed while
+    the server kept loading, and the visible failure invited a retry that
+    double-loads -- the same defect class UNLOAD_ASR_TIMEOUT_SEC fixed.
+    """
+
+    def test_load_asr_timeout_constant_is_defined_and_generous(self):
+        """Mirrors UNLOAD_ASR_TIMEOUT_SEC / LOAD_MODEL_TIMEOUT_SEC (=900)."""
+        from qwen3_tts.core.http_client import (
+            ASR_LOAD_TIMEOUT_SEC,
+            LOAD_MODEL_TIMEOUT_SEC,
+        )
+
+        self.assertEqual(ASR_LOAD_TIMEOUT_SEC, 900)
+        self.assertEqual(
+            ASR_LOAD_TIMEOUT_SEC,
+            LOAD_MODEL_TIMEOUT_SEC,
+            "keep the model/ASR load timeouts in lockstep",
+        )
+
+    def test_ui_load_asr_uses_the_constant_not_a_literal(self):
+        """Drift guard: the UI must not reintroduce the hardcoded 60s."""
+        import inspect
+
+        from qwen3_tts.interface.ui import model_management
+
+        src = inspect.getsource(model_management.toggle_asr)
+        self.assertIn("ASR_LOAD_TIMEOUT_SEC", src)
+        self.assertNotIn("timeout = 60", src)
+
+
+@_skip
 class TestTranscribeErrorSurfacing(unittest.TestCase):
     """The 503 is useless if the only client renders it as 'Unknown error'."""
 
