@@ -10,6 +10,7 @@ AI-assisted code review misses bugs:
 import json
 import os
 import time
+import unittest
 import urllib.request
 
 import pytest
@@ -18,10 +19,24 @@ import pytest
 # end-to-end suite. Gate it behind the e2e marker (deselected by pytest.ini's
 # default `-m "not e2e"`) so the offline test/coverage runs skip it cleanly
 # instead of hard-failing when a stale auth-token file makes the skip guards
-# in _get_json/_post_json fall through to pytest.fail().
+# in _get_json/_post_json fall through to _fail().
 pytestmark = pytest.mark.e2e
 
 SERVER_URL = "http://127.0.0.1:5123"
+
+
+def _skip(msg: str):
+    """Skip under either runner.
+
+    _skip() raises a pytest-only exception that unittest reports as an
+    error; unittest.SkipTest is honored by BOTH runners (Step 1E).
+    """
+    raise unittest.SkipTest(msg)
+
+
+def _fail(msg: str):
+    """Fail under either runner (pytest.fail raises a pytest-only exception)."""
+    raise AssertionError(msg)
 
 def _get_auth_token():
     """Read the server auth token."""
@@ -30,7 +45,7 @@ def _get_auth_token():
         with open(token_path) as f:
             return f.read().strip()
     except FileNotFoundError:
-        pytest.skip("Server auth token not found - server not running?")
+        _skip("Server auth token not found - server not running?")
 
 def _get_available_custom_speakers() -> list:
     """Get list of available custom speakers from config.json.
@@ -80,8 +95,13 @@ def _post_json(endpoint: str, data: dict) -> tuple[int, dict]:
         return resp.status, json.loads(resp.read().decode())
     except urllib.error.HTTPError as e:
         return e.code, json.loads(e.read().decode()) if e.headers.get("Content-Type", "").startswith("application/json") else {}
+    except urllib.error.URLError as e:
+        # No live server (batch runner runs offline by design) -- skip
+        # cleanly instead of failing. A live e2e run never reaches this:
+        # the server was health-checked first (Step 1E).
+        _skip(f"Server unreachable at {SERVER_URL}: {e}")
     except Exception as e:
-        pytest.fail(f"Request to {endpoint} failed: {e}")
+        _fail(f"Request to {endpoint} failed: {e}")
 
 def _get_json(endpoint: str) -> tuple[int, dict]:
     """GET JSON from server endpoint, return (status_code, response_json)."""
@@ -97,70 +117,77 @@ def _get_json(endpoint: str) -> tuple[int, dict]:
         return resp.status, json.loads(resp.read().decode())
     except urllib.error.HTTPError as e:
         return e.code, json.loads(e.read().decode()) if e.headers.get("Content-Type", "").startswith("application/json") else {}
+    except urllib.error.URLError as e:
+        # No live server (batch runner runs offline by design) -- skip
+        # cleanly instead of failing. A live e2e run never reaches this:
+        # the server was health-checked first (Step 1E).
+        _skip(f"Server unreachable at {SERVER_URL}: {e}")
     except Exception as e:
-        pytest.fail(f"Request to {endpoint} failed: {e}")
+        _fail(f"Request to {endpoint} failed: {e}")
 
-class TestBackendConsistency:
+class TestBackendConsistency(unittest.TestCase):
     """Test MLX and Torch backends return identical API response shapes."""
 
-    @pytest.mark.parametrize("mode", ["clone", "design", "custom"])
-    def test_all_backends_return_same_response_shape(self, mode: str):
+    def test_all_backends_return_same_response_shape(self):
         """Test MLX and Torch backends return identical API shapes for generation.
 
         This prevents the common AI regression where one backend path is updated
         but the other is forgotten, causing shape mismatches for consumers.
+        (Was a 3-case parametrize; each mode runs as a subTest -- Step 1E.)
         """
-        # Skip if server not running or models not loaded
-        status, models_data = _get_json("/models")
-        if status != 200:
-            pytest.skip("Server not running - cannot test backend consistency")
+        for mode in ("clone", "design", "custom"):
+            with self.subTest(mode=mode):
+                # Skip if server not running or models not loaded
+                status, models_data = _get_json("/models")
+                if status != 200:
+                    _skip("Server not running - cannot test backend consistency")
 
-        # Check if models are loaded for the requested mode
-        if not models_data.get("models", {}).get(mode, {}).get("loaded"):
-            pytest.skip(f"{mode.capitalize()} model not loaded - skipping backend consistency test")
+                # Check if models are loaded for the requested mode
+                if not models_data.get("models", {}).get(mode, {}).get("loaded"):
+                    _skip(f"{mode.capitalize()} model not loaded - skipping backend consistency test")
 
-        # Generate audio and verify response structure
-        generation_data = {
-            "text": "Backend consistency test - this is a short text.",
-            "mode": mode
-        }
+                # Generate audio and verify response structure
+                generation_data = {
+                    "text": "Backend consistency test - this is a short text.",
+                    "mode": mode
+                }
 
-        if mode == "clone":
-            # Dynamically select from available voice prompts
-            available_prompts = _get_available_voice_prompts()
-            if not available_prompts:
-                pytest.skip("No voice prompts configured - skipping clone backend consistency test")
-            generation_data["prompt_file"] = available_prompts[0]
-        elif mode == "custom":
-            # Dynamically select from available speakers
-            available_speakers = _get_available_custom_speakers()
-            if not available_speakers:
-                pytest.skip("No custom speakers configured - skipping custom backend consistency test")
-            generation_data["speaker"] = available_speakers[0]
+                if mode == "clone":
+                    # Dynamically select from available voice prompts
+                    available_prompts = _get_available_voice_prompts()
+                    if not available_prompts:
+                        _skip("No voice prompts configured - skipping clone backend consistency test")
+                    generation_data["prompt_file"] = available_prompts[0]
+                elif mode == "custom":
+                    # Dynamically select from available speakers
+                    available_speakers = _get_available_custom_speakers()
+                    if not available_speakers:
+                        _skip("No custom speakers configured - skipping custom backend consistency test")
+                    generation_data["speaker"] = available_speakers[0]
 
-        status, response = _post_json("/generate", generation_data)
+                status, response = _post_json("/generate", generation_data)
 
-        # Should succeed
-        assert status == 200, f"Generation failed with status {status}: {response}"
+                # Should succeed
+                assert status == 200, f"Generation failed with status {status}: {response}"
 
-        # Verify response has expected structure
-        assert "results" in response, f"Missing 'results' field in {mode} backend response"
-        assert isinstance(response["results"], list), f"results should be a list, got {type(response['results'])}"
-        assert len(response["results"]) > 0, "results should not be empty"
+                # Verify response has expected structure
+                assert "results" in response, f"Missing 'results' field in {mode} backend response"
+                assert isinstance(response["results"], list), f"results should be a list, got {type(response['results'])}"
+                assert len(response["results"]) > 0, "results should not be empty"
 
-        # Verify first result has required fields
-        first_result = response["results"][0]
-        required_fields = ["audio_base64", "sample_rate", "index"]
-        for field in required_fields:
-            assert field in first_result, f"Missing required field '{field}' in {mode} backend result"
+                # Verify first result has required fields
+                first_result = response["results"][0]
+                required_fields = ["audio_base64", "sample_rate", "index"]
+                for field in required_fields:
+                    assert field in first_result, f"Missing required field '{field}' in {mode} backend result"
 
-        # Verify field types
-        assert isinstance(first_result["audio_base64"], str), f"audio_base64 should be string, got {type(first_result['audio_base64'])}"
-        assert isinstance(first_result["sample_rate"], int), f"sample_rate should be int, got {type(first_result['sample_rate'])}"
-        assert isinstance(first_result["index"], int), f"index should be int, got {type(first_result['index'])}"
+                # Verify field types
+                assert isinstance(first_result["audio_base64"], str), f"audio_base64 should be string, got {type(first_result['audio_base64'])}"
+                assert isinstance(first_result["sample_rate"], int), f"sample_rate should be int, got {type(first_result['sample_rate'])}"
+                assert isinstance(first_result["index"], int), f"index should be int, got {type(first_result['index'])}"
 
-        # Verify audio is base64-encoded string (not empty)
-        assert len(first_result["audio_base64"]) > 0, "audio_base64 should not be empty"
+                # Verify audio is base64-encoded string (not empty)
+                assert len(first_result["audio_base64"]) > 0, "audio_base64 should not be empty"
 
     def test_stats_endpoint_includes_all_required_fields(self):
         """Test /stats endpoint returns consistent response shape across backends.
@@ -171,7 +198,7 @@ class TestBackendConsistency:
         status, stats = _get_json("/stats")
 
         if status != 200:
-            pytest.skip("Server not running - cannot test stats endpoint")
+            _skip("Server not running - cannot test stats endpoint")
 
         # Verify /stats has required top-level fields
         required_fields = ["backend", "model_size"]
@@ -182,7 +209,7 @@ class TestBackendConsistency:
         assert isinstance(stats["backend"], str), f"backend should be string, got {type(stats['backend'])}"
         assert isinstance(stats["model_size"], str), f"model_size should be string, got {type(stats['model_size'])}"
 
-class TestModelStateEdgeCases:
+class TestModelStateEdgeCases(unittest.TestCase):
     """Test model state edge cases - graceful failures when models not loaded."""
 
     def test_clone_generation_fails_gracefully_when_model_not_loaded(self):
@@ -196,19 +223,19 @@ class TestModelStateEdgeCases:
             # First, check server status
             status, health = _get_json("/health")
             if status != 200:
-                pytest.skip("Server not running - cannot test model state edge cases")
+                _skip("Server not running - cannot test model state edge cases")
 
             # If clone model is loaded, we need to unload it first to test this scenario
             if health.get("clone_model_loaded"):
                 # Unload clone model to test the failure case
                 status, unload_response = _post_json("/unload-model", {"model_type": "clone"})
                 if status != 200:
-                    pytest.skip(f"Could not unload clone model: {unload_response.get('error', 'Unknown error')}")
+                    _skip(f"Could not unload clone model: {unload_response.get('error', 'Unknown error')}")
 
                 # Verify model is unloaded
                 status, health_after = _get_json("/health")
                 if health_after.get("clone_model_loaded"):
-                    pytest.skip("Clone model still loaded after unload - cannot test failure case")
+                    _skip("Clone model still loaded after unload - cannot test failure case")
 
             # Now try to generate with clone mode - should fail gracefully
             generation_data = {
@@ -239,14 +266,21 @@ class TestModelStateEdgeCases:
             assert any(term in error_msg_str.lower() for term in ["model", "not loaded", "load", "service"]), \
                 f"Error message should mention model loading issue, got: {error_msg_str}"
         finally:
-            # Restore clone model for other tests
-            token = _get_auth_token()
-            load_data = {"model_type": "clone"}
-            req = urllib.request.Request(f"{SERVER_URL}/load-model", data=json.dumps(load_data).encode(), headers={
-                "Content-Type": "application/json",
-                "Authorization": f"Bearer {token}"
-            }, method="POST")
-            urllib.request.urlopen(req, timeout=120)
+            # Restore clone model for other tests -- but only when a server is
+            # actually up: the skip above raises through this finally, and an
+            # offline run has nothing to restore (Step 1E).
+            try:
+                urllib.request.urlopen(f"{SERVER_URL}/health", timeout=2)
+            except Exception:
+                pass
+            else:
+                token = _get_auth_token()
+                load_data = {"model_type": "clone"}
+                req = urllib.request.Request(f"{SERVER_URL}/load-model", data=json.dumps(load_data).encode(), headers={
+                    "Content-Type": "application/json",
+                    "Authorization": f"Bearer {token}"
+                }, method="POST")
+                urllib.request.urlopen(req, timeout=120)
 
     def test_design_generation_fails_gracefully_when_model_not_loaded(self):
         """Test proper error handling when design model is not loaded.
@@ -259,19 +293,19 @@ class TestModelStateEdgeCases:
             # First, check server status
             status, health = _get_json("/health")
             if status != 200:
-                pytest.skip("Server not running - cannot test model state edge cases")
+                _skip("Server not running - cannot test model state edge cases")
 
             # If design model is loaded, we need to unload it first to test this scenario
             if health.get("design_model_loaded"):
                 # Unload design model to test the failure case
                 status, unload_response = _post_json("/unload-model", {"model_type": "design"})
                 if status != 200:
-                    pytest.skip(f"Could not unload design model: {unload_response.get('error', 'Unknown error')}")
+                    _skip(f"Could not unload design model: {unload_response.get('error', 'Unknown error')}")
 
                 # Verify model is unloaded
                 status, health_after = _get_json("/health")
                 if health_after.get("design_model_loaded"):
-                    pytest.skip("Design model still loaded after unload - could not test failure case")
+                    _skip("Design model still loaded after unload - could not test failure case")
 
             # Now try to generate with design mode - should fail gracefully
             generation_data = {
@@ -302,14 +336,21 @@ class TestModelStateEdgeCases:
             assert any(term in error_msg_str.lower() for term in ["model", "not loaded", "load", "service"]), \
                 f"Error message should mention model loading issue, got: {error_msg_str}"
         finally:
-            # Restore design model for other tests
-            token = _get_auth_token()
-            load_data = {"model_type": "design"}
-            req = urllib.request.Request(f"{SERVER_URL}/load-model", data=json.dumps(load_data).encode(), headers={
-                "Content-Type": "application/json",
-                "Authorization": f"Bearer {token}"
-            }, method="POST")
-            urllib.request.urlopen(req, timeout=120)
+            # Restore design model for other tests -- but only when a server is
+            # actually up: the skip above raises through this finally, and an
+            # offline run has nothing to restore (Step 1E).
+            try:
+                urllib.request.urlopen(f"{SERVER_URL}/health", timeout=2)
+            except Exception:
+                pass
+            else:
+                token = _get_auth_token()
+                load_data = {"model_type": "design"}
+                req = urllib.request.Request(f"{SERVER_URL}/load-model", data=json.dumps(load_data).encode(), headers={
+                    "Content-Type": "application/json",
+                    "Authorization": f"Bearer {token}"
+                }, method="POST")
+                urllib.request.urlopen(req, timeout=120)
 
     def test_custom_generation_fails_gracefully_when_model_not_loaded(self):
         """Test proper error handling when custom model is not loaded.
@@ -322,24 +363,24 @@ class TestModelStateEdgeCases:
             # First, check server status
             status, health = _get_json("/health")
             if status != 200:
-                pytest.skip("Server not running - cannot test model state edge cases")
+                _skip("Server not running - cannot test model state edge cases")
 
             # If custom model is loaded, we need to unload it first to test this scenario
             if health.get("custom_model_loaded"):
                 # Unload custom model to test the failure case
                 status, unload_response = _post_json("/unload-model", {"model_type": "custom"})
                 if status != 200:
-                    pytest.skip(f"Could not unload custom model: {unload_response.get('error', 'Unknown error')}")
+                    _skip(f"Could not unload custom model: {unload_response.get('error', 'Unknown error')}")
 
                 # Verify model is unloaded
                 status, health_after = _get_json("/health")
                 if health_after.get("custom_model_loaded"):
-                    pytest.skip("Custom model still loaded after unload - could not test failure case")
+                    _skip("Custom model still loaded after unload - could not test failure case")
 
             # Now try to generate with custom mode - should fail gracefully
             available_speakers = _get_available_custom_speakers()
             if not available_speakers:
-                pytest.skip("No custom speakers configured - skipping custom model state edge case test")
+                _skip("No custom speakers configured - skipping custom model state edge case test")
 
             generation_data = {
                 "text": "This should fail gracefully when model not loaded.",
@@ -374,14 +415,21 @@ class TestModelStateEdgeCases:
             assert any(term in error_msg_str.lower() for term in ["model", "not loaded", "load", "service"]), \
                 f"Error message should mention model loading issue, got: {error_msg_str}"
         finally:
-            # Restore custom model for other tests
-            token = _get_auth_token()
-            load_data = {"model_type": "custom"}
-            req = urllib.request.Request(f"{SERVER_URL}/load-model", data=json.dumps(load_data).encode(), headers={
-                "Content-Type": "application/json",
-                "Authorization": f"Bearer {token}"
-            }, method="POST")
-            urllib.request.urlopen(req, timeout=120)
+            # Restore custom model for other tests -- but only when a server is
+            # actually up: the skip above raises through this finally, and an
+            # offline run has nothing to restore (Step 1E).
+            try:
+                urllib.request.urlopen(f"{SERVER_URL}/health", timeout=2)
+            except Exception:
+                pass
+            else:
+                token = _get_auth_token()
+                load_data = {"model_type": "custom"}
+                req = urllib.request.Request(f"{SERVER_URL}/load-model", data=json.dumps(load_data).encode(), headers={
+                    "Content-Type": "application/json",
+                    "Authorization": f"Bearer {token}"
+                }, method="POST")
+                urllib.request.urlopen(req, timeout=120)
 
 def _get_headers() -> dict:
     """Get authenticated headers for API requests."""
@@ -391,12 +439,16 @@ def _get_headers() -> dict:
         "Authorization": f"Bearer {token}"
     }
 
-class TestAPIResponseContracts:
+class TestAPIResponseContracts(unittest.TestCase):
     """Test that API responses adhere to expected contracts (all required fields present)."""
 
-    @pytest.fixture(scope="class", autouse=True)
-    def ensure_server_running(self):
-        """Verify server is running before API contract tests."""
+    @classmethod
+    def setUpClass(cls):
+        """Verify server is running before API contract tests.
+
+        (Was a class-scoped autouse pytest fixture; SkipTest is honored by
+        both runners -- Step 1E.)
+        """
         deadline = time.time() + 30
         while time.time() < deadline:
             try:
@@ -406,7 +458,7 @@ class TestAPIResponseContracts:
             except Exception:
                 pass
             time.sleep(1)
-        pytest.skip("Server not available")
+        raise unittest.SkipTest("Server not available")
 
     def test_stats_endpoint_includes_all_required_fields(self):
         """Prevent regression where new stats fields are missed.
@@ -522,7 +574,7 @@ class TestAPIResponseContracts:
                     if health.get("clone_model_loaded"):
                         break
         except Exception:
-            pytest.skip("Could not ensure clone model is loaded")
+            _skip("Could not ensure clone model is loaded")
 
         # Check if there are any voice prompts available for clone mode
         try:
@@ -532,12 +584,12 @@ class TestAPIResponseContracts:
             available_prompts = prompts_data.get("prompts", [])
 
             if not available_prompts:
-                pytest.skip("No voice prompts available for clone mode test")
+                _skip("No voice prompts available for clone mode test")
 
             # Use the first available prompt
             prompt_file = available_prompts[0]
         except Exception:
-            pytest.skip("Could not get voice prompts list")
+            _skip("Could not get voice prompts list")
 
         # Test generate response structure with clone mode (requires prompt_file)
         gen_data = {"text": "Contract test", "mode": "clone", "prompt_file": prompt_file}

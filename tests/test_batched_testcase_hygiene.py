@@ -51,7 +51,6 @@ _TESTCASE_SUFFIX = "TestCase"
 # pytest-style. Each is hollow under the batch runner TODAY -- Step 1E converts
 # them and deletes the entry. Counts are from the 2026-09-11 scan.
 KNOWN_HOLLOW = {
-    "tests.test_ai_regression": "Step 1E: 3 classes",
     "tests.test_solid_analyzer": "Step 1E: 10 classes",
 }
 
