@@ -378,5 +378,26 @@ class TestCacheCommands(unittest.TestCase):
         mock_fn.assert_called_once_with(force=True)
 
 
+@unittest.skipUnless(HAS_CLICK, "requires click")
+class TestVoiceCreate(unittest.TestCase):
+    """Exit-code propagation: create_voice.main()'s return must reach the shell."""
+
+    _CREATE_MAIN = "qwen3_tts.tools.create_voice.main"
+
+    def test_failure_exits_nonzero(self):
+        from qwen3_tts.cli import cli
+        runner = CliRunner()
+        with patch(self._CREATE_MAIN, return_value=1):
+            result = runner.invoke(cli, ["voice", "create", "audio.wav"])
+        self.assertNotEqual(result.exit_code, 0)
+
+    def test_success_exits_zero(self):
+        from qwen3_tts.cli import cli
+        runner = CliRunner()
+        with patch(self._CREATE_MAIN, return_value=0):
+            result = runner.invoke(cli, ["voice", "create", "audio.wav"])
+        self.assertEqual(result.exit_code, 0)
+
+
 if __name__ == "__main__":
     unittest.main()
