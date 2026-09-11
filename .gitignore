@@ -10,6 +10,7 @@ __pycache__/
 .voice_server.log*
 .voice_server.pid
 .voice_server_test.pid
+.voice_server.lock
 review_chunk.md
 
 # Audio files (user-specific)
@@ -92,3 +93,21 @@ phase-*-smoke/
 # by tests/test_claude_hooks.py (secrets would fail that guard)
 # Claude Code local settings (contains secrets, e.g. MCP tokens)
 .claude/settings.local.json
+
+# MemPalace per-project files (issue #185)
+mempalace.yaml
+entities.json
+
+# Local agent/tool state and credentials — never committed (origin is PUBLIC).
+# .gd holds a Google Drive OAuth refresh_token + client_secret; the rest is
+# machine-local tool state or throwaway reports. These were untracked but
+# UNIGNORED, so a single `git add -A` would have published them.
+.gd/
+.codex/
+.ua/
+.driveignore
+.venv-*/
+security-report.html
+PATHFINDER-*/
+.claude/settings.local.json.bak
+.claude/.headroom_wrap_settings.lock

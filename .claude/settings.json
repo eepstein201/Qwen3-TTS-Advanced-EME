@@ -23,6 +23,11 @@
             "type": "command",
             "command": "python3 \"$CLAUDE_PROJECT_DIR/.claude/hooks/require-server-ready-before-full-test.py\"",
             "timeout": 15
+          },
+          {
+            "type": "command",
+            "command": "python3 \"$CLAUDE_PROJECT_DIR/.claude/hooks/workspace-hygiene.py\"",
+            "timeout": 15
           }
         ]
       },
