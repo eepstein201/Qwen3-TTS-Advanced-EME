@@ -102,9 +102,13 @@ def create(audio, name, transcript, mlx_only, force_torch, no_transcript, auto_t
     try:
         from qwen3_tts.tools.create_voice import main as _create_main
 
-        _create_main()
+        exit_code = _create_main()
     finally:
         sys.argv = old_argv
+    # create_voice.main() returns an int exit code (0 success, non-zero
+    # failure); propagate it so `tts voice create` does not exit 0 on failure.
+    if exit_code != 0:
+        sys.exit(exit_code)
 
 
 @voice.command()
