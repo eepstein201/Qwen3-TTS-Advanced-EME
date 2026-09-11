@@ -177,8 +177,9 @@ def check_model_cache() -> tuple:
     if model_count == 0:
         return "info", "No models cached (will download on first use)"
 
-    # Format size
-    for unit in ("B", "KB", "MB", "GB"):
+    # Format size — "TB" included or >=1 TiB exits the loop without ever
+    # assigning size_str (UnboundLocalError).
+    for unit in ("B", "KB", "MB", "GB", "TB"):
         if total_size < 1024.0:
             size_str = f"{total_size:.1f} {unit}"
             break
