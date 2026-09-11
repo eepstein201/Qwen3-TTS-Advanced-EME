@@ -746,6 +746,54 @@ class TestCreateAndSaveVoicePromptPydubFallback(unittest.TestCase):
 
 
 # ---------------------------------------------------------------------------
+# bounded reference-audio load
+# ---------------------------------------------------------------------------
+
+@_skip
+class TestLoadReferenceAudioBounded(unittest.TestCase):
+    """sf.read / AudioSegment.from_file must be bounded by a timeout."""
+
+    def test_success_returns_audio_tuple(self):
+        """A readable wav loads through the bounded helper unchanged."""
+        import numpy as np
+        import soundfile as sf
+
+        from qwen3_tts.tools.create_voice import _load_reference_audio_bounded
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            wav = os.path.join(tmpdir, "ref.wav")
+            sf.write(wav, np.zeros(24000, dtype=np.float32), 24000)
+
+            ref_audio, ref_sr, wav_path = _load_reference_audio_bounded(wav)
+
+        self.assertEqual(len(ref_audio), 24000)
+        self.assertEqual(ref_sr, 24000)
+        self.assertIsNone(wav_path)
+
+    def test_hung_load_raises_timeout(self):
+        """A load that never returns raises TimeoutError instead of hanging."""
+        import threading
+
+        from qwen3_tts.tools import create_voice
+
+        release = threading.Event()
+        self.addCleanup(release.set)
+
+        def hang(*args, **kwargs):
+            release.wait(timeout=30)  # simulate an unresponsive mount/FIFO
+            return None
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            wav = os.path.join(tmpdir, "ref.wav")
+
+            with mock.patch("soundfile.read", side_effect=hang), mock.patch(
+                "qwen3_tts.tools.create_voice._AUDIO_LOAD_TIMEOUT_SEC", 0.2
+            ):
+                with self.assertRaises(TimeoutError):
+                    create_voice._load_reference_audio_bounded(wav)
+
+
+# ---------------------------------------------------------------------------
 # main() entry point
 # ---------------------------------------------------------------------------
 
