@@ -557,6 +557,20 @@ incomplete.
   it at module scope, `websocket.py` function-locally), so some patches are inert no-ops. Sweep every
   test driver onto the consuming-module target the handler actually resolves, and add the
   resolution rule as a comment so the next driver does not drift.
+- **Also queued here (2026-09-11, from the 3B trace — test-infra, same class of batch-gate blind spot):**
+  finding-7 function-style batched modules — 16 of 178 batched modules define no
+  `unittest.TestCase` subclass at all (module-level `test_*` functions only), so the batch runner's
+  `python -m unittest` executes `Ran 0 tests` for them and the batch gate passes them vacuously
+  (runner-proven 2026-09-11: all 16 in one unittest invocation, `0.000s`). The 1E hygiene guard
+  only inspects `Test*` classes, so these were invisible to the sweep's ratchet. They still run
+  under pytest (CI's coverage job runs all non-e2e), so the batch gate is the blind surface.
+  Modules: `test_backend_torch`, `test_claude_md`, `test_cli_commands`, `test_cli_model_size_choices`,
+  `test_cli_voice_rebuild`, `test_colab_paths`, `test_fastapi_endpoints`, `test_fastapi_server`,
+  `test_history_disk_rederive`, `test_model_cache_commands`, `test_model_loader_extended`,
+  `test_server_async_offload`, `test_ui_model_management`, `test_ui_shared_metadata`,
+  `test_ui_status_banner`, `test_voice`. Fix: extend the guard to flag batched modules whose test
+  surface is entirely function-style (a module with zero collectable classes is trivially hollow),
+  then sweep them like 1E — convert or explicitly justify per module.
 - **Exit criteria:** static guard passes clean; every batched module's tests actually execute under the batch runner.
 
 ---
@@ -628,8 +642,9 @@ unfalsifiable. 3e's M8 sub-item is dropped here — it's Step 1B above.)*
 - **Verify:** `conda run -n qwen3-tts-mlx python -m pytest tests/test_seed_lock_chunks.py tests/test_engine_streaming.py -v`; `ruff`; `mypy`.
 - **Exit criteria:** per-chunk derived seeding verified for both the batch and streaming runners; regression tests pinned for both.
 
-### Step 3B — 3f: confirm-and-close `models.<type>.revision` MLX wiring
+### Step 3B — 3f: confirm-and-close `models.<type>.revision` MLX wiring (EXECUTED 2026-09-11)
 
+- **Status: DONE — gap found, small fix executed (branch `fix/phase3-revision-mlx-wiring`, 2026-09-11).** The 2026-09-06 recon's "already threaded" hits (`model_loader.py` ~298/352/400/415) are ALL torch-path lines (`_load_model_torch` / `_is_model_cached` / `_patch_tokenizer`); the MLX loader `_load_model_mlx` called `mlx_load_model(repo_id)` with **no revision** — `models.<type>.revision` was dead config on the MLX backend for all three model types (the resolver `get_model_revision` is backend-aware via `MLX_MODEL_INFO` and was simply never called on that path). End-to-end trace proved mlx-audio supports it — `mlx_audio.tts.utils.load_model` forwards `**kwargs` into `base_load_model`, which explicitly accepts and forwards `revision` into `get_model_path` → the hub download — so the master plan's "wire into `mlx_load_model` if supported" branch applied: `_load_model_mlx` now resolves `get_model_revision(model_type)` and passes `revision=` to the load call. Regression pin: `tests/test_model_loader_extended.py::TestMlxRevisionWiring` (a `TestCase` class — collected by both runners; mlx_audio stubbed via `patch.dict(sys.modules)` so it runs in torchless CI too), RED→GREEN proved (pre-fix: `AssertionError: None != 'deadbeef'` ×3 model types under unittest AND pytest). Verified via the mocked-call option this step itself offered (a live non-`main` load was rejected — it would download a second multi-GB snapshot). Master plan M7 register row + Phase-3 3f item marked. Interplay note: master-plan 3b/U5 (`update_startup_defaults` wholesale dict replacement) can still silently delete a pinned revision — remains open there, unchanged by this fix.
 - **Model tier:** default · **Branch:** none (read-only confirmation) or `docs/phase3-revision-confirm` if a doc note is needed · **Parallel with:** everything in Wave 3
 - **Context:** confirmed 2026-09-06 — `revision=revision` is already threaded through multiple call sites in `qwen3_tts/core/engine/model_loader.py` (lines ~298, 352, 400, 415), sourced from `get_model_revision(model_type)`. This looks **already resolved**, contradicting the master plan's listing of it as open.
 - **Tasks:** trace the exact MLX load call path end-to-end (not just grep hits) to confirm `revision` actually reaches the `mlx_audio`/`huggingface_hub` load call for all three model types; if confirmed, mark 3f done in the master plan with the file:line evidence — no code change. If a gap is found (e.g. one model type's MLX path bypasses this), scope a small follow-up fix instead.
@@ -1502,8 +1517,8 @@ analysis rather than duplicated as a new step.)*
 (1) · Wave 3: 3A–3E (5) · Wave 4: 4A–4D (4) · Wave 4B: 4B.1–4B.4 (4) · Wave 5: 5 (1) · Wave 6:
 6A–6R (18) · Wave 7: 7A–7C (3) — **plus 3 independent tracks** (feature, dependency, and the decision-gated branch register — none gated by the waves) **+ 1 passive watch** (no action). Step 6·0 (dead-code cleanup) was already
 executed directly on 2026-09-06 and is recorded in Wave 6; it is not counted among the pending
-steps. **Executed so far: 0A (PR #263), 0B (PR #269), 0C (PR #270), 0D (PR #271), 0E (PR #276), 0F (PR #281), 0G (PR #282), 1A (PR #283), 1B (PR #287), 1C (PR #284), 1D (PR #289), 1E (this PR).** **6G is
-folded into Wave 7 Step 7C** (not independently pending). ***Open: 34.*** *(Wave 7 incorporated
+steps. **Executed so far: 0A (PR #263), 0B (PR #269), 0C (PR #270), 0D (PR #271), 0E (PR #276), 0F (PR #281), 0G (PR #282), 1A (PR #283), 1B (PR #287), 1C (PR #284), 1D (PR #289), 1E (PR #290), 3B (this PR).** **6G is
+folded into Wave 7 Step 7C** (not independently pending). ***Open: 33.*** *(Wave 7 incorporated
 2026-09-08 from the Interface Quality Improvement Plan — a three-surface audit of Web UI, CLI,
 and HTTP API, user-scoped; tracked at `docs/plans/2026-09-07-interface-quality.plan.md`, which
 is the spec for 7A–7C.)* Ordered by: critical correctness/security findings from the 2026-09-06 cross-cutting
