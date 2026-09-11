@@ -1,10 +1,11 @@
 """Tests for audio pipeline — inference configuration behavior."""
 import inspect
+import unittest
 
 import numpy as np
 
 
-class TestMetalRetrySilenceGap:
+class TestMetalRetrySilenceGap(unittest.TestCase):
     """Tests for R-27: Metal retry path should not use hardcoded silence gap."""
 
     def test_metal_retry_does_not_hardcode_silence(self):
@@ -21,10 +22,10 @@ class TestMetalRetrySilenceGap:
         )
 
 
-class TestLUFSNormalizationToggle:
+class TestLUFSNormalizationToggle(unittest.TestCase):
     """Tests for R-23: LUFS normalization opt-in via generation.lufs_normalize."""
 
-    def test_run_inference_applies_lufs_when_enabled(self, monkeypatch):
+    def test_run_inference_applies_lufs_when_enabled(self):
         """When generation.lufs_normalize=True, process_audio is called with lufs_target."""
         from unittest.mock import MagicMock, patch
 
@@ -33,17 +34,14 @@ class TestLUFSNormalizationToggle:
         fake_audio = np.zeros(24000, dtype=np.float32)
         fake_sr = 24000
 
-        monkeypatch.setattr(
+        with patch.object(
             inference, "_run_inference_single",
             lambda *a, **kw: (fake_audio, fake_sr),
-        )
-        monkeypatch.setattr(
+        ), patch.object(
             inference._DEFAULT_CONFIG_LOADER, "load",
-            lambda: {"generation": {"lufs_normalize": True, "silence_gap_seconds": 0.0}},
-        )
-
-        with patch("qwen3_tts.core.engine.inference.process_audio",
-                   return_value=(fake_audio, fake_sr)) as mock_pa:
+            return_value={"generation": {"lufs_normalize": True, "silence_gap_seconds": 0.0}},
+        ), patch("qwen3_tts.core.engine.inference.process_audio",
+                 return_value=(fake_audio, fake_sr)) as mock_pa:
             inference.run_inference(
                 model=MagicMock(), text="hello world", mode="clone",
                 gen_params={"temperature": 0.7, "top_k": 50, "top_p": 0.95, "repetition_penalty": 1.05},
@@ -52,7 +50,7 @@ class TestLUFSNormalizationToggle:
             _, kwargs = mock_pa.call_args
             assert kwargs.get("lufs_target") is not None
 
-    def test_run_inference_skips_lufs_by_default(self, monkeypatch):
+    def test_run_inference_skips_lufs_by_default(self):
         """When generation.lufs_normalize is absent/false, process_audio is not called."""
         from unittest.mock import MagicMock, patch
 
@@ -61,16 +59,13 @@ class TestLUFSNormalizationToggle:
         fake_audio = np.zeros(24000, dtype=np.float32)
         fake_sr = 24000
 
-        monkeypatch.setattr(
+        with patch.object(
             inference, "_run_inference_single",
             lambda *a, **kw: (fake_audio, fake_sr),
-        )
-        monkeypatch.setattr(
+        ), patch.object(
             inference._DEFAULT_CONFIG_LOADER, "load",
-            lambda: {"generation": {"silence_gap_seconds": 0.0}},
-        )
-
-        with patch("qwen3_tts.core.engine.inference.process_audio") as mock_pa:
+            return_value={"generation": {"silence_gap_seconds": 0.0}},
+        ), patch("qwen3_tts.core.engine.inference.process_audio") as mock_pa:
             inference.run_inference(
                 model=MagicMock(), text="hello world", mode="clone",
                 gen_params={"temperature": 0.7, "top_k": 50, "top_p": 0.95, "repetition_penalty": 1.05},
@@ -78,7 +73,7 @@ class TestLUFSNormalizationToggle:
             mock_pa.assert_not_called()
 
 
-class TestLufsTargetConfigurable:
+class TestLufsTargetConfigurable(unittest.TestCase):
     """R-23: lufs_target is read from generation.lufs_target (default -16.0)."""
 
     def test_custom_lufs_target_propagates(self):
