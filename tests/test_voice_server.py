@@ -861,7 +861,7 @@ class TestModelsEndpointEnhanced(unittest.TestCase):
         self.assertIn("model_load_times", data)
 
 
-class TestUpdateModelConfigAcceptsAll5MlxQuants:
+class TestUpdateModelConfigAcceptsAll5MlxQuants(unittest.TestCase):
     """Server /update-model-config must accept all VALID_MLX_QUANTIZATIONS values."""
 
     def test_5bit_accepted(self):

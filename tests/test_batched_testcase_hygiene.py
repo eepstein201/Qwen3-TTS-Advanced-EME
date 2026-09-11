@@ -46,17 +46,13 @@ KNOWN_HOLLOW = {
     "tests.test_ai_regression": "Step 1E: 3 classes",
     "tests.test_audio_pipeline": "Step 1E: 3 classes (batch 1)",
     "tests.test_create_voice_functions": "Step 1E: 1 class",
-    "tests.test_error_handling": "Step 1E: 4 classes",
     "tests.test_fastapi_app_ext": "Step 1E: 11 classes",
-    "tests.test_ocp_strategy": "Step 1E: 4 classes",
     "tests.test_response_contracts": "Step 1E: 4 classes",
     "tests.test_server_vllm_integration": "Step 1E: 2 classes",
     "tests.test_solid_analyzer": "Step 1E: 10 classes",
     "tests.test_ui_low_rate_prompt_warning": "Step 1E: 2 classes",
     "tests.test_ui_port_flag": "Step 1E: 2 classes",
     "tests.test_validation": "Step 1E: 7 classes (batch 5)",
-    "tests.test_voice_helpers": "Step 1E: 5 classes",
-    "tests.test_voice_server": "Step 1E: 1 class",
 }
 
 
