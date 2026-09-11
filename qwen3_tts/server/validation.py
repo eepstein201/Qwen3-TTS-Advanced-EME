@@ -14,7 +14,12 @@ from pathlib import Path
 from fastapi import HTTPException
 from pydantic import BaseModel, Field
 
-from qwen3_tts.core.config import CUSTOM_VOICE_SPEAKERS, VOICE_PROMPTS_DIR
+from qwen3_tts.core.config import (
+    CUSTOM_VOICE_SPEAKERS,
+    VOICE_PROMPTS_DIR,
+    get_backend,
+    load_config,
+)
 
 MAX_PROMPT_NAME_LEN = 255  # max length for voice prompt names
 MAX_AUDIO_BASE64_BYTES = 50 * 1024 * 1024  # 50MB base64 ≈ 37.5MB raw audio
@@ -371,14 +376,43 @@ class RenamePromptResponse(BaseModel):
 # ---------------------------------------------------------------------------
 
 
+def _vllm_backend_without_vllm_enabled() -> bool:
+    """True when the configured backend is vllm but the vLLM section is off.
+
+    Covers both ``advanced.backend`` and the ``TTS_BACKEND`` env override —
+    both funnel through :func:`get_backend`. ``load_config`` is mtime-cached,
+    so the check adds no per-request file I/O.
+    """
+    if get_backend() != "vllm":
+        return False
+    return not load_config().get("vllm", {}).get("enabled", False)
+
+
 def _validate_generation_request(req: GenerateRequest, security_config: dict) -> None:
     """Shared validation for /generate and /generate-stream.
 
     Raises HTTPException for:
+    - backend="vllm" with the vLLM section disabled (config mismatch)
     - Path traversal in prompt_file
     - Invalid speaker name for custom mode
     - Invalid mode
     """
+    # Config mismatch: backend="vllm" with the vLLM section disabled has no
+    # runnable path — no adapter is started (lifespan gates on vllm.enabled)
+    # and the engine registry holds no vLLM strategy, so generation would
+    # fail mid-request with an opaque downstream error. Reject here, at the
+    # validation boundary, with the fix.
+    if _vllm_backend_without_vllm_enabled():
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                "advanced.backend is 'vllm' but the vLLM section is disabled "
+                "(vllm.enabled=false): no vLLM adapter is started and the "
+                "engine has no vLLM inference strategy. Set advanced.backend "
+                "to 'torch' or 'mlx', or set vllm.enabled=true in config.json."
+            ),
+        )
+
     # Path traversal check — use pathlib.resolve() to catch encoded sequences and symlinks
     if req.prompt_file:
         try:
