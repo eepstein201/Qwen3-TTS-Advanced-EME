@@ -6,6 +6,7 @@ The main entry point is build_ui() which creates the Gradio interface.
 
 Modules:
 - _facade: Main entry points (build_ui, main, stop_server)
+- components: Reusable UI widgets (ConfirmButton, StatusBanner, ...)
 - shared: Shared utilities, constants, status helpers
 - generation: Generation tab logic and wiring
 - voice_management: Voice prompt creation and management
@@ -140,6 +141,7 @@ _module_cache: dict = {}
 # Submodules that can be lazily imported
 _SUBMODULES = {
     "_facade",
+    "components",
     "shared",
     "generation",
     "voice_management",
