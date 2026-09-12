@@ -1527,8 +1527,8 @@ analysis rather than duplicated as a new step.)*
 (1) · Wave 3: 3A–3E (5) · Wave 4: 4A–4D (4) · Wave 4B: 4B.1–4B.4 (4) · Wave 5: 5 (1) · Wave 6:
 6A–6R (18) · Wave 7: 7A–7C (3) — **plus 3 independent tracks** (feature, dependency, and the decision-gated branch register — none gated by the waves) **+ 1 passive watch** (no action). Step 6·0 (dead-code cleanup) was already
 executed directly on 2026-09-06 and is recorded in Wave 6; it is not counted among the pending
-steps. **Executed so far: 0A (PR #263), 0B (PR #269), 0C (PR #270), 0D (PR #271), 0E (PR #276), 0F (PR #281), 0G (PR #282), 1A (PR #283), 1B (PR #287), 1C (PR #284), 1D (PR #289), 1E (PR #290), 3B (PR #291), 3C (PR #292), 3D (this PR).** **6G is
-folded into Wave 7 Step 7C** (not independently pending). ***Open: 31.*** *(Wave 7 incorporated
+steps. **Executed so far: 0A (PR #263), 0B (PR #269), 0C (PR #270), 0D (PR #271), 0E (PR #276), 0F (PR #281), 0G (PR #282), 1A (PR #283), 1B (PR #287), 1C (PR #284), 1D (PR #289), 1E (PR #290), 3B (PR #291), 3C (PR #292), 3D (PR #293), 3E (PR #294).** **6G is
+folded into Wave 7 Step 7C** (not independently pending). ***Open: 30.*** *(Wave 7 incorporated
 2026-09-08 from the Interface Quality Improvement Plan — a three-surface audit of Web UI, CLI,
 and HTTP API, user-scoped; tracked at `docs/plans/2026-09-07-interface-quality.plan.md`, which
 is the spec for 7A–7C.)* Ordered by: critical correctness/security findings from the 2026-09-06 cross-cutting
