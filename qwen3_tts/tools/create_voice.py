@@ -11,10 +11,12 @@ Use --mlx-only to skip .pt creation (no torch required, works from any env).
 
 import argparse
 import os
+import queue
 import shutil
 import subprocess  # nosec B404
 import sys
 import tempfile
+import threading
 
 from qwen3_tts.core.config import (
     USER_FILES_DIR,
@@ -23,6 +25,71 @@ from qwen3_tts.core.config import (
     safe_path_join,
     validate_voice_name,
 )
+
+# Upper bound for loading one reference-audio file. sf.read and
+# AudioSegment.from_file can block indefinitely on an unresponsive mount or a
+# FIFO; past this bound the CLI fails loudly instead of hanging forever.
+_AUDIO_LOAD_TIMEOUT_SEC = 60
+
+
+def _load_reference_audio_bounded(audio_path):
+    """Load reference audio, bounded by _AUDIO_LOAD_TIMEOUT_SEC.
+
+    Runs the soundfile/pydub load in a daemon worker: a load stuck on an
+    unresponsive mount or a FIFO raises TimeoutError on the main thread, and
+    the abandoned worker (daemon) cannot block interpreter exit. Load
+    semantics on success are identical to the previous inline block.
+
+    Returns (ref_audio, ref_sr, wav_path) where wav_path is the staged
+    pydub-conversion temp file, or None when soundfile read the input directly.
+    """
+    import soundfile as sf  # lazy
+
+    result_q = queue.Queue()
+
+    def _load():
+        ext = os.path.splitext(audio_path)[1].lower().lstrip(".")
+        wav_path = None
+        try:
+            try:
+                ref_audio, ref_sr = sf.read(audio_path)
+            except (sf.SoundFileError, RuntimeError):
+                from pydub import AudioSegment  # lazy — non-wav fallback only
+
+                # Format not supported by soundfile — try pydub conversion.
+                # PermissionError, FileNotFoundError, MemoryError etc.
+                # propagate normally.
+                if ext == "m4a":
+                    ext = "mp4"
+                print(f"Converting {audio_path} to wav format...")
+                audio = AudioSegment.from_file(audio_path, format=ext)
+                # Unique temp name: the old fixed "temp_reference.wav" raced
+                # two concurrent creates (B's export overwrote A's input
+                # before A read it). Cleanup is guaranteed by the try/finally
+                # below, which wraps EVERYTHING after staging — any failure
+                # (validation, the writer, torch save) removes the temp
+                # instead of orphaning it.
+                fd, wav_path = tempfile.mkstemp(suffix=".wav", dir=USER_FILES_DIR)
+                os.close(fd)
+                audio.export(wav_path, format="wav")
+                ref_audio, ref_sr = sf.read(wav_path)
+            print(f"Audio loaded: {len(ref_audio) / ref_sr:.1f} seconds at {ref_sr}Hz")
+            result_q.put(("ok", (ref_audio, ref_sr, wav_path)))
+        except BaseException as e:  # ferry every worker failure to the caller
+            result_q.put(("err", e))
+
+    worker = threading.Thread(target=_load, daemon=True, name="tts-audio-load")
+    worker.start()
+    try:
+        status, payload = result_q.get(timeout=_AUDIO_LOAD_TIMEOUT_SEC)
+    except queue.Empty:
+        raise TimeoutError(
+            f"Timed out reading {audio_path} after "
+            f"{_AUDIO_LOAD_TIMEOUT_SEC}s (unresponsive file or mount?)"
+        ) from None
+    if status == "err":
+        raise payload
+    return payload
 
 
 def create_and_save_voice_prompt(
@@ -45,33 +112,11 @@ def create_and_save_voice_prompt(
             (speaker-embedding-only) prompt. The .txt is written empty and the
             torch .pt stores the flag so generation runs in x-vector-only mode.
     """
-    import soundfile as sf  # lazy — not needed at module import time
-    from pydub import AudioSegment  # lazy — only used for non-wav format fallback
+    import soundfile as sf  # lazy — needed for the .wav writes below
 
     # Load audio — try soundfile first (fast, supports wav/flac/ogg),
     # fall back to pydub for other formats (m4a, mp3, etc.)
-    ext = os.path.splitext(audio_path)[1].lower().lstrip(".")
-    wav_path = None
-    try:
-        ref_audio, ref_sr = sf.read(audio_path)
-        print(f"Audio loaded: {len(ref_audio) / ref_sr:.1f} seconds at {ref_sr}Hz")
-    except (sf.SoundFileError, RuntimeError):
-        # Format not supported by soundfile — try pydub conversion.
-        # PermissionError, FileNotFoundError, MemoryError etc. propagate normally.
-        if ext == "m4a":
-            ext = "mp4"
-        print(f"Converting {audio_path} to wav format...")
-        audio = AudioSegment.from_file(audio_path, format=ext)
-        # Unique temp name: the old fixed "temp_reference.wav" raced two
-        # concurrent creates (B's export overwrote A's input before A read
-        # it). Cleanup is guaranteed by the try/finally below, which wraps
-        # EVERYTHING after staging — any failure (validation, the writer,
-        # torch save) removes the temp instead of orphaning it.
-        fd, wav_path = tempfile.mkstemp(suffix=".wav", dir=USER_FILES_DIR)
-        os.close(fd)
-        audio.export(wav_path, format="wav")
-        ref_audio, ref_sr = sf.read(wav_path)
-        print(f"Audio loaded: {len(ref_audio) / ref_sr:.1f} seconds at {ref_sr}Hz")
+    ref_audio, ref_sr, wav_path = _load_reference_audio_bounded(audio_path)
 
     # Reference audio below the model's native rate makes MLX clone
     # generation fail to emit EOS (measured 2026-08-16 — an 8 kHz prompt ran
