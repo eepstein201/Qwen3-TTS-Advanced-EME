@@ -10,6 +10,7 @@ Run with:
 
 import json
 import os
+import subprocess
 import tempfile
 import unittest
 from types import SimpleNamespace
@@ -384,6 +385,25 @@ class TestOpenFile(unittest.TestCase):
     @mock.patch("qwen3_tts.core.config.IN_COLAB", False)
     def test_xdg_open_not_found(self, _mock_run):
         """Missing xdg-open logs warning instead of crashing."""
+        from qwen3_tts.interface.generate_helpers import open_file
+        open_file("/tmp/file.wav")  # Should not raise
+
+    @mock.patch(
+        "qwen3_tts.interface.generate_helpers.subprocess.run",
+        side_effect=subprocess.TimeoutExpired(
+            cmd=["open", "/tmp/file.wav"], timeout=10
+        ),
+    )
+    @mock.patch("qwen3_tts.core.config.IS_MACOS", True)
+    @mock.patch("qwen3_tts.core.config.IS_LINUX", False)
+    @mock.patch("qwen3_tts.core.config.IN_COLAB", False)
+    def test_open_timeout_does_not_raise(self, _mock_run):
+        """A hung system handler logs a warning instead of raising out of the CLI.
+
+        open_file's subprocess.run carries timeout=10; without handling, the
+        TimeoutExpired traceback surfaced to the caller after generation had
+        already succeeded.
+        """
         from qwen3_tts.interface.generate_helpers import open_file
         open_file("/tmp/file.wav")  # Should not raise
 

@@ -1042,5 +1042,48 @@ class TestUnloadHandlerImport(unittest.TestCase):
         self.assertIn('if startup == "Yes":', src)
 
 
+class TestUiPackageSubmoduleMap(unittest.TestCase):
+    """The ui package must lazily resolve every real submodule attribute.
+
+    PEP 562: attribute access like ``ui.components`` after only importing
+    ``qwen3_tts.interface.ui`` falls through to __getattr__, which resolves
+    only names in _SUBMODULES. 'components' was missing, so the attribute
+    raised AttributeError in a fresh interpreter even though the module
+    exists and absolute imports of it work.
+    """
+
+    def test_components_attribute_resolves_in_fresh_interpreter(self):
+        """A fresh process must resolve ui.components without AttributeError."""
+        import subprocess
+        import sys
+
+        code = "import qwen3_tts.interface.ui as ui; ui.components"
+        proc = subprocess.run(
+            [sys.executable, "-c", code],
+            capture_output=True,
+            text=True,
+            timeout=120,
+        )
+        self.assertEqual(
+            proc.returncode, 0,
+            f"fresh-interpreter access failed: {proc.stderr.strip()}",
+        )
+
+    def test_submodules_match_on_disk_modules(self):
+        """_SUBMODULES must equal the actual module list (drift guard)."""
+        import pathlib
+
+        import qwen3_tts.interface.ui as ui
+
+        pkg_dir = pathlib.Path(ui.__file__).parent
+        on_disk = {p.stem for p in pkg_dir.glob("*.py")} - {"__init__"}
+        self.assertEqual(
+            on_disk,
+            set(ui._SUBMODULES),
+            "_SUBMODULES drifted from the modules on disk: attribute access "
+            "to the missing names will AttributeError",
+        )
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -638,6 +638,69 @@ class TestCreateAndSaveVoicePromptTorch(unittest.TestCase):
             call_args = mock_subproc.call_args[0][0]
             self.assertEqual(call_args[0], "open")
 
+    @mock.patch("qwen3_tts.core.engine.run_inference")
+    @mock.patch("qwen3_tts.core.engine.create_voice_prompt")
+    @mock.patch("qwen3_tts.core.engine.load_model")
+    def test_torch_test_gen_player_timeout_does_not_fail_create(
+        self, mock_load, mock_create_vp, mock_inference
+    ):
+        """A hung preview player must not crash the already-successful create.
+
+        The open/xdg-open subprocess carries timeout=10 but no handler; an
+        expired player raised TimeoutExpired after the prompt was saved,
+        turning a success into a non-zero exit (visible to `tts voice create`
+        since the exit code became meaningful).
+        """
+        import subprocess as real_subprocess
+
+        from qwen3_tts.tools.create_voice import create_and_save_voice_prompt
+
+        mock_load.return_value = mock.MagicMock()
+        mock_create_vp.return_value = mock.MagicMock()
+        mock_inference.return_value = (
+            np.zeros(24000, dtype=np.float32), 24000
+        )
+
+        mock_torch = mock.MagicMock()
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            audio_path = os.path.join(tmpdir, "ref.wav")
+            import soundfile as sf
+            # 24 kHz fixture: no resample needed, so this test also passes
+            # where librosa is absent (torchless CI proxy env).
+            sf.write(audio_path, np.zeros(24000, dtype=np.float32), 24000)
+
+            prompts_dir = os.path.join(tmpdir, "prompts")
+            os.makedirs(prompts_dir)
+
+            with mock.patch("qwen3_tts.tools.create_voice.VOICE_PROMPTS_DIR",
+                            prompts_dir), mock.patch(
+                "qwen3_tts.core.engine.voice_prompt.VOICE_PROMPTS_DIR", prompts_dir
+            ):
+                with mock.patch("qwen3_tts.tools.create_voice.USER_FILES_DIR",
+                                tmpdir):
+                    with mock.patch.dict(sys.modules, {"torch": mock_torch}):
+                        with mock.patch(
+                            "qwen3_tts.tools.create_voice.subprocess.run",
+                            side_effect=real_subprocess.TimeoutExpired(
+                                cmd=["open"], timeout=10
+                            ),
+                        ):
+                            with mock.patch(
+                                "qwen3_tts.core.config.IS_MACOS", True
+                            ):
+                                with mock.patch(
+                                    "qwen3_tts.core.config.IS_LINUX", False,
+                                ):
+                                    output_path = create_and_save_voice_prompt(
+                                        audio_path, "Mac test", "mac_voice",
+                                        test_generation=True, mlx_only=False,
+                                    )
+
+            # The create itself succeeded; a player timeout is degraded UX,
+            # not a failed prompt creation.
+            self.assertIsNotNone(output_path)
+
 
 # ---------------------------------------------------------------------------
 # create_and_save_voice_prompt — pydub fallback
@@ -743,6 +806,54 @@ class TestCreateAndSaveVoicePromptPydubFallback(unittest.TestCase):
             mock_audio_segment.from_file.assert_called_once_with(
                 audio_path, format="mp4"
             )
+
+
+# ---------------------------------------------------------------------------
+# bounded reference-audio load
+# ---------------------------------------------------------------------------
+
+@_skip
+class TestLoadReferenceAudioBounded(unittest.TestCase):
+    """sf.read / AudioSegment.from_file must be bounded by a timeout."""
+
+    def test_success_returns_audio_tuple(self):
+        """A readable wav loads through the bounded helper unchanged."""
+        import numpy as np
+        import soundfile as sf
+
+        from qwen3_tts.tools.create_voice import _load_reference_audio_bounded
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            wav = os.path.join(tmpdir, "ref.wav")
+            sf.write(wav, np.zeros(24000, dtype=np.float32), 24000)
+
+            ref_audio, ref_sr, wav_path = _load_reference_audio_bounded(wav)
+
+        self.assertEqual(len(ref_audio), 24000)
+        self.assertEqual(ref_sr, 24000)
+        self.assertIsNone(wav_path)
+
+    def test_hung_load_raises_timeout(self):
+        """A load that never returns raises TimeoutError instead of hanging."""
+        import threading
+
+        from qwen3_tts.tools import create_voice
+
+        release = threading.Event()
+        self.addCleanup(release.set)
+
+        def hang(*args, **kwargs):
+            release.wait(timeout=30)  # simulate an unresponsive mount/FIFO
+            return None
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            wav = os.path.join(tmpdir, "ref.wav")
+
+            with mock.patch("soundfile.read", side_effect=hang), mock.patch(
+                "qwen3_tts.tools.create_voice._AUDIO_LOAD_TIMEOUT_SEC", 0.2
+            ):
+                with self.assertRaises(TimeoutError):
+                    create_voice._load_reference_audio_bounded(wav)
 
 
 # ---------------------------------------------------------------------------

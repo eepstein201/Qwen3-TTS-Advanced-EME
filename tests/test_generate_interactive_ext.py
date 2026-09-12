@@ -172,13 +172,73 @@ class TestPreviewVoicePromptDeep(unittest.TestCase):
             result = preview_voice_prompt("voice", {})
         self.assertFalse(result)
 
-    def test_auto_appends_pt_extension(self):
-        """preview_voice_prompt appends .pt if missing."""
+    @patch("qwen3_tts.core.config.get_backend", return_value="torch")
+    def test_auto_appends_pt_extension(self, _backend):
+        """On torch, preview_voice_prompt appends .pt if missing."""
         from qwen3_tts.interface.generate_interactive import preview_voice_prompt
         with patch("qwen3_tts.interface.generate_interactive.voice_prompt_exists", return_value=False) as mock_exists, \
              patch("builtins.print"):
             preview_voice_prompt("myvoice", {})
         mock_exists.assert_called_with("myvoice.pt")
+
+    @patch("qwen3_tts.core.config.get_backend", return_value="mlx")
+    @patch("qwen3_tts.interface.generate_interactive.voice_prompt_exists", return_value=False)
+    @patch("builtins.print")
+    def test_mlx_name_resolves_to_wav_pair(self, _print, mock_exists, _backend):
+        """On MLX the preview name must resolve to the .wav+.txt pair, not .pt.
+
+        The unconditional .pt append made every MLX prompt unfindable even
+        though generation supports it (same defect 3C fixed in the UI and
+        the REPL /prompt handler).
+        """
+        from qwen3_tts.interface.generate_interactive import preview_voice_prompt
+
+        preview_voice_prompt("myvoice", {})
+        mock_exists.assert_called_with("myvoice.wav")
+
+    @patch("qwen3_tts.interface.generate_interactive.voice_prompt_exists", return_value=True)
+    @patch("qwen3_tts.interface.generate_interactive.is_server_running", return_value=True)
+    @patch("builtins.print")
+    def test_cancelled_empty_results_returns_false(self, mock_print, _running, _exists):
+        """A 200 with results:[] must report cancellation, not IndexError.
+
+        A batch cancelled before its first item comes back 200 with an empty
+        results list; the bare results[0] indexed straight into it (the
+        banned pattern — see _first_result in server/client/generator.py).
+        """
+        from qwen3_tts.interface.generate_interactive import preview_voice_prompt
+
+        mock_resp = MagicMock()
+        mock_resp.status_code = 200
+        mock_resp.json.return_value = {"results": [], "cancelled": True}
+
+        with patch("qwen3_tts.core.http_client.server_request",
+                   return_value=mock_resp):
+            result = preview_voice_prompt("voice", {})
+
+        self.assertFalse(result)
+        output = " ".join(str(c) for c in mock_print.call_args_list)
+        self.assertIn("cancel", output.lower())
+
+    @patch("qwen3_tts.interface.generate_interactive.voice_prompt_exists", return_value=True)
+    @patch("qwen3_tts.interface.generate_interactive.is_server_running", return_value=True)
+    @patch("builtins.print")
+    def test_empty_results_without_cancel_returns_false(self, mock_print, _running, _exists):
+        """A 200 with no results and no cancel flag is also a clean failure."""
+        from qwen3_tts.interface.generate_interactive import preview_voice_prompt
+
+        mock_resp = MagicMock()
+        mock_resp.status_code = 200
+        mock_resp.json.return_value = {"results": []}
+
+        with patch("qwen3_tts.core.http_client.server_request",
+                   return_value=mock_resp):
+            result = preview_voice_prompt("voice", {})
+
+        self.assertFalse(result)
+        output = " ".join(str(c) for c in mock_print.call_args_list)
+        self.assertIn("no audio", output.lower())
+
 
 
 class TestProgressPollerRun(unittest.TestCase):
@@ -728,6 +788,39 @@ class TestInteractiveMode(unittest.TestCase):
              patch("qwen3_tts.interface.generate_interactive.open_file"):
             result = interactive_mode(True, {"default_voice_description": "warm voice"}, {})
         self.assertIsNotNone(result)
+
+    def test_output_filename_prompt_shows_configured_dir(self):
+        """The filename prompt must advertise the real output directory.
+
+        The prompt hardcoded 'saved to ~/Downloads/' while the save itself
+        honored config['output_directory'] — misleading for custom dirs.
+        """
+        from qwen3_tts.interface.generate_interactive import interactive_mode
+
+        prompts_seen = []
+        answers = iter(["1", "Hello world", "1", "Y", ""])
+
+        def fake_input(prompt=""):
+            prompts_seen.append(prompt)
+            return next(answers)
+
+        with patch("builtins.input", side_effect=fake_input), \
+             patch("builtins.print"), \
+             patch("qwen3_tts.interface.generate_server.generate_via_server",
+                   return_value=["b64data"]), \
+             patch("qwen3_tts.interface.generate_interactive._save_base64_result"), \
+             patch("qwen3_tts.interface.generate_interactive.open_file"):
+            interactive_mode(
+                True,
+                {"default_voice_description": "warm voice",
+                 "output_directory": "/custom/tts-out"},
+                {},
+            )
+
+        filename_prompt = prompts_seen[-1]
+        self.assertIn("/custom/tts-out", filename_prompt,
+                      f"prompt must show the configured dir, was: {filename_prompt!r}")
+        self.assertNotIn("~/Downloads", filename_prompt)
 
     def test_cli_mode_empty_text_exits(self):
         """Empty text input causes sys.exit."""

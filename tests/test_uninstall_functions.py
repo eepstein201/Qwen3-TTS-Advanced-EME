@@ -418,7 +418,8 @@ class TestUninstallConfig(unittest.TestCase):
             config_path.write_text(json.dumps({"key": "old"}))
 
             with mock.patch("qwen3_tts.tools.uninstall.CONFIG_PATH",
-                            config_path):
+                            config_path), mock.patch(
+                "qwen3_tts.core.config.CONFIG_PATH", config_path):
                 uninstall_config()
 
             # Backup should exist
@@ -443,7 +444,8 @@ class TestUninstallConfig(unittest.TestCase):
             config_path.write_text("not json")
 
             with mock.patch("qwen3_tts.tools.uninstall.CONFIG_PATH",
-                            config_path):
+                            config_path), mock.patch(
+                "qwen3_tts.core.config.CONFIG_PATH", config_path):
                 uninstall_config()
 
             with open(config_path) as f:
@@ -465,7 +467,8 @@ class TestUninstallConfig(unittest.TestCase):
             config_path.write_text(json.dumps({"key": "old"}))
 
             with mock.patch("qwen3_tts.tools.uninstall.CONFIG_PATH",
-                            config_path):
+                            config_path), mock.patch(
+                "qwen3_tts.core.config.CONFIG_PATH", config_path):
                 with mock.patch("builtins.print") as mock_print:
                     uninstall_config()
 
@@ -476,6 +479,27 @@ class TestUninstallConfig(unittest.TestCase):
             with open(config_path) as f:
                 data = json.load(f)
             self.assertEqual(data, {"reset": True})
+
+    @mock.patch("qwen3_tts.core.config.save_config")
+    @mock.patch("qwen3_tts.core.config.get_default_config",
+                return_value={"reset": True})
+    @mock.patch("qwen3_tts.core.config.load_config",
+                return_value={"key": "old"})
+    def test_reset_writes_via_atomic_save_config(self, _mock_load,
+                                                 _mock_default, mock_save):
+        """Reset routes through save_config (temp file + os.replace), never a
+        direct truncate-in-place open()."""
+        from qwen3_tts.tools.uninstall import uninstall_config
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            config_path = pathlib.Path(tmpdir) / "config.json"
+            config_path.write_text(json.dumps({"key": "old"}))
+
+            with mock.patch("qwen3_tts.tools.uninstall.CONFIG_PATH",
+                            config_path):
+                uninstall_config()
+
+        mock_save.assert_called_once_with({"reset": True})
 
 
 # ---------------------------------------------------------------------------
@@ -716,3 +740,35 @@ class TestMainEntryPoint(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+# ---------------------------------------------------------------------------
+# main() help epilog — examples must match the shipped subcommand CLI
+# ---------------------------------------------------------------------------
+
+class TestUninstallEpilogExamples(unittest.TestCase):
+    """The uninstall epilog advertised flag-style `tts uninstall --models`.
+
+    The shipped CLI is subcommands (`tts uninstall models`); the flag-style
+    examples taught users a command line that does not exist.
+    """
+
+    def test_epilog_examples_use_subcommands_not_flags(self):
+        import contextlib
+        import io
+        import re
+
+        from qwen3_tts.tools import uninstall
+
+        buf = io.StringIO()
+        with mock.patch("sys.argv", ["uninstall", "--help"]), contextlib.redirect_stdout(buf):
+            with self.assertRaises(SystemExit) as cm:
+                uninstall.main()
+
+        self.assertEqual(cm.exception.code, 0)
+        help_text = buf.getvalue()
+        self.assertIsNone(
+            re.search(r"uninstall --[a-z]", help_text),
+            "epilog must not advertise flag-style usage of the subcommand CLI",
+        )
+        self.assertIn("tts uninstall models", help_text)

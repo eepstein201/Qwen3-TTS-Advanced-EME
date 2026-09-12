@@ -378,5 +378,70 @@ class TestCacheCommands(unittest.TestCase):
         mock_fn.assert_called_once_with(force=True)
 
 
+@unittest.skipUnless(HAS_CLICK, "requires click")
+class TestVoiceCreate(unittest.TestCase):
+    """Exit-code propagation: create_voice.main()'s return must reach the shell."""
+
+    _CREATE_MAIN = "qwen3_tts.tools.create_voice.main"
+
+    def test_failure_exits_nonzero(self):
+        from qwen3_tts.cli import cli
+        runner = CliRunner()
+        with patch(self._CREATE_MAIN, return_value=1):
+            result = runner.invoke(cli, ["voice", "create", "audio.wav"])
+        self.assertNotEqual(result.exit_code, 0)
+
+    def test_success_exits_zero(self):
+        from qwen3_tts.cli import cli
+        runner = CliRunner()
+        with patch(self._CREATE_MAIN, return_value=0):
+            result = runner.invoke(cli, ["voice", "create", "audio.wav"])
+        self.assertEqual(result.exit_code, 0)
+
+
+@unittest.skipUnless(HAS_CLICK, "requires click")
+class TestConfigWizard(unittest.TestCase):
+    """Robustness of the bare `tts config` wizard launch."""
+
+    def test_missing_wizard_clear_message(self):
+        import os
+        import tempfile
+
+        from qwen3_tts.cli import cli
+        runner = CliRunner()
+        with tempfile.TemporaryDirectory() as tmpdir:
+            with patch(f"{_CFG}.USER_FILES_DIR", os.path.join(tmpdir, "absent")):
+                result = runner.invoke(cli, ["config"])
+        self.assertNotEqual(result.exit_code, 0)
+        self.assertIn("Configuration wizard not found", result.output)
+        self.assertTrue(
+            result.exception is None or isinstance(result.exception, SystemExit)
+        )
+
+    def test_wizard_timeout_clear_message(self):
+        import os
+        import subprocess
+        import tempfile
+
+        from qwen3_tts.cli import cli
+        runner = CliRunner()
+        with tempfile.TemporaryDirectory() as tmpdir:
+            wizard = os.path.join(tmpdir, "install.sh")
+            with open(wizard, "w") as f:
+                f.write("#!/bin/sh\n")
+            with patch(f"{_CFG}.USER_FILES_DIR", tmpdir), patch(
+                "subprocess.run",
+                side_effect=subprocess.TimeoutExpired(
+                    cmd=[wizard, "--reconfigure"], timeout=300
+                ),
+            ):
+                result = runner.invoke(cli, ["config"])
+        self.assertNotEqual(result.exit_code, 0)
+        self.assertIn("timed out", result.output)
+        self.assertTrue(
+            result.exception is None or isinstance(result.exception, SystemExit)
+        )
+
+
 if __name__ == "__main__":
     unittest.main()

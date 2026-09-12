@@ -150,6 +150,24 @@ class TestCheckModelCache(unittest.TestCase):
         self.assertEqual(status, "pass")
         self.assertIn("1 model", details)
 
+    def test_terabyte_cache_formats_as_tb(self):
+        """A >=1 TiB cache reports TB instead of crashing on unbound size_str."""
+        from qwen3_tts.tools.healthcheck import check_model_cache
+        mock_dir = MagicMock()
+        mock_dir.is_dir.return_value = True
+        mock_dir.name = "models--Qwen--Qwen3-TTS-12Hz-1.7B-Base"
+        mock_file = MagicMock()
+        mock_file.is_file.return_value = True
+        mock_file.stat.return_value = MagicMock(st_size=2 * 1024**4)  # 2 TiB
+        mock_dir.rglob.return_value = [mock_file]
+
+        with patch(f"{_MOD}.HF_CACHE") as mock_cache:
+            mock_cache.exists.return_value = True
+            mock_cache.iterdir.return_value = [mock_dir]
+            status, details = check_model_cache()
+        self.assertEqual(status, "pass")
+        self.assertIn("2.0 TB", details)
+
 
 class TestCheckVoicePrompts(unittest.TestCase):
 

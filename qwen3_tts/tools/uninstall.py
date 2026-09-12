@@ -169,7 +169,7 @@ def uninstall_config(dry_run: bool = False) -> None:
         return
 
     # Import config utilities
-    from qwen3_tts.core.config import get_default_config, load_config
+    from qwen3_tts.core.config import get_default_config, load_config, save_config
 
     # Backup current config
     backup_path = CONFIG_PATH.with_suffix(".backup")
@@ -186,12 +186,10 @@ def uninstall_config(dry_run: bool = False) -> None:
         logger.warning("Could not load existing config before reset: %s", e)
         current_config = {}
 
-    # Build and save the default config
+    # Build and save the default config — save_config is atomic (temp file +
+    # os.replace), so a crash mid-write cannot truncate config.json.
     default_config = get_default_config(current_config)
-    import json
-
-    with open(CONFIG_PATH, "w") as f:
-        json.dump(default_config, f, indent=2)
+    save_config(default_config)
 
     print_success("Config reset to defaults (backup saved)")
 
@@ -274,13 +272,13 @@ def main():
         description="Uninstall and clean up TTS components",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
-Examples:
-  tts uninstall --models           Remove cached models
-  tts uninstall --voices           Remove voice prompts
-  tts uninstall --config            Reset config to defaults
-  tts uninstall --all               Remove all (except conda envs)
-  tts uninstall --dry-run           Preview what would be deleted
-  tts uninstall --environment       Show conda removal commands
+Examples (the tts CLI uses subcommands, not flags):
+  tts uninstall models            Remove cached models
+  tts uninstall voices            Remove voice prompts
+  tts uninstall config            Reset config to defaults
+  tts uninstall all               Remove all (except conda envs)
+  tts uninstall models --dry-run  Preview what would be deleted
+  tts uninstall environment       Show conda removal commands
         """,
     )
 
