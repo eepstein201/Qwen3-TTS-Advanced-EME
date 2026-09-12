@@ -239,12 +239,23 @@ def create_and_save_voice_prompt(
             print(f"Test audio saved to: {test_output}")
             from qwen3_tts.core.config import IS_LINUX, IS_MACOS
 
+            # A hung player is degraded UX, not a failed create: the prompt
+            # is already saved, and an unhandled TimeoutExpired here would
+            # turn a success into a non-zero `tts voice create` exit.
             if IS_MACOS:
-                subprocess.run(["open", test_output], timeout=10)  # nosec B603 B607
+                try:
+                    subprocess.run(["open", test_output], timeout=10)  # nosec B603 B607
+                except subprocess.TimeoutExpired:
+                    print(f"Preview player timed out — open manually: {test_output}")
             elif IS_LINUX:
-                subprocess.run(
-                    ["xdg-open", test_output], stderr=subprocess.DEVNULL, timeout=10
-                )  # nosec B603 B607
+                try:
+                    subprocess.run(
+                        ["xdg-open", test_output],
+                        stderr=subprocess.DEVNULL,
+                        timeout=10,
+                    )  # nosec B603 B607
+                except subprocess.TimeoutExpired:
+                    print(f"Preview player timed out — open manually: {test_output}")
     finally:
         # Guaranteed temp cleanup: any failure after staging (validation,
         # the rate check, the writer, torch save) removes the mkstemp file

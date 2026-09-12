@@ -224,12 +224,19 @@ def open_file(path):
         print(f"File saved: {path}")
         return
     if IS_MACOS:
-        subprocess.run(["open", path], timeout=10)  # nosec B603 B607
+        try:
+            subprocess.run(["open", path], timeout=10)  # nosec B603 B607
+        except subprocess.TimeoutExpired:
+            # The file was saved; a hung handler must not surface a traceback
+            # to the caller after a successful generation.
+            logger.warning(f"System handler timed out opening {path} — open it manually")
     elif IS_LINUX:
         try:
             subprocess.run(["xdg-open", path], timeout=10)  # nosec B603 B607
         except FileNotFoundError:
             logger.warning("xdg-open not found — cannot open file automatically")
+        except subprocess.TimeoutExpired:
+            logger.warning(f"xdg-open timed out opening {path} — open it manually")
 
 
 # ---------------------------------------------------------------------------
