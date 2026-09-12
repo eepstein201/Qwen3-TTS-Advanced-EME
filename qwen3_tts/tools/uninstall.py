@@ -272,13 +272,13 @@ def main():
         description="Uninstall and clean up TTS components",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
-Examples:
-  tts uninstall --models           Remove cached models
-  tts uninstall --voices           Remove voice prompts
-  tts uninstall --config            Reset config to defaults
-  tts uninstall --all               Remove all (except conda envs)
-  tts uninstall --dry-run           Preview what would be deleted
-  tts uninstall --environment       Show conda removal commands
+Examples (the tts CLI uses subcommands, not flags):
+  tts uninstall models            Remove cached models
+  tts uninstall voices            Remove voice prompts
+  tts uninstall config            Reset config to defaults
+  tts uninstall all               Remove all (except conda envs)
+  tts uninstall models --dry-run  Preview what would be deleted
+  tts uninstall environment       Show conda removal commands
         """,
     )
 

@@ -740,3 +740,35 @@ class TestMainEntryPoint(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+# ---------------------------------------------------------------------------
+# main() help epilog — examples must match the shipped subcommand CLI
+# ---------------------------------------------------------------------------
+
+class TestUninstallEpilogExamples(unittest.TestCase):
+    """The uninstall epilog advertised flag-style `tts uninstall --models`.
+
+    The shipped CLI is subcommands (`tts uninstall models`); the flag-style
+    examples taught users a command line that does not exist.
+    """
+
+    def test_epilog_examples_use_subcommands_not_flags(self):
+        import contextlib
+        import io
+        import re
+
+        from qwen3_tts.tools import uninstall
+
+        buf = io.StringIO()
+        with mock.patch("sys.argv", ["uninstall", "--help"]), contextlib.redirect_stdout(buf):
+            with self.assertRaises(SystemExit) as cm:
+                uninstall.main()
+
+        self.assertEqual(cm.exception.code, 0)
+        help_text = buf.getvalue()
+        self.assertIsNone(
+            re.search(r"uninstall --[a-z]", help_text),
+            "epilog must not advertise flag-style usage of the subcommand CLI",
+        )
+        self.assertIn("tts uninstall models", help_text)

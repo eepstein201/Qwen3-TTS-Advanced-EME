@@ -169,12 +169,13 @@ def list_models_cmd() -> None:
     click.echo(f"  Found {len(models)} cached TTS model(s):")
     click.echo()
 
-    # Table header
+    # Table header — one size column; the old table duplicated
+    # size_formatted into both "Size" and "Size on Disk".
     click.echo(
-        f"  {'Model Type':<12} {'Size':<8} {'Backend':<6} {'Last Accessed':<20} {'Size on Disk':>12}"
+        f"  {'Model Type':<12} {'Size':<8} {'Backend':<6} {'Last Accessed':<20}"
     )
     click.echo(
-        f"  {'-' * 12:<12} {'-' * 8:<8} {'-' * 6:<6} {'-' * 20:<20} {'-' * 12:>12}"
+        f"  {'-' * 12:<12} {'-' * 8:<8} {'-' * 6:<6} {'-' * 20:<20}"
     )
 
     for model in models:
@@ -189,7 +190,7 @@ def list_models_cmd() -> None:
         type_str = f"{model_type} ({model_size})"
 
         click.echo(
-            f"  {type_str:<12} {size_formatted:<8} {backend:<6} {last_access:<20} {size_formatted:>12}"
+            f"  {type_str:<12} {size_formatted:<8} {backend:<6} {last_access:<20}"
         )
 
     click.echo()

@@ -482,3 +482,48 @@ class TestPruneEpilogExample(unittest.TestCase):
         match = re.search(r"prune --unused (\S+)", buf.getvalue())
         self.assertIsNotNone(match, "epilog must show a --unused example")
         int(match.group(1))  # raises ValueError if the example is not an int
+
+
+class TestListTableSingleSizeColumn(unittest.TestCase):
+    """`tts cache list` must not print the same size twice per row.
+
+    The header carried both a 'Size' and a 'Size on Disk' column, and the
+    row rendered size_formatted into both — the same number twice.
+    """
+
+    def test_header_and_row_carry_one_size(self):
+        import re
+
+        from qwen3_tts.tools import model_cache
+
+        models = [{
+            "name": "models--Qwen--Qwen3-TTS-12Hz-1.7B-Base",
+            "model_type": "clone",
+            "model_size": "1.7B",
+            "backend": "torch",
+            "last_access": datetime(2026, 3, 15, 10, 30),
+            "size_formatted": "3.5 GB",
+            "size_bytes": 3500000000,
+        }]
+
+        lines = []
+
+        def _capture(*args):
+            lines.append(args[0] if args else "")
+
+        with patch(
+            "qwen3_tts.tools.model_cache.list_models", return_value=models
+        ), patch(
+            "qwen3_tts.tools.model_cache.get_total_size", return_value=3500000000
+        ), patch(
+            "qwen3_tts.tools.model_cache.click.echo", side_effect=_capture
+        ):
+            model_cache.list_models_cmd()
+
+        header = next(l for l in lines if "Model Type" in l)
+        self.assertEqual(
+            len(re.findall(r"\bSize\b", header)), 1,
+            f"exactly one size column expected, header was: {header!r}",
+        )
+        row = next(l for l in lines if "3.5 GB" in l and "Total" not in l)
+        self.assertEqual(row.count("3.5 GB"), 1, f"size printed once per row, row was: {row!r}")
