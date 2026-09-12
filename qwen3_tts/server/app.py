@@ -672,7 +672,10 @@ async def stats(request: Request, _auth: None = Depends(verify_auth)) -> dict:
     """Get server statistics."""
     state = request.app.state
     reset_activity_timer(state)
-    return handle_stats(state, state.server_config)
+    # Sync handler: the first call lazily imports the engine package and
+    # probes torch/MLX memory — off the event loop (asyncio.to_thread
+    # convention, as in app_models.py).
+    return await asyncio.to_thread(handle_stats, state, state.server_config)
 
 
 @app.get("/models", response_model=ModelsResponse, response_model_exclude_unset=True)
@@ -680,7 +683,11 @@ async def list_models(request: Request, _auth: None = Depends(verify_auth)) -> d
     """List model status."""
     state = request.app.state
     reset_activity_timer(state)
-    return handle_list_models(state, state.server_config)
+    # Sync handler: lazily imports the engine for ASR info — off the event
+    # loop like its /stats sibling above.
+    return await asyncio.to_thread(
+        handle_list_models, state, state.server_config
+    )
 
 
 @app.post("/load-model", response_model=ModelOpResponse, response_model_exclude_unset=True)

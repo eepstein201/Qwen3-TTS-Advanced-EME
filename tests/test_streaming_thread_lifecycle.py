@@ -568,5 +568,66 @@ class TestWsStreamJoinTimeout(unittest.IsolatedAsyncioTestCase):
         )
 
 
+@_skip
+class TestPendingQueueCleanupOnAbandonedWait(unittest.IsolatedAsyncioTestCase):
+    """A stream closed while WAITING for inference_lock must not leak its entry.
+
+    audio_stream_generator registers queue_entry in state.pending_requests
+    before queueing for inference_lock and removes it only once the lock is
+    acquired. If the stream is torn down during the wait (client disconnect /
+    task cancellation before the lock is granted), the removal never runs and
+    the entry leaks: /queue-status reports a phantom queued request forever
+    and X-Queue-Position inflates for later requests.
+    """
+
+    async def test_pending_entry_removed_when_stream_closed_while_queued(self):
+        from qwen3_tts.server.app_generation import handle_generate_stream
+        from qwen3_tts.server.validation import GenerateRequest
+
+        state = _make_state()
+        req = GenerateRequest(text="Hello world", mode="custom")
+
+        try:
+            with patch(
+                "qwen3_tts.server.validation._validate_generation_request"
+            ), patch(
+                "qwen3_tts.server.app_generation._check_memory_available",
+                return_value=(True, 4096),
+            ):
+                response = await handle_generate_stream(
+                    request=MagicMock(),
+                    state=state,
+                    req=req,
+                    security={"max_text_length": 50000},
+                    config_provider=None,
+                )
+                body = response.body_iterator
+
+                # Hold inference_lock so the generator registers pending and
+                # then blocks on the acquisition — the leak window.
+                async with state.inference_lock:
+                    first = asyncio.ensure_future(body.__anext__())
+                    await asyncio.sleep(0.1)
+                    self.assertEqual(
+                        len(state.pending_requests),
+                        1,
+                        "stream should be registered pending while queued",
+                    )
+
+                    # Simulate client disconnect while queued: cancel the
+                    # consumer. Unwinding the generator must unregister.
+                    first.cancel()
+                    with self.assertRaises(asyncio.CancelledError):
+                        await first
+
+                self.assertEqual(
+                    state.pending_requests,
+                    [],
+                    "pending entry leaked after the queued stream was closed",
+                )
+        finally:
+            _reset_state(state)
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)

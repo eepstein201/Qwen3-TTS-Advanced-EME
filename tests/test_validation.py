@@ -52,6 +52,73 @@ class TestValidateGenerationRequest(unittest.TestCase):
         # Should NOT raise — pathlib check allows paths that resolve within voice_prompts dir
         _validate_generation_request(req, security_config)
 
+    def test_rejects_vllm_backend_when_vllm_disabled(self):
+        """backend='vllm' with the vLLM section disabled 400s at validation.
+
+        No adapter is started (lifespan gates on vllm.enabled) and the engine
+        registry has no vLLM strategy, so generation would fail mid-request
+        with an opaque error. Validation must reject it with the fix."""
+        security_config = self._security_config()
+        from unittest.mock import patch
+
+        from qwen3_tts.server.validation import (
+            GenerateRequest,
+            _validate_generation_request,
+        )
+
+        req = GenerateRequest(texts=["test"], mode="custom")
+        with patch(
+            "qwen3_tts.server.validation.get_backend", return_value="vllm"
+        ), patch(
+            "qwen3_tts.server.validation.load_config",
+            return_value={"vllm": {"enabled": False}},
+        ):
+            with pytest.raises(HTTPException) as exc:
+                _validate_generation_request(req, security_config)
+        assert exc.value.status_code == 400
+        assert "vllm.enabled" in exc.value.detail
+        assert "advanced.backend" in exc.value.detail
+
+    def test_accepts_vllm_backend_when_vllm_enabled(self):
+        """backend='vllm' with vllm.enabled=true passes validation (the
+        adapter path is legitimate)."""
+        security_config = self._security_config()
+        from unittest.mock import patch
+
+        from qwen3_tts.server.validation import (
+            GenerateRequest,
+            _validate_generation_request,
+        )
+
+        req = GenerateRequest(texts=["test"], mode="custom")
+        with patch(
+            "qwen3_tts.server.validation.get_backend", return_value="vllm"
+        ), patch(
+            "qwen3_tts.server.validation.load_config",
+            return_value={"vllm": {"enabled": True}},
+        ):
+            _validate_generation_request(req, security_config)  # must NOT raise
+
+    def test_vllm_check_skipped_for_other_backends(self):
+        """Non-vllm backends never consult the vLLM config check."""
+        security_config = self._security_config()
+        from unittest.mock import MagicMock, patch
+
+        from qwen3_tts.server.validation import (
+            GenerateRequest,
+            _validate_generation_request,
+        )
+
+        req = GenerateRequest(texts=["test"], mode="custom")
+        load_config = MagicMock(
+            return_value={"vllm": {"enabled": False}}
+        )
+        with patch(
+            "qwen3_tts.server.validation.get_backend", return_value="mlx"
+        ), patch("qwen3_tts.server.validation.load_config", load_config):
+            _validate_generation_request(req, security_config)
+        load_config.assert_not_called()
+
     def test_rejects_absolute_path_in_prompt_file(self):
         """Validation rejects absolute path in prompt_file."""
         security_config = self._security_config()

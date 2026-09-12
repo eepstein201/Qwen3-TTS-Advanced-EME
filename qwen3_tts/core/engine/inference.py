@@ -71,6 +71,18 @@ def _get_backend_strategy(backend: str) -> Callable:
     Raises:
         ValueError: If backend not registered
     """
+    if backend == "vllm":
+        # "vllm" is a VALID_BACKENDS value but an adapter-only backend: this
+        # registry never holds a vLLM strategy — vLLM generation runs through
+        # the server's VLLMAdapter (gated on vllm.enabled in config.json).
+        # Reaching this dispatch with backend="vllm" (vLLM disabled, or a
+        # torch-fallback path) must fail with the config fix, not the generic
+        # unknown-backend message.
+        raise ValueError(
+            "backend 'vllm' has no engine inference strategy: vLLM generation "
+            "runs through the server's vLLM adapter (set vllm.enabled=true in "
+            "config.json), or set advanced.backend to 'torch' or 'mlx'."
+        )
     if backend not in _INFERENCE_STRATEGIES:
         raise ValueError(
             f"Unknown backend: {backend}. "
