@@ -172,13 +172,73 @@ class TestPreviewVoicePromptDeep(unittest.TestCase):
             result = preview_voice_prompt("voice", {})
         self.assertFalse(result)
 
-    def test_auto_appends_pt_extension(self):
-        """preview_voice_prompt appends .pt if missing."""
+    @patch("qwen3_tts.core.config.get_backend", return_value="torch")
+    def test_auto_appends_pt_extension(self, _backend):
+        """On torch, preview_voice_prompt appends .pt if missing."""
         from qwen3_tts.interface.generate_interactive import preview_voice_prompt
         with patch("qwen3_tts.interface.generate_interactive.voice_prompt_exists", return_value=False) as mock_exists, \
              patch("builtins.print"):
             preview_voice_prompt("myvoice", {})
         mock_exists.assert_called_with("myvoice.pt")
+
+    @patch("qwen3_tts.core.config.get_backend", return_value="mlx")
+    @patch("qwen3_tts.interface.generate_interactive.voice_prompt_exists", return_value=False)
+    @patch("builtins.print")
+    def test_mlx_name_resolves_to_wav_pair(self, _print, mock_exists, _backend):
+        """On MLX the preview name must resolve to the .wav+.txt pair, not .pt.
+
+        The unconditional .pt append made every MLX prompt unfindable even
+        though generation supports it (same defect 3C fixed in the UI and
+        the REPL /prompt handler).
+        """
+        from qwen3_tts.interface.generate_interactive import preview_voice_prompt
+
+        preview_voice_prompt("myvoice", {})
+        mock_exists.assert_called_with("myvoice.wav")
+
+    @patch("qwen3_tts.interface.generate_interactive.voice_prompt_exists", return_value=True)
+    @patch("qwen3_tts.interface.generate_interactive.is_server_running", return_value=True)
+    @patch("builtins.print")
+    def test_cancelled_empty_results_returns_false(self, mock_print, _running, _exists):
+        """A 200 with results:[] must report cancellation, not IndexError.
+
+        A batch cancelled before its first item comes back 200 with an empty
+        results list; the bare results[0] indexed straight into it (the
+        banned pattern — see _first_result in server/client/generator.py).
+        """
+        from qwen3_tts.interface.generate_interactive import preview_voice_prompt
+
+        mock_resp = MagicMock()
+        mock_resp.status_code = 200
+        mock_resp.json.return_value = {"results": [], "cancelled": True}
+
+        with patch("qwen3_tts.core.http_client.server_request",
+                   return_value=mock_resp):
+            result = preview_voice_prompt("voice", {})
+
+        self.assertFalse(result)
+        output = " ".join(str(c) for c in mock_print.call_args_list)
+        self.assertIn("cancel", output.lower())
+
+    @patch("qwen3_tts.interface.generate_interactive.voice_prompt_exists", return_value=True)
+    @patch("qwen3_tts.interface.generate_interactive.is_server_running", return_value=True)
+    @patch("builtins.print")
+    def test_empty_results_without_cancel_returns_false(self, mock_print, _running, _exists):
+        """A 200 with no results and no cancel flag is also a clean failure."""
+        from qwen3_tts.interface.generate_interactive import preview_voice_prompt
+
+        mock_resp = MagicMock()
+        mock_resp.status_code = 200
+        mock_resp.json.return_value = {"results": []}
+
+        with patch("qwen3_tts.core.http_client.server_request",
+                   return_value=mock_resp):
+            result = preview_voice_prompt("voice", {})
+
+        self.assertFalse(result)
+        output = " ".join(str(c) for c in mock_print.call_args_list)
+        self.assertIn("no audio", output.lower())
+
 
 
 class TestProgressPollerRun(unittest.TestCase):

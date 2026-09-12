@@ -128,8 +128,15 @@ def preview_voice_prompt(prompt_name, config):
     """Preview a voice prompt by generating a short sample."""
     import requests  # lazy
 
-    if not prompt_name.endswith(".pt"):
-        prompt_name += ".pt"
+    # Torch prompts are single .pt files; MLX prompts are .wav+.txt pairs —
+    # resolve the extension per backend (same shape as the REPL /prompt
+    # handler) instead of unconditionally appending .pt, which made every
+    # MLX prompt unfindable here.
+    from qwen3_tts.core.config import get_backend
+    from qwen3_tts.interface.voice_helpers import strip_extension
+
+    base = strip_extension(prompt_name)
+    prompt_name = f"{base}.wav" if get_backend() == "mlx" else f"{base}.pt"
 
     if not voice_prompt_exists(prompt_name):
         print(f"Error: Voice prompt not found: {prompt_name}")
@@ -144,8 +151,9 @@ def preview_voice_prompt(prompt_name, config):
             "temperature": 0.7,
         }
         print(f"Generating preview for '{prompt_name}'...")
+        from qwen3_tts.core.config import GenerationError
         from qwen3_tts.core.http_client import server_request
-        from qwen3_tts.server.client.generator import _generation_timeout
+        from qwen3_tts.server.client.generator import _first_result, _generation_timeout
 
         # /generate serializes on inference_lock, so this preview can queue
         # behind a whole in-flight generation — scale the read timeout the
@@ -158,7 +166,16 @@ def preview_voice_prompt(prompt_name, config):
             timeout=_generation_timeout(len(payload["texts"][0])),
         )
         if resp.status_code == 200:
-            result = resp.json()["results"][0]
+            # A 200 does not guarantee a result: a batch cancelled before
+            # its first item returns results:[] — never index bare (the
+            # banned pattern; _first_result is the sanctioned guard).
+            try:
+                result = _first_result(resp.json())
+            except GenerationError as e:
+                # GenerationError's str() is a generic banner; the specific
+                # reason (cancelled / no audio) rides on technical_detail.
+                print(f"Error: {e.technical_detail or e.user_message}")
+                return False
             print("Playing preview...")
             import tempfile
 
