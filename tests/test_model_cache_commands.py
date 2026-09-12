@@ -520,10 +520,10 @@ class TestListTableSingleSizeColumn(unittest.TestCase):
         ):
             model_cache.list_models_cmd()
 
-        header = next(l for l in lines if "Model Type" in l)
+        header = next(line for line in lines if "Model Type" in line)
         self.assertEqual(
             len(re.findall(r"\bSize\b", header)), 1,
             f"exactly one size column expected, header was: {header!r}",
         )
-        row = next(l for l in lines if "3.5 GB" in l and "Total" not in l)
+        row = next(line for line in lines if "3.5 GB" in line and "Total" not in line)
         self.assertEqual(row.count("3.5 GB"), 1, f"size printed once per row, row was: {row!r}")
