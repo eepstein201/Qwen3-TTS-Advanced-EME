@@ -431,7 +431,10 @@ def interactive_mode(use_server, config, gen_params):
         if custom == "n":
             voice_param = input("Enter new description: ").strip()
 
-    output_name = input("\nOutput filename (saved to ~/Downloads/): ").strip()
+    # Advertise the directory the save actually uses — the old hardcoded
+    # "~/Downloads/" misled whenever output_directory was customized.
+    output_dir = os.path.expanduser(config.get("output_directory", "~/Downloads"))
+    output_name = input(f"\nOutput filename (saved to {output_dir}): ").strip()
     if not output_name:
         output_name = "tts_output.wav"
     # Strip directory separators to prevent path traversal
@@ -439,7 +442,6 @@ def interactive_mode(use_server, config, gen_params):
     if not output_name.endswith(".wav"):
         output_name += ".wav"
 
-    output_dir = os.path.expanduser(config.get("output_directory", "~/Downloads"))
     output_path = safe_path_join(output_dir, output_name)
 
     print()

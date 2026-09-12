@@ -729,6 +729,39 @@ class TestInteractiveMode(unittest.TestCase):
             result = interactive_mode(True, {"default_voice_description": "warm voice"}, {})
         self.assertIsNotNone(result)
 
+    def test_output_filename_prompt_shows_configured_dir(self):
+        """The filename prompt must advertise the real output directory.
+
+        The prompt hardcoded 'saved to ~/Downloads/' while the save itself
+        honored config['output_directory'] — misleading for custom dirs.
+        """
+        from qwen3_tts.interface.generate_interactive import interactive_mode
+
+        prompts_seen = []
+        answers = iter(["1", "Hello world", "1", "Y", ""])
+
+        def fake_input(prompt=""):
+            prompts_seen.append(prompt)
+            return next(answers)
+
+        with patch("builtins.input", side_effect=fake_input), \
+             patch("builtins.print"), \
+             patch("qwen3_tts.interface.generate_server.generate_via_server",
+                   return_value=["b64data"]), \
+             patch("qwen3_tts.interface.generate_interactive._save_base64_result"), \
+             patch("qwen3_tts.interface.generate_interactive.open_file"):
+            interactive_mode(
+                True,
+                {"default_voice_description": "warm voice",
+                 "output_directory": "/custom/tts-out"},
+                {},
+            )
+
+        filename_prompt = prompts_seen[-1]
+        self.assertIn("/custom/tts-out", filename_prompt,
+                      f"prompt must show the configured dir, was: {filename_prompt!r}")
+        self.assertNotIn("~/Downloads", filename_prompt)
+
     def test_cli_mode_empty_text_exits(self):
         """Empty text input causes sys.exit."""
         from qwen3_tts.interface.generate_interactive import interactive_mode
