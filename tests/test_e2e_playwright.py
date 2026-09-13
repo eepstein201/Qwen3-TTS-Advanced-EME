@@ -47,6 +47,7 @@ except ImportError:
 
 # Skip entire module if playwright is not installed
 try:
+    from playwright.sync_api import TimeoutError as PlaywrightTimeoutError
     from playwright.sync_api import sync_playwright
     HAS_PLAYWRIGHT = True
 except ImportError:
@@ -523,12 +524,18 @@ class GradioPage:
     def wait_for_table_row_refreshed(self, row_name, column_text, timeout=30_000):
         """Wait for a table row, clicking Refresh up to twice if it lags.
 
-        Returns True if the row matched, False on timeout (best-effort). The
-        Manage Models ``gr.Dataframe`` sometimes doesn't re-render in the DOM
-        even though the server confirms the new state (the toggle handler and
-        the status timer both deliver fresh data). Because the authoritative
-        check is the server-side ``_wait_for_model_state`` poll, callers treat
-        a False return as a warning, not a failure (see I4 follow-up).
+        Returns True if the row matched, False on timeout. The Manage Models
+        ``gr.Dataframe`` sometimes doesn't re-render in the DOM even though
+        the server confirms the new state (the toggle handler and the status
+        timer both deliver fresh data). Step 4A hardened callers to assert
+        on this return; the hard assertion failed identically in two
+        consecutive live runs with server-confirmed loads, and a live DOM
+        probe showed the table rendering a single stale row that never
+        updates despite fresh ``/models`` data (evidence:
+        docs/testing/step4a-e2e-unhollow-2026-09-12.tdd.md). By recorded
+        deviation (plan Step 4A status block), callers treat a False return
+        as a warning; the authoritative gate is the server-side
+        ``_wait_for_model_state`` assert.
         """
         for _attempt in range(2):
             try:
@@ -912,26 +919,36 @@ class TestE2EPlaywright(unittest.TestCase):
         self.gp.select_dropdown("Model", "design")
         self.gp.click_button("Load", exact=True)
 
-        # Wait for load to complete (status goes to unlabeled textarea)
+        # Wait for load to complete (status goes to unlabeled textarea).
+        # Only the Playwright timeout is swallowed: a lagging status textarea
+        # is cosmetic because the /health poll below is the authoritative
+        # gate (and its assert goes loud). Any other exception propagates.
         try:
             self.gp.wait_for_any_textarea_contains(
                 ["loaded", "Loaded", "success", "already"],
                 timeout=MODEL_TIMEOUT_MS,
             )
-        except Exception:
+        except PlaywrightTimeoutError:
             pass
 
-        # Poll server to confirm model is actually loaded
-        _wait_for_model_state("design", loaded=True, timeout=60)
+        # Authoritative check: the server must confirm the load.
+        self.assertTrue(
+            _wait_for_model_state("design", loaded=True, timeout=60),
+            "design model did not report loaded=True on /health within 60s "
+            "of the UI Load click",
+        )
 
-        # The authoritative check is the server poll above. The Manage Models
-        # gr.Dataframe sometimes doesn't re-render "Loaded" in the DOM despite
-        # the server confirming the load (a Gradio Dataframe quirk; the toggle
-        # handler and status timer both deliver fresh data — see I4 follow-up),
-        # so the table check is best-effort here, not a hard failure.
+        # The authoritative check is the server assert above. Step 4A
+        # hardened this table check to an assert and it failed identically
+        # in two consecutive live runs with server-confirmed loads — the
+        # table renders one stale row that never re-renders despite fresh
+        # /models data (DOM evidence:
+        # docs/testing/step4a-e2e-unhollow-2026-09-12.tdd.md). Warn and
+        # continue by recorded deviation (plan Step 4A status block); the
+        # frozen Dataframe is a genuine UI defect for 4B, not test lag.
         if not self.gp.wait_for_table_row_refreshed("design", "Loaded"):
             print("[warn] Manage Models table did not re-render 'Loaded' despite "
-                  "server confirmation (Gradio Dataframe quirk); load verified via /models.")
+                  "server confirmation (Gradio Dataframe quirk); load verified via /health.")
         else:
             table = self.gp.get_table_data()
             design_row = [r for r in table if r and r[0].lower().strip() == "design"]
@@ -950,18 +967,26 @@ class TestE2EPlaywright(unittest.TestCase):
             self.gp.wait_for_any_textarea_contains(
                 ["loaded", "Loaded", "already"], timeout=MODEL_TIMEOUT_MS,
             )
-        except Exception:
+        except PlaywrightTimeoutError:
             pass
-        _wait_for_model_state("design", loaded=True, timeout=60)
+        self.assertTrue(
+            _wait_for_model_state("design", loaded=True, timeout=60),
+            "design model did not report loaded=True on /health within 60s "
+            "of the UI Load click (test_09 setup load)",
+        )
 
         self.gp.click_confirm_button("Unload")
         try:
             self.gp.wait_for_any_textarea_contains(
                 ["unloaded", "Unloaded", "success"], timeout=30_000,
             )
-        except Exception:
+        except PlaywrightTimeoutError:
             pass
-        _wait_for_model_state("design", loaded=False, timeout=30)
+        self.assertTrue(
+            _wait_for_model_state("design", loaded=False, timeout=30),
+            "design model did not report loaded=False on /health within 30s "
+            "of the UI Unload click",
+        )
 
         self.gp.click_button("Refresh")
 
@@ -996,13 +1021,21 @@ class TestE2EPlaywright(unittest.TestCase):
             self.gp.wait_for_any_textarea_contains(
                 ["loaded", "Loaded", "already"], timeout=MODEL_TIMEOUT_MS,
             )
-        except Exception:
+        except PlaywrightTimeoutError:
             pass
-        _wait_for_model_state("design", loaded=True, timeout=60)
+        self.assertTrue(
+            _wait_for_model_state("design", loaded=True, timeout=60),
+            "design model did not report loaded=True on /health within 60s "
+            "of the UI Load click",
+        )
 
+        # Table check warn-and-continue by recorded Step 4A deviation (the
+        # frozen Dataframe failed the hardened assert in two consecutive
+        # live runs; see test_08 and
+        # docs/testing/step4a-e2e-unhollow-2026-09-12.tdd.md).
         if not self.gp.wait_for_table_row_refreshed("design", "Loaded"):
             print("[warn] Manage Models table did not re-render 'Loaded' despite "
-                  "server confirmation (Gradio Dataframe quirk); load verified via /models.")
+                  "server confirmation (Gradio Dataframe quirk); load verified via /health.")
         else:
             table = self.gp.get_table_data()
             design_row = [r for r in table if r and r[0].lower().strip() == "design"]
@@ -1015,13 +1048,17 @@ class TestE2EPlaywright(unittest.TestCase):
             self.gp.wait_for_any_textarea_contains(
                 ["unloaded", "Unloaded", "success"], timeout=30_000,
             )
-        except Exception:
+        except PlaywrightTimeoutError:
             pass
-        _wait_for_model_state("design", loaded=False, timeout=30)
+        self.assertTrue(
+            _wait_for_model_state("design", loaded=False, timeout=30),
+            "design model did not report loaded=False on /health within 30s "
+            "of the UI Unload click",
+        )
 
         if not self.gp.wait_for_table_row_refreshed("design", "Not loaded"):
             print("[warn] Manage Models table did not re-render 'Not loaded' despite "
-                  "server confirmation (Gradio Dataframe quirk); unload verified via /models.")
+                  "server confirmation (Gradio Dataframe quirk); unload verified via /health.")
         else:
             table = self.gp.get_table_data()
             design_row = [r for r in table if r and r[0].lower().strip() == "design"]
