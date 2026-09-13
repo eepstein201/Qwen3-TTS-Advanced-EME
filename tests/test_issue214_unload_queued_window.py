@@ -1428,7 +1428,12 @@ class TestStreamingTerminalFrameContract(unittest.TestCase):
         model_unloaded, insufficient_memory, and the batch path's identical
         model_not_loaded check). It used key ``message`` and omitted
         ``recovery`` entirely, so ``ModelNotLoadedError(detail=...)`` and any
-        ``detail``-reading client saw None."""
+        ``detail``-reading client saw None.
+
+        Since Step 2 the handler first attempts the on-demand load; the 503
+        this pins is the residual re-check (slot emptied again after the load
+        returned), so the record owner is stubbed out and the slot stays
+        empty."""
         from fastapi import HTTPException
 
         from qwen3_tts.server.app_generation import handle_generate_stream
@@ -1436,6 +1441,11 @@ class TestStreamingTerminalFrameContract(unittest.TestCase):
 
         state = _make_state()
         state.models["design"] = None
+        deduped_calls = []
+
+        async def _fake_deduped(state_, model_type, request=None):
+            deduped_calls.append(model_type)
+            return {"status": "loaded", "model": model_type}
 
         async def _scenario():
             req = GenerateRequest(text="stream me", mode="design")
@@ -1455,10 +1465,15 @@ class TestStreamingTerminalFrameContract(unittest.TestCase):
             patch(
                 "qwen3_tts.server.validation._validate_generation_request"
             ),
+            patch(
+                "qwen3_tts.server.model_loading.load_model_deduped",
+                side_effect=_fake_deduped,
+            ),
         ):
             with self.assertRaises(HTTPException) as ctx:
                 asyncio.run(_scenario())
 
+        self.assertEqual(deduped_calls, ["design"])
         self.assertEqual(ctx.exception.status_code, 503)
         detail = ctx.exception.detail
         self.assertIsInstance(detail, dict)
