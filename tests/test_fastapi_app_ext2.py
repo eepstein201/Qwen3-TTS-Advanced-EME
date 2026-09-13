@@ -1043,17 +1043,25 @@ class TestGenerateStream(unittest.TestCase):
             self.assertEqual(length, len(chunk) * 4)
 
     def test_stream_model_not_loaded(self):
+        """/generate-stream with an unloaded model loads it on demand; a
+        failed load must surface /load-model's sanitized failure shape."""
         client, token, state = self._setup_stream_client()
         state.models["clone"] = None
 
+        def _boom(model_type, warmup=False):
+            raise RuntimeError("cold load failed")
+
         with patch(f"{_APP_GENERATION}._check_memory_available", return_value=(True, 8000)), \
-             patch(f"{_APP_GENERATION}._validate_generation_request"):
+             patch(f"{_APP_GENERATION}._validate_generation_request"), \
+             patch("qwen3_tts.core.engine.load_model", side_effect=_boom):
             resp = client.post(
                 "/generate-stream",
                 json={"text": "Hello", "mode": "clone", "prompt_file": "voice1.wav"},
                 headers={"Authorization": f"Bearer {token}"},
             )
-        self.assertEqual(resp.status_code, 503)
+        self.assertEqual(resp.status_code, 500)
+        detail = resp.json().get("detail", {})
+        self.assertEqual(detail.get("error"), "load_failed")
 
     def test_stream_low_memory(self):
         client, token, state = self._setup_stream_client()

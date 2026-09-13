@@ -334,22 +334,41 @@ async def handle_generate(request, state, req, security, config_provider):
     prompt_file = req.prompt_file
     speaker = req.speaker
 
-    # Check if required model is loaded
+    # Resolve the required model, LOADING it on demand when the slot is
+    # empty (design/custom default to load_at_startup=false — the RUNBOOK's
+    # "one click away" is now also one request away). Routed through
+    # /load-model's per-load-record owner (claim/attach dedup + the #192
+    # leaf-locked warm-up) rather than a bespoke unlocked load: model
+    # construction is the GPU-adjacent work #192/#214 proved must be
+    # serialized, and its failure paths already run _recover_from_failed_load
+    # and raise /load-model's sanitized error shape. This handler holds no
+    # lock here, so the warm-up's leaf acquisition preserves the
+    # inference_lock-outermost order.
     model = state.models.get(mode)
     if model is None:
-        from qwen3_tts.core.config import get_model_info
+        from qwen3_tts.server.model_loading import load_model_deduped
 
-        info = get_model_info(mode)
-        detail = info.get("description", "")
-        raise HTTPException(
-            status_code=503,
-            detail={
-                "error": "model_not_loaded",
-                "detail": f"The '{mode}' model is not loaded. {detail}",
-                "recovery": "restart",
-                "model_type": mode,
-            },
-        )
+        await load_model_deduped(state, mode, request=request)
+        model = state.models.get(mode)
+        if model is None:
+            # Rare now: the slot emptied again after the load returned (an
+            # /unload-model raced past it). Recovery is the manual load.
+            from qwen3_tts.core.config import get_model_info
+
+            info = get_model_info(mode)
+            detail = info.get("description", "")
+            raise HTTPException(
+                status_code=503,
+                detail={
+                    "error": "model_not_loaded",
+                    "detail": (
+                        f"The '{mode}' model is not loaded. {detail} Load it "
+                        "via POST /load-model or the Manage Models tab."
+                    ),
+                    "recovery": "load_model",
+                    "model_type": mode,
+                },
+            )
 
     # Generation parameters
     gen_params = {
@@ -864,23 +883,37 @@ async def handle_generate_stream(request, state, req, security, config_provider)
 
     mode = req.mode
 
-    # Check if required model is loaded
+    # Resolve the required model, LOADING it on demand when the slot is
+    # empty — same reuse of /load-model's per-load-record owner as the
+    # batch path above (claim/attach dedup, leaf-locked warm-up, sanitized
+    # failure shape). This runs before the StreamingResponse is built, so
+    # a load failure still answers with a proper status code.
     model = state.models.get(mode)
     if model is None:
-        # Same body shape as the batch path's identical check above
-        # ({"error", "detail", "recovery", "model_type"}): the streaming copy
-        # used key `message` and omitted `recovery`, so detail-reading clients
-        # (ModelNotLoadedError) saw None and no recovery hint.
-        error_msg = state.model_load_errors.get(mode) or "Model not loaded"
-        raise HTTPException(
-            status_code=503,
-            detail={
-                "error": "model_not_loaded",
-                "detail": error_msg,
-                "recovery": "restart",
-                "model_type": mode,
-            },
-        )
+        from qwen3_tts.server.model_loading import load_model_deduped
+
+        await load_model_deduped(state, mode, request=request)
+        model = state.models.get(mode)
+        if model is None:
+            # Rare now: the slot emptied again after the load returned (an
+            # /unload-model raced past it). Same body shape as the batch
+            # path's residual check ({"error", "detail", "recovery",
+            # "model_type"}): the streaming copy used key `message` and
+            # omitted `recovery`, so detail-reading clients
+            # (ModelNotLoadedError) saw None and no recovery hint.
+            error_msg = state.model_load_errors.get(mode) or "Model not loaded"
+            raise HTTPException(
+                status_code=503,
+                detail={
+                    "error": "model_not_loaded",
+                    "detail": (
+                        f"{error_msg} Load the '{mode}' model via POST "
+                        "/load-model or the Manage Models tab."
+                    ),
+                    "recovery": "load_model",
+                    "model_type": mode,
+                },
+            )
 
     # Every generation_state touch below goes through this guard (a
     # threading.Lock — the only primitive that also excludes the daemon

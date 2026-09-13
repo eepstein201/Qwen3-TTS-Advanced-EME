@@ -71,14 +71,35 @@ class TestServerValidation(unittest.TestCase):
         self.assertIn("Unknown speaker", resp.json()["detail"])
 
     def test_generate_valid_speaker_accepted(self):
-        # This will fail with 503 (model not loaded) rather than 400 (validation error)
-        resp = self.client.post("/generate", json={
-            "texts": ["hello"],
-            "mode": "custom",
-            "speaker": "Ryan",
-        }, headers=self.auth)
-        # Should pass validation (400) and hit model-not-loaded (503)
-        self.assertIn(resp.status_code, [200, 503])
+        # A valid speaker passes validation; the unloaded custom model is
+        # loaded on demand (Step 2), so the request generates (200) instead
+        # of 503ing model_not_loaded. load_model is mocked so no real
+        # weights load.
+        from unittest.mock import MagicMock
+
+        import numpy as np
+
+        from qwen3_tts.server.app import app as _app
+
+        fake_wav = np.zeros(100, dtype="float32")
+        with patch(
+            "qwen3_tts.core.engine.load_model",
+            return_value=MagicMock(name="custom-weights"),
+        ), patch(
+            "qwen3_tts.core.engine.run_inference", return_value=(fake_wav, 24000)
+        ), patch(
+            "qwen3_tts.server.app_generation._check_memory_available",
+            return_value=(True, 10000),
+        ):
+            resp = self.client.post("/generate", json={
+                "texts": ["hello"],
+                "mode": "custom",
+                "speaker": "Ryan",
+            }, headers=self.auth)
+        # Should pass validation (not 400) and complete via the on-demand load
+        self.assertEqual(resp.status_code, 200, resp.text)
+        self.assertIsNotNone(_app.state.models.get("custom"))
+        _app.state.models["custom"] = None
 
     def test_error_response_has_detail_field(self):
         """All error responses should include a detail field (FastAPI format)."""

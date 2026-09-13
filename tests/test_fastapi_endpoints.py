@@ -257,15 +257,24 @@ def test_generate_empty_text(fastapi_client):
 @pytest.mark.unit
 @_skip
 def test_generate_model_not_loaded(fastapi_client):
-    """POST /generate when model is None returns 503 model_not_loaded."""
+    """POST /generate with an unloaded model now loads it on demand; when
+    that load fails it must return /load-model's sanitized failure shape
+    (classified load_failed), never a bare 500."""
     app.state.models_loaded.set()
-    response = fastapi_client.post(
-        "/generate",
-        json={"text": "Hello world", "mode": "clone", "prompt_file": "v.wav"},
-    )
-    assert response.status_code == 503
+
+    def _boom(model_type, warmup=False):
+        raise RuntimeError("cold load failed at /Users/alice/weights")
+
+    with patch("qwen3_tts.core.engine.load_model", side_effect=_boom):
+        response = fastapi_client.post(
+            "/generate",
+            json={"text": "Hello world", "mode": "clone", "prompt_file": "v.wav"},
+        )
+    assert response.status_code == 500
     data = response.json()
-    assert data["detail"]["error"] == "model_not_loaded"
+    assert data["detail"]["error"] == "load_failed"
+    assert data["detail"]["recovery"] == "restart"
+    assert "/Users/alice" not in str(data["detail"]["detail"])
 
 
 @pytest.mark.unit
@@ -349,13 +358,21 @@ def test_generate_stream_empty_text(fastapi_client):
 @pytest.mark.unit
 @_skip
 def test_generate_stream_model_not_loaded(fastapi_client):
-    """POST /generate-stream when model is None returns 503."""
+    """POST /generate-stream with an unloaded model loads it on demand; a
+    failed load must surface /load-model's sanitized failure shape."""
     app.state.models_loaded.set()
-    response = fastapi_client.post(
-        "/generate-stream",
-        json={"text": "Hello", "mode": "clone", "prompt_file": "v.wav"},
-    )
-    assert response.status_code == 503
+
+    def _boom(model_type, warmup=False):
+        raise RuntimeError("cold load failed")
+
+    with patch("qwen3_tts.core.engine.load_model", side_effect=_boom):
+        response = fastapi_client.post(
+            "/generate-stream",
+            json={"text": "Hello", "mode": "clone", "prompt_file": "v.wav"},
+        )
+    assert response.status_code == 500
+    data = response.json()
+    assert data["detail"]["error"] == "load_failed"
 
 
 @pytest.mark.unit
