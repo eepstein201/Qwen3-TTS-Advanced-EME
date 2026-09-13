@@ -64,7 +64,7 @@ already used in `tests/test_extract_error.py`.
 
 ## RED → GREEN
 
-New module `tests/test_generate_on_demand_load.py` (registered in `BATCHES` batch 4, beside
+New module `tests/test_generate_on_demand_load.py` (registered in `BATCHES` batch 3 ("Server Infrastructure"), beside
 `test_issue214_load_model_dedup`).
 
 RED (pre-implementation, `pytest tests/test_generate_on_demand_load.py -v`): **7 failed in
