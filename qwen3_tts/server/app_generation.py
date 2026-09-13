@@ -907,8 +907,8 @@ async def handle_generate_stream(request, state, req, security, config_provider)
                 detail={
                     "error": "model_not_loaded",
                     "detail": (
-                        f"{error_msg} Load the '{mode}' model via POST "
-                        "/load-model or the Manage Models tab."
+                        f"{error_msg.rstrip('.')}. Load the '{mode}' model via "
+                        "POST /load-model or the Manage Models tab."
                     ),
                     "recovery": "load_model",
                     "model_type": mode,
