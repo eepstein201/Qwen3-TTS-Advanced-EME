@@ -231,25 +231,33 @@ class TestBatchPerChunkSeedDelivery(unittest.TestCase):
         mock_single.return_value = (fake_wav, 24000)
         mock_crossfade.return_value = fake_wav
 
+        gen_params = {
+            "seed": 99,
+            "temperature": 0.7,
+            "top_k": 50,
+            "top_p": 0.95,
+            "repetition_penalty": 1.05,
+        }
+
         run_inference(
             model=MagicMock(),
             text="long text",
             mode="clone",
-            gen_params={
-                "seed": 99,
-                "temperature": 0.7,
-                "top_k": 50,
-                "top_p": 0.95,
-                "repetition_penalty": 1.05,
-            },
+            gen_params=gen_params,
             seed_lock_chunks=False,
         )
 
         self.assertEqual(mock_set_seed.call_count, 3)
         mock_set_seed.assert_has_calls([call(99), call(100), call(101)])
 
-        delivered = [_gen_params_of(c)["seed"] for c in mock_single.call_args_list]
-        self.assertEqual(delivered, [99, 100, 101])
+        delivered = [_gen_params_of(c) for c in mock_single.call_args_list]
+        self.assertEqual([p["seed"] for p in delivered], [99, 100, 101])
+
+        # Identity pin: the per-chunk seeds must travel as NEW dicts. Handing
+        # the caller's object through makes value equality invisible once the
+        # flag is True (every chunk would carry the same seed).
+        for params in delivered:
+            self.assertIsNot(params, gen_params)
 
     @patch("qwen3_tts.core.engine.inference._set_seed_for_backend")
     @patch("qwen3_tts.core.engine.inference._run_inference_single")
@@ -324,6 +332,12 @@ class TestBatchPerChunkSeedDelivery(unittest.TestCase):
         )
 
         mock_set_seed.assert_not_called()
+
+        # Delivery pin: the None guard must reach the gen_params copies too —
+        # an impl whose guard lives only at the seeding site could deliver
+        # {"seed": 0} (None + chunk index).
+        delivered = [_gen_params_of(c)["seed"] for c in mock_single.call_args_list]
+        self.assertEqual(delivered, [None, None])
 
     @patch("qwen3_tts.core.engine.inference._set_seed_for_backend")
     @patch("qwen3_tts.core.engine.inference._run_inference_single")
@@ -690,7 +704,8 @@ class TestStreamingCallSitesForwardFlag(unittest.IsolatedAsyncioTestCase):
     call kwargs.
     """
 
-    async def test_http_generate_stream_forwards_seed_lock_chunks(self):
+    async def _forwarded_via_http(self, seed_lock_chunks):
+        """Drive handle_generate_stream; return the forwarded flag value."""
         import numpy as np
 
         from qwen3_tts.server.app_generation import handle_generate_stream
@@ -703,7 +718,10 @@ class TestStreamingCallSitesForwardFlag(unittest.IsolatedAsyncioTestCase):
             yield (chunk, 24000)
 
         req = GenerateRequest(
-            text="Hello world", mode="custom", seed=1234, seed_lock_chunks=True
+            text="Hello world",
+            mode="custom",
+            seed=1234,
+            seed_lock_chunks=seed_lock_chunks,
         )
 
         with (
@@ -727,14 +745,10 @@ class TestStreamingCallSitesForwardFlag(unittest.IsolatedAsyncioTestCase):
             async for _ in response.body_iterator:
                 pass
 
-        forwarded = mock_run.call_args.kwargs.get("seed_lock_chunks")
-        self.assertTrue(
-            forwarded,
-            "handle_generate_stream must forward req.seed_lock_chunks to "
-            f"run_inference_streaming (got {forwarded!r})",
-        )
+        return mock_run.call_args.kwargs.get("seed_lock_chunks")
 
-    async def test_ws_stream_generation_forwards_seed_lock_chunks(self):
+    async def _forwarded_via_ws(self, seed_lock_chunks):
+        """Drive websocket._stream_generation; return the forwarded flag value."""
         import numpy as np
 
         from qwen3_tts.server.websocket import _stream_generation
@@ -769,17 +783,36 @@ class TestStreamingCallSitesForwardFlag(unittest.IsolatedAsyncioTestCase):
                     "text": "Hello world",
                     "mode": "custom",
                     "seed": 1234,
-                    "seed_lock_chunks": True,
+                    "seed_lock_chunks": seed_lock_chunks,
                 },
                 stop_event=threading.Event(),
                 disconnect_event=threading.Event(),
             )
 
-        forwarded = mock_run.call_args.kwargs.get("seed_lock_chunks")
-        self.assertTrue(
-            forwarded,
-            "websocket._stream_generation must forward req.seed_lock_chunks "
-            f"to run_inference_streaming (got {forwarded!r})",
+        return mock_run.call_args.kwargs.get("seed_lock_chunks")
+
+    async def test_http_forwards_request_value_true(self):
+        forwarded = await self._forwarded_via_http(True)
+        self.assertIs(
+            forwarded, True, "handle_generate_stream must forward True verbatim"
+        )
+
+    async def test_http_forwards_request_value_false(self):
+        forwarded = await self._forwarded_via_http(False)
+        self.assertIs(
+            forwarded, False, "handle_generate_stream must forward False verbatim"
+        )
+
+    async def test_ws_forwards_request_value_true(self):
+        forwarded = await self._forwarded_via_ws(True)
+        self.assertIs(
+            forwarded, True, "websocket must forward True verbatim"
+        )
+
+    async def test_ws_forwards_request_value_false(self):
+        forwarded = await self._forwarded_via_ws(False)
+        self.assertIs(
+            forwarded, False, "websocket must forward False verbatim"
         )
 
 
