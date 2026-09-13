@@ -144,7 +144,8 @@ E2E note (dispatcher-owned, NOT run here): `tests/test_ai_regression.py`
   (annotation-unchecked notes only, pre-existing).
 - `pytest tests/test_claude_md.py` → **4 passed** (CLAUDE.md 203 ≤ 300).
 - Full non-E2E suite (`pytest tests/ -m "not e2e" -q`): **3420 passed, 6 skipped, 90
-  deselected, 0 failed in 102.59s**.
+  deselected, 0 failed in 102.59s** — re-run after the final error-message polish commit:
+  identical counts in 138.15s.
 
 ## Docs
 
