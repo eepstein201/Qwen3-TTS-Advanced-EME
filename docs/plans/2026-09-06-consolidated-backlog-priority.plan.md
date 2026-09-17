@@ -780,6 +780,23 @@ re-scoped) tries to diagnose anything through it.
 
 ### Step 4C — Extract the duplicated Playwright harness before adding new E2E coverage
 
+- **Status: Gate B PASS — 2026-09-17, this branch (`cefb7160`; static checks 1-8 green in the
+  prior session, item 9 closed below).** Precondition-restored live re-run (server restarted with
+  all three `load_at_startup: true`, `/health` verified clone/design/custom loaded before
+  launch): **1 failed / 24 passed / 11 subtests passed in 458.27s, zero skips**. `test_03`
+  reproduced exactly (same `TimeoutError` at `_wait_for_visible_status("cleared")`, `:332` vs the
+  baseline's `:383` — the −51-line shift is the harness removal). Collection unchanged
+  (13/3/3/6 = 25). **Sole deviation from the baseline: the two wavesurfer reds came back green
+  (22P→24P = exactly that pair) — ruled a flaky baseline sample, not extraction behavior, by a
+  discriminator run: `e12bf21d` in a throwaway worktree, same module in isolation against the
+  same live server, 6/6 PASSED in 6.86s.** Verdict: **PASS BY RECORDED DEVIATION** (4A precedent)
+  — the literal 3F/22P shape is unreachable when the baseline sample contains an intermittent
+  failure, and green-on-baseline-code-in-isolation removes any mechanism by which the extraction
+  could have "fixed" a deterministic red. Full evidence + rationale: the Gate B addendum in
+  `docs/testing/step4c-e2e-baseline-2026-09-17.md`. Disposition of the intermittency (and the
+  empty-module-script-body root cause it implies) → Step 4E. Open cosmetic ruling, non-blocking:
+  the second normalization (parent-side `expanduser` + literal list vs the original child-side
+  `__import__('os').path.expanduser`) — identical under the same HOME/user, awaiting user ruling.
 - **Model tier:** default · **Branch:** `refactor/e2e-shared-page-object`
 - **Context:** `GradioPage` (the project's real Page Object Model, `test_e2e_playwright.py:192`) is
   used only in that one file — `test_e2e_history_clear_copy.py`, `test_e2e_tab_navigation.py`, and
@@ -835,6 +852,13 @@ re-scoped) tries to diagnose anything through it.
   (`largest_module_script: 0`), so the script re-executor never injects the blob module, the
   player factory is never defined, and no waveform/controls render. Investigate the empty script
   body first; treat 2 and 3 as one fix, not two.
+- **Intermittency evidence (2026-09-17, Gate B discriminator):** failures 2+3 do NOT reproduce
+  on unmodified `e12bf21d` run in isolation against the same live server (module alone: 6/6
+  passed in 6.86s) and were green in both post-4C full-suite runs — treat the pair as
+  intermittent / suite-context-dependent (module position after ~7 min of churn is in the
+  hypothesis space), not deterministic. See the Gate B addendum in the baseline doc. `test_03`
+  (failure 1), by contrast, reproduced in every full-suite run so far — that one behaves
+  deterministically.
 - **Note the split within the same module:** `test_script_reexecutor_ran_and_injected_blob_module`
   and `test_streaming_player_module_body_executed` PASSED in the same run. Reconcile that before
   concluding the WaveSurfer path is wholly broken — the disagreement is itself a clue, and it may
@@ -1584,8 +1608,8 @@ analysis rather than duplicated as a new step.)*
 (1) · Wave 3: 3A–3E (5) · Wave 4: 4A–4E (5) · Wave 4B: 4B.1–4B.4 (4) · Wave 5: 5 (1) · Wave 6:
 6A–6R (18) · Wave 7: 7A–7C (3) — **plus 3 independent tracks** (feature, dependency, and the decision-gated branch register — none gated by the waves) **+ 1 passive watch** (no action). Step 6·0 (dead-code cleanup) was already
 executed directly on 2026-09-06 and is recorded in Wave 6; it is not counted among the pending
-steps. **Executed so far: 0A (PR #263), 0B (PR #269), 0C (PR #270), 0D (PR #271), 0E (PR #276), 0F (PR #281), 0G (PR #282), 1A (PR #283), 1B (PR #287), 1C (PR #284), 1D (PR #289), 1E (PR #290), 3B (PR #291), 3C (PR #292), 3D (PR #293), 3E (PR #294), 4A (branch `fix/e2e-model-load-assertions`), 4B (branch `fix/e2e-load-cycle-investigation`), 2 (branch `fix/on-demand-model-load-generate`), 3A (PR #304).** **6G is
-folded into Wave 7 Step 7C** (not independently pending). ***Open: 28.*** *(Counter reconciled 2026-09-17 against a full heading census: 49 steps - 20 executed - 1 folded (6G) = 28. The pre-reconciliation value read 27 because Step 6·0 was subtracted twice - it is already excluded from the wave totals, since Wave 6 counts 6A-6R = 18, and was then deducted again as though it sat inside them. Do not "correct" this back to 27.)* *(Wave 7 incorporated
+steps. **Executed so far: 0A (PR #263), 0B (PR #269), 0C (PR #270), 0D (PR #271), 0E (PR #276), 0F (PR #281), 0G (PR #282), 1A (PR #283), 1B (PR #287), 1C (PR #284), 1D (PR #289), 1E (PR #290), 3B (PR #291), 3C (PR #292), 3D (PR #293), 3E (PR #294), 4A (branch `fix/e2e-model-load-assertions`), 4B (branch `fix/e2e-load-cycle-investigation`), 2 (branch `fix/on-demand-model-load-generate`), 3A (PR #304), 4C (branch `refactor/e2e-shared-page-object`, Gate B 2026-09-17).** **6G is
+folded into Wave 7 Step 7C** (not independently pending). ***Open: 27.*** *(Counter reconciled 2026-09-17 against a full heading census: 49 steps - 20 executed - 1 folded (6G) = 28; 4C's Gate B landed 2026-09-17 (pass by recorded deviation) → 21 executed = 27. The pre-reconciliation value read 27 because Step 6·0 was subtracted twice - it is already excluded from the wave totals, since Wave 6 counts 6A-6R = 18, and was then deducted again as though it sat inside them; that arithmetic error was fixed at the 28 mark and is history, not a reason to touch the number again.)* *(Wave 7 incorporated
 2026-09-08 from the Interface Quality Improvement Plan — a three-surface audit of Web UI, CLI,
 and HTTP API, user-scoped; tracked at `docs/plans/2026-09-07-interface-quality.plan.md`, which
 is the spec for 7A–7C.)* Ordered by: critical correctness/security findings from the 2026-09-06 cross-cutting

@@ -99,3 +99,30 @@ FAILED tests/test_e2e_wavesurfer_live.py::TestWaveSurferLoadsViaProductionPath::
 
 [exited with code 1]
 ```
+
+---
+
+## Gate B addendum (2026-09-17) — precondition-restored re-run + discriminator
+
+**Re-run (extraction code `cefb7160`; server restarted with all three models `load_at_startup:
+true` and `/health` verified all loaded before launch): 1 failed, 24 passed, 11 subtests passed
+in 458.27s, zero skips.** `test_03` reproduced exactly — same `playwright TimeoutError` at
+`_wait_for_visible_status("cleared")`, `tests/test_e2e_history_clear_copy.py:332` vs the
+baseline's `:383` (−51 lines = the harness removal). Collection unchanged: 13/3/3/6 = 25.
+Every delta vs this baseline is the wavesurfer pair — 22P → 24P is exactly those two tests.
+
+**Discriminator: the two wavesurfer reds are a flaky baseline sample, not extraction behavior.**
+`e12bf21d` checked out into a throwaway worktree (`git worktree add --detach`, removed after),
+same module run in isolation against the same live server: **6/6 PASSED in 6.86s.** The reds do
+not reproduce on unmodified baseline code under identical restored conditions. Pair scorecard to
+date: red exactly once (this baseline run — the module ran last, after ~7 min of suite churn);
+green three times since (deviated full-suite run 2026-09-17 AM, precondition-restored re-run,
+baseline-code isolation run). Static Gate B had already proved the launch blocks byte-match
+`e12bf21d` wiring and no test body/assertion/port changed.
+
+**Gate B verdict: PASS BY RECORDED DEVIATION** (4A precedent). The exit criterion's literal
+3F/22P shape is unreachable in principle when the baseline sample contains an intermittent
+failure; and because baseline code also passes in isolation, there is no mechanism by which the
+extraction could have "fixed" a deterministic red — so the green pair cannot be attributed to an
+extraction behavior change. Ownership of the intermittency (and the empty-module-script-body
+mechanism it implies) stays with Step 4E, whose context now records the pair as INTERMITTENT.
