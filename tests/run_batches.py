@@ -259,10 +259,13 @@ BATCHES = {
         ],
         "timeout": 600,  # speaker_similarity loads WavLM (~300MB) + runs inference under memory pressure
     },
-    # E2E browser tests (requires playwright + running TTS server)
+    # E2E SUBSET ONLY — the batch runner sets TTS_DISABLE_RATE_LIMITING=1 and
+    # ignores pytest markers, so the security/rate-limit/perf e2e modules would
+    # pass hollowly here. The full 90-test suite is `make test-e2e` (pytest
+    # -m e2e against a live server). Requires playwright + running TTS server.
     6: {
-        "name": "E2E Playwright",
-        "description": "Browser-based E2E tests (requires playwright, running server)",
+        "name": "E2E Playwright (subset)",
+        "description": "Browser E2E SUBSET: playwright module only (full suite = make test-e2e)",
         "modules": [
             "tests.test_e2e_playwright",
         ],

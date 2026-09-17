@@ -44,6 +44,7 @@ INTENTIONALLY_UNBATCHED = {
     ),
     "tests.test_e2e_security_validation": "e2e: run via `pytest -m e2e`",
     "tests.test_e2e_tab_navigation": "e2e: run via `pytest -m e2e`",
+    "tests.test_e2e_voice_management": "e2e: run via `pytest -m e2e`",
     "tests.test_e2e_wavesurfer_live": "e2e: run via `pytest -m e2e`",
     # Plain pytest-style classes (not unittest.TestCase): python -m unittest's
     # TestLoader.loadTestsFromModule only collects TestCase subclasses, so the
