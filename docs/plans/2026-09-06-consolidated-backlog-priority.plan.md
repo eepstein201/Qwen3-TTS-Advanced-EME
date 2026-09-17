@@ -813,6 +813,31 @@ re-scoped) tries to diagnose anything through it.
 
 ### Step 4D — Close the highest-severity new E2E gaps (in priority order)
 
+- **Status: IN PROGRESS (branch `fix/e2e-coverage-gaps`, 2026-09-17) — structural make-target fix
+  + gap 1 landed; gaps 2-5 and the remaining structural items open.** (a) **`make test-e2e` now
+  runs the FULL 90-test e2e suite** (`pytest -m e2e`, 11 modules, `-rs` so model-not-loaded
+  skips surface loudly, JUnit XML → gitignored `.reports/`) instead of `run_batches.py --batch
+  6`'s 1-of-11 playwright subset — the exact blind spot that hid 4E's three reds. The batch
+  runner cannot host the suite (it disables rate limiting and ignores markers — the
+  security/rate-limit modules would pass hollowly); batch 6 stays as the honest named subset.
+  (b) **Gap 1: `tests/test_e2e_voice_management.py`** — create/rename/preview/delete via the
+  UI, port 7869, registered in INTENTIONALLY_UNBATCHED. Hard-won mechanics recorded in its
+  docstring: the Dataframe grid is div-based `[data-row][data-col]` (the `<table>` is a
+  one-row phantom); gradio 6.20 never renders Textbox VALUE updates (assert outcomes: grid
+  text, `audio[src]` attached, armed-button relabel, authed /prompts API — `/prompts` LISTS
+  suffixed names while create/delete address bare ones); uploads are async (wait for
+  `audio[src]`); fixtures must exist BEFORE `launch_ui` (table value is build-time).
+  test_01-03 stable-green (create+rename+preview, validated in loops); **test_04
+  intermittently red on a REAL product defect, kept honest** (retries absorb single blips):
+  **finding-10 — the UI's voice-delete intermittently sends an UNAUTHENTICATED
+  `POST /delete-prompt`** (`.voice_server.log` 2026-09-17 18:02:22–18:03:09, 5×
+  `Auth failure: missing_token`), while same-session renames authenticate fine; no token
+  rewrite occurred in the window (rules out the atomic-replace race), `auth_headers()`
+  silently degrades to no-auth on an empty `read_auth_token()` read — mechanism un-root-caused.
+  User impact is worse than a failed delete: the gr.Error lands in a status textbox whose
+  value never renders, so NOTHING visibly happens. Needs its own issue + fix; until then
+  test_04's red is signal, not noise. 4D's premise correction: 0G's credited create-from-audio
+  E2E case never existed on main — gap 1 includes create.
 - **Model tier:** default · **Branch:** `fix/e2e-coverage-gaps` (may split into several PRs — this is "batch small same-shape work" territory per gap, not one PR)
 - **Context (gaps found by the 2026-09-06 static analysis, none previously tracked):**
   1. **Voice Management tab** (create/delete/rename/preview) — zero E2E coverage at any level; `/rename-prompt`, `/preview-prompt`, `/prompt-details` have zero hits. Highest severity — rename has rollback-on-failure logic, create/delete touch the filesystem, and Step 0G above just changed the create path. Start here (Step 0G already adds one create-from-audio case — this task covers delete/rename/preview).
