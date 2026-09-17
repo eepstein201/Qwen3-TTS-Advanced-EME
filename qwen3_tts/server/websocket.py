@@ -475,6 +475,7 @@ async def _stream_generation(
                 instruct=req.instruct,
                 x_vector_only_mode=req.x_vector_only_mode,
                 max_chunk_chars=req.max_chunk_chars,
+                seed_lock_chunks=req.seed_lock_chunks,
                 config_provider=config_provider,
             ):
                 if stop_event.is_set():
