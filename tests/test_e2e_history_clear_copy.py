@@ -16,16 +16,11 @@ Usage:
 """
 
 import os
-import signal
-import subprocess  # nosec B404
-import sys
-import time
 import unittest
-import urllib.error
-import urllib.request
 
 from tests.e2e_helpers import assert_supported_gradio
 from tests.e2e_helpers import poll_until as _poll_until
+from tests.e2e_ui import kill_stale_ui_on_port, launch_ui, stop_ui, wait_for_ui
 
 try:
     import pytest
@@ -89,19 +84,6 @@ _INJECT_SCRIPTS = """() => {
 }"""
 
 
-def _wait_for_ui(url, timeout=45):
-    deadline = time.time() + timeout
-    while time.time() < deadline:
-        try:
-            resp = urllib.request.urlopen(url, timeout=3)  # nosec B310
-            if resp.status == 200:
-                return True
-        except (urllib.error.URLError, ConnectionError, OSError):
-            pass
-        time.sleep(1)
-    return False
-
-
 @unittest.skipUnless(HAS_PLAYWRIGHT, "playwright not installed")
 class TestE2EHistoryClearCopy(unittest.TestCase):
     """Browser tests for Recent Generations: copy, remove, clear, visible status."""
@@ -117,41 +99,14 @@ class TestE2EHistoryClearCopy(unittest.TestCase):
         assert_supported_gradio()
 
         # Kill any stale UI on our port
-        import socket
-        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
-            if s.connect_ex(("127.0.0.1", UI_PORT)) == 0:
-                try:
-                    r = subprocess.run(  # nosec B603
-                        ["lsof", "-ti", f":{UI_PORT}"],
-                        capture_output=True, text=True, timeout=5,
-                    )
-                    for pid_str in (r.stdout or "").strip().splitlines():
-                        try:
-                            os.kill(int(pid_str), signal.SIGTERM)
-                        except (ProcessLookupError, ValueError):
-                            pass
-                    time.sleep(1)
-                except Exception:
-                    pass
+        kill_stale_ui_on_port(UI_PORT)
 
-        env = os.environ.copy()
-        cls.ui_proc = subprocess.Popen(  # nosec B603
-            [
-                sys.executable, "-c",
-                f"import sys; sys.path.insert(0, '{PROJECT_DIR}'); "
-                f"from qwen3_tts.interface.ui import build_ui; "
-                f"demo = build_ui(); "
-                f"demo.launch(server_name='127.0.0.1', server_port={UI_PORT}, "
-                f"share=False, show_error=True, "
-                f"allowed_paths=[__import__('os').path.expanduser('~/Downloads'), '/tmp'], "
-                f"css='.gr-hidden {{ display: none !important; }}', "
-                f"prevent_thread_lock=False)",
-            ],
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-            env=env,
+        cls.ui_proc = launch_ui(
+            UI_PORT,
+            allowed_paths=[os.path.expanduser("~/Downloads"), "/tmp"],
+            css=".gr-hidden { display: none !important; }",
         )
-        if not _wait_for_ui(UI_URL, timeout=45):
+        if not wait_for_ui(UI_URL, timeout=45):
             cls._kill_ui()
             raise unittest.SkipTest(f"Gradio UI failed to start on port {UI_PORT}")
 
@@ -168,13 +123,7 @@ class TestE2EHistoryClearCopy(unittest.TestCase):
 
     @classmethod
     def _kill_ui(cls):
-        if cls.ui_proc and cls.ui_proc.poll() is None:
-            cls.ui_proc.send_signal(signal.SIGTERM)
-            try:
-                cls.ui_proc.wait(timeout=5)
-            except subprocess.TimeoutExpired:
-                cls.ui_proc.kill()
-                cls.ui_proc.wait(timeout=3)
+        stop_ui(cls.ui_proc)
 
     def setUp(self):
         self.context = self.browser.new_context()
