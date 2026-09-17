@@ -187,6 +187,19 @@ class TestWaveSurferLoadsViaProductionPath(unittest.TestCase):
 
     def test_gradio_still_emits_the_module_script_into_the_dom(self):
         """If Gradio ever strips <script> instead of inerting it, re-injection dies."""
+        # The gr.HTML value renders asynchronously on component mount — under
+        # suite load the script element can exist with an empty body before
+        # its text lands (observed: largest_module_script 0 in the 4C baseline
+        # run). Wait for the same end state this test asserts; still fails
+        # hard on timeout.
+        self.page.wait_for_function(
+            """() => {
+                const lens = Array.from(document.querySelectorAll('script[type="module"]'))
+                    .map(s => (s.textContent || '').length);
+                return Math.max(0, ...lens) > 1000;
+            }""",
+            timeout=10_000,
+        )
         probe = self.page.evaluate(PROBE_JS)
         self.assertGreater(
             probe["module_scripts_in_dom"], 0,
@@ -199,6 +212,12 @@ class TestWaveSurferLoadsViaProductionPath(unittest.TestCase):
 
     def test_player_controls_render(self):
         """The player HTML must render, or the factory has nothing to bind to."""
+        # Same mount race as test_gradio_still_emits — the container renders
+        # with the gr.HTML value, not at page load. Bounded wait, hard assert.
+        self.page.wait_for_function(
+            "() => !!document.querySelector('#clone-waveform')",
+            timeout=10_000,
+        )
         probe = self.page.evaluate(PROBE_JS)
         self.assertTrue(probe["clone_waveform"], f"#clone-waveform missing: {probe}")
         self.assertTrue(probe["clone_play_btn"], f"#clone-play-btn missing: {probe}")
