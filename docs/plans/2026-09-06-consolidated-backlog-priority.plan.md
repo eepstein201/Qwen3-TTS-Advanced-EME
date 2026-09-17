@@ -624,8 +624,12 @@ incomplete.
 steps, per the adversarial review's finding that external, unversioned references made them
 unfalsifiable. 3e's M8 sub-item is dropped here — it's Step 1B above.)*
 
-### Step 3A — 3d: make `seed_lock_chunks` real
+### Step 3A — 3d: make `seed_lock_chunks` real (EXECUTED 2026-09-17, PR #304)
 
+- **Status: DONE (PR #304, squash `e8eb6440`, merged 2026-09-17; branch `fix/phase3-seed-lock-chunks`; two-gate adversarial SDD lane — RED `b33cbf52` → Gate-A strengthenings `bd0a2dfd` → GREEN `9b76c019`).** The effective-seed table is now implemented on BOTH runners and BOTH backends via a module-level `_chunk_seed(base_seed, chunk_index, seed_lock_chunks)` helper next to `_set_seed_for_backend`: `base_seed is None` → `None` (no seeding, either flag value); flag `True` → `base_seed` on every chunk (voice consistency); flag `False` → `base_seed + chunk_index` (reproducible run, chunks free to vary). Single-chunk generations are `i = 0`, so both flag values give `base_seed` — that identity is pinned. **Delivery is a per-chunk `{**gen_params, "seed": effective}` copy**, never a mutation of the caller's dict (the inner runners re-seed from `gen_params["seed"]` unconditionally, so the effective seed has to travel *in* the params; the caller's dict being unmutated is pinned as an immutability test). The batch path keeps its explicit loop-level `_set_seed_for_backend(...)` call as the observable seam the existing tests pin, now called with the effective per-chunk seed — the resulting double-seed with an identical value is intentional. `run_inference_streaming` gained `seed_lock_chunks: bool = False` (keyword, documented) applied in both the MLX and torch-fallback branches, with no new `_set_seed_for_backend` call added there (that would have changed the existing call-count seam). Both streaming call sites now forward it: `app_generation.py` and `websocket.py`, each pinned at **both polarities** (`assertIs True` *and* `assertIs False`) after Gate A observed that a hardcoded-`True` call site would pass True-only tests. 29 tests in `tests/test_seed_lock_chunks.py`; CI 32 pass / 1 skip; `mergeStateStatus: CLEAN` at merge.
+- **WS4.5 add-on: NOT FEASIBLE — closed, do not re-open speculatively.** The per-call `torch.Generator` replacement for the global `torch.manual_seed` cannot be wired, because the downstream call never accepts a generator. Evidence (read directly in site-packages, not inferred): `~/miniforge3/envs/qwen3-tts/lib/python3.11/site-packages/qwen_tts/core/models/modeling_qwen3_tts.py:2022-2043` — `generate()` has **no** `generator` parameter and zero `generator` occurrences, so any `generator=` we passed would be silently swallowed by `**kwargs` and reproducibility would appear to work while doing nothing; `:1671-1680` — the codec-predictor call is a closed kwarg set. Global `torch.manual_seed` therefore stays, which is safe today under the single `inference_lock`. Revisit only if upstream adds generator support **or** concurrent inference is actually enabled — and re-read the upstream signature first, since this verdict is pinned to a specific upstream version.
+- **Evidence:** `docs/testing/step3a-seed-lock-chunks-2026-09-17.tdd.md` — the implementer brief and report preserved verbatim (Gate-A failure output, fix round, GREEN gates, WS4.5 investigation), moved into the repo before the lane worktree was removed.
+- **Finding carried (pre-existing, not fixed here):** the `_set_seed_for_backend` double-seed described above is deliberate but non-obvious; anyone "optimizing" the redundant call away will silently break the seam the batch tests observe.
 - **Model tier:** default · **Branch:** `fix/phase3-seed-lock-chunks` · **Depends on:** rebase after 1C (same file, `inference.py`) **and after Step 2 lands** (write surface now includes `app_generation.py`, which Step 2 also touches — see correction below).
 - **Context (corrected during adversarial review — "all three runners" was false):** confirmed 2026-09-06 — `seed_lock_chunks` appears in `inference.py` in exactly **two** places, both inside `run_inference` alone: the signature (`:1330`) and `seed = gen_params.get("seed") if seed_lock_chunks else None` (`:1402`). When `seed_lock_chunks=False`, seed is `None` for every chunk (no seeding at all), **not** the prescribed per-chunk derived seed (`base_seed + chunk_index`).
   **`run_inference_streaming` has no `seed_lock_chunks` parameter at all** (`inference.py:1586-1600`)
@@ -776,6 +780,23 @@ re-scoped) tries to diagnose anything through it.
 
 ### Step 4C — Extract the duplicated Playwright harness before adding new E2E coverage
 
+- **Status: Gate B PASS — 2026-09-17, this branch (`cefb7160`; static checks 1-8 green in the
+  prior session, item 9 closed below).** Precondition-restored live re-run (server restarted with
+  all three `load_at_startup: true`, `/health` verified clone/design/custom loaded before
+  launch): **1 failed / 24 passed / 11 subtests passed in 458.27s, zero skips**. `test_03`
+  reproduced exactly (same `TimeoutError` at `_wait_for_visible_status("cleared")`, `:332` vs the
+  baseline's `:383` — the −51-line shift is the harness removal). Collection unchanged
+  (13/3/3/6 = 25). **Sole deviation from the baseline: the two wavesurfer reds came back green
+  (22P→24P = exactly that pair) — ruled a flaky baseline sample, not extraction behavior, by a
+  discriminator run: `e12bf21d` in a throwaway worktree, same module in isolation against the
+  same live server, 6/6 PASSED in 6.86s.** Verdict: **PASS BY RECORDED DEVIATION** (4A precedent)
+  — the literal 3F/22P shape is unreachable when the baseline sample contains an intermittent
+  failure, and green-on-baseline-code-in-isolation removes any mechanism by which the extraction
+  could have "fixed" a deterministic red. Full evidence + rationale: the Gate B addendum in
+  `docs/testing/step4c-e2e-baseline-2026-09-17.md`. Disposition of the intermittency (and the
+  empty-module-script-body root cause it implies) → Step 4E. Open cosmetic ruling, non-blocking:
+  the second normalization (parent-side `expanduser` + literal list vs the original child-side
+  `__import__('os').path.expanduser`) — identical under the same HOME/user, awaiting user ruling.
 - **Model tier:** default · **Branch:** `refactor/e2e-shared-page-object`
 - **Context:** `GradioPage` (the project's real Page Object Model, `test_e2e_playwright.py:192`) is
   used only in that one file — `test_e2e_history_clear_copy.py`, `test_e2e_tab_navigation.py`, and
@@ -783,7 +804,11 @@ re-scoped) tries to diagnose anything through it.
   launch on their own port. Four independently-drifting copies of the riskiest code in the suite.
   Every new E2E test in Step 4D is cheaper to write once this is fixed.
 - **Tasks:** extract `GradioPage` plus a shared UI-launch/port helper into `tests/e2e_ui.py`; migrate all four modules onto it; keep behavior identical (this is a pure extraction, not a rewrite).
-- **Verify:** all four E2E modules still pass unchanged against a live server.
+- **Verify:** all four E2E modules behave **identically** to the pre-change live baseline
+  captured on `e12bf21d` (`docs/testing/step4c-e2e-baseline-2026-09-17.md`): **3 failed / 22 passed / 11 subtests passed**.
+  Those three failures are pre-existing and owned by Step 4E — a post-change run that comes back
+  *green* means the extraction changed behavior, and is a FAILURE of this step, not a bonus fix.
+  Collection counts must also be unchanged (13/3/3/6 = 25, with `-m e2e`).
 - **Exit criteria:** one shared harness, zero duplicated `Popen`/locator blocks.
 
 ### Step 4D — Close the highest-severity new E2E gaps (in priority order)
@@ -798,6 +823,58 @@ re-scoped) tries to diagnose anything through it.
 - **Also fix while touching this area (structural, not new coverage):** `make test-e2e`/batch 6 runs only `test_e2e_playwright.py` (13 of 90 E2E tests) — either expand it to cover all 12 E2E modules or rename the target so its 1-of-12 scope stops reading as "the E2E suite passed"; two of three core generation modes (design/custom) silently skip under bare `pytest -m e2e` depending on load order — make that skip loud instead of quiet; add Playwright tracing-on-failure + JUnit XML output (no failure artifacts exist today, which directly blocks diagnosing Step 4B's crash if it recurs); stop rewriting the tracked `.claude/.mcp.json` at `setUpModule` time (`e2e_helpers.py`); make `TTS_DISABLE_RATE_LIMITING=1` a loud module-level precondition for `test_e2e_security_validation.py` instead of 11 per-test 429 skips.
 - **Verify:** each new/fixed test passes against a live, freshly restarted server.
 - **Exit criteria:** gaps 1-4 closed with real (non-tolerant) assertions; the structural fixes landed; `make test-e2e`'s actual scope matches its name or its name says what it actually covers.
+
+### Step 4E — Three pre-existing live E2E failures surfaced by Step 4C's baseline
+
+- **Model tier:** default · **Branch:** `fix/e2e-preexisting-failures`
+- **Context:** Step 4C captured a live-server E2E baseline of the four harness modules on
+  `e12bf21d` **before** any extraction edits, to prove the extraction was behavior-identical. That
+  baseline came back **3 failed / 22 passed / 11 subtests passed in 503.17s** — i.e. these three
+  tests were already red on unmodified `main` and nothing in the suite was reporting it, because
+  `make test-e2e`/batch 6 runs only `test_e2e_playwright.py` (the 1-of-12 scope problem already
+  recorded in Step 4D). Proven pre-existing: no 4C edits were on disk when the run started.
+  Raw evidence: `docs/testing/step4c-e2e-baseline-2026-09-17.md` (tracked).
+- **The three failures:**
+  1. `test_e2e_history_clear_copy.py::TestE2EHistoryClearCopy::test_03_clear_all_two_step_with_visible_status`
+     — `playwright._impl._errors.TimeoutError: Page.wait_for_function: Timeout 10000ms exceeded`,
+     raised at `:268` inside `_wait_for_visible_status("cleared", timeout=10_000)`, called from
+     `:383`. Either the two-step Clear All confirm never completes, or the visible status text
+     changed and the waiter's predicate is now stale. Decide which before touching the timeout —
+     raising it would convert a real regression into a slow pass.
+  2. `test_e2e_wavesurfer_live.py::TestWaveSurferLoadsViaProductionPath::test_gradio_still_emits_the_module_script_into_the_dom`
+     — `AssertionError: 0 not greater than 1000 : module script present but suspiciously small`.
+  3. `test_e2e_wavesurfer_live.py::TestWaveSurferLoadsViaProductionPath::test_player_controls_render`
+     — `AssertionError: False is not true : #clone-waveform missing`.
+- **Failures 2 and 3 are almost certainly ONE root cause** — both report the same probe:
+  `{'module_scripts_in_dom': 1, 'largest_module_script': 0, 'blob_scripts_in_head': 0,
+  'get_or_create_player': 'undefined', 'streaming_players': 'undefined', 'clone_waveform': False,
+  'clone_play_btn': False}`. The module `<script>` tag reaches the DOM but its body is **empty**
+  (`largest_module_script: 0`), so the script re-executor never injects the blob module, the
+  player factory is never defined, and no waveform/controls render. Investigate the empty script
+  body first; treat 2 and 3 as one fix, not two.
+- **Intermittency evidence (2026-09-17, Gate B discriminator):** failures 2+3 do NOT reproduce
+  on unmodified `e12bf21d` run in isolation against the same live server (module alone: 6/6
+  passed in 6.86s) and were green in both post-4C full-suite runs — treat the pair as
+  intermittent / suite-context-dependent (module position after ~7 min of churn is in the
+  hypothesis space), not deterministic. See the Gate B addendum in the baseline doc. `test_03`
+  (failure 1), by contrast, reproduced in every full-suite run so far — that one behaves
+  deterministically.
+- **Note the split within the same module:** `test_script_reexecutor_ran_and_injected_blob_module`
+  and `test_streaming_player_module_body_executed` PASSED in the same run. Reconcile that before
+  concluding the WaveSurfer path is wholly broken — the disagreement is itself a clue, and it may
+  mean one of the passing tests is hollow.
+- **Do NOT fold this into Step 4C.** 4C is a pure extraction whose entire exit criterion is that
+  the post-change run reproduces this baseline *exactly* — same 3 failures, same 22 passes. A 4C
+  run that comes back green would mean the extraction changed behavior, not that it fixed a bug.
+  These failures must stay red until this step fixes them deliberately.
+- **Verify:** the four harness modules run green against a live, freshly restarted server
+  (`conda run -n qwen3-tts-mlx python -m pytest tests/test_e2e_playwright.py
+  tests/test_e2e_history_clear_copy.py tests/test_e2e_tab_navigation.py
+  tests/test_e2e_wavesurfer_live.py -m e2e -v` — **`-m e2e` is mandatory**; `pytest.ini`
+  deselects the marker, so a bare run reports "0 selected" and looks like a clean pass).
+- **Exit criteria:** all three tests pass for an understood reason (root cause named, not a widened
+  timeout or a relaxed assertion); if any one is decided to be testing something no longer true,
+  it is rewritten or deleted with the reasoning recorded here — never left red.
 
 ---
 
@@ -1527,12 +1604,12 @@ analysis rather than duplicated as a new step.)*
 
 ## Summary
 
-**48 execution steps across 9 waves** — Wave 0: 0A–0G (7) · Wave 1: 1A–1E (5) · Wave 2: 2
-(1) · Wave 3: 3A–3E (5) · Wave 4: 4A–4D (4) · Wave 4B: 4B.1–4B.4 (4) · Wave 5: 5 (1) · Wave 6:
+**49 execution steps across 9 waves** — Wave 0: 0A–0G (7) · Wave 1: 1A–1E (5) · Wave 2: 2
+(1) · Wave 3: 3A–3E (5) · Wave 4: 4A–4E (5) · Wave 4B: 4B.1–4B.4 (4) · Wave 5: 5 (1) · Wave 6:
 6A–6R (18) · Wave 7: 7A–7C (3) — **plus 3 independent tracks** (feature, dependency, and the decision-gated branch register — none gated by the waves) **+ 1 passive watch** (no action). Step 6·0 (dead-code cleanup) was already
 executed directly on 2026-09-06 and is recorded in Wave 6; it is not counted among the pending
-steps. **Executed so far: 0A (PR #263), 0B (PR #269), 0C (PR #270), 0D (PR #271), 0E (PR #276), 0F (PR #281), 0G (PR #282), 1A (PR #283), 1B (PR #287), 1C (PR #284), 1D (PR #289), 1E (PR #290), 3B (PR #291), 3C (PR #292), 3D (PR #293), 3E (PR #294), 4A (branch `fix/e2e-model-load-assertions`), 4B (branch `fix/e2e-load-cycle-investigation`), 2 (branch `fix/on-demand-model-load-generate`).** **6G is
-folded into Wave 7 Step 7C** (not independently pending). ***Open: 27.*** *(Wave 7 incorporated
+steps. **Executed so far: 0A (PR #263), 0B (PR #269), 0C (PR #270), 0D (PR #271), 0E (PR #276), 0F (PR #281), 0G (PR #282), 1A (PR #283), 1B (PR #287), 1C (PR #284), 1D (PR #289), 1E (PR #290), 3B (PR #291), 3C (PR #292), 3D (PR #293), 3E (PR #294), 4A (branch `fix/e2e-model-load-assertions`), 4B (branch `fix/e2e-load-cycle-investigation`), 2 (branch `fix/on-demand-model-load-generate`), 3A (PR #304), 4C (branch `refactor/e2e-shared-page-object`, Gate B 2026-09-17).** **6G is
+folded into Wave 7 Step 7C** (not independently pending). ***Open: 27.*** *(Counter reconciled 2026-09-17 against a full heading census: 49 steps - 20 executed - 1 folded (6G) = 28; 4C's Gate B landed 2026-09-17 (pass by recorded deviation) → 21 executed = 27. The pre-reconciliation value read 27 because Step 6·0 was subtracted twice - it is already excluded from the wave totals, since Wave 6 counts 6A-6R = 18, and was then deducted again as though it sat inside them; that arithmetic error was fixed at the 28 mark and is history, not a reason to touch the number again.)* *(Wave 7 incorporated
 2026-09-08 from the Interface Quality Improvement Plan — a three-surface audit of Web UI, CLI,
 and HTTP API, user-scoped; tracked at `docs/plans/2026-09-07-interface-quality.plan.md`, which
 is the spec for 7A–7C.)* Ordered by: critical correctness/security findings from the 2026-09-06 cross-cutting

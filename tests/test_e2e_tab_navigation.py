@@ -46,13 +46,11 @@ Usage:
 """
 
 import os
-import signal
-import subprocess  # nosec B404
-import sys
 import time
 import unittest
-import urllib.error
 import urllib.request
+
+from tests.e2e_ui import kill_stale_ui_on_port, launch_ui, stop_ui, wait_for_ui
 
 # E2E browser tests require a live server + Gradio UI + Chromium.
 # Gated behind the `e2e` marker so plain `pytest tests/` skips them (no hang).
@@ -123,19 +121,6 @@ def _is_server_running():
         return False
 
 
-def _wait_for_ui(url, timeout=45):
-    """Poll the Gradio UI until it serves a page or the timeout expires."""
-    deadline = time.time() + timeout
-    while time.time() < deadline:
-        try:
-            if urllib.request.urlopen(url, timeout=3).status == 200:  # nosec B310
-                return True
-        except (urllib.error.URLError, ConnectionError, OSError):
-            pass
-        time.sleep(1)
-    return False
-
-
 @unittest.skipUnless(HAS_PLAYWRIGHT, "playwright not installed")
 class TestTabNavigationNeverKillsThePage(unittest.TestCase):
     """Clicking through every tab must never throw a page error or blank a tab."""
@@ -149,21 +134,10 @@ class TestTabNavigationNeverKillsThePage(unittest.TestCase):
         if not _is_server_running():
             raise unittest.SkipTest("TTS server not running on port 5123")
 
-        cls._kill_port(UI_PORT)
-        cls.ui_proc = subprocess.Popen(  # nosec B603
-            [
-                sys.executable, "-c",
-                f"import sys; sys.path.insert(0, {PROJECT_DIR!r}); "
-                f"from qwen3_tts.interface.ui import build_ui; "
-                f"demo = build_ui(); "
-                f"demo.launch(server_name='127.0.0.1', server_port={UI_PORT}, "
-                f"share=False, show_error=True)",
-            ],
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-        )
+        kill_stale_ui_on_port(UI_PORT)
+        cls.ui_proc = launch_ui(UI_PORT)
 
-        if not _wait_for_ui(UI_URL):
+        if not wait_for_ui(UI_URL):
             cls._kill_ui()
             raise unittest.SkipTest(f"Gradio UI failed to start on port {UI_PORT}")
         if cls.ui_proc.poll() is not None:
@@ -183,31 +157,9 @@ class TestTabNavigationNeverKillsThePage(unittest.TestCase):
         cls._kill_ui()
 
     @classmethod
-    def _kill_port(cls, port):
-        """SIGTERM anything listening on `port` so we never test stale code."""
-        try:
-            result = subprocess.run(  # nosec B603
-                ["lsof", "-ti", f":{port}"],
-                capture_output=True, text=True, timeout=5,
-            )
-            for pid_str in (result.stdout or "").strip().splitlines():
-                try:
-                    os.kill(int(pid_str), signal.SIGTERM)
-                except (ProcessLookupError, ValueError):
-                    pass
-            time.sleep(1)
-        except Exception:
-            pass
-
-    @classmethod
     def _kill_ui(cls):
-        if cls.ui_proc is not None:
-            cls.ui_proc.terminate()
-            try:
-                cls.ui_proc.wait(timeout=10)
-            except subprocess.TimeoutExpired:
-                cls.ui_proc.kill()
-            cls.ui_proc = None
+        stop_ui(cls.ui_proc)
+        cls.ui_proc = None
 
     def setUp(self):
         self.page = self.browser.new_context().new_page()
