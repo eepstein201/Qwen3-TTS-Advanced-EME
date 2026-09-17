@@ -1292,6 +1292,24 @@ def _set_seed_for_backend(seed: int | None) -> None:
         torch.manual_seed(seed)
 
 
+def _chunk_seed(
+    base_seed: int | None, chunk_index: int, seed_lock_chunks: bool
+) -> int | None:
+    """Effective seed for text-chunk `chunk_index` (Step 3A).
+
+    ``None`` when base_seed is None — no seeding at all. The identical
+    ``base_seed`` when seed_lock_chunks is set (voice consistency across
+    chunks), otherwise the derived ``base_seed + chunk_index`` so a run stays
+    reproducible while chunks are free to vary. Single-chunk generations are
+    chunk_index 0, so both flag values give base_seed.
+    """
+    if base_seed is None:
+        return None
+    if seed_lock_chunks:
+        return base_seed
+    return base_seed + chunk_index
+
+
 def _postprocess_chunk(
     audio,
     sample_rate,
@@ -1424,15 +1442,25 @@ def run_inference(
     all_audio = []
     sample_rate = None
 
-    seed = gen_params.get("seed") if seed_lock_chunks else None
+    base_seed = gen_params.get("seed")
 
     for i, chunk in enumerate(chunks):
         if progress_callback:
             progress_callback(i, len(chunks))
 
-        # Re-seed before each chunk for voice consistency across chunks
-        if seed is not None:
-            _set_seed_for_backend(seed)
+        # Effective seed per chunk (Step 3A): locked to base_seed for voice
+        # consistency, or derived base_seed + i for a reproducible run; None
+        # means no seeding at all. Delivered via a NEW dict — the caller's
+        # gen_params is never mutated.
+        effective_seed = _chunk_seed(base_seed, i, seed_lock_chunks)
+        chunk_params = {**gen_params, "seed": effective_seed}
+
+        # Re-seed before each chunk for voice consistency across chunks. The
+        # inner runners also seed from chunk_params["seed"], so this seeds the
+        # identical value twice — intentional, preserving the observable seam
+        # the existing tests pin.
+        if effective_seed is not None:
+            _set_seed_for_backend(effective_seed)
 
         preview = chunk[:50] + "..." if len(chunk) > 50 else chunk
         logger.info(
@@ -1447,7 +1475,7 @@ def run_inference(
             model,
             chunk,
             mode,
-            gen_params,
+            chunk_params,
             language,
             voice_prompt,
             voice_description,
@@ -1625,6 +1653,7 @@ def run_inference_streaming(
     x_vector_only_mode: bool = False,
     config_provider: Any = None,
     progress_callback: Any = None,
+    seed_lock_chunks: bool = False,
 ) -> Iterator[tuple]:
     """Run TTS inference in streaming mode, yielding audio chunks as they generate.
 
@@ -1644,6 +1673,10 @@ def run_inference_streaming(
         max_chunk_chars: Max chars per chunk for torch fallback (None = config default).
         progress_callback: Optional callable(chunk_index, chunk_total) for progress updates.
                          Called as each chunk is yielded. For MLX, chunk_total=0 until completion.
+        seed_lock_chunks: True seeds every text chunk with the identical
+                         gen_params["seed"] (voice consistency); False (default)
+                         seeds the derived seed + chunk index. No seeding at all
+                         when the base seed is None. Mirrors run_inference.
 
     Yields:
         (audio_chunk, sample_rate) tuples where audio_chunk is float32 numpy array.
@@ -1665,15 +1698,23 @@ def run_inference_streaming(
             "Starting streaming inference [mlx]: %d text chunk(s)", chunk_total
         )
         ref_text = _reference_text_from_prompt(voice_prompt)
+        base_seed = gen_params.get("seed")
         emitted = 0
         for i, chunk in enumerate(chunks):
             if progress_callback:
                 progress_callback(i + 1, chunk_total)
+            # Effective seed per chunk (Step 3A), delivered via a NEW dict —
+            # the inner runner seeds from it, so no explicit call here (the
+            # existing call-count seam must not change).
+            chunk_params = {
+                **gen_params,
+                "seed": _chunk_seed(base_seed, i, seed_lock_chunks),
+            }
             for wav_chunk, chunk_sr in _run_inference_mlx_streaming(
                 model,
                 chunk,
                 mode,
-                gen_params,
+                chunk_params,
                 language,
                 voice_prompt,
                 voice_description,
@@ -1706,6 +1747,8 @@ def run_inference_streaming(
         chunks = _prepare_text_chunks(text, language, model, max_chunk_chars)
         chunk_total = len(chunks)  # Total known upfront for torch
 
+        base_seed = gen_params.get("seed")
+
         for i, chunk in enumerate(chunks):
             preview = chunk[:50] + "..." if len(chunk) > 50 else chunk
             logger.info("Streaming chunk %d/%d: '%s'", i + 1, chunk_total, preview)
@@ -1714,11 +1757,18 @@ def run_inference_streaming(
             if progress_callback:
                 progress_callback(i + 1, chunk_total)
 
+            # Effective seed per chunk (Step 3A), delivered via a NEW dict —
+            # the inner runner seeds from it, so no explicit call here (the
+            # existing call-count seam must not change).
+            chunk_params = {
+                **gen_params,
+                "seed": _chunk_seed(base_seed, i, seed_lock_chunks),
+            }
             wav, sr = _run_inference_single(
                 model,
                 chunk,
                 mode,
-                gen_params,
+                chunk_params,
                 language,
                 voice_prompt,
                 voice_description,
