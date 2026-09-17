@@ -22,7 +22,7 @@ help:
 	@echo "  test-voice       Batch 2: Voice & CLI"
 	@echo "  test-server      Batch 3: Server infrastructure"
 	@echo "  test-engine      Batch 4: Engine & UI"
-	@echo "  test-e2e         Batch 6: E2E Playwright browser tests"
+	@echo "  test-e2e         Full E2E suite: 90 tests, 11 modules (-m e2e; server + playwright)"
 	@echo "  clean            Remove cache and runtime files"
 	@echo "  lint             Run linters (if installed)"
 	@echo "  format           Format code with ruff"
@@ -77,9 +77,15 @@ test-server:
 test-engine:
 	python -m unittest tests.test_engine tests.test_generate_server_fallback tests.test_ui_headless -v
 
-# E2E browser tests (requires playwright + running server)
+# Full E2E suite: every e2e-marked module (90 tests across 11 modules).
+# Requires a running server + playwright. -rs surfaces skip reasons loudly
+# (model-not-loaded etc.); JUnit XML lands in .reports/ (gitignored). The
+# batch runner cannot host this suite — it disables rate limiting (hollowing
+# the security/rate-limit modules) and ignores markers — so the playwright-only
+# subset stays in batch 6 (python tests/run_batches.py --batch 6).
 test-e2e:
-	python tests/run_batches.py --batch 6
+	@mkdir -p .reports
+	python -m pytest tests/ -m e2e -v --tb=short -rs --junitxml=.reports/e2e-junit.xml -p no:cacheprovider
 
 # Full test suite (may hang)
 test:
