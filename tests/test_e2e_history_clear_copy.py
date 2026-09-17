@@ -327,9 +327,12 @@ class TestE2EHistoryClearCopy(unittest.TestCase):
 
         # Second click confirms.
         self.page.locator("button").filter(has_text="Clear All").first.click()
-        # The arm hint may have relabeled the button; fall back to matching by
-        # the confirm text if the label changed.
-        self._wait_for_visible_status("cleared", timeout=10_000)
+        # The confirm banner is "Deleted {n} generation(s)." (or "Nothing to
+        # clear." on an empty list — impossible here given the >=1-row
+        # precondition), per history_panel.on_clear_history_click; "generation(s)"
+        # uniquely matches the success message. The old "cleared" predicate
+        # could never match either string.
+        self._wait_for_visible_status("generation(s)", timeout=10_000)
 
         self.assertEqual(self._history_row_count(), 0, "list was not cleared")
         self.assertGreater(self._reset_calls(), 0, "waveform was not reset on clear")

@@ -826,6 +826,29 @@ re-scoped) tries to diagnose anything through it.
 
 ### Step 4E — Three pre-existing live E2E failures surfaced by Step 4C's baseline
 
+- **Status: DONE (branch `fix/e2e-preexisting-failures`, 2026-09-17, off `2683e7f1`) — all three
+  reds fixed for understood reasons; ZERO relaxed assertions.** (1) `test_03` = STALE PREDICATE:
+  the confirm banner from `history_panel.on_clear_history_click` is `"Deleted {n}
+  generation(s)."` (or `"Nothing to clear."` on an empty list) — neither contains `"cleared"`,
+  so the old `_wait_for_visible_status("cleared")` could never match (the same
+  `"Deleted."`-vs-`"removed"` string-drift class `test_02` hit on 2026-07-31). The confirm flow
+  itself was healthy (both clicks landed; arm wait passed; handler deletes/clears/resets). Fix:
+  wait on `"generation(s)"` — uniquely matches the success message the ≥1-row precondition
+  guarantees. Red in 4 consecutive runs (baseline, deviated, Gate B re-run, isolation pre-fix
+  1F/2P/22.29s) → green post-fix. (2)+(3) wavesurfer pair = ONE root cause: POINT-IN-TIME
+  SNAPSHOT vs ASYNC MOUNT — the module script is a static `gr.HTML` value (`_facade.py`
+  `build_ui`), rendered by gradio asynchronously on component mount; under load the script
+  element can exist with an empty body at probe time (the baseline's `largest_module_script: 0`
+  sample). The two failing tests were exactly the only two that evaluate `PROBE_JS` immediately,
+  while their four passing siblings all gate on the bounded `_wait_for_player()` — the
+  passing/failing split this step flagged was the clue. Fix: bounded `wait_for_function` on the
+  SAME end states the asserts then check (script body >1000 chars; `#clone-waveform` present),
+  10 s hard timeouts, assertion values unchanged — not a widened timeout (there was no wait to
+  widen, only a snapshot) and not a relaxed assertion (same conditions, now awaited like every
+  sibling). **Evidence: isolation pre-fix 1F/2P; both modules post-fix 9/9 in 12.69s; full
+  4-module exit-criterion run 25 passed + 11 subtests in 467.87s** (first fully-green run of
+  the four harness modules — baseline was 3F/22P, Gate B 1F/24P). No product code changed:
+  both defects were test-side.
 - **Model tier:** default · **Branch:** `fix/e2e-preexisting-failures`
 - **Context:** Step 4C captured a live-server E2E baseline of the four harness modules on
   `e12bf21d` **before** any extraction edits, to prove the extraction was behavior-identical. That
@@ -1608,8 +1631,8 @@ analysis rather than duplicated as a new step.)*
 (1) · Wave 3: 3A–3E (5) · Wave 4: 4A–4E (5) · Wave 4B: 4B.1–4B.4 (4) · Wave 5: 5 (1) · Wave 6:
 6A–6R (18) · Wave 7: 7A–7C (3) — **plus 3 independent tracks** (feature, dependency, and the decision-gated branch register — none gated by the waves) **+ 1 passive watch** (no action). Step 6·0 (dead-code cleanup) was already
 executed directly on 2026-09-06 and is recorded in Wave 6; it is not counted among the pending
-steps. **Executed so far: 0A (PR #263), 0B (PR #269), 0C (PR #270), 0D (PR #271), 0E (PR #276), 0F (PR #281), 0G (PR #282), 1A (PR #283), 1B (PR #287), 1C (PR #284), 1D (PR #289), 1E (PR #290), 3B (PR #291), 3C (PR #292), 3D (PR #293), 3E (PR #294), 4A (branch `fix/e2e-model-load-assertions`), 4B (branch `fix/e2e-load-cycle-investigation`), 2 (branch `fix/on-demand-model-load-generate`), 3A (PR #304), 4C (branch `refactor/e2e-shared-page-object`, Gate B 2026-09-17).** **6G is
-folded into Wave 7 Step 7C** (not independently pending). ***Open: 27.*** *(Counter reconciled 2026-09-17 against a full heading census: 49 steps - 20 executed - 1 folded (6G) = 28; 4C's Gate B landed 2026-09-17 (pass by recorded deviation) → 21 executed = 27. The pre-reconciliation value read 27 because Step 6·0 was subtracted twice - it is already excluded from the wave totals, since Wave 6 counts 6A-6R = 18, and was then deducted again as though it sat inside them; that arithmetic error was fixed at the 28 mark and is history, not a reason to touch the number again.)* *(Wave 7 incorporated
+steps. **Executed so far: 0A (PR #263), 0B (PR #269), 0C (PR #270), 0D (PR #271), 0E (PR #276), 0F (PR #281), 0G (PR #282), 1A (PR #283), 1B (PR #287), 1C (PR #284), 1D (PR #289), 1E (PR #290), 3B (PR #291), 3C (PR #292), 3D (PR #293), 3E (PR #294), 4A (branch `fix/e2e-model-load-assertions`), 4B (branch `fix/e2e-load-cycle-investigation`), 2 (branch `fix/on-demand-model-load-generate`), 3A (PR #304), 4C (branch `refactor/e2e-shared-page-object`, Gate B 2026-09-17), 4E (branch `fix/e2e-preexisting-failures`).** **6G is
+folded into Wave 7 Step 7C** (not independently pending). ***Open: 26.*** *(Counter reconciled 2026-09-17 against a full heading census: 49 steps - 20 executed - 1 folded (6G) = 28; 4C's Gate B landed 2026-09-17 (pass by recorded deviation) → 21 executed = 27; 4E executed 2026-09-17 → 22 = 26. The pre-reconciliation value read 27 because Step 6·0 was subtracted twice - it is already excluded from the wave totals, since Wave 6 counts 6A-6R = 18, and was then deducted again as though it sat inside them; that arithmetic error was fixed at the 28 mark and is history, not a reason to touch the number again.)* *(Wave 7 incorporated
 2026-09-08 from the Interface Quality Improvement Plan — a three-surface audit of Web UI, CLI,
 and HTTP API, user-scoped; tracked at `docs/plans/2026-09-07-interface-quality.plan.md`, which
 is the spec for 7A–7C.)* Ordered by: critical correctness/security findings from the 2026-09-06 cross-cutting
