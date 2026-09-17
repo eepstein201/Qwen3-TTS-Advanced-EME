@@ -783,7 +783,11 @@ re-scoped) tries to diagnose anything through it.
   launch on their own port. Four independently-drifting copies of the riskiest code in the suite.
   Every new E2E test in Step 4D is cheaper to write once this is fixed.
 - **Tasks:** extract `GradioPage` plus a shared UI-launch/port helper into `tests/e2e_ui.py`; migrate all four modules onto it; keep behavior identical (this is a pure extraction, not a rewrite).
-- **Verify:** all four E2E modules still pass unchanged against a live server.
+- **Verify:** all four E2E modules behave **identically** to the pre-change live baseline
+  captured on `e12bf21d` (`.sdd-baseline-4c.txt`): **3 failed / 22 passed / 11 subtests passed**.
+  Those three failures are pre-existing and owned by Step 4E — a post-change run that comes back
+  *green* means the extraction changed behavior, and is a FAILURE of this step, not a bonus fix.
+  Collection counts must also be unchanged (13/3/3/6 = 25, with `-m e2e`).
 - **Exit criteria:** one shared harness, zero duplicated `Popen`/locator blocks.
 
 ### Step 4D — Close the highest-severity new E2E gaps (in priority order)
@@ -798,6 +802,51 @@ re-scoped) tries to diagnose anything through it.
 - **Also fix while touching this area (structural, not new coverage):** `make test-e2e`/batch 6 runs only `test_e2e_playwright.py` (13 of 90 E2E tests) — either expand it to cover all 12 E2E modules or rename the target so its 1-of-12 scope stops reading as "the E2E suite passed"; two of three core generation modes (design/custom) silently skip under bare `pytest -m e2e` depending on load order — make that skip loud instead of quiet; add Playwright tracing-on-failure + JUnit XML output (no failure artifacts exist today, which directly blocks diagnosing Step 4B's crash if it recurs); stop rewriting the tracked `.claude/.mcp.json` at `setUpModule` time (`e2e_helpers.py`); make `TTS_DISABLE_RATE_LIMITING=1` a loud module-level precondition for `test_e2e_security_validation.py` instead of 11 per-test 429 skips.
 - **Verify:** each new/fixed test passes against a live, freshly restarted server.
 - **Exit criteria:** gaps 1-4 closed with real (non-tolerant) assertions; the structural fixes landed; `make test-e2e`'s actual scope matches its name or its name says what it actually covers.
+
+### Step 4E — Three pre-existing live E2E failures surfaced by Step 4C's baseline
+
+- **Model tier:** default · **Branch:** `fix/e2e-preexisting-failures`
+- **Context:** Step 4C captured a live-server E2E baseline of the four harness modules on
+  `e12bf21d` **before** any extraction edits, to prove the extraction was behavior-identical. That
+  baseline came back **3 failed / 22 passed / 11 subtests passed in 503.17s** — i.e. these three
+  tests were already red on unmodified `main` and nothing in the suite was reporting it, because
+  `make test-e2e`/batch 6 runs only `test_e2e_playwright.py` (the 1-of-12 scope problem already
+  recorded in Step 4D). Proven pre-existing: no 4C edits were on disk when the run started.
+  Raw evidence: `.sdd-baseline-4c.txt` in the `refactor/e2e-shared-page-object` worktree.
+- **The three failures:**
+  1. `test_e2e_history_clear_copy.py::TestE2EHistoryClearCopy::test_03_clear_all_two_step_with_visible_status`
+     — `playwright._impl._errors.TimeoutError: Page.wait_for_function: Timeout 10000ms exceeded`,
+     raised at `:268` inside `_wait_for_visible_status("cleared", timeout=10_000)`, called from
+     `:383`. Either the two-step Clear All confirm never completes, or the visible status text
+     changed and the waiter's predicate is now stale. Decide which before touching the timeout —
+     raising it would convert a real regression into a slow pass.
+  2. `test_e2e_wavesurfer_live.py::TestWaveSurferLoadsViaProductionPath::test_gradio_still_emits_the_module_script_into_the_dom`
+     — `AssertionError: 0 not greater than 1000 : module script present but suspiciously small`.
+  3. `test_e2e_wavesurfer_live.py::TestWaveSurferLoadsViaProductionPath::test_player_controls_render`
+     — `AssertionError: False is not true : #clone-waveform missing`.
+- **Failures 2 and 3 are almost certainly ONE root cause** — both report the same probe:
+  `{'module_scripts_in_dom': 1, 'largest_module_script': 0, 'blob_scripts_in_head': 0,
+  'get_or_create_player': 'undefined', 'streaming_players': 'undefined', 'clone_waveform': False,
+  'clone_play_btn': False}`. The module `<script>` tag reaches the DOM but its body is **empty**
+  (`largest_module_script: 0`), so the script re-executor never injects the blob module, the
+  player factory is never defined, and no waveform/controls render. Investigate the empty script
+  body first; treat 2 and 3 as one fix, not two.
+- **Note the split within the same module:** `test_script_reexecutor_ran_and_injected_blob_module`
+  and `test_streaming_player_module_body_executed` PASSED in the same run. Reconcile that before
+  concluding the WaveSurfer path is wholly broken — the disagreement is itself a clue, and it may
+  mean one of the passing tests is hollow.
+- **Do NOT fold this into Step 4C.** 4C is a pure extraction whose entire exit criterion is that
+  the post-change run reproduces this baseline *exactly* — same 3 failures, same 22 passes. A 4C
+  run that comes back green would mean the extraction changed behavior, not that it fixed a bug.
+  These failures must stay red until this step fixes them deliberately.
+- **Verify:** the four harness modules run green against a live, freshly restarted server
+  (`conda run -n qwen3-tts-mlx python -m pytest tests/test_e2e_playwright.py
+  tests/test_e2e_history_clear_copy.py tests/test_e2e_tab_navigation.py
+  tests/test_e2e_wavesurfer_live.py -m e2e -v` — **`-m e2e` is mandatory**; `pytest.ini`
+  deselects the marker, so a bare run reports "0 selected" and looks like a clean pass).
+- **Exit criteria:** all three tests pass for an understood reason (root cause named, not a widened
+  timeout or a relaxed assertion); if any one is decided to be testing something no longer true,
+  it is rewritten or deleted with the reasoning recorded here — never left red.
 
 ---
 
@@ -1527,12 +1576,12 @@ analysis rather than duplicated as a new step.)*
 
 ## Summary
 
-**48 execution steps across 9 waves** — Wave 0: 0A–0G (7) · Wave 1: 1A–1E (5) · Wave 2: 2
-(1) · Wave 3: 3A–3E (5) · Wave 4: 4A–4D (4) · Wave 4B: 4B.1–4B.4 (4) · Wave 5: 5 (1) · Wave 6:
+**49 execution steps across 9 waves** — Wave 0: 0A–0G (7) · Wave 1: 1A–1E (5) · Wave 2: 2
+(1) · Wave 3: 3A–3E (5) · Wave 4: 4A–4E (5) · Wave 4B: 4B.1–4B.4 (4) · Wave 5: 5 (1) · Wave 6:
 6A–6R (18) · Wave 7: 7A–7C (3) — **plus 3 independent tracks** (feature, dependency, and the decision-gated branch register — none gated by the waves) **+ 1 passive watch** (no action). Step 6·0 (dead-code cleanup) was already
 executed directly on 2026-09-06 and is recorded in Wave 6; it is not counted among the pending
 steps. **Executed so far: 0A (PR #263), 0B (PR #269), 0C (PR #270), 0D (PR #271), 0E (PR #276), 0F (PR #281), 0G (PR #282), 1A (PR #283), 1B (PR #287), 1C (PR #284), 1D (PR #289), 1E (PR #290), 3B (PR #291), 3C (PR #292), 3D (PR #293), 3E (PR #294), 4A (branch `fix/e2e-model-load-assertions`), 4B (branch `fix/e2e-load-cycle-investigation`), 2 (branch `fix/on-demand-model-load-generate`).** **6G is
-folded into Wave 7 Step 7C** (not independently pending). ***Open: 27.*** *(Wave 7 incorporated
+folded into Wave 7 Step 7C** (not independently pending). ***Open: 28.*** *(Wave 7 incorporated
 2026-09-08 from the Interface Quality Improvement Plan — a three-surface audit of Web UI, CLI,
 and HTTP API, user-scoped; tracked at `docs/plans/2026-09-07-interface-quality.plan.md`, which
 is the spec for 7A–7C.)* Ordered by: critical correctness/security findings from the 2026-09-06 cross-cutting
