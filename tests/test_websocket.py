@@ -21,7 +21,8 @@ import threading
 import time
 import types
 import unittest
-from unittest.mock import MagicMock, patch
+from contextlib import contextmanager
+from unittest.mock import AsyncMock, MagicMock, patch
 
 try:
     import numpy as np
@@ -1654,3 +1655,166 @@ class TestWebSocketStreamErrorCascade(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+# ---------------------------------------------------------------------------
+# Failure arms of the /ws handler (Step 4B.1 item 1) — the code that runs
+# when something goes wrong mid-stream. Companion to the live-server E2E in
+# tests/test_e2e_websocket.py (which owns the happy-path wire contract).
+# ---------------------------------------------------------------------------
+
+
+@_skip
+class TestWebSocketFailureArms(unittest.TestCase):
+    """Mid-stream failure shapes: classified errors, thread failure, size cap."""
+
+    @contextmanager
+    def _authed_ws(self, **state_kwargs):
+        """An authenticated /ws session.
+
+        BARE TestClient on purpose: entering its context would run the app
+        lifespan, whose startup lock clashes with any live server on this
+        machine ("Another TTS server instance is already running"). The
+        websocket SESSION must still be entered — that is what creates the
+        blocking portal the first send needs (same pattern as every other
+        test in this module)."""
+        _setup_app_state(**state_kwargs)
+        client = TestClient(app)
+        with client.websocket_connect("/ws") as ws:
+            ws.send_text(json.dumps({"token": _TEST_TOKEN}))
+            resp = ws.receive_json()
+            assert resp["status"] == "authenticated", resp
+            yield ws
+
+    def test_in_lock_model_guard_spreads_classified_fields(self):
+        """The in-lock re-read 503 must arrive field-for-field (error/detail/
+        recovery as TOP-LEVEL frame fields), never as a stringified dict —
+        and the socket must survive (classified errors never close)."""
+        from fastapi import HTTPException
+
+        fake_model = object()
+        with self._authed_ws(models={"clone": fake_model}) as ws:
+            with patch(
+                "qwen3_tts.server.prompt_loading.load_voice_prompt_serialized",
+                new_callable=AsyncMock,
+                return_value=object(),
+            ), patch(
+                "qwen3_tts.server.app_generation._require_model_under_lock",
+                side_effect=HTTPException(
+                    status_code=503,
+                    detail={
+                        "error": "model_unloaded",
+                        "detail": "clone model was unloaded mid-request",
+                        "recovery": "retry",
+                    },
+                ),
+            ):
+                ws.send_text(json.dumps(
+                    {"text": "hello", "mode": "clone", "prompt_file": "p"}
+                ))
+                # The "generating" preamble frame arrives first; the
+                # classified error follows once the lock is taken.
+                while True:
+                    frame = ws.receive_json()
+                    if frame.get("error") is not None:
+                        break
+            self.assertEqual(frame.get("error"), "model_unloaded")
+            self.assertEqual(frame.get("recovery"), "retry")
+            self.assertIn("unloaded", frame.get("detail", ""))
+            # Socket survived the classified error: a follow-up request on
+            # the same connection gets its normal validation reply.
+            ws.send_text(json.dumps({"text": ""}))
+            self.assertEqual(ws.receive_json().get("error"), "No text provided")
+
+    def test_inference_thread_error_terminal_frame(self):
+        """An exception in the inference thread surfaces as the terminal
+        {"status": "error", ...} frame with a sanitized detail — never a
+        false {"status": "complete"}."""
+        fake_model = object()
+        with self._authed_ws(models={"clone": fake_model}) as ws:
+            with patch(
+                "qwen3_tts.server.prompt_loading.load_voice_prompt_serialized",
+                new_callable=AsyncMock,
+                return_value=object(),
+            ), patch(
+                "qwen3_tts.server.app_generation._require_model_under_lock",
+                return_value=fake_model,
+            ), patch(
+                "qwen3_tts.core.engine.run_inference_streaming",
+                side_effect=RuntimeError("synthetic inference failure"),
+            ):
+                ws.send_text(json.dumps(
+                    {"text": "hello", "mode": "clone", "prompt_file": "p"}
+                ))
+                frames = []
+                while True:
+                    frame = ws.receive_json()
+                    frames.append(frame)
+                    if frame.get("status") in ("complete", "cancelled", "error"):
+                        break
+            terminal = frames[-1]
+            self.assertEqual(terminal.get("status"), "error")
+            self.assertIn(
+                "synthetic inference failure", terminal.get("detail", "")
+            )
+            self.assertEqual(terminal.get("chunks"), 0)
+            self.assertIn("seed", terminal)
+
+    def test_oversized_message_rejected_and_connection_survives(self):
+        """A >64KB text frame is rejected with the size error; the message
+        loop continues on the same socket."""
+        with self._authed_ws() as ws:
+            ws.send_text(json.dumps({"text": "x" * 70_000, "mode": "clone"}))
+            self.assertEqual(
+                ws.receive_json().get("error"),
+                "Message too large (max 64KB)",
+            )
+            ws.send_text(json.dumps({"text": ""}))
+            self.assertEqual(ws.receive_json().get("error"), "No text provided")
+
+    def test_mid_generation_disconnect_releases_connection_slot(self):
+        """A client that vanishes mid-generation must not leak its
+        pre-auth-allocated connection slot (the Step 0D defect class).
+
+        Blocks generation on a threading.Event, disconnects, releases the
+        block, then proves the slot pool is intact by cycling SIX fresh
+        connections from the same test "IP" (the per-IP cap is 5 — a single
+        leaked slot would 1013-reject connection #6).
+        """
+        fake_model = object()
+        release = threading.Event()
+
+        def _blocking_stream(*args, **kwargs):
+            release.wait(timeout=5)
+            raise RuntimeError("client gone by now")
+            yield  # pragma: no cover — makes this a generator
+
+        gen_ws = self._authed_ws(models={"clone": fake_model})
+        with gen_ws as ws, patch(
+            "qwen3_tts.server.prompt_loading.load_voice_prompt_serialized",
+            new_callable=AsyncMock,
+            return_value=object(),
+        ), patch(
+            "qwen3_tts.server.app_generation._require_model_under_lock",
+            return_value=fake_model,
+        ), patch(
+            "qwen3_tts.core.engine.run_inference_streaming",
+            side_effect=_blocking_stream,
+        ):
+            ws.send_text(json.dumps(
+                {"text": "hello", "mode": "clone", "prompt_file": "p"}
+            ))
+            # Receive up to the "generating" preamble, then vanish.
+            while True:
+                frame = ws.receive_json()
+                if frame.get("status") == "generating":
+                    break
+            ws.close()
+            release.set()
+
+        # Slot release: six sequential fresh connections must all auth fine.
+        for i in range(6):
+            with self.subTest(connection=i):
+                with self._authed_ws(models={"clone": fake_model}) as w:
+                    w.send_text(json.dumps({"text": ""}))
+                    self.assertEqual(
+                        w.receive_json().get("error"), "No text provided"
+                    )
