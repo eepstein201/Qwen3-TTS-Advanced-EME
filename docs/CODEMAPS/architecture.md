@@ -1,4 +1,4 @@
-<!-- Generated: 2026-09-11 | Files scanned: 75 .py (28.7k LOC) | Token estimate: ~620 -->
+<!-- Generated: 2026-09-18 | Files scanned: 75 .py (29.0k LOC) | Token estimate: ~640 -->
 
 # Architecture — Qwen3-TTS
 
@@ -9,7 +9,7 @@ Multilingual TTS with voice cloning. Three modes: **clone** (from audio), **desi
 config.json → core.config → core.engine (dispatch on advanced.backend)
                               ├── "torch" → qwen_tts        (lazy import)
                               ├── "mlx"   → mlx_audio        (lazy import)
-                              └── "vllm"  → engine_vllm + server/vllm_client
+                              └── "vllm"  → engine_vllm + server/vllm_client (DISABLED since #293: engine ValueError + boundary 400; code retained)
 ```
 
 ## Layers
@@ -22,6 +22,8 @@ config.json → core.config → core.engine (dispatch on advanced.backend)
 ## Generation flow
 `text → _prepare_text_chunks (≤max_chunk_chars, bounded 0–10000 at the request boundary in validation.py, #263) → backend.generate → _postprocess_chunk → combine (phase-align crossfade) → LUFS norm → output file + history`
 
+**Per-chunk seeds (3A #304):** `seed_lock_chunks=true` locks ONE seed across all chunks of a generation; default false derives a fresh seed per chunk (`_resolve_generation_seed` per segment; 5-layer propagation CLI→request→engine).
+
 **Unified pipeline (WS2, #160):** `engine/inference.py::_postprocess_chunk` (echo-trim → clone speed → audio validation) is called by BOTH `run_inference` and `run_inference_streaming`, both backends — streaming output matches batch. LUFS is deliberately outside it (EBU R128 gates over the whole signal), so batch-only. Since #193/1C the echo trim's 50% cap is anchored to the FIRST chunk (`trim_cap_samples=len(all_audio[0])`, WS9.4) — never half the combined signal.
 
 **Attributed cancellation (1A #283):** `/cancel-generation` targets a generation id (`cancel_target_id`), never a bare flag — a cancel arriving before a batch's first `begin()` is latched onto the pending id and honored by item 1 instead of bouncing. `generation_state` is read/written only through `GenerationStateGuard` (threading.Lock; 0C #270) — see backend.md.
@@ -33,6 +35,7 @@ Every GPU-inference-reachable path now serializes on `state.inference_lock`, acq
 - `/generate`, `/ws` — outermost holders
 - Model warm-up (design), `/transcribe` ASR generate, torch `/create-voice-prompt`, torch auto-create-from-`.wav` (`server/prompt_loading.py`), `/unload-asr` — all leaf-acquire
 - **`/create-voice-prompt` is backend-dispatched (#236):** torch keeps the clone-gated, leaf-locked flow above; **MLX is inference-free** — `save_voice_prompt_mlx` writes the `.wav`+`.txt` pair directly with no clone gate and no lock, since there is no GPU work to serialize
+- **On-demand model load (Step 2 #300):** an empty model slot on `/generate` or `/generate-stream` routes through `load_model_deduped` (the `/load-model` record owner: claim/attach dedup, sanitized failure shape) BEFORE the handler takes `inference_lock` — the residual 503 `model_not_loaded` points at `POST /load-model` (`recovery: load_model`)
 - `/load-model` dedups concurrent callers for the same model type via `model_loading.py`'s per-load CAS records (`claim_model_load`/`release_model_load`) instead of a lock — a duplicate caller attaches to the owner's `done` Event rather than reissuing the load (#214 item 3)
 - `/unload-model` closes the queued-generation window: it now holds `inference_lock` for the unload itself, so it can no longer interleave with an in-flight generation queued behind it (#214 item 4, closes #214)
 - **Under-lock model rebind (0B #269):** every generation capture path re-reads the model slot under the lock via `_require_model_under_lock(state, mode)` and MUST rebind its local — an unload in the capture→acquire window yields a retryable 503, not inference on an orphaned object (5 guarded paths; see backend.md)
@@ -46,8 +49,8 @@ Every GPU-inference-reachable path now serializes on `state.inference_lock`, acq
 - 3 distinct HF models (Clone / Design / Custom)
 
 ## Heaviest modules (LOC)
-inference.py 1785 · app_generation.py 1163 · app.py 1133 · generate.py 902 · ui/shared.py 982 · app_lifespan.py 821 · generate_interactive.py 780
+inference.py 1847 · app_generation.py 1228 · app.py 1140 · generate.py 902 · ui/shared.py 982 · generate_interactive.py 826 · app_lifespan.py 821
 _(inference.py, app_generation.py, app.py, app_lifespan.py, ui/shared.py exceed the 800-line guideline — known structural debt, see project memory `project_open_structural_debt.md`)_
 
 ## Layer size
-core/ 7.5k · server/ 8.0k · interface/ 9.2k (ui/ 5.2k) · tools/ 2.2k · tests/ 188 modules, ~3.4k test functions
+core/ 7.5k · server/ 8.2k · interface/ 9.2k (ui/ 5.2k) · tools/ 2.3k · tests/ 197 modules (188 root + 6 security + 3 evals), ~3.5k test functions

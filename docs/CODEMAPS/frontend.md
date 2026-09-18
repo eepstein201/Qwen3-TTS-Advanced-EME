@@ -1,4 +1,4 @@
-<!-- Generated: 2026-09-11 | Files scanned: interface/ui/ (5.2k LOC) | Token estimate: ~560 -->
+<!-- Generated: 2026-09-18 | Files scanned: interface/ui/ (5.2k LOC) | Token estimate: ~560 -->
 
 # Frontend — Gradio Web UI (`interface/ui/`)
 

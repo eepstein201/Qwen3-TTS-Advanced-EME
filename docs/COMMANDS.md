@@ -94,7 +94,7 @@
 | `make test-server` | Run Batch 3: Server infrastructure |
 | `make test-engine` | Run Batch 4: Engine & UI |
 | `make test-optional` | Run optional-dependency tests via unittest (9-module subset of batch 5; the pytest-dependent remainder needs `python tests/run_batches.py --batch 5`) |
-| `make test-e2e` | Run Batch 6: the `tests.test_e2e_playwright` module (requires a live server + Playwright; the runner sets `TTS_DISABLE_RATE_LIMITING=1` and preloads all three models). The rest of the `test_e2e_*` suite is excluded from batches — run it with `pytest -m e2e` against a server started with `TTS_DISABLE_RATE_LIMITING=1` |
+| `make test-e2e` | Run the FULL e2e suite: `pytest -m e2e -v -rs --junitxml=.reports/e2e-junit.xml` against a live server (models per the modules' preconditions; browser modules also need Playwright). Batch 6 of `make test-batch` remains the honest named playwright subset — the batch runner disables rate limiting and ignores markers, so it can never host the security/rate-limit e2e modules |
 | `make test-batch-continue` | Run all test batches, continuing past failures |
 | `make install-mlx` | Install with MLX backend dependencies |
 | `make install-test-deps` | Install test dependencies, works in any environment (`pip install -e ".[test]"`) |
