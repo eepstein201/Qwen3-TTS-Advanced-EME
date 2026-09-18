@@ -90,6 +90,7 @@ BATCHES = {
         "description": "Medium risk - minimal external deps",
         "modules": [
             "tests.test_voice_config",
+            "tests.test_main_entry",
             "tests.test_voice_engine",
             "tests.test_voice_generation",
             "tests.test_voice_features",
@@ -236,6 +237,7 @@ BATCHES = {
             "tests.test_ui_shared_paths",
             "tests.test_ui_status_banner",
             "tests.test_ui_tab_select_wiring",
+            "tests.test_ui_tabs_generation_closures",
             "tests.test_engine_streaming",
             "tests.test_mlx_generate_kwargs",
         ],

@@ -1,6 +1,7 @@
 """Tests for the CONFIG.md drift checker (qwen3_tts.tools.check_config_docs)."""
 
 import unittest
+from unittest.mock import patch
 
 from qwen3_tts.tools.check_config_docs import (
     check_drift,
@@ -118,9 +119,7 @@ class TestRealConfigMd(unittest.TestCase):
 
         from qwen3_tts.core.config import get_default_config
 
-        config_doc = (
-            Path(__file__).resolve().parents[1] / "docs" / "CONFIG.md"
-        )
+        config_doc = Path(__file__).resolve().parents[1] / "docs" / "CONFIG.md"
         text = config_doc.read_text(encoding="utf-8")
         actual = flatten_config(get_default_config())
         self.assertEqual(
@@ -129,6 +128,110 @@ class TestRealConfigMd(unittest.TestCase):
             "docs/CONFIG.md default values drifted from get_default_config(); "
             "run `python -m qwen3_tts.tools.check_config_docs --fix`.",
         )
+
+
+class TestDriftRow(unittest.TestCase):
+    """4B.3 item 13: Drift.as_row rendering (previously missed line 54)."""
+
+    def test_as_row_renders_documented_and_actual(self):
+        from qwen3_tts.tools.check_config_docs import Drift
+
+        row = Drift(key="default_clone_prompt", documented="none", actual="null")
+        self.assertEqual(
+            row.as_row(),
+            "default_clone_prompt: documented `none` → should be `null`",
+        )
+
+
+class TestMainExitCodes(unittest.TestCase):
+    """4B.3 item 13: main() reporting/exit-code arms (missed 169-195).
+
+    check_drift is patched so the drift outcome is controlled without
+    needing a hand-written CONFIG.md that matches get_default_config().
+    """
+
+    def _existing_doc(self):
+        import os
+        import tempfile
+        from pathlib import Path
+
+        fd, path = tempfile.mkstemp(suffix=".md")
+        with os.fdopen(fd, "w") as f:
+            f.write("| `a.b` | bool | true | desc |\n")
+        self.addCleanup(os.unlink, path)
+        return Path(path)
+
+    def test_missing_doc_returns_2(self):
+        import contextlib
+        import io
+        from pathlib import Path
+
+        from qwen3_tts.tools import check_config_docs as ccd
+
+        with (
+            patch.object(ccd, "CONFIG_DOC", Path("/nonexistent/CONFIG.md")),
+            contextlib.redirect_stdout(io.StringIO()),
+            contextlib.redirect_stderr(io.StringIO()) as err,
+        ):
+            self.assertEqual(ccd.main([]), 2)
+        self.assertIn("not found", err.getvalue())
+
+    def test_no_drift_returns_0_and_prints_ok(self):
+        import contextlib
+        import io
+
+        from qwen3_tts.tools import check_config_docs as ccd
+
+        with (
+            patch.object(ccd, "CONFIG_DOC", self._existing_doc()),
+            patch.object(ccd, "check_drift", return_value=[]),
+            contextlib.redirect_stdout(io.StringIO()) as out,
+        ):
+            self.assertEqual(ccd.main([]), 0)
+        self.assertIn("OK", out.getvalue())
+
+    def test_drift_returns_1_and_lists_keys(self):
+        import contextlib
+        import io
+
+        from qwen3_tts.tools import check_config_docs as ccd
+        from qwen3_tts.tools.check_config_docs import Drift
+
+        with (
+            patch.object(ccd, "CONFIG_DOC", self._existing_doc()),
+            patch.object(
+                ccd,
+                "check_drift",
+                return_value=[Drift(key="a.b", documented="true", actual="false")],
+            ),
+            contextlib.redirect_stdout(io.StringIO()) as out,
+        ):
+            self.assertEqual(ccd.main([]), 1)
+        output = out.getvalue()
+        self.assertIn("DRIFT", output)
+        self.assertIn("a.b", output)
+        self.assertNotIn("Suggested corrections", output)
+
+    def test_drift_with_fix_flag_prints_corrections(self):
+        import contextlib
+        import io
+
+        from qwen3_tts.tools import check_config_docs as ccd
+        from qwen3_tts.tools.check_config_docs import Drift
+
+        with (
+            patch.object(ccd, "CONFIG_DOC", self._existing_doc()),
+            patch.object(
+                ccd,
+                "check_drift",
+                return_value=[Drift(key="a.b", documented="true", actual="false")],
+            ),
+            contextlib.redirect_stdout(io.StringIO()) as out,
+        ):
+            self.assertEqual(ccd.main(["--fix"]), 1)
+        output = out.getvalue()
+        self.assertIn("Suggested corrections", output)
+        self.assertIn("a.b: documented `true` → should be `false`", output)
 
 
 if __name__ == "__main__":

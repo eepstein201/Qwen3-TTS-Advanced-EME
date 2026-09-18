@@ -146,5 +146,283 @@ class TestVLLMNonBlocking(unittest.TestCase):
         )
 
 
+class _SeqFakeClient:
+    """Async post() stand-in returning a scripted sequence.
+
+    Items are either httpx.Response objects (returned to generate(), whose
+    raise_for_status() then behaves per the status code) or exceptions
+    (raised directly).
+    """
+
+    def __init__(self, outcomes):
+        self._outcomes = list(outcomes)
+        self.calls = 0
+
+    async def post(self, url, json=None):
+        self.calls += 1
+        item = self._outcomes.pop(0)
+        if isinstance(item, Exception):
+            raise item
+        return item
+
+    async def get(self, url, timeout=None):
+        return self._outcomes.pop(0)
+
+
+def _response(status):
+    import httpx
+
+    return httpx.Response(
+        status, request=httpx.Request("POST", "http://localhost:8100/x")
+    )
+
+
+def _ok_response():
+    resp = _response(200)
+    resp.json = lambda: {"data": [{"audio": ""}]}
+    return resp
+
+
+class TestCircuitBreakerStates(unittest.TestCase):
+    """4B.3 item 13: circuit-breaker state transitions (missed 99-103,
+    108, 120, 132)."""
+
+    def test_open_transitions_to_half_open_after_cooldown(self):
+        from qwen3_tts.server.vllm_client import CircuitBreaker
+
+        async def scenario():
+            cb = CircuitBreaker(failure_threshold=2, cooldown_secs=60)
+            cb._state = "OPEN"
+            cb._last_failure_time = time.time() - 120
+            async with cb:
+                return cb._state
+
+        self.assertEqual(asyncio.run(scenario()), "HALF_OPEN")
+
+    def test_open_within_cooldown_raises(self):
+        from qwen3_tts.server.vllm_client import CircuitBreaker
+
+        async def scenario():
+            cb = CircuitBreaker(failure_threshold=2, cooldown_secs=60)
+            cb._state = "OPEN"
+            cb._last_failure_time = time.time()
+            async with cb:
+                return cb._state
+
+        with self.assertRaisesRegex(RuntimeError, "OPEN"):
+            asyncio.run(scenario())
+
+    def test_half_open_success_closes_circuit(self):
+        from qwen3_tts.server.vllm_client import CircuitBreaker
+
+        async def scenario():
+            cb = CircuitBreaker(failure_threshold=2)
+            cb._state = "HALF_OPEN"
+            async with cb:
+                pass
+            return cb._state
+
+        self.assertEqual(asyncio.run(scenario()), "CLOSED")
+
+    def test_failures_reaching_threshold_trip_open(self):
+        from qwen3_tts.server.vllm_client import CircuitBreaker
+
+        async def scenario():
+            cb = CircuitBreaker(failure_threshold=2)
+            for _ in range(2):
+                try:
+                    async with cb:
+                        raise ValueError("boom")
+                except ValueError:
+                    pass
+            return cb._state, cb._failure_count
+
+        state, count = asyncio.run(scenario())
+        self.assertEqual(state, "OPEN")
+        self.assertEqual(count, 2)
+
+
+class TestVLLMClientLifecycle(unittest.TestCase):
+    """4B.3 item 13: close(), _decode_audio, health_check, circuit_state,
+    and generate() payload/error arms (missed 196-198, 203-207, 256, 259,
+    283-294, 304-305, 320, 332)."""
+
+    def test_close_awaits_aclose_and_clears_client(self):
+        from unittest.mock import AsyncMock, MagicMock
+
+        from qwen3_tts.server.vllm_client import AsyncVLLMClient
+
+        client = AsyncVLLMClient(base_url="http://localhost:8100")
+        fake = MagicMock()
+        fake.aclose = AsyncMock()
+        client._client = fake
+        asyncio.run(client.close())
+        fake.aclose.assert_awaited_once()
+        self.assertIsNone(client._client)
+
+    def test_close_with_no_client_is_a_noop(self):
+        from qwen3_tts.server.vllm_client import AsyncVLLMClient
+
+        client = AsyncVLLMClient(base_url="http://localhost:8100")
+        asyncio.run(client.close())
+        self.assertIsNone(client._client)
+
+    def test_decode_audio_decodes_base64_via_soundfile(self):
+        import base64 as b64
+        from unittest.mock import MagicMock
+
+        from qwen3_tts.server.vllm_client import AsyncVLLMClient
+
+        fake_sf = MagicMock()
+        fake_sf.read.return_value = ("audio_sentinel", 24000)
+        payload = b64.b64encode(b"RIFF....").decode()
+        import sys
+
+        with patch.dict(sys.modules, {"soundfile": fake_sf}):
+            sr, audio = AsyncVLLMClient._decode_audio(payload)
+        self.assertEqual(sr, 24000)
+        self.assertEqual(audio, "audio_sentinel")
+        (stream,), _ = fake_sf.read.call_args
+        self.assertEqual(stream.getvalue(), b"RIFF....")
+
+    def test_circuit_state_property_exposes_breaker_state(self):
+        from qwen3_tts.server.vllm_client import AsyncVLLMClient
+
+        client = AsyncVLLMClient(base_url="http://localhost:8100")
+        self.assertEqual(client.circuit_state, "CLOSED")
+
+    def test_health_check_true_on_200(self):
+        from qwen3_tts.server.vllm_client import AsyncVLLMClient
+
+        client = AsyncVLLMClient(base_url="http://localhost:8100")
+        client._client = _SeqFakeClient([_response(200)])
+        self.assertTrue(asyncio.run(client.health_check()))
+
+    def test_health_check_false_on_non_200(self):
+        from qwen3_tts.server.vllm_client import AsyncVLLMClient
+
+        client = AsyncVLLMClient(base_url="http://localhost:8100")
+        client._client = _SeqFakeClient([_response(503)])
+        self.assertFalse(asyncio.run(client.health_check()))
+
+
+class TestVLLMGeneratePayloadAndRetries(unittest.TestCase):
+    """4B.3 item 13: generate() request-payload arms and retry/raise
+    behavior (missed 256, 259, 283-294, 304-305)."""
+
+    def _client_with(self, fake):
+        from qwen3_tts.server.vllm_client import AsyncVLLMClient
+
+        client = AsyncVLLMClient(base_url="http://localhost:8100")
+        client._client = fake
+        return client
+
+    def _decode_patch(self):
+        return patch.object(
+            AsyncVLLMClient,
+            "_decode_audio",
+            staticmethod(lambda audio_base64: (24000, None)),
+        )
+
+    def _sleep_patch(self):
+        from unittest.mock import AsyncMock
+
+        return patch(
+            "qwen3_tts.server.vllm_client.asyncio.sleep", new_callable=AsyncMock
+        )
+
+    def test_design_and_custom_payload_fields_reach_request(self):
+        async def scenario():
+            fake = _FakeAsyncHttpClient(delay=0.0)
+            client = self._client_with(fake)
+            with self._decode_patch():
+                await client.generate(
+                    text="hi", mode="design", voice_description="deep voice"
+                )
+                await client.generate(text="hi", mode="custom", speaker="ryan")
+            return fake.post_calls
+
+        calls = asyncio.run(scenario())
+        self.assertEqual(calls[0]["input"]["voice_description"], "deep voice")
+        self.assertEqual(calls[1]["input"]["speaker"], "ryan")
+
+    def test_5xx_retries_then_succeeds(self):
+        async def scenario():
+            fake = _SeqFakeClient([_response(500), _ok_response()])
+            client = self._client_with(fake)
+            with self._decode_patch(), self._sleep_patch():
+                result = await client.generate(text="hi")
+            return result, fake.calls
+
+        result, calls = asyncio.run(scenario())
+        self.assertEqual(result, (24000, None))
+        self.assertEqual(calls, 2)
+
+    def test_4xx_raises_without_retry(self):
+        async def scenario():
+            fake = _SeqFakeClient([_response(404)])
+            client = self._client_with(fake)
+            with self._decode_patch(), self._sleep_patch() as mock_sleep:
+                with self.assertRaisesRegex(RuntimeError, "vLLM generation failed"):
+                    await client.generate(text="hi")
+            return fake.calls, mock_sleep
+
+        calls, mock_sleep = asyncio.run(scenario())
+        self.assertEqual(calls, 1)
+        mock_sleep.assert_not_awaited()
+
+    def test_5xx_exhausts_retries_and_raises(self):
+        async def scenario():
+            fake = _SeqFakeClient([_response(500)] * 3)
+            client = self._client_with(fake)
+            with self._decode_patch(), self._sleep_patch():
+                await client.generate(text="hi")
+            return fake.calls
+
+        with self.assertRaisesRegex(RuntimeError, "vLLM generation failed"):
+            asyncio.run(scenario())
+
+    def test_clone_temp_file_unlink_failure_warns_but_returns(self):
+        from unittest.mock import MagicMock
+
+        async def scenario():
+            fake = _SeqFakeClient([_ok_response()])
+            client = self._client_with(fake)
+            fake_tmp = MagicMock()
+            fake_tmp.__enter__.return_value = fake_tmp
+            fake_tmp.name = "/nonexistent/fake_prompt.wav"
+            logs_cm = self.assertLogs("tts.server.vllm_client", level="WARNING")
+            with (
+                self._decode_patch(),
+                patch(
+                    "tempfile.NamedTemporaryFile",
+                    return_value=fake_tmp,
+                ),
+                patch(
+                    "qwen3_tts.server.vllm_client.os.path.exists",
+                    return_value=True,
+                ),
+                patch(
+                    "qwen3_tts.server.vllm_client.os.unlink",
+                    side_effect=OSError("busy"),
+                ),
+                logs_cm as logs,
+            ):
+                result = await client.generate(
+                    text="hi", mode="clone", prompt_audio=b"WAVDATA"
+                )
+            return result, fake_tmp, logs.output
+
+        result, fake_tmp, log_lines = asyncio.run(scenario())
+        self.assertEqual(result, (24000, None))
+        fake_tmp.write.assert_called_once_with(b"WAVDATA")
+        self.assertTrue(
+            any(
+                "Failed to remove temp prompt-audio file" in line for line in log_lines
+            ),
+            log_lines,
+        )
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -554,12 +554,8 @@ class TestMlxRevisionWiring(unittest.TestCase):
             with self.subTest(model_type=model_type):
                 load = self._load_mlx_with_revision(model_type, "deadbeef")
                 load.assert_called_once()
-                self.assertEqual(
-                    load.call_args.args[0], "mlx-community/test-repo"
-                )
-                self.assertEqual(
-                    load.call_args.kwargs.get("revision"), "deadbeef"
-                )
+                self.assertEqual(load.call_args.args[0], "mlx-community/test-repo")
+                self.assertEqual(load.call_args.kwargs.get("revision"), "deadbeef")
 
     def test_default_main_revision_is_passed_through(self):
         """Unpinned resolution passes revision='main' explicitly, never None."""
@@ -733,3 +729,319 @@ def test_turing_respects_explicit_torch_quantization():
         assert result_missing.get("load_in_8bit") is True, (
             "Should auto-enable 8-bit when not explicitly set"
         )
+
+
+# ---- Step 4B.3 item 12: torch-path success arms ----
+# TestCase classes so the batch runner collects them. The function-style
+# tests above predate the batched-TestCase rule; converting them is
+# finding-7's sweep, deliberately out of scope here.
+
+
+class _RowSums:
+    """Stand-in whose __eq__ returns an object with a controllable .any()."""
+
+    def __init__(self, any_result):
+        self._zero_rows = MagicMock()
+        self._zero_rows.any.return_value = any_result
+
+    def __eq__(self, other):
+        return self._zero_rows
+
+
+class TestResolveLoadKwargsQuantSuccessArms(unittest.TestCase):
+    """4bit/8bit SUCCESS arms + bitsandbytes-missing arms (missed 242-267)."""
+
+    def _resolve(self, quant, *, inject_none_bnb=False):
+        fake_torch = MagicMock()
+        fake_torch.cuda.is_available.return_value = True
+        fake_transformers = MagicMock()
+        modules = {"torch": fake_torch, "transformers": fake_transformers}
+        if inject_none_bnb:
+            modules["bitsandbytes"] = None  # sys.modules None -> ImportError
+        else:
+            modules["bitsandbytes"] = MagicMock()
+        with patch.dict(sys.modules, modules), patch("sys.platform", "linux"):
+            from qwen3_tts.core.engine.model_loader import _resolve_load_kwargs
+
+            kwargs = _resolve_load_kwargs(
+                quant, "dtype_sentinel", "cuda", "sdpa", "auto"
+            )
+        return kwargs, fake_transformers
+
+    def test_4bit_success_builds_bnb_config(self):
+        kwargs, fake_transformers = self._resolve("4bit")
+        self.assertIs(
+            kwargs["quantization_config"],
+            fake_transformers.BitsAndBytesConfig.return_value,
+        )
+        ctor_kwargs = fake_transformers.BitsAndBytesConfig.call_args.kwargs
+        self.assertTrue(ctor_kwargs["load_in_4bit"])
+        self.assertIs(ctor_kwargs["bnb_4bit_compute_dtype"], "dtype_sentinel")
+        self.assertTrue(ctor_kwargs["bnb_4bit_use_double_quant"])
+        self.assertEqual(kwargs["attn_implementation"], "sdpa")
+        self.assertEqual(kwargs["device_map"], "auto")
+
+    def test_4bit_bitsandbytes_missing_raises(self):
+        with self.assertRaisesRegex(RuntimeError, "bitsandbytes"):
+            self._resolve("4bit", inject_none_bnb=True)
+
+    def test_8bit_success_sets_load_in_8bit(self):
+        kwargs, _ = self._resolve("8bit")
+        self.assertIs(kwargs["load_in_8bit"], True)
+        self.assertNotIn("quantization_config", kwargs)
+        self.assertNotIn("dtype", kwargs)
+
+    def test_8bit_bitsandbytes_missing_raises(self):
+        with self.assertRaisesRegex(RuntimeError, "bitsandbytes"):
+            self._resolve("8bit", inject_none_bnb=True)
+
+
+class TestPatchDeepcopyForBnb(unittest.TestCase):
+    """The bitsandbytes deepcopy workaround generator (missed 182-218)."""
+
+    def test_yields_clean_when_no_candidate_module(self):
+        from qwen3_tts.core.engine.model_loader import _patch_deepcopy_for_bnb
+
+        with patch("importlib.import_module", side_effect=ImportError("nope")):
+            with _patch_deepcopy_for_bnb():
+                pass  # enters and exits cleanly, nothing patched
+
+    def test_patches_and_restores_get_keys(self):
+        from qwen3_tts.core.engine.model_loader import _patch_deepcopy_for_bnb
+
+        fake_mod = MagicMock()
+        original = MagicMock(name="original_get_keys")
+        fake_mod.get_keys_to_not_convert = original
+        with patch("importlib.import_module", return_value=fake_mod):
+            with _patch_deepcopy_for_bnb():
+                self.assertIsNot(fake_mod.get_keys_to_not_convert, original)
+            self.assertIs(fake_mod.get_keys_to_not_convert, original)
+
+    def test_safe_get_keys_converts_dict_views_to_lists(self):
+        from qwen3_tts.core.engine.model_loader import _patch_deepcopy_for_bnb
+
+        class _Model:
+            def modules(self):
+                return []
+
+        model = _Model()
+        model.keys_view = {"a": 1}.keys()
+        model.values_view = {"b": 2}.values()
+        original = MagicMock(return_value="orig-result")
+        fake_mod = MagicMock()
+        fake_mod.get_keys_to_not_convert = original
+        with patch("importlib.import_module", return_value=fake_mod):
+            with _patch_deepcopy_for_bnb():
+                result = fake_mod.get_keys_to_not_convert(model)
+        self.assertEqual(result, "orig-result")
+        self.assertEqual(model.keys_view, ["a"])
+        self.assertEqual(model.values_view, [2])
+
+    def test_safe_get_keys_walks_submodules(self):
+        from qwen3_tts.core.engine.model_loader import _patch_deepcopy_for_bnb
+
+        child = MagicMock()
+        child.attached_keys = {"c": 3}.keys()
+        parent = MagicMock()
+        parent.modules.return_value = [child]
+        original = MagicMock(return_value="ok")
+        fake_mod = MagicMock()
+        fake_mod.get_keys_to_not_convert = original
+        with patch("importlib.import_module", return_value=fake_mod):
+            with _patch_deepcopy_for_bnb():
+                fake_mod.get_keys_to_not_convert(parent)
+        self.assertEqual(child.attached_keys, ["c"])
+
+
+class TestSafeMultinomialArms(unittest.TestCase):
+    """The _safe_multinomial interior installed by _install_mps_patch."""
+
+    def setUp(self):
+        from qwen3_tts.core.engine import model_loader
+
+        self._model_loader = model_loader
+        self._orig_installed = model_loader._mps_patch_installed
+        model_loader._mps_patch_installed = False
+        self.fake_torch = MagicMock()
+        self.original = MagicMock(name="original_multinomial")
+        self.fake_torch.multinomial = self.original
+        with (
+            patch.dict(sys.modules, {"torch": self.fake_torch}),
+            patch("qwen3_tts.core.config.IS_MACOS", True),
+        ):
+            model_loader._install_mps_patch()
+        self.wrapper = self.fake_torch.multinomial
+        self.assertIsNot(self.wrapper, self.original)
+
+    def tearDown(self):
+        self._model_loader._mps_patch_installed = self._orig_installed
+
+    def _mps_input(self, dtype):
+        inp = MagicMock()
+        inp.device.type = "mps"
+        inp.is_floating_point.return_value = True
+        inp.dtype = dtype
+        return inp
+
+    def _sanitized_chain(self, inp, any_result):
+        sanitized = MagicMock(name="sanitized")
+        sanitized.device.type = "mps"
+        inp.float.return_value = sanitized
+        self.fake_torch.nan_to_num.return_value = sanitized
+        sanitized.clamp.return_value = sanitized
+        sanitized.sum.return_value = _RowSums(any_result=any_result)
+        return sanitized
+
+    def test_mps_non_f32_casts_and_sanitizes(self):
+        inp = self._mps_input(dtype=object())
+        sanitized = self._sanitized_chain(inp, any_result=False)
+        result = self.wrapper(inp, 7)
+        self.assertIs(result, self.original.return_value)
+        inp.float.assert_called_once()
+        self.fake_torch.nan_to_num.assert_called_once_with(
+            sanitized, nan=0.0, posinf=1.0, neginf=0.0
+        )
+        sanitized.clamp.assert_called_once_with(min=0.0)
+        self.original.assert_called_once_with(
+            sanitized, 7, replacement=False, generator=None
+        )
+
+    def test_mps_f32_skips_cast_still_sanitizes(self):
+        inp = self._mps_input(dtype=self.fake_torch.float32)
+        self._sanitized_chain(inp, any_result=False)
+        self.wrapper(inp, 7)
+        inp.float.assert_not_called()
+        self.fake_torch.nan_to_num.assert_called_once()
+
+    def test_mps_zero_rows_refilled_uniformly(self):
+        inp = self._mps_input(dtype=self.fake_torch.float32)
+        sanitized = self._sanitized_chain(inp, any_result=True)
+        self.wrapper(inp, 7)
+        sanitized.masked_fill.assert_called_once()
+        self.original.assert_called_once()
+
+    def test_non_mps_passthrough_untouched(self):
+        inp = MagicMock()
+        inp.device.type = "cpu"
+        inp.is_floating_point.return_value = True
+        result = self.wrapper(inp, 3)
+        self.assertIs(result, self.original.return_value)
+        inp.float.assert_not_called()
+        self.fake_torch.nan_to_num.assert_not_called()
+        self.original.assert_called_once_with(inp, 3, replacement=False, generator=None)
+
+
+class TestLoadModelTorch(unittest.TestCase):
+    """_load_model_torch end-to-end on fakes (missed 346-423)."""
+
+    _ML = "qwen3_tts.core.engine.model_loader."
+
+    def _run(
+        self,
+        *,
+        quant="none",
+        device="mps",
+        cached=True,
+        side_effect=None,
+        extra_modules=None,
+        assert_download_log=False,
+    ):
+        import contextlib
+        from types import SimpleNamespace
+
+        from qwen3_tts.core.engine import model_loader
+
+        fake_torch = MagicMock()
+        fake_torch.cuda.is_available.return_value = device == "cuda"
+        fake_qwen = MagicMock()
+        model = MagicMock(name="loaded_model")
+        fake_qwen.Qwen3TTSModel.from_pretrained.side_effect = (
+            side_effect if side_effect is not None else [model]
+        )
+        modules = {"torch": fake_torch, "qwen_tts": fake_qwen}
+        if extra_modules:
+            modules.update(extra_modules)
+        bnb_ctx = MagicMock()
+        ml = self._ML
+        cm = (
+            self.assertLogs("tts.engine", level="INFO")
+            if assert_download_log
+            else contextlib.nullcontext()
+        )
+        with (
+            cm as logs,
+            patch.dict(sys.modules, modules),
+            patch(ml + "get_torch_model_name", return_value="fake/repo"),
+            patch(ml + "get_model_revision", return_value="rev1"),
+            patch(ml + "get_model_size", return_value="1.7B"),
+            patch(ml + "get_torch_dtype_name", return_value="float32"),
+            patch(ml + "get_torch_quantization", return_value=quant),
+            patch(ml + "load_config", return_value={}),
+            patch(
+                ml + "_apply_cuda_optimizations",
+                return_value=("sdpa", "optimal_dtype", False),
+            ),
+            patch(ml + "_is_model_cached", return_value=cached),
+            patch(ml + "_install_mps_patch") as mock_mps,
+            patch(ml + "_apply_torch_compile", side_effect=lambda m, *a, **k: m),
+            patch(ml + "_patch_tokenizer", side_effect=lambda m, *a, **k: m),
+            patch(ml + "_retry_model_load", side_effect=lambda fn, *a, **k: fn()),
+            patch(ml + "_patch_deepcopy_for_bnb", return_value=bnb_ctx) as mock_bnb,
+            patch("qwen3_tts.core.config.get_device", return_value=device),
+        ):
+            result = model_loader._load_model_torch("clone")
+        return SimpleNamespace(
+            result=result,
+            model=model,
+            calls=fake_qwen.Qwen3TTSModel.from_pretrained.call_args_list,
+            fake_torch=fake_torch,
+            mock_mps=mock_mps,
+            mock_bnb=mock_bnb,
+            logs=logs,
+        )
+
+    def test_mps_happy_path(self):
+        out = self._run()
+        self.assertIs(out.result, out.model)
+        out.mock_mps.assert_called_once()
+        self.assertEqual(len(out.calls), 1)
+        self.assertEqual(out.calls[0].args, ("fake/repo",))
+        self.assertEqual(out.calls[0].kwargs["revision"], "rev1")
+        self.assertIs(out.calls[0].kwargs["dtype"], out.fake_torch.float32)
+        self.assertEqual(out.calls[0].kwargs["device_map"], "mps")
+        self.assertEqual(out.calls[0].kwargs["attn_implementation"], "sdpa")
+
+    def test_not_cached_logs_download(self):
+        out = self._run(cached=False, assert_download_log=True)
+        self.assertIs(out.result, out.model)
+        self.assertTrue(
+            any("Downloading" in line for line in out.logs.output),
+            out.logs.output,
+        )
+
+    def test_typeerror_dict_keys_retries_without_quant(self):
+        model2 = MagicMock(name="reloaded_model")
+        out = self._run(
+            side_effect=[TypeError("cannot pickle 'dict_keys' object"), model2]
+        )
+        self.assertIs(out.result, model2)
+        self.assertEqual(len(out.calls), 2)
+        # Retry keeps the plain dtype path (quant kwargs dropped if present).
+        self.assertIn("dtype", out.calls[1].kwargs)
+        self.assertNotIn("load_in_8bit", out.calls[1].kwargs)
+        self.assertNotIn("quantization_config", out.calls[1].kwargs)
+
+    def test_8bit_cuda_uses_bnb_ctx(self):
+        out = self._run(
+            quant="8bit",
+            device="cuda",
+            extra_modules={
+                "bitsandbytes": MagicMock(),
+                "transformers": MagicMock(),
+            },
+        )
+        self.assertIs(out.result, out.model)
+        out.mock_bnb.assert_called_once()
+        self.assertIs(out.calls[0].kwargs["load_in_8bit"], True)
+        self.assertEqual(out.calls[0].kwargs["device_map"], "auto")
+        self.assertNotIn("dtype", out.calls[0].kwargs)
