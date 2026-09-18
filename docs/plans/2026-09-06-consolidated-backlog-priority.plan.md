@@ -813,8 +813,9 @@ re-scoped) tries to diagnose anything through it.
 
 ### Step 4D — Close the highest-severity new E2E gaps (in priority order)
 
-- **Status: IN PROGRESS (slice 2 on branch `fix/e2e-coverage-gaps-2`, 2026-09-18) — gaps 2-4
-  + ALL structural items landed; gap 5 (lower tier) remains.** Slice 1 (2026-09-17, #307):
+- **Status: DONE (2026-09-18, closed with retriage — user decision) — slices 1 (#307) + 2
+  (#309, squash `e07be1ba`); gaps 1-4 + every structural item landed; gap 5's lower-tier items
+  rehomed per the retriage block below rather than carried.** Slice 1 (2026-09-17, #307):
   structural make-target fix + gap 1 landed. (a) **`make test-e2e` now
   runs the FULL 90-test e2e suite** (`pytest -m e2e`, 11 modules, `-rs` so model-not-loaded
   skips surface loudly, JUnit XML → gitignored `.reports/`) instead of `run_batches.py --batch
@@ -875,6 +876,18 @@ re-scoped) tries to diagnose anything through it.
 - **Also fix while touching this area (structural, not new coverage):** `make test-e2e`/batch 6 runs only `test_e2e_playwright.py` (13 of 90 E2E tests) — either expand it to cover all 12 E2E modules or rename the target so its 1-of-12 scope stops reading as "the E2E suite passed"; two of three core generation modes (design/custom) silently skip under bare `pytest -m e2e` depending on load order — make that skip loud instead of quiet; add Playwright tracing-on-failure + JUnit XML output (no failure artifacts exist today, which directly blocks diagnosing Step 4B's crash if it recurs); stop rewriting the tracked `.claude/.mcp.json` at `setUpModule` time (`e2e_helpers.py`); make `TTS_DISABLE_RATE_LIMITING=1` a loud module-level precondition for `test_e2e_security_validation.py` instead of 11 per-test 429 skips.
 - **Verify:** each new/fixed test passes against a live, freshly restarted server.
 - **Exit criteria:** gaps 1-4 closed with real (non-tolerant) assertions; the structural fixes landed; `make test-e2e`'s actual scope matches its name or its name says what it actually covers.
+
+#### Retriaged from Step 4D gap 5 (2026-09-18, at 4D's close)
+
+The gap-5 items were never severity-ordered and each has a more natural owner than a 4D slice 3:
+
+- `/update-model-config` + `/update-startup-config` E2E → **Step 7C add-on** (7C owns the API
+  error/status contract these endpoints implement; 1B changed the handler).
+- History Download button E2E + prosody-presets E2E → **Step 7A add-ons** (Web UI polish pass).
+- CLI E2E tier (batch/srt/dialogue driven through the CLI itself) → **Step 7B add-on** (CLI
+  consistency; 7B already owns CLI behavior).
+- `x_vector_only_mode` live E2E → **standing backlog ledger** (engine feature is unit-covered;
+  no current owner; revisit if x-vector flows get UI exposure).
 
 ### Step 4E — Three pre-existing live E2E failures surfaced by Step 4C's baseline
 
@@ -1684,7 +1697,7 @@ analysis rather than duplicated as a new step.)*
 6A–6R (18) · Wave 7: 7A–7C (3) — **plus 3 independent tracks** (feature, dependency, and the decision-gated branch register — none gated by the waves) **+ 1 passive watch** (no action). Step 6·0 (dead-code cleanup) was already
 executed directly on 2026-09-06 and is recorded in Wave 6; it is not counted among the pending
 steps. **Executed so far: 0A (PR #263), 0B (PR #269), 0C (PR #270), 0D (PR #271), 0E (PR #276), 0F (PR #281), 0G (PR #282), 1A (PR #283), 1B (PR #287), 1C (PR #284), 1D (PR #289), 1E (PR #290), 3B (PR #291), 3C (PR #292), 3D (PR #293), 3E (PR #294), 4A (branch `fix/e2e-model-load-assertions`), 4B (branch `fix/e2e-load-cycle-investigation`), 2 (branch `fix/on-demand-model-load-generate`), 3A (PR #304), 4C (branch `refactor/e2e-shared-page-object`, Gate B 2026-09-17), 4E (branch `fix/e2e-preexisting-failures`).** **6G is
-folded into Wave 7 Step 7C** (not independently pending). ***Open: 26.*** *(Counter reconciled 2026-09-17 against a full heading census: 49 steps - 20 executed - 1 folded (6G) = 28; 4C's Gate B landed 2026-09-17 (pass by recorded deviation) → 21 executed = 27; 4E executed 2026-09-17 → 22 = 26. The pre-reconciliation value read 27 because Step 6·0 was subtracted twice - it is already excluded from the wave totals, since Wave 6 counts 6A-6R = 18, and was then deducted again as though it sat inside them; that arithmetic error was fixed at the 28 mark and is history, not a reason to touch the number again.)* *(Wave 7 incorporated
+folded into Wave 7 Step 7C** (not independently pending). ***Open: 25.*** *(Counter reconciled 2026-09-17 against a full heading census: 49 steps - 20 executed - 1 folded (6G) = 28; 4C's Gate B landed 2026-09-17 (pass by recorded deviation) → 21 executed = 27; 4E executed 2026-09-17 → 22 = 26; 4D executed 2026-09-18, closed with retriage (gap 5 → 7A/7B/7C add-ons + standing ledger) → 23 = 25. The pre-reconciliation value read 27 because Step 6·0 was subtracted twice - it is already excluded from the wave totals, since Wave 6 counts 6A-6R = 18, and was then deducted again as though it sat inside them; that arithmetic error was fixed at the 28 mark and is history, not a reason to touch the number again.)* *(Wave 7 incorporated
 2026-09-08 from the Interface Quality Improvement Plan — a three-surface audit of Web UI, CLI,
 and HTTP API, user-scoped; tracked at `docs/plans/2026-09-07-interface-quality.plan.md`, which
 is the spec for 7A–7C.)* Ordered by: critical correctness/security findings from the 2026-09-06 cross-cutting
