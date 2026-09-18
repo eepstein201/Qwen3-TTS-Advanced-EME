@@ -14,13 +14,16 @@ Run with:
 No GPU, models, or running server required.
 """
 
+import os
 import unittest
+import wave
 from unittest.mock import patch
 
 import numpy as np
 
 try:
     import pytest
+
     HAS_PYTEST = True
 except ImportError:  # pragma: no cover
     HAS_PYTEST = False
@@ -165,8 +168,9 @@ def _audio_with_echo():
 class TestTrimIclEchoGuards(unittest.TestCase):
     """Never probe when an echo is impossible or ASR isn't already loaded."""
 
-    def _patched(self, transcript="thanks for listening. Now the real text.",
-                 asr_loaded=True):
+    def _patched(
+        self, transcript="thanks for listening. Now the real text.", asr_loaded=True
+    ):
         return (
             patch(
                 "qwen3_tts.core.engine.inference._transcribe_probe",
@@ -182,9 +186,7 @@ class TestTrimIclEchoGuards(unittest.TestCase):
         audio = _audio_with_echo()
         probe_p, asr_p = self._patched()
         with probe_p as probe, asr_p:
-            out, sr = _trim_icl_echo(
-                audio, SR, REFERENCE, "clone", True, config=_cfg()
-            )
+            out, sr = _trim_icl_echo(audio, SR, REFERENCE, "clone", True, config=_cfg())
 
         probe.assert_not_called()
         np.testing.assert_array_equal(out, audio)
@@ -226,9 +228,11 @@ class TestTrimIclEchoGuards(unittest.TestCase):
 
         audio = _audio_with_echo()
         probe_p, asr_p = self._patched(asr_loaded=False)
-        with probe_p as probe, asr_p, patch(
-            "qwen3_tts.core.engine.asr.load_asr_model"
-        ) as load_model:
+        with (
+            probe_p as probe,
+            asr_p,
+            patch("qwen3_tts.core.engine.asr.load_asr_model") as load_model,
+        ):
             out, _ = _trim_icl_echo(audio, SR, REFERENCE, "clone", False, config=_cfg())
         probe.assert_not_called()
         load_model.assert_not_called()
@@ -241,7 +245,11 @@ class TestTrimIclEchoGuards(unittest.TestCase):
         probe_p, asr_p = self._patched()
         with probe_p as probe, asr_p:
             _trim_icl_echo(
-                audio, SR, REFERENCE, "clone", False,
+                audio,
+                SR,
+                REFERENCE,
+                "clone",
+                False,
                 config=_cfg(trim_icl_echo=False),
             )
         probe.assert_not_called()
@@ -254,10 +262,13 @@ class TestTrimIclEchoBehaviour(unittest.TestCase):
     def _run(self, audio, transcript):
         from qwen3_tts.core.engine.inference import _trim_icl_echo
 
-        with patch(
-            "qwen3_tts.core.engine.inference._transcribe_probe",
-            return_value=transcript,
-        ), patch("qwen3_tts.core.engine.asr.is_asr_loaded", return_value=True):
+        with (
+            patch(
+                "qwen3_tts.core.engine.inference._transcribe_probe",
+                return_value=transcript,
+            ),
+            patch("qwen3_tts.core.engine.asr.is_asr_loaded", return_value=True),
+        ):
             return _trim_icl_echo(audio, SR, REFERENCE, "clone", False, config=_cfg())
 
     def test_echo_is_clipped(self):
@@ -286,10 +297,13 @@ class TestTrimIclEchoBehaviour(unittest.TestCase):
         from qwen3_tts.core.engine.inference import _trim_icl_echo
 
         audio = _audio_with_echo()
-        with patch(
-            "qwen3_tts.core.engine.inference._transcribe_probe",
-            side_effect=RuntimeError("asr exploded"),
-        ), patch("qwen3_tts.core.engine.asr.is_asr_loaded", return_value=True):
+        with (
+            patch(
+                "qwen3_tts.core.engine.inference._transcribe_probe",
+                side_effect=RuntimeError("asr exploded"),
+            ),
+            patch("qwen3_tts.core.engine.asr.is_asr_loaded", return_value=True),
+        ):
             out, sr = _trim_icl_echo(
                 audio, SR, REFERENCE, "clone", False, config=_cfg()
             )
@@ -520,7 +534,9 @@ class TestPromptTranscriptReachesEchoTrim(unittest.TestCase):
         with (
             patch.object(inf, "_run_inference_single", return_value=(audio, self.SR)),
             patch.object(inf, "_postprocess_chunk", side_effect=_Capture()),
-            patch.object(inf, "_maybe_apply_lufs", side_effect=lambda a, s, **kw: (a, s)),
+            patch.object(
+                inf, "_maybe_apply_lufs", side_effect=lambda a, s, **kw: (a, s)
+            ),
         ):
             inf.run_inference(
                 object(),
@@ -535,9 +551,7 @@ class TestPromptTranscriptReachesEchoTrim(unittest.TestCase):
 
     def test_mlx_shaped_dict_prompt_resolves_transcript(self):
         prompt = {"ref_audio": "voice.wav", "ref_text": self.REFERENCE}
-        self.assertEqual(
-            self._captured_reference_text(prompt), self.REFERENCE
-        )
+        self.assertEqual(self._captured_reference_text(prompt), self.REFERENCE)
 
     def test_torch_shaped_prompt_item_resolves_transcript(self):
         reference = self.REFERENCE
@@ -587,10 +601,13 @@ class TestTrimCapFirstChunk(unittest.TestCase):
     def _removed_seconds(self, audio, **kwargs):
         from qwen3_tts.core.engine.inference import _trim_icl_echo
 
-        with patch(
-            "qwen3_tts.core.engine.inference._transcribe_probe",
-            return_value="thanks for listening. Now the real text.",
-        ), patch("qwen3_tts.core.engine.asr.is_asr_loaded", return_value=True):
+        with (
+            patch(
+                "qwen3_tts.core.engine.inference._transcribe_probe",
+                return_value="thanks for listening. Now the real text.",
+            ),
+            patch("qwen3_tts.core.engine.asr.is_asr_loaded", return_value=True),
+        ):
             out, _ = _trim_icl_echo(
                 audio, self.SR, REFERENCE, "clone", False, config=_cfg(), **kwargs
             )
@@ -683,9 +700,7 @@ class TestTrimCapWiredToSurfaces(unittest.TestCase):
                         inf,
                         "_run_inference_single",
                         side_effect=[
-                            (first_audio, self.SR)
-                            if i == 0
-                            else (tail_audio, self.SR)
+                            (first_audio, self.SR) if i == 0 else (tail_audio, self.SR)
                             for i in range(chunk_count)
                         ],
                     ),
@@ -715,6 +730,102 @@ class TestTrimCapWiredToSurfaces(unittest.TestCase):
         """Streaming scopes the trim to its first chunk already."""
         captured = self._captured_kwargs(mlx_stream=True)
         self.assertIsNone(captured.get("trim_cap_samples"))
+
+
+# ---------------------------------------------------------------------------
+# Probe staging: the temp WAV handed to ASR, and its cleanup
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.unit
+class TestTranscribeProbe(unittest.TestCase):
+    """transcribe_audio() takes a path, so the probe stages a temp WAV.
+
+    _transcribe_probe imports transcribe_audio *inside* the function body, so
+    these patch the definition site (qwen3_tts.core.engine.asr) rather than an
+    inference-module alias, which does not exist.
+    """
+
+    @staticmethod
+    def _recording_asr(returns="probe text", raises=None):
+        """Fake ASR that reads the staged file back before it is cleaned up."""
+        captured = {}
+
+        def _fake(path):
+            captured["path"] = path
+            with wave.open(path, "rb") as wav_file:
+                captured["channels"] = wav_file.getnchannels()
+                captured["sampwidth"] = wav_file.getsampwidth()
+                captured["framerate"] = wav_file.getframerate()
+                captured["frames"] = wav_file.readframes(wav_file.getnframes())
+            if raises is not None:
+                raise raises
+            return returns
+
+        return _fake, captured
+
+    def _probe(self, audio, fake, sr=SR):
+        from qwen3_tts.core.engine.inference import _transcribe_probe
+
+        with patch("qwen3_tts.core.engine.asr.transcribe_audio", fake):
+            return _transcribe_probe(audio, sr)
+
+    def test_returns_the_asr_transcript(self):
+        fake, _ = self._recording_asr(returns="hello there")
+        self.assertEqual(self._probe(_tone(0.1), fake), "hello there")
+
+    def test_returns_empty_string_when_asr_returns_none(self):
+        """The `or ""` — callers do string work on this and must not see None."""
+        fake, _ = self._recording_asr(returns=None)
+        self.assertEqual(self._probe(_tone(0.1), fake), "")
+
+    def test_stages_a_mono_16bit_wav_at_the_requested_rate(self):
+        fake, captured = self._recording_asr()
+        self._probe(_tone(0.1), fake, sr=16000)
+        self.assertEqual(captured["channels"], 1)
+        self.assertEqual(captured["sampwidth"], 2)
+        self.assertEqual(captured["framerate"], 16000)
+
+    def test_stages_the_audio_as_scaled_pcm(self):
+        audio = np.array([0.0, 0.5, -0.5], dtype=np.float32)
+        fake, captured = self._recording_asr()
+        self._probe(audio, fake)
+        expected = (audio * 32767.0).astype("<i2").tobytes()
+        self.assertEqual(captured["frames"], expected)
+
+    def test_clips_samples_outside_the_valid_range(self):
+        """Out-of-range floats must clamp, not wrap around to the wrong sign."""
+        fake, captured = self._recording_asr()
+        self._probe(np.array([2.0, -2.0], dtype=np.float32), fake)
+        staged = np.frombuffer(captured["frames"], dtype="<i2")
+        np.testing.assert_array_equal(staged, np.array([32767, -32767], dtype="<i2"))
+
+    def test_removes_the_staged_file_on_success(self):
+        fake, captured = self._recording_asr()
+        self._probe(_tone(0.1), fake)
+        self.assertFalse(
+            os.path.exists(captured["path"]),
+            f"probe leaked its temp WAV: {captured['path']}",
+        )
+
+    def test_removes_the_staged_file_when_asr_raises(self):
+        """The `finally` — a transcription failure must not leak the temp file."""
+        fake, captured = self._recording_asr(raises=RuntimeError("asr exploded"))
+        with self.assertRaises(RuntimeError):
+            self._probe(_tone(0.1), fake)
+        self.assertFalse(
+            os.path.exists(captured["path"]),
+            f"probe leaked its temp WAV on the error path: {captured['path']}",
+        )
+
+    def test_survives_a_cleanup_that_fails(self):
+        """An unremovable temp file is swallowed — the transcript still returns."""
+        fake, captured = self._recording_asr(returns="still fine")
+        with patch("os.remove", side_effect=OSError("held open")):
+            result = self._probe(_tone(0.1), fake)
+        self.assertEqual(result, "still fine")
+        # The real file is still on disk precisely because removal was blocked.
+        self.addCleanup(os.remove, captured["path"])
 
 
 if __name__ == "__main__":

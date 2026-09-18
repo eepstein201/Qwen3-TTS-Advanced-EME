@@ -36,7 +36,9 @@ os.environ.setdefault("TTS_DISABLE_RATE_LIMITING", "1")
 
 # E2E helper for automatic Playwright toggle
 
-spec = importlib.util.spec_from_file_location("e2e_helpers", Path(__file__).parent / "e2e_helpers.py")
+spec = importlib.util.spec_from_file_location(
+    "e2e_helpers", Path(__file__).parent / "e2e_helpers.py"
+)
 e2e_helpers = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(e2e_helpers)
 playwright_enabled = e2e_helpers.playwright_enabled
@@ -214,6 +216,7 @@ BATCHES = {
             "tests.test_ui_low_rate_prompt_warning",
             "tests.test_ui_shared_ext",
             "tests.test_ui_voice_mgmt",
+            "tests.test_ui_create_voice_prompt_torch",
             "tests.test_ui_generation_ext",
             "tests.test_fastapi_app_ext",
             "tests.test_wavesurfer_js",
@@ -485,7 +488,9 @@ def run_all_batches(
             continue
 
         batch_info = batches[batch_num]
-        success, output = run_batch(batch_num, batch_info, default_timeout, verbose, auto_playwright)
+        success, output = run_batch(
+            batch_num, batch_info, default_timeout, verbose, auto_playwright
+        )
 
         if verbose and output:
             # Print test output
@@ -545,7 +550,11 @@ def print_summary(results: dict, batches: dict):
     print(f"Total: {total_passed}/{total_ran} batches passed")
 
     if total_failed > 0:
-        print(colorize("\nSome batches failed. Run specific batch to debug:", Colors.YELLOW))
+        print(
+            colorize(
+                "\nSome batches failed. Run specific batch to debug:", Colors.YELLOW
+            )
+        )
         for num in results["failed"]:
             print(f"  python tests/run_batches.py --batch {num}")
 

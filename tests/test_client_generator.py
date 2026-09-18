@@ -40,6 +40,7 @@ _skip = unittest.skipUnless(HAS_DEPS, "soundfile and numpy required")
 # Helpers
 # ---------------------------------------------------------------------------
 
+
 def _make_config(data=None):
     """Create a temp config file and return its path."""
     if data is None:
@@ -201,8 +202,10 @@ class TestGenerateAudioProcessing(unittest.TestCase):
         client, session = _client_with_server(self.cfg)
         session.post.return_value = _mock_generate_response()
 
-        with patch("soundfile.write"), \
-             patch("qwen3_tts.core.engine.process_audio") as mock_proc:
+        with (
+            patch("soundfile.write"),
+            patch("qwen3_tts.core.engine.process_audio") as mock_proc,
+        ):
             client.generate("hello")
 
         mock_proc.assert_not_called()
@@ -362,7 +365,13 @@ class TestGenerateViaServer(unittest.TestCase):
         session.post.return_value = _mock_generate_response()
 
         client._generate_via_server(
-            "hello", "clone", "voice.pt", None, None, None, {},
+            "hello",
+            "clone",
+            "voice.pt",
+            None,
+            None,
+            None,
+            {},
             x_vector_only_mode=True,
         )
         payload = session.post.call_args[1]["json"]
@@ -373,9 +382,7 @@ class TestGenerateViaServer(unittest.TestCase):
         client, session = _client_with_server(self.cfg)
         session.post.return_value = _mock_generate_response()
 
-        client._generate_via_server(
-            "hello", "clone", "my.pt", None, None, None, {}
-        )
+        client._generate_via_server("hello", "clone", "my.pt", None, None, None, {})
         payload = session.post.call_args[1]["json"]
         self.assertEqual(payload["prompt_file"], "my.pt")
         self.assertEqual(payload["mode"], "clone")
@@ -447,9 +454,7 @@ class TestGenerateStreaming(unittest.TestCase):
 
         with self.assertRaises(GenerationError) as ctx:
             list(client.generate_streaming("hello", mode="custom", speaker="ryan"))
-        self.assertIn(
-            "model exploded", (ctx.exception.technical_detail or "").lower()
-        )
+        self.assertIn("model exploded", (ctx.exception.technical_detail or "").lower())
 
     def test_partial_audio_before_error_frame_is_not_a_success(self):
         """Audio already yielded must not be treated as a complete generation.
@@ -542,8 +547,10 @@ class TestGenerateStreaming(unittest.TestCase):
         b1 = s1.tobytes()
         b2 = s2.tobytes()
         data = (
-            struct.pack("<II", 24000, len(b1)) + b1
-            + struct.pack("<II", 24000, len(b2)) + b2
+            struct.pack("<II", 24000, len(b1))
+            + b1
+            + struct.pack("<II", 24000, len(b2))
+            + b2
         )
 
         mock_resp = MagicMock()
@@ -577,8 +584,10 @@ class TestGenerateDialogue(unittest.TestCase):
         client, session = _client_with_server(self.cfg)
         session.post.return_value = _mock_generate_response()
 
-        with patch.object(client, "is_server_running", return_value=True), \
-             patch("soundfile.write") as mock_write:
+        with (
+            patch.object(client, "is_server_running", return_value=True),
+            patch("soundfile.write") as mock_write,
+        ):
             result = client.generate_dialogue(
                 lines=[
                     {"text": "Hello", "mode": "clone", "prompt": "a.pt"},
@@ -598,8 +607,10 @@ class TestGenerateDialogue(unittest.TestCase):
             "alice": {"mode": "custom", "speaker": "Vivian", "instruct": ""},
         }
 
-        with patch.object(client, "is_server_running", return_value=True), \
-             patch("soundfile.write"):
+        with (
+            patch.object(client, "is_server_running", return_value=True),
+            patch("soundfile.write"),
+        ):
             client.generate_dialogue(
                 lines=[{"text": "Hi", "speaker": "alice"}],
                 speakers=speakers,
@@ -615,8 +626,10 @@ class TestGenerateDialogue(unittest.TestCase):
         client, session = _client_with_server(self.cfg)
         session.post.return_value = _mock_generate_response()
 
-        with patch.object(client, "is_server_running", return_value=True), \
-             patch("soundfile.write"):
+        with (
+            patch.object(client, "is_server_running", return_value=True),
+            patch("soundfile.write"),
+        ):
             client.generate_dialogue(
                 lines=[
                     {"text": ""},
@@ -668,8 +681,10 @@ class TestGenerateDialogue(unittest.TestCase):
         resp.json.return_value = {"results": []}
         session.post.return_value = resp
 
-        with patch.object(client, "is_server_running", return_value=True), \
-             patch("soundfile.write"):
+        with (
+            patch.object(client, "is_server_running", return_value=True),
+            patch("soundfile.write"),
+        ):
             with self.assertRaises(GenerationError) as ctx:
                 client.generate_dialogue(
                     lines=[{"text": "Hello", "mode": "clone", "prompt": "a.pt"}],
@@ -688,8 +703,10 @@ class TestGenerateDialogue(unittest.TestCase):
         resp.json.return_value = {"results": [], "cancelled": True}
         session.post.return_value = resp
 
-        with patch.object(client, "is_server_running", return_value=True), \
-             patch("soundfile.write"):
+        with (
+            patch.object(client, "is_server_running", return_value=True),
+            patch("soundfile.write"),
+        ):
             with self.assertRaises(GenerationError) as ctx:
                 client.generate_dialogue(
                     lines=[{"text": "Hello", "mode": "clone", "prompt": "a.pt"}],
@@ -716,7 +733,9 @@ class TestCancelGeneration(unittest.TestCase):
     def test_cancel_returns_response(self):
         """cancel_generation returns response dict."""
         client, session = _client_with_server(self.cfg)
-        session.post.return_value.json.return_value = {"status": "cancellation_requested"}
+        session.post.return_value.json.return_value = {
+            "status": "cancellation_requested"
+        }
 
         with patch.object(client, "is_server_running", return_value=True):
             result = client.cancel_generation()
@@ -729,6 +748,364 @@ class TestCancelGeneration(unittest.TestCase):
         with patch.object(client, "is_server_running", return_value=False):
             with self.assertRaises(ConnectionError):
                 client.cancel_generation()
+
+
+# ============================================================================
+# Preset merge — the same three-line block in generate(), generate_streaming()
+# and generate_dialogue()
+# ============================================================================
+
+
+def _mock_stream_response(chunk_bytes=b"", headers=None):
+    """Build a mock streaming response with real (non-Mock) headers.
+
+    headers must be a genuine dict: a MagicMock's .get("X-Seed") returns a
+    MagicMock, which int() happily converts to 1 — the seed branch would then
+    pass hollowly.
+    """
+    resp = MagicMock()
+    resp.status_code = 200
+    resp.headers = headers if headers is not None else {}
+    resp.__enter__ = MagicMock(return_value=resp)
+    resp.__exit__ = MagicMock(return_value=False)
+    resp.iter_content.return_value = [chunk_bytes] if chunk_bytes else []
+    return resp
+
+
+@_skip
+class TestPresetMerge(unittest.TestCase):
+    """A named preset's params override the config generation defaults.
+
+    The config fixture sets generation.temperature 0.7 and a "consistent"
+    preset of temperature 0.5, so asserting 0.5 in the payload distinguishes
+    a real merge from the default that would be there anyway.
+    """
+
+    def setUp(self):
+        self.cfg = _make_config()
+
+    def tearDown(self):
+        os.unlink(self.cfg)
+
+    def test_generate_merges_named_preset_into_payload(self):
+        """generate() applies the preset over the generation defaults."""
+        client, session = _client_with_server(self.cfg)
+        session.post.return_value = _mock_generate_response()
+
+        with patch("soundfile.write"):
+            client.generate(
+                "hello",
+                mode="custom",
+                speaker="ryan",
+                output="/tmp/preset.wav",
+                preset="consistent",
+            )
+
+        payload = session.post.call_args[1]["json"]
+        self.assertEqual(payload["temperature"], 0.5)
+
+    def test_streaming_merges_named_preset_into_payload(self):
+        """generate_streaming() applies the preset over the defaults."""
+        client, session = _client_with_server(self.cfg)
+        session.post.return_value = _mock_stream_response()
+
+        list(
+            client.generate_streaming(
+                "hello", mode="custom", speaker="ryan", preset="consistent"
+            )
+        )
+
+        payload = session.post.call_args[1]["json"]
+        self.assertEqual(payload["temperature"], 0.5)
+
+    def test_dialogue_merges_named_preset_into_payload(self):
+        """generate_dialogue() applies the preset over the defaults."""
+        client, session = _client_with_server(self.cfg)
+        session.post.return_value = _mock_generate_response()
+
+        with (
+            patch.object(client, "is_server_running", return_value=True),
+            patch("soundfile.write"),
+        ):
+            client.generate_dialogue(
+                lines=[{"text": "Hi", "mode": "clone", "prompt": "a.pt"}],
+                output="/tmp/dlg_preset.wav",
+                preset="consistent",
+            )
+
+        payload = session.post.call_args[1]["json"]
+        self.assertEqual(payload["temperature"], 0.5)
+
+    def test_unknown_preset_name_is_ignored_not_an_error(self):
+        """An unknown preset leaves the generation defaults untouched."""
+        client, session = _client_with_server(self.cfg)
+        session.post.return_value = _mock_generate_response()
+
+        with patch("soundfile.write"):
+            client.generate(
+                "hello",
+                mode="custom",
+                speaker="ryan",
+                output="/tmp/preset_unknown.wav",
+                preset="does-not-exist",
+            )
+
+        payload = session.post.call_args[1]["json"]
+        self.assertEqual(payload["temperature"], 0.7)
+
+
+# ============================================================================
+# Design-mode description fallback
+# ============================================================================
+
+
+@_skip
+class TestDefaultDescriptionFallback(unittest.TestCase):
+    """Design mode with no description falls back to the configured one."""
+
+    def setUp(self):
+        self.cfg = _make_config()
+
+    def tearDown(self):
+        os.unlink(self.cfg)
+
+    def test_generate_design_falls_back_to_config_description(self):
+        """generate() sends default_voice_description when none is passed."""
+        client, session = _client_with_server(self.cfg)
+        session.post.return_value = _mock_generate_response()
+
+        with patch("soundfile.write"):
+            client.generate("hello", mode="design", output="/tmp/design.wav")
+
+        payload = session.post.call_args[1]["json"]
+        self.assertEqual(payload["voice_description"], "neutral voice")
+
+    def test_streaming_design_falls_back_to_config_description(self):
+        """generate_streaming() applies the same fallback."""
+        client, session = _client_with_server(self.cfg)
+        session.post.return_value = _mock_stream_response()
+
+        list(client.generate_streaming("hello", mode="design"))
+
+        payload = session.post.call_args[1]["json"]
+        self.assertEqual(payload["voice_description"], "neutral voice")
+
+
+# ============================================================================
+# generate_streaming() — voice alias resolution
+# ============================================================================
+
+
+@_skip
+class TestStreamingVoiceAliasResolution(unittest.TestCase):
+    """generate_streaming() resolves voice aliases like generate() does."""
+
+    def setUp(self):
+        self.cfg = _make_config()
+
+    def tearDown(self):
+        os.unlink(self.cfg)
+
+    def test_clone_alias_resolves_prompt_and_mode(self):
+        """A clone alias sets both the mode and the prompt file."""
+        client, session = _client_with_server(self.cfg)
+        session.post.return_value = _mock_stream_response()
+
+        list(client.generate_streaming("hello", voice="narrator"))
+
+        payload = session.post.call_args[1]["json"]
+        self.assertEqual(payload["mode"], "clone")
+        self.assertEqual(payload["prompt_file"], "narrator.pt")
+
+    def test_design_alias_resolves_mode_and_description(self):
+        """A design alias switches the mode away from the clone default."""
+        client, session = _client_with_server(self.cfg)
+        session.post.return_value = _mock_stream_response()
+
+        list(client.generate_streaming("hello", voice="designer"))
+
+        payload = session.post.call_args[1]["json"]
+        self.assertEqual(payload["mode"], "design")
+        self.assertEqual(payload["voice_description"], "warm female")
+
+    def test_unknown_alias_raises_value_error(self):
+        """An unresolvable alias raises rather than silently generating."""
+        client, session = _client_with_server(self.cfg)
+        session.post.return_value = _mock_stream_response()
+
+        with self.assertRaises(ValueError):
+            list(client.generate_streaming("hello", voice="no-such-alias"))
+        session.post.assert_not_called()
+
+
+# ============================================================================
+# generate_streaming() — X-Seed header and non-JSON error bodies
+# ============================================================================
+
+
+@_skip
+class TestStreamingSeedHeader(unittest.TestCase):
+    """last_seed mirrors the server's X-Seed header on the streaming path."""
+
+    def setUp(self):
+        self.cfg = _make_config()
+
+    def tearDown(self):
+        os.unlink(self.cfg)
+
+    def test_valid_x_seed_header_is_recorded(self):
+        """A numeric X-Seed lands on last_seed as an int."""
+        client, session = _client_with_server(self.cfg)
+        session.post.return_value = _mock_stream_response(headers={"X-Seed": "4242"})
+
+        list(client.generate_streaming("hello", mode="custom", speaker="ryan"))
+
+        self.assertEqual(client.last_seed, 4242)
+
+    def test_malformed_x_seed_header_clears_last_seed(self):
+        """A non-numeric X-Seed clears last_seed rather than leaving a stale one.
+
+        last_seed is pre-set here so the assertion proves the branch actively
+        clears it — an untouched attribute would still hold 999.
+        """
+        client, session = _client_with_server(self.cfg)
+        client.last_seed = 999
+        session.post.return_value = _mock_stream_response(
+            headers={"X-Seed": "not-a-number"}
+        )
+
+        list(client.generate_streaming("hello", mode="custom", speaker="ryan"))
+
+        self.assertIsNone(client.last_seed)
+
+
+@_skip
+class TestStreamingNonJsonErrorBody(unittest.TestCase):
+    """A non-JSON error body still produces a GenerationError."""
+
+    def setUp(self):
+        self.cfg = _make_config()
+
+    def tearDown(self):
+        os.unlink(self.cfg)
+
+    def test_unparseable_error_body_still_raises_generation_error(self):
+        """resp.json() blowing up must not mask the failure as a success."""
+        from qwen3_tts.core.config import GenerationError
+
+        client, session = _client_with_server(self.cfg)
+
+        mock_resp = MagicMock()
+        mock_resp.status_code = 502
+        mock_resp.json.side_effect = ValueError("not JSON")
+        mock_resp.__enter__ = MagicMock(return_value=mock_resp)
+        mock_resp.__exit__ = MagicMock(return_value=False)
+        session.post.return_value = mock_resp
+
+        with self.assertRaises(GenerationError):
+            list(client.generate_streaming("hello", mode="custom", speaker="ryan"))
+
+
+# ============================================================================
+# generate_dialogue() — error arm, audio processing, output path
+# ============================================================================
+
+
+@_skip
+class TestDialogueErrorAndOutputPaths(unittest.TestCase):
+    """generate_dialogue() per-line failure and output-path handling."""
+
+    def setUp(self):
+        self.cfg = _make_config()
+
+    def tearDown(self):
+        os.unlink(self.cfg)
+
+    def test_error_response_raises_with_the_servers_message(self):
+        """A non-200 on any line aborts, carrying the server's own message.
+
+        Asserting on technical_detail is what makes this test discriminating:
+        dropping the status check does NOT make the call succeed — the error
+        body has no "results", so _first_result raises the same exception type
+        a few lines later. Only the server's message ("boom") separates the
+        real status-code arm from that accidental downstream failure.
+        """
+        from qwen3_tts.core.config import GenerationError
+
+        client, session = _client_with_server(self.cfg)
+        session.post.return_value = _mock_error_response(500, "boom")
+
+        with (
+            patch.object(client, "is_server_running", return_value=True),
+            patch("soundfile.write") as mock_write,
+        ):
+            with self.assertRaises(GenerationError) as ctx:
+                client.generate_dialogue(
+                    lines=[{"text": "Hi", "mode": "clone", "prompt": "a.pt"}],
+                    output="/tmp/dlg_err.wav",
+                )
+        self.assertEqual(ctx.exception.technical_detail, "boom")
+        mock_write.assert_not_called()
+
+    def test_speed_routes_audio_through_process_audio(self):
+        """A non-default speed sends each line's audio through process_audio."""
+        import numpy as np
+
+        client, session = _client_with_server(self.cfg)
+        session.post.return_value = _mock_generate_response()
+        processed = np.array([0.25, -0.25], dtype=np.float32)
+
+        with (
+            patch.object(client, "is_server_running", return_value=True),
+            patch(
+                "qwen3_tts.core.engine.process_audio", return_value=processed
+            ) as mock_proc,
+            patch("soundfile.write") as mock_write,
+        ):
+            client.generate_dialogue(
+                lines=[{"text": "Hi", "mode": "clone", "prompt": "a.pt"}],
+                output="/tmp/dlg_speed.wav",
+                speed=1.5,
+            )
+
+        mock_proc.assert_called_once()
+        self.assertEqual(mock_proc.call_args[1]["speed"], 1.5)
+        np.testing.assert_array_equal(mock_write.call_args[0][1], processed)
+
+    def test_default_output_path_uses_config_directory(self):
+        """output=None writes dialogue_output.wav under the configured dir."""
+        client, session = _client_with_server(self.cfg)
+        session.post.return_value = _mock_generate_response()
+
+        with (
+            patch.object(client, "is_server_running", return_value=True),
+            patch("soundfile.write"),
+        ):
+            result = client.generate_dialogue(
+                lines=[{"text": "Hi", "mode": "clone", "prompt": "a.pt"}],
+            )
+
+        expected = os.path.join(
+            os.path.expanduser("~/Downloads"), "dialogue_output.wav"
+        )
+        self.assertEqual(result, expected)
+
+    def test_output_without_wav_gets_extension(self):
+        """An extensionless output path gains .wav before it is written."""
+        client, session = _client_with_server(self.cfg)
+        session.post.return_value = _mock_generate_response()
+
+        with (
+            patch.object(client, "is_server_running", return_value=True),
+            patch("soundfile.write") as mock_write,
+        ):
+            result = client.generate_dialogue(
+                lines=[{"text": "Hi", "mode": "clone", "prompt": "a.pt"}],
+                output="/tmp/dlg_noext",
+            )
+
+        self.assertEqual(result, "/tmp/dlg_noext.wav")
+        self.assertEqual(mock_write.call_args[0][0], "/tmp/dlg_noext.wav")
 
 
 if __name__ == "__main__":
