@@ -1098,9 +1098,31 @@ disambiguates the `model_loader.py` gaps (item 12 below).
 - **Exit criteria:** items 6–10 exercised; the streaming/batch `_postprocess_chunk` parity
   invariant (item 6) pinned by a test that fails if the two paths drift.
 
-### Step 4B.3 — P2: CLI/support + remaining sub-80% modules + the torch-env companion run
+### Step 4B.3 — P2: CLI/support + remaining sub-80% modules + the torch-env companion run ✅ EXECUTED 2026-09-18
 
 - **Model tier:** default · **Branch:** `test/p2-remaining-coverage`
+- **Executed:** one commit per item (item 13 split into five module-group commits), each
+  proven non-hollow by mutation testing — 22 mutants total across the step, all caught, each
+  with the evidence quoted in its commit body.
+
+  | Item | Commit | Evidence |
+  |------|--------|----------|
+  | 11 — `cli_server._kill_server_process` | `672bf5fa` | 7 tests (`TestKillServerProcess` in `test_cli_server_restart.py`): SIGTERM→bounded-poll→SIGKILL escalation, PID-by-port discovery, both OSError swallows, guaranteed cleanup; 3 mutants |
+  | 12 — `model_loader` torch paths | `ef574d30` | 16 TestCase tests in `test_model_loader_extended.py` (stub `torch`/`qwen_tts`/`bitsandbytes` via `sys.modules`); 4bit/8bit success arms + bnb-missing raises, `_patch_deepcopy_for_bnb` patch/restore/dict-view conversion, `_safe_multinomial` MPS interior, `_load_model_torch` end-to-end incl. TypeError pickle retry; 3 mutants |
+  | 13a — auth + models + `__main__` | `e51c8c68` | 5 tests (legacy-token fallback + warning, None, `auth_headers` bearer/empty), 8 tests (exception/invalid fallbacks for all five config readers, `_get_config_value` arms, unknown-size raise, `get_model_revision` pinned/fallback/`main`), new `test_main_entry.py` (subprocess `python -m qwen3_tts --help`; registered batch 2); 4 mutants |
+  | 13b — check_config_docs + config_fetcher | `55641470` | `Drift.as_row`, `main()` exit arms 2/0/1/1+`--fix` (5 tests), `get_stats`/`get_health`/`shutdown` incl. auth-header pass-through (3 tests); 3 mutants |
+  | 13c — `server/vllm_client.py` | `ee05395e` | 15 tests: CB OPEN→HALF_OPEN/in-cooldown raise/HALF_OPEN-close/threshold-trip, `close`, `_decode_audio`, `health_check` 200/503, `circuit_state`, generate payload arms (voice_description/speaker), 5xx-retry-then-succeed / 4xx-no-retry / 3×5xx-exhausts, clone temp-file unlink-OSError warn-and-return; 3 mutants |
+  | 13d — `audio_processing.py` | `ba0d837c` | 13 tests: torchaudio downmix+resample / matching-sr skip / failure→soundfile+librosa fallback, cloning truncation both backends, `adjust_pitch` pyrb + librosa fallback, `normalize_lufs` chain, `process_audio` pitch→LUFS wiring + ImportError/generic warn-and-return; 3 mutants |
+  | 13e — `tabs_generation.py` closures | `81e673ae` | New `test_ui_tabs_generation_closures.py` (registered, Engine & UI batch): builder-capture harness (gr + collaborators mocked, fns taken off the wiring calls); 10 tests covering the three `*_config_handler` delegations and all `save_design_as_prompt` arms (traversal, outside-home, x-vector save kwargs, error surfacing); 3 mutants |
+
+- **Companion run (decided item 12's disposition):** `qwen3-tts` (torch) env,
+  `pytest tests/ -q --cov=qwen3_tts --cov-report=term-missing` → 3507 passed / 12 skipped,
+  **TOTAL 90%**. `model_loader.py` measured **63% WITH torch+qwen_tts present** — the gaps are
+  real, not env artifacts → stub-based tests (not env-gated), which is what `ef574d30` ships.
+  Item-13 per-module missed-line baselines were also taken from this run.
+- **Disposition:** `calculate_waveform_peaks` line 382 (zero-width-bin `peaks.append(0.0)`)
+  left uncovered — after `num_peaks = min(num_peaks, audio.size)`, `samples_per_bin >= 1`
+  makes `start >= end` unreachable via the public API; defensive arm (noted in `ba0d837c`).
 - **Context:**
   11. `cli_server.py` (66%, 95 missed — lowest % in the repo) — prioritize `_kill_server_process`
       225-241 (SIGTERM→SIGKILL escalation, interacts with PM2 autorestart) over the lower-risk
