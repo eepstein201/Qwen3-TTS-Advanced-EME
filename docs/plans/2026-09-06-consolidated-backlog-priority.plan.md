@@ -813,8 +813,9 @@ re-scoped) tries to diagnose anything through it.
 
 ### Step 4D — Close the highest-severity new E2E gaps (in priority order)
 
-- **Status: IN PROGRESS (branch `fix/e2e-coverage-gaps`, 2026-09-17) — structural make-target fix
-  + gap 1 landed; gaps 2-5 and the remaining structural items open.** (a) **`make test-e2e` now
+- **Status: IN PROGRESS (slice 2 on branch `fix/e2e-coverage-gaps-2`, 2026-09-18) — gaps 2-4
+  + ALL structural items landed; gap 5 (lower tier) remains.** Slice 1 (2026-09-17, #307):
+  structural make-target fix + gap 1 landed. (a) **`make test-e2e` now
   runs the FULL 90-test e2e suite** (`pytest -m e2e`, 11 modules, `-rs` so model-not-loaded
   skips surface loudly, JUnit XML → gitignored `.reports/`) instead of `run_batches.py --batch
   6`'s 1-of-11 playwright subset — the exact blind spot that hid 4E's three reds. The batch
@@ -838,6 +839,32 @@ re-scoped) tries to diagnose anything through it.
   value never renders, so NOTHING visibly happens. Needs its own issue + fix; until then
   test_04's red is signal, not noise. 4D's premise correction: 0G's credited create-from-audio
   E2E case never existed on main — gap 1 includes create.
+- **Slice 2 (2026-09-18):** (c) **Gap 2** `tests/test_e2e_websocket.py` (4 tests) — first /ws E2E,
+  sync `websockets` client, EVERY receive bounded (the TestClient-unbounded-receive hang class):
+  bad-token close 4001, clone-without-prompt_file error frame on a live socket, happy-path frame
+  parse (`[sr:4][len:4][float32]`, terminal `complete` with `chunks` == binary count + supplied
+  `seed` echo), mid-generation cancel → terminal `cancelled` + socket STAYS open. (d) **Gap 3**
+  `tests/test_e2e_generate_stream.py` (2 tests) — real /generate-stream parsed through the ONE
+  canonical `iter_stream_chunks`; `X-Seed` echoes a supplied seed verbatim / reports the
+  server-generated one. Sentinel error frame stays unit-only BY DESIGN (fires only on genuine
+  mid-stream inference failure — no honest E2E trigger without fault injection; cancel truncates
+  cleanly instead). (e) **Gap 4** `tests/test_e2e_cancel_generation.py` (2 tests) — idle cancel →
+  `no_active_generation`; mid-batch cancel → `cancellation_requested` + the 200 response carries
+  `cancelled: true` and `results` STRICTLY shorter than `texts` (the never-index-results[0]
+  contract). Cache trap found+fixed: constant texts made re-runs resolve as instant gen-cache
+  hits (seed is OUTSIDE the cache key) — a cache-hit item 3 completing past the cancel, or an
+  all-hits batch the status poll never sees `active`; texts now carry a per-run stamp. (f)
+  **Structural**: Playwright tracing-on-failure in `tests/e2e_ui.py`
+  (`start_tracing`/`save_trace_if_failed`, `.reports/e2e-traces/<test-id>.zip`; failure detection
+  via `_outcome.result` on 3.11, live-verified both paths) wired into all five browser modules;
+  the tracked-`.claude/.mcp.json` rewrite is RETIRED (`playwright_enabled` = documented no-op,
+  dead helpers deleted — zero runtime readers ever existed); security-validation now has a LOUD
+  module-level `TTS_DISABLE_RATE_LIMITING=1` precondition (21-post probe; a 429 proves limits
+  are ON) replacing 9 scattered per-test 429 skips — the probe's `Content-Type` header is
+  LOAD-BEARING (without it FastAPI 422s pre-endpoint and nothing counts), and 16 posts could
+  8/8-split a minute boundary (21 cannot); design/custom skips in the playwright module now say
+  WHY (test_09/test_10 unload mid-suite) + the remedy. **Exit-criteria run: fresh restart, all
+  three models resident, 8/8 in 84.17s.** finding-10 evidence → issue #308 (filed 2026-09-17).
 - **Model tier:** default · **Branch:** `fix/e2e-coverage-gaps` (may split into several PRs — this is "batch small same-shape work" territory per gap, not one PR)
 - **Context (gaps found by the 2026-09-06 static analysis, none previously tracked):**
   1. **Voice Management tab** (create/delete/rename/preview) — zero E2E coverage at any level; `/rename-prompt`, `/preview-prompt`, `/prompt-details` have zero hits. Highest severity — rename has rollback-on-failure logic, create/delete touch the filesystem, and Step 0G above just changed the create path. Start here (Step 0G already adds one create-from-audio case — this task covers delete/rename/preview).

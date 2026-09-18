@@ -31,6 +31,8 @@ from tests.e2e_ui import (
     GradioPage,
     kill_stale_ui_on_port,
     launch_ui,
+    save_trace_if_failed,
+    start_tracing,
     stop_ui,
     wait_for_ui,
 )
@@ -178,9 +180,10 @@ def _ensure_only_clone_loaded(timeout=30):
 
 
 def setUpModule():
-    """Auto-enable Playwright MCP server before any E2E tests run.
+    """Harness entry (Playwright MCP toggle retired — this is now a no-op).
 
-    This ensures Playwright is available for all test runners:
+    Historical note: this used to rewrite the tracked .claude/.mcp.json to
+    enable the Playwright MCP server. Runs under all test runners:
     - python -m unittest tests.test_e2e_playwright -v
     - python tests/run_batches.py --batch 6
     - python tests/run_full_suite.py --test-type e2e
@@ -199,10 +202,7 @@ def setUpModule():
 
 
 def tearDownModule():
-    """Auto-disable Playwright MCP server after E2E tests complete.
-
-    This ensures Playwright is disabled after testing to save tokens
-    during normal development.
+    """Harness teardown (Playwright MCP toggle retired — this is now a no-op).
     """
     try:
         if "_playwright_context" in globals():
@@ -299,9 +299,11 @@ class TestE2EPlaywright(unittest.TestCase):
     def setUp(self):
         self.page = self.context.new_page()
         self.gp = GradioPage(self.page, base_url=UI_URL)
+        start_tracing(self.page.context)
         self.gp.navigate()
 
     def tearDown(self):
+        save_trace_if_failed(self, self.page.context, self.id())
         if self.page:
             if _CAPTURE_SCREENSHOTS:
                 try:
@@ -342,7 +344,12 @@ class TestE2EPlaywright(unittest.TestCase):
             resp = urllib.request.urlopen(f"{SERVER_URL}/health", timeout=5)  # nosec B310
             health = json.loads(resp.read())
             if not health.get("design_model_loaded"):
-                self.skipTest("Design model not loaded")
+                self.skipTest(
+                    "Design model not loaded — test_09/test_10 unload models "
+                    "mid-suite, so this skip depends on module order; restart "
+                    "the server or POST /load-model {\"model_type\": "
+                    "\"design\"} to exercise this test"
+                )
         except unittest.SkipTest:
             raise
         except Exception:
@@ -362,7 +369,12 @@ class TestE2EPlaywright(unittest.TestCase):
             resp = urllib.request.urlopen(f"{SERVER_URL}/health", timeout=5)  # nosec B310
             health = json.loads(resp.read())
             if not health.get("custom_model_loaded"):
-                self.skipTest("Custom model not loaded")
+                self.skipTest(
+                    "Custom model not loaded — test_09/test_10 unload models "
+                    "mid-suite, so this skip depends on module order; restart "
+                    "the server or POST /load-model {\"model_type\": "
+                    "\"custom\"} to exercise this test"
+                )
         except unittest.SkipTest:
             raise
         except Exception:

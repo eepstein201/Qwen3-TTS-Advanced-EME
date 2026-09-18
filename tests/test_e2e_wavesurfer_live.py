@@ -29,7 +29,14 @@ import os
 import unittest
 import urllib.request
 
-from tests.e2e_ui import kill_stale_ui_on_port, launch_ui, stop_ui, wait_for_ui
+from tests.e2e_ui import (
+    kill_stale_ui_on_port,
+    launch_ui,
+    save_trace_if_failed,
+    start_tracing,
+    stop_ui,
+    wait_for_ui,
+)
 
 # E2E browser tests require a live server + Gradio UI + Chromium.
 # Gated behind the `e2e` marker so plain `pytest tests/` skips them (no hang).
@@ -128,6 +135,7 @@ class TestWaveSurferLoadsViaProductionPath(unittest.TestCase):
 
     def setUp(self):
         self.page = self.browser.new_context().new_page()
+        start_tracing(self.page.context)
         self.console = []
         self.page_errors = []
         self.page.on("console", lambda m: self.console.append(m.text))
@@ -137,6 +145,7 @@ class TestWaveSurferLoadsViaProductionPath(unittest.TestCase):
         self.page.wait_for_selector("button", timeout=30_000)
 
     def tearDown(self):
+        save_trace_if_failed(self, self.page.context, self.id())
         self.page.context.close()
 
     def _wait_for_player(self, timeout=20_000):

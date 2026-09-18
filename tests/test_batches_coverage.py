@@ -34,6 +34,8 @@ INTENTIONALLY_UNBATCHED = {
     # security tests below would pass hollowly. tests.test_e2e_playwright is the one
     # exception: batch 6 exists to drive it with models preloaded.
     "tests.test_e2e_gradio_guard": "e2e: run via `pytest -m e2e`",
+    "tests.test_e2e_cancel_generation": "e2e: run via `pytest -m e2e`",
+    "tests.test_e2e_generate_stream": "e2e: run via `pytest -m e2e`",
     "tests.test_e2e_history_clear_copy": "e2e: run via `pytest -m e2e`",
     "tests.test_e2e_queueing": "e2e: run via `pytest -m e2e`",
     "tests.test_e2e_performance_batch": "e2e: run via `pytest -m e2e`",
@@ -45,6 +47,7 @@ INTENTIONALLY_UNBATCHED = {
     "tests.test_e2e_security_validation": "e2e: run via `pytest -m e2e`",
     "tests.test_e2e_tab_navigation": "e2e: run via `pytest -m e2e`",
     "tests.test_e2e_voice_management": "e2e: run via `pytest -m e2e`",
+    "tests.test_e2e_websocket": "e2e: run via `pytest -m e2e`",
     "tests.test_e2e_wavesurfer_live": "e2e: run via `pytest -m e2e`",
     # Plain pytest-style classes (not unittest.TestCase): python -m unittest's
     # TestLoader.loadTestsFromModule only collects TestCase subclasses, so the

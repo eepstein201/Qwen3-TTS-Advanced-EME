@@ -372,17 +372,11 @@ def run_batch(
 
     # Auto-enable Playwright for E2E batch (batch 6)
     playwright_context = None
-    if batch_num == 6 and auto_playwright:
-        playwright_context = playwright_enabled(auto_enable=True)
+    if batch_num == 6:
+        # playwright_enabled is a retired no-op (the .mcp.json toggle is gone);
+        # kept so the batch-6 entry point stays stable.
+        playwright_context = playwright_enabled(auto_enable=auto_playwright)
         playwright_context.__enter__()
-        if verbose:
-            print("🎭 Playwright auto-enabled for E2E tests")
-            print()
-    elif batch_num == 6 and not auto_playwright:
-        if verbose:
-            print("⚠️  Running E2E tests WITHOUT auto-Playwright (manual control)")
-            print("   Manually enable Playwright in .claude/.mcp.json if needed")
-            print()
 
     # Run setup function if defined for this batch
     setup_name = batch_info.get("setup")
