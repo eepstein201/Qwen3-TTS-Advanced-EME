@@ -12,6 +12,13 @@ Tests:
 Prerequisites:
     - TTS server running on port 5123
     - Auth token available at ~/.config/qwen3-tts/.voice_server_token
+    - LOUD PRECONDITION: the server must run with TTS_DISABLE_RATE_LIMITING=1.
+      This module fires ~20 generate-shaped requests in well under a minute;
+      with limits enabled they starve into 429s. A module-level probe detects
+      rate limiting (16 rapid invalid POSTs -> any 429 means ON) and skips the
+      WHOLE module once with restart instructions, instead of scattering
+      per-test 429 skips. Restart with:
+          tts server stop && TTS_DISABLE_RATE_LIMITING=1 tts server start
 
 Run: pytest tests/test_e2e_security_validation.py -v
 """
@@ -43,9 +50,72 @@ AUTH_TOKEN_PATHS = [
 ]
 
 
+_RATE_LIMIT_PROBE_BODY = json.dumps(
+    {"text": "rate-limit precondition probe", "mode": "definitely-not-a-mode"}
+).encode()
+
+
+def _rate_limiting_enabled_on_server(token: str) -> bool:
+    """True if the live server has rate limiting ENABLED.
+
+    The probe posts more invalid bodies than the 10/minute generate limit can
+    absorb in ANY single fixed window: the limiter wraps the endpoint after
+    dependency resolution but before the handler, so pydantic-valid 400s (this
+    body fails later, at clone prompt validation) still consume quota. 21
+    posts means even a mid-probe minute-boundary roll leaves >= 11 inside one
+    window — 16 was not enough (an 8/8 split trips nothing). Against
+    TTS_DISABLE_RATE_LIMITING=1 no limiter exists and no 429 can appear.
+    """
+    for _ in range(21):
+        req = urllib.request.Request(
+            f"{SERVER_URL}/generate",
+            data=_RATE_LIMIT_PROBE_BODY,
+            # Content-Type is LOAD-BEARING: without it FastAPI 422s the body
+            # at the dependency layer — BEFORE the endpoint and its limiter —
+            # so the post never consumes quota and the probe can never trip.
+            headers={
+                "Authorization": f"Bearer {token}",
+                "Content-Type": "application/json",
+            },
+            method="POST",
+        )
+        try:
+            urllib.request.urlopen(req, timeout=10)
+        except urllib.error.HTTPError as exc:
+            if exc.code == 429:
+                return True
+            # 400/422 = validation rejecting the bogus mode — expected.
+        except urllib.error.URLError:
+            return False  # server gone; the server-preflight owns that error
+    return False
+
+
+def _skip_if_rate_limited(status: int, what: str) -> None:
+    """Backstop for the module precondition (TTS_RATE_LIMIT_GENERATE overrides).
+
+    The session probe already skips the module when stock limits are enabled;
+    this guards the one configuration the probe cannot see — a per-limit
+    override high enough to survive 16 probe posts but not this module's full
+    request volume.
+    """
+    if status == 429:
+        pytest.skip(
+            f"Rate limit hit before {what} could be verified — server has rate "
+            "limiting enabled; restart it with TTS_DISABLE_RATE_LIMITING=1 "
+            "(this module's documented precondition)"
+        )
+
+
 @pytest.fixture(scope="module", autouse=True)
 def ensure_fresh_rate_limit(check_server):
-    """Ensure the rate limit window is fresh before this module's tests run."""
+    """Loud precondition: skip the whole module if rate limiting is enabled."""
+    if _rate_limiting_enabled_on_server(_get_auth_token()):
+        pytest.skip(
+            "Server on :5123 has rate limiting ENABLED — this module fires "
+            "~20 generate-shaped requests per minute and would starve into "
+            "per-test 429 skips. Restart it under the documented precondition: "
+            "tts server stop && TTS_DISABLE_RATE_LIMITING=1 tts server start"
+        )
     wait_for_rate_limit_reset(SERVER_URL, _get_auth_token())
     yield
 
@@ -323,9 +393,8 @@ class TestE2EInputValidationSecurity:
 
         # Should reject with 400/422/422/500 for text too long
         # Or accept if the limit is higher
-        if status == 429:
-            pytest.skip("Rate limit exceeded before 'very long text' could be verified")
-        elif status not in [200, 202]:
+        _skip_if_rate_limited(status, "'very long text'")
+        if status not in [200, 202]:
             assert status in [400, 422, 413, 500], \
                 f"Very long text should be rejected, got {status}"
 
@@ -352,8 +421,7 @@ class TestE2EInjectionPrevention:
                 method="POST"
             )
 
-            if status == 429:
-                pytest.skip("Rate limit exceeded before SQL injection could be verified")
+            _skip_if_rate_limited(status, "SQL injection")
 
             # Handled safely: accepted as literal text, or cleanly rejected.
             # Status 0 means the connection died (server crash) — never OK.
@@ -388,8 +456,7 @@ class TestE2EInjectionPrevention:
                 method="POST"
             )
 
-            if status == 429:
-                pytest.skip("Rate limit exceeded before XSS prevention could be verified")
+            _skip_if_rate_limited(status, "XSS prevention")
 
             assert status in [200, 202, 400, 422, 500, 503], \
                 f"XSS payload produced an unexpected status {status}: {payload[:30]}"
@@ -416,8 +483,7 @@ class TestE2EInjectionPrevention:
             method="POST",
         )
 
-        if status == 429:
-            pytest.skip("Rate limit exceeded before XSS accept path could be verified")
+        _skip_if_rate_limited(status, "XSS accept path")
         if status in (500, 503):
             pytest.skip(f"Server could not generate (status {status}); accept path not exercised")
 
@@ -446,9 +512,8 @@ class TestE2EInjectionPrevention:
 
             # Should be rejected or safely handled
             # 400/422/500/503 are all acceptable safe responses
-            if status == 429:
-                pytest.skip(f"Rate limit exceeded before 'XSS in {field}' could be verified")
-            elif status not in [200, 202]:
+            _skip_if_rate_limited(status, f"'XSS in {field}'")
+            if status not in [200, 202]:
                 assert status in [400, 422, 500, 503], \
                     f"XSS in {field} should be rejected, got {status}"
 
@@ -474,9 +539,8 @@ class TestE2EInjectionPrevention:
 
             # Should be rejected or safely treated as text
             # Should NOT return 200 with file contents
-            if status == 429:
-                pytest.skip("Rate limit exceeded before 'path traversal' could be verified")
-            elif status == 200:
+            _skip_if_rate_limited(status, "'path traversal'")
+            if status == 200:
                 # If accepted, it should be treated as text to speak,
                 # not as a file path to read
                 pass  # Accept - treated as literal text
@@ -505,8 +569,7 @@ class TestE2EInjectionPrevention:
                 method="POST"
             )
 
-            if status == 429:
-                pytest.skip("Rate limit exceeded before command injection could be verified")
+            _skip_if_rate_limited(status, "command injection")
 
             assert status in [200, 202, 400, 422, 500, 503], \
                 f"Command payload produced an unexpected status {status}: {payload[:30]}"
@@ -538,8 +601,7 @@ class TestE2EInjectionPrevention:
                 method="POST"
             )
 
-            if status == 429:
-                pytest.skip("Rate limit exceeded before template injection could be verified")
+            _skip_if_rate_limited(status, "template injection")
 
             assert status in [200, 202, 400, 422, 500, 503], \
                 f"Template payload produced an unexpected status {status}: {payload[:30]}"
@@ -567,8 +629,7 @@ class TestE2EInjectionPrevention:
             method="POST",
         )
 
-        if status == 429:
-            pytest.skip("Rate limit exceeded before template accept path could be verified")
+        _skip_if_rate_limited(status, "template accept path")
         if status in (500, 503):
             pytest.skip(f"Server could not generate (status {status}); accept path not exercised")
 

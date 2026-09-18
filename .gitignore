@@ -108,6 +108,7 @@ entities.json
 .driveignore
 .venv-*/
 security-report.html
+.reports/
 PATHFINDER-*/
 .claude/settings.local.json.bak
 .claude/.headroom_wrap_settings.lock

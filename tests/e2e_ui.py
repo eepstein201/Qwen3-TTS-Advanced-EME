@@ -23,6 +23,7 @@ import sys
 import time
 import urllib.error
 import urllib.request
+from pathlib import Path
 
 # Derive from this file's location so it works in both the main repo and worktrees.
 PROJECT_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -108,6 +109,58 @@ def stop_ui(proc):
         except subprocess.TimeoutExpired:
             proc.kill()
             proc.wait(timeout=3)
+
+
+# Failure traces: Playwright tracing that only persists when a test fails.
+# Traces land in .reports/e2e-traces/<TestClass>.<test>.zip (gitignored with
+# the rest of .reports/) — until these existed, a red E2E left no artifact
+# beyond the playwright module's own failure screenshots, which is what made
+# Step 4B's transient crash undiagnosable after the fact.
+TRACE_DIR = Path(".reports/e2e-traces")
+
+
+def start_tracing(context) -> None:
+    """Begin Playwright tracing on a browser context (never fatal)."""
+    try:
+        context.tracing.start(screenshots=True, snapshots=True)
+    except Exception:
+        pass  # tracing must never break the test it is observing
+
+
+def _test_failed(tc) -> bool:
+    """Read the unittest outcome mid-tearDown (body failures are recorded
+    before tearDown runs; tearDown's own are not, which is what we want).
+
+    py<=3.10 exposed ``_outcome.errors`` as (test, str) pairs; 3.11 moved to
+    ``_outcome.result`` (the TestResult) — verified live on 3.11.14.
+    """
+    outcome = getattr(tc, "_outcome", None)
+    if outcome is None:
+        return False
+    if hasattr(outcome, "errors"):
+        pairs = [pair for pair in outcome.errors if pair]
+        return any(pair[0] is tc for pair in pairs)
+    result = getattr(outcome, "result", None)
+    if result is None:
+        return False
+    pairs = list(getattr(result, "failures", [])) + list(getattr(result, "errors", []))
+    return any(t is tc for t, _ in pairs)
+
+
+def save_trace_if_failed(tc, context, name: str) -> None:
+    """Stop tracing; persist the trace only when the test failed.
+
+    Call at the TOP of tearDown, before the context closes. Swallows every
+    tracing error — an artifact helper must never mask the test's own result.
+    """
+    try:
+        if _test_failed(tc):
+            TRACE_DIR.mkdir(parents=True, exist_ok=True)
+            context.tracing.stop(path=str(TRACE_DIR / f"{name}.zip"))
+        else:
+            context.tracing.stop()
+    except Exception:
+        pass
 
 
 class GradioPage:

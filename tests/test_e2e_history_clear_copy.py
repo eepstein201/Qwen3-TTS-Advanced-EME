@@ -20,7 +20,14 @@ import unittest
 
 from tests.e2e_helpers import assert_supported_gradio
 from tests.e2e_helpers import poll_until as _poll_until
-from tests.e2e_ui import kill_stale_ui_on_port, launch_ui, stop_ui, wait_for_ui
+from tests.e2e_ui import (
+    kill_stale_ui_on_port,
+    launch_ui,
+    save_trace_if_failed,
+    start_tracing,
+    stop_ui,
+    wait_for_ui,
+)
 
 try:
     import pytest
@@ -127,6 +134,7 @@ class TestE2EHistoryClearCopy(unittest.TestCase):
 
     def setUp(self):
         self.context = self.browser.new_context()
+        start_tracing(self.context)
         # Stub clipboard before any page script runs.
         self.context.add_init_script(_CLIPBOARD_STUB)
         self.page = self.context.new_page()
@@ -145,6 +153,7 @@ class TestE2EHistoryClearCopy(unittest.TestCase):
 
     def tearDown(self):
         if self.page:
+            save_trace_if_failed(self, self.page.context, self.id())
             self.page.close()
         if self.context:
             self.context.close()

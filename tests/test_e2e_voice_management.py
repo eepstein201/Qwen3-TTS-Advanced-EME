@@ -55,6 +55,8 @@ from tests.e2e_ui import (
     GradioPage,
     kill_stale_ui_on_port,
     launch_ui,
+    save_trace_if_failed,
+    start_tracing,
     stop_ui,
     wait_for_ui,
 )
@@ -217,11 +219,13 @@ class TestE2EVoiceManagement(unittest.TestCase):
 
     def setUp(self):
         self.page = type(self).browser.new_context().new_page()
+        start_tracing(self.page.context)
         self.gp = GradioPage(self.page, UI_URL)
         self.gp.navigate()
         self._created = []  # names created by THIS test (cleanup in tearDown)
 
     def tearDown(self):
+        save_trace_if_failed(self, self.page.context, self.id())
         for name in self._created:
             _api_delete_prompt(name)
         self.page.context.close()
