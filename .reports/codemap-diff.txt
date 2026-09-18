@@ -1,70 +1,30 @@
-Codemap diff report — 2026-09-11 (previous scan: 2026-09-08, commit c177acfc #268)
-==================================================================================
-Branch: main @ ae913296 (12 commits since the last codemap refresh)
+CODEMAP DIFF 2026-09-18 (base: 2026-09-11 refresh, ~#291)
+Base scanned: 75 .py / 28.7k LOC -> 75 .py / 29.0k LOC
 
-Code delta since last scan (c177acfc..HEAD):
-- 1bc081c4 (#269) — Step 0B: under-lock model rebind; _require_model_under_lock
-  at five capture paths (app_generation.py, prompt_loading.py, websocket.py,
-  app_prompts.py, app_models.py)
-- b9c61f1d (#270) — Step 0C: generation_state_guard.py (new, 371 LOC) —
-  threading.Lock guard; all generation_state reads/writes route through it
-- 876a4e2f (#271) — Step 0D: WS connection slot released by ONE handler-level
-  finally; 1013 rejection outside the try (websocket.py)
-- ea8cf31a (#274) — repo hooks wired as PreToolUse asks (dev tooling; no
-  codemap impact)
-- 2ffd7b34 (#276) — Step 0E: Gradio share ⇒ auth via
-  get_gradio_launch_kwargs(config, share=...); allowed_paths narrowed to
-  history root + tempdir (ui/shared.py, generate_server.py)
-- 649de486 (#281) — bearer-scheme strip + non-ASCII-safe constant-time token
-  compare; client-facing error sanitization (app.py)
-- 4212baec (#282) — Step 0G: UI MLX voice-create routed through the engine
-  writer save_voice_prompt_mlx (ui/voice_management.py)
-- 8e44dad9 (#283) — Step 1A: attributed cancellation (#237) — 11th state key
-  cancel_target_id, pending registry, four-case begin() erase, targeted
-  set_cancelled, target-aware streaming stop (app_generation.py, app.py,
-  generation_state_guard.py, websocket.py)
-- ae913296 (#284) — Step 1C: echo-trim ASR force-load (#193) —
-  _ensure_asr_for_echo_trim unlocks-loads before inference_lock, gated on the
-  probe's three conditions; in-lock is_asr_loaded() miss = degradation (ship
-  untrimmed, never rebuild in-lock); trim cap scales to FIRST chunk
-  (trim_cap_samples, WS9.4) (engine/inference.py, app_generation.py, CONFIG.md,
-  ARCHITECTURE.md)
+Product-code commits since base (qwen3_tts/ only):
+  654ff473 3D server hygiene (#293)  · 13da9e35 3E CLI/tools (#294)
+  e12bf21d Step 2 on-demand load (#300) · e8eb6440 3A seed_lock_chunks (#304)
+  (plus test-only/doc waves #296/#297/#305-#310 — not codemap-relevant)
 
-Files added/removed/modified since last scan:
-- Added: server/generation_state_guard.py (371 LOC, 0C) — the only new module
-  (75 .py / 28.7k LOC total now vs 74 / 27.9k recorded)
-- Modified (LOC): app_generation.py 999→1163 · app.py 1064→1133 ·
-  websocket.py 620→653 · app_lifespan.py 805→821 · ui/shared.py 887→982 ·
-  prompt_loading.py 46→73 · app_models.py 588→589 · app_prompts.py 549→561 ·
-  engine/inference.py 1769→1785 · ui/voice_management.py 513→494
-- Removed: none
+Changes applied:
+  architecture.md — vllm dispatch line marked DISABLED (#293);
+    + per-chunk-seeds para (3A #304); + on-demand-load bullet (Step 2
+    #300) in the serialization section; heaviest-module LOC refreshed
+    (inference 1847, app_generation 1228, app.py 1140, gen_interactive
+    826); layer sizes (server 8.2k, tools 2.3k, tests 197 modules /
+    ~3.5k functions).
+  backend.md — generation path gains the pre-lock on-demand load step;
+    model_loading para notes /generate & /generate-stream auto-load
+    (and that /ws does NOT); key-file LOC refreshed (websocket 654,
+    app_models 604, validation 539; Pydantic model count still 33).
+  data.md / frontend.md / dependencies.md — header refresh only.
+    core/config/ untouched since base; ui/ delta is +8/-3 in
+    model_management.py (well under the 30% approval threshold).
 
-New dependencies detected: none (pyproject.toml / requirements.lock /
-Makefile / CI unchanged in this window).
+No new dependencies, routes, or services since base. Validation model
+count unchanged (33). Test-suite growth is test-infra only (4C-4D
+harness/E2E modules + 4B.1 failure-arm tests on the open PR #311 —
+NOT counted here; merge will bump module/function counts again).
 
-Architecture changes reflected in the maps:
-- backend.md: new "Generation-state guard & attributed cancellation" section
-  (0C/1A); under-lock rebind + echo-trim ASR preload paragraphs; #281 token
-  parsing; WS classified-error no-close + 0D single-finally slot; key-files
-  LOC refreshed
-- architecture.md: server/ layer list gains generation_state_guard; unified-
-  pipeline + attributed-cancellation notes; two new serialization bullets
-  (0B, 1C); heaviest-modules + layer sizes refreshed
-- frontend.md: 0E share-auth section; 0G engine-writer section; LOC map
-  refreshed (shared.py 982, voice_management.py 494)
-- data.md: trim_icl_echo force-load semantics; .ui_share_credentials file;
-  allowed_paths narrowing; in-memory generation_state entry (11 keys)
-- dependencies.md: header refresh only — no dep changes
-
-Diff vs previous maps (working tree, uncommitted): 44 insertions / 17
-deletions across the five files. Per-file line-touch rate: dependencies ~7%,
-data ~29%, architecture ~28%, backend ~32%, frontend ~44% (frontend's rate is
-inflated by the LOC-list reorder; all prior content is preserved — the edits
-are additive absorption of the 0B–1C window, not a rewrite). Nothing was
-discarded; the full diff is reviewable in the working tree per the skill's
-approval gate.
-
-Staleness warnings (90+ days):
-- docs/CODEMAPS: none (all five refreshed 2026-09-11)
-- docs/00-Foundations/ARCHITECTURE.md: current (1C section updated in #284)
-- No other scanned docs are 90+ days stale.
+Staleness: next scheduled refresh ~2026-11-11 (90-day cadence from
+2026-08-13); this is an off-cycle drift sync.
