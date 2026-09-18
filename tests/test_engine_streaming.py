@@ -21,6 +21,7 @@ catch if a keyword were silently dropped.
 
 import ast
 import unittest
+from contextlib import ExitStack
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
@@ -213,9 +214,7 @@ def _fake_chunk(tokens, segment_idx=0):
 def _chunks_totalling(tokens, segment_idx=0):
     """Split a per-segment token total into the deltas mlx-audio would emit."""
     full, remainder = divmod(tokens, _STREAM_CHUNK_TOKENS)
-    chunks = [
-        _fake_chunk(_STREAM_CHUNK_TOKENS, segment_idx) for _ in range(full)
-    ]
+    chunks = [_fake_chunk(_STREAM_CHUNK_TOKENS, segment_idx) for _ in range(full)]
     if remainder:
         chunks.append(_fake_chunk(remainder, segment_idx))
     return chunks
@@ -324,6 +323,203 @@ class TestStreamingCapWarning(unittest.TestCase):
             cap_warnings,
             [],
             "per-segment totals stayed under the cap; summing them is a false positive",
+        )
+
+
+class _Prompt:
+    """Minimal stand-in for a voice prompt carrying a reference transcript."""
+
+    def __init__(self, ref_text):
+        self.ref_text = ref_text
+
+
+class TestTorchStreamingFallback(unittest.TestCase):
+    """The torch branch of run_inference_streaming (coverage item 6).
+
+    MLX streams natively; torch has no streaming API, so it falls back to
+    chunking the text and yielding per-chunk audio. That whole loop — the
+    per-chunk seed, the progress callback, the first-chunk-only echo trim, and
+    the _postprocess_chunk call that keeps streaming equal to batch — had no
+    test coverage at all.
+
+    `_prepare_text_chunks` is stubbed so the chunk boundaries are explicit:
+    chunking itself is covered elsewhere, and what matters here is what the
+    loop does with each chunk. No torch import happens on this path — the only
+    heavy call, `_run_inference_single`, is patched.
+    """
+
+    CHUNKS = ["first chunk.", "second chunk.", "third chunk."]
+
+    def _stream(self, chunks=None, postprocess=None, **kwargs):
+        """Drive the torch branch, returning (yields, single_calls)."""
+        chunks = self.CHUNKS if chunks is None else chunks
+        single_calls = []
+
+        def _fake_single(model, chunk, mode, chunk_params, *args, **kw):
+            single_calls.append({"chunk": chunk, "params": chunk_params})
+            return _RAW, _SR
+
+        stack = [
+            patch.object(inference, "get_backend", return_value="torch"),
+            patch.object(inference, "_prepare_text_chunks", return_value=list(chunks)),
+            patch.object(inference, "_run_inference_single", side_effect=_fake_single),
+            patch.object(inference, "process_audio", return_value=_PROCESSED),
+        ]
+        if postprocess is not None:
+            stack.append(patch.object(inference, "_postprocess_chunk", postprocess))
+
+        with ExitStack() as es:
+            for cm in stack:
+                es.enter_context(cm)
+            params = {"speed": 1.5, **kwargs.pop("gen_params", {})}
+            yields = list(
+                inference.run_inference_streaming(
+                    model=MagicMock(),
+                    text=" ".join(chunks),
+                    mode="clone",
+                    gen_params=params,
+                    config_provider=_clone_cfg(),
+                    **kwargs,
+                )
+            )
+        return yields, single_calls
+
+    def test_yields_one_audio_chunk_per_text_chunk(self):
+        yields, calls = self._stream()
+        self.assertEqual(len(yields), 3)
+        self.assertEqual([c["chunk"] for c in calls], self.CHUNKS)
+
+    def test_every_chunk_is_postprocessed(self):
+        yields, _ = self._stream()
+        for wav, sr in yields:
+            np.testing.assert_array_equal(wav, _PROCESSED)
+            self.assertEqual(sr, _SR)
+
+    def test_progress_callback_reports_a_known_total_upfront(self):
+        """Unlike MLX, torch knows the chunk count before generating."""
+        seen = []
+        self._stream(progress_callback=lambda i, total: seen.append((i, total)))
+        self.assertEqual(seen, [(1, 3), (2, 3), (3, 3)])
+
+    def test_reference_text_reaches_only_the_first_chunk(self):
+        """The ICL echo sits at the head of the generation, nowhere else."""
+        seen = []
+
+        def _spy(audio, sr, *args, **kw):
+            seen.append(kw.get("reference_text"))
+            return audio, sr
+
+        self._stream(postprocess=_spy, voice_prompt=_Prompt("my reference line"))
+        self.assertEqual(seen, ["my reference line", None, None])
+
+    def test_seed_derives_per_chunk_by_default(self):
+        _, calls = self._stream(gen_params={"seed": 100})
+        self.assertEqual([c["params"]["seed"] for c in calls], [100, 101, 102])
+
+    def test_seed_lock_pins_every_chunk_to_the_base_seed(self):
+        _, calls = self._stream(gen_params={"seed": 100}, seed_lock_chunks=True)
+        self.assertEqual([c["params"]["seed"] for c in calls], [100, 100, 100])
+
+    def test_no_base_seed_means_no_seeding(self):
+        _, calls = self._stream()
+        self.assertEqual([c["params"]["seed"] for c in calls], [None, None, None])
+
+    def test_falls_back_to_configured_max_chunk_chars(self):
+        """max_chunk_chars=None must consult config, not stay None."""
+        with patch.object(
+            inference, "_get_max_chunk_chars", return_value=321
+        ) as get_cap:
+            with (
+                patch.object(inference, "get_backend", return_value="torch"),
+                patch.object(
+                    inference, "_prepare_text_chunks", return_value=["only"]
+                ) as prep,
+                patch.object(
+                    inference, "_run_inference_single", return_value=(_RAW, _SR)
+                ),
+                patch.object(inference, "process_audio", return_value=_PROCESSED),
+            ):
+                list(
+                    inference.run_inference_streaming(
+                        model=MagicMock(),
+                        text="only",
+                        mode="clone",
+                        gen_params={},
+                        config_provider=_clone_cfg(),
+                    )
+                )
+        get_cap.assert_called_once()
+        self.assertEqual(prep.call_args[0][3], 321)
+
+    def test_lufs_stays_batch_only_on_torch_too(self):
+        with patch.object(inference, "_maybe_apply_lufs") as lufs:
+            self._stream(chunks=["one"])
+        lufs.assert_not_called()
+
+
+class TestTorchStreamingMatchesBatch(unittest.TestCase):
+    """The parity invariant, pinned end-to-end (coverage item 6 exit criterion).
+
+    CLAUDE.md states as a design guarantee that `_postprocess_chunk` is called
+    by BOTH run_inference and run_inference_streaming on BOTH backends, so an
+    identical request produces identical audio however it is consumed. The
+    per-chunk steps run for real here — only `process_audio` (the rubberband/
+    librosa stretch) is stubbed — so dropping the _postprocess_chunk call from
+    either path makes this test fail rather than silently diverging the audio.
+    """
+
+    TEXT = "one chunk of text."
+
+    def _batch(self):
+        with (
+            patch.object(inference, "get_backend", return_value="torch"),
+            patch.object(inference, "_prepare_text_chunks", return_value=[self.TEXT]),
+            patch.object(inference, "_run_inference_single", return_value=(_RAW, _SR)),
+            patch.object(inference, "process_audio", return_value=_PROCESSED),
+        ):
+            return inference.run_inference(
+                model=MagicMock(),
+                text=self.TEXT,
+                mode="clone",
+                gen_params={"speed": 1.5},
+                config_provider=_clone_cfg(),
+            )
+
+    def _stream(self):
+        with (
+            patch.object(inference, "get_backend", return_value="torch"),
+            patch.object(inference, "_prepare_text_chunks", return_value=[self.TEXT]),
+            patch.object(inference, "_run_inference_single", return_value=(_RAW, _SR)),
+            patch.object(inference, "process_audio", return_value=_PROCESSED),
+        ):
+            return list(
+                inference.run_inference_streaming(
+                    model=MagicMock(),
+                    text=self.TEXT,
+                    mode="clone",
+                    gen_params={"speed": 1.5},
+                    config_provider=_clone_cfg(),
+                )
+            )
+
+    def test_torch_streaming_output_matches_torch_batch(self):
+        batch_wav, batch_sr = self._batch()
+        chunks = self._stream()
+        self.assertEqual(len(chunks), 1)
+        np.testing.assert_array_equal(
+            chunks[0][0],
+            batch_wav,
+            "torch streaming and batch drifted — _postprocess_chunk must run on both",
+        )
+        self.assertEqual(chunks[0][1], batch_sr)
+
+    def test_both_paths_actually_transformed_the_audio(self):
+        """Guards the assertion above from passing on two untouched arrays."""
+        batch_wav, _ = self._batch()
+        np.testing.assert_array_equal(batch_wav, _PROCESSED)
+        self.assertFalse(
+            np.array_equal(batch_wav, _RAW),
+            "post-processing was a no-op, so equality proves nothing",
         )
 
 
