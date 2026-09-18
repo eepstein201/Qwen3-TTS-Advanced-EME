@@ -33,6 +33,20 @@ import qwen3_tts.core.engine.asr as asr_module
 VP = "qwen3_tts.core.engine.asr"
 
 
+def _fake_transformers_module(pipeline):
+    """A stand-in transformers module for ``patch.dict(sys.modules, ...)``.
+
+    ``mock.patch("transformers.pipeline")`` IMPORTS the target module, which
+    errors wherever transformers is not installed (CI's test env excludes
+    it — reproduced in .venv-310). The fake-module pattern never imports
+    the real package, so the tests run identically with or without it.
+    """
+    fake = MagicMock(name="transformers")
+    fake.pipeline = pipeline
+    return fake
+
+
+
 class _AsrGlobalRestoreMixin(unittest.TestCase):
     """Restore the ASR module globals no matter how the test exits."""
 
@@ -82,13 +96,19 @@ class TestEnsureAsrTorchLoaded(_AsrGlobalRestoreMixin):
     def test_already_loaded_returns_without_building(self):
         existing = object()
         asr_module._asr_model_torch = existing
-        with patch("transformers.pipeline") as mock_pipeline:
+        mock_pipeline = MagicMock(name="pipeline")
+        with patch.dict(
+            sys.modules, {"transformers": _fake_transformers_module(mock_pipeline)}
+        ):
             asr_module._ensure_asr_torch_loaded()
         mock_pipeline.assert_not_called()
         self.assertIs(asr_module._asr_model_torch, existing)
 
     def _assert_device(self, device_name, expected_device):
-        with patch("transformers.pipeline") as mock_pipeline, patch(
+        mock_pipeline = MagicMock(name="pipeline")
+        with patch.dict(
+            sys.modules, {"transformers": _fake_transformers_module(mock_pipeline)}
+        ), patch(
             "qwen3_tts.core.config.get_device", return_value=device_name
         ):
             asr_module._ensure_asr_torch_loaded()
@@ -102,8 +122,10 @@ class TestEnsureAsrTorchLoaded(_AsrGlobalRestoreMixin):
                 self._assert_device(device_name, expected)
 
     def test_transformers_import_error_is_rewritten(self):
-        with patch(
-            "transformers.pipeline", side_effect=ImportError("nope")
+        mock_pipeline = MagicMock(name="pipeline")
+        mock_pipeline.side_effect = ImportError("nope")
+        with patch.dict(
+            sys.modules, {"transformers": _fake_transformers_module(mock_pipeline)}
         ):
             with self.assertRaises(ImportError) as ctx:
                 asr_module._ensure_asr_torch_loaded()
