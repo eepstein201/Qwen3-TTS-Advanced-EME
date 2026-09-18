@@ -237,6 +237,7 @@ BATCHES = {
             "tests.test_ui_shared_paths",
             "tests.test_ui_status_banner",
             "tests.test_ui_tab_select_wiring",
+            "tests.test_ui_tabs_generation_closures",
             "tests.test_engine_streaming",
             "tests.test_mlx_generate_kwargs",
         ],
