@@ -15,6 +15,13 @@ Features: pyrubberband audio processing (librosa fallback), prosody presets for 
 - Session-save files (`/save-session`, `/ecc:save-session`) MUST be `.md`, never `.tmp` — `.tmp` files are auto-cleaned and can disappear between sessions. Enforced globally (all projects) by the user-scope PreToolUse hook `~/.claude/hooks/no-tmp-session-writes.py`; rule text lives in `~/.claude/CLAUDE.md`.
 - Memory index guard: MEMORY.md ≤150 lines (enforced by `claude-md-length-guard`, same hook as CLAUDE.md — two targets, separate limits). On breach: archive oldest session pointers to memory/sessions-archive.md, then retire resolved topic entries to memory/archive/.
 
+## Observer Log Pattern Mining
+
+When analyzing observer JSONL logs for recurring patterns:
+- Cap exploration at 3 Bash/Read calls (targeted jq/grep queries), then write output immediately.
+- ONLY write instinct files for patterns appearing 3+ times — hard threshold, never 2.
+- Write results directly to instinct files and update the MEMORY index; do not print long chat summaries.
+
 ## Git Workflow
 
 **Feature Branch Policy (MANDATORY)** — Claude never commits or pushes directly to main:
@@ -25,6 +32,10 @@ Features: pyrubberband audio processing (librosa fallback), prosody presets for 
 4. User:   reviews, merges to main (PR or direct)
 5. Claude: git checkout main && git pull origin main
 ```
+### Handoffs
+
+When handing off next steps (merge, push, branch cleanup, verification), always include the full copy-pasteable bash commands alongside the context — never just describe the steps. Before asking the user to verify a fix locally, confirm the fix is actually merged and pulled into their shared checkout — unmerged PR code will not be running locally.
+
 Enforced by committed PreToolUse hooks (`.claude/hooks/`, wired via tracked `.claude/settings.json` — hooks-only by guard test): `no-direct-push-main` (blocks push/merge/delete on main), `prepush-local-gates` (gate checklist on push), `claude-md-length-guard` (CLAUDE.md ≤300 lines; MEMORY.md ≤150 — that index lives outside the repo, so it gets a containment root under `~/.claude/projects` instead of the project-root samefile check), `workspace-hygiene` (blocks `git add -A`/`git add .`/`git commit -a` while an untracked, UNIGNORED credential-ish path is present — origin is PUBLIC, so blind staging publishes; explicit `git add <paths>` and `-u` are never blocked), `prefer-batch-runner-over-raw-pytest` (asks before raw suite-level pytest — use `tests/run_batches.py`), `require-server-ready-before-full-test` (asks before full-suite runs without a confirmed live server).
 
 Project skills live in `.claude/skills/<name>/SKILL.md` (checked in, `name`+`description` frontmatter): `dependency-triage` — Dependabot PR batch triage (classify, two-version churn gate for engine-adjacent bumps, regen `requirements.lock`, verify in `.venv-310`, merge handoff); `ui-browser-e2e` — drive the Gradio UI via the chrome-devtools MCP (lazy-tab JS clicks, 5 s confirm windows, by-design symptoms).
