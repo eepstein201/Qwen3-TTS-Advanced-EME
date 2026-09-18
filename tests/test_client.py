@@ -15,33 +15,43 @@ from unittest.mock import MagicMock, patch
 
 try:
     import pytest
+
     HAS_PYTEST = True
 except ImportError:
     HAS_PYTEST = False
+
     # Dummy decorator for when pytest is not available
     class _DummyMarkerFunc:
         """Represents a marker function like skipif that takes condition and returns decorator."""
+
         def __init__(self, name=None):
             self._name = name
+
         def __call__(self, condition, **kwargs):
             # skipif, etc. take condition as first arg, return a decorator
             return lambda f: f
+
     class _DummyMarker:
         def __call__(self, func):
             return func
+
         def __getattr__(self, name):
             # Return special function for skipif, otherwise return a callable marker
-            if name == 'skipif':
+            if name == "skipif":
                 return _DummyMarkerFunc(name)
             return _DummyMarkerFunc(name)
+
         @property
         def unit(self):
             return self
+
     class _DummyMark:
         def __getattr__(self, name):
             return _DummyMarkerFunc()
+
     class _DummyPytest:
         mark = _DummyMark()
+
     pytest = _DummyPytest()
 
 
@@ -57,7 +67,7 @@ class TestTTSClientInit(unittest.TestCase):
                 "presets": {"consistent": {"temperature": 0.5}},
                 "aliases": {"default": {"prompt": "voice.pt"}},
             }
-        f = tempfile.NamedTemporaryFile(mode='w', suffix='.json', delete=False)
+        f = tempfile.NamedTemporaryFile(mode="w", suffix=".json", delete=False)
         json.dump(data, f)
         f.close()
         return f.name
@@ -65,6 +75,7 @@ class TestTTSClientInit(unittest.TestCase):
     def test_init_creates_session(self):
         """TTSClient creates a requests session."""
         from qwen3_tts.server.client import TTSClient
+
         tmp = self._make_config()
         try:
             client = TTSClient(config_path=tmp)
@@ -76,6 +87,7 @@ class TestTTSClientInit(unittest.TestCase):
     def test_server_url_from_config(self):
         """TTSClient.server_url reads from config."""
         from qwen3_tts.server.client import TTSClient
+
         tmp = self._make_config({"server": {"host": "127.0.0.1", "port": 9999}})
         try:
             client = TTSClient(config_path=tmp)
@@ -87,6 +99,7 @@ class TestTTSClientInit(unittest.TestCase):
     def test_is_server_running_healthy(self):
         """is_server_running returns True when health check succeeds."""
         from qwen3_tts.server.client import TTSClient
+
         tmp = self._make_config()
         try:
             client = TTSClient(config_path=tmp)
@@ -105,6 +118,7 @@ class TestTTSClientInit(unittest.TestCase):
         import requests
 
         from qwen3_tts.server.client import TTSClient
+
         tmp = self._make_config()
         try:
             client = TTSClient(config_path=tmp)
@@ -118,6 +132,7 @@ class TestTTSClientInit(unittest.TestCase):
     def test_list_presets(self):
         """list_presets returns presets from config."""
         from qwen3_tts.server.client import TTSClient
+
         tmp = self._make_config()
         try:
             client = TTSClient(config_path=tmp)
@@ -131,6 +146,7 @@ class TestTTSClientInit(unittest.TestCase):
     def test_list_aliases(self):
         """list_aliases returns aliases from config."""
         from qwen3_tts.server.client import TTSClient
+
         tmp = self._make_config()
         try:
             client = TTSClient(config_path=tmp)
@@ -144,6 +160,7 @@ class TestTTSClientInit(unittest.TestCase):
     def test_resolve_alias_found(self):
         """resolve_alias returns settings for existing alias."""
         from qwen3_tts.server.client import TTSClient
+
         tmp = self._make_config()
         try:
             client = TTSClient(config_path=tmp)
@@ -157,6 +174,7 @@ class TestTTSClientInit(unittest.TestCase):
     def test_resolve_alias_not_found(self):
         """resolve_alias returns None for missing alias."""
         from qwen3_tts.server.client import TTSClient
+
         tmp = self._make_config()
         try:
             client = TTSClient(config_path=tmp)
@@ -169,6 +187,7 @@ class TestTTSClientInit(unittest.TestCase):
     def test_context_manager(self):
         """TTSClient works as context manager."""
         from qwen3_tts.server.client import TTSClient
+
         tmp = self._make_config()
         try:
             with TTSClient(config_path=tmp) as client:
@@ -190,7 +209,7 @@ class TestClientHelpers(unittest.TestCase):
                 "aliases": {"default": {"prompt": "voice.pt", "preset": "consistent"}},
                 "generation": {"temperature": 0.7, "top_k": 50, "top_p": 0.95},
             }
-        f = tempfile.NamedTemporaryFile(mode='w', suffix='.json', delete=False)
+        f = tempfile.NamedTemporaryFile(mode="w", suffix=".json", delete=False)
         json.dump(data, f)
         f.close()
         return f.name
@@ -198,19 +217,23 @@ class TestClientHelpers(unittest.TestCase):
     def test_resolve_voice_alias_helper_exists(self):
         """_resolve_voice_alias helper should exist."""
         from qwen3_tts.server.client import _base
+
         self.assertTrue(
-            hasattr(_base, '_resolve_voice_alias'),
-            "_resolve_voice_alias helper should exist"
+            hasattr(_base, "_resolve_voice_alias"),
+            "_resolve_voice_alias helper should exist",
         )
 
     def test_resolve_voice_alias_returns_updated_params(self):
         """_resolve_voice_alias should return updated parameters."""
         from qwen3_tts.server.client import TTSClient
         from qwen3_tts.server.client._base import _resolve_voice_alias
-        tmp = self._make_config({
-            "server": {"host": "127.0.0.1", "port": 5123},
-            "aliases": {"my_voice": {"prompt": "custom.pt", "mode": "clone"}},
-        })
+
+        tmp = self._make_config(
+            {
+                "server": {"host": "127.0.0.1", "port": 5123},
+                "aliases": {"my_voice": {"prompt": "custom.pt", "mode": "clone"}},
+            }
+        )
         try:
             client = TTSClient(config_path=tmp)
             alias = client.resolve_alias("my_voice")
@@ -233,10 +256,13 @@ class TestClientHelpers(unittest.TestCase):
         """_resolve_voice_alias should not override user-provided values."""
         from qwen3_tts.server.client import TTSClient
         from qwen3_tts.server.client._base import _resolve_voice_alias
-        tmp = self._make_config({
-            "server": {"host": "127.0.0.1", "port": 5123},
-            "aliases": {"my_voice": {"prompt": "alias.pt", "mode": "clone"}},
-        })
+
+        tmp = self._make_config(
+            {
+                "server": {"host": "127.0.0.1", "port": 5123},
+                "aliases": {"my_voice": {"prompt": "alias.pt", "mode": "clone"}},
+            }
+        )
         try:
             client = TTSClient(config_path=tmp)
             alias = client.resolve_alias("my_voice")
@@ -258,19 +284,22 @@ class TestClientHelpers(unittest.TestCase):
     def test_build_gen_params_helper_exists(self):
         """_build_gen_params helper should exist."""
         from qwen3_tts.server.client import _base
+
         self.assertTrue(
-            hasattr(_base, '_build_gen_params'),
-            "_build_gen_params helper should exist"
+            hasattr(_base, "_build_gen_params"), "_build_gen_params helper should exist"
         )
 
     def test_build_gen_params_uses_config_defaults(self):
         """_build_gen_params should use config defaults."""
         from qwen3_tts.server.client import TTSClient
         from qwen3_tts.server.client._base import _build_gen_params
-        tmp = self._make_config({
-            "server": {"host": "127.0.0.1", "port": 5123},
-            "generation": {"temperature": 0.8, "top_k": 40},
-        })
+
+        tmp = self._make_config(
+            {
+                "server": {"host": "127.0.0.1", "port": 5123},
+                "generation": {"temperature": 0.8, "top_k": 40},
+            }
+        )
         try:
             client = TTSClient(config_path=tmp)
             result = _build_gen_params(
@@ -292,10 +321,13 @@ class TestClientHelpers(unittest.TestCase):
         """_build_gen_params should use user-provided values over config."""
         from qwen3_tts.server.client import TTSClient
         from qwen3_tts.server.client._base import _build_gen_params
-        tmp = self._make_config({
-            "server": {"host": "127.0.0.1", "port": 5123},
-            "generation": {"temperature": 0.8, "top_k": 40},
-        })
+
+        tmp = self._make_config(
+            {
+                "server": {"host": "127.0.0.1", "port": 5123},
+                "generation": {"temperature": 0.8, "top_k": 40},
+            }
+        )
         try:
             client = TTSClient(config_path=tmp)
             result = _build_gen_params(
@@ -325,7 +357,7 @@ class TestStreamingBufferOverflowProtection(unittest.TestCase):
                 "server": {"host": "127.0.0.1", "port": 5123},
                 "generation": {"temperature": 0.7},
             }
-        f = tempfile.NamedTemporaryFile(mode='w', suffix='.json', delete=False)
+        f = tempfile.NamedTemporaryFile(mode="w", suffix=".json", delete=False)
         json.dump(data, f)
         f.close()
         return f.name
@@ -333,9 +365,9 @@ class TestStreamingBufferOverflowProtection(unittest.TestCase):
     def test_max_buffer_size_constant_exists(self):
         """MAX_BUFFER_SIZE constant should exist in client._base module."""
         from qwen3_tts.server.client import _base
+
         self.assertTrue(
-            hasattr(_base, 'MAX_BUFFER_SIZE'),
-            "MAX_BUFFER_SIZE constant should exist"
+            hasattr(_base, "MAX_BUFFER_SIZE"), "MAX_BUFFER_SIZE constant should exist"
         )
         self.assertEqual(_base.MAX_BUFFER_SIZE, 100 * 1024 * 1024)  # 100MB
 
@@ -363,9 +395,11 @@ class TestStreamingBufferOverflowProtection(unittest.TestCase):
             mock_resp.__exit__ = MagicMock(return_value=False)
             mock_resp.iter_content = MagicMock(return_value=[malformed_header])
 
-            with patch.object(client._session, 'post', return_value=mock_resp):
+            with patch.object(client._session, "post", return_value=mock_resp):
                 with self.assertRaises(RuntimeError) as ctx:
-                    list(client.generate_streaming("test", mode="custom", speaker="ryan"))
+                    list(
+                        client.generate_streaming("test", mode="custom", speaker="ryan")
+                    )
 
                 self.assertIn("buffer", str(ctx.exception).lower())
                 self.assertIn("exceed", str(ctx.exception).lower())
@@ -386,7 +420,7 @@ class TestSpeakerNameNormalization(unittest.TestCase):
                 "server": {"host": "127.0.0.1", "port": 5123},
                 "generation": {"temperature": 0.7},
             }
-        f = tempfile.NamedTemporaryFile(mode='w', suffix='.json', delete=False)
+        f = tempfile.NamedTemporaryFile(mode="w", suffix=".json", delete=False)
         json.dump(data, f)
         f.close()
         return f.name
@@ -394,14 +428,16 @@ class TestSpeakerNameNormalization(unittest.TestCase):
     def test_normalize_speaker_name_helper_exists(self):
         """_normalize_speaker_name helper should exist."""
         from qwen3_tts.server.client import _base
+
         self.assertTrue(
-            hasattr(_base, '_normalize_speaker_name'),
-            "_normalize_speaker_name helper should exist"
+            hasattr(_base, "_normalize_speaker_name"),
+            "_normalize_speaker_name helper should exist",
         )
 
     def test_normalize_speaker_name_converts_to_lowercase(self):
         """_normalize_speaker_name should convert to lowercase."""
         from qwen3_tts.server.client._base import _normalize_speaker_name
+
         self.assertEqual(_normalize_speaker_name("RYAN"), "ryan")
         self.assertEqual(_normalize_speaker_name("Ryan"), "ryan")
         self.assertEqual(_normalize_speaker_name("ryan"), "ryan")
@@ -411,6 +447,7 @@ class TestSpeakerNameNormalization(unittest.TestCase):
     def test_normalize_speaker_name_handles_none(self):
         """_normalize_speaker_name should return None for None input."""
         from qwen3_tts.server.client._base import _normalize_speaker_name
+
         self.assertIsNone(_normalize_speaker_name(None))
 
     def test_generate_normalizes_speaker_name(self):
@@ -431,16 +468,18 @@ class TestSpeakerNameNormalization(unittest.TestCase):
                 mock_resp = MagicMock()
                 mock_resp.status_code = 200
                 # Create a minimal valid audio response
-                audio_bytes = b'\x00' * 1000  # dummy audio data
+                audio_bytes = b"\x00" * 1000  # dummy audio data
                 mock_resp.json.return_value = {
-                    "results": [{"audio_base64": base64.b64encode(audio_bytes).decode()}]
+                    "results": [
+                        {"audio_base64": base64.b64encode(audio_bytes).decode()}
+                    ]
                 }
                 return mock_resp
 
-            with patch.object(client._session, 'post', side_effect=mock_post):
+            with patch.object(client._session, "post", side_effect=mock_post):
                 # Mock sf.read to avoid dependency on soundfile
-                with patch('soundfile.read', return_value=([0.0], 24000)):
-                    with patch('soundfile.write'):
+                with patch("soundfile.read", return_value=([0.0], 24000)):
+                    with patch("soundfile.write"):
                         # Test with uppercase speaker name
                         client.generate("test", mode="custom", speaker="RYAN")
 
@@ -458,33 +497,45 @@ class TestAddModeParams(unittest.TestCase):
 
     def test_clone_mode_adds_prompt_file(self):
         from qwen3_tts.server.client import TTSClient
+
         result = TTSClient._add_mode_params({}, "clone", prompt="my_voice.pt")
         self.assertEqual(result["prompt_file"], "my_voice.pt")
         self.assertNotIn("x_vector_only_mode", result)
 
     def test_clone_mode_with_x_vector_only(self):
         from qwen3_tts.server.client import TTSClient
-        result = TTSClient._add_mode_params({}, "clone", prompt="my_voice.pt", x_vector_only_mode=True)
+
+        result = TTSClient._add_mode_params(
+            {}, "clone", prompt="my_voice.pt", x_vector_only_mode=True
+        )
         self.assertTrue(result["x_vector_only_mode"])
 
     def test_custom_mode_adds_speaker_and_instruct(self):
         from qwen3_tts.server.client import TTSClient
-        result = TTSClient._add_mode_params({}, "custom", speaker="ryan", instruct="be calm")
+
+        result = TTSClient._add_mode_params(
+            {}, "custom", speaker="ryan", instruct="be calm"
+        )
         self.assertEqual(result["speaker"], "ryan")
         self.assertEqual(result["instruct"], "be calm")
 
     def test_custom_mode_instruct_defaults_to_empty_string(self):
         from qwen3_tts.server.client import TTSClient
+
         result = TTSClient._add_mode_params({}, "custom", speaker="ryan")
         self.assertEqual(result["instruct"], "")
 
     def test_design_mode_adds_voice_description(self):
         from qwen3_tts.server.client import TTSClient
-        result = TTSClient._add_mode_params({}, "design", description="warm and friendly")
+
+        result = TTSClient._add_mode_params(
+            {}, "design", description="warm and friendly"
+        )
         self.assertEqual(result["voice_description"], "warm and friendly")
 
     def test_does_not_mutate_input_payload(self):
         from qwen3_tts.server.client import TTSClient
+
         original = {"mode": "clone"}
         result = TTSClient._add_mode_params(original, "clone", prompt="voice.pt")
         self.assertNotIn("prompt_file", original)
@@ -522,6 +573,84 @@ class TestModuleLevelGenerate(unittest.TestCase):
             generate("hello world")
 
         mock_client.close.assert_called_once()
+
+
+class TestConfigFetcherEndpoints(unittest.TestCase):
+    """4B.3 item 13: server/client/config_fetcher.py endpoint bodies
+    (previously missed 41-42 get_health, 47-50 shutdown).
+
+    auth_headers is imported into config_fetcher at module scope, so the
+    patch target is that definition site.
+    """
+
+    def _make_client(self):
+        from qwen3_tts.server.client import TTSClient
+
+        f = tempfile.NamedTemporaryFile(mode="w", suffix=".json", delete=False)
+        json.dump({"server": {"host": "127.0.0.1", "port": 5123}}, f)
+        f.close()
+        client = TTSClient(config_path=f.name)
+        self.addCleanup(os.unlink, f.name)
+        self.addCleanup(client.close)
+        return client
+
+    def _server_up(self):
+        """Patch context making is_server_running() return True."""
+        resp = MagicMock()
+        resp.status_code = 200
+        resp.json.return_value = {"status": "ok"}
+        return patch("requests.get", return_value=resp)
+
+    def test_get_stats_hits_stats_with_auth_headers(self):
+        client = self._make_client()
+        resp = MagicMock()
+        resp.json.return_value = {"history": 3}
+        client._session = MagicMock()
+        client._session.get.return_value = resp
+        headers = {"Authorization": "Bearer t"}
+        with (
+            self._server_up(),
+            patch(
+                "qwen3_tts.server.client.config_fetcher.auth_headers",
+                return_value=headers,
+            ),
+        ):
+            self.assertEqual(client.get_stats(), {"history": 3})
+        client._session.get.assert_called_once_with(
+            "http://127.0.0.1:5123/stats", timeout=5, headers=headers
+        )
+
+    def test_get_health_hits_health_without_auth(self):
+        client = self._make_client()
+        resp = MagicMock()
+        resp.json.return_value = {"status": "ok", "backend": "mlx"}
+        client._session = MagicMock()
+        client._session.get.return_value = resp
+        with self._server_up():
+            result = client.get_health()
+        self.assertEqual(result["backend"], "mlx")
+        client._session.get.assert_called_once_with(
+            "http://127.0.0.1:5123/health", timeout=5
+        )
+
+    def test_shutdown_posts_shutdown_with_auth_headers(self):
+        client = self._make_client()
+        resp = MagicMock()
+        resp.json.return_value = {"status": "shutting_down"}
+        client._session = MagicMock()
+        client._session.post.return_value = resp
+        headers = {"Authorization": "Bearer t"}
+        with (
+            self._server_up(),
+            patch(
+                "qwen3_tts.server.client.config_fetcher.auth_headers",
+                return_value=headers,
+            ),
+        ):
+            self.assertEqual(client.shutdown(), {"status": "shutting_down"})
+        client._session.post.assert_called_once_with(
+            "http://127.0.0.1:5123/shutdown", timeout=5, headers=headers
+        )
 
 
 if __name__ == "__main__":
