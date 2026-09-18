@@ -1128,3 +1128,150 @@ class TestGenerateStream(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+# ---------------------------------------------------------------------------
+# _background_load ATTACH-wait arms + _run_warmup_under_inference_lock
+# (Step 4B.1 items 2-3: startup waiting on an HTTP-owned load record, and
+# the warm-up wait-abandon arm — all previously unexercised failure paths)
+# ---------------------------------------------------------------------------
+
+
+class TestBackgroundLoadAttachWaitArms(unittest.TestCase):
+    """The three outcomes of a startup load waiting on an HTTP-owned record.
+
+    Phase 2c/#214 H2: when /load-model already owns the build, the startup
+    loader ATTACHes to its record instead of building a second copy. Every
+    arm here must leave readiness set — a wedged models_loaded means /ready
+    503s forever with no recorded reason.
+    """
+
+    def _run_background_load(self, record):
+        from qwen3_tts.server.app import _background_load
+        from qwen3_tts.server.model_loading import ClaimResult
+
+        state = _make_app_state()
+        state.server_config = {"models": {"design": {"load_at_startup": True}}}
+        with patch(
+            f"{_APP_LIFESPAN}.claim_model_load",
+            return_value=(ClaimResult.ATTACH, record),
+        ), patch(
+            # The real constant is 870s; the timeout arm's record never
+            # completes, so the wait must be shrunk for the test to end.
+            f"{_APP_LIFESPAN}.MODEL_LOAD_WAIT_TIMEOUT_SEC",
+            0.05,
+        ), patch(
+            "qwen3_tts.core.engine.load_model"
+        ) as mock_load, patch(
+            "qwen3_tts.core.engine.migrate_orphan_mlx_prompts"
+        ):
+            _background_load(state)
+        mock_load.assert_not_called()  # ATTACH must never build a 2nd copy
+        self.assertTrue(state.models_loaded.is_set())  # no wedged readiness
+        return state
+
+    def test_wait_timeout_records_model_load_error(self):
+        from qwen3_tts.server.model_loading import _LoadRecord
+
+        record = _LoadRecord(model_type="design", epoch=0)  # done never set
+        state = self._run_background_load(record)
+        self.assertEqual(
+            state.model_load_errors["design"],
+            "startup wait for the in-flight load timed out",
+        )
+
+    def test_failed_record_records_its_error(self):
+        from qwen3_tts.server.model_loading import LoadOutcome, _LoadRecord
+
+        record = _LoadRecord(model_type="design", epoch=0)
+        record.outcome = LoadOutcome.FAILED
+        record.error = "boom"
+        record.done.set()
+        state = self._run_background_load(record)
+        self.assertEqual(state.model_load_errors["design"], "boom")
+
+    def test_ok_record_leaves_no_error(self):
+        from qwen3_tts.server.model_loading import LoadOutcome, _LoadRecord
+
+        record = _LoadRecord(model_type="design", epoch=0)
+        record.outcome = LoadOutcome.OK
+        record.done.set()
+        state = self._run_background_load(record)
+        self.assertIsNone(state.model_load_errors["design"])
+
+
+class TestWarmupUnderInferenceLockArms(unittest.TestCase):
+    """The #192/#211 warm-up wait-abandon arms of _run_warmup_under_inference_lock."""
+
+    def test_timeout_abandons_wait_not_safety(self):
+        import concurrent.futures
+
+        from qwen3_tts.server.app_lifespan import _run_warmup_under_inference_lock
+
+        state = _make_app_state()
+        # is_closed must return a REAL False — a bare MagicMock's return is
+        # truthy, which makes the loop look closed and takes the skip path.
+        state.event_loop = MagicMock(is_closed=lambda: False)
+
+        # run_coroutine_threadsafe stand-in whose wait always times out. The
+        # coroutine is closed so Python does not emit a 'coroutine was never
+        # awaited' warning for the test's copy. With side_effect set, the
+        # mock's return_value attribute is NOT the object actually returned —
+        # stash it in a box so the assertions see the real future.
+        scheduled = {}
+
+        def _fake_schedule(coro, loop):
+            def _result(timeout=None):
+                raise concurrent.futures.TimeoutError()
+
+            ns = SimpleNamespace(result=_result, cancel=MagicMock())
+            scheduled["future"] = ns
+            coro.close()
+            return ns
+
+        with patch(
+            "qwen3_tts.core.engine.model_loader._warmup_disabled",
+            return_value=False,
+        ), patch(
+            "qwen3_tts.core.engine.model_loader._warmup_model"
+        ) as mock_warmup, patch(
+            "asyncio.run_coroutine_threadsafe",
+            side_effect=_fake_schedule,
+        ) as mock_schedule, patch(
+            f"{_APP_LIFESPAN}._STARTUP_WARMUP_TIMEOUT_SEC", 5
+        ), self.assertLogs(
+            "tts", level="WARNING"  # app_lifespan logs under the "tts" root
+        ) as logs:
+            # Must RETURN, not raise: the load already succeeded; the warm-up
+            # wait is best-effort by contract.
+            _run_warmup_under_inference_lock(state, MagicMock(), "design")
+
+        mock_schedule.assert_called_once()
+        self.assertIs(
+            mock_schedule.call_args[0][1], state.event_loop,
+            "must schedule onto the captured event loop",
+        )
+        # Abandon the wait, not the safety: the scheduled work is cancelled.
+        scheduled["future"].cancel.assert_called_once()
+        mock_warmup.assert_not_called()  # cancelled before it could start
+        self.assertTrue(
+            any("no longer waiting" in line for line in logs.output),
+            f"expected the abandonment warning, got: {logs.output}",
+        )
+
+    def test_non_design_mode_returns_without_scheduling(self):
+        from qwen3_tts.server.app_lifespan import _run_warmup_under_inference_lock
+
+        state = _make_app_state()
+        with patch("asyncio.run_coroutine_threadsafe") as mock_schedule:
+            _run_warmup_under_inference_lock(state, MagicMock(), "clone")
+        mock_schedule.assert_not_called()
+
+    def test_missing_event_loop_skips_warmup(self):
+        from qwen3_tts.server.app_lifespan import _run_warmup_under_inference_lock
+
+        state = _make_app_state()
+        state.event_loop = None  # shutdown race: loop already gone
+        with patch("asyncio.run_coroutine_threadsafe") as mock_schedule, \
+                self.assertLogs("tts", level="INFO") as logs:
+            _run_warmup_under_inference_lock(state, MagicMock(), "design")
+        mock_schedule.assert_not_called()
+        self.assertTrue(any("Skipping" in line for line in logs.output))
