@@ -6,38 +6,49 @@ No GPU, models, or running server required — uses numpy for test audio.
 """
 
 import unittest
+from unittest.mock import patch
 
 import numpy as np
 
 try:
     import pytest
+
     HAS_PYTEST = True
 except ImportError:
     HAS_PYTEST = False
+
     # Dummy decorator for when pytest is not available
     class _DummyMarkerFunc:
         """Represents a marker function like skipif that takes condition and returns decorator."""
+
         def __init__(self, name=None):
             self._name = name
+
         def __call__(self, condition, **kwargs):
             # skipif, etc. take condition as first arg, return a decorator
             return lambda f: f
+
     class _DummyMarker:
         def __call__(self, func):
             return func
+
         def __getattr__(self, name):
             # Return special function for skipif, otherwise return a callable marker
-            if name == 'skipif':
+            if name == "skipif":
                 return _DummyMarkerFunc(name)
             return _DummyMarkerFunc(name)
+
         @property
         def unit(self):
             return self
+
     class _DummyMark:
         def __getattr__(self, name):
             return _DummyMarkerFunc()
+
     class _DummyPytest:
         mark = _DummyMark()
+
     pytest = _DummyPytest()
 
 
@@ -50,6 +61,7 @@ class TestAudioProcessing(unittest.TestCase):
     def test_normalize_silent_audio(self):
         """All-zeros audio should be returned unchanged (peak==0 guard)."""
         from qwen3_tts.core.engine import normalize_audio
+
         audio = np.zeros(16000, dtype=np.float32)
         result = normalize_audio(audio, target_db=-3.0)
         np.testing.assert_array_equal(result, audio)
@@ -57,6 +69,7 @@ class TestAudioProcessing(unittest.TestCase):
     def test_normalize_loud_audio(self):
         """After normalization the peak should match the target dB level."""
         from qwen3_tts.core.engine import normalize_audio
+
         audio = np.random.randn(16000).astype(np.float32)
         target_db = -3.0
         result = normalize_audio(audio, target_db=target_db)
@@ -67,6 +80,7 @@ class TestAudioProcessing(unittest.TestCase):
     def test_normalize_clipping_prevention(self):
         """With target_db=0, normal audio values should stay within [-1, 1]."""
         from qwen3_tts.core.engine import normalize_audio
+
         audio = np.random.randn(16000).astype(np.float32) * 0.5
         result = normalize_audio(audio, target_db=0.0)
         self.assertLessEqual(np.max(np.abs(result)), 1.0 + 1e-6)
@@ -74,6 +88,7 @@ class TestAudioProcessing(unittest.TestCase):
     def test_normalize_idempotent(self):
         """Normalizing twice with the same target should give the same result."""
         from qwen3_tts.core.engine import normalize_audio
+
         audio = np.random.randn(16000).astype(np.float32)
         once = normalize_audio(audio, target_db=-3.0)
         twice = normalize_audio(once, target_db=-3.0)
@@ -82,6 +97,7 @@ class TestAudioProcessing(unittest.TestCase):
     def test_normalize_preserves_dtype(self):
         """Output dtype should remain float32."""
         from qwen3_tts.core.engine import normalize_audio
+
         audio = np.random.randn(16000).astype(np.float32)
         result = normalize_audio(audio, target_db=-3.0)
         self.assertEqual(result.dtype, np.float32)
@@ -91,6 +107,7 @@ class TestAudioProcessing(unittest.TestCase):
     def test_trim_all_silent(self):
         """All-zeros audio should be returned unchanged (no non-silent samples)."""
         from qwen3_tts.core.engine import trim_silence
+
         audio = np.zeros(16000, dtype=np.float32)
         result = trim_silence(audio, sample_rate=16000)
         np.testing.assert_array_equal(result, audio)
@@ -98,6 +115,7 @@ class TestAudioProcessing(unittest.TestCase):
     def test_trim_no_silence(self):
         """Loud audio with no silence should be returned mostly unchanged."""
         from qwen3_tts.core.engine import trim_silence
+
         audio = np.ones(16000, dtype=np.float32) * 0.5
         result = trim_silence(audio, sample_rate=16000, threshold_db=-40)
         # The entire signal is non-silent, so start_idx=0 (minus padding,
@@ -107,29 +125,34 @@ class TestAudioProcessing(unittest.TestCase):
     def test_trim_leading_silence(self):
         """Leading silence should be removed (minus min_silence padding)."""
         from qwen3_tts.core.engine import trim_silence
+
         sr = 16000
         silence = np.zeros(8000, dtype=np.float32)
         signal = np.ones(8000, dtype=np.float32) * 0.5
         audio = np.concatenate([silence, signal])
-        result = trim_silence(audio, sample_rate=sr, threshold_db=-40,
-                              min_silence_ms=100)
+        result = trim_silence(
+            audio, sample_rate=sr, threshold_db=-40, min_silence_ms=100
+        )
         # Result should be shorter than original because leading silence trimmed
         self.assertLess(len(result), len(audio))
 
     def test_trim_trailing_silence(self):
         """Trailing silence should be removed (minus min_silence padding)."""
         from qwen3_tts.core.engine import trim_silence
+
         sr = 16000
         signal = np.ones(8000, dtype=np.float32) * 0.5
         silence = np.zeros(8000, dtype=np.float32)
         audio = np.concatenate([signal, silence])
-        result = trim_silence(audio, sample_rate=sr, threshold_db=-40,
-                              min_silence_ms=100)
+        result = trim_silence(
+            audio, sample_rate=sr, threshold_db=-40, min_silence_ms=100
+        )
         self.assertLess(len(result), len(audio))
 
     def test_trim_single_sample(self):
         """Array of length 1 should not crash."""
         from qwen3_tts.core.engine import trim_silence
+
         audio = np.array([0.5], dtype=np.float32)
         result = trim_silence(audio, sample_rate=16000)
         self.assertGreaterEqual(len(result), 1)
@@ -139,6 +162,7 @@ class TestAudioProcessing(unittest.TestCase):
     def test_process_noop(self):
         """All defaults (no trim, no normalize, no speed/pitch) returns audio unchanged."""
         from qwen3_tts.core.engine import process_audio
+
         audio = np.random.randn(16000).astype(np.float32)
         result = process_audio(audio, sample_rate=16000)
         np.testing.assert_array_equal(result, audio)
@@ -146,6 +170,7 @@ class TestAudioProcessing(unittest.TestCase):
     def test_process_trim_only(self):
         """With trim=True, leading/trailing silence should be trimmed."""
         from qwen3_tts.core.engine import process_audio
+
         sr = 16000
         silence = np.zeros(8000, dtype=np.float32)
         signal = np.ones(4000, dtype=np.float32) * 0.5
@@ -156,6 +181,7 @@ class TestAudioProcessing(unittest.TestCase):
     def test_process_normalize_only(self):
         """With normalize=True, peak should match -3dB target."""
         from qwen3_tts.core.engine import process_audio
+
         audio = np.random.randn(16000).astype(np.float32) * 0.1
         result = process_audio(audio, sample_rate=16000, normalize=True)
         expected_peak = 10 ** (-3.0 / 20)
@@ -170,12 +196,14 @@ class TestTextChunkingEdgeCases(unittest.TestCase):
     def test_split_short_text(self):
         """Text under max_chars should return a single chunk."""
         from qwen3_tts.core.engine.text_processing import _split_text
+
         result = _split_text("Hello world.", max_chars=500)
         self.assertEqual(result, ["Hello world."])
 
     def test_split_on_sentences(self):
         """Two sentences should split at the sentence boundary."""
         from qwen3_tts.core.engine.text_processing import _split_text
+
         text = "First sentence. Second sentence."
         result = _split_text(text, max_chars=20)
         self.assertEqual(len(result), 2)
@@ -185,6 +213,7 @@ class TestTextChunkingEdgeCases(unittest.TestCase):
     def test_split_long_sentence_clause(self):
         """A sentence exceeding max_chars should fall back to clause splitting."""
         from qwen3_tts.core.engine.text_processing import _split_text
+
         # Build a long sentence with clause boundaries
         text = "This is clause one, and this is clause two, and this is clause three"
         result = _split_text(text, max_chars=30)
@@ -197,6 +226,7 @@ class TestTextChunkingEdgeCases(unittest.TestCase):
     def test_split_empty_string(self):
         """Empty string should return a list with one empty string."""
         from qwen3_tts.core.engine.text_processing import _split_text
+
         result = _split_text("", max_chars=500)
         # After strip, empty string has len 0 <= 500, so returns [""]
         self.assertEqual(result, [""])
@@ -204,6 +234,7 @@ class TestTextChunkingEdgeCases(unittest.TestCase):
     def test_split_unicode_emoji(self):
         """Text with emoji characters should not crash."""
         from qwen3_tts.core.engine.text_processing import _split_text
+
         text = "Hello world! \U0001f600 This is great! \U0001f389"
         result = _split_text(text, max_chars=500)
         self.assertIsInstance(result, list)
@@ -212,6 +243,7 @@ class TestTextChunkingEdgeCases(unittest.TestCase):
     def test_split_exactly_max_chars(self):
         """Text exactly at max_chars should return a single chunk."""
         from qwen3_tts.core.engine.text_processing import _split_text
+
         text = "x" * 100
         result = _split_text(text, max_chars=100)
         self.assertEqual(result, [text])
@@ -219,6 +251,7 @@ class TestTextChunkingEdgeCases(unittest.TestCase):
     def test_split_very_long_word(self):
         """A single word exceeding max_chars should not cause infinite loop."""
         from qwen3_tts.core.engine.text_processing import _split_text
+
         word = "a" * 600
         text = f"Hello. {word}. World."
         result = _split_text(text, max_chars=100)
@@ -231,6 +264,7 @@ class TestTextChunkingEdgeCases(unittest.TestCase):
     def test_split_no_empty_chunks(self):
         """No chunk in the result should be an empty string."""
         from qwen3_tts.core.engine.text_processing import _split_text
+
         text = "First sentence. Second sentence. Third sentence. Fourth one."
         result = _split_text(text, max_chars=25)
         for chunk in result:
@@ -239,6 +273,7 @@ class TestTextChunkingEdgeCases(unittest.TestCase):
     def test_split_consecutive_punctuation(self):
         """Consecutive punctuation like '!!!' should be handled gracefully."""
         from qwen3_tts.core.engine.text_processing import _split_text
+
         text = "Hello!!! World!!! Testing!!!"
         result = _split_text(text, max_chars=15)
         self.assertIsInstance(result, list)
@@ -250,12 +285,14 @@ class TestTextChunkingEdgeCases(unittest.TestCase):
 
 try:
     import num2words as _num2words  # noqa: F401
+
     HAS_NUM2WORDS = True
 except ImportError:
     HAS_NUM2WORDS = False
 
 try:
     import pysbd as _pysbd  # noqa: F401
+
     HAS_PYSBD = True
 except ImportError:
     HAS_PYSBD = False
@@ -270,22 +307,27 @@ class TestMapLanguage(unittest.TestCase):
 
     def test_english_maps_to_en(self):
         from qwen3_tts.core.engine.text_processing import _map_language
+
         self.assertEqual(_map_language("English"), "en")
 
     def test_spanish_maps_to_es(self):
         from qwen3_tts.core.engine.text_processing import _map_language
+
         self.assertEqual(_map_language("Spanish"), "es")
 
     def test_french_maps_to_fr(self):
         from qwen3_tts.core.engine.text_processing import _map_language
+
         self.assertEqual(_map_language("French"), "fr")
 
     def test_unknown_language_falls_back_to_en(self):
         from qwen3_tts.core.engine.text_processing import _map_language
+
         self.assertEqual(_map_language("Klingon"), "en")
 
     def test_case_insensitive(self):
         from qwen3_tts.core.engine.text_processing import _map_language
+
         self.assertEqual(_map_language("english"), "en")
         self.assertEqual(_map_language("ENGLISH"), "en")
 
@@ -298,6 +340,7 @@ class TestNormalizeText(unittest.TestCase):
     def test_normalize_cardinal_number(self):
         """42 → forty-two."""
         from qwen3_tts.core.engine.text_processing import _normalize_text
+
         result = _normalize_text("I have 42 apples.", "English")
         self.assertIn("forty-two", result)
         self.assertNotIn("42", result)
@@ -305,18 +348,21 @@ class TestNormalizeText(unittest.TestCase):
     def test_normalize_dr_abbreviation(self):
         """Dr. → Doctor."""
         from qwen3_tts.core.engine.text_processing import _normalize_text
+
         result = _normalize_text("Dr. Smith visited.", "English")
         self.assertIn("Doctor", result)
 
     def test_normalize_mr_abbreviation(self):
         """Mr. → Mister."""
         from qwen3_tts.core.engine.text_processing import _normalize_text
+
         result = _normalize_text("Mr. Jones called.", "English")
         self.assertIn("Mister", result)
 
     def test_normalize_currency_dollars(self):
         """$42 → forty-two dollars."""
         from qwen3_tts.core.engine.text_processing import _normalize_text
+
         result = _normalize_text("It costs $42.", "English")
         self.assertIn("dollars", result.lower())
         self.assertNotIn("$", result)
@@ -324,6 +370,7 @@ class TestNormalizeText(unittest.TestCase):
     def test_normalize_currency_euros(self):
         """€10 → ten euros."""
         from qwen3_tts.core.engine.text_processing import _normalize_text
+
         result = _normalize_text("Pay €10 now.", "English")
         self.assertIn("euros", result.lower())
         self.assertNotIn("€", result)
@@ -331,6 +378,7 @@ class TestNormalizeText(unittest.TestCase):
     def test_normalize_ordinal(self):
         """3rd → third."""
         from qwen3_tts.core.engine.text_processing import _normalize_text
+
         result = _normalize_text("He came in 3rd place.", "English")
         self.assertIn("third", result)
         self.assertNotIn("3rd", result)
@@ -338,6 +386,7 @@ class TestNormalizeText(unittest.TestCase):
     def test_normalize_iso_date(self):
         """2026-02-20 → February twentieth, ..."""
         from qwen3_tts.core.engine.text_processing import _normalize_text
+
         result = _normalize_text("Today is 2026-02-20.", "English")
         self.assertIn("February", result)
         self.assertIn("twentieth", result)
@@ -346,36 +395,42 @@ class TestNormalizeText(unittest.TestCase):
     def test_normalize_etc_abbreviation(self):
         """etc. → et cetera."""
         from qwen3_tts.core.engine.text_processing import _normalize_text
+
         result = _normalize_text("cats, dogs, etc.", "English")
         self.assertIn("et cetera", result)
 
     def test_normalize_eg_abbreviation(self):
         """e.g. → for example."""
         from qwen3_tts.core.engine.text_processing import _normalize_text
+
         result = _normalize_text("e.g. apples and oranges", "English")
         self.assertIn("for example", result)
 
     def test_normalize_vs_abbreviation(self):
         """vs. → versus."""
         from qwen3_tts.core.engine.text_processing import _normalize_text
+
         result = _normalize_text("cats vs. dogs", "English")
         self.assertIn("versus", result)
 
     def test_normalize_preserves_plain_text(self):
         """Text with no special tokens should be returned unchanged."""
         from qwen3_tts.core.engine.text_processing import _normalize_text
+
         result = _normalize_text("Hello world.", "English")
         self.assertEqual(result, "Hello world.")
 
     def test_normalize_returns_string(self):
         """Always returns a string even on complex input."""
         from qwen3_tts.core.engine.text_processing import _normalize_text
+
         result = _normalize_text("Test 123 Dr. Smith $5 etc.", "English")
         self.assertIsInstance(result, str)
 
     def test_normalize_email(self):
         """user@example.com → user at example dot com."""
         from qwen3_tts.core.engine.text_processing import _normalize_text
+
         result = _normalize_text("Email user@example.com today.", "English")
         self.assertIn("at", result)
         self.assertNotIn("@", result)
@@ -383,6 +438,7 @@ class TestNormalizeText(unittest.TestCase):
     def test_normalize_url(self):
         """https://example.com → example dot com."""
         from qwen3_tts.core.engine.text_processing import _normalize_text
+
         result = _normalize_text("Visit https://example.com for info.", "English")
         self.assertNotIn("https://", result)
         self.assertIn("example", result)
@@ -390,6 +446,7 @@ class TestNormalizeText(unittest.TestCase):
     def test_normalize_phone_7digit(self):
         """555-1234 — bare phone digits are expanded, not left as numerals."""
         from qwen3_tts.core.engine.text_processing import _normalize_text
+
         result = _normalize_text("Call 555-1234 today.", "English")
         self.assertNotIn("555-1234", result)
         # cardinal expansion converts the component numbers to words
@@ -398,6 +455,7 @@ class TestNormalizeText(unittest.TestCase):
     def test_normalize_phone_10digit(self):
         """(800) 555-1234 → digit-by-digit then each digit becomes a word."""
         from qwen3_tts.core.engine.text_processing import _normalize_text
+
         result = _normalize_text("Call (800) 555-1234 now.", "English")
         self.assertNotIn("(800)", result)
         self.assertNotIn("555-1234", result)
@@ -413,6 +471,7 @@ class TestPysbdSentenceSplitting(unittest.TestCase):
     def test_dr_smith_not_split(self):
         """'Dr. Smith' should not be treated as a sentence boundary."""
         from qwen3_tts.core.engine.text_processing import _split_text
+
         text = "Dr. Smith visited the clinic. He was very kind."
         # With max_chars=200 both sentences should still be one chunk
         # because the total is under 200 chars
@@ -422,6 +481,7 @@ class TestPysbdSentenceSplitting(unittest.TestCase):
     def test_real_sentence_boundary_still_splits(self):
         """Genuine sentence endings still trigger splitting when over limit."""
         from qwen3_tts.core.engine.text_processing import _split_text
+
         text = "First sentence here. Second sentence here."
         result = _split_text(text, max_chars=25, language="English")
         self.assertGreater(len(result), 1)
@@ -429,12 +489,14 @@ class TestPysbdSentenceSplitting(unittest.TestCase):
     def test_language_param_accepted(self):
         """_split_text accepts a language keyword argument without error."""
         from qwen3_tts.core.engine.text_processing import _split_text
+
         result = _split_text("Hello world.", max_chars=500, language="English")
         self.assertEqual(result, ["Hello world."])
 
     def test_pysbd_falls_back_gracefully_on_unknown_language(self):
         """Unknown language falls back to English segmenter without crashing."""
         from qwen3_tts.core.engine.text_processing import _split_text
+
         result = _split_text("Hello world.", max_chars=500, language="Klingon")
         self.assertIsInstance(result, list)
         self.assertTrue(len(result) >= 1)
@@ -446,11 +508,13 @@ class TestGetMaxChunkTokens(unittest.TestCase):
 
     def test_returns_int(self):
         from qwen3_tts.core.engine.inference import _get_max_chunk_tokens
+
         result = _get_max_chunk_tokens()
         self.assertIsInstance(result, int)
 
     def test_returns_positive(self):
         from qwen3_tts.core.engine.inference import _get_max_chunk_tokens
+
         result = _get_max_chunk_tokens()
         self.assertGreater(result, 0)
 
@@ -462,9 +526,9 @@ class TestTokenAwareChunking(unittest.TestCase):
     def _make_mock_tokenizer(self, tokens_per_word=1):
         """Create a mock tokenizer that assigns tokens_per_word tokens per word."""
         from unittest.mock import MagicMock
+
         tokenizer = MagicMock()
-        tokenizer.encode.side_effect = (
-            lambda text, add_special_tokens=True:
+        tokenizer.encode.side_effect = lambda text, add_special_tokens=True: (
             [1] * (len(text.split()) * tokens_per_word)
         )
         return tokenizer
@@ -472,6 +536,7 @@ class TestTokenAwareChunking(unittest.TestCase):
     def test_token_aware_splits_when_over_max_tokens(self):
         """With tokenizer, chunks respect max_tokens not max_chars."""
         from qwen3_tts.core.engine.text_processing import _split_text
+
         tokenizer = self._make_mock_tokenizer(tokens_per_word=1)
         # 30 words → 30 tokens; max_tokens=10 → should produce multiple chunks
         text = " ".join(["word"] * 30)
@@ -481,6 +546,7 @@ class TestTokenAwareChunking(unittest.TestCase):
     def test_token_aware_no_split_under_limit(self):
         """Short text under max_tokens stays as one chunk."""
         from qwen3_tts.core.engine.text_processing import _split_text
+
         tokenizer = self._make_mock_tokenizer(tokens_per_word=1)
         text = "Hello world."  # 2 tokens with mock
         result = _split_text(text, max_chars=10000, tokenizer=tokenizer, max_tokens=50)
@@ -489,9 +555,283 @@ class TestTokenAwareChunking(unittest.TestCase):
     def test_no_tokenizer_falls_back_to_chars(self):
         """Without tokenizer, char-based logic still applies."""
         from qwen3_tts.core.engine.text_processing import _split_text
+
         text = "First sentence. Second sentence."
         result = _split_text(text, max_chars=20, tokenizer=None, max_tokens=None)
         self.assertGreater(len(result), 1)
+
+
+class TestAudioLoaderBackendsAndEffects(unittest.TestCase):
+    """4B.3 item 13: loader backend arms and pitch/LUFS effects
+    (previously missed 65-82, 173-193, 274, 295-299, 329, 335-340).
+
+    All heavy imports inside these functions (torchaudio, soundfile,
+    librosa, pyrubberband, pyloudnorm) are stubbed via sys.modules.
+    """
+
+    def _patch_loader(self, name):
+        return patch(
+            "qwen3_tts.core.engine.audio_processing.get_audio_loader",
+            return_value=name,
+        )
+
+    # ---- load_audio (torchaudio arm) ----
+
+    def test_load_audio_torchaudio_downmixes_and_resamples(self):
+        import sys
+        from unittest.mock import MagicMock
+
+        from qwen3_tts.core.engine import audio_processing
+
+        fake_ta = MagicMock()
+        stereo = MagicMock(name="stereo_waveform")
+        stereo.shape = [2]
+        mono = MagicMock(name="mono_waveform")
+        stereo.mean.return_value = mono
+        resampled = MagicMock(name="resampled")
+        resampler = MagicMock(return_value=resampled)
+        fake_ta.transforms.Resample.return_value = resampler
+        fake_ta.load.return_value = (stereo, 24000)
+
+        with (
+            self._patch_loader("torchaudio"),
+            patch.dict(sys.modules, {"torchaudio": fake_ta}),
+        ):
+            audio, sr = audio_processing.load_audio("clip.wav", target_sr=16000)
+
+        self.assertEqual(sr, 16000)
+        self.assertIs(audio, resampled.squeeze.return_value.numpy.return_value)
+        stereo.mean.assert_called_once_with(dim=0, keepdim=True)
+        fake_ta.transforms.Resample.assert_called_once_with(24000, 16000)
+        resampler.assert_called_once_with(mono)
+
+    def test_load_audio_torchaudio_matching_sr_skips_resample(self):
+        import sys
+        from unittest.mock import MagicMock
+
+        from qwen3_tts.core.engine import audio_processing
+
+        fake_ta = MagicMock()
+        mono = MagicMock(name="mono_waveform")
+        mono.shape = [1]
+        fake_ta.load.return_value = (mono, 16000)
+
+        with (
+            self._patch_loader("torchaudio"),
+            patch.dict(sys.modules, {"torchaudio": fake_ta}),
+        ):
+            audio, _ = audio_processing.load_audio("clip.wav", target_sr=16000)
+
+        self.assertIs(audio, mono.squeeze.return_value.numpy.return_value)
+        fake_ta.transforms.Resample.assert_not_called()
+
+    def test_load_audio_torchaudio_failure_falls_back_to_soundfile(self):
+        import sys
+        from unittest.mock import MagicMock
+
+        from qwen3_tts.core.engine import audio_processing
+
+        fake_ta = MagicMock()
+        fake_ta.load.side_effect = RuntimeError("backend init failed")
+        fake_sf = MagicMock()
+        stereo = np.ones((2, 4), dtype=np.float32)
+        fake_sf.read.return_value = (stereo, 8000)
+        fake_librosa = MagicMock()
+        fake_librosa.resample.return_value = "librosa_out"
+
+        with (
+            self._patch_loader("torchaudio"),
+            patch.dict(
+                sys.modules,
+                {"torchaudio": fake_ta, "soundfile": fake_sf, "librosa": fake_librosa},
+            ),
+        ):
+            audio, sr = audio_processing.load_audio("clip.wav", target_sr=16000)
+
+        self.assertEqual((audio, sr), ("librosa_out", 16000))
+        resample_args, resample_kwargs = fake_librosa.resample.call_args
+        np.testing.assert_array_equal(
+            resample_args[0], stereo.mean(axis=-1).astype(np.float32)
+        )
+        self.assertEqual(resample_kwargs, {"orig_sr": 8000, "target_sr": 16000})
+
+    def test_load_audio_soundfile_matching_sr_passthrough(self):
+        import sys
+        from unittest.mock import MagicMock
+
+        from qwen3_tts.core.engine import audio_processing
+
+        fake_sf = MagicMock()
+        mono = np.arange(4, dtype=np.float32)
+        fake_sf.read.return_value = (mono, 16000)
+
+        with (
+            self._patch_loader("librosa"),
+            patch.dict(sys.modules, {"soundfile": fake_sf}),
+        ):
+            audio, sr = audio_processing.load_audio("clip.wav", target_sr=16000)
+
+        self.assertEqual((audio, sr), (mono, 16000))
+        fake_sf.read.assert_called_once_with("clip.wav")
+
+    # ---- load_audio_for_cloning (max_duration truncation) ----
+
+    def test_load_audio_for_cloning_soundfile_truncates_and_resamples(self):
+        import sys
+        from unittest.mock import MagicMock
+
+        from qwen3_tts.core.engine import audio_processing
+
+        fake_sf = MagicMock()
+        long_audio = np.arange(10, dtype=np.float32)
+        fake_sf.read.return_value = (long_audio, 1000)
+        fake_librosa = MagicMock()
+        fake_librosa.resample.return_value = "resampled_clone"
+
+        with (
+            self._patch_loader("librosa"),
+            patch.dict(sys.modules, {"soundfile": fake_sf, "librosa": fake_librosa}),
+        ):
+            audio, sr = audio_processing.load_audio_for_cloning(
+                "clip.wav", max_duration=0.002, target_sr=16000
+            )
+
+        self.assertEqual((audio, sr), ("resampled_clone", 16000))
+        resample_args, resample_kwargs = fake_librosa.resample.call_args
+        np.testing.assert_array_equal(resample_args[0], long_audio[:2])
+        self.assertEqual(resample_kwargs, {"orig_sr": 1000, "target_sr": 16000})
+
+    def test_load_audio_for_cloning_torchaudio_truncates(self):
+        import sys
+        from unittest.mock import MagicMock
+
+        from qwen3_tts.core.engine import audio_processing
+
+        fake_ta = MagicMock()
+        stereo = MagicMock(name="stereo_waveform")
+        stereo.shape = [2]
+        mono = MagicMock(name="mono_waveform")
+        stereo.mean.return_value = mono
+        fake_ta.load.return_value = (stereo, 16000)
+
+        with (
+            self._patch_loader("torchaudio"),
+            patch.dict(sys.modules, {"torchaudio": fake_ta}),
+        ):
+            audio, sr = audio_processing.load_audio_for_cloning(
+                "clip.wav", max_duration=0.0, target_sr=16000
+            )
+
+        self.assertEqual(sr, 16000)
+        self.assertIs(
+            audio, mono.__getitem__.return_value.squeeze.return_value.numpy.return_value
+        )
+        fake_ta.load.assert_called_once_with("clip.wav")
+
+    # ---- adjust_pitch / normalize_lufs ----
+
+    def test_adjust_pitch_uses_pyrubberband(self):
+        import sys
+        from unittest.mock import MagicMock
+
+        from qwen3_tts.core.engine import audio_processing
+
+        fake_pyrb = MagicMock()
+        fake_pyrb.pitch_shift.return_value = "pitched"
+        with patch.dict(sys.modules, {"pyrubberband": fake_pyrb}):
+            result = audio_processing.adjust_pitch("audio", 24000, 2.0)
+        self.assertEqual(result, "pitched")
+        fake_pyrb.pitch_shift.assert_called_once_with("audio", 24000, 2.0)
+
+    def test_adjust_pitch_falls_back_to_librosa(self):
+        import sys
+        from unittest.mock import MagicMock
+
+        from qwen3_tts.core.engine import audio_processing
+
+        fake_pyrb = MagicMock()
+        fake_pyrb.pitch_shift.side_effect = FileNotFoundError("no rubberband CLI")
+        fake_librosa = MagicMock()
+        fake_librosa.effects.pitch_shift.return_value = "librosa_pitched"
+        with patch.dict(
+            sys.modules, {"pyrubberband": fake_pyrb, "librosa": fake_librosa}
+        ):
+            result = audio_processing.adjust_pitch("audio", 24000, -1.5)
+        self.assertEqual(result, "librosa_pitched")
+        fake_librosa.effects.pitch_shift.assert_called_once_with(
+            "audio", sr=24000, n_steps=-1.5
+        )
+
+    def test_normalize_lufs_meters_and_normalizes(self):
+        import sys
+        from unittest.mock import MagicMock
+
+        from qwen3_tts.core.engine import audio_processing
+
+        fake_pyln = MagicMock()
+        meter = fake_pyln.Meter.return_value
+        meter.integrated_loudness.return_value = -23.4
+        fake_pyln.normalize.loudness.return_value = "loudness_ok"
+        with patch.dict(sys.modules, {"pyloudnorm": fake_pyln}):
+            result = audio_processing.normalize_lufs("audio", 24000, target_lufs=-16.0)
+        self.assertEqual(result, "loudness_ok")
+        fake_pyln.Meter.assert_called_once_with(24000)
+        fake_pyln.normalize.loudness.assert_called_once_with("audio", -23.4, -16.0)
+
+    # ---- process_audio effects wiring ----
+
+    def test_process_audio_applies_pitch_then_lufs(self):
+        from qwen3_tts.core.engine import audio_processing
+
+        audio = np.ones(8, dtype=np.float32)
+        with (
+            patch.object(
+                audio_processing, "adjust_pitch", return_value="pitched"
+            ) as mock_pitch,
+            patch.object(
+                audio_processing, "normalize_lufs", return_value="lufsed"
+            ) as mock_lufs,
+        ):
+            result = audio_processing.process_audio(
+                audio, 24000, pitch=2.0, lufs_target=-16.0
+            )
+        self.assertEqual(result, "lufsed")
+        mock_pitch.assert_called_once_with(audio, 24000, 2.0)
+        mock_lufs.assert_called_once_with("pitched", 24000, target_lufs=-16.0)
+
+    def test_process_audio_lufs_import_error_warns_and_returns(self):
+        from qwen3_tts.core.engine import audio_processing
+
+        audio = np.ones(8, dtype=np.float32)
+        with (
+            patch.object(
+                audio_processing, "normalize_lufs", side_effect=ImportError("no pyln")
+            ),
+            self.assertLogs("tts.engine", level="WARNING") as logs,
+        ):
+            result = audio_processing.process_audio(audio, 24000, lufs_target=-16.0)
+        self.assertIs(result, audio)
+        self.assertTrue(
+            any("pyloudnorm not installed" in line for line in logs.output),
+            logs.output,
+        )
+
+    def test_process_audio_lufs_generic_failure_warns_and_returns(self):
+        from qwen3_tts.core.engine import audio_processing
+
+        audio = np.ones(8, dtype=np.float32)
+        with (
+            patch.object(
+                audio_processing, "normalize_lufs", side_effect=ValueError("bad meter")
+            ),
+            self.assertLogs("tts.engine", level="WARNING") as logs,
+        ):
+            result = audio_processing.process_audio(audio, 24000, lufs_target=-16.0)
+        self.assertIs(result, audio)
+        self.assertTrue(
+            any("LUFS normalization failed" in line for line in logs.output),
+            logs.output,
+        )
 
 
 if __name__ == "__main__":
