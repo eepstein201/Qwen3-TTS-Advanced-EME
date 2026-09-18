@@ -990,6 +990,25 @@ disambiguates the `model_loader.py` gaps (item 12 below).
 
 ### Step 4B.1 — P0: server/concurrency failure arms
 
+- **Status: DONE (branch `test/p0-server-failure-arm-coverage`, 2026-09-18, all five items).**
+  Item 1's "one e2e" sub-item was already satisfied by #309's `tests/test_e2e_websocket.py`; the
+  rest: 4 TestClient failure arms in `tests/test_websocket.py` (in-lock classified-error spread —
+  error/detail/recovery arrive as TOP-LEVEL frame fields after the `generating` preamble, socket
+  survives; inference-thread terminal `error` frame with sanitized detail; >64KB rejection with
+  the loop continuing; mid-generation disconnect RELEASES the pre-auth slot — six fresh
+  sequential connections after a vanished client, the Step 0D class), 6 tests in
+  `tests/test_fastapi_app_ext2.py` (`_background_load` ATTACH-wait arms: timeout / FAILED / OK,
+  readiness never wedges and no second build; `_run_warmup_under_inference_lock` timeout arm:
+  wait abandoned, future cancelled, load still succeeds), `tests/test_asr_engine_internals.py`
+  (the REAL `unload_asr_model` body incl. gc-before-`empty_cache`, `_ensure_asr_torch_loaded`
+  device mapping + ImportError rewrite, the MLX Whisper HF shim arms),
+  `tests/test_voice_prompt_failure_arms.py` (orphan-`.wav` rollback on `.txt` failure,
+  `_load_pt_safe` traversal ValueError + rebuild/recreate hints,
+  `migrate_orphan_mlx_prompts` incl. one-failure-continues). **Per-module coverage on the full
+  non-E2E suite: asr 62%→82%, voice_prompt 75%→96%, app_lifespan 89%→91%, websocket 91%→95% —
+  all above the 80% floor.** Full run 3463 passed / 1 failed / 5 skipped; the one failure
+  (`test_claude_hooks::…hooks_only`) proven pre-existing by stash-and-rerun — the local
+  uncommitted `enabledPlugins` block in `.claude/settings.json`, not the lane's diff.
 - **Model tier:** default · **Branch:** `test/p0-server-failure-arm-coverage` (may split
   per-module) · **Source:** coverage analysis items 1–5, verified against current source by the
   originating agent 2026-09-06; re-check line numbers at implementation time as usual.
@@ -1697,7 +1716,7 @@ analysis rather than duplicated as a new step.)*
 6A–6R (18) · Wave 7: 7A–7C (3) — **plus 3 independent tracks** (feature, dependency, and the decision-gated branch register — none gated by the waves) **+ 1 passive watch** (no action). Step 6·0 (dead-code cleanup) was already
 executed directly on 2026-09-06 and is recorded in Wave 6; it is not counted among the pending
 steps. **Executed so far: 0A (PR #263), 0B (PR #269), 0C (PR #270), 0D (PR #271), 0E (PR #276), 0F (PR #281), 0G (PR #282), 1A (PR #283), 1B (PR #287), 1C (PR #284), 1D (PR #289), 1E (PR #290), 3B (PR #291), 3C (PR #292), 3D (PR #293), 3E (PR #294), 4A (branch `fix/e2e-model-load-assertions`), 4B (branch `fix/e2e-load-cycle-investigation`), 2 (branch `fix/on-demand-model-load-generate`), 3A (PR #304), 4C (branch `refactor/e2e-shared-page-object`, Gate B 2026-09-17), 4E (branch `fix/e2e-preexisting-failures`).** **6G is
-folded into Wave 7 Step 7C** (not independently pending). ***Open: 25.*** *(Counter reconciled 2026-09-17 against a full heading census: 49 steps - 20 executed - 1 folded (6G) = 28; 4C's Gate B landed 2026-09-17 (pass by recorded deviation) → 21 executed = 27; 4E executed 2026-09-17 → 22 = 26; 4D executed 2026-09-18, closed with retriage (gap 5 → 7A/7B/7C add-ons + standing ledger) → 23 = 25. The pre-reconciliation value read 27 because Step 6·0 was subtracted twice - it is already excluded from the wave totals, since Wave 6 counts 6A-6R = 18, and was then deducted again as though it sat inside them; that arithmetic error was fixed at the 28 mark and is history, not a reason to touch the number again.)* *(Wave 7 incorporated
+folded into Wave 7 Step 7C** (not independently pending). ***Open: 25.*** *(Counter reconciled 2026-09-17 against a full heading census: 49 steps - 20 executed - 1 folded (6G) = 28; 4C's Gate B landed 2026-09-17 (pass by recorded deviation) → 21 executed = 27; 4E executed 2026-09-17 → 22 = 26; 4D executed 2026-09-18, closed with retriage (gap 5 → 7A/7B/7C add-ons + standing ledger) → 23 = 25; 4B.1 executed 2026-09-18 → 24 = 24. The pre-reconciliation value read 27 because Step 6·0 was subtracted twice - it is already excluded from the wave totals, since Wave 6 counts 6A-6R = 18, and was then deducted again as though it sat inside them; that arithmetic error was fixed at the 28 mark and is history, not a reason to touch the number again.)* *(Wave 7 incorporated
 2026-09-08 from the Interface Quality Improvement Plan — a three-surface audit of Web UI, CLI,
 and HTTP API, user-scoped; tracked at `docs/plans/2026-09-07-interface-quality.plan.md`, which
 is the spec for 7A–7C.)* Ordered by: critical correctness/security findings from the 2026-09-06 cross-cutting
