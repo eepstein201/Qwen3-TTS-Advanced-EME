@@ -1142,11 +1142,27 @@ disambiguates the `model_loader.py` gaps (item 12 below).
 - **Exit criteria:** items 11/13 covered or explicitly dispositioned in the PR; item 12 either
   stub-tested or documented env-gated with the torch-env run as evidence.
 
-### Step 4B.4 — Per-module coverage floor (ratcheted allowlist) — close the aggregate-only blind spot
+### Step 4B.4 — Per-module coverage floor (ratcheted allowlist) — close the aggregate-only blind spot ✅ EXECUTED 2026-09-20
 
 - **Model tier:** default · **Branch:** `test/per-module-coverage-floor` · **Depends on:**
   4B.1–4B.3 landing first (ratchet at then-current levels, which by then sit closer to the
   floor).
+- **Executed:** three commits — `87010862` (gate `qwen3_tts/tools/coverage_floors.py` +
+  30 TestCase tests, batch-5 registered, mutation-proven 7/7), `0770ec30` (seeded
+  `coverage-floors.json`), `6a31d15a` (CI `coverage` job wiring).
+- **Gate rules (beyond the minimal assert-each-floor shape):** floors ≥ 80 are invalid
+  (crossed modules *exit* the allowlist); a listed module measuring ≥ 80 fails until
+  removed; a sub-80 module **not** in the allowlist fails — new rot must be registered,
+  not averaged away (with only 2 modules left below 80, this unlisted rule is the
+  load-bearing one, protecting everything 4B.1–4B.3 pushed above 80); stale entries
+  (module absent from the report) fail. `--update` re-seeds at measured values, never
+  lowering.
+- **Seed evidence:** full non-e2e run in the torchless CI-proxy venv at `87f9ead3` —
+  3555 passed / 17 pre-existing optional-dep failures / aggregate 91.5%. Only
+  `cli_server.py` (71%) and `__main__.py` (0%, 2 statements) remain sub-80.
+- **Verify (as specified):** real-regression run `--ignore=tests/test_cli_server_restart.py`
+  → `cli_server.py` 49.6%, gate exit 1 naming it, **aggregate still 91.0% (> 80)** — the
+  aggregate-only blind spot red-flags exactly as the exit criteria require.
 - **Context:** the CI gate is aggregate-only — every P0 gap in 4B.1 was invisible to it. An
   aggregate gate lets coverage silently migrate: new well-covered code raises the total while a
   critical module rots underneath it.
