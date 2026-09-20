@@ -12,57 +12,74 @@ import unittest
 
 try:
     import pytest
+
     HAS_PYTEST = True
 except ImportError:
     HAS_PYTEST = False
+
     # Dummy decorator for when pytest is not available
     class _DummyMarkerFunc:
         """Represents a marker function like skipif that takes condition and returns decorator."""
+
         def __init__(self, name=None):
             self._name = name
+
         def __call__(self, condition, **kwargs):
             # skipif, etc. take condition as first arg, return a decorator
             return lambda f: f
+
     class _DummyMarker:
         def __call__(self, func):
             return func
+
         def __getattr__(self, name):
             # Return special function for skipif, otherwise return a callable marker
-            if name == 'skipif':
+            if name == "skipif":
                 return _DummyMarkerFunc(name)
             return _DummyMarkerFunc(name)
+
         @property
         def unit(self):
             return self
+
     class _DummyMark:
         def __getattr__(self, name):
             return _DummyMarkerFunc()
+
     class _DummyPytest:
         mark = _DummyMark()
+
     pytest = _DummyPytest()
 
 # Check optional dependencies
 try:
     import soundfile  # noqa: F401
+
     HAS_SOUNDFILE = True
 except ImportError:
     HAS_SOUNDFILE = False
 
-_skip_generate = unittest.skipUnless(HAS_SOUNDFILE, "requires soundfile (voice_generate)")
+_skip_generate = unittest.skipUnless(
+    HAS_SOUNDFILE, "requires soundfile (voice_generate)"
+)
 
 # num2words drives English number/time speech; Chinese uses an inline renderer.
 try:
     import num2words  # noqa: F401
+
     HAS_NUM2WORDS = True
 except ImportError:
     HAS_NUM2WORDS = False
 
-_skip_n2w = unittest.skipUnless(HAS_NUM2WORDS, "requires num2words (English time speech)")
+_skip_n2w = unittest.skipUnless(
+    HAS_NUM2WORDS, "requires num2words (English time speech)"
+)
 
 
 # =========================================================================
 # SSML Edge Cases
 # =========================================================================
+
 
 @pytest.mark.unit
 @_skip_generate
@@ -72,6 +89,7 @@ class TestSSMLEdgeCases(unittest.TestCase):
     def test_ssml_sub_replacement(self):
         """<sub alias='hello'>hi</sub> replaces content with alias."""
         from qwen3_tts.interface.generate import parse_ssml
+
         text, meta = parse_ssml('Say <sub alias="hello">hi</sub> please')
         self.assertIn("hello", text)
         self.assertNotIn("<sub", text)
@@ -80,12 +98,14 @@ class TestSSMLEdgeCases(unittest.TestCase):
     def test_ssml_say_as_characters(self):
         """<say-as interpret-as='characters'>ABC</say-as> spells out as 'A B C'."""
         from qwen3_tts.interface.generate import parse_ssml
+
         text, meta = parse_ssml('<say-as interpret-as="characters">ABC</say-as>')
         self.assertIn("A B C", text)
 
     def test_ssml_prosody_rate_slow(self):
         """<prosody rate='slow'> sets speed=0.8 in metadata."""
         from qwen3_tts.interface.generate import parse_ssml
+
         text, meta = parse_ssml('<prosody rate="slow">Hello world</prosody>')
         self.assertTrue(meta["has_ssml"])
         self.assertIsNotNone(meta["prosody"])
@@ -94,6 +114,7 @@ class TestSSMLEdgeCases(unittest.TestCase):
     def test_ssml_prosody_pitch_high(self):
         """<prosody pitch='high'> sets pitch=2 in metadata."""
         from qwen3_tts.interface.generate import parse_ssml
+
         text, meta = parse_ssml('<prosody pitch="high">Hello world</prosody>')
         self.assertTrue(meta["has_ssml"])
         self.assertIsNotNone(meta["prosody"])
@@ -102,6 +123,7 @@ class TestSSMLEdgeCases(unittest.TestCase):
     def test_ssml_nested_emphasis_sub(self):
         """Nested <emphasis><sub alias='hello'>hi</sub></emphasis> produces 'hello'."""
         from qwen3_tts.interface.generate import parse_ssml
+
         text, meta = parse_ssml('<emphasis><sub alias="hello">hi</sub></emphasis>')
         self.assertIn("hello", text)
         self.assertNotIn("<", text)
@@ -111,6 +133,7 @@ class TestSSMLEdgeCases(unittest.TestCase):
 # Dry-Run and Interactive Mode Tests
 # =========================================================================
 
+
 @pytest.mark.unit
 @_skip_generate
 class TestDryRunAndInteractive(unittest.TestCase):
@@ -119,18 +142,21 @@ class TestDryRunAndInteractive(unittest.TestCase):
     def test_dry_run_flag_in_source(self):
         """qwen3_tts.interface.generate source contains '--dry-run' argument."""
         import qwen3_tts.interface.generate
+
         source = inspect.getsource(qwen3_tts.interface.generate)
         self.assertIn("--dry-run", source)
 
     def test_dry_run_marker_in_source(self):
         """qwen3_tts.interface.generate source contains 'DRY RUN' marker text."""
         import qwen3_tts.interface.generate
+
         source = inspect.getsource(qwen3_tts.interface.generate)
         self.assertIn("DRY RUN", source)
 
     def test_interactive_mode_function_exists(self):
         """voice_generate has a callable interactive_mode function."""
         import qwen3_tts.interface.generate
+
         self.assertTrue(hasattr(qwen3_tts.interface.generate, "interactive_mode"))
         self.assertTrue(callable(qwen3_tts.interface.generate.interactive_mode))
 
@@ -139,11 +165,13 @@ class TestDryRunAndInteractive(unittest.TestCase):
 # _safe_transform helper
 # =========================================================================
 
+
 class TestSafeTransform(unittest.TestCase):
     """Tests for the _safe_transform helper in text_processing."""
 
     def test_applies_transform_on_success(self):
         from qwen3_tts.core.engine.text_processing import _safe_transform
+
         result = _safe_transform("hello world", "test", lambda t: t.upper())
         self.assertEqual(result, "HELLO WORLD")
 
@@ -158,18 +186,23 @@ class TestSafeTransform(unittest.TestCase):
 
     def test_logs_warning_on_exception(self):
         from qwen3_tts.core.engine.text_processing import _safe_transform
+
         with self.assertLogs(level="WARNING") as cm:
             _safe_transform("hello", "explode", lambda t: 1 / 0)
         self.assertTrue(any("explode" in msg for msg in cm.output))
 
     def test_step_name_in_warning_message(self):
         from qwen3_tts.core.engine.text_processing import _safe_transform
+
         with self.assertLogs(level="WARNING") as cm:
-            _safe_transform("text", "my_step", lambda t: (_ for _ in ()).throw(RuntimeError("err")))
+            _safe_transform(
+                "text", "my_step", lambda t: (_ for _ in ()).throw(RuntimeError("err"))
+            )
         self.assertTrue(any("my_step" in msg for msg in cm.output))
 
     def test_returns_string_unchanged_when_no_error(self):
         from qwen3_tts.core.engine.text_processing import _safe_transform
+
         result = _safe_transform("unchanged", "noop", lambda t: t)
         self.assertEqual(result, "unchanged")
 
@@ -193,9 +226,20 @@ class TestChineseNormalization(unittest.TestCase):
         from qwen3_tts.core.engine.text_processing import _num_to_chinese
 
         cases = {
-            0: "零", 1: "一", 9: "九", 10: "十", 12: "十二", 20: "二十",
-            100: "一百", 101: "一百零一", 110: "一百一十", 111: "一百一十一",
-            1000: "一千", 1001: "一千零一", 1010: "一千零一十", 1100: "一千一百",
+            0: "零",
+            1: "一",
+            9: "九",
+            10: "十",
+            12: "十二",
+            20: "二十",
+            100: "一百",
+            101: "一百零一",
+            110: "一百一十",
+            111: "一百一十一",
+            1000: "一千",
+            1001: "一千零一",
+            1010: "一千零一十",
+            1100: "一千一百",
             1234: "一千二百三十四",
         }
         for n, expected in cases.items():
@@ -205,11 +249,19 @@ class TestChineseNormalization(unittest.TestCase):
         from qwen3_tts.core.engine.text_processing import _num_to_chinese
 
         cases = {
-            10000: "一万", 10001: "一万零一", 10010: "一万零一十",
-            10100: "一万零一百", 11000: "一万一千",
-            12345: "一万二千三百四十五", 100000: "十万", 100001: "十万零一",
-            1000000: "一百万", 10010000: "一千零一万", 100000000: "一亿",
-            100001000: "一亿零一千", 110000000: "一亿一千万",
+            10000: "一万",
+            10001: "一万零一",
+            10010: "一万零一十",
+            10100: "一万零一百",
+            11000: "一万一千",
+            12345: "一万二千三百四十五",
+            100000: "十万",
+            100001: "十万零一",
+            1000000: "一百万",
+            10010000: "一千零一万",
+            100000000: "一亿",
+            100001000: "一亿零一千",
+            110000000: "一亿一千万",
             101000000: "一亿零一百万",
             123456789: "一亿二千三百四十五万六千七百八十九",
         }
@@ -354,7 +406,9 @@ class TestTimeNormalization(unittest.TestCase):
         """Colons don't bleed into slash/dash dates or dash phones."""
         from qwen3_tts.core.engine.text_processing import _normalize_text
 
-        result = _normalize_text("Meet 01/02/2024 at 10:00 or call 555-123-4567.", "English")
+        result = _normalize_text(
+            "Meet 01/02/2024 at 10:00 or call 555-123-4567.", "English"
+        )
         # The time expands; the US date and phone are handled by their own steps.
         self.assertIn("ten o'clock", result)
 
@@ -366,7 +420,7 @@ class TestTimeNormalization(unittest.TestCase):
         # key assertion is that the colon pair is never treated as a time.
         result = _normalize_text("ratio 3:1 here", "English")
         self.assertNotIn("hours", result)  # not HH:MM:SS
-        self.assertNotIn("oh", result)     # not a clock reading
+        self.assertNotIn("oh", result)  # not a clock reading
 
     @_skip_n2w
     def test_time_mid_sentence_preserves_surrounding_text(self):
@@ -391,6 +445,51 @@ class TestTimeNormalization(unittest.TestCase):
         self.assertEqual(_zh_under_hundred(25), "二十五")
         self.assertEqual(_zh_under_hundred(45), "四十五")
         self.assertEqual(_zh_under_hundred(59), "五十九")
+
+
+# =========================================================================
+# Email normalization — ReDoS guard (Step 6O)
+# =========================================================================
+
+
+class TestEmailNormalization(unittest.TestCase):
+    """`_EMAIL_RE` must stay fast on adversarial input.
+
+    The unbounded `+` quantifiers in the old pattern let an email-shaped
+    adversarial string force quadratic regex backtracking — measured at
+    multi-second stalls for a single `max_text_length` (50,000 char)
+    request. `_normalize_text` runs in `asyncio.to_thread`, but CPython's
+    `re` module doesn't release the GIL, so that stall blocks the whole
+    event loop — including unauthenticated `/health`/`/ready` — for its
+    duration.
+    """
+
+    def test_legitimate_email_expands_unchanged(self):
+        from qwen3_tts.core.engine.text_processing import _normalize_text
+
+        result = _normalize_text(
+            "Contact john.doe+test@example.com for help.", language="English"
+        )
+        self.assertNotIn("@", result)
+        self.assertIn("john.doe+test at example dot com", result)
+
+    def test_adversarial_input_normalizes_under_100ms(self):
+        """A 50,000-char adversarial, email-shaped string (the max allowed
+        request size) must not stall regex matching by orders of magnitude."""
+        import time
+
+        from qwen3_tts.core.engine.text_processing import _EMAIL_RE
+
+        adversarial = "a" * 19999 + "@" + ("a." * 14999) + "a1"
+        self.assertEqual(len(adversarial), 50000)
+
+        start = time.perf_counter()
+        _EMAIL_RE.sub("X", adversarial)
+        elapsed = time.perf_counter() - start
+
+        self.assertLess(
+            elapsed, 0.1, f"_EMAIL_RE took {elapsed:.3f}s on adversarial input"
+        )
 
 
 if __name__ == "__main__":

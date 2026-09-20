@@ -85,7 +85,15 @@ _SUBUNIT_MAP = {
 }
 
 # Pre-compiled regex patterns for _normalize_text()
-_EMAIL_RE = re.compile(r"\b[A-Za-z0-9._%+\-]+@[A-Za-z0-9.\-]+\.[A-Za-z]{2,}\b")
+# Local/domain/TLD lengths are bounded (RFC 5321-ish: 64 / 253 / 24) rather
+# than unbounded `+` — the domain class `[A-Za-z0-9.\-]` overlaps with the
+# literal `\.` that follows it, so an unbounded quantifier lets adversarial
+# input (e.g. "aaa...a@aaa...a") force quadratic backtracking; bounding caps
+# the backtracking work to a constant regardless of input length (Step 6O).
+# No real email exceeds these bounds, so legitimate matches are unaffected.
+_EMAIL_RE = re.compile(
+    r"\b[A-Za-z0-9._%+\-]{1,64}@[A-Za-z0-9.\-]{1,253}\.[A-Za-z]{2,24}\b"
+)
 _URL_RE = re.compile(r"https?://\S+")
 _URL_PROTO_RE = re.compile(r"^https?://")
 _URL_WWW_RE = re.compile(r"^www\.")
@@ -361,15 +369,15 @@ def _num_to_chinese(num: int) -> str:
         seg = _zh_four_digits(section, drop_leading_one=not seen_significant)
         if seg:
             if result and not result.endswith("零"):
-                higher_zero = (
-                    idx + 1 < len(sections) and sections[idx + 1] == 0
-                )
+                higher_zero = idx + 1 < len(sections) and sections[idx + 1] == 0
                 if section < 1000 or higher_zero:
                     result += "零"
             result += seg + section_names[idx]
             seen_significant = True
-        elif result and not result.endswith("零") and any(
-            sections[j] for j in range(idx)
+        elif (
+            result
+            and not result.endswith("零")
+            and any(sections[j] for j in range(idx))
         ):
             result += "零"
     return result.rstrip("零")
@@ -438,22 +446,30 @@ def _normalize_text(text, language="English"):
     text = _safe_transform(
         text,
         "currency",
-        lambda t: _CURRENCY_RE.sub(lambda m: _expand_currency_match(m, _say_number, lang), t),
+        lambda t: _CURRENCY_RE.sub(
+            lambda m: _expand_currency_match(m, _say_number, lang), t
+        ),
     )
     text = _safe_transform(
         text,
         "ordinal",
-        lambda t: _ORDINAL_RE.sub(lambda m: _expand_ordinal_match(m, _say_number, lang), t),
+        lambda t: _ORDINAL_RE.sub(
+            lambda m: _expand_ordinal_match(m, _say_number, lang), t
+        ),
     )
     text = _safe_transform(
         text,
         "iso_date",
-        lambda t: _ISO_DATE_RE.sub(lambda m: _expand_iso_date_match(m, _say_number, lang), t),
+        lambda t: _ISO_DATE_RE.sub(
+            lambda m: _expand_iso_date_match(m, _say_number, lang), t
+        ),
     )
     text = _safe_transform(
         text,
         "us_date",
-        lambda t: _US_DATE_RE.sub(lambda m: _expand_us_date_match(m, _say_number, lang), t),
+        lambda t: _US_DATE_RE.sub(
+            lambda m: _expand_us_date_match(m, _say_number, lang), t
+        ),
     )
     text = _safe_transform(
         text,
