@@ -23,8 +23,18 @@ from qwen3_tts.core.config import (
 
 MAX_PROMPT_NAME_LEN = 255  # max length for voice prompt names
 MAX_AUDIO_BASE64_BYTES = 50 * 1024 * 1024  # 50MB base64 ≈ 37.5MB raw audio
-MAX_SEED = 2**31 - 1  # upper bound for generation seed (signed int32, safe across torch/MLX)
-MAX_CHUNK_CHARS_LIMIT = 10_000  # matches the documented generation.max_chunk_chars range
+MAX_SEED = (
+    2**31 - 1
+)  # upper bound for generation seed (signed int32, safe across torch/MLX)
+MAX_CHUNK_CHARS_LIMIT = (
+    10_000  # matches the documented generation.max_chunk_chars range
+)
+MAX_VOICE_DESCRIPTION_LEN = 4000  # Design-mode free-text voice description
+MAX_INSTRUCT_LEN = 4000  # Design/custom-mode free-text generation instruction
+MAX_SPEAKER_LEN = (
+    64  # longest real speaker key/name is 8 chars (headroom for future ones)
+)
+MAX_LANGUAGE_LEN = 16  # longest supported language name is well under this
 
 # Pre-computed valid speaker names (keys + display names)
 _VALID_SPEAKER_NAMES = frozenset(CUSTOM_VOICE_SPEAKERS.keys()) | frozenset(
@@ -43,11 +53,11 @@ class GenerateRequest(BaseModel):
     text: str | None = None
     texts: list[str] | None = None
     mode: str = "clone"
-    prompt_file: str | None = None
-    voice_description: str = ""
-    language: str = "auto"
-    speaker: str | None = None
-    instruct: str = ""
+    prompt_file: str | None = Field(default=None, max_length=MAX_PROMPT_NAME_LEN)
+    voice_description: str = Field(default="", max_length=MAX_VOICE_DESCRIPTION_LEN)
+    language: str = Field(default="auto", max_length=MAX_LANGUAGE_LEN)
+    speaker: str | None = Field(default=None, max_length=MAX_SPEAKER_LEN)
+    instruct: str = Field(default="", max_length=MAX_INSTRUCT_LEN)
     temperature: float = Field(default=0.7, ge=0.0, le=2.0)
     top_k: int = Field(default=50, ge=1, le=1000)
     top_p: float = Field(default=0.95, ge=0.0, le=1.0)

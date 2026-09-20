@@ -1,4 +1,5 @@
 """Tests for server validation module."""
+
 import unittest
 
 import pytest
@@ -34,7 +35,9 @@ class TestValidateGenerationRequest(unittest.TestCase):
             _validate_generation_request,
         )
 
-        req = GenerateRequest(texts=["test"], mode="clone", prompt_file="../../../etc/passwd")
+        req = GenerateRequest(
+            texts=["test"], mode="clone", prompt_file="../../../etc/passwd"
+        )
         with pytest.raises(HTTPException) as exc:
             _validate_generation_request(req, security_config)
         assert exc.value.status_code == 400
@@ -48,7 +51,9 @@ class TestValidateGenerationRequest(unittest.TestCase):
             _validate_generation_request,
         )
 
-        req = GenerateRequest(texts=["test"], mode="clone", prompt_file="subdir/file.pt")
+        req = GenerateRequest(
+            texts=["test"], mode="clone", prompt_file="subdir/file.pt"
+        )
         # Should NOT raise — pathlib check allows paths that resolve within voice_prompts dir
         _validate_generation_request(req, security_config)
 
@@ -67,11 +72,12 @@ class TestValidateGenerationRequest(unittest.TestCase):
         )
 
         req = GenerateRequest(texts=["test"], mode="custom")
-        with patch(
-            "qwen3_tts.server.validation.get_backend", return_value="vllm"
-        ), patch(
-            "qwen3_tts.server.validation.load_config",
-            return_value={"vllm": {"enabled": False}},
+        with (
+            patch("qwen3_tts.server.validation.get_backend", return_value="vllm"),
+            patch(
+                "qwen3_tts.server.validation.load_config",
+                return_value={"vllm": {"enabled": False}},
+            ),
         ):
             with pytest.raises(HTTPException) as exc:
                 _validate_generation_request(req, security_config)
@@ -91,11 +97,12 @@ class TestValidateGenerationRequest(unittest.TestCase):
         )
 
         req = GenerateRequest(texts=["test"], mode="custom")
-        with patch(
-            "qwen3_tts.server.validation.get_backend", return_value="vllm"
-        ), patch(
-            "qwen3_tts.server.validation.load_config",
-            return_value={"vllm": {"enabled": True}},
+        with (
+            patch("qwen3_tts.server.validation.get_backend", return_value="vllm"),
+            patch(
+                "qwen3_tts.server.validation.load_config",
+                return_value={"vllm": {"enabled": True}},
+            ),
         ):
             _validate_generation_request(req, security_config)  # must NOT raise
 
@@ -110,12 +117,11 @@ class TestValidateGenerationRequest(unittest.TestCase):
         )
 
         req = GenerateRequest(texts=["test"], mode="custom")
-        load_config = MagicMock(
-            return_value={"vllm": {"enabled": False}}
-        )
-        with patch(
-            "qwen3_tts.server.validation.get_backend", return_value="mlx"
-        ), patch("qwen3_tts.server.validation.load_config", load_config):
+        load_config = MagicMock(return_value={"vllm": {"enabled": False}})
+        with (
+            patch("qwen3_tts.server.validation.get_backend", return_value="mlx"),
+            patch("qwen3_tts.server.validation.load_config", load_config),
+        ):
             _validate_generation_request(req, security_config)
         load_config.assert_not_called()
 
@@ -141,7 +147,9 @@ class TestValidateGenerationRequest(unittest.TestCase):
             _validate_generation_request,
         )
 
-        req = GenerateRequest(texts=["test"], mode="custom", speaker="nonexistent_speaker")
+        req = GenerateRequest(
+            texts=["test"], mode="custom", speaker="nonexistent_speaker"
+        )
         with pytest.raises(HTTPException) as exc:
             _validate_generation_request(req, security_config)
         assert exc.value.status_code == 400
@@ -178,7 +186,9 @@ class TestValidateGenerationRequest(unittest.TestCase):
             _validate_generation_request,
         )
 
-        req = GenerateRequest(texts=["test"], mode="design", voice_description="A calm voice")
+        req = GenerateRequest(
+            texts=["test"], mode="design", voice_description="A calm voice"
+        )
         _validate_generation_request(req, security_config)  # No exception
 
 
@@ -376,8 +386,9 @@ class TestGenCacheKey(unittest.TestCase):
 
         base = ("hello", "clone", {"temp": 0.7})
         a = _gen_cache_key(*base)
-        b = _gen_cache_key(*base, language=None, x_vector_only_mode=False,
-                           seed_lock_chunks=False)
+        b = _gen_cache_key(
+            *base, language=None, x_vector_only_mode=False, seed_lock_chunks=False
+        )
         assert a == b
 
 
@@ -392,6 +403,7 @@ class TestTranscribeRequestValidation(unittest.TestCase):
     def test_language_accepts_valid(self):
         """TranscribeRequest accepts valid BCP-47 language codes."""
         from qwen3_tts.server.validation import TranscribeRequest
+
         for lang in ("en", "zh", "eng", "en-US", "zh-Hans"):
             with self.subTest(lang=lang):
                 req = TranscribeRequest(audio_base64="abc", language=lang)
@@ -402,6 +414,7 @@ class TestTranscribeRequestValidation(unittest.TestCase):
         from pydantic import ValidationError
 
         from qwen3_tts.server.validation import TranscribeRequest
+
         for lang in ("not_a_lang_code!!", "toolongcode", "EN", "e", "123"):
             with self.subTest(lang=lang):
                 with self.assertRaises(ValidationError):
@@ -412,6 +425,7 @@ class TestTranscribeRequestValidation(unittest.TestCase):
         from pydantic import ValidationError
 
         from qwen3_tts.server.validation import TranscribeRequest
+
         oversized = "A" * (51 * 1024 * 1024)
         with pytest.raises(ValidationError):
             TranscribeRequest(audio_base64=oversized, language="en")
@@ -419,6 +433,7 @@ class TestTranscribeRequestValidation(unittest.TestCase):
     def test_audio_base64_accepts_normal_payload(self):
         """TranscribeRequest accepts normally-sized base64 audio."""
         from qwen3_tts.server.validation import TranscribeRequest
+
         # ~1KB base64 — well within limit
         req = TranscribeRequest(audio_base64="A" * 1024, language="en")
         assert len(req.audio_base64) == 1024
@@ -432,6 +447,7 @@ class TestCreateVoicePromptRequestValidation(unittest.TestCase):
         from pydantic import ValidationError
 
         from qwen3_tts.server.validation import CreateVoicePromptRequest
+
         oversized = "A" * (51 * 1024 * 1024)
         with pytest.raises(ValidationError):
             CreateVoicePromptRequest(audio_base64=oversized, name="test")
@@ -439,6 +455,7 @@ class TestCreateVoicePromptRequestValidation(unittest.TestCase):
     def test_audio_base64_accepts_normal_payload(self):
         """CreateVoicePromptRequest accepts normally-sized base64 audio."""
         from qwen3_tts.server.validation import CreateVoicePromptRequest
+
         req = CreateVoicePromptRequest(audio_base64="A" * 1024, name="test_voice")
         assert req.name == "test_voice"
 
@@ -479,15 +496,18 @@ class TestMaxChunkCharsBounds(unittest.TestCase):
 
     def _req(self, **kwargs):
         from qwen3_tts.server.validation import GenerateRequest
+
         return GenerateRequest(text="hi", **kwargs)
 
     def test_negative_max_chunk_chars_rejected(self):
         from pydantic import ValidationError
+
         with self.assertRaises(ValidationError):
             self._req(max_chunk_chars=-1)
 
     def test_max_chunk_chars_above_limit_rejected(self):
         from pydantic import ValidationError
+
         with self.assertRaises(ValidationError):
             self._req(max_chunk_chars=10_001)
 
@@ -500,3 +520,77 @@ class TestMaxChunkCharsBounds(unittest.TestCase):
     def test_max_chunk_chars_boundaries_accepted(self):
         self.assertEqual(self._req(max_chunk_chars=1).max_chunk_chars, 1)
         self.assertEqual(self._req(max_chunk_chars=10_000).max_chunk_chars, 10_000)
+
+
+class TestGenerateRequestStringBounds(unittest.TestCase):
+    """voice_description/instruct/speaker/language/prompt_file were the only
+    GenerateRequest string fields with no length bound — only text/texts are
+    checked (against the runtime-configurable max_text_length), so an
+    unbounded field like instruct could carry a ~99 MB payload that gets fed
+    to the model while holding inference_lock (Step 6P). A too-long value
+    must be rejected as a 422 at the Pydantic boundary, not accepted and
+    fail later (or not fail at all).
+    """
+
+    def _req(self, **kwargs):
+        from qwen3_tts.server.validation import GenerateRequest
+
+        return GenerateRequest(text="hi", **kwargs)
+
+    def test_voice_description_above_limit_rejected(self):
+        from pydantic import ValidationError
+
+        with self.assertRaises(ValidationError):
+            self._req(voice_description="x" * 4001)
+
+    def test_voice_description_at_limit_accepted(self):
+        value = "x" * 4000
+        self.assertEqual(self._req(voice_description=value).voice_description, value)
+
+    def test_instruct_above_limit_rejected(self):
+        from pydantic import ValidationError
+
+        with self.assertRaises(ValidationError):
+            self._req(instruct="x" * 4001)
+
+    def test_instruct_at_limit_accepted(self):
+        value = "x" * 4000
+        self.assertEqual(self._req(instruct=value).instruct, value)
+
+    def test_speaker_above_limit_rejected(self):
+        from pydantic import ValidationError
+
+        with self.assertRaises(ValidationError):
+            self._req(speaker="x" * 65)
+
+    def test_speaker_at_limit_accepted(self):
+        value = "x" * 64
+        self.assertEqual(self._req(speaker=value).speaker, value)
+
+    def test_language_above_limit_rejected(self):
+        from pydantic import ValidationError
+
+        with self.assertRaises(ValidationError):
+            self._req(language="x" * 17)
+
+    def test_language_at_limit_accepted(self):
+        value = "x" * 16
+        self.assertEqual(self._req(language=value).language, value)
+
+    def test_prompt_file_above_limit_rejected(self):
+        from pydantic import ValidationError
+
+        with self.assertRaises(ValidationError):
+            self._req(prompt_file="x" * 256)
+
+    def test_prompt_file_at_limit_accepted(self):
+        value = "x" * 255
+        self.assertEqual(self._req(prompt_file=value).prompt_file, value)
+
+    def test_defaults_still_accepted(self):
+        req = self._req()
+        self.assertEqual(req.voice_description, "")
+        self.assertEqual(req.instruct, "")
+        self.assertEqual(req.language, "auto")
+        self.assertIsNone(req.speaker)
+        self.assertIsNone(req.prompt_file)
