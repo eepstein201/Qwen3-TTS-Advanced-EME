@@ -170,7 +170,13 @@ jobs:
 
     - name: Pytest with coverage (non-e2e)
       run: |
-        pytest -m "not e2e" --cov=qwen3_tts --cov-report=term-missing --cov-fail-under=80
+        pytest -m "not e2e" --cov=qwen3_tts --cov-report=term-missing --cov-report=json:coverage.json --cov-fail-under=80
+
+    - name: Per-module coverage floors
+      # Ratcheted allowlist (coverage-floors.json): a module below its floor
+      # fails CI even while the aggregate above stays green.
+      run: |
+        python -m qwen3_tts.tools.coverage_floors --coverage-json coverage.json
 
   test-docker:
     # Container-based testing
