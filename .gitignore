@@ -84,6 +84,7 @@ poltergeist.config.json
 
 # Test/coverage artifacts
 .coverage
+coverage.json
 .pytest_cache/
 .mypy_cache/
 .ruff_cache/
