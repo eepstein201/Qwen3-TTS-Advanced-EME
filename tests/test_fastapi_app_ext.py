@@ -14,6 +14,7 @@ Covers:
 
 Run: pytest tests/test_fastapi_app_ext.py -v
 """
+
 import os
 import socket
 import tempfile
@@ -24,6 +25,7 @@ from unittest.mock import MagicMock, patch
 
 try:
     from qwen3_tts.server.app import app as _app
+
     HAS_FASTAPI = True
 except ImportError:
     HAS_FASTAPI = False
@@ -109,7 +111,13 @@ class _FastApiTestCase(unittest.TestCase):
     def _reset_limiters(self):
         """Reset in-process rate limiters (house pattern; unittest ignores the
         pytest autouse fixture in conftest.py)."""
-        for attr in ("limiter", "limiter_global", "limiter_hybrid", "limiter_ip", "limiter_token"):
+        for attr in (
+            "limiter",
+            "limiter_global",
+            "limiter_hybrid",
+            "limiter_ip",
+            "limiter_token",
+        ):
             limiter = getattr(_app.state, attr, None)
             if limiter is not None and hasattr(limiter, "reset"):
                 limiter.reset()
@@ -119,14 +127,16 @@ class _FastApiTestCase(unittest.TestCase):
 # /load-model success + error paths
 # ---------------------------------------------------------------------------
 
-class TestLoadModelSuccess(_FastApiTestCase):
 
+class TestLoadModelSuccess(_FastApiTestCase):
     def test_load_success(self):
         client = self.client
         mock_model = MagicMock()
         info = {"name": "TestModel", "description": "Test"}
-        with patch("qwen3_tts.core.engine.load_model", return_value=mock_model), \
-             patch("qwen3_tts.core.config.get_model_info", return_value=info):
+        with (
+            patch("qwen3_tts.core.engine.load_model", return_value=mock_model),
+            patch("qwen3_tts.core.config.get_model_info", return_value=info),
+        ):
             resp = client.post("/load-model", json={"model_type": "clone"})
         assert resp.status_code == 200
         data = resp.json()
@@ -136,8 +146,12 @@ class TestLoadModelSuccess(_FastApiTestCase):
     def test_load_import_error(self):
         client = self.client
         info = {"name": "TestModel", "description": "Test"}
-        with patch("qwen3_tts.core.engine.load_model", side_effect=ImportError("no mlx")), \
-             patch("qwen3_tts.core.config.get_model_info", return_value=info):
+        with (
+            patch(
+                "qwen3_tts.core.engine.load_model", side_effect=ImportError("no mlx")
+            ),
+            patch("qwen3_tts.core.config.get_model_info", return_value=info),
+        ):
             resp = client.post("/load-model", json={"model_type": "design"})
         # _error_response raises HTTPException → 500
         assert resp.status_code == 500
@@ -146,8 +160,10 @@ class TestLoadModelSuccess(_FastApiTestCase):
     def test_load_runtime_error(self):
         client = self.client
         info = {"name": "TestModel", "description": "Test"}
-        with patch("qwen3_tts.core.engine.load_model", side_effect=RuntimeError("OOM")), \
-             patch("qwen3_tts.core.config.get_model_info", return_value=info):
+        with (
+            patch("qwen3_tts.core.engine.load_model", side_effect=RuntimeError("OOM")),
+            patch("qwen3_tts.core.config.get_model_info", return_value=info),
+        ):
             resp = client.post("/load-model", json={"model_type": "custom"})
         assert resp.status_code == 500
         assert _app.state.model_load_errors["custom"] is not None
@@ -155,8 +171,10 @@ class TestLoadModelSuccess(_FastApiTestCase):
     def test_load_unexpected_error(self):
         client = self.client
         info = {"name": "TestModel", "description": "Test"}
-        with patch("qwen3_tts.core.engine.load_model", side_effect=TypeError("weird")), \
-             patch("qwen3_tts.core.config.get_model_info", return_value=info):
+        with (
+            patch("qwen3_tts.core.engine.load_model", side_effect=TypeError("weird")),
+            patch("qwen3_tts.core.config.get_model_info", return_value=info),
+        ):
             resp = client.post("/load-model", json={"model_type": "clone"})
         assert resp.status_code == 500
 
@@ -165,8 +183,8 @@ class TestLoadModelSuccess(_FastApiTestCase):
 # /unload-model success path
 # ---------------------------------------------------------------------------
 
-class TestUnloadModelSuccess(_FastApiTestCase):
 
+class TestUnloadModelSuccess(_FastApiTestCase):
     def test_unload_success(self):
         client = self.client
         _app.state.models["clone"] = MagicMock()
@@ -185,7 +203,9 @@ class TestUnloadModelSuccess(_FastApiTestCase):
         # Create a cache file
         cache_file = tmp_path / "cached.wav"
         cache_file.write_text("data")
-        _app.state.gen_cache = {"key1": {"main_file": str(cache_file), "sample_rate": 24000}}
+        _app.state.gen_cache = {
+            "key1": {"main_file": str(cache_file), "sample_rate": 24000}
+        }
         with patch("qwen3_tts.core.engine.unload_model_cleanup"):
             resp = client.post("/unload-model", json={"model_type": "design"})
         assert resp.status_code == 200
@@ -197,12 +217,13 @@ class TestUnloadModelSuccess(_FastApiTestCase):
 # /generate success path
 # ---------------------------------------------------------------------------
 
-class TestGenerateSuccess(_FastApiTestCase):
 
+class TestGenerateSuccess(_FastApiTestCase):
     def test_generate_clone_success(self):
         """Test the full generate success path with mocked inference."""
         client = self.client
         import numpy as np
+
         mock_model = MagicMock()
         _app.state.models["clone"] = mock_model
         _app.state.models_loaded.set()
@@ -211,21 +232,27 @@ class TestGenerateSuccess(_FastApiTestCase):
         wav = np.zeros(4800, dtype=np.float32)
         sr = 24000
 
-        with patch(f"{_APP_GENERATION}._check_memory_available", return_value=(True, 4000)), \
-             patch("qwen3_tts.core.engine.load_voice_prompt", return_value=MagicMock()), \
-             patch("qwen3_tts.core.engine.run_inference", return_value=(wav, sr)), \
-             patch(f"{_APP_GENERATION}._gen_cache_key", return_value="test_key"), \
-             patch("tempfile.NamedTemporaryFile") as mock_tmp:
+        with (
+            patch(
+                f"{_APP_GENERATION}._check_memory_available", return_value=(True, 4000)
+            ),
+            patch("qwen3_tts.core.engine.load_voice_prompt", return_value=MagicMock()),
+            patch("qwen3_tts.core.engine.run_inference", return_value=(wav, sr)),
+            patch(f"{_APP_GENERATION}._gen_cache_key", return_value="test_key"),
+            patch("tempfile.NamedTemporaryFile") as mock_tmp,
+        ):
             mock_file = MagicMock()
             mock_file.name = "/tmp/test_cache.wav"
             mock_tmp.return_value = mock_file
-            with patch("os.chmod"), \
-                 patch("soundfile.write"):
-                resp = client.post("/generate", json={
-                    "text": "Hello world",
-                    "mode": "clone",
-                    "prompt_file": "voice.wav",
-                })
+            with patch("os.chmod"), patch("soundfile.write"):
+                resp = client.post(
+                    "/generate",
+                    json={
+                        "text": "Hello world",
+                        "mode": "clone",
+                        "prompt_file": "voice.wav",
+                    },
+                )
         assert resp.status_code == 200
         data = resp.json()
         assert "results" in data
@@ -242,19 +269,28 @@ class TestGenerateSuccess(_FastApiTestCase):
         # Put a file in gen_cache
         cache_file = tmp_path / "cached.wav"
         cache_file.write_bytes(b"RIFF" + b"\x00" * 100)
-        _app.state.gen_cache = {"test_key": {
-            "main_file": str(cache_file),
-            "sample_rate": 24000,
-            "timestamp": time.time(),
-        }}
+        _app.state.gen_cache = {
+            "test_key": {
+                "main_file": str(cache_file),
+                "sample_rate": 24000,
+                "timestamp": time.time(),
+            }
+        }
 
-        with patch(f"{_APP_GENERATION}._check_memory_available", return_value=(True, 4000)), \
-             patch(f"{_APP_GENERATION}._gen_cache_key", return_value="test_key"):
-            resp = client.post("/generate", json={
-                "text": "Hello cached",
-                "mode": "clone",
-                "prompt_file": "voice.wav",
-            })
+        with (
+            patch(
+                f"{_APP_GENERATION}._check_memory_available", return_value=(True, 4000)
+            ),
+            patch(f"{_APP_GENERATION}._gen_cache_key", return_value="test_key"),
+        ):
+            resp = client.post(
+                "/generate",
+                json={
+                    "text": "Hello cached",
+                    "mode": "clone",
+                    "prompt_file": "voice.wav",
+                },
+            )
         assert resp.status_code == 200
         data = resp.json()
         assert len(data["results"]) == 1
@@ -264,25 +300,33 @@ class TestGenerateSuccess(_FastApiTestCase):
         """Test design mode generation (no prompt_file needed)."""
         client = self.client
         import numpy as np
+
         mock_model = MagicMock()
         _app.state.models["design"] = mock_model
 
         wav = np.zeros(4800, dtype=np.float32)
         sr = 24000
 
-        with patch(f"{_APP_GENERATION}._check_memory_available", return_value=(True, 4000)), \
-             patch("qwen3_tts.core.engine.run_inference", return_value=(wav, sr)), \
-             patch(f"{_APP_GENERATION}._gen_cache_key", return_value="design_key"), \
-             patch("tempfile.NamedTemporaryFile") as mock_tmp:
+        with (
+            patch(
+                f"{_APP_GENERATION}._check_memory_available", return_value=(True, 4000)
+            ),
+            patch("qwen3_tts.core.engine.run_inference", return_value=(wav, sr)),
+            patch(f"{_APP_GENERATION}._gen_cache_key", return_value="design_key"),
+            patch("tempfile.NamedTemporaryFile") as mock_tmp,
+        ):
             mock_file = MagicMock()
             mock_file.name = "/tmp/design_cache.wav"
             mock_tmp.return_value = mock_file
             with patch("os.chmod"), patch("soundfile.write"):
-                resp = client.post("/generate", json={
-                    "text": "Hello world",
-                    "mode": "design",
-                    "voice_description": "warm female voice",
-                })
+                resp = client.post(
+                    "/generate",
+                    json={
+                        "text": "Hello world",
+                        "mode": "design",
+                        "voice_description": "warm female voice",
+                    },
+                )
         assert resp.status_code == 200
         data = resp.json()
         assert len(data["results"]) == 1
@@ -292,15 +336,25 @@ class TestGenerateSuccess(_FastApiTestCase):
         client = self.client
         _app.state.models["clone"] = MagicMock()
 
-        with patch(f"{_APP_GENERATION}._check_memory_available", return_value=(True, 4000)), \
-             patch("qwen3_tts.core.engine.load_voice_prompt", return_value=MagicMock()), \
-             patch("qwen3_tts.core.engine.run_inference", side_effect=RuntimeError("CUDA OOM")), \
-             patch(f"{_APP_GENERATION}._gen_cache_key", return_value="err_key"):
-            resp = client.post("/generate", json={
-                "text": "Hello",
-                "mode": "clone",
-                "prompt_file": "voice.wav",
-            })
+        with (
+            patch(
+                f"{_APP_GENERATION}._check_memory_available", return_value=(True, 4000)
+            ),
+            patch("qwen3_tts.core.engine.load_voice_prompt", return_value=MagicMock()),
+            patch(
+                "qwen3_tts.core.engine.run_inference",
+                side_effect=RuntimeError("CUDA OOM"),
+            ),
+            patch(f"{_APP_GENERATION}._gen_cache_key", return_value="err_key"),
+        ):
+            resp = client.post(
+                "/generate",
+                json={
+                    "text": "Hello",
+                    "mode": "clone",
+                    "prompt_file": "voice.wav",
+                },
+            )
         assert resp.status_code == 500
 
     def test_generate_clone_no_prompt(self):
@@ -308,12 +362,19 @@ class TestGenerateSuccess(_FastApiTestCase):
         client = self.client
         _app.state.models["clone"] = MagicMock()
 
-        with patch(f"{_APP_GENERATION}._check_memory_available", return_value=(True, 4000)), \
-             patch(f"{_APP_GENERATION}._gen_cache_key", return_value="nope"):
-            resp = client.post("/generate", json={
-                "text": "Hello",
-                "mode": "clone",
-            })
+        with (
+            patch(
+                f"{_APP_GENERATION}._check_memory_available", return_value=(True, 4000)
+            ),
+            patch(f"{_APP_GENERATION}._gen_cache_key", return_value="nope"),
+        ):
+            resp = client.post(
+                "/generate",
+                json={
+                    "text": "Hello",
+                    "mode": "clone",
+                },
+            )
         assert resp.status_code == 400
 
 
@@ -321,40 +382,44 @@ class TestGenerateSuccess(_FastApiTestCase):
 # /shutdown endpoint
 # ---------------------------------------------------------------------------
 
-class TestShutdownEndpoint(_FastApiTestCase):
 
+class TestShutdownEndpoint(_FastApiTestCase):
     def test_shutdown_returns_json(self):
         client = self.client
-        _app.state.shutdown_timer = None
         # Prevent the background task from actually sending SIGTERM
-        with patch("os.kill"), \
-             patch(f"{_APP}.cleanup_pid_file"), \
-             patch(f"{_APP}.cleanup_resources"), \
-             patch("os.path.exists", return_value=False):
+        with (
+            patch("os.kill"),
+            patch(f"{_APP}.cleanup_pid_file"),
+            patch(f"{_APP}.cleanup_resources"),
+            patch("os.path.exists", return_value=False),
+        ):
             resp = client.post("/shutdown")
         assert resp.status_code == 200
         data = resp.json()
         assert data["status"] == "shutting_down"
 
-    def test_shutdown_cancels_timer(self):
+    def test_shutdown_calls_cleanup_resources(self):
+        """The /shutdown background task delegates all cleanup — including
+        stopping the auto-shutdown watchdog thread — to cleanup_resources.
+        Step 6H removed the endpoint's own direct shutdown_timer cancel."""
         client = self.client
-        mock_timer = MagicMock()
-        _app.state.shutdown_timer = mock_timer
-        with patch("os.kill"), \
-             patch(f"{_APP}.cleanup_pid_file"), \
-             patch(f"{_APP}.cleanup_resources"), \
-             patch("os.path.exists", return_value=False):
+        with (
+            patch("os.kill"),
+            patch(f"{_APP}.cleanup_pid_file"),
+            patch(f"{_APP}.cleanup_resources") as mock_cleanup,
+            patch("os.path.exists", return_value=False),
+        ):
             resp = client.post("/shutdown")
         assert resp.status_code == 200
-        mock_timer.cancel.assert_called_once()
+        mock_cleanup.assert_called_once()
 
 
 # ---------------------------------------------------------------------------
 # /rename-prompt success + rollback + default update
 # ---------------------------------------------------------------------------
 
-class TestRenamePromptSuccess(_FastApiTestCase):
 
+class TestRenamePromptSuccess(_FastApiTestCase):
     def test_rename_success(self):
         client = self.client
         tmp_path = self.tmp_path
@@ -364,14 +429,19 @@ class TestRenamePromptSuccess(_FastApiTestCase):
         wav_path.write_text("audio")
         txt_path.write_text("transcript")
 
-        with patch(f"{_APP_PROMPTS}.VOICE_PROMPTS_DIR", str(tmp_path)), \
-             patch("qwen3_tts.core.engine.clear_voice_prompt_cache"), \
-             patch(f"{_APP}._get_app_config", return_value={"default_clone_prompt": ""}), \
-             patch(f"{_APP_PROMPTS}.save_config"):
-            resp = client.post("/rename-prompt", json={
-                "old_name": "old_voice",
-                "new_name": "new_voice",
-            })
+        with (
+            patch(f"{_APP_PROMPTS}.VOICE_PROMPTS_DIR", str(tmp_path)),
+            patch("qwen3_tts.core.engine.clear_voice_prompt_cache"),
+            patch(f"{_APP}._get_app_config", return_value={"default_clone_prompt": ""}),
+            patch(f"{_APP_PROMPTS}.save_config"),
+        ):
+            resp = client.post(
+                "/rename-prompt",
+                json={
+                    "old_name": "old_voice",
+                    "new_name": "new_voice",
+                },
+            )
         assert resp.status_code == 200
         data = resp.json()
         assert data["status"] == "renamed"
@@ -390,14 +460,22 @@ class TestRenamePromptSuccess(_FastApiTestCase):
         def _save(cfg):
             saved_config.update(cfg)
 
-        with patch(f"{_APP_PROMPTS}.VOICE_PROMPTS_DIR", str(tmp_path)), \
-             patch("qwen3_tts.core.engine.clear_voice_prompt_cache"), \
-             patch(f"{_APP}._get_app_config", return_value={"default_clone_prompt": "my_voice"}), \
-             patch(f"{_APP_PROMPTS}.save_config", side_effect=_save):
-            resp = client.post("/rename-prompt", json={
-                "old_name": "my_voice",
-                "new_name": "renamed_voice",
-            })
+        with (
+            patch(f"{_APP_PROMPTS}.VOICE_PROMPTS_DIR", str(tmp_path)),
+            patch("qwen3_tts.core.engine.clear_voice_prompt_cache"),
+            patch(
+                f"{_APP}._get_app_config",
+                return_value={"default_clone_prompt": "my_voice"},
+            ),
+            patch(f"{_APP_PROMPTS}.save_config", side_effect=_save),
+        ):
+            resp = client.post(
+                "/rename-prompt",
+                json={
+                    "old_name": "my_voice",
+                    "new_name": "renamed_voice",
+                },
+            )
         assert resp.status_code == 200
         assert saved_config.get("default_clone_prompt") == "renamed_voice"
 
@@ -417,12 +495,17 @@ class TestRenamePromptSuccess(_FastApiTestCase):
                 raise OSError("disk full")
             original_rename(src, dst)
 
-        with patch(f"{_APP_PROMPTS}.VOICE_PROMPTS_DIR", str(tmp_path)), \
-             patch(f"{_APP_PROMPTS}.os.rename", side_effect=_failing_rename):
-            resp = client.post("/rename-prompt", json={
-                "old_name": "voice",
-                "new_name": "voice2",
-            })
+        with (
+            patch(f"{_APP_PROMPTS}.VOICE_PROMPTS_DIR", str(tmp_path)),
+            patch(f"{_APP_PROMPTS}.os.rename", side_effect=_failing_rename),
+        ):
+            resp = client.post(
+                "/rename-prompt",
+                json={
+                    "old_name": "voice",
+                    "new_name": "voice2",
+                },
+            )
         assert resp.status_code == 500
 
 
@@ -430,8 +513,8 @@ class TestRenamePromptSuccess(_FastApiTestCase):
 # /preview-prompt success
 # ---------------------------------------------------------------------------
 
-class TestPreviewPromptSuccess(_FastApiTestCase):
 
+class TestPreviewPromptSuccess(_FastApiTestCase):
     def test_preview_returns_wav(self):
         client = self.client
         tmp_path = self.tmp_path
@@ -448,8 +531,8 @@ class TestPreviewPromptSuccess(_FastApiTestCase):
 # /prompt-details success
 # ---------------------------------------------------------------------------
 
-class TestPromptDetailsSuccess(_FastApiTestCase):
 
+class TestPromptDetailsSuccess(_FastApiTestCase):
     def test_single_prompt_details(self):
         client = self.client
         tmp_path = self.tmp_path
@@ -458,8 +541,12 @@ class TestPromptDetailsSuccess(_FastApiTestCase):
         wav.write_bytes(b"RIFF" + b"\x00" * 40)
         txt.write_text("transcript")
 
-        with patch(f"{_APP_PROMPTS}.VOICE_PROMPTS_DIR", str(tmp_path)), \
-             patch(f"{_APP_PROMPTS}.get_default_clone_prompt", return_value="test_voice"):
+        with (
+            patch(f"{_APP_PROMPTS}.VOICE_PROMPTS_DIR", str(tmp_path)),
+            patch(
+                f"{_APP_PROMPTS}.get_default_clone_prompt", return_value="test_voice"
+            ),
+        ):
             resp = client.get("/prompt-details?name=test_voice")
         assert resp.status_code == 200
         data = resp.json()
@@ -475,8 +562,10 @@ class TestPromptDetailsSuccess(_FastApiTestCase):
         (tmp_path / "a.txt").write_text("text")
         (tmp_path / "b.pt").write_text("model")
 
-        with patch(f"{_APP_PROMPTS}.VOICE_PROMPTS_DIR", str(tmp_path)), \
-             patch(f"{_APP_PROMPTS}.get_default_clone_prompt", return_value="a"):
+        with (
+            patch(f"{_APP_PROMPTS}.VOICE_PROMPTS_DIR", str(tmp_path)),
+            patch(f"{_APP_PROMPTS}.get_default_clone_prompt", return_value="a"),
+        ):
             resp = client.get("/prompt-details")
         assert resp.status_code == 200
         data = resp.json()
@@ -484,8 +573,10 @@ class TestPromptDetailsSuccess(_FastApiTestCase):
 
     def test_prompt_details_oserror(self):
         client = self.client
-        with patch(f"{_APP_PROMPTS}.VOICE_PROMPTS_DIR", "/nonexistent_dir_xyz"), \
-             patch(f"{_APP_PROMPTS}.get_default_clone_prompt", return_value=""):
+        with (
+            patch(f"{_APP_PROMPTS}.VOICE_PROMPTS_DIR", "/nonexistent_dir_xyz"),
+            patch(f"{_APP_PROMPTS}.get_default_clone_prompt", return_value=""),
+        ):
             resp = client.get("/prompt-details")
         assert resp.status_code == 200
         assert resp.json()["prompts"] == []
@@ -495,9 +586,9 @@ class TestPromptDetailsSuccess(_FastApiTestCase):
 # _background_load
 # ---------------------------------------------------------------------------
 
+
 @unittest.skipUnless(HAS_FASTAPI, "requires fastapi")
 class TestBackgroundLoad(unittest.TestCase):
-
     def test_loads_configured_models(self):
         from qwen3_tts.server.app import _background_load
 
@@ -514,10 +605,12 @@ class TestBackgroundLoad(unittest.TestCase):
 
         mock_model = MagicMock()
         info = {"name": "TestModel"}
-        with patch("qwen3_tts.core.engine.load_model", return_value=mock_model), \
-             patch("qwen3_tts.core.config.get_model_info", return_value=info), \
-             patch(f"{_APP_LIFESPAN}.get_backend", return_value="mlx"), \
-             patch("qwen3_tts.core.engine.migrate_orphan_mlx_prompts"):
+        with (
+            patch("qwen3_tts.core.engine.load_model", return_value=mock_model),
+            patch("qwen3_tts.core.config.get_model_info", return_value=info),
+            patch(f"{_APP_LIFESPAN}.get_backend", return_value="mlx"),
+            patch("qwen3_tts.core.engine.migrate_orphan_mlx_prompts"),
+        ):
             _background_load(app_state)
 
         assert app_state.models["clone"] is mock_model
@@ -528,17 +621,17 @@ class TestBackgroundLoad(unittest.TestCase):
         from qwen3_tts.server.app import _background_load
 
         app_state = MagicMock()
-        app_state.server_config = {
-            "models": {"clone": {"load_at_startup": True}}
-        }
+        app_state.server_config = {"models": {"clone": {"load_at_startup": True}}}
         app_state.models = {"clone": None, "design": None, "custom": None}
         app_state.model_load_times = {}
         app_state.model_load_errors = {"clone": None, "design": None, "custom": None}
 
-        with patch("qwen3_tts.core.engine.load_model", side_effect=RuntimeError("OOM")), \
-             patch("qwen3_tts.core.config.get_model_info", return_value={"name": "M"}), \
-             patch(f"{_APP_LIFESPAN}.get_backend", return_value="mlx"), \
-             patch("qwen3_tts.core.engine.migrate_orphan_mlx_prompts"):
+        with (
+            patch("qwen3_tts.core.engine.load_model", side_effect=RuntimeError("OOM")),
+            patch("qwen3_tts.core.config.get_model_info", return_value={"name": "M"}),
+            patch(f"{_APP_LIFESPAN}.get_backend", return_value="mlx"),
+            patch("qwen3_tts.core.engine.migrate_orphan_mlx_prompts"),
+        ):
             _background_load(app_state)
 
         assert app_state.model_load_errors["clone"] is not None
@@ -553,8 +646,10 @@ class TestBackgroundLoad(unittest.TestCase):
         app_state.model_load_times = {}
         app_state.model_load_errors = {"clone": None, "design": None, "custom": None}
 
-        with patch(f"{_APP_LIFESPAN}.get_backend", return_value="mlx"), \
-             patch("qwen3_tts.core.engine.migrate_orphan_mlx_prompts"):
+        with (
+            patch(f"{_APP_LIFESPAN}.get_backend", return_value="mlx"),
+            patch("qwen3_tts.core.engine.migrate_orphan_mlx_prompts"),
+        ):
             _background_load(app_state)
 
         app_state.models_loaded.set.assert_called_once()
@@ -568,8 +663,10 @@ class TestBackgroundLoad(unittest.TestCase):
         app_state.model_load_times = {}
         app_state.model_load_errors = {"clone": None, "design": None, "custom": None}
 
-        with patch(f"{_APP_LIFESPAN}.get_backend", return_value="torch"), \
-             patch("qwen3_tts.core.engine.migrate_orphan_mlx_prompts") as mock_migrate:
+        with (
+            patch(f"{_APP_LIFESPAN}.get_backend", return_value="torch"),
+            patch("qwen3_tts.core.engine.migrate_orphan_mlx_prompts") as mock_migrate,
+        ):
             _background_load(app_state)
 
         mock_migrate.assert_called_once()
@@ -579,27 +676,33 @@ class TestBackgroundLoad(unittest.TestCase):
 # run_server basics
 # ---------------------------------------------------------------------------
 
+
 @unittest.skipUnless(HAS_FASTAPI, "requires fastapi")
 class TestRunServer(unittest.TestCase):
-
     def test_run_server_public_binds_all(self):
         from qwen3_tts.server.app import run_server
-        with patch(f"{_APP}.uvicorn") as mock_uv, \
-             patch(f"{_APP}.IN_COLAB", False), \
-             patch("qwen3_tts.core.config.LOG_FILE", "/tmp/fake_log.log"), \
-             patch("signal.signal"), \
-             patch("builtins.print"):
+
+        with (
+            patch(f"{_APP}.uvicorn") as mock_uv,
+            patch(f"{_APP}.IN_COLAB", False),
+            patch("qwen3_tts.core.config.LOG_FILE", "/tmp/fake_log.log"),
+            patch("signal.signal"),
+            patch("builtins.print"),
+        ):
             run_server(host="127.0.0.1", port=5123, public=True)
         call_kw = mock_uv.run.call_args
         assert call_kw[1]["host"] == "0.0.0.0"
 
     def test_run_server_colab_binds_all(self):
         from qwen3_tts.server.app import run_server
-        with patch(f"{_APP}.uvicorn") as mock_uv, \
-             patch(f"{_APP}.IN_COLAB", True), \
-             patch("qwen3_tts.core.config.LOG_FILE", "/tmp/fake_log.log"), \
-             patch("signal.signal"), \
-             patch("builtins.print"):
+
+        with (
+            patch(f"{_APP}.uvicorn") as mock_uv,
+            patch(f"{_APP}.IN_COLAB", True),
+            patch("qwen3_tts.core.config.LOG_FILE", "/tmp/fake_log.log"),
+            patch("signal.signal"),
+            patch("builtins.print"),
+        ):
             run_server(host="127.0.0.1", port=5123, public=False)
         call_kw = mock_uv.run.call_args
         assert call_kw[1]["host"] == "0.0.0.0"
@@ -609,8 +712,8 @@ class TestRunServer(unittest.TestCase):
 # /delete-prompt clears default config
 # ---------------------------------------------------------------------------
 
-class TestDeletePromptDefaultClear(_FastApiTestCase):
 
+class TestDeletePromptDefaultClear(_FastApiTestCase):
     def test_delete_clears_default(self):
         """When deleted prompt was the default, config.default_clone_prompt is cleared."""
         client = self.client
@@ -622,10 +725,15 @@ class TestDeletePromptDefaultClear(_FastApiTestCase):
         def _save(cfg):
             saved_config.update(cfg)
 
-        with patch(f"{_APP_PROMPTS}.VOICE_PROMPTS_DIR", str(tmp_path)), \
-             patch("qwen3_tts.core.engine.clear_voice_prompt_cache"), \
-             patch(f"{_APP}._get_app_config", return_value={"default_clone_prompt": "def_voice"}), \
-             patch(f"{_APP_PROMPTS}.save_config", side_effect=_save):
+        with (
+            patch(f"{_APP_PROMPTS}.VOICE_PROMPTS_DIR", str(tmp_path)),
+            patch("qwen3_tts.core.engine.clear_voice_prompt_cache"),
+            patch(
+                f"{_APP}._get_app_config",
+                return_value={"default_clone_prompt": "def_voice"},
+            ),
+            patch(f"{_APP_PROMPTS}.save_config", side_effect=_save),
+        ):
             resp = client.post("/delete-prompt", json={"name": "def_voice"})
         assert resp.status_code == 200
         assert saved_config.get("default_clone_prompt") == ""
@@ -635,8 +743,8 @@ class TestDeletePromptDefaultClear(_FastApiTestCase):
 # /list-models (stats endpoint with model info)
 # ---------------------------------------------------------------------------
 
-class TestListModels(_FastApiTestCase):
 
+class TestListModels(_FastApiTestCase):
     def test_list_models_with_loaded(self):
         client = self.client
         _app.state.models["clone"] = MagicMock()
@@ -644,8 +752,10 @@ class TestListModels(_FastApiTestCase):
         _app.state.models_loaded.set()
 
         info = {"name": "TestModel", "description": "Test", "memory_mb": 2500}
-        with patch("qwen3_tts.core.config.get_model_info", return_value=info), \
-             patch(f"{_APP_MODELS}.get_backend", return_value="mlx"):
+        with (
+            patch("qwen3_tts.core.config.get_model_info", return_value=info),
+            patch(f"{_APP_MODELS}.get_backend", return_value="mlx"),
+        ):
             resp = client.get("/models")
         assert resp.status_code == 200
         data = resp.json()

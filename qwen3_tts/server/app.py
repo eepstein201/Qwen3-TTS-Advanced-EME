@@ -352,9 +352,9 @@ async def _send_413(scope, receive, send) -> None:
     """Send a minimal 413 JSON response (matches the prior middleware body)."""
     from fastapi.responses import JSONResponse
 
-    await JSONResponse(
-        status_code=413, content={"detail": "Request body too large"}
-    )(scope, receive, send)
+    await JSONResponse(status_code=413, content={"detail": "Request body too large"})(
+        scope, receive, send
+    )
 
 
 class RequestBodySizeLimitMiddleware:
@@ -460,11 +460,19 @@ def _rate_limit_from_env(env_key: str, config_key: str, default: str) -> str:
     return os.environ.get(env_key) or _rate_config.get(config_key, default)
 
 
-_generate_limit = _rate_limit_from_env("TTS_RATE_LIMIT_GENERATE", "generate", "10/minute")
+_generate_limit = _rate_limit_from_env(
+    "TTS_RATE_LIMIT_GENERATE", "generate", "10/minute"
+)
 _model_limit = _rate_limit_from_env("TTS_RATE_LIMIT_MODEL_OPS", "model_ops", "5/minute")
-_transcribe_limit = _rate_limit_from_env("TTS_RATE_LIMIT_TRANSCRIBE", "transcribe", "10/minute")
-_prompt_ops_limit = _rate_limit_from_env("TTS_RATE_LIMIT_PROMPT_OPS", "prompt_ops", "10/minute")
-_config_ops_limit = _rate_limit_from_env("TTS_RATE_LIMIT_CONFIG_OPS", "config_ops", "2/minute")
+_transcribe_limit = _rate_limit_from_env(
+    "TTS_RATE_LIMIT_TRANSCRIBE", "transcribe", "10/minute"
+)
+_prompt_ops_limit = _rate_limit_from_env(
+    "TTS_RATE_LIMIT_PROMPT_OPS", "prompt_ops", "10/minute"
+)
+_config_ops_limit = _rate_limit_from_env(
+    "TTS_RATE_LIMIT_CONFIG_OPS", "config_ops", "2/minute"
+)
 
 # Global pre-auth FLOOD backstop, deliberately decoupled from the per-route
 # generate limit. The Gradio UI polls /health + /models every 5s (~24/min), so
@@ -624,7 +632,11 @@ async def ready(request: Request) -> dict:
     return {"status": "ready"}
 
 
-@app.get("/generation-status", response_model=GenerationStatusResponse, response_model_exclude_unset=True)
+@app.get(
+    "/generation-status",
+    response_model=GenerationStatusResponse,
+    response_model_exclude_unset=True,
+)
 async def generation_status(request: Request) -> dict:
     """Get current generation status (public — sensitive fields stripped)."""
     state = request.app.state
@@ -647,7 +659,11 @@ async def generation_status(request: Request) -> dict:
     return result
 
 
-@app.get("/queue-status", response_model=QueueStatusResponse, response_model_exclude_unset=True)
+@app.get(
+    "/queue-status",
+    response_model=QueueStatusResponse,
+    response_model_exclude_unset=True,
+)
 async def queue_status(request: Request) -> dict:
     """Get generation queue status (public — sensitive fields stripped)."""
     state = request.app.state
@@ -685,12 +701,12 @@ async def list_models(request: Request, _auth: None = Depends(verify_auth)) -> d
     reset_activity_timer(state)
     # Sync handler: lazily imports the engine for ASR info — off the event
     # loop like its /stats sibling above.
-    return await asyncio.to_thread(
-        handle_list_models, state, state.server_config
-    )
+    return await asyncio.to_thread(handle_list_models, state, state.server_config)
 
 
-@app.post("/load-model", response_model=ModelOpResponse, response_model_exclude_unset=True)
+@app.post(
+    "/load-model", response_model=ModelOpResponse, response_model_exclude_unset=True
+)
 @_rate_limit(_model_limit)
 async def load_model_endpoint(
     request: Request, req: LoadModelRequest, _auth: None = Depends(verify_auth)
@@ -703,7 +719,9 @@ async def load_model_endpoint(
     return await handle_load_model(state, req, request=request)
 
 
-@app.post("/unload-model", response_model=ModelOpResponse, response_model_exclude_unset=True)
+@app.post(
+    "/unload-model", response_model=ModelOpResponse, response_model_exclude_unset=True
+)
 @_rate_limit(_model_limit, strategy="hybrid")
 async def unload_model(
     request: Request, req: UnloadModelRequest, _auth: None = Depends(verify_auth)
@@ -735,7 +753,11 @@ async def unload_model(
         return await asyncio.to_thread(handle_unload_model, state, req)
 
 
-@app.post("/update-model-config", response_model=UpdateModelConfigResponse, response_model_exclude_unset=True)
+@app.post(
+    "/update-model-config",
+    response_model=UpdateModelConfigResponse,
+    response_model_exclude_unset=True,
+)
 @_rate_limit(_model_limit)
 async def update_model_config(
     request: Request, req: UpdateModelConfigRequest, _auth: None = Depends(verify_auth)
@@ -754,7 +776,11 @@ async def update_model_config(
         return await handle_update_model_config(state, req, _get_app_config)
 
 
-@app.post("/update-startup-config", response_model=UpdateStartupConfigResponse, response_model_exclude_unset=True)
+@app.post(
+    "/update-startup-config",
+    response_model=UpdateStartupConfigResponse,
+    response_model_exclude_unset=True,
+)
 @_rate_limit(_config_ops_limit, strategy="hybrid")
 async def update_startup_config(
     request: Request,
@@ -774,7 +800,9 @@ async def update_startup_config(
 # ---------------------------------------------------------------------------
 
 
-@app.post("/load-asr", response_model=LoadAsrResponse, response_model_exclude_unset=True)
+@app.post(
+    "/load-asr", response_model=LoadAsrResponse, response_model_exclude_unset=True
+)
 @_rate_limit(_model_limit)
 async def load_asr(request: Request, _auth: None = Depends(verify_auth)):
     """Load the ASR model for transcription."""
@@ -783,7 +811,9 @@ async def load_asr(request: Request, _auth: None = Depends(verify_auth)):
     return await asyncio.to_thread(handle_load_asr, state)
 
 
-@app.post("/unload-asr", response_model=UnloadAsrResponse, response_model_exclude_unset=True)
+@app.post(
+    "/unload-asr", response_model=UnloadAsrResponse, response_model_exclude_unset=True
+)
 @_rate_limit(_model_limit, strategy="hybrid")
 async def unload_asr(request: Request, _auth: None = Depends(verify_auth)):
     """Unload the ASR model to free memory.
@@ -811,7 +841,9 @@ async def unload_asr(request: Request, _auth: None = Depends(verify_auth)):
         return await asyncio.to_thread(handle_unload_asr, state)
 
 
-@app.post("/transcribe", response_model=TranscribeResponse, response_model_exclude_unset=True)
+@app.post(
+    "/transcribe", response_model=TranscribeResponse, response_model_exclude_unset=True
+)
 @_rate_limit(_transcribe_limit)
 async def transcribe(
     request: Request, req: TranscribeRequest, _auth: None = Depends(verify_auth)
@@ -822,7 +854,9 @@ async def transcribe(
     return await handle_transcribe(state, req)
 
 
-@app.get("/prompts", response_model=PromptsListResponse, response_model_exclude_unset=True)
+@app.get(
+    "/prompts", response_model=PromptsListResponse, response_model_exclude_unset=True
+)
 async def list_prompts(request: Request, _auth: None = Depends(verify_auth)):
     """List voice prompts with optional pagination (R-24)."""
     state = request.app.state
@@ -832,7 +866,11 @@ async def list_prompts(request: Request, _auth: None = Depends(verify_auth)):
     )
 
 
-@app.post("/delete-prompt", response_model=DeletePromptResponse, response_model_exclude_unset=True)
+@app.post(
+    "/delete-prompt",
+    response_model=DeletePromptResponse,
+    response_model_exclude_unset=True,
+)
 @_rate_limit(_prompt_ops_limit, strategy="hybrid")
 async def delete_prompt(
     request: Request, req: DeletePromptRequest, _auth: None = Depends(verify_auth)
@@ -843,7 +881,11 @@ async def delete_prompt(
     return await asyncio.to_thread(handle_delete_prompt, state, req, _get_app_config)
 
 
-@app.post("/rename-prompt", response_model=RenamePromptResponse, response_model_exclude_unset=True)
+@app.post(
+    "/rename-prompt",
+    response_model=RenamePromptResponse,
+    response_model_exclude_unset=True,
+)
 @_rate_limit(_prompt_ops_limit, strategy="hybrid")
 async def rename_prompt(
     request: Request, req: RenamePromptRequest, _auth: None = Depends(verify_auth)
@@ -878,7 +920,11 @@ async def prompt_details(request: Request, _auth: None = Depends(verify_auth)):
     )
 
 
-@app.post("/create-voice-prompt", response_model=CreateVoicePromptResponse, response_model_exclude_unset=True)
+@app.post(
+    "/create-voice-prompt",
+    response_model=CreateVoicePromptResponse,
+    response_model_exclude_unset=True,
+)
 @_rate_limit(_prompt_ops_limit)
 async def create_voice_prompt_endpoint(
     request: Request, req: CreateVoicePromptRequest, _auth: None = Depends(verify_auth)
@@ -1022,9 +1068,7 @@ async def websocket_endpoint(
         # 4001 close with no error frame — unlike a wrong token.
         return _tokens_equal(token, state.auth_token)
 
-    await websocket_tts_handler(
-        websocket, state, _verify_token, _app_config_provider
-    )
+    await websocket_tts_handler(websocket, state, _verify_token, _app_config_provider)
 
 
 @app.post("/shutdown")
@@ -1033,10 +1077,6 @@ async def shutdown(request: Request, _auth: None = Depends(verify_auth)) -> Resp
     from starlette.background import BackgroundTask
 
     state = request.app.state
-
-    # Cancel shutdown timer
-    if state.shutdown_timer is not None:
-        state.shutdown_timer.cancel()
 
     def _shutdown_background():
         """Run cleanup then SIGTERM self — matches _signal_handler pattern."""
