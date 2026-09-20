@@ -1730,18 +1730,26 @@ analysis rather than duplicated as a new step.)*
 
 ---
 
-## Independent tracks (not gated by the waves above — different domain or decision-gated)
+## Independent tracks (different domain or decision-gated — folded into the wave sequence below 2026-09-20)
+
+- **Fold-in note (2026-09-20):** T1/T2/T3 are no longer a separate out-of-band bucket — each now
+  has an explicit slot in the upcoming-deliverables sequence (see per-track "**Sequenced
+  slot:**" bullets below, and the updated "Ordered by" summary at the end of this file). This is
+  a *sequencing* decision only — it does **not** grant T1's own separate go-ahead gate, which
+  still requires your explicit approval before implementation starts.
 
 ### Track T1 — Prosody preset builder v3 (feature, not backlog cleanup)
 
 - **Status:** fully speced, two 4-reviewer rounds already SHIP-WITH-EDITS. Plan: `~/.claude/plans/include-this-as-well-elegant-reef.md`.
-- **Gate:** **your explicit go-ahead** — this is new user-facing scope, not an autonomous bug fix. Confirmed 2026-09-06 still unimplemented (`core/config/presets.py` still 118 lines, no save/delete functions).
+- **Gate:** **your explicit go-ahead** — this is new user-facing scope, not an autonomous bug fix. Confirmed 2026-09-06 still unimplemented (`core/config/presets.py` still 118 lines, no save/delete functions). Folding it into the sequence below does not itself satisfy this gate.
 - **When to run:** anytime after you approve it; does not depend on or block any wave above (touches `core/config/presets.py`, `interface/voice_helpers.py`, `interface/ui/tabs_generation.py`, `interface/ui/_facade.py` — no overlap with the waves). **One exception (2026-09-08): Wave 7 Step 7A** modifies `interface/ui/tabs_generation.py` + `_facade.py` too — serialize T1 against 7A (T1 first on the current UI, or rebase T1 onto 7A's design layer if it lands second).
+- **Sequenced slot:** immediately after Wave 7 Step 7A lands (or before it, per the serialization note above — whichever you pick first). Sits ahead of 7B/7C in the upcoming-deliverables order once approved, since 7A is its one point of file contention.
 
 ### Track T2 — mlx-env FastAPI repair (0.135.1 → 0.141.1)
 
 - **Status:** deliberately held as its own isolated restart window since the 2026-09-05/06 dependabot session (two transport-library bumps in one week would be unattributable if something regressed). Confirmed 2026-09-06 still on 0.135.1.
 - **When to run:** anytime, isolated from the waves — pick a quiet window, bump, smoke-test `/generate` + `/generate-stream` + `/ws` per the #223 uvicorn-bump protocol precedent, restart, verify.
+- **Sequenced slot:** bundle into the next mechanical-fix batch (alongside Wave 6's 6Q or 6R, both already "small same-shape work" sessions) rather than a standalone one-off — no code overlap, just reuses the restart/smoke-test window instead of opening a second one.
 
 ### Track T3 — Branch disposition register (decision-gated: user action only)
 
@@ -1773,6 +1781,11 @@ analysis rather than duplicated as a new step.)*
 - **Standing paperwork** (process, not a step): each merged step's status-mark rides the NEXT PR's
   docs commit per the 0B–0D convention — current through 1E (the 1B/1C-ride and 1D marks landed
   with 1E's docs commit; no marks outstanding).
+- **Sequenced slot:** none needed — the register is empty and nothing here blocks or is blocked by
+  any wave. The one open item ("Remaining deletable at the user's leisure" above) is a standing
+  cleanup opportunity, not a scheduled step; fold it into whichever branch-cleanup pass is
+  convenient (e.g. the same session as a Wave 6 merge, when other branch housekeeping is already
+  happening).
 
 ### Standing watch — not an execution step
 
@@ -1801,7 +1814,13 @@ reliability question itself plus the E2E coverage it needs (Wave 4), coverage-ga
 (Wave 4B), infrastructure-blocked work (Wave 5), then mechanical low-severity cleanup last
 (Wave 6 — sequenced last because the code it touches is still being modified by the earlier
 waves; within Wave 6, the 6F–6R small fixes may run before or alongside the 6A–6E splits, whose
-structural risk is what actually wants the last position).
+structural risk is what actually wants the last position), then Wave 7 (interface polish). The
+three independent tracks fold into this same sequence rather than sitting outside it (2026-09-20):
+**T2** slots into whichever Wave 6 small-fixes session (6Q or 6R) is next, reusing that session's
+restart/smoke-test window; **T1** slots immediately around Wave 7 Step 7A (their one point of
+file contention), once you give T1 its separate go-ahead; **T3** needs no slot — its register is
+already empty, and its one remaining item (leisure branch cleanup) rides along with any Wave 6/7
+merge's housekeeping.
 
 **Provenance of the additions:** the original 19-step plan (waves 1–6) was Blueprint-drafted and
 adversarially reviewed against source (verdict below). The 2026-09-06 addendum then folded in
