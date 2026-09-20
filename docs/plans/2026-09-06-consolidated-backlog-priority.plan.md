@@ -1323,10 +1323,13 @@ analysis rather than duplicated as a new step.)*
 - **Verify:** `mypy qwen3_tts/{core,server,interface}`; full server test suite; `ruff`.
 - **Exit criteria:** guards deleted, mypy green, no new `# type: ignore` added anywhere.
 
-### Step 6H — Fix the `reset_activity_timer` lost-cancel race
+### Step 6H — Fix the `reset_activity_timer` lost-cancel race ✅ EXECUTED 2026-09-20
 
 - **Model tier:** default (latent today) · **Branch:** `fix/activity-timer-race` · **Source:**
   python-review M3
+- **Executed:** one commit — `5cc117a` (single long-lived watchdog thread +
+  `threading.Event` replaces the per-request `threading.Timer`; RED interleaving test proves
+  no orphan `threading.Timer` survives concurrent resets). PR #318, pending merge.
 - **Context:** `reset_activity_timer` (`app_lifespan.py:278-295`, verified) does an unlocked
   read-modify-write on `app_state.shutdown_timer`: two concurrent requests can both cancel, then
   both start a timer; the loser's handle is overwritten and never cancelled → premature
@@ -1438,9 +1441,12 @@ analysis rather than duplicated as a new step.)*
 - **Exit criteria:** the vLLM path is either type-checked like everything else or explicitly
   flagged and documented experimental; the startup no-op is proven by test.
 
-### Step 6O — ReDoS guard on `_EMAIL_RE` (unauthenticated event-loop stall)
+### Step 6O — ReDoS guard on `_EMAIL_RE` (unauthenticated event-loop stall) ✅ EXECUTED 2026-09-20
 
 - **Model tier:** default · **Branch:** `fix/email-regex-redos` · **Source:** security MEDIUM-2
+- **Executed:** one commit — `df5fd84` (bounded local/domain/TLD quantifiers to RFC
+  5321-ish lengths — 64/253/24 — instead of unbounded `+`; benchmark test confirms a
+  50,000-char adversarial input drops from >1s to <15ms). PR #319, pending merge.
 - **Context:** `_EMAIL_RE` (`text_processing.py:88`, verified) is quadratic on adversarial
   input — measured 3.57 s for one 50,000-char string (= `max_text_length`, a single allowed
   request). `_normalize_text` runs in `asyncio.to_thread`, but CPython's `re` doesn't release
@@ -1454,11 +1460,15 @@ analysis rather than duplicated as a new step.)*
 - **Exit criteria:** adversarial input at `max_text_length` no longer stalls the loop by orders
   of magnitude; normalization output unchanged for legitimate emails (existing tests prove it).
 
-### Step 6P — Bound the remaining `GenerateRequest` string fields
+### Step 6P — Bound the remaining `GenerateRequest` string fields ✅ EXECUTED 2026-09-20
 
 - **Model tier:** default · **Branch:** `fix/generate-request-string-bounds` · **Source:**
   security MEDIUM-5 · **Same file and fix-shape as Step 0A** (`validation.py` `Field` bounds) —
   land after 0A or bundle into its PR if timing aligns.
+- **Executed:** one commit — `aec0e63` (`Field(max_length=...)` on `voice_description`/
+  `instruct` 4000, `speaker` 64, `language` 16, `prompt_file` 255 — reuses
+  `MAX_PROMPT_NAME_LEN`; `text`/`texts` deliberately left unbounded, checked against
+  configurable `security.max_text_length` instead). PR #320, pending merge.
 - **Context:** only `text`/`texts` are length-checked on `GenerateRequest`;
   `voice_description`, `instruct`, `speaker`, `language`, `prompt_file` are unbounded — a ~99 MB
   `instruct` is accepted and fed to the model **while holding `inference_lock`**.
