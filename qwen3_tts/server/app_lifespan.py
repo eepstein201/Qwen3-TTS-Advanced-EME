@@ -148,9 +148,7 @@ def detect_degraded_generation(app_state, now: float | None = None) -> dict:
     # sec_per_char from two different generations. The explicit key list is
     # also what lets a hand-rolled partial state (tests) resolve — the
     # canonical full snapshot would raise on a key this reader never used.
-    gen_state = guard_for(app_state).snapshot(
-        ["active", "start_time", "text_length"]
-    )
+    gen_state = guard_for(app_state).snapshot(["active", "start_time", "text_length"])
     now = time.time() if now is None else now
 
     result = {
@@ -284,24 +282,15 @@ def _get_queue_size(app_state) -> int:
         return len(app_state.request_queue)
 
 
+# How often the auto-shutdown watchdog re-checks idle time. A single
+# long-lived thread polls at this interval rather than a fresh
+# threading.Timer per request (Step 6H — see start_activity_watchdog).
+ACTIVITY_WATCHDOG_INTERVAL_SEC = 10
+
+
 def reset_activity_timer(app_state):
-    """Reset the auto-shutdown timer on activity."""
+    """Stamp the last-activity time the auto-shutdown watchdog reads."""
     app_state.last_activity = time.time()
-
-    auto_shutdown_minutes = app_state.server_config.get("auto_shutdown_minutes", 0)
-    if auto_shutdown_minutes <= 0:
-        return
-
-    # Cancel existing timer
-    if app_state.shutdown_timer is not None:
-        app_state.shutdown_timer.cancel()
-
-    # Start new timer
-    app_state.shutdown_timer = threading.Timer(
-        auto_shutdown_minutes * 60, lambda: auto_shutdown(app_state)
-    )
-    app_state.shutdown_timer.daemon = True
-    app_state.shutdown_timer.start()
 
 
 def auto_shutdown(app_state):
@@ -314,6 +303,41 @@ def auto_shutdown(app_state):
     import signal
 
     os.kill(os.getpid(), signal.SIGTERM)
+
+
+def _activity_watchdog_loop(app_state, stop_event):
+    """Periodically compare `last_activity` against the configured
+    threshold and fire `auto_shutdown` once idle time exceeds it."""
+    while not stop_event.wait(ACTIVITY_WATCHDOG_INTERVAL_SEC):
+        auto_shutdown_minutes = app_state.server_config.get("auto_shutdown_minutes", 0)
+        if auto_shutdown_minutes <= 0:
+            continue
+        idle_sec = time.time() - app_state.last_activity
+        if idle_sec >= auto_shutdown_minutes * 60:
+            auto_shutdown(app_state)
+            return
+
+
+def start_activity_watchdog(app_state):
+    """Start the single auto-shutdown watchdog thread, if enabled.
+
+    Replaces the old per-request `threading.Timer` in `reset_activity_timer`:
+    that did an unlocked read-cancel-create on `app_state.shutdown_timer`, so
+    two concurrent requests could both cancel the same timer and then both
+    start a new one — the loser's handle was overwritten and never
+    cancelled, orphaning a timer that could fire an unwanted shutdown
+    (Step 6H). Call once, after `server_config` is loaded.
+    """
+    if app_state.server_config.get("auto_shutdown_minutes", 0) <= 0:
+        return
+    app_state.activity_watchdog_stop = threading.Event()
+    thread = threading.Thread(
+        target=_activity_watchdog_loop,
+        args=(app_state, app_state.activity_watchdog_stop),
+        name="activity-watchdog",
+        daemon=True,
+    )
+    thread.start()
 
 
 # ---------------------------------------------------------------------------
@@ -458,8 +482,8 @@ async def lifespan(app):
     app.state.model_loads = {"clone": None, "design": None, "custom": None}
     app.state.model_config_epoch = 0
 
-    # Auto-shutdown timer
-    app.state.shutdown_timer = None
+    # Auto-shutdown watchdog (started below, once server_config is loaded)
+    app.state.activity_watchdog_stop = None
 
     # vLLM adapter and client (None unless backend="vllm")
     app.state.vllm_adapter = None
@@ -473,6 +497,10 @@ async def lifespan(app):
     app.state.server_config = config.get("server", {})
     app.state.server_config["models"] = config.get("models", {})
     app.state.server_config["security"] = config.get("security", {})
+
+    # Single long-lived auto-shutdown watchdog thread (Step 6H) — must start
+    # after server_config is loaded above, since it reads auto_shutdown_minutes.
+    start_activity_watchdog(app.state)
 
     # Write token file (create directory with restricted permissions). This is
     # the only channel by which TTSClient discovers the token, so a write
@@ -567,16 +595,12 @@ def _run_warmup_under_inference_lock(app_state, model, model_type):
 
         loop = getattr(app_state, "event_loop", None)
         if loop is None or loop.is_closed():
-            logger.info(
-                "Skipping %s warm-up (event loop unavailable)", model_type
-            )
+            logger.info("Skipping %s warm-up (event loop unavailable)", model_type)
             return
 
         async def _locked_warmup():
             async with app_state.inference_lock:
-                await asyncio.to_thread(
-                    _warmup_model, model, model_type, get_backend()
-                )
+                await asyncio.to_thread(_warmup_model, model, model_type, get_backend())
 
         future = asyncio.run_coroutine_threadsafe(_locked_warmup(), loop)
         try:
@@ -747,9 +771,7 @@ def _background_load(app_state):
             try:
                 migrate_orphan_mlx_prompts(clone_model=app_state.models.get("clone"))
             except Exception as e:  # noqa: BLE001 — migration is best-effort
-                logger.warning(
-                    "MLX prompt migration failed: %s", sanitize_log(e)
-                )
+                logger.warning("MLX prompt migration failed: %s", sanitize_log(e))
     except Exception as e:  # noqa: BLE001 — startup must never die silently
         # Reached only by the setup work the per-model handlers cannot cover
         # (engine import, config parsing). The finally below still signals
@@ -767,10 +789,10 @@ def _background_load(app_state):
 
 def cleanup_resources(app_state):
     """Clean up resources on shutdown."""
-    # Cancel shutdown timer
-    shutdown_timer = getattr(app_state, "shutdown_timer", None)
-    if shutdown_timer is not None:
-        shutdown_timer.cancel()
+    # Stop the auto-shutdown watchdog thread
+    activity_watchdog_stop = getattr(app_state, "activity_watchdog_stop", None)
+    if activity_watchdog_stop is not None:
+        activity_watchdog_stop.set()
 
     # Clean up models
     models = getattr(app_state, "models", None)
@@ -802,9 +824,9 @@ def cleanup_resources(app_state):
 
 def cleanup_pid(app_state):
     """Clean up PID file and initiate graceful shutdown."""
-    shutdown_timer = getattr(app_state, "shutdown_timer", None)
-    if shutdown_timer is not None:
-        shutdown_timer.cancel()
+    activity_watchdog_stop = getattr(app_state, "activity_watchdog_stop", None)
+    if activity_watchdog_stop is not None:
+        activity_watchdog_stop.set()
     cleanup_pid_file()
     try:
         with open(TOKEN_FILE) as f:

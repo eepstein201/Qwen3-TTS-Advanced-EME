@@ -18,6 +18,7 @@ Covers uncovered areas in qwen3_tts/server/app.py:
 
 Run: python -m pytest tests/test_fastapi_app_ext2.py -v
 """
+
 import asyncio
 import os
 import threading
@@ -39,7 +40,7 @@ def _make_app_state(**overrides):
     state.model_load_times = {}
     state.model_load_errors = {"clone": None, "design": None, "custom": None}
     state.last_activity = 0
-    state.shutdown_timer = None
+    state.activity_watchdog_stop = None
     state.server_config = {"auto_shutdown_minutes": 0, "models": {}}
     state.gen_cache = {}
     state.gen_cache_lock = threading.Lock()
@@ -57,52 +58,143 @@ def _make_app_state(**overrides):
 # reset_activity_timer
 # ---------------------------------------------------------------------------
 
-class TestResetActivityTimer(unittest.TestCase):
 
+class TestResetActivityTimer(unittest.TestCase):
     def test_no_auto_shutdown(self):
         from qwen3_tts.server.app import reset_activity_timer
+
         state = _make_app_state()
         state.server_config = {"auto_shutdown_minutes": 0}
         reset_activity_timer(state)
-        self.assertIsNone(state.shutdown_timer)
+        self.assertGreater(state.last_activity, 0)
 
-    def test_creates_timer(self):
+    def test_updates_last_activity_without_spawning_thread(self):
+        """reset_activity_timer only stamps last_activity — the single
+        long-lived watchdog thread (started once at server startup, Step 6H)
+        is what evaluates idleness, so a request handler calling this must
+        never spawn a thread of its own."""
         from qwen3_tts.server.app import reset_activity_timer
+
         state = _make_app_state()
         state.server_config = {"auto_shutdown_minutes": 5}
-        state.shutdown_timer = None
+        before = threading.active_count()
+        before_time = time.time()
         reset_activity_timer(state)
-        self.assertIsNotNone(state.shutdown_timer)
-        # Clean up — cancel the timer
-        state.shutdown_timer.cancel()
+        self.assertGreaterEqual(state.last_activity, before_time)
+        self.assertEqual(threading.active_count(), before)
 
-    def test_cancels_existing_timer(self):
+    def test_concurrent_resets_spawn_no_orphan_timer_threads(self):
+        """Two concurrent reset_activity_timer calls must never leave a live
+        threading.Timer behind. The old design did an unlocked
+        cancel-existing/create-new on `app_state.shutdown_timer`: two
+        requests racing there could both cancel the same timer and then both
+        start a new one, silently orphaning the loser's timer (Step 6H)."""
         from qwen3_tts.server.app import reset_activity_timer
+
         state = _make_app_state()
         state.server_config = {"auto_shutdown_minutes": 5}
-        old_timer = MagicMock()
-        state.shutdown_timer = old_timer
-        reset_activity_timer(state)
-        old_timer.cancel.assert_called_once()
-        # New timer should be set
-        self.assertIsNotNone(state.shutdown_timer)
-        self.assertIsNot(state.shutdown_timer, old_timer)
-        # Clean up
-        state.shutdown_timer.cancel()
+        barrier = threading.Barrier(2)
+        # Snapshot before: unrelated components (e.g. the rate limiter's
+        # `limits.storage.memory.MemoryStorage.__expire_events`) legitimately
+        # run their own background Timers, so this must diff, not assert a
+        # process-wide zero.
+        timers_before = {
+            t for t in threading.enumerate() if isinstance(t, threading.Timer)
+        }
+
+        def call_reset():
+            barrier.wait(timeout=5)
+            reset_activity_timer(state)
+
+        threads = [threading.Thread(target=call_reset) for _ in range(2)]
+        for t in threads:
+            t.start()
+        for t in threads:
+            t.join(timeout=5)
+
+        timers_after = {
+            t for t in threading.enumerate() if isinstance(t, threading.Timer)
+        }
+        self.assertEqual(timers_after - timers_before, set())
+
+
+# ---------------------------------------------------------------------------
+# start_activity_watchdog
+# ---------------------------------------------------------------------------
+
+
+class TestStartActivityWatchdog(unittest.TestCase):
+    def test_noop_when_auto_shutdown_disabled(self):
+        from qwen3_tts.server.app_lifespan import start_activity_watchdog
+
+        state = _make_app_state()
+        state.server_config = {"auto_shutdown_minutes": 0}
+        before = threading.active_count()
+        start_activity_watchdog(state)
+        self.assertEqual(threading.active_count(), before)
+        self.assertIsNone(state.activity_watchdog_stop)
+
+    def test_spawns_single_daemon_thread_when_enabled(self):
+        # Identify the watchdog by name rather than a process-wide thread
+        # count — other suites' background threads (e.g. the rate limiter's
+        # expiry Timer) make an exact count flaky when run alongside them.
+        from qwen3_tts.server.app_lifespan import start_activity_watchdog
+
+        state = _make_app_state()
+        state.server_config = {"auto_shutdown_minutes": 5}
+        start_activity_watchdog(state)
+        try:
+            watchdog_threads = [
+                t for t in threading.enumerate() if t.name == "activity-watchdog"
+            ]
+            self.assertEqual(len(watchdog_threads), 1)
+            self.assertTrue(watchdog_threads[0].daemon)
+            self.assertIsInstance(state.activity_watchdog_stop, threading.Event)
+        finally:
+            state.activity_watchdog_stop.set()
+
+    def test_watchdog_fires_auto_shutdown_after_idle_threshold(self):
+        """Integration-style: the watchdog loop itself (not a per-request
+        timer) detects idleness and calls auto_shutdown exactly once."""
+        from qwen3_tts.server import app_lifespan
+        from qwen3_tts.server.app_lifespan import start_activity_watchdog
+
+        state = _make_app_state()
+        # auto_shutdown_minutes is minutes-only in the public config; use a
+        # tiny value so the test doesn't wait real minutes.
+        state.server_config = {"auto_shutdown_minutes": 1 / 6000}  # ~0.01s
+        state.last_activity = time.time()
+        with (
+            patch.object(app_lifespan, "ACTIVITY_WATCHDOG_INTERVAL_SEC", 0.02),
+            patch.object(app_lifespan, "auto_shutdown") as mock_auto_shutdown,
+        ):
+            start_activity_watchdog(state)
+            stop_event = state.activity_watchdog_stop
+            try:
+                for _ in range(50):
+                    if mock_auto_shutdown.called:
+                        break
+                    time.sleep(0.02)
+                self.assertTrue(mock_auto_shutdown.called)
+            finally:
+                stop_event.set()
 
 
 # ---------------------------------------------------------------------------
 # auto_shutdown
 # ---------------------------------------------------------------------------
 
-class TestAutoShutdown(unittest.TestCase):
 
+class TestAutoShutdown(unittest.TestCase):
     def test_auto_shutdown_calls_cleanup_and_exits(self):
         from qwen3_tts.server.app import auto_shutdown
+
         state = _make_app_state()
         state.server_config = {"auto_shutdown_minutes": 10}
-        with patch(f"{_APP_LIFESPAN}.cleanup_resources") as mock_cleanup, \
-             patch("os.kill") as mock_kill:
+        with (
+            patch(f"{_APP_LIFESPAN}.cleanup_resources") as mock_cleanup,
+            patch("os.kill") as mock_kill,
+        ):
             auto_shutdown(state)
         mock_cleanup.assert_called_once_with(state)
         mock_kill.assert_called_once_with(os.getpid(), __import__("signal").SIGTERM)
@@ -112,56 +204,63 @@ class TestAutoShutdown(unittest.TestCase):
 # cleanup_pid
 # ---------------------------------------------------------------------------
 
-class TestCleanupPid(unittest.TestCase):
 
+class TestCleanupPid(unittest.TestCase):
     def test_cleanup_pid_full_flow(self):
         from unittest.mock import mock_open
 
         from qwen3_tts.server.app import cleanup_pid
+
         state = _make_app_state()
         state.auth_token = "my_test_token_abc"
-        timer = MagicMock()
-        state.shutdown_timer = timer
+        activity_watchdog_stop = MagicMock()
+        state.activity_watchdog_stop = activity_watchdog_stop
         state.shutdown_event = MagicMock()
-        with patch(f"{_APP_LIFESPAN}.cleanup_pid_file") as mock_cpf, \
-             patch(f"{_APP_LIFESPAN}.cleanup_resources") as mock_cr, \
-             patch(f"{_APP_LIFESPAN}.TOKEN_FILE", "/tmp/fake_token_xyz"), \
-             patch("builtins.open", mock_open(read_data="my_test_token_abc")), \
-             patch("os.unlink") as mock_unlink, \
-             patch("sys.exit") as mock_exit:
+        with (
+            patch(f"{_APP_LIFESPAN}.cleanup_pid_file") as mock_cpf,
+            patch(f"{_APP_LIFESPAN}.cleanup_resources") as mock_cr,
+            patch(f"{_APP_LIFESPAN}.TOKEN_FILE", "/tmp/fake_token_xyz"),
+            patch("builtins.open", mock_open(read_data="my_test_token_abc")),
+            patch("os.unlink") as mock_unlink,
+            patch("sys.exit") as mock_exit,
+        ):
             cleanup_pid(state)
-        timer.cancel.assert_called_once()
+        activity_watchdog_stop.set.assert_called_once()
         mock_cpf.assert_called_once()
         mock_unlink.assert_called_once_with("/tmp/fake_token_xyz")
         state.shutdown_event.set.assert_called_once()
         mock_cr.assert_called_once_with(state)
         mock_exit.assert_called_once_with(0)
 
-    def test_cleanup_pid_no_timer_no_token(self):
+    def test_cleanup_pid_no_watchdog_no_token(self):
         from qwen3_tts.server.app import cleanup_pid
+
         state = _make_app_state()
-        state.shutdown_timer = None
+        state.activity_watchdog_stop = None
         state.shutdown_event = None
-        with patch(f"{_APP_LIFESPAN}.cleanup_pid_file"), \
-             patch(f"{_APP_LIFESPAN}.cleanup_resources"), \
-             patch(f"{_APP_LIFESPAN}.TOKEN_FILE", "/tmp/nonexistent_xyz"), \
-             patch("os.path.exists", return_value=False), \
-             patch("sys.exit"):
+        with (
+            patch(f"{_APP_LIFESPAN}.cleanup_pid_file"),
+            patch(f"{_APP_LIFESPAN}.cleanup_resources"),
+            patch(f"{_APP_LIFESPAN}.TOKEN_FILE", "/tmp/nonexistent_xyz"),
+            patch("os.path.exists", return_value=False),
+            patch("sys.exit"),
+        ):
             cleanup_pid(state)
-        # No exception — gracefully handles None timer and missing token
+        # No exception — gracefully handles a None watchdog stop event and missing token
 
 
 # ---------------------------------------------------------------------------
 # cleanup_resources
 # ---------------------------------------------------------------------------
 
-class TestCleanupResources(unittest.TestCase):
 
+class TestCleanupResources(unittest.TestCase):
     def test_cleanup_with_gen_cache_files(self):
         import shutil
         import tempfile
 
         from qwen3_tts.server.app import cleanup_resources
+
         tmp = tempfile.mkdtemp()
         try:
             f1 = os.path.join(tmp, "gen1.wav")
@@ -177,17 +276,19 @@ class TestCleanupResources(unittest.TestCase):
         finally:
             shutil.rmtree(tmp, ignore_errors=True)
 
-    def test_cleanup_with_timer(self):
+    def test_cleanup_stops_activity_watchdog(self):
         from qwen3_tts.server.app import cleanup_resources
+
         state = _make_app_state()
-        timer = MagicMock()
-        state.shutdown_timer = timer
+        activity_watchdog_stop = MagicMock()
+        state.activity_watchdog_stop = activity_watchdog_stop
         with patch(f"{_APP}.cleanup_pid_file"):
             cleanup_resources(state)
-        timer.cancel.assert_called_once()
+        activity_watchdog_stop.set.assert_called_once()
 
     def test_cleanup_oserror_on_file_removal(self):
         from qwen3_tts.server.app import cleanup_resources
+
         state = _make_app_state()
         state.gen_cache = {"k1": {"main_file": "/nonexistent/file.wav"}}
         state.shutdown_timer = None
@@ -197,6 +298,7 @@ class TestCleanupResources(unittest.TestCase):
 
     def test_cleanup_models_deletion(self):
         from qwen3_tts.server.app import cleanup_resources
+
         state = _make_app_state()
         state.models = {"clone": MagicMock(), "design": None, "custom": MagicMock()}
         state.shutdown_timer = None
@@ -210,10 +312,11 @@ class TestCleanupResources(unittest.TestCase):
 # _check_memory_available
 # ---------------------------------------------------------------------------
 
-class TestCheckMemoryAvailable(unittest.TestCase):
 
+class TestCheckMemoryAvailable(unittest.TestCase):
     def test_no_psutil(self):
         from qwen3_tts.server.app import _check_memory_available
+
         with patch(f"{_APP_LIFESPAN}._HAS_PSUTIL", False):
             ok, mb = _check_memory_available()
         self.assertTrue(ok)
@@ -221,13 +324,17 @@ class TestCheckMemoryAvailable(unittest.TestCase):
 
     def test_enough_memory(self):
         from qwen3_tts.server.app import _check_memory_available
+
         mock_mem = MagicMock()
         mock_mem.available = 10 * 1024 * 1024 * 1024  # 10 GB
         mock_psutil = MagicMock()
         mock_psutil.virtual_memory.return_value = mock_mem
-        with patch(f"{_APP_LIFESPAN}._HAS_PSUTIL", True), \
-             patch.dict("sys.modules", {"psutil": mock_psutil}):
+        with (
+            patch(f"{_APP_LIFESPAN}._HAS_PSUTIL", True),
+            patch.dict("sys.modules", {"psutil": mock_psutil}),
+        ):
             import qwen3_tts.server.app_lifespan as app_mod
+
             orig_psutil = getattr(app_mod, "psutil", None)
             app_mod.psutil = mock_psutil
             try:
@@ -243,11 +350,13 @@ class TestCheckMemoryAvailable(unittest.TestCase):
 
     def test_low_memory_below_threshold(self):
         from qwen3_tts.server.app import _check_memory_available
+
         mock_mem = MagicMock()
         mock_mem.available = 500 * 1024 * 1024  # 500 MB
         mock_psutil = MagicMock()
         mock_psutil.virtual_memory.return_value = mock_mem
         import qwen3_tts.server.app_lifespan as app_mod
+
         orig_psutil = getattr(app_mod, "psutil", None)
         app_mod.psutil = mock_psutil
         try:
@@ -264,11 +373,13 @@ class TestCheckMemoryAvailable(unittest.TestCase):
 
     def test_moderate_memory_warning(self):
         from qwen3_tts.server.app import _check_memory_available
+
         mock_mem = MagicMock()
         mock_mem.available = int(1.5 * 1024 * 1024 * 1024)  # 1.5 GB
         mock_psutil = MagicMock()
         mock_psutil.virtual_memory.return_value = mock_mem
         import qwen3_tts.server.app_lifespan as app_mod
+
         orig_psutil = getattr(app_mod, "psutil", None)
         app_mod.psutil = mock_psutil
         try:
@@ -287,68 +398,85 @@ class TestCheckMemoryAvailable(unittest.TestCase):
 # _background_load
 # ---------------------------------------------------------------------------
 
-class TestBackgroundLoad(unittest.TestCase):
 
+class TestBackgroundLoad(unittest.TestCase):
     def test_no_models_config_defaults_clone(self):
         from qwen3_tts.server.app import _background_load
+
         state = _make_app_state()
         state.server_config = {"models": {}}
         mock_model = MagicMock()
         info = {"name": "TestModel"}
-        with patch("qwen3_tts.core.engine.load_model", return_value=mock_model), \
-             patch("qwen3_tts.core.config.get_model_info", return_value=info), \
-             patch("qwen3_tts.core.engine.migrate_orphan_mlx_prompts"), \
-             patch(f"{_APP_LIFESPAN}.get_backend", return_value="mlx"):
+        with (
+            patch("qwen3_tts.core.engine.load_model", return_value=mock_model),
+            patch("qwen3_tts.core.config.get_model_info", return_value=info),
+            patch("qwen3_tts.core.engine.migrate_orphan_mlx_prompts"),
+            patch(f"{_APP_LIFESPAN}.get_backend", return_value="mlx"),
+        ):
             _background_load(state)
         self.assertIs(state.models["clone"], mock_model)
         self.assertTrue(state.models_loaded.is_set())
 
     def test_no_startup_models(self):
         from qwen3_tts.server.app import _background_load
+
         state = _make_app_state()
         state.server_config = {"models": {"clone": {"load_at_startup": False}}}
-        with patch("qwen3_tts.core.engine.load_model") as mock_load, \
-             patch("qwen3_tts.core.engine.migrate_orphan_mlx_prompts"), \
-             patch(f"{_APP_LIFESPAN}.get_backend", return_value="mlx"):
+        with (
+            patch("qwen3_tts.core.engine.load_model") as mock_load,
+            patch("qwen3_tts.core.engine.migrate_orphan_mlx_prompts"),
+            patch(f"{_APP_LIFESPAN}.get_backend", return_value="mlx"),
+        ):
             _background_load(state)
         mock_load.assert_not_called()
         self.assertTrue(state.models_loaded.is_set())
 
     def test_load_failure_stores_error(self):
         from qwen3_tts.server.app import _background_load
+
         state = _make_app_state()
         state.server_config = {"models": {"design": {"load_at_startup": True}}}
         info = {"name": "DesignModel"}
-        with patch("qwen3_tts.core.engine.load_model", side_effect=RuntimeError("OOM")), \
-             patch("qwen3_tts.core.config.get_model_info", return_value=info), \
-             patch("qwen3_tts.core.engine.migrate_orphan_mlx_prompts"), \
-             patch(f"{_APP_LIFESPAN}.get_backend", return_value="mlx"):
+        with (
+            patch("qwen3_tts.core.engine.load_model", side_effect=RuntimeError("OOM")),
+            patch("qwen3_tts.core.config.get_model_info", return_value=info),
+            patch("qwen3_tts.core.engine.migrate_orphan_mlx_prompts"),
+            patch(f"{_APP_LIFESPAN}.get_backend", return_value="mlx"),
+        ):
             _background_load(state)
         self.assertIsNotNone(state.model_load_errors["design"])
         self.assertIsNone(state.models["design"])
 
     def test_torch_backend_runs_migration(self):
         from qwen3_tts.server.app import _background_load
+
         state = _make_app_state()
         state.server_config = {"models": {"clone": {"load_at_startup": True}}}
         info = {"name": "CloneModel"}
-        with patch("qwen3_tts.core.engine.load_model", return_value=MagicMock()), \
-             patch("qwen3_tts.core.config.get_model_info", return_value=info), \
-             patch("qwen3_tts.core.engine.migrate_orphan_mlx_prompts") as mock_migrate, \
-             patch(f"{_APP_LIFESPAN}.get_backend", return_value="torch"):
+        with (
+            patch("qwen3_tts.core.engine.load_model", return_value=MagicMock()),
+            patch("qwen3_tts.core.config.get_model_info", return_value=info),
+            patch("qwen3_tts.core.engine.migrate_orphan_mlx_prompts") as mock_migrate,
+            patch(f"{_APP_LIFESPAN}.get_backend", return_value="torch"),
+        ):
             _background_load(state)
         mock_migrate.assert_called_once()
 
     def test_migration_failure_handled(self):
         from qwen3_tts.server.app import _background_load
+
         state = _make_app_state()
         state.server_config = {"models": {"clone": {"load_at_startup": True}}}
         info = {"name": "CloneModel"}
-        with patch("qwen3_tts.core.engine.load_model", return_value=MagicMock()), \
-             patch("qwen3_tts.core.config.get_model_info", return_value=info), \
-             patch("qwen3_tts.core.engine.migrate_orphan_mlx_prompts",
-                   side_effect=RuntimeError("migrate fail")), \
-             patch(f"{_APP_LIFESPAN}.get_backend", return_value="torch"):
+        with (
+            patch("qwen3_tts.core.engine.load_model", return_value=MagicMock()),
+            patch("qwen3_tts.core.config.get_model_info", return_value=info),
+            patch(
+                "qwen3_tts.core.engine.migrate_orphan_mlx_prompts",
+                side_effect=RuntimeError("migrate fail"),
+            ),
+            patch(f"{_APP_LIFESPAN}.get_backend", return_value="torch"),
+        ):
             _background_load(state)
         # Should not raise
 
@@ -366,14 +494,19 @@ class TestBackgroundLoad(unittest.TestCase):
         startup path did not.
         """
         from qwen3_tts.server.app import _background_load
+
         state = _make_app_state()
         state.server_config = {"models": {"design": {"load_at_startup": True}}}
         info = {"name": "DesignModel"}
-        with patch("qwen3_tts.core.engine.load_model",
-                   side_effect=AttributeError("'NoneType' has no attribute 'generate'")), \
-             patch("qwen3_tts.core.config.get_model_info", return_value=info), \
-             patch("qwen3_tts.core.engine.migrate_orphan_mlx_prompts"), \
-             patch(f"{_APP_LIFESPAN}.get_backend", return_value="mlx"):
+        with (
+            patch(
+                "qwen3_tts.core.engine.load_model",
+                side_effect=AttributeError("'NoneType' has no attribute 'generate'"),
+            ),
+            patch("qwen3_tts.core.config.get_model_info", return_value=info),
+            patch("qwen3_tts.core.engine.migrate_orphan_mlx_prompts"),
+            patch(f"{_APP_LIFESPAN}.get_backend", return_value="mlx"),
+        ):
             _background_load(state)
         self.assertIsNotNone(
             state.model_load_errors["design"],
@@ -391,14 +524,16 @@ class TestBackgroundLoad(unittest.TestCase):
         explain why.
         """
         from qwen3_tts.server.app import _background_load
+
         state = _make_app_state()
         state.server_config = {"models": {"clone": {"load_at_startup": True}}}
         info = {"name": "CloneModel"}
-        with patch("qwen3_tts.core.engine.load_model",
-                   side_effect=KeyError("model_id")), \
-             patch("qwen3_tts.core.config.get_model_info", return_value=info), \
-             patch("qwen3_tts.core.engine.migrate_orphan_mlx_prompts"), \
-             patch(f"{_APP_LIFESPAN}.get_backend", return_value="mlx"):
+        with (
+            patch("qwen3_tts.core.engine.load_model", side_effect=KeyError("model_id")),
+            patch("qwen3_tts.core.config.get_model_info", return_value=info),
+            patch("qwen3_tts.core.engine.migrate_orphan_mlx_prompts"),
+            patch(f"{_APP_LIFESPAN}.get_backend", return_value="mlx"),
+        ):
             _background_load(state)
         self.assertTrue(
             state.models_loaded.is_set(),
@@ -413,14 +548,19 @@ class TestBackgroundLoad(unittest.TestCase):
         every model loaded fine.
         """
         from qwen3_tts.server.app import _background_load
+
         state = _make_app_state()
         state.server_config = {"models": {"clone": {"load_at_startup": True}}}
         info = {"name": "CloneModel"}
-        with patch("qwen3_tts.core.engine.load_model", return_value=MagicMock()), \
-             patch("qwen3_tts.core.config.get_model_info", return_value=info), \
-             patch("qwen3_tts.core.engine.migrate_orphan_mlx_prompts",
-                   side_effect=TypeError("unexpected keyword argument")), \
-             patch(f"{_APP_LIFESPAN}.get_backend", return_value="torch"):
+        with (
+            patch("qwen3_tts.core.engine.load_model", return_value=MagicMock()),
+            patch("qwen3_tts.core.config.get_model_info", return_value=info),
+            patch(
+                "qwen3_tts.core.engine.migrate_orphan_mlx_prompts",
+                side_effect=TypeError("unexpected keyword argument"),
+            ),
+            patch(f"{_APP_LIFESPAN}.get_backend", return_value="torch"),
+        ):
             _background_load(state)
         self.assertTrue(
             state.models_loaded.is_set(),
@@ -431,15 +571,20 @@ class TestBackgroundLoad(unittest.TestCase):
     def test_load_error_is_sanitized_for_public_health(self):
         """/health is public, so a recorded startup error must not leak paths."""
         from qwen3_tts.server.app import _background_load
+
         state = _make_app_state()
         state.server_config = {"models": {"design": {"load_at_startup": True}}}
         info = {"name": "DesignModel"}
         secret_path = "/Users/someone/models/design/weights.safetensors"
-        with patch("qwen3_tts.core.engine.load_model",
-                   side_effect=AttributeError(f"cannot read {secret_path}")), \
-             patch("qwen3_tts.core.config.get_model_info", return_value=info), \
-             patch("qwen3_tts.core.engine.migrate_orphan_mlx_prompts"), \
-             patch(f"{_APP_LIFESPAN}.get_backend", return_value="mlx"):
+        with (
+            patch(
+                "qwen3_tts.core.engine.load_model",
+                side_effect=AttributeError(f"cannot read {secret_path}"),
+            ),
+            patch("qwen3_tts.core.config.get_model_info", return_value=info),
+            patch("qwen3_tts.core.engine.migrate_orphan_mlx_prompts"),
+            patch(f"{_APP_LIFESPAN}.get_backend", return_value="mlx"),
+        ):
             _background_load(state)
         self.assertNotIn(secret_path, state.model_load_errors["design"])
 
@@ -456,6 +601,7 @@ class TestBackgroundLoad(unittest.TestCase):
         import sys
 
         from qwen3_tts.server.app import _background_load
+
         state = _make_app_state()
         state.server_config = {"models": {"clone": {"load_at_startup": True}}}
         with patch.dict(sys.modules, {"qwen3_tts.core.engine": None}):
@@ -475,6 +621,7 @@ class TestBackgroundLoad(unittest.TestCase):
         try/finally — for the same permanent 503.
         """
         from qwen3_tts.server.app import _background_load
+
         state = _make_app_state()
         state.server_config = {"models": {"clone": True}}
         _background_load(state)
@@ -489,8 +636,8 @@ class TestBackgroundLoad(unittest.TestCase):
 # _get_real_client_ip
 # ---------------------------------------------------------------------------
 
-class TestGetRealClientIp(unittest.TestCase):
 
+class TestGetRealClientIp(unittest.TestCase):
     def test_untrusted_peer_ignores_xff(self):
         """A direct (non-proxy) peer cannot spoof its IP via X-Forwarded-For.
 
@@ -499,6 +646,7 @@ class TestGetRealClientIp(unittest.TestCase):
         header to bypass the per-IP rate limit. The real peer must win.
         """
         from qwen3_tts.server import app
+
         request = MagicMock()
         request.client.host = "10.0.0.5"
         request.headers = {"X-Forwarded-For": "1.2.3.4, 5.6.7.8"}
@@ -513,6 +661,7 @@ class TestGetRealClientIp(unittest.TestCase):
         carries the real client in X-Forwarded-For.
         """
         from qwen3_tts.server import app
+
         request = MagicMock()
         request.client.host = "127.0.0.1"
         request.headers = {"X-Forwarded-For": "1.2.3.4, 5.6.7.8"}
@@ -523,6 +672,7 @@ class TestGetRealClientIp(unittest.TestCase):
     def test_env_configured_proxy_reads_xff(self):
         """An operator-configured reverse proxy IP is trusted for XFF."""
         from qwen3_tts.server import app
+
         request = MagicMock()
         request.client.host = "10.0.0.5"
         request.headers = {"X-Forwarded-For": "1.2.3.4, 5.6.7.8"}
@@ -532,6 +682,7 @@ class TestGetRealClientIp(unittest.TestCase):
 
     def test_no_client(self):
         from qwen3_tts.server.app import _get_real_client_ip
+
         request = MagicMock()
         request.client = None
         request.headers = {}
@@ -541,6 +692,7 @@ class TestGetRealClientIp(unittest.TestCase):
     def test_load_trusted_proxies_env_override(self):
         """TTS_TRUSTED_PROXIES adds operator proxy IPs on top of loopback."""
         from qwen3_tts.server.app import _load_trusted_proxies
+
         with patch.dict("os.environ", {"TTS_TRUSTED_PROXIES": "10.0.0.5, 192.168.1.1"}):
             proxies = _load_trusted_proxies()
         self.assertIn("10.0.0.5", proxies)
@@ -550,6 +702,7 @@ class TestGetRealClientIp(unittest.TestCase):
     def test_load_trusted_proxies_default_loopback_only(self):
         """With no env override, only loopback is trusted."""
         from qwen3_tts.server.app import _load_trusted_proxies
+
         with patch.dict("os.environ", {}, clear=True):
             proxies = _load_trusted_proxies()
         self.assertEqual(proxies, {"127.0.0.1", "::1", "localhost"})
@@ -700,17 +853,19 @@ class TestBatchClonePromptErrorSanitized(unittest.TestCase):
 
         req = GenerateRequest(text="Hello", mode="clone", prompt_file="leaky.pt")
 
-        with patch(
-            "qwen3_tts.core.engine.load_voice_prompt",
-            side_effect=FileNotFoundError(
-                "[Errno 2] No such file or directory: "
-                "'/Users/victim/voices/leaky.pt'"
+        with (
+            patch(
+                "qwen3_tts.core.engine.load_voice_prompt",
+                side_effect=FileNotFoundError(
+                    "[Errno 2] No such file or directory: "
+                    "'/Users/victim/voices/leaky.pt'"
+                ),
             ),
-        ), patch(
-            f"{_APP_GENERATION}._check_memory_available",
-            return_value=(True, 4096),
-        ), patch(
-            "qwen3_tts.server.validation._validate_generation_request"
+            patch(
+                f"{_APP_GENERATION}._check_memory_available",
+                return_value=(True, 4096),
+            ),
+            patch("qwen3_tts.server.validation._validate_generation_request"),
         ):
             with self.assertRaises(HTTPException) as ctx:
                 asyncio.run(
@@ -733,8 +888,8 @@ class TestBatchClonePromptErrorSanitized(unittest.TestCase):
 # GPU / MLX memory stats in /stats
 # ---------------------------------------------------------------------------
 
-class TestStatsMemory(unittest.TestCase):
 
+class TestStatsMemory(unittest.TestCase):
     def _get_stats_data(self, backend="mlx", **patches):
         """Helper to call _get_stats_data-like code via the /stats endpoint logic."""
         # We test the _build_stats internal by calling the endpoint via client
@@ -773,12 +928,16 @@ class TestStatsMemory(unittest.TestCase):
 
         mock_cache_info = MagicMock(currsize=0, hits=0)
 
-        with patch(f"{_APP_MODELS}.get_backend", return_value="torch"), \
-             patch(f"{_APP_MODELS}.get_torch_dtype_name", return_value="float16"), \
-             patch(f"{_APP_GENERATION}.get_generation_cache_max", return_value=10), \
-             patch("qwen3_tts.core.engine.voice_prompt.voice_prompt_cache_info",
-                   return_value=mock_cache_info), \
-             patch.dict("sys.modules", {"torch": mock_torch}):
+        with (
+            patch(f"{_APP_MODELS}.get_backend", return_value="torch"),
+            patch(f"{_APP_MODELS}.get_torch_dtype_name", return_value="float16"),
+            patch(f"{_APP_GENERATION}.get_generation_cache_max", return_value=10),
+            patch(
+                "qwen3_tts.core.engine.voice_prompt.voice_prompt_cache_info",
+                return_value=mock_cache_info,
+            ),
+            patch.dict("sys.modules", {"torch": mock_torch}),
+        ):
             client = TestClient(app)
             resp = client.get("/stats", headers={"Authorization": "Bearer tok"})
 
@@ -819,12 +978,16 @@ class TestStatsMemory(unittest.TestCase):
 
         mock_cache_info = MagicMock(currsize=0, hits=0)
 
-        with patch(f"{_APP_MODELS}.get_backend", return_value="torch"), \
-             patch(f"{_APP_MODELS}.get_torch_dtype_name", return_value="float16"), \
-             patch(f"{_APP_GENERATION}.get_generation_cache_max", return_value=10), \
-             patch("qwen3_tts.core.engine.voice_prompt.voice_prompt_cache_info",
-                   return_value=mock_cache_info), \
-             patch.dict("sys.modules", {"torch": mock_torch}):
+        with (
+            patch(f"{_APP_MODELS}.get_backend", return_value="torch"),
+            patch(f"{_APP_MODELS}.get_torch_dtype_name", return_value="float16"),
+            patch(f"{_APP_GENERATION}.get_generation_cache_max", return_value=10),
+            patch(
+                "qwen3_tts.core.engine.voice_prompt.voice_prompt_cache_info",
+                return_value=mock_cache_info,
+            ),
+            patch.dict("sys.modules", {"torch": mock_torch}),
+        ):
             client = TestClient(app)
             resp = client.get("/stats", headers={"Authorization": "Bearer tok"})
 
@@ -838,8 +1001,8 @@ class TestStatsMemory(unittest.TestCase):
 # /update-model-config — cache invalidation + audio_loader sync
 # ---------------------------------------------------------------------------
 
-class TestUpdateModelConfig(unittest.TestCase):
 
+class TestUpdateModelConfig(unittest.TestCase):
     def _setup_client(self):
         try:
             from fastapi.testclient import TestClient
@@ -855,10 +1018,16 @@ class TestUpdateModelConfig(unittest.TestCase):
         state.model_load_times = {}
         state.generation_lock = asyncio.Lock()
         state.generation_state = {
-            "active": False, "start_time": 0.0, "text_length": 0,
-            "mode": "", "batch_index": 0, "batch_total": 0,
-            "chunk_index": 0, "chunk_total": 0,
-            "generation_id": None, "cancelled": False,
+            "active": False,
+            "start_time": 0.0,
+            "text_length": 0,
+            "mode": "",
+            "batch_index": 0,
+            "batch_total": 0,
+            "chunk_index": 0,
+            "chunk_total": 0,
+            "generation_id": None,
+            "cancelled": False,
         }
         state.last_activity = 0
         state.shutdown_timer = None
@@ -880,9 +1049,13 @@ class TestUpdateModelConfig(unittest.TestCase):
 
     def test_update_size_and_quant(self):
         client, token, state = self._setup_client()
-        with patch(f"{_APP}._get_app_config",
-                   return_value={"advanced": {"model_size": "1.7B"}}), \
-             patch(f"{_APP_MODELS}.save_config"):
+        with (
+            patch(
+                f"{_APP}._get_app_config",
+                return_value={"advanced": {"model_size": "1.7B"}},
+            ),
+            patch(f"{_APP_MODELS}.save_config"),
+        ):
             resp = client.post(
                 "/update-model-config",
                 json={"model_size": "0.6B", "mlx_quantization": "4bit"},
@@ -897,9 +1070,11 @@ class TestUpdateModelConfig(unittest.TestCase):
     def test_update_triggers_audio_loader_sync(self):
         client, token, state = self._setup_client()
         config = {"advanced": {"model_size": "1.7B", "audio_loader": "librosa"}}
-        with patch(f"{_APP}._get_app_config", return_value=config), \
-             patch(f"{_APP_MODELS}.save_config"), \
-             patch("qwen3_tts.core.engine.set_audio_loader") as mock_sal:
+        with (
+            patch(f"{_APP}._get_app_config", return_value=config),
+            patch(f"{_APP_MODELS}.save_config"),
+            patch("qwen3_tts.core.engine.set_audio_loader") as mock_sal,
+        ):
             resp = client.post(
                 "/update-model-config",
                 json={"model_size": "0.6B"},
@@ -911,10 +1086,14 @@ class TestUpdateModelConfig(unittest.TestCase):
     def test_update_audio_loader_import_error(self):
         client, token, state = self._setup_client()
         config = {"advanced": {"model_size": "1.7B", "audio_loader": "bad"}}
-        with patch(f"{_APP}._get_app_config", return_value=config), \
-             patch(f"{_APP_MODELS}.save_config"), \
-             patch("qwen3_tts.core.engine.set_audio_loader",
-                   side_effect=ImportError("no module")):
+        with (
+            patch(f"{_APP}._get_app_config", return_value=config),
+            patch(f"{_APP_MODELS}.save_config"),
+            patch(
+                "qwen3_tts.core.engine.set_audio_loader",
+                side_effect=ImportError("no module"),
+            ),
+        ):
             resp = client.post(
                 "/update-model-config",
                 json={"model_size": "0.6B"},
@@ -926,6 +1105,7 @@ class TestUpdateModelConfig(unittest.TestCase):
     def test_update_clears_gen_cache_with_files(self):
         import shutil
         import tempfile
+
         client, token, state = self._setup_client()
         tmp = tempfile.mkdtemp()
         try:
@@ -934,9 +1114,13 @@ class TestUpdateModelConfig(unittest.TestCase):
                 f.write("audio")
             state.gen_cache = {"k1": {"main_file": f1}}
 
-            with patch(f"{_APP}._get_app_config",
-                       return_value={"advanced": {"model_size": "1.7B"}}), \
-                 patch(f"{_APP_MODELS}.save_config"):
+            with (
+                patch(
+                    f"{_APP}._get_app_config",
+                    return_value={"advanced": {"model_size": "1.7B"}},
+                ),
+                patch(f"{_APP_MODELS}.save_config"),
+            ):
                 resp = client.post(
                     "/update-model-config",
                     json={"model_size": "0.6B"},
@@ -952,9 +1136,13 @@ class TestUpdateModelConfig(unittest.TestCase):
         client, token, state = self._setup_client()
         # Entry with nonexistent file
         state.gen_cache = {"k1": {"main_file": "/nonexistent/x.wav"}}
-        with patch(f"{_APP}._get_app_config",
-                   return_value={"advanced": {"model_size": "1.7B"}}), \
-             patch(f"{_APP_MODELS}.save_config"):
+        with (
+            patch(
+                f"{_APP}._get_app_config",
+                return_value={"advanced": {"model_size": "1.7B"}},
+            ),
+            patch(f"{_APP_MODELS}.save_config"),
+        ):
             resp = client.post(
                 "/update-model-config",
                 json={"model_size": "0.6B"},
@@ -967,8 +1155,8 @@ class TestUpdateModelConfig(unittest.TestCase):
 # /generate-stream endpoint
 # ---------------------------------------------------------------------------
 
-class TestGenerateStream(unittest.TestCase):
 
+class TestGenerateStream(unittest.TestCase):
     def _setup_stream_client(self):
         try:
             from fastapi.testclient import TestClient
@@ -984,10 +1172,16 @@ class TestGenerateStream(unittest.TestCase):
         state.model_load_times = {"clone": 5.0}
         state.generation_lock = asyncio.Lock()
         state.generation_state = {
-            "active": False, "start_time": 0.0, "text_length": 0,
-            "mode": "", "batch_index": 0, "batch_total": 0,
-            "chunk_index": 0, "chunk_total": 0,
-            "generation_id": None, "cancelled": False,
+            "active": False,
+            "start_time": 0.0,
+            "text_length": 0,
+            "mode": "",
+            "batch_index": 0,
+            "batch_total": 0,
+            "chunk_index": 0,
+            "chunk_total": 0,
+            "generation_id": None,
+            "cancelled": False,
         }
         state.last_activity = 0
         state.shutdown_timer = None
@@ -1015,6 +1209,7 @@ class TestGenerateStream(unittest.TestCase):
         import struct
 
         import numpy as np
+
         client, token, state = self._setup_stream_client()
 
         chunk = np.array([0.1, 0.2, 0.3], dtype=np.float32)
@@ -1023,10 +1218,16 @@ class TestGenerateStream(unittest.TestCase):
             yield chunk, 24000
 
         mock_prompt = MagicMock()
-        with patch("qwen3_tts.core.engine.load_voice_prompt", return_value=mock_prompt), \
-             patch("qwen3_tts.core.engine.run_inference_streaming", side_effect=fake_stream), \
-             patch(f"{_APP_GENERATION}._check_memory_available", return_value=(True, 8000)), \
-             patch(f"{_APP_GENERATION}._validate_generation_request"):
+        with (
+            patch("qwen3_tts.core.engine.load_voice_prompt", return_value=mock_prompt),
+            patch(
+                "qwen3_tts.core.engine.run_inference_streaming", side_effect=fake_stream
+            ),
+            patch(
+                f"{_APP_GENERATION}._check_memory_available", return_value=(True, 8000)
+            ),
+            patch(f"{_APP_GENERATION}._validate_generation_request"),
+        ):
             resp = client.post(
                 "/generate-stream",
                 json={"text": "Hello", "mode": "clone", "prompt_file": "voice1.wav"},
@@ -1051,9 +1252,13 @@ class TestGenerateStream(unittest.TestCase):
         def _boom(model_type, warmup=False):
             raise RuntimeError("cold load failed")
 
-        with patch(f"{_APP_GENERATION}._check_memory_available", return_value=(True, 8000)), \
-             patch(f"{_APP_GENERATION}._validate_generation_request"), \
-             patch("qwen3_tts.core.engine.load_model", side_effect=_boom):
+        with (
+            patch(
+                f"{_APP_GENERATION}._check_memory_available", return_value=(True, 8000)
+            ),
+            patch(f"{_APP_GENERATION}._validate_generation_request"),
+            patch("qwen3_tts.core.engine.load_model", side_effect=_boom),
+        ):
             resp = client.post(
                 "/generate-stream",
                 json={"text": "Hello", "mode": "clone", "prompt_file": "voice1.wav"},
@@ -1065,8 +1270,12 @@ class TestGenerateStream(unittest.TestCase):
 
     def test_stream_low_memory(self):
         client, token, state = self._setup_stream_client()
-        with patch(f"{_APP_GENERATION}._check_memory_available", return_value=(False, 500)), \
-             patch(f"{_APP_GENERATION}._validate_generation_request"):
+        with (
+            patch(
+                f"{_APP_GENERATION}._check_memory_available", return_value=(False, 500)
+            ),
+            patch(f"{_APP_GENERATION}._validate_generation_request"),
+        ):
             resp = client.post(
                 "/generate-stream",
                 json={"text": "Hello", "mode": "clone", "prompt_file": "voice1.wav"},
@@ -1081,8 +1290,12 @@ class TestGenerateStream(unittest.TestCase):
 
     def test_stream_missing_prompt_file(self):
         client, token, state = self._setup_stream_client()
-        with patch(f"{_APP_GENERATION}._check_memory_available", return_value=(True, 8000)), \
-             patch(f"{_APP_GENERATION}._validate_generation_request"):
+        with (
+            patch(
+                f"{_APP_GENERATION}._check_memory_available", return_value=(True, 8000)
+            ),
+            patch(f"{_APP_GENERATION}._validate_generation_request"),
+        ):
             resp = client.post(
                 "/generate-stream",
                 json={"text": "Hello", "mode": "clone"},
@@ -1092,9 +1305,13 @@ class TestGenerateStream(unittest.TestCase):
 
     def test_stream_prompt_not_found(self):
         client, token, state = self._setup_stream_client()
-        with patch("qwen3_tts.core.engine.load_voice_prompt", return_value=None), \
-             patch(f"{_APP_GENERATION}._check_memory_available", return_value=(True, 8000)), \
-             patch(f"{_APP_GENERATION}._validate_generation_request"):
+        with (
+            patch("qwen3_tts.core.engine.load_voice_prompt", return_value=None),
+            patch(
+                f"{_APP_GENERATION}._check_memory_available", return_value=(True, 8000)
+            ),
+            patch(f"{_APP_GENERATION}._validate_generation_request"),
+        ):
             resp = client.post(
                 "/generate-stream",
                 json={"text": "Hello", "mode": "clone", "prompt_file": "missing.wav"},
@@ -1106,15 +1323,19 @@ class TestGenerateStream(unittest.TestCase):
         """Step 0F Deliverable 4: the streaming clone 404 must not echo the
         absolute FileNotFoundError path into the response body (CWE-209)."""
         client, token, state = self._setup_stream_client()
-        with patch(
-            "qwen3_tts.core.engine.load_voice_prompt",
-            side_effect=FileNotFoundError(
-                "[Errno 2] No such file or directory: "
-                "'/Users/victim/voices/leaky_clone.pt'"
+        with (
+            patch(
+                "qwen3_tts.core.engine.load_voice_prompt",
+                side_effect=FileNotFoundError(
+                    "[Errno 2] No such file or directory: "
+                    "'/Users/victim/voices/leaky_clone.pt'"
+                ),
             ),
-        ), \
-             patch(f"{_APP_GENERATION}._check_memory_available", return_value=(True, 8000)), \
-             patch(f"{_APP_GENERATION}._validate_generation_request"):
+            patch(
+                f"{_APP_GENERATION}._check_memory_available", return_value=(True, 8000)
+            ),
+            patch(f"{_APP_GENERATION}._validate_generation_request"),
+        ):
             resp = client.post(
                 "/generate-stream",
                 json={"text": "Hello", "mode": "clone", "prompt_file": "missing.wav"},
@@ -1150,18 +1371,19 @@ class TestBackgroundLoadAttachWaitArms(unittest.TestCase):
 
         state = _make_app_state()
         state.server_config = {"models": {"design": {"load_at_startup": True}}}
-        with patch(
-            f"{_APP_LIFESPAN}.claim_model_load",
-            return_value=(ClaimResult.ATTACH, record),
-        ), patch(
-            # The real constant is 870s; the timeout arm's record never
-            # completes, so the wait must be shrunk for the test to end.
-            f"{_APP_LIFESPAN}.MODEL_LOAD_WAIT_TIMEOUT_SEC",
-            0.05,
-        ), patch(
-            "qwen3_tts.core.engine.load_model"
-        ) as mock_load, patch(
-            "qwen3_tts.core.engine.migrate_orphan_mlx_prompts"
+        with (
+            patch(
+                f"{_APP_LIFESPAN}.claim_model_load",
+                return_value=(ClaimResult.ATTACH, record),
+            ),
+            patch(
+                # The real constant is 870s; the timeout arm's record never
+                # completes, so the wait must be shrunk for the test to end.
+                f"{_APP_LIFESPAN}.MODEL_LOAD_WAIT_TIMEOUT_SEC",
+                0.05,
+            ),
+            patch("qwen3_tts.core.engine.load_model") as mock_load,
+            patch("qwen3_tts.core.engine.migrate_orphan_mlx_prompts"),
         ):
             _background_load(state)
         mock_load.assert_not_called()  # ATTACH must never build a 2nd copy
@@ -1227,26 +1449,30 @@ class TestWarmupUnderInferenceLockArms(unittest.TestCase):
             coro.close()
             return ns
 
-        with patch(
-            "qwen3_tts.core.engine.model_loader._warmup_disabled",
-            return_value=False,
-        ), patch(
-            "qwen3_tts.core.engine.model_loader._warmup_model"
-        ) as mock_warmup, patch(
-            "asyncio.run_coroutine_threadsafe",
-            side_effect=_fake_schedule,
-        ) as mock_schedule, patch(
-            f"{_APP_LIFESPAN}._STARTUP_WARMUP_TIMEOUT_SEC", 5
-        ), self.assertLogs(
-            "tts", level="WARNING"  # app_lifespan logs under the "tts" root
-        ) as logs:
+        with (
+            patch(
+                "qwen3_tts.core.engine.model_loader._warmup_disabled",
+                return_value=False,
+            ),
+            patch("qwen3_tts.core.engine.model_loader._warmup_model") as mock_warmup,
+            patch(
+                "asyncio.run_coroutine_threadsafe",
+                side_effect=_fake_schedule,
+            ) as mock_schedule,
+            patch(f"{_APP_LIFESPAN}._STARTUP_WARMUP_TIMEOUT_SEC", 5),
+            self.assertLogs(
+                "tts",
+                level="WARNING",  # app_lifespan logs under the "tts" root
+            ) as logs,
+        ):
             # Must RETURN, not raise: the load already succeeded; the warm-up
             # wait is best-effort by contract.
             _run_warmup_under_inference_lock(state, MagicMock(), "design")
 
         mock_schedule.assert_called_once()
         self.assertIs(
-            mock_schedule.call_args[0][1], state.event_loop,
+            mock_schedule.call_args[0][1],
+            state.event_loop,
             "must schedule onto the captured event loop",
         )
         # Abandon the wait, not the safety: the scheduled work is cancelled.
@@ -1270,8 +1496,10 @@ class TestWarmupUnderInferenceLockArms(unittest.TestCase):
 
         state = _make_app_state()
         state.event_loop = None  # shutdown race: loop already gone
-        with patch("asyncio.run_coroutine_threadsafe") as mock_schedule, \
-                self.assertLogs("tts", level="INFO") as logs:
+        with (
+            patch("asyncio.run_coroutine_threadsafe") as mock_schedule,
+            self.assertLogs("tts", level="INFO") as logs,
+        ):
             _run_warmup_under_inference_lock(state, MagicMock(), "design")
         mock_schedule.assert_not_called()
         self.assertTrue(any("Skipping" in line for line in logs.output))
