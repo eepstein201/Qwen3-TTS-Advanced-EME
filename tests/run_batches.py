@@ -240,6 +240,7 @@ BATCHES = {
             "tests.test_ui_tabs_generation_closures",
             "tests.test_engine_streaming",
             "tests.test_mlx_generate_kwargs",
+            "tests.test_prosody_preset_builder",
         ],
         "timeout": 480,  # Engine & UI — macos CI runners run ~3-4x slower than linux
     },

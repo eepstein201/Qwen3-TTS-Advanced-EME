@@ -10,6 +10,7 @@ qwen3_tts/core/config/__init__.py for the rationale.
 """
 
 import json
+import re
 
 # ---------------------------------------------------------------------------
 # Generation presets (temperature/top_k/top_p/repetition_penalty)
@@ -116,3 +117,171 @@ def get_prosody_presets(config=None):
             config = {}
     user_presets = config.get("prosody_presets", {})
     return {**DEFAULT_PROSODY_PRESETS, **user_presets}
+
+
+# ---------------------------------------------------------------------------
+# User-defined prosody presets (Custom-tab save/delete; factory names reserved)
+# ---------------------------------------------------------------------------
+
+PROSODY_NAME_MAX_LEN = 40
+
+# Factory names are reserved case-insensitively: a hand-edited factory-keyed
+# override still applies through get_prosody_presets() (config wins) but is
+# never listed or manageable as a user preset.
+_FACTORY_PROSODY_NAMES = frozenset(k.lower() for k in DEFAULT_PROSODY_PRESETS)
+
+# "(none)" and " - " are defence-in-depth rejections — the charset below
+# already excludes both. ".." is deliberately allowed: a preset name is a
+# config key, never a path component.
+_PROSODY_NAME_RE = re.compile(r"^[A-Za-z0-9_.-]+$")
+
+_EMPTY_INSTRUCT_MSG = (
+    "Type a Style Instruction first — the preset saves exactly what's in that box."
+)
+_CORRUPT_SAVE_MSG = "Couldn't save the preset — config.json is corrupt or unreadable."
+_CORRUPT_DELETE_MSG = (
+    "Couldn't delete the preset — config.json is corrupt or unreadable."
+)
+_MISSING_CONFIG_MSG = "config.json is missing — run tts config to create it."
+
+
+def _raw_user_prosody_entries(config):
+    """The RAW prosody_presets dict, unfiltered.
+
+    This is the WRITE base — never the filtered view: a filtered-base save
+    would silently drop seeded factory entries and hand-edited
+    factory-shadowed overrides from config.json.
+    """
+    entries = config.get("prosody_presets", {})
+    return entries if isinstance(entries, dict) else {}
+
+
+def _stripped(value):
+    return value.strip() if isinstance(value, str) else ""
+
+
+def get_user_prosody_presets(config=None):
+    """Filtered view of user-defined prosody presets: factory names dropped
+    (case-insensitive), str values only, non-empty after strip.
+
+    Pure read — a corrupt or unreadable config swallows to {} so dropdown
+    rendering never explodes. Returns a new dict, never an alias.
+    """
+    from qwen3_tts.core.config import load_config
+
+    if config is None:
+        try:
+            config = load_config()
+        except (json.JSONDecodeError, ValueError, OSError):
+            return {}
+    raw = _raw_user_prosody_entries(config)
+    return {
+        name: text
+        for name, text in raw.items()
+        if isinstance(name, str)
+        and name.lower() not in _FACTORY_PROSODY_NAMES
+        and isinstance(text, str)
+        and text.strip()
+    }
+
+
+def validate_prosody_preset_name(name):
+    """Return an error message for an invalid preset name, else None."""
+    stripped = _stripped(name)
+    if not stripped:
+        return "Enter a preset name."
+    if len(stripped) > PROSODY_NAME_MAX_LEN:
+        return f"Preset name is too long ({PROSODY_NAME_MAX_LEN} characters max)."
+    if stripped.lower() in _FACTORY_PROSODY_NAMES:
+        return f"'{stripped}' is a built-in preset — pick a different name."
+    if not _PROSODY_NAME_RE.match(stripped):
+        return (
+            "Preset names can only contain letters, numbers, dashes, "
+            "underscores, and dots."
+        )
+    return None
+
+
+def save_user_prosody_preset(name, instruct_text, config=None):
+    """Save (or overwrite) a user-defined prosody preset.
+
+    Strips name and text, stores stripped forms; the write base is the RAW
+    entries dict. Swallow-on-corrupt is for pure reads only — a write-path
+    load failure returns (False, msg) and never saves. OSError messages
+    surface err.strerror only (never the path, CWE-209).
+    """
+    from qwen3_tts.core.config import load_config, save_config
+
+    name = _stripped(name)
+    text = _stripped(instruct_text)
+    error = validate_prosody_preset_name(name)
+    if error:
+        return (False, error)
+    if not text:
+        return (False, _EMPTY_INSTRUCT_MSG)
+    if config is None:
+        try:
+            config = load_config()
+        except FileNotFoundError:
+            return (False, _MISSING_CONFIG_MSG)
+        except (json.JSONDecodeError, ValueError, OSError):
+            return (False, _CORRUPT_SAVE_MSG)
+    presets = _raw_user_prosody_entries(config)
+    updated = name in presets and name.lower() not in _FACTORY_PROSODY_NAMES
+    try:
+        save_config({**config, "prosody_presets": {**presets, name: text}})
+    except OSError as err:
+        return (
+            False,
+            f"Couldn't save prosody preset '{name}' — the config file couldn't "
+            f"be written ({err.strerror or 'unknown error'}). Check disk space "
+            "and permissions, then try again.",
+        )
+    if updated:
+        return (True, f"Updated preset '{name}'.")
+    message = f"Saved preset '{name}'. It now appears in the Style Preset dropdown."
+    if len(text) > 200:
+        message += f" ({len(text)} characters, saved verbatim)."
+    return (True, message)
+
+
+def delete_user_prosody_preset(name, config=None):
+    """Delete a user-defined prosody preset.
+
+    Membership is tested against the RAW entries minus factory names —
+    hand-edited junk entries stay deletable while never being listed.
+    """
+    from qwen3_tts.core.config import load_config, save_config
+
+    name = _stripped(name)
+    if name.lower() in _FACTORY_PROSODY_NAMES:
+        return (False, f"'{name}' is a built-in preset and can't be deleted.")
+    if config is None:
+        try:
+            config = load_config()
+        except FileNotFoundError:
+            return (False, _MISSING_CONFIG_MSG)
+        except (json.JSONDecodeError, ValueError, OSError):
+            return (False, _CORRUPT_DELETE_MSG)
+    presets = _raw_user_prosody_entries(config)
+    if name not in presets:
+        return (
+            False,
+            f"Preset '{name}' no longer exists — it may have been removed "
+            "outside the UI.",
+        )
+    try:
+        save_config(
+            {
+                **config,
+                "prosody_presets": {k: v for k, v in presets.items() if k != name},
+            }
+        )
+    except OSError as err:
+        return (
+            False,
+            f"Couldn't delete prosody preset '{name}' — the config file couldn't "
+            f"be written ({err.strerror or 'unknown error'}). Check disk space "
+            "and permissions, then try again.",
+        )
+    return (True, f"Deleted preset '{name}'.")

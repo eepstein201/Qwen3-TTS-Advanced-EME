@@ -65,7 +65,7 @@ class _TabHarness:
     def build_all(self):
         self.module._build_clone_tab(None, None)
         self.module._build_design_tab(None, None, None)
-        self.module._build_custom_tab(None, None)
+        self.module._build_custom_tab(None, None, None)
 
     def config_handler(self, mode):
         for call in self.mock_generation._wire_generation_tab.call_args_list:

@@ -8,6 +8,7 @@ imported module-style so tests can patch them at their definition site.
 
 import os
 import re
+import time
 
 import gradio as gr
 
@@ -20,6 +21,169 @@ _SAFE_NAME_RE = re.compile(r"^[a-zA-Z0-9_\-]{1,64}$")
 # Sentinel shown as the "nothing selected" entry in every preset/prosody
 # dropdown. Handlers compare against it, so it must stay a single literal.
 NONE_CHOICE = "(none)"
+
+# --- User-defined prosody presets (Custom-tab save/delete) ------------------
+#
+# Target-keyed two-step confirm (history_panel precedent): the handler owns
+# the name comparison; confirm applies only when armed_name matches the
+# current stripped target AND within the window — anything else re-arms.
+# Handlers never call load_config/save_config directly and never re-implement
+# validation: branch decisions go through core_config, all writes through the
+# CRUD functions, whose (ok, message) tuples are displayed verbatim.
+
+_PROSODY_CONFIRM_WINDOW_SEC = 5.0
+_PROSODY_SAVE_BTN_BASE = "Save as preset"
+_PROSODY_SAVE_BTN_ARM = "Confirm Overwrite? (click again)"
+_PROSODY_DELETE_BTN_BASE = "Delete preset"
+_PROSODY_DELETE_BTN_ARM = "Confirm Delete? (click again)"
+_PROSODY_DISARMED_STATE = {"armed": False, "ts": 0.0, "armed_name": None}
+
+
+def _prosody_arm_is_fresh(state, name, now):
+    return (
+        bool(state.get("armed"))
+        and state.get("armed_name") == name
+        and (now - float(state.get("ts") or 0.0)) <= _PROSODY_CONFIRM_WINDOW_SEC
+    )
+
+
+def _prosody_disarmed_result(btn_label, status):
+    """Non-arm branch shape: full disarmed state, base button label, status,
+    announcer, and bare no-change updates on all three dropdowns."""
+    return (
+        dict(_PROSODY_DISARMED_STATE),
+        gr.update(value=btn_label),
+        status,
+        generation._announce_status(status),
+        gr.update(),
+        gr.update(),
+        gr.update(),
+    )
+
+
+def _prosody_apply_dropdown_reset(choice, affected, merged_choices):
+    """Conditional reset: value=NONE only when THIS dropdown's own input
+    names the affected preset (a stale "name - old text" label must not
+    survive an overwrite; unrelated selections untouched — resetting them
+    re-fires .change and double-appends). None guards to no reset."""
+    current = voice_helpers.prosody_choice_to_name(
+        choice if isinstance(choice, str) else None
+    )
+    if current == affected:
+        return gr.update(choices=merged_choices, value=NONE_CHOICE)
+    return gr.update(choices=merged_choices)
+
+
+def _on_save_prosody_preset(
+    state, preset_name, instruct_text, custom_choice, design_choice
+):
+    """Save (or overwrite) a user-defined prosody preset. The name is
+    stripped once, up front, and the stripped form is used everywhere —
+    validation, existence, armed_name, and the confirm comparison."""
+    now = time.time()
+    name = preset_name.strip() if isinstance(preset_name, str) else ""
+    text = instruct_text.strip() if isinstance(instruct_text, str) else ""
+
+    error = core_config.validate_prosody_preset_name(name)
+    if error is None and not text:
+        # The writer owns the empty-instruct copy (never a UI-local literal).
+        _ok, error = core_config.save_user_prosody_preset(name, instruct_text)
+    if error is not None:
+        return _prosody_disarmed_result(_PROSODY_SAVE_BTN_BASE, error)
+
+    if (
+        not _prosody_arm_is_fresh(state, name, now)
+        and name in core_config.get_user_prosody_presets()
+    ):
+        if state.get("armed") and state.get("armed_name") != name:
+            status = f"Changed to '{name}' — click again within 5s to overwrite it."
+        elif state.get("armed"):
+            status = (
+                f"Your confirmation timed out. Click again within 5s to "
+                f"overwrite '{name}'."
+            )
+        else:
+            status = (
+                f"A preset named '{name}' already exists. "
+                "Click again within 5s to overwrite it."
+            )
+        return (
+            {"armed": True, "ts": now, "armed_name": name},
+            gr.update(value=_PROSODY_SAVE_BTN_ARM),
+            status,
+            generation._announce_status(status),
+            gr.update(),
+            gr.update(),
+            gr.update(),
+        )
+
+    ok, msg = core_config.save_user_prosody_preset(name, text)
+    if not ok:
+        return _prosody_disarmed_result(_PROSODY_SAVE_BTN_BASE, msg)
+    merged = voice_helpers.get_prosody_choices()
+    return (
+        dict(_PROSODY_DISARMED_STATE),
+        gr.update(value=_PROSODY_SAVE_BTN_BASE),
+        msg,
+        generation._announce_status(msg),
+        _prosody_apply_dropdown_reset(custom_choice, name, merged),
+        _prosody_apply_dropdown_reset(design_choice, name, merged),
+        gr.update(choices=voice_helpers.get_user_prosody_choices()),
+    )
+
+
+def _on_delete_prosody_preset(state, selection, custom_choice, design_choice):
+    """Delete a user-defined prosody preset. Membership misses render the
+    data-layer classification message verbatim (never a UI-local literal)."""
+    now = time.time()
+    name = (
+        voice_helpers.prosody_choice_to_name(selection)
+        if isinstance(selection, str)
+        else NONE_CHOICE
+    )
+    if name == NONE_CHOICE or not name:
+        return _prosody_disarmed_result(
+            _PROSODY_DELETE_BTN_BASE, "Select one of your presets to delete."
+        )
+
+    fresh = _prosody_arm_is_fresh(state, name, now)
+    if not fresh and name not in core_config.get_user_prosody_presets():
+        _ok, msg = core_config.delete_user_prosody_preset(name)
+        return _prosody_disarmed_result(_PROSODY_DELETE_BTN_BASE, msg)
+
+    if not fresh:
+        if state.get("armed") and state.get("armed_name") != name:
+            status = f"Now deleting '{name}' — click again within 5s to confirm."
+        elif state.get("armed"):
+            status = (
+                f"Your confirmation timed out. Click again within 5s to "
+                f"delete '{name}'."
+            )
+        else:
+            status = f"Delete preset '{name}'? Click again within 5s to confirm."
+        return (
+            {"armed": True, "ts": now, "armed_name": name},
+            gr.update(value=_PROSODY_DELETE_BTN_ARM),
+            status,
+            generation._announce_status(status),
+            gr.update(),
+            gr.update(),
+            gr.update(),
+        )
+
+    ok, msg = core_config.delete_user_prosody_preset(name)
+    if not ok:
+        return _prosody_disarmed_result(_PROSODY_DELETE_BTN_BASE, msg)
+    merged = voice_helpers.get_prosody_choices()
+    return (
+        dict(_PROSODY_DISARMED_STATE),
+        gr.update(value=_PROSODY_DELETE_BTN_BASE),
+        msg,
+        generation._announce_status(msg),
+        _prosody_apply_dropdown_reset(custom_choice, name, merged),
+        _prosody_apply_dropdown_reset(design_choice, name, merged),
+        gr.update(choices=voice_helpers.get_user_prosody_choices(), value=NONE_CHOICE),
+    )
 
 
 def _new_gen_guard_state() -> dict:
@@ -58,7 +222,9 @@ def _build_clone_tab(status_html, history_state):
         "For voice design from descriptions, use Design mode. "
         "To create a reusable designed voice, generate in Design mode then save as a voice prompt."
     )
-    clone_model_indicator = gr.HTML(value=model_management.get_model_status_html("clone"))
+    clone_model_indicator = gr.HTML(
+        value=model_management.get_model_status_html("clone")
+    )
 
     with gr.Row():
         with gr.Column(scale=2):
@@ -159,7 +325,9 @@ def _build_design_tab(status_html, history_state, clone_prompt):
     (e.g. to update a history dataframe rendered outside this tab).
     """
     gr.Markdown("Generate a voice from a text description.")
-    design_model_indicator = gr.HTML(value=model_management.get_model_status_html("design"))
+    design_model_indicator = gr.HTML(
+        value=model_management.get_model_status_html("design")
+    )
 
     with gr.Row():
         with gr.Column(scale=2):
@@ -204,34 +372,40 @@ def _build_design_tab(status_html, history_state, clone_prompt):
                 with gr.Row():
                     db_gender = gr.Dropdown(
                         label="Gender",
-                        choices=_none_opt + core_config.VOICE_DESCRIPTION_ATTRIBUTES["gender"],
+                        choices=_none_opt
+                        + core_config.VOICE_DESCRIPTION_ATTRIBUTES["gender"],
                         value=NONE_CHOICE,
                     )
                     db_age = gr.Dropdown(
                         label="Age",
-                        choices=_none_opt + core_config.VOICE_DESCRIPTION_ATTRIBUTES["age"],
+                        choices=_none_opt
+                        + core_config.VOICE_DESCRIPTION_ATTRIBUTES["age"],
                         value=NONE_CHOICE,
                     )
                 with gr.Row():
                     db_tone = gr.Dropdown(
                         label="Tone",
-                        choices=_none_opt + core_config.VOICE_DESCRIPTION_ATTRIBUTES["tone"],
+                        choices=_none_opt
+                        + core_config.VOICE_DESCRIPTION_ATTRIBUTES["tone"],
                         value=NONE_CHOICE,
                     )
                     db_texture = gr.Dropdown(
                         label="Texture",
-                        choices=_none_opt + core_config.VOICE_DESCRIPTION_ATTRIBUTES["texture"],
+                        choices=_none_opt
+                        + core_config.VOICE_DESCRIPTION_ATTRIBUTES["texture"],
                         value=NONE_CHOICE,
                     )
                 with gr.Row():
                     db_pace = gr.Dropdown(
                         label="Pace",
-                        choices=_none_opt + core_config.VOICE_DESCRIPTION_ATTRIBUTES["pace"],
+                        choices=_none_opt
+                        + core_config.VOICE_DESCRIPTION_ATTRIBUTES["pace"],
                         value=NONE_CHOICE,
                     )
                     db_accent = gr.Dropdown(
                         label="Accent",
-                        choices=_none_opt + core_config.VOICE_DESCRIPTION_ATTRIBUTES["accent"],
+                        choices=_none_opt
+                        + core_config.VOICE_DESCRIPTION_ATTRIBUTES["accent"],
                         value=NONE_CHOICE,
                     )
                 db_compose_btn = gr.Button(
@@ -350,7 +524,9 @@ def _build_design_tab(status_html, history_state, clone_prompt):
                         )
                     safe_audio_path = audio_expanded
                 else:
-                    safe_audio_path = core_config.safe_path_join(os.getcwd(), audio_expanded)
+                    safe_audio_path = core_config.safe_path_join(
+                        os.getcwd(), audio_expanded
+                    )
 
                 # Verify path is under home directory. `resolved` is the
                 # canonical, symlink-free path — everything downstream uses it
@@ -394,10 +570,10 @@ def _build_design_tab(status_html, history_state, clone_prompt):
         inputs=[design_save_name, history_state],
         outputs=[design_save_status, clone_prompt],
     )
-    return design_model_indicator, design_chain, design_ctrls["seed"]
+    return design_model_indicator, design_chain, design_ctrls["seed"], design_prosody
 
 
-def _build_custom_tab(status_html, history_state):
+def _build_custom_tab(status_html, history_state, design_prosody):
     """Build Custom Mode tab components and wiring.
 
     Returns (custom_model_indicator, custom_chain, custom_seed) for cross-tab references.
@@ -405,7 +581,9 @@ def _build_custom_tab(status_html, history_state):
     (e.g. to update a history dataframe rendered outside this tab).
     """
     gr.Markdown("Use premium pre-trained speakers.")
-    custom_model_indicator = gr.HTML(value=model_management.get_model_status_html("custom"))
+    custom_model_indicator = gr.HTML(
+        value=model_management.get_model_status_html("custom")
+    )
 
     with gr.Row():
         with gr.Column(scale=2):
@@ -423,13 +601,18 @@ def _build_custom_tab(status_html, history_state):
                 container=False,
             )
             custom_speaker = gr.Dropdown(
-                label="Speaker", choices=shared.SPEAKER_CHOICES, value=shared.SPEAKER_CHOICES[0]
+                label="Speaker",
+                choices=shared.SPEAKER_CHOICES,
+                value=shared.SPEAKER_CHOICES[0],
             )
             custom_prosody = gr.Dropdown(
                 label="Style Preset",
                 choices=voice_helpers.get_prosody_choices(),
                 value=NONE_CHOICE,
-                info="Select a preset to fill the instruction field, or type your own below",
+                info=(
+                    "Select a preset to fill the instruction field, or type "
+                    "your own below, then save it under 'My prosody presets'."
+                ),
             )
             custom_instruct = gr.Textbox(
                 label="Style Instruction (optional)",
@@ -440,11 +623,101 @@ def _build_custom_tab(status_html, history_state):
                 label="Preset", choices=shared.get_presets(), value=NONE_CHOICE
             )
 
+            with gr.Accordion("My prosody presets", open=False):
+                gr.Markdown(
+                    "Save the current Style Instruction as a named preset, or "
+                    "delete presets you created. Built-in presets can't be "
+                    "changed. The preset saves exactly what's in the Style "
+                    "Instruction box — including any preset text appended via "
+                    "the Style Preset dropdown."
+                )
+                prosody_preset_name = gr.Textbox(
+                    label="Preset name",
+                    placeholder="e.g., 'storyteller'",
+                    info=(
+                        "Letters, numbers, dashes, underscores, and dots only. "
+                        f"Max {core_config.PROSODY_NAME_MAX_LEN} characters."
+                    ),
+                )
+                with gr.Row():
+                    prosody_preset_save_btn = gr.Button(
+                        "Save as preset", variant="secondary", size="sm"
+                    )
+                    prosody_preset_delete_btn = gr.Button(
+                        "Delete preset", variant="stop", size="sm"
+                    )
+                prosody_preset_save_status = gr.Textbox(
+                    label="",
+                    show_label=False,
+                    interactive=False,
+                    max_lines=2,
+                    container=False,
+                )
+                prosody_preset_delete_status = gr.Textbox(
+                    label="",
+                    show_label=False,
+                    interactive=False,
+                    max_lines=2,
+                    container=False,
+                )
+                prosody_preset_delete_dropdown = gr.Dropdown(
+                    label="Preset to delete",
+                    info="Only presets you created appear here.",
+                    choices=voice_helpers.get_user_prosody_choices(),
+                    value=NONE_CHOICE,
+                )
+                # sr-only announcer — never visible=False (Gradio 6 drops it
+                # from the DOM); mirrors both status boxes for SR users.
+                prosody_preset_announcer = gr.HTML(generation._announce_status(""))
+                prosody_preset_save_state = gr.State(dict(_PROSODY_DISARMED_STATE))
+                prosody_preset_delete_state = gr.State(dict(_PROSODY_DISARMED_STATE))
+
         with gr.Column(scale=1):
             custom_ctrls = generation._build_common_controls()
 
     custom_btns = generation._build_generate_buttons_and_output("custom")
     gen_guard_state = gr.State(_new_gen_guard_state())
+
+    # Prosody preset save/delete. The two apply dropdowns must be INPUTS —
+    # the conditional-reset rule reads each dropdown's own value; the delete
+    # dropdown is an OUTPUT of both flows (choices refresh on every success).
+    prosody_preset_save_btn.click(
+        fn=_on_save_prosody_preset,
+        inputs=[
+            prosody_preset_save_state,
+            prosody_preset_name,
+            custom_instruct,
+            custom_prosody,
+            design_prosody,
+        ],
+        outputs=[
+            prosody_preset_save_state,
+            prosody_preset_save_btn,
+            prosody_preset_save_status,
+            prosody_preset_announcer,
+            custom_prosody,
+            design_prosody,
+            prosody_preset_delete_dropdown,
+        ],
+    )
+    prosody_preset_delete_btn.click(
+        fn=_on_delete_prosody_preset,
+        inputs=[
+            prosody_preset_delete_state,
+            prosody_preset_delete_dropdown,
+            custom_prosody,
+            design_prosody,
+        ],
+        outputs=[
+            prosody_preset_delete_state,
+            prosody_preset_delete_btn,
+            prosody_preset_delete_status,
+            prosody_preset_announcer,
+            custom_prosody,
+            design_prosody,
+            prosody_preset_delete_dropdown,
+        ],
+    )
 
     def custom_config_handler(
         text, speaker, instruct, preset, temp, top_k, top_p, rep, seed, seed_lock

@@ -48,6 +48,46 @@ def strip_extension(name: str) -> str:
 # Prosody Preset Helpers
 # =============================================================================
 
+PROSODY_NONE_CHOICE = "(none)"
+PROSODY_CHOICE_SEPARATOR = " - "
+
+# Display-only truncation for dropdown choices (stored/applied text is
+# unaffected; factory texts are 35-55 chars so the merged dropdown renders
+# observably unchanged, and name recovery via split(" - ")[0] stays safe).
+_PROSODY_CHOICE_TEXT_MAX = 80
+
+
+def _format_prosody_choice(name: str, text: str) -> str:
+    """Render a preset as a dropdown choice: "name - text"."""
+    if len(text) > _PROSODY_CHOICE_TEXT_MAX:
+        text = text[:_PROSODY_CHOICE_TEXT_MAX] + "…"
+    return f"{name}{PROSODY_CHOICE_SEPARATOR}{text}"
+
+
+def prosody_choice_to_name(choice: str | None) -> str:
+    """Recover the preset name from a dropdown choice.
+
+    The "(none)" sentinel is identity (never equals a preset name — the
+    validator forbids it), so conditional-reset comparisons are safe.
+    """
+    if not choice or choice == PROSODY_NONE_CHOICE:
+        return PROSODY_NONE_CHOICE
+    return choice.split(PROSODY_CHOICE_SEPARATOR)[0].strip()
+
+
+def get_user_prosody_choices(config=None) -> list[str]:
+    """Dropdown choices for the user's own presets (delete dropdown).
+
+    Sorted, "(none)" first, factory names excluded. A corrupt or unreadable
+    config swallows to "(none)"-only (pure read).
+    """
+    from qwen3_tts.core.config import get_user_prosody_presets
+
+    presets = get_user_prosody_presets(config=config)
+    return [PROSODY_NONE_CHOICE] + [
+        _format_prosody_choice(name, text) for name, text in sorted(presets.items())
+    ]
+
 
 def get_prosody_choices() -> list[str]:
     """Return list of prosody preset choices for dropdown, with (none) first.
@@ -56,7 +96,9 @@ def get_prosody_choices() -> list[str]:
         List of strings in format "name - description", with "(none)" first
     """
     presets = get_prosody_presets()
-    return ["(none)"] + [f"{name} - {text}" for name, text in sorted(presets.items())]
+    return [PROSODY_NONE_CHOICE] + [
+        _format_prosody_choice(name, text) for name, text in sorted(presets.items())
+    ]
 
 
 def apply_prosody_preset(choice: str, existing_text: str | None = None) -> str:

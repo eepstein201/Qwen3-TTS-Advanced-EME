@@ -104,7 +104,9 @@ def _stop_server_via_pm2(name, client):
     within `restart_delay` -- before this function's own poll loop could
     ever observe it as stopped.
     """
-    logger.info("Server is managed by PM2 (app '%s') — using `pm2 stop %s`.", name, name)
+    logger.info(
+        "Server is managed by PM2 (app '%s') — using `pm2 stop %s`.", name, name
+    )
     try:
         result = subprocess.run(  # nosec B603, B607
             ["pm2", "stop", name],
@@ -117,9 +119,7 @@ def _stop_server_via_pm2(name, client):
         return format_status_display()
 
     if result.returncode != 0:
-        logger.warning(
-            "pm2 stop failed: %s", (result.stderr or result.stdout).strip()
-        )
+        logger.warning("pm2 stop failed: %s", (result.stderr or result.stdout).strip())
         return format_status_display()
 
     for _ in range(10):
@@ -306,12 +306,12 @@ def build_ui():
                     _build_clone_tab(status_html, history_state)
                 )
             with gr.Tab("Design Mode"):
-                design_model_indicator, design_chain, design_seed = _build_design_tab(
-                    status_html, history_state, clone_prompt
+                design_model_indicator, design_chain, design_seed, design_prosody = (
+                    _build_design_tab(status_html, history_state, clone_prompt)
                 )
             with gr.Tab("Custom Mode"):
                 custom_model_indicator, custom_chain, custom_seed = _build_custom_tab(
-                    status_html, history_state
+                    status_html, history_state, design_prosody
                 )
 
             with gr.Tab("Create Voice"):
