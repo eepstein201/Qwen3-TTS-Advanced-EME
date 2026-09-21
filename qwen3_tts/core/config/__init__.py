@@ -167,8 +167,13 @@ from qwen3_tts.core.config.pm2 import (
 from qwen3_tts.core.config.presets import (
     DEFAULT_GENERATION_PRESETS,
     DEFAULT_PROSODY_PRESETS,
+    PROSODY_NAME_MAX_LEN,
+    delete_user_prosody_preset,
     get_generation_presets,
     get_prosody_presets,
+    get_user_prosody_presets,
+    save_user_prosody_preset,
+    validate_prosody_preset_name,
 )
 
 # --- runtime ---
@@ -291,6 +296,11 @@ __all__ = [
     "get_generation_presets",
     "DEFAULT_PROSODY_PRESETS",
     "get_prosody_presets",
+    "PROSODY_NAME_MAX_LEN",
+    "get_user_prosody_presets",
+    "validate_prosody_preset_name",
+    "save_user_prosody_preset",
+    "delete_user_prosody_preset",
     # auth
     "read_auth_token",
     "auth_headers",
