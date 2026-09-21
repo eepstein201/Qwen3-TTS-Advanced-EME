@@ -1747,7 +1747,7 @@ analysis rather than duplicated as a new step.)*
 
 ### Track T2 — mlx-env FastAPI repair (0.135.1 → 0.141.1)
 
-- **Status:** deliberately held as its own isolated restart window since the 2026-09-05/06 dependabot session (two transport-library bumps in one week would be unattributable if something regressed). Confirmed 2026-09-06 still on 0.135.1.
+- **Status: NEXT UP (2026-09-21, T1 closed via #322/#324).** Deliberately held as its own isolated restart window since the 2026-09-05/06 dependabot session (two transport-library bumps in one week would be unattributable if something regressed). Confirmed 2026-09-06 still on 0.135.1; re-verify the installed version when the window opens.
 - **When to run:** anytime, isolated from the waves — pick a quiet window, bump, smoke-test `/generate` + `/generate-stream` + `/ws` per the #223 uvicorn-bump protocol precedent, restart, verify.
 - **Sequenced slot:** bundle into the next mechanical-fix batch (alongside Wave 6's 6Q or 6R, both already "small same-shape work" sessions) rather than a standalone one-off — no code overlap, just reuses the restart/smoke-test window instead of opening a second one.
 
@@ -1779,8 +1779,8 @@ analysis rather than duplicated as a new step.)*
   `~/.claude/plans/goal-reduce-storage-usage-ancient-adleman.md` is a different track sharing the
   number.)*
 - **Standing paperwork** (process, not a step): each merged step's status-mark rides the NEXT PR's
-  docs commit per the 0B–0D convention — current through 1E (the 1B/1C-ride and 1D marks landed
-  with 1E's docs commit; no marks outstanding).
+  docs commit per the 0B–0D convention — current through 6O/6P (#321) and the 2026-09-21
+  counter-reconcile + T1 marks (#323/#324); no marks outstanding.
 - **Sequenced slot:** none needed — the register is empty and nothing here blocks or is blocked by
   any wave. The one open item ("Remaining deletable at the user's leisure" above) is a standing
   cleanup opportunity, not a scheduled step; fold it into whichever branch-cleanup pass is
@@ -1817,8 +1817,9 @@ waves; within Wave 6, the 6F–6R small fixes may run before or alongside the 6A
 structural risk is what actually wants the last position), then Wave 7 (interface polish). The
 three independent tracks fold into this same sequence rather than sitting outside it (2026-09-20):
 **T2** slots into whichever Wave 6 small-fixes session (6Q or 6R) is next, reusing that session's
-restart/smoke-test window; **T1** slots immediately around Wave 7 Step 7A (their one point of
-file contention), once you give T1 its separate go-ahead; **T3** needs no slot — its register is
+restart/smoke-test window — now the live slot, T2 being next up; **T1** was EXECUTED 2026-09-21
+(PR #322, mark #324) — its 7A serialization constraint is resolved, 7A builds on the current
+post-T1 UI; **T3** needs no slot — its register is
 already empty, and its one remaining item (leisure branch cleanup) rides along with any Wave 6/7
 merge's housekeeping.
 
