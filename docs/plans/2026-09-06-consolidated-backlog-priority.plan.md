@@ -1740,8 +1740,8 @@ analysis rather than duplicated as a new step.)*
 
 ### Track T1 — Prosody preset builder v3 (feature, not backlog cleanup)
 
-- **Status:** fully speced, two 4-reviewer rounds already SHIP-WITH-EDITS. Plan: `~/.claude/plans/include-this-as-well-elegant-reef.md`.
-- **Gate:** **your explicit go-ahead** — this is new user-facing scope, not an autonomous bug fix. Confirmed 2026-09-06 still unimplemented (`core/config/presets.py` still 118 lines, no save/delete functions). Folding it into the sequence below does not itself satisfy this gate.
+- **Status: DONE (PR #322, squash `9aebaebb`, merged 2026-09-21).** Full santa-loop: Gate A closed 2×PASS at round 3 of 3; Gate B 2×PASS (0 CRITICAL/HIGH); full non-e2e suite green on CI. Spec shipped in-repo as `docs/plans/2026-09-21-prosody-preset-builder.plan.md` (v3 with the L93 re-arm correction). Deferred Gate B LOWs recorded in the PR body. T1 is a track, outside the 49-step Open count. The 7A serialization note is now moot on the "T1 first" side — T1 landed; 7A builds on the current UI.
+- **Gate:** **your explicit go-ahead** — this is new user-facing scope, not an autonomous bug fix. Confirmed 2026-09-06 still unimplemented (`core/config/presets.py` still 118 lines, no save/delete functions). Folding it into the sequence below does not itself satisfy this gate. (Go-ahead given 2026-09-21; executed same day.)
 - **When to run:** anytime after you approve it; does not depend on or block any wave above (touches `core/config/presets.py`, `interface/voice_helpers.py`, `interface/ui/tabs_generation.py`, `interface/ui/_facade.py` — no overlap with the waves). **One exception (2026-09-08): Wave 7 Step 7A** modifies `interface/ui/tabs_generation.py` + `_facade.py` too — serialize T1 against 7A (T1 first on the current UI, or rebase T1 onto 7A's design layer if it lands second).
 - **Sequenced slot:** immediately after Wave 7 Step 7A lands (or before it, per the serialization note above — whichever you pick first). Sits ahead of 7B/7C in the upcoming-deliverables order once approved, since 7A is its one point of file contention.
 
