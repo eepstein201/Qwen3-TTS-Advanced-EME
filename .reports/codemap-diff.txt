@@ -1,30 +1,32 @@
-CODEMAP DIFF 2026-09-18 (base: 2026-09-11 refresh, ~#291)
-Base scanned: 75 .py / 28.7k LOC -> 75 .py / 29.0k LOC
+CODEMAP DIFF 2026-09-21 (base: 2026-09-18 refresh, ~#310)
+Base scanned: 75 .py / 29.0k LOC -> 76 .py / 29.8k LOC
 
 Product-code commits since base (qwen3_tts/ only):
-  654ff473 3D server hygiene (#293)  · 13da9e35 3E CLI/tools (#294)
-  e12bf21d Step 2 on-demand load (#300) · e8eb6440 3A seed_lock_chunks (#304)
-  (plus test-only/doc waves #296/#297/#305-#310 — not codemap-relevant)
+  cddc185a 4B.4 per-module coverage floor gate (#316 — tools/coverage_floors.py
+    NEW, 236 LOC; wired into the CI coverage job)
+  d5753265 6H activity watchdog (#318) · 35a94d81 6O _EMAIL_RE bounds (#319)
+  bc228cf2 6P GenerateRequest string bounds (#320)
+  9aebaebb T1 user-defined prosody presets (#322 — presets.py 119->287,
+    voice_helpers 157->199, tabs_generation 502->775, _facade re-threaded)
+  (docs/plans-only #317/#321/#323 — not codemap-relevant)
 
 Changes applied:
-  architecture.md — vllm dispatch line marked DISABLED (#293);
-    + per-chunk-seeds para (3A #304); + on-demand-load bullet (Step 2
-    #300) in the serialization section; heaviest-module LOC refreshed
-    (inference 1847, app_generation 1228, app.py 1140, gen_interactive
-    826); layer sizes (server 8.2k, tools 2.3k, tests 197 modules /
-    ~3.5k functions).
-  backend.md — generation path gains the pre-lock on-demand load step;
-    model_loading para notes /generate & /generate-stream auto-load
-    (and that /ws does NOT); key-file LOC refreshed (websocket 654,
-    app_models 604, validation 539; Pydantic model count still 33).
-  data.md / frontend.md / dependencies.md — header refresh only.
-    core/config/ untouched since base; ui/ delta is +8/-3 in
-    model_management.py (well under the 30% approval threshold).
+  architecture.md — heaviest-module LOC (app.py 1180, app_lifespan 843);
+    layer sizes (core 7.7k, interface 9.5k / ui 5.5k, tools 2.5k); tests
+    218 modules / ~3.7k functions; header 76 files / 29.8k LOC.
+  backend.md — key-file LOC (app.py 1180, app_lifespan 843, validation
+    549; Pydantic model count unchanged at 33); + 6H activity-watchdog
+    bullet; + 6O/6P string-field-bounds bullet.
+  frontend.md — tabs_generation 775 (T1 note), model_management 387;
+    + "User prosody presets (T1 #322)" section; header 5.5k LOC.
+  data.md — + prosody_presets user-defined entries line (T1: raw-base
+    writers, factory names reserved, legacy-shadowing note).
+  dependencies.md — header refresh only (no dependency changes; the
+    mlx-audio floor is unchanged — dependabot #302 unmerged).
 
-No new dependencies, routes, or services since base. Validation model
-count unchanged (33). Test-suite growth is test-infra only (4C-4D
-harness/E2E modules + 4B.1 failure-arm tests on the open PR #311 —
-NOT counted here; merge will bump module/function counts again).
+No new routes or services since base. Validation model count unchanged
+(33). Test-suite growth (197 -> 218 modules) is 4B.2-4B.4 coverage work
+plus T1's tests/test_prosody_preset_builder.py.
 
 Staleness: next scheduled refresh ~2026-11-11 (90-day cadence from
-2026-08-13); this is an off-cycle drift sync.
+2026-08-13); this is a second off-cycle drift sync.

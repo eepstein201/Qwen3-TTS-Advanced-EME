@@ -1,4 +1,4 @@
-<!-- Generated: 2026-09-18 | Token estimate: ~500 -->
+<!-- Generated: 2026-09-21 | Token estimate: ~520 -->
 
 # Data & Storage — Qwen3-TTS
 
@@ -11,6 +11,7 @@ No database. Persistence = config JSON + filesystem.
 - **generation**: `max_chunk_chars` (500; bounded 0–10000 at the request boundary, #263), `lufs_normalize` (false), `lufs_target` (−16), `silence_gap_seconds` (0.0 = crossfade), `clone_speed` (0.5–2.0, PRF-6), `trim_icl_echo` (true, PRF-8; since #193/1C the server force-loads ASR unlocked before the lock and keeps it loaded — an in-lock miss ships untrimmed), `language` (default `"auto"`)
 - **models.{clone,design,custom}.revision** — HF pin (default `"main"`); `load_at_startup` (clone: true; design/custom: false, on-demand by design)
 - **security.rate_limits** — `generate` (10/min), `model_ops` (5/min), `transcribe` (10/min), `config_ops` (2/min), `global` (120/min, decoupled from `generate`)
+- **prosody_presets** — 8 factory presets + user-defined entries (UI save/delete, T1 #322): writers compose off the RAW dict (factory keys + junk entries survive every save); factory names reserved case-insensitively; a hand-edited factory-keyed override still applies via the merged view but is not manageable in the UI
 - **history_output_directory** — `~/Downloads/Qwen3-TTS Output`
 
 ## File storage
