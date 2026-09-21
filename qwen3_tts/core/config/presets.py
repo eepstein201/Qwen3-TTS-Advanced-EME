@@ -91,6 +91,193 @@ def get_generation_presets(config=None):
     return {**DEFAULT_GENERATION_PRESETS, **user_presets}
 
 
+# ---------------------------------------------------------------------------
+# User-defined generation presets (Clone-tab save/delete; factory names
+# reserved)
+# ---------------------------------------------------------------------------
+
+GENERATION_PRESET_NAME_MAX_LEN = 40
+
+# Exactly the sampling params the Preset dropdown applies via the blind
+# gen_params.update in the UI's streaming config — anything else in a
+# params dict must never reach config["presets"].
+GENERATION_PRESET_PARAM_KEYS = (
+    "temperature",
+    "top_k",
+    "top_p",
+    "repetition_penalty",
+)
+
+# Mirrors server/validation.py's GenerateRequest bounds. The UI sliders are
+# narrower than this; the writer admits the server's full contract.
+GENERATION_PRESET_PARAM_RANGES = {
+    "temperature": (0.0, 2.0),
+    "top_k": (1, 1000),
+    "top_p": (0.0, 1.0),
+    "repetition_penalty": (0.5, 2.0),
+}
+
+# Factory names are reserved case-insensitively: get_generation_presets()
+# merges config["presets"] over the defaults, so a factory-keyed user entry
+# would silently override factory — the validator is the only barrier.
+_FACTORY_GENERATION_PRESET_NAMES = frozenset(
+    k.lower() for k in DEFAULT_GENERATION_PRESETS
+)
+
+# Space is allowed here (unlike prosody names) — the user-facing charset
+# copy says so. ".." is still rejected: a preset name is a config key, but
+# keeping the double-dot out costs nothing.
+_GENERATION_PRESET_NAME_RE = re.compile(r"^[A-Za-z0-9 _.\-]+$")
+
+_GEN_EMPTY_NAME_MSG = "Type a preset name first."
+_GEN_BAD_NAME_MSG = (
+    "Preset names are 1-40 characters (letters, numbers, space, dash, underscore, dot)."
+)
+_GEN_FACTORY_MSG = "Factory presets can't be overwritten — pick a different name."
+_GEN_CORRUPT_SAVE_MSG = (
+    "Couldn't save the preset — config.json is corrupt or unreadable."
+)
+_GEN_CORRUPT_DELETE_MSG = (
+    "Couldn't delete the preset — config.json is corrupt or unreadable."
+)
+
+
+def validate_generation_preset_name(name):
+    """Return an error message for an invalid preset name, else None."""
+    stripped = _stripped(name)
+    if not stripped:
+        return _GEN_EMPTY_NAME_MSG
+    if len(stripped) > GENERATION_PRESET_NAME_MAX_LEN:
+        return _GEN_BAD_NAME_MSG
+    if stripped.lower() in _FACTORY_GENERATION_PRESET_NAMES:
+        return _GEN_FACTORY_MSG
+    if ".." in stripped or not _GENERATION_PRESET_NAME_RE.match(stripped):
+        return _GEN_BAD_NAME_MSG
+    return None
+
+
+def validate_generation_preset_params(params):
+    """Return an error message for invalid preset params, else None.
+
+    The apply path is a blind dict update, so this whitelist is the
+    boundary: exactly the four sampling keys, numeric (bool excluded —
+    bool is an int subclass), each within the server's request bounds.
+    """
+    if not isinstance(params, dict):
+        return "Preset values must be the four sampling parameters."
+    if set(params) != set(GENERATION_PRESET_PARAM_KEYS):
+        return "Presets take exactly temperature, top_k, top_p, and repetition_penalty."
+    for key, value in params.items():
+        if isinstance(value, bool) or not isinstance(value, (int, float)):
+            return f"'{key}' must be a number."
+        low, high = GENERATION_PRESET_PARAM_RANGES[key]
+        if not low <= value <= high:
+            return f"'{key}' must be between {low} and {high}."
+    return None
+
+
+def get_user_generation_presets(config=None):
+    """Filtered view of user-defined generation presets: factory names
+    dropped (case-insensitive). No value filter — a hand-edited junk entry
+    stays visible here so the delete dropdown can remove it.
+
+    Pure read — a corrupt or unreadable config swallows to {}. Returns a
+    new dict with copied param dicts, never an alias of the config.
+    """
+    from qwen3_tts.core.config import load_config
+
+    if config is None:
+        try:
+            config = load_config()
+        except (json.JSONDecodeError, ValueError, OSError):
+            return {}
+    raw = _raw_user_generation_entries(config)
+    return {
+        name: dict(value) if isinstance(value, dict) else value
+        for name, value in raw.items()
+        if isinstance(name, str)
+        and name.lower() not in _FACTORY_GENERATION_PRESET_NAMES
+    }
+
+
+def _raw_user_generation_entries(config):
+    """The RAW presets dict, unfiltered — the WRITE base, never the view.
+
+    A view-based save would silently drop factory entries and hand-edited
+    junk from config.json.
+    """
+    entries = config.get("presets", {})
+    return entries if isinstance(entries, dict) else {}
+
+
+def save_user_generation_preset(name, params):
+    """Save (or overwrite) a user-defined generation preset.
+
+    Validates name and params at the boundary, then writes over the RAW
+    presets base (factory entries, junk entries, and unrelated top-level
+    keys all survive). A write-path load failure returns (False, msg) and
+    never saves; OSError surfaces err.strerror only (never the path,
+    CWE-209).
+    """
+    from qwen3_tts.core.config import load_config, save_config
+
+    name = _stripped(name)
+    error = validate_generation_preset_name(name)
+    if error:
+        return (False, error)
+    error = validate_generation_preset_params(params)
+    if error:
+        return (False, error)
+    try:
+        config = load_config()
+    except (json.JSONDecodeError, ValueError, OSError):
+        return (False, _GEN_CORRUPT_SAVE_MSG)
+    presets = _raw_user_generation_entries(config)
+    try:
+        save_config({**config, "presets": {**presets, name: dict(params or {})}})
+    except OSError as err:
+        return (
+            False,
+            f"Couldn't save preset '{name}' — the config file couldn't be "
+            f"written ({err.strerror or 'unknown error'}). Check disk space "
+            "and permissions, then try again.",
+        )
+    return (True, f"Saved preset '{name}'.")
+
+
+def delete_user_generation_preset(name):
+    """Delete a user-defined generation preset.
+
+    Factory names are double-guarded (the validator runs first in the UI);
+    membership is tested against the RAW entries minus factory names —
+    hand-edited junk entries stay deletable while never overriding factory.
+    """
+    from qwen3_tts.core.config import load_config, save_config
+
+    name = _stripped(name)
+    if name.lower() in _FACTORY_GENERATION_PRESET_NAMES:
+        return (False, _GEN_FACTORY_MSG)
+    try:
+        config = load_config()
+    except (json.JSONDecodeError, ValueError, OSError):
+        return (False, _GEN_CORRUPT_DELETE_MSG)
+    presets = _raw_user_generation_entries(config)
+    if name not in presets:
+        return (False, f"Preset '{name}' no longer exists.")
+    try:
+        save_config(
+            {**config, "presets": {k: v for k, v in presets.items() if k != name}}
+        )
+    except OSError as err:
+        return (
+            False,
+            f"Couldn't delete preset '{name}' — the config file couldn't be "
+            f"written ({err.strerror or 'unknown error'}). Check disk space "
+            "and permissions, then try again.",
+        )
+    return (True, f"Deleted preset '{name}'.")
+
+
 DEFAULT_PROSODY_PRESETS = {
     "excited": "Speak with excitement and high energy",
     "calm": "Speak in a calm, soothing, relaxed manner",
