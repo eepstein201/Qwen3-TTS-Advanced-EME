@@ -12,6 +12,11 @@ sliders, ordered 8-slot outputs), the shared helper has behavioral coverage,
 arm/expiry/mismatch copy is pinned exactly (spec §7), and both re-arm variants
 are covered on both handlers.
 
+Round 3 (round 2 = 2xPASS carrying MEDIUM findings): full input-order pins on
+both click blocks, delete-writer corrupt-load and confirm-time writer-failure
+branches, confirm/miss/factory slot-1 button pins, strerror presence in the
+OSError tests, and the reader import hoisted out of the subTest loop.
+
 Traps pinned here (spec §8): raw-base preservation, factory silent override
 (case-insensitive + whitespace variants), corrupt-config swallow on reads and
 untouched-file on writes, immutability, arm-branches-never-write, param key
@@ -237,10 +242,14 @@ class TestGetUserGenerationPresets(unittest.TestCase):
         self.assertEqual(self._reader()(config={}), {})
 
     def test_corrupt_config_swallows_to_empty(self):
+        # Reader resolved OUTSIDE the subTest loop: at RED a missing symbol
+        # must fail the parent (pytest renders subTest children SUBFAILED
+        # under a PASSED parent, masking the per-test RED signal).
+        reader = self._reader()
         for exc in (ValueError("corrupt"), OSError("unreadable")):
             with self.subTest(exc=type(exc).__name__):
                 with mock.patch("qwen3_tts.core.config.load_config", side_effect=exc):
-                    self.assertEqual(self._reader()(config=None), {})
+                    self.assertEqual(reader(config=None), {})
 
     def test_returns_new_dict_not_alias(self):
         seed = _deep_seed()
@@ -377,6 +386,7 @@ class TestSaveUserGenerationPreset(unittest.TestCase):
         ):
             ok, msg = self._writer()("mine", dict(VALID_PARAMS))
         self.assertFalse(ok)
+        self.assertIn("No space left on device", msg)
         self.assertNotIn("/Users/secret", msg)
         self.assertNotIn("Errno", msg)
 
@@ -417,6 +427,19 @@ class TestDeleteUserGenerationPreset(unittest.TestCase):
             self._writer()("mine")
         self.assertEqual(seed, snapshot)
 
+    def test_corrupt_config_returns_false_and_never_saves(self):
+        with (
+            mock.patch(
+                "qwen3_tts.core.config.load_config",
+                side_effect=ValueError("corrupt"),
+            ),
+            mock.patch("qwen3_tts.core.config.save_config") as save_cfg,
+        ):
+            ok, msg = self._writer()("mine")
+        self.assertFalse(ok)
+        self.assertTrue(msg)
+        save_cfg.assert_not_called()
+
     def test_membership_miss_renders_no_longer_exists(self):
         with (
             mock.patch(
@@ -451,6 +474,7 @@ class TestDeleteUserGenerationPreset(unittest.TestCase):
         ):
             ok, msg = self._writer()("mine")
         self.assertFalse(ok)
+        self.assertIn("No space left on device", msg)
         self.assertNotIn("/Users/secret", msg)
         self.assertNotIn("Errno", msg)
 
@@ -599,6 +623,7 @@ class TestSaveHandler(unittest.TestCase):
         save_mock.assert_called_once()
         self.assertEqual(result[2], "Saved preset 'mine'.")
         self.assertEqual(result[0], DISARMED)
+        self.assertEqual(result[1], gr.update(value="Save as preset"))
         # Overwrite success refreshes exactly like new-save (spec §6).
         for slot in (4, 5, 6):
             self.assertEqual(result[slot], gr.update(choices=["(none)", "mine"]), slot)
@@ -735,6 +760,7 @@ class TestDeleteHandler(unittest.TestCase):
         )
         self.assertEqual(result[2], COPY_FACTORY)
         self.assertEqual(result[0], DISARMED)
+        self.assertEqual(result[1], gr.update(value="Delete preset"))
         delete_mock.assert_not_called()
 
     def test_case_variant_factory_classified(self):
@@ -743,6 +769,7 @@ class TestDeleteHandler(unittest.TestCase):
         )
         self.assertEqual(result[2], COPY_FACTORY)
         self.assertEqual(result[0], DISARMED)
+        self.assertEqual(result[1], gr.update(value="Delete preset"))
         delete_mock.assert_not_called()
 
     def test_membership_miss_renders_no_longer_exists(self):
@@ -751,6 +778,7 @@ class TestDeleteHandler(unittest.TestCase):
         )
         self.assertEqual(result[2], COPY_MISS.format(name="gone"))
         self.assertEqual(result[0], DISARMED)
+        self.assertEqual(result[1], gr.update(value="Delete preset"))
         self._assert_bare_dropdowns(result)
         delete_mock.assert_not_called()
 
@@ -778,6 +806,7 @@ class TestDeleteHandler(unittest.TestCase):
         delete_mock.assert_called_once_with("mine")
         self.assertEqual(result[2], "Deleted preset 'mine'.")
         self.assertEqual(result[0], DISARMED)
+        self.assertEqual(result[1], gr.update(value="Delete preset"))
         fresh = ["(none)", "natural", "other"]
         # Reset only where the dropdown held the deleted name.
         self.assertEqual(result[4], gr.update(choices=fresh, value="(none)"))
@@ -789,6 +818,24 @@ class TestDeleteHandler(unittest.TestCase):
             result[7], gr.update(choices=["(none)", "other"], value="(none)")
         )
         self._assert_announced(result)
+
+    def test_writer_failure_renders_message_and_disarms(self):
+        # The writer's ok/msg must be honored at confirm time: the default
+        # mock's success message is string-identical to the section-7
+        # literal, so without this branch a handler that hardcodes success
+        # passes while a corrupt config or OSError fabricates "Deleted.".
+        armed = {"armed": True, "ts": time.time(), "armed_name": "mine"}
+        result, delete_mock = self._call(
+            armed,
+            "mine",
+            existing={"mine": dict(VALID_PARAMS)},
+            writer=lambda n: (False, "disk full"),
+        )
+        delete_mock.assert_called_once_with("mine")
+        self.assertIn("disk full", result[2])
+        self.assertEqual(result[0], DISARMED)
+        self.assertEqual(result[1], gr.update(value="Delete preset"))
+        self._assert_bare_dropdowns(result)
 
     def test_expired_arm_rearms_not_deletes(self):
         armed = {"armed": True, "ts": time.time() - 10.0, "armed_name": "mine"}
@@ -911,13 +958,14 @@ class TestGenerationPresetUiWiring(unittest.TestCase):
             'preset_builder["top_k"]',
             'preset_builder["top_p"]',
             'preset_builder["rep"]',
+            "clone_preset",
+            "design_preset",
+            "custom_preset",
         ]
         positions = [inputs.index(ref) for ref in ordered_inputs]
         self.assertEqual(
             positions, sorted(positions), f"inputs order wrong: {inputs!r}"
         )
-        for ref in ("clone_preset", "design_preset", "custom_preset"):
-            self.assertIn(ref, inputs)
         outputs = self._kwargs_window(block, "outputs=[")
         ordered_outputs = [
             'preset_builder["save_state"]',
@@ -942,14 +990,19 @@ class TestGenerationPresetUiWiring(unittest.TestCase):
         self.assertIn("preset_builder", before)
         block = src[idx : idx + 1600]
         inputs = self._kwargs_window(block, "inputs=[", "outputs=[")
-        for ref in (
+        # Order matters positionally: a state/selection swap corrupts the
+        # arm logic; a design/custom swap misdirects the conditional reset.
+        ordered_inputs = [
             'preset_builder["delete_state"]',
             'preset_builder["delete_dropdown"]',
             "clone_preset",
             "design_preset",
             "custom_preset",
-        ):
-            self.assertIn(ref, inputs)
+        ]
+        positions = [inputs.index(ref) for ref in ordered_inputs]
+        self.assertEqual(
+            positions, sorted(positions), f"inputs order wrong: {inputs!r}"
+        )
         outputs = self._kwargs_window(block, "outputs=[")
         ordered_outputs = [
             'preset_builder["delete_state"]',
