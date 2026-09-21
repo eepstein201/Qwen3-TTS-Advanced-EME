@@ -611,7 +611,7 @@ def _build_custom_tab(status_html, history_state, design_prosody):
                 value=NONE_CHOICE,
                 info=(
                     "Select a preset to fill the instruction field, or type "
-                    "your own below, then save it under 'My prosody presets'"
+                    "your own below, then save it under 'My prosody presets'."
                 ),
             )
             custom_instruct = gr.Textbox(

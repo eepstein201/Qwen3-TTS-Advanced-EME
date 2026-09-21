@@ -79,7 +79,7 @@ def get_user_prosody_choices(config=None) -> list[str]:
     """Dropdown choices for the user's own presets (delete dropdown).
 
     Sorted, "(none)" first, factory names excluded. A corrupt or unreadable
-    config swallows to "(none"-only (pure read).
+    config swallows to "(none)"-only (pure read).
     """
     from qwen3_tts.core.config import get_user_prosody_presets
 
