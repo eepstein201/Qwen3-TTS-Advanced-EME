@@ -10,6 +10,7 @@ Covers:
 
 Run: pytest tests/test_ui_facade.py -v
 """
+
 import unittest
 from unittest.mock import MagicMock, patch
 
@@ -17,6 +18,7 @@ from tests._ui_share_isolation import CredentialWriterIsolation
 
 try:
     import gradio as gr
+
     HAS_GRADIO = True
 except ImportError:
     HAS_GRADIO = False
@@ -26,12 +28,21 @@ class TestStopServer(unittest.TestCase):
     """Tests for stop_server function."""
 
     @patch("qwen3_tts.interface.ui._facade.pm2_owner_of_port", return_value=None)
-    @patch("qwen3_tts.interface.ui._facade.load_config", return_value={"server": {"port": 5123}})
-    @patch("qwen3_tts.interface.ui._facade.format_status_display", return_value="<html>stopped</html>")
+    @patch(
+        "qwen3_tts.interface.ui._facade.load_config",
+        return_value={"server": {"port": 5123}},
+    )
+    @patch(
+        "qwen3_tts.interface.ui._facade.format_status_display",
+        return_value="<html>stopped</html>",
+    )
     @patch("qwen3_tts.interface.ui._facade.TTSClient")
     @patch("time.sleep")
-    def test_shutdown_success_immediate(self, _sleep, mock_client_cls, mock_format, mock_load, mock_pm2):
+    def test_shutdown_success_immediate(
+        self, _sleep, mock_client_cls, mock_format, mock_load, mock_pm2
+    ):
         from qwen3_tts.interface.ui._facade import stop_server
+
         mock_client = MagicMock()
         mock_client_cls.return_value = mock_client
         mock_client.is_server_running.return_value = False
@@ -40,12 +51,21 @@ class TestStopServer(unittest.TestCase):
         self.assertEqual(result, "<html>stopped</html>")
 
     @patch("qwen3_tts.interface.ui._facade.pm2_owner_of_port", return_value=None)
-    @patch("qwen3_tts.interface.ui._facade.load_config", return_value={"server": {"port": 5123}})
-    @patch("qwen3_tts.interface.ui._facade.format_status_display", return_value="<html>status</html>")
+    @patch(
+        "qwen3_tts.interface.ui._facade.load_config",
+        return_value={"server": {"port": 5123}},
+    )
+    @patch(
+        "qwen3_tts.interface.ui._facade.format_status_display",
+        return_value="<html>status</html>",
+    )
     @patch("qwen3_tts.interface.ui._facade.TTSClient")
     @patch("time.sleep")
-    def test_shutdown_polls_until_stopped(self, _sleep, mock_client_cls, mock_format, mock_load, mock_pm2):
+    def test_shutdown_polls_until_stopped(
+        self, _sleep, mock_client_cls, mock_format, mock_load, mock_pm2
+    ):
         from qwen3_tts.interface.ui._facade import stop_server
+
         mock_client = MagicMock()
         mock_client_cls.return_value = mock_client
         # Server running for 3 polls, then stops
@@ -54,12 +74,21 @@ class TestStopServer(unittest.TestCase):
         self.assertEqual(mock_client.is_server_running.call_count, 4)
 
     @patch("qwen3_tts.interface.ui._facade.pm2_owner_of_port", return_value=None)
-    @patch("qwen3_tts.interface.ui._facade.load_config", return_value={"server": {"port": 5123}})
-    @patch("qwen3_tts.interface.ui._facade.format_status_display", return_value="<html>timeout</html>")
+    @patch(
+        "qwen3_tts.interface.ui._facade.load_config",
+        return_value={"server": {"port": 5123}},
+    )
+    @patch(
+        "qwen3_tts.interface.ui._facade.format_status_display",
+        return_value="<html>timeout</html>",
+    )
     @patch("qwen3_tts.interface.ui._facade.TTSClient")
     @patch("time.sleep")
-    def test_shutdown_timeout(self, _sleep, mock_client_cls, mock_format, mock_load, mock_pm2):
+    def test_shutdown_timeout(
+        self, _sleep, mock_client_cls, mock_format, mock_load, mock_pm2
+    ):
         from qwen3_tts.interface.ui._facade import stop_server
+
         mock_client = MagicMock()
         mock_client_cls.return_value = mock_client
         mock_client.is_server_running.return_value = True  # Never stops
@@ -68,12 +97,21 @@ class TestStopServer(unittest.TestCase):
         self.assertEqual(mock_client.is_server_running.call_count, 10)
 
     @patch("qwen3_tts.interface.ui._facade.pm2_owner_of_port", return_value=None)
-    @patch("qwen3_tts.interface.ui._facade.load_config", return_value={"server": {"port": 5123}})
-    @patch("qwen3_tts.interface.ui._facade.format_status_display", return_value="<html>err</html>")
+    @patch(
+        "qwen3_tts.interface.ui._facade.load_config",
+        return_value={"server": {"port": 5123}},
+    )
+    @patch(
+        "qwen3_tts.interface.ui._facade.format_status_display",
+        return_value="<html>err</html>",
+    )
     @patch("qwen3_tts.interface.ui._facade.TTSClient")
     @patch("time.sleep")
-    def test_shutdown_exception_handled(self, _sleep, mock_client_cls, mock_format, mock_load, mock_pm2):
+    def test_shutdown_exception_handled(
+        self, _sleep, mock_client_cls, mock_format, mock_load, mock_pm2
+    ):
         from qwen3_tts.interface.ui._facade import stop_server
+
         mock_client = MagicMock()
         mock_client_cls.return_value = mock_client
         mock_client.shutdown.side_effect = ConnectionError("refused")
@@ -82,9 +120,18 @@ class TestStopServer(unittest.TestCase):
         result = stop_server()
         self.assertIsNotNone(result)
 
-    @patch("qwen3_tts.interface.ui._facade.pm2_owner_of_port", return_value="tts-server-5123")
-    @patch("qwen3_tts.interface.ui._facade.load_config", return_value={"server": {"port": 5123}})
-    @patch("qwen3_tts.interface.ui._facade.format_status_display", return_value="<html>pm2-stopped</html>")
+    @patch(
+        "qwen3_tts.interface.ui._facade.pm2_owner_of_port",
+        return_value="tts-server-5123",
+    )
+    @patch(
+        "qwen3_tts.interface.ui._facade.load_config",
+        return_value={"server": {"port": 5123}},
+    )
+    @patch(
+        "qwen3_tts.interface.ui._facade.format_status_display",
+        return_value="<html>pm2-stopped</html>",
+    )
     @patch("qwen3_tts.interface.ui._facade.TTSClient")
     @patch("qwen3_tts.interface.ui._facade.subprocess.run")
     @patch("time.sleep")
@@ -102,22 +149,36 @@ class TestStopServer(unittest.TestCase):
         mock_client_cls.return_value = mock_client
         mock_client.is_server_running.return_value = False
         mock_run.return_value = _subprocess.CompletedProcess(
-            args=["pm2", "stop", "tts-server-5123"], returncode=0, stdout="", stderr="",
+            args=["pm2", "stop", "tts-server-5123"],
+            returncode=0,
+            stdout="",
+            stderr="",
         )
 
         result = stop_server()
 
         mock_run.assert_called_once_with(
             ["pm2", "stop", "tts-server-5123"],
-            capture_output=True, text=True, timeout=15,
+            capture_output=True,
+            text=True,
+            timeout=15,
         )
         # Must NOT fall back to /shutdown.
         mock_client.shutdown.assert_not_called()
         self.assertEqual(result, "<html>pm2-stopped</html>")
 
-    @patch("qwen3_tts.interface.ui._facade.pm2_owner_of_port", return_value="tts-server-5123")
-    @patch("qwen3_tts.interface.ui._facade.load_config", return_value={"server": {"port": 5123}})
-    @patch("qwen3_tts.interface.ui._facade.format_status_display", return_value="<html>failed</html>")
+    @patch(
+        "qwen3_tts.interface.ui._facade.pm2_owner_of_port",
+        return_value="tts-server-5123",
+    )
+    @patch(
+        "qwen3_tts.interface.ui._facade.load_config",
+        return_value={"server": {"port": 5123}},
+    )
+    @patch(
+        "qwen3_tts.interface.ui._facade.format_status_display",
+        return_value="<html>failed</html>",
+    )
     @patch("qwen3_tts.interface.ui._facade.TTSClient")
     @patch("qwen3_tts.interface.ui._facade.subprocess.run")
     @patch("time.sleep")
@@ -132,7 +193,9 @@ class TestStopServer(unittest.TestCase):
         mock_client_cls.return_value = mock_client
         mock_run.return_value = _subprocess.CompletedProcess(
             args=["pm2", "stop", "tts-server-5123"],
-            returncode=1, stdout="", stderr="process not found",
+            returncode=1,
+            stdout="",
+            stderr="process not found",
         )
 
         result = stop_server()
@@ -147,6 +210,7 @@ class TestFindAvailablePort(unittest.TestCase):
     @patch("qwen3_tts.interface.ui._facade.IN_COLAB", False)
     def test_preferred_port_available(self):
         from qwen3_tts.interface.ui._facade import _find_available_port
+
         mock_socket = MagicMock()
         with patch("socket.socket", return_value=mock_socket):
             mock_socket.__enter__ = lambda s: s
@@ -157,15 +221,19 @@ class TestFindAvailablePort(unittest.TestCase):
     @patch("qwen3_tts.interface.ui._facade.IN_COLAB", False)
     def test_falls_back_to_next_port(self):
         from qwen3_tts.interface.ui._facade import _find_available_port
+
         call_count = [0]
 
         class FakeSocket:
             def __init__(self, *a, **kw):
                 pass
+
             def __enter__(self):
                 return self
+
             def __exit__(self, *a):
                 return False
+
             def bind(self, addr):
                 call_count[0] += 1
                 if call_count[0] <= 2:
@@ -182,10 +250,13 @@ class TestFindAvailablePort(unittest.TestCase):
         class FailSocket:
             def __init__(self, *a, **kw):
                 pass
+
             def __enter__(self):
                 return self
+
             def __exit__(self, *a):
                 return False
+
             def bind(self, addr):
                 raise OSError("in use")
 
@@ -196,15 +267,19 @@ class TestFindAvailablePort(unittest.TestCase):
     @patch("qwen3_tts.interface.ui._facade.IN_COLAB", True)
     def test_colab_binds_to_all_interfaces(self):
         from qwen3_tts.interface.ui._facade import _find_available_port
+
         bound_addr = []
 
         class TrackSocket:
             def __init__(self, *a, **kw):
                 pass
+
             def __enter__(self):
                 return self
+
             def __exit__(self, *a):
                 return False
+
             def bind(self, addr):
                 bound_addr.append(addr)
 
@@ -226,6 +301,7 @@ class TestOnHistorySelect(unittest.TestCase):
         import tempfile
 
         from qwen3_tts.interface.ui._facade import on_history_select
+
         # Create a real temp file so containment and existence checks pass
         src = os.path.join(tempfile.gettempdir(), "test_on_hist.wav")
         with open(src, "wb") as f:
@@ -244,6 +320,7 @@ class TestOnHistorySelect(unittest.TestCase):
 
     def test_invalid_index_returns_none(self):
         from qwen3_tts.interface.ui._facade import on_history_select
+
         evt = MagicMock()
         evt.index = [5]
         history = [{"path": "/tmp/test.wav"}]
@@ -252,6 +329,7 @@ class TestOnHistorySelect(unittest.TestCase):
 
     def test_missing_path_returns_none(self):
         from qwen3_tts.interface.ui._facade import on_history_select
+
         evt = MagicMock()
         evt.index = [0]
         history = [{"mode": "clone"}]
@@ -260,10 +338,12 @@ class TestOnHistorySelect(unittest.TestCase):
 
     def test_nonexistent_file_returns_none(self):
         from qwen3_tts.interface.ui._facade import on_history_select
+
         evt = MagicMock()
         evt.index = [0]
         # Path is in a safe root (tempdir) but file doesn't exist
         import tempfile
+
         history = [{"path": tempfile.gettempdir() + "/nonexistent_file_xyz.wav"}]
         with patch("qwen3_tts.core.config.load_config", return_value={}):
             audio, *_ = on_history_select(evt, history)
@@ -271,6 +351,7 @@ class TestOnHistorySelect(unittest.TestCase):
 
     def test_empty_history_returns_none(self):
         from qwen3_tts.interface.ui._facade import on_history_select
+
         evt = MagicMock()
         evt.index = [0]
         audio, *_ = on_history_select(evt, [])
@@ -282,40 +363,96 @@ class TestBuildUI(unittest.TestCase):
     """Tests for build_ui — verifies the Gradio interface builds."""
 
     @patch("qwen3_tts.interface.ui._facade.TTSClient")
-    @patch("qwen3_tts.interface.ui._facade.format_status_display", return_value="<html></html>")
-    @patch("qwen3_tts.interface.ui.model_management.get_model_status_html", return_value="<html></html>")
-    @patch("qwen3_tts.interface.ui._facade.get_model_status_html", return_value="<html></html>")
-    @patch("qwen3_tts.interface.ui.model_management.get_model_table_data", return_value=[])
-    @patch("qwen3_tts.interface.ui.voice_management.get_prompt_table_data", return_value=[])
-    @patch("qwen3_tts.interface.ui.shared.get_voice_prompts", return_value=["default.wav"])
+    @patch(
+        "qwen3_tts.interface.ui._facade.format_status_display",
+        return_value="<html></html>",
+    )
+    @patch(
+        "qwen3_tts.interface.ui.model_management.get_model_status_html",
+        return_value="<html></html>",
+    )
+    @patch(
+        "qwen3_tts.interface.ui._facade.get_model_status_html",
+        return_value="<html></html>",
+    )
+    @patch(
+        "qwen3_tts.interface.ui.model_management.get_model_table_data", return_value=[]
+    )
+    @patch(
+        "qwen3_tts.interface.ui.voice_management.get_prompt_table_data", return_value=[]
+    )
+    @patch(
+        "qwen3_tts.interface.ui.shared.get_voice_prompts", return_value=["default.wav"]
+    )
     @patch("qwen3_tts.interface.ui.shared.get_presets", return_value=["(none)"])
-    @patch("qwen3_tts.interface.voice_helpers.get_prosody_choices", return_value=["(none)"])
+    @patch(
+        "qwen3_tts.interface.voice_helpers.get_prosody_choices", return_value=["(none)"]
+    )
+    @patch(
+        "qwen3_tts.interface.voice_helpers.get_user_prosody_choices",
+        return_value=["(none)"],
+    )
     @patch("qwen3_tts.interface.ui.shared.is_enhancer_available", return_value=False)
-    @patch("qwen3_tts.interface.ui._facade.get_current_model_settings", return_value=("1.7B", "8bit", "mlx"))
-    @patch("qwen3_tts.interface.ui.model_management.get_audio_loader_setting", return_value="torchaudio")
+    @patch(
+        "qwen3_tts.interface.ui._facade.get_current_model_settings",
+        return_value=("1.7B", "8bit", "mlx"),
+    )
+    @patch(
+        "qwen3_tts.interface.ui.model_management.get_audio_loader_setting",
+        return_value="torchaudio",
+    )
     @patch("qwen3_tts.core.config.get_default_clone_prompt", return_value="default.wav")
     def test_build_ui_returns_blocks(self, *mocks):
         from qwen3_tts.interface.ui._facade import build_ui
+
         # Suppress ASR preload
         with patch("qwen3_tts.core.engine.is_asr_available", side_effect=ImportError):
             demo = build_ui()
         self.assertIsInstance(demo, gr.Blocks)
 
     @patch("qwen3_tts.interface.ui._facade.TTSClient")
-    @patch("qwen3_tts.interface.ui._facade.format_status_display", return_value="<html></html>")
-    @patch("qwen3_tts.interface.ui.model_management.get_model_status_html", return_value="<html></html>")
-    @patch("qwen3_tts.interface.ui._facade.get_model_status_html", return_value="<html></html>")
-    @patch("qwen3_tts.interface.ui.model_management.get_model_table_data", return_value=[])
-    @patch("qwen3_tts.interface.ui.voice_management.get_prompt_table_data", return_value=[])
-    @patch("qwen3_tts.interface.ui.shared.get_voice_prompts", return_value=["default.wav"])
+    @patch(
+        "qwen3_tts.interface.ui._facade.format_status_display",
+        return_value="<html></html>",
+    )
+    @patch(
+        "qwen3_tts.interface.ui.model_management.get_model_status_html",
+        return_value="<html></html>",
+    )
+    @patch(
+        "qwen3_tts.interface.ui._facade.get_model_status_html",
+        return_value="<html></html>",
+    )
+    @patch(
+        "qwen3_tts.interface.ui.model_management.get_model_table_data", return_value=[]
+    )
+    @patch(
+        "qwen3_tts.interface.ui.voice_management.get_prompt_table_data", return_value=[]
+    )
+    @patch(
+        "qwen3_tts.interface.ui.shared.get_voice_prompts", return_value=["default.wav"]
+    )
     @patch("qwen3_tts.interface.ui.shared.get_presets", return_value=["(none)"])
-    @patch("qwen3_tts.interface.voice_helpers.get_prosody_choices", return_value=["(none)"])
+    @patch(
+        "qwen3_tts.interface.voice_helpers.get_prosody_choices", return_value=["(none)"]
+    )
+    @patch(
+        "qwen3_tts.interface.voice_helpers.get_user_prosody_choices",
+        return_value=["(none)"],
+    )
     @patch("qwen3_tts.interface.ui.shared.is_enhancer_available", return_value=False)
-    @patch("qwen3_tts.interface.ui._facade.get_current_model_settings", return_value=("1.7B", "8bit", "mlx"))
-    @patch("qwen3_tts.interface.ui.model_management.get_audio_loader_setting", return_value="torchaudio")
+    @patch(
+        "qwen3_tts.interface.ui._facade.get_current_model_settings",
+        return_value=("1.7B", "8bit", "mlx"),
+    )
+    @patch(
+        "qwen3_tts.interface.ui.model_management.get_audio_loader_setting",
+        return_value="torchaudio",
+    )
     @patch("qwen3_tts.core.config.get_default_clone_prompt", return_value="default.wav")
     def test_build_ui_has_title(self, *mocks):
         from qwen3_tts.interface.ui._facade import build_ui
+
         with patch("qwen3_tts.core.engine.is_asr_available", side_effect=ImportError):
             demo = build_ui()
         self.assertEqual(demo.title, "Qwen3-TTS Web Interface")
@@ -325,24 +462,34 @@ class TestBuildUI(unittest.TestCase):
 class TestMain(CredentialWriterIsolation, unittest.TestCase):
     """Tests for main() CLI entry point."""
 
-    @patch("qwen3_tts.interface.ui._facade.load_config", return_value={"ui": {"port": 7860}})
+    @patch(
+        "qwen3_tts.interface.ui._facade.load_config",
+        return_value={"ui": {"port": 7860}},
+    )
     @patch("qwen3_tts.interface.ui._facade._find_available_port", return_value=None)
     @patch("builtins.print")
     def test_no_available_port_exits(self, _print, _port, _config):
         from qwen3_tts.interface.ui._facade import main
+
         with patch("sys.argv", ["ui", "--port", "7860"]):
             with self.assertRaises(SystemExit) as ctx:
                 main()
             self.assertEqual(ctx.exception.code, 1)
 
-    @patch("qwen3_tts.interface.ui._facade.load_config", return_value={"ui": {"port": 7860}})
+    @patch(
+        "qwen3_tts.interface.ui._facade.load_config",
+        return_value={"ui": {"port": 7860}},
+    )
     @patch("qwen3_tts.interface.ui._facade._find_available_port", return_value=7861)
     @patch("qwen3_tts.interface.ui._facade.build_ui")
     @patch("qwen3_tts.interface.ui._facade.TTSClient")
     @patch("qwen3_tts.interface.ui._facade.IN_COLAB", False)
     @patch("builtins.print")
-    def test_port_fallback_message(self, mock_print, mock_client_cls, mock_build, _port, _config):
+    def test_port_fallback_message(
+        self, mock_print, mock_client_cls, mock_build, _port, _config
+    ):
         from qwen3_tts.interface.ui._facade import main
+
         mock_client = MagicMock()
         mock_client_cls.return_value = mock_client
         mock_client.is_server_running.return_value = True
@@ -361,8 +508,11 @@ class TestMain(CredentialWriterIsolation, unittest.TestCase):
     @patch("qwen3_tts.interface.ui._facade.TTSClient")
     @patch("qwen3_tts.interface.ui._facade.IN_COLAB", False)
     @patch("builtins.print")
-    def test_server_not_running_warning(self, mock_print, mock_client_cls, mock_build, _port, _config):
+    def test_server_not_running_warning(
+        self, mock_print, mock_client_cls, mock_build, _port, _config
+    ):
         from qwen3_tts.interface.ui._facade import main
+
         mock_client = MagicMock()
         mock_client_cls.return_value = mock_client
         mock_client.is_server_running.return_value = False
@@ -380,8 +530,11 @@ class TestMain(CredentialWriterIsolation, unittest.TestCase):
     @patch("qwen3_tts.interface.ui._facade.IN_COLAB", True)
     @patch("qwen3_tts.core.config.IN_COLAB", True)
     @patch("builtins.print")
-    def test_colab_mode_settings(self, _print, mock_client_cls, mock_build, _port, _config):
+    def test_colab_mode_settings(
+        self, _print, mock_client_cls, mock_build, _port, _config
+    ):
         from qwen3_tts.interface.ui._facade import main
+
         mock_client = MagicMock()
         mock_client_cls.return_value = mock_client
         mock_client.is_server_running.return_value = True
@@ -401,6 +554,7 @@ class TestGetGradioLaunchKwargs(unittest.TestCase):
     @patch("qwen3_tts.core.config.IN_COLAB", False)
     def test_includes_all_required_keys(self):
         from qwen3_tts.interface.ui.shared import get_gradio_launch_kwargs
+
         kwargs = get_gradio_launch_kwargs({})
         self.assertIn("theme", kwargs)
         self.assertIn("css", kwargs)
@@ -412,6 +566,7 @@ class TestGetGradioLaunchKwargs(unittest.TestCase):
         import tempfile
 
         from qwen3_tts.interface.ui.shared import get_gradio_launch_kwargs
+
         kwargs = get_gradio_launch_kwargs({"output_directory": "~/Downloads"})
         self.assertIn(tempfile.gettempdir(), kwargs["allowed_paths"])
 
@@ -423,6 +578,7 @@ class TestGetGradioLaunchKwargs(unittest.TestCase):
         import os
 
         from qwen3_tts.interface.ui.shared import get_gradio_launch_kwargs
+
         kwargs = get_gradio_launch_kwargs({})
         downloads = os.path.realpath(os.path.expanduser("~/Downloads"))
         history_root = os.path.realpath(
@@ -434,18 +590,21 @@ class TestGetGradioLaunchKwargs(unittest.TestCase):
     @patch("qwen3_tts.core.config.IN_COLAB", False)
     def test_localhost_when_not_colab(self):
         from qwen3_tts.interface.ui.shared import get_gradio_launch_kwargs
+
         kwargs = get_gradio_launch_kwargs({})
         self.assertEqual(kwargs["server_name"], "127.0.0.1")
 
     @patch("qwen3_tts.core.config.IN_COLAB", True)
     def test_all_interfaces_when_colab(self):
         from qwen3_tts.interface.ui.shared import get_gradio_launch_kwargs
+
         kwargs = get_gradio_launch_kwargs({})
         self.assertEqual(kwargs["server_name"], "0.0.0.0")
 
     @patch("qwen3_tts.core.config.IN_COLAB", False)
     def test_css_contains_gr_hidden(self):
         from qwen3_tts.interface.ui.shared import get_gradio_launch_kwargs
+
         kwargs = get_gradio_launch_kwargs({})
         self.assertIn(".gr-hidden", kwargs["css"])
 
@@ -457,6 +616,7 @@ class TestResolveOutputDir(unittest.TestCase):
         import os
 
         from qwen3_tts.interface.ui.shared import _resolve_output_dir
+
         result = _resolve_output_dir({})
         expected = os.path.realpath(os.path.expanduser("~/Downloads"))
         self.assertEqual(result, expected)
@@ -465,6 +625,7 @@ class TestResolveOutputDir(unittest.TestCase):
         import os
 
         from qwen3_tts.interface.ui.shared import _resolve_output_dir
+
         result = _resolve_output_dir({"output_directory": "~/Music"})
         expected = os.path.realpath(os.path.expanduser("~/Music"))
         self.assertEqual(result, expected)
@@ -473,6 +634,7 @@ class TestResolveOutputDir(unittest.TestCase):
         import os
 
         from qwen3_tts.interface.ui.shared import _resolve_output_dir
+
         result = _resolve_output_dir({"output_directory": "~/../../etc"})
         downloads = os.path.realpath(os.path.expanduser("~/Downloads"))
         self.assertEqual(result, downloads)
@@ -481,6 +643,7 @@ class TestResolveOutputDir(unittest.TestCase):
         import os
 
         from qwen3_tts.interface.ui.shared import _resolve_output_dir
+
         result = _resolve_output_dir({})
         self.assertTrue(os.path.isabs(result))
 
@@ -494,11 +657,14 @@ class TestOnHistorySelectHardened(unittest.TestCase):
 
     def test_unsafe_path_returns_none(self):
         from qwen3_tts.interface.ui._facade import on_history_select
+
         evt = MagicMock()
         evt.index = [0]
         history = [{"path": "/etc/passwd", "mode": "Clone", "text": "test"}]
-        with patch("os.path.exists", return_value=True), \
-             patch("qwen3_tts.core.config.load_config", return_value={}):
+        with (
+            patch("os.path.exists", return_value=True),
+            patch("qwen3_tts.core.config.load_config", return_value={}),
+        ):
             audio, *_ = on_history_select(evt, history)
         self.assertIsNone(audio)
 
@@ -507,6 +673,7 @@ class TestOnHistorySelectHardened(unittest.TestCase):
         import tempfile
 
         from qwen3_tts.interface.ui._facade import on_history_select
+
         # Create a real temp file to simulate a Downloads file
         src = os.path.join(tempfile.gettempdir(), "test_history_select.wav")
         with open(src, "wb") as f:
@@ -525,6 +692,7 @@ class TestOnHistorySelectHardened(unittest.TestCase):
 
     def test_empty_history_returns_none(self):
         from qwen3_tts.interface.ui._facade import on_history_select
+
         evt = MagicMock()
         evt.index = [0]
         audio, *_ = on_history_select(evt, [])
@@ -532,6 +700,7 @@ class TestOnHistorySelectHardened(unittest.TestCase):
 
     def test_none_history_returns_none(self):
         from qwen3_tts.interface.ui._facade import on_history_select
+
         evt = MagicMock()
         evt.index = [0]
         audio, *_ = on_history_select(evt, None)
@@ -549,7 +718,10 @@ class TestLoadInitialHistoryNeverRegresses(unittest.TestCase):
     wrote into history_state/history_df.
     """
 
-    @patch("qwen3_tts.interface.ui._facade.get_model_status_html", return_value="<html></html>")
+    @patch(
+        "qwen3_tts.interface.ui._facade.get_model_status_html",
+        return_value="<html></html>",
+    )
     @patch("qwen3_tts.interface.ui.shared.get_history_data", side_effect=lambda h: h)
     @patch("qwen3_tts.interface.ui.shared.load_history_from_disk")
     @patch("qwen3_tts.interface.ui._facade.load_config", return_value={})
@@ -565,7 +737,10 @@ class TestLoadInitialHistoryNeverRegresses(unittest.TestCase):
 
         self.assertEqual(history, current_history)
 
-    @patch("qwen3_tts.interface.ui._facade.get_model_status_html", return_value="<html></html>")
+    @patch(
+        "qwen3_tts.interface.ui._facade.get_model_status_html",
+        return_value="<html></html>",
+    )
     @patch("qwen3_tts.interface.ui.shared.get_history_data", side_effect=lambda h: h)
     @patch("qwen3_tts.interface.ui.shared.load_history_from_disk")
     @patch("qwen3_tts.interface.ui._facade.load_config", return_value={})
@@ -581,7 +756,10 @@ class TestLoadInitialHistoryNeverRegresses(unittest.TestCase):
 
         self.assertEqual(history, disk_history)
 
-    @patch("qwen3_tts.interface.ui._facade.get_model_status_html", return_value="<html></html>")
+    @patch(
+        "qwen3_tts.interface.ui._facade.get_model_status_html",
+        return_value="<html></html>",
+    )
     @patch("qwen3_tts.interface.ui.shared.get_history_data", side_effect=lambda h: h)
     @patch("qwen3_tts.interface.ui.shared.load_history_from_disk")
     @patch("qwen3_tts.interface.ui._facade.load_config", return_value={})
@@ -604,33 +782,39 @@ class TestSanitizeVoiceName(unittest.TestCase):
 
     def test_valid_name(self):
         from qwen3_tts.interface.ui._facade import _sanitize_voice_name
+
         name, err = _sanitize_voice_name("my_voice_01")
         self.assertEqual(name, "my_voice_01")
         self.assertIsNone(err)
 
     def test_spaces_converted_to_underscores(self):
         from qwen3_tts.interface.ui._facade import _sanitize_voice_name
+
         name, err = _sanitize_voice_name("my voice")
         self.assertEqual(name, "my_voice")
         self.assertIsNone(err)
 
     def test_traversal_rejected(self):
         from qwen3_tts.interface.ui._facade import _sanitize_voice_name
+
         _, err = _sanitize_voice_name("../../etc/passwd")
         self.assertIsNotNone(err)
 
     def test_empty_rejected(self):
         from qwen3_tts.interface.ui._facade import _sanitize_voice_name
+
         _, err = _sanitize_voice_name("")
         self.assertIsNotNone(err)
 
     def test_too_long_rejected(self):
         from qwen3_tts.interface.ui._facade import _sanitize_voice_name
+
         _, err = _sanitize_voice_name("a" * 65)
         self.assertIsNotNone(err)
 
     def test_hyphens_allowed(self):
         from qwen3_tts.interface.ui._facade import _sanitize_voice_name
+
         name, err = _sanitize_voice_name("my-voice")
         self.assertEqual(name, "my-voice")
         self.assertIsNone(err)
@@ -641,6 +825,7 @@ class TestExtractSeedFromHistory(unittest.TestCase):
 
     def test_valid_seed_returns_string(self):
         from qwen3_tts.interface.ui._facade import extract_seed_from_history
+
         evt = MagicMock()
         evt.index = [0]
         history = [{"seed": 42, "path": "/tmp/test.wav"}]
@@ -649,6 +834,7 @@ class TestExtractSeedFromHistory(unittest.TestCase):
 
     def test_none_seed_returns_empty(self):
         from qwen3_tts.interface.ui._facade import extract_seed_from_history
+
         evt = MagicMock()
         evt.index = [0]
         history = [{"seed": None, "path": "/tmp/test.wav"}]
@@ -657,6 +843,7 @@ class TestExtractSeedFromHistory(unittest.TestCase):
 
     def test_missing_seed_key_returns_empty(self):
         from qwen3_tts.interface.ui._facade import extract_seed_from_history
+
         evt = MagicMock()
         evt.index = [0]
         history = [{"path": "/tmp/test.wav"}]
@@ -665,6 +852,7 @@ class TestExtractSeedFromHistory(unittest.TestCase):
 
     def test_invalid_index_returns_empty(self):
         from qwen3_tts.interface.ui._facade import extract_seed_from_history
+
         evt = MagicMock()
         evt.index = [5]
         history = [{"seed": 42}]
@@ -673,6 +861,7 @@ class TestExtractSeedFromHistory(unittest.TestCase):
 
     def test_empty_history_returns_empty(self):
         from qwen3_tts.interface.ui._facade import extract_seed_from_history
+
         evt = MagicMock()
         evt.index = [0]
         result = extract_seed_from_history(evt, [])
@@ -680,6 +869,7 @@ class TestExtractSeedFromHistory(unittest.TestCase):
 
     def test_none_history_returns_empty(self):
         from qwen3_tts.interface.ui._facade import extract_seed_from_history
+
         evt = MagicMock()
         evt.index = [0]
         result = extract_seed_from_history(evt, None)
@@ -687,6 +877,7 @@ class TestExtractSeedFromHistory(unittest.TestCase):
 
     def test_no_index_attr_returns_empty(self):
         from qwen3_tts.interface.ui._facade import extract_seed_from_history
+
         evt = MagicMock(spec=[])  # no .index attribute
         result = extract_seed_from_history(evt, [{"seed": 42}])
         self.assertEqual(result, "")
@@ -702,6 +893,7 @@ class TestOnHistorySelectSeedBroadcast(unittest.TestCase):
 
     def test_broadcasts_seed_to_three_outputs(self):
         from qwen3_tts.interface.ui._facade import on_history_select
+
         evt = MagicMock()
         evt.index = [0]
         # Use a path outside safe_roots so audio returns None but seed still broadcasts
@@ -715,6 +907,7 @@ class TestOnHistorySelectSeedBroadcast(unittest.TestCase):
 
     def test_broadcasts_empty_when_no_seed(self):
         from qwen3_tts.interface.ui._facade import on_history_select
+
         evt = MagicMock()
         evt.index = [0]
         history = [{"path": "/tmp/test.wav"}]
@@ -821,8 +1014,13 @@ class TestOnClearHistoryClick(unittest.TestCase):
         from qwen3_tts.interface.ui._facade import on_clear_history_click
 
         state = {"armed": False, "ts": 0.0}
-        history = [{"text": "a", "path": "/tmp/a.wav"}, {"text": "b", "path": "/tmp/b.wav"}]
-        new_state, _btn, df, hist, _audio, status, payload = on_clear_history_click(state, history)
+        history = [
+            {"text": "a", "path": "/tmp/a.wav"},
+            {"text": "b", "path": "/tmp/b.wav"},
+        ]
+        new_state, _btn, df, hist, _audio, status, payload = on_clear_history_click(
+            state, history
+        )
         self.assertTrue(new_state["armed"])  # armed on first click
         self.assertEqual(df, gr.update())  # table unchanged
         self.assertEqual(hist, gr.update())  # history_state unchanged
@@ -836,22 +1034,33 @@ class TestOnClearHistoryClick(unittest.TestCase):
 
         # Armed + recent timestamp -> confirm_step confirms within 5s window.
         state = {"armed": True, "ts": time.time()}
-        history = [{"text": "a", "path": "/tmp/a.wav"}, {"text": "b", "path": "/tmp/b.wav"}]
+        history = [
+            {"text": "a", "path": "/tmp/a.wav"},
+            {"text": "b", "path": "/tmp/b.wav"},
+        ]
         # Clear All now hard-deletes each listed file (delete_generation_files)
         # before clearing the list; patch it so the unit test stays off-disk and
         # can assert the per-entry delete wiring.
-        with patch(
-            "qwen3_tts.core.config.load_config", return_value={}
-        ), patch(
-            "qwen3_tts.interface.ui.shared.delete_generation_files", return_value=True
-        ) as mock_delete:
-            new_state, _btn, df, hist, audio, status, payload = on_clear_history_click(state, history)
+        with (
+            patch("qwen3_tts.core.config.load_config", return_value={}),
+            patch(
+                "qwen3_tts.interface.ui.shared.delete_generation_files",
+                return_value=True,
+            ) as mock_delete,
+        ):
+            new_state, _btn, df, hist, audio, status, payload = on_clear_history_click(
+                state, history
+            )
         self.assertFalse(new_state["armed"])  # disarmed after action
         self.assertEqual(hist, [])  # history_state cleared
         self.assertEqual(df, [])  # table re-rendered empty
-        self.assertIsNone(audio)  # player cleared via None ("" crashes Audio postprocess)
+        self.assertIsNone(
+            audio
+        )  # player cleared via None ("" crashes Audio postprocess)
         self.assertEqual(mock_delete.call_count, 2)  # one delete per listed entry
-        self.assertIn("Deleted", status)  # reflects the hard-delete, not a list-only clear
+        self.assertIn(
+            "Deleted", status
+        )  # reflects the hard-delete, not a list-only clear
         self.assertEqual(payload["action"], "clear")  # triggers waveform clear
 
     def test_second_click_clears_even_when_history_none(self):
@@ -860,7 +1069,9 @@ class TestOnClearHistoryClick(unittest.TestCase):
         from qwen3_tts.interface.ui._facade import on_clear_history_click
 
         state = {"armed": True, "ts": time.time()}
-        _new_state, _btn, df, hist, _audio, _status, _payload = on_clear_history_click(state, None)
+        _new_state, _btn, df, hist, _audio, _status, _payload = on_clear_history_click(
+            state, None
+        )
         self.assertEqual(hist, [])
         self.assertEqual(df, [])
 
@@ -871,6 +1082,7 @@ class TestFormatStatusDisplayEscaping(unittest.TestCase):
     @patch("qwen3_tts.interface.ui.shared.get_server_status")
     def test_xss_in_status_is_escaped(self, mock_status):
         from qwen3_tts.interface.ui.shared import format_status_display
+
         mock_status.return_value = ("<script>alert(1)</script>", "N/A", "N/A", "N/A")
         result = format_status_display()
         self.assertNotIn("<script>", result)
@@ -884,6 +1096,7 @@ class TestConfirmStep(unittest.TestCase):
     def test_first_click_arms_button(self):
         """First click returns confirmed=False and updates button label."""
         from qwen3_tts.interface.ui.components import confirm_step
+
         state, btn_update, confirmed = confirm_step(
             None, "Confirm Delete? (click again)", "Delete"
         )
@@ -894,6 +1107,7 @@ class TestConfirmStep(unittest.TestCase):
     def test_second_click_confirms_within_timeout(self):
         """Second click within timeout returns confirmed=True."""
         from qwen3_tts.interface.ui.components import confirm_step
+
         # First click - arm
         state, _, confirmed = confirm_step(
             None, "Confirm Delete? (click again)", "Delete"
@@ -911,6 +1125,7 @@ class TestConfirmStep(unittest.TestCase):
         import time
 
         from qwen3_tts.interface.ui.components import confirm_step
+
         # First click - arm
         state, _, _ = confirm_step(
             None, "Confirm Delete? (click again)", "Delete", timeout_s=0.1
@@ -935,6 +1150,7 @@ class TestConfirmStep(unittest.TestCase):
         import time
 
         from qwen3_tts.interface.ui.components import confirm_step
+
         # First click - arm
         state, _, _ = confirm_step(
             None, "Confirm Delete? (click again)", "Delete", timeout_s=0.1
@@ -955,11 +1171,12 @@ class TestConfirmButton(unittest.TestCase):
     def test_click_returns_four_tuple(self):
         """ConfirmButton.click returns (state, btn, status, confirmed)."""
         from qwen3_tts.interface.ui.components import ConfirmButton
+
         btn = ConfirmButton(
             arm_label="Confirm Delete? (click again)",
             original_label="Delete",
             timeout_s=5.0,
-            status_message="Please confirm within 5 seconds"
+            status_message="Please confirm within 5 seconds",
         )
         result = btn.click(None)
         self.assertEqual(len(result), 4)
@@ -970,10 +1187,11 @@ class TestConfirmButton(unittest.TestCase):
     def test_first_click_shows_status_message(self):
         """First click shows status message."""
         from qwen3_tts.interface.ui.components import ConfirmButton
+
         btn = ConfirmButton(
             arm_label="Confirm Delete? (click again)",
             original_label="Delete",
-            status_message="Please confirm within 5 seconds"
+            status_message="Please confirm within 5 seconds",
         )
         state, btn_update, status_update, confirmed = btn.click(None)
         self.assertFalse(confirmed)
@@ -982,10 +1200,11 @@ class TestConfirmButton(unittest.TestCase):
     def test_second_click_clears_status(self):
         """Second click clears status message."""
         from qwen3_tts.interface.ui.components import ConfirmButton
+
         btn = ConfirmButton(
             arm_label="Confirm Delete? (click again)",
             original_label="Delete",
-            status_message="Please confirm within 5 seconds"
+            status_message="Please confirm within 5 seconds",
         )
         # First click
         state, _, _, confirmed = btn.click(None)
@@ -1006,11 +1225,13 @@ class TestUnloadHandlerImport(unittest.TestCase):
     def test_get_model_table_data_importable_from_model_management(self):
         """The handler's import path must resolve (would catch the ImportError)."""
         from qwen3_tts.interface.ui.model_management import get_model_table_data
+
         self.assertTrue(callable(get_model_table_data))
 
     def test_get_model_table_data_not_in_shared(self):
         """Document that .shared does NOT provide it — the source of the old bug."""
         import qwen3_tts.interface.ui.shared as shared
+
         self.assertFalse(
             hasattr(shared, "get_model_table_data"),
             "get_model_table_data unexpectedly in .shared; update the handler import",
@@ -1026,6 +1247,7 @@ class TestUnloadHandlerImport(unittest.TestCase):
         import inspect
 
         from qwen3_tts.interface.ui import tabs_management
+
         src = inspect.getsource(tabs_management)
         self.assertIn("model_management.get_model_table_data()", src)
         self.assertNotIn(
@@ -1037,6 +1259,7 @@ class TestUnloadHandlerImport(unittest.TestCase):
         import inspect
 
         from qwen3_tts.interface.ui import tabs_management
+
         src = inspect.getsource(tabs_management)
         self.assertNotIn('if startup == "default":', src)
         self.assertIn('if startup == "Yes":', src)
@@ -1065,7 +1288,8 @@ class TestUiPackageSubmoduleMap(unittest.TestCase):
             timeout=120,
         )
         self.assertEqual(
-            proc.returncode, 0,
+            proc.returncode,
+            0,
             f"fresh-interpreter access failed: {proc.stderr.strip()}",
         )
 
