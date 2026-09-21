@@ -80,7 +80,7 @@ class TestValidateProsodyPresetName(unittest.TestCase):
         return validate_prosody_preset_name(name)
 
     def test_empty_name_rejected(self):
-        self.assertIsNotNone(self._validate(""))
+        self.assertEqual(self._validate(""), "Enter a preset name.")
 
     def test_whitespace_only_name_rejected(self):
         self.assertIsNotNone(self._validate("   "))
@@ -88,7 +88,10 @@ class TestValidateProsodyPresetName(unittest.TestCase):
     def test_name_over_max_len_rejected(self):
         from qwen3_tts.core.config import PROSODY_NAME_MAX_LEN
 
-        self.assertIsNotNone(self._validate("a" * (PROSODY_NAME_MAX_LEN + 1)))
+        self.assertEqual(
+            self._validate("a" * (PROSODY_NAME_MAX_LEN + 1)),
+            f"Preset name is too long ({PROSODY_NAME_MAX_LEN} characters max).",
+        )
 
     def test_name_at_max_len_accepted(self):
         from qwen3_tts.core.config import PROSODY_NAME_MAX_LEN
@@ -106,7 +109,10 @@ class TestValidateProsodyPresetName(unittest.TestCase):
         self.assertIsNone(self._validate("storyteller"))
 
     def test_factory_name_lowercase_rejected(self):
-        self.assertIsNotNone(self._validate("excited"))
+        self.assertEqual(
+            self._validate("excited"),
+            "'excited' is a built-in preset — pick a different name.",
+        )
 
     def test_factory_name_case_insensitive_rejected(self):
         self.assertIsNotNone(self._validate("EXCITED"))
@@ -126,7 +132,11 @@ class TestValidateProsodyPresetName(unittest.TestCase):
         self.assertIsNotNone(self._validate("slow - really"))
 
     def test_special_characters_rejected(self):
-        self.assertIsNotNone(self._validate("my@preset"))
+        self.assertEqual(
+            self._validate("my@preset"),
+            "Preset names can only contain letters, numbers, dashes, "
+            "underscores, and dots.",
+        )
 
     def test_dash_underscore_dot_accepted(self):
         self.assertIsNone(self._validate("story-teller_v1.0"))
@@ -532,8 +542,11 @@ class TestProsodyChoiceFormatRoundTrip(unittest.TestCase):
     def test_factory_choices_render_observably_unchanged(self, mock_load):
         # get_prosody_choices now delegates to _format_prosody_choice; its
         # output for the 8 factory presets must not change (35-55 char texts
-        # render whole — no ellipsis anywhere).
-        mock_load.return_value = _seeded_factory_config()
+        # render whole — no ellipsis anywhere). Empty config: the merged view
+        # renders DEFAULT_PROSODY_PRESETS with no overrides. A factory-keyed
+        # seeded config would OVERRIDE the defaults (spec line 43 — the merged
+        # apply view prefers config entries) and render the seeded texts.
+        mock_load.return_value = {}
         from qwen3_tts.core.config.presets import DEFAULT_PROSODY_PRESETS
         from qwen3_tts.interface.voice_helpers import get_prosody_choices
 
@@ -574,6 +587,13 @@ class TestProsodyPresetHandlerContracts(unittest.TestCase):
         self.assertEqual(result[5], gr.update())
         self.assertEqual(result[6], gr.update())
 
+    def _assert_announced(self, result):
+        # The announcer slot must carry generation._announce_status's sr-only
+        # aria-live wrapper — not "", not the raw status text (a plain
+        # gr.update(value=msg) bypasses the screen-reader contract).
+        self.assertTrue(result[3])
+        self.assertIn("aria-live", result[3])
+
     # --- Save handler ---
 
     @patch(
@@ -599,7 +619,7 @@ class TestProsodyPresetHandlerContracts(unittest.TestCase):
         self._assert_disarmed(result[0])
         self.assertEqual(result[1].get("value"), SAVE_BTN_BASE)
         self.assertEqual(result[2], "Saved preset 'storyteller'.")
-        self.assertIsInstance(result[3], str)  # announcer updated every branch
+        self._assert_announced(result)  # announcer updated every branch
         # Success refresh: fresh merged choices, no value key ("(none)" inputs
         # never name the affected preset).
         self.assertEqual(result[4], gr.update(choices=["(none)", "storyteller - text"]))
@@ -632,7 +652,7 @@ class TestProsodyPresetHandlerContracts(unittest.TestCase):
         self.assertEqual(result[1].get("value"), SAVE_BTN_BASE)
         self.assertEqual(result[2], mock_validate.return_value)
         self._assert_bare_dropdowns(result)
-        self.assertIsInstance(result[3], str)
+        self._assert_announced(result)
         mock_writer.assert_not_called()
 
     @patch(
@@ -657,7 +677,7 @@ class TestProsodyPresetHandlerContracts(unittest.TestCase):
         self.assertTrue(result[0].get("armed"))
         self.assertEqual(result[0].get("armed_name"), "storyteller")
         self.assertGreater(result[0]["ts"], time.time() - 2)  # fresh, not stale
-        self.assertIn("Confirm", result[1].get("value", ""))
+        self.assertEqual(result[1].get("value"), "Confirm Overwrite? (click again)")
         self.assertEqual(
             result[2],
             "A preset named 'storyteller' already exists. "
@@ -709,7 +729,7 @@ class TestProsodyPresetHandlerContracts(unittest.TestCase):
         "qwen3_tts.core.config.save_user_prosody_preset",
         return_value=(
             False,
-            "Could not save prosody preset 'storyteller' — the config file "
+            "Couldn't save prosody preset 'storyteller' — the config file "
             "couldn't be written (No space left on device). Check disk space "
             "and permissions, then try again.",
         ),
@@ -729,7 +749,7 @@ class TestProsodyPresetHandlerContracts(unittest.TestCase):
         self.assertEqual(result[1].get("value"), SAVE_BTN_BASE)
         self.assertIn("No space left on device", result[2])
         self._assert_bare_dropdowns(result)  # non-success: no refresh
-        self.assertIsInstance(result[3], str)
+        self._assert_announced(result)
         mock_writer.assert_called_once()
 
     @patch(
@@ -790,6 +810,8 @@ class TestProsodyPresetHandlerContracts(unittest.TestCase):
             "Your confirmation timed out. Click again within 5s to "
             "overwrite 'storyteller'.",
         )
+        self.assertIn("Confirm", result[1].get("value", ""))
+        self._assert_bare_dropdowns(result)
         mock_writer.assert_not_called()
 
     @patch(
@@ -912,7 +934,7 @@ class TestProsodyPresetHandlerContracts(unittest.TestCase):
         self.assertEqual(result[1].get("value"), DELETE_BTN_BASE)
         self.assertEqual(result[2], "Select one of your presets to delete.")
         self._assert_bare_dropdowns(result)
-        self.assertIsInstance(result[3], str)
+        self._assert_announced(result)
         mock_writer.assert_not_called()
 
     @patch(
@@ -996,7 +1018,7 @@ class TestProsodyPresetHandlerContracts(unittest.TestCase):
         self.assertTrue(result[0].get("armed"))
         self.assertEqual(result[0].get("armed_name"), "storyteller")
         self.assertGreater(result[0]["ts"], time.time() - 2)
-        self.assertIn("Confirm", result[1].get("value", ""))
+        self.assertEqual(result[1].get("value"), "Confirm Delete? (click again)")
         self.assertEqual(
             result[2], "Delete preset 'storyteller'? Click again within 5s to confirm."
         )
@@ -1063,6 +1085,8 @@ class TestProsodyPresetHandlerContracts(unittest.TestCase):
             result[2],
             "Your confirmation timed out. Click again within 5s to delete 'storyteller'.",
         )
+        self.assertIn("Confirm", result[1].get("value", ""))
+        self._assert_bare_dropdowns(result)
         mock_writer.assert_not_called()
 
     @patch(
@@ -1154,6 +1178,37 @@ class TestProsodyPresetHandlerContracts(unittest.TestCase):
         state = {"armed": True, "ts": time.time(), "armed_name": "storyteller"}
         result = fn(state, "storyteller", "storyteller - old", "storyteller - old")
         self.assertEqual(result[4], gr.update(choices=["(none)"], value="(none)"))
+        self.assertEqual(result[5], gr.update(choices=["(none)"], value="(none)"))
+        self.assertEqual(result[6], gr.update(choices=["(none)"], value="(none)"))
+        mock_writer.assert_called_once()
+
+    @patch(
+        "qwen3_tts.interface.voice_helpers.get_user_prosody_choices",
+        return_value=["(none)"],
+    )
+    @patch(
+        "qwen3_tts.interface.voice_helpers.get_prosody_choices",
+        return_value=["(none)"],
+    )
+    @patch(
+        "qwen3_tts.core.config.delete_user_prosody_preset",
+        return_value=(True, "Deleted preset 'storyteller'."),
+    )
+    @patch(
+        "qwen3_tts.core.config.get_user_prosody_presets",
+        return_value={"storyteller": "old"},
+    )
+    def test_delete_asymmetric_inputs_reset_the_matching_slot_only(
+        self, _mock_view, mock_writer, _mock_merged, _mock_user
+    ):
+        """custom_prosody/design_prosody swap detector: only the dropdown whose
+        OWN input names the deleted preset gets value=NONE — a simultaneous
+        signature or wiring swap between the two slots fails here."""
+        fn = self._delete_handler()
+        state = {"armed": True, "ts": time.time(), "armed_name": "storyteller"}
+        result = fn(state, "storyteller", "(none)", "storyteller - old")
+        self.assertEqual(result[4], gr.update(choices=["(none)"]))
+        self.assertNotIn("value", result[4])
         self.assertEqual(result[5], gr.update(choices=["(none)"], value="(none)"))
         self.assertEqual(result[6], gr.update(choices=["(none)"], value="(none)"))
         mock_writer.assert_called_once()
