@@ -23,6 +23,7 @@ from qwen3_tts.core.config import (
     get_generation_presets,
     get_mlx_quantization,
     get_model_size,
+    get_user_generation_presets,
     is_server_running,
     load_config,
     safe_path_join,
@@ -100,6 +101,7 @@ def low_rate_prompt_warning(prompt_name):
         f"hang. Re-create it in the Create Voice tab — 'tts voice rebuild' will "
         f"NOT fix it, because it regenerates the .pt and MLX reads the .wav."
     )
+
 
 # Constants
 MAX_HISTORY_SIZE = 10
@@ -271,7 +273,10 @@ def apply_model_settings(model_size, mlx_quantization):
         from qwen3_tts.core.http_client import UNLOAD_MODEL_TIMEOUT_SEC
 
         resp = server_request(
-            "POST", "/update-model-config", json=payload, timeout=UNLOAD_MODEL_TIMEOUT_SEC
+            "POST",
+            "/update-model-config",
+            json=payload,
+            timeout=UNLOAD_MODEL_TIMEOUT_SEC,
         )
         if resp.status_code != 200:
             error = resp.json().get("error", "Unknown error")
@@ -440,6 +445,15 @@ def get_presets():
     return ["(none)"] + list(get_generation_presets(config).keys())
 
 
+def get_user_generation_preset_choices():
+    """User-created generation presets for the delete dropdown (bare names).
+
+    Calls the reader with no config so the reader's own corrupt-swallow
+    applies — a broken config.json renders an empty list, never an error.
+    """
+    return ["(none)"] + sorted(get_user_generation_presets())
+
+
 def get_voice_metadata(name: str) -> dict:
     """Get metadata for a voice prompt.
 
@@ -587,8 +601,7 @@ def get_history_data(history_list, armed_delete_path=None, armed_download_path=N
             armed_delete_path is not None and entry.get("path") == armed_delete_path
         )
         is_armed_download = (
-            armed_download_path is not None
-            and entry.get("path") == armed_download_path
+            armed_download_path is not None and entry.get("path") == armed_download_path
         )
         rows.append(
             [
@@ -885,9 +898,7 @@ def _ui_credentials_path() -> str:
     writer itself.
     """
     # keep in sync with _TOKEN_DIR in core/config/paths.py
-    base = _UI_CREDENTIALS_DIR_OVERRIDE or os.path.expanduser(
-        "~/.config/qwen3-tts"
-    )
+    base = _UI_CREDENTIALS_DIR_OVERRIDE or os.path.expanduser("~/.config/qwen3-tts")
     return os.path.join(base, ".ui_share_credentials")
 
 

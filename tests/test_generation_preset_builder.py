@@ -509,6 +509,11 @@ class TestSaveHandler(unittest.TestCase):
     ):
         if user_choices is None:
             user_choices = ["(none)"] + sorted(existing or {})
+        # Resolve the handler BEFORE entering the patch context: the first
+        # import of tabs_generation cascades into shared, whose module-level
+        # core-config imports would otherwise bind the MOCKS permanently
+        # (the patch restores core.config's attrs, not shared's bindings).
+        handler = self._handler()
         with (
             mock.patch(
                 "qwen3_tts.core.config.get_user_generation_presets",
@@ -527,7 +532,7 @@ class TestSaveHandler(unittest.TestCase):
                 return_value=user_choices,
             ),
         ):
-            result = self._handler()(
+            result = handler(
                 dict(state),
                 name,
                 0.6,
@@ -719,6 +724,9 @@ class TestDeleteHandler(unittest.TestCase):
         remaining = sorted(k for k in (existing or {}) if k != selection)
         fresh = ["(none)", "natural"] + remaining
         user_fresh = ["(none)"] + remaining
+        # Handler resolved BEFORE the patches, same as the save-side _call:
+        # an in-patch first import of shared would bind the mocks forever.
+        handler = self._handler()
         with (
             mock.patch(
                 "qwen3_tts.core.config.get_user_generation_presets",
@@ -737,7 +745,7 @@ class TestDeleteHandler(unittest.TestCase):
                 return_value=user_fresh,
             ),
         ):
-            result = self._handler()(
+            result = handler(
                 dict(state), selection, dd_values[0], dd_values[1], dd_values[2]
             )
         return result, delete_mock
