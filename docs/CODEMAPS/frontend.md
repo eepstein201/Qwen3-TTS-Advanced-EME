@@ -1,4 +1,4 @@
-<!-- Generated: 2026-09-18 | Files scanned: interface/ui/ (5.2k LOC) | Token estimate: ~560 -->
+<!-- Generated: 2026-09-21 | Files scanned: interface/ui/ (5.5k LOC) | Token estimate: ~620 -->
 
 # Frontend — Gradio Web UI (`interface/ui/`)
 
@@ -8,12 +8,12 @@ Gradio web UI, launched via `tts ui`. Pin gradio `!=6.14.*` (6.14.x recurses on 
 - **shared.py** 982 — collaborators (`get_presets` etc.) + `get_gradio_launch_kwargs` (share-auth single source, 0E #276); referenced module-style so `mock.patch` targets the definition site
 - **generation.py** 712 — generation wiring (server calls via TTSClient; #260 pruned 14 dead lines)
 - **_facade.py** 585 — `build_ui` / `main` / `stop_server` (PM2-aware via `pm2_owner_of_port`, #248) + re-exports (every moved name re-exported so `from _facade import X` still works)
-- **tabs_generation.py** 502 — Clone / Design / Custom tab builders
+- **tabs_generation.py** 775 — Clone / Design / Custom tab builders + "My prosody presets" (T1 #322)
 - **components.py** 484 — `ConfirmButton`, `confirm_step`, `ProgressIndicator`, `StatusBanner`, `status_badge`, `poll_model_loading_state`
 - **voice_management.py** 494 — voice CRUD handlers; MLX create routes through the engine writer (0G #282)
 - **tabs_management.py** 460 — Create Voice / Manage Voices / Manage Models
 - **history_panel.py** 420 — Recent Generations (click routing + Clear All)
-- **model_management.py** 385 — model CRUD handlers; ETA badge during load
+- **model_management.py** 387 — model CRUD handlers; ETA badge during load
 
 ## Share auth + allowed_paths (0E #276)
 - Every launch site (`ui/_facade.py` `main()` AND `generate_server.build_ui_and_launch`) routes kwargs through `get_gradio_launch_kwargs(config, share=...)` (`shared.py`) — share ⇒ auth, fail-closed: `TTS_UI_USERNAME`+`TTS_UI_PASSWORD` when BOTH env vars are set, else generated (username printed once, password written as the sole line of a 0600 file `~/.config/qwen3-tts/.ui_share_credentials` — the password string never reaches any log sink); a half-set pair or a credential/write failure raises RuntimeError instead of launching unauthenticated
@@ -27,6 +27,9 @@ Gradio web UI, launched via `tts ui`. Pin gradio `!=6.14.*` (6.14.x recurses on 
 - **Confirm-flow repair** — Stop, Delete Voice, and Unload Model each use `ConfirmButton`/`confirm_step`'s two-step path correctly; a prior wiring gap let the second click no-op.
 - **`tts ui --port`** honored end-to-end; low-rate voice-prompt warning now surfaces to browser users, not just server logs.
 - **ETA badge** — model-load ETA is surfaced in the UI instead of discarded (`44f844b`).
+
+## User prosody presets (T1 #322)
+Custom tab's "My prosody presets" accordion — save/delete of user-defined prosody presets. Handlers `_on_save_prosody_preset` / `_on_delete_prosody_preset` (module-level): target-keyed two-step confirm (5 s window; mismatch/expired re-arm for the current target), conditional `value=` resets that read each dropdown's OWN input (custom/design dropdowns are handler INPUTS — that's why the wiring keeps them in `inputs=`), sr-only aria-live announcer on every branch. Data layer lives in `core/config/presets.py` (raw-base writers; factory names reserved). Guarded by `tests/test_prosody_preset_builder.py` (89 tests).
 
 ## Critical constraints
 - **NEVER** attach `select` to a `gr.Tab` → infinite Dataframe recursion on 6.14.x (kills Manage tabs). Model badges refreshed via shared `gr.Timer` (5 s, one `/models` call) instead.

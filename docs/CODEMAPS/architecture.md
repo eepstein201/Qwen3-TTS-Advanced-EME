@@ -1,4 +1,4 @@
-<!-- Generated: 2026-09-18 | Files scanned: 75 .py (29.0k LOC) | Token estimate: ~640 -->
+<!-- Generated: 2026-09-21 | Files scanned: 76 .py (29.8k LOC) | Token estimate: ~640 -->
 
 # Architecture — Qwen3-TTS
 
@@ -49,8 +49,8 @@ Every GPU-inference-reachable path now serializes on `state.inference_lock`, acq
 - 3 distinct HF models (Clone / Design / Custom)
 
 ## Heaviest modules (LOC)
-inference.py 1847 · app_generation.py 1228 · app.py 1140 · generate.py 902 · ui/shared.py 982 · generate_interactive.py 826 · app_lifespan.py 821
+inference.py 1847 · app_generation.py 1228 · app.py 1180 · generate.py 902 · ui/shared.py 982 · generate_interactive.py 826 · app_lifespan.py 843
 _(inference.py, app_generation.py, app.py, app_lifespan.py, ui/shared.py exceed the 800-line guideline — known structural debt, see project memory `project_open_structural_debt.md`)_
 
 ## Layer size
-core/ 7.5k · server/ 8.2k · interface/ 9.2k (ui/ 5.2k) · tools/ 2.3k · tests/ 197 modules (188 root + 6 security + 3 evals), ~3.5k test functions
+core/ 7.7k · server/ 8.2k · interface/ 9.5k (ui/ 5.5k) · tools/ 2.5k · tests/ 218 modules, ~3.7k test functions

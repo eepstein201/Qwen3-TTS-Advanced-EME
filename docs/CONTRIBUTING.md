@@ -169,6 +169,12 @@ Run `pytest -m "not e2e"` locally before pushing: CI's coverage job runs the
 full pytest discovery, which is broader than the batch runner — a test outside
 `BATCHES` can pass every batch gate yet fail CI.
 
+CI also enforces per-module coverage floors (ratcheted allowlist in
+`coverage-floors.json`, Step 4B.4): a module that drops below its floor reds
+the coverage job even when the aggregate looks fine. Check locally with
+`python -m qwen3_tts.tools.coverage_floors`; if your PR adds coverage to a
+floored module, raise its floor in the same PR (floors only move up).
+
 **Run specific batch:**
 ```bash
 python tests/run_batches.py --batch 1  # Core utilities
