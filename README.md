@@ -584,7 +584,7 @@ Complete environment variable and `config.json` reference, including:
 - Rate limiting configuration
 - Server settings (host, port, auto-shutdown)
 - Prompt enhancer (AI voice description)
-- Generation presets and prosody presets
+- Generation presets and prosody presets (save/delete your own from the web UI's Custom tab)
 - Cache and UI settings
 
 ### [Contributing Guide](docs/CONTRIBUTING.md)

@@ -175,7 +175,7 @@ Use a preset with `tts "..." --preset creative`. List them with `tts list preset
 
 ### `prosody_presets`
 
-A dict of **plain instruction strings** (not parameter dicts) injected into Custom/Design generation. Defaults:
+A dict of **plain instruction strings** (not parameter dicts) injected into Custom/Design generation. User-defined presets can be saved and deleted directly from the web UI (Custom tab → "My prosody presets"): saves store the Style Instruction box verbatim under a name (letters, numbers, dashes, underscores, dots; max 40 chars), overwrites and deletes use a 5-second click-again confirm, and factory names are reserved on both paths. A hand-edited factory-name override still applies via the merged view but is not manageable in the UI; restore the factory text by editing config.json. Defaults:
 
 ```json
 {
