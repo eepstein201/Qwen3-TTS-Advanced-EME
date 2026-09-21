@@ -684,6 +684,7 @@ class TestProsodyPresetHandlerContracts(unittest.TestCase):
             "Click again within 5s to overwrite it.",
         )
         self._assert_bare_dropdowns(result)
+        self._assert_announced(result)
         mock_writer.assert_not_called()
 
     @patch(
@@ -912,6 +913,43 @@ class TestProsodyPresetHandlerContracts(unittest.TestCase):
         # The delete dropdown is never value-reset by SAVE (not an input).
         self.assertEqual(result[6], gr.update(choices=["(none)"]))
 
+    @patch(
+        "qwen3_tts.interface.voice_helpers.get_user_prosody_choices",
+        return_value=["(none)"],
+    )
+    @patch(
+        "qwen3_tts.interface.voice_helpers.get_prosody_choices",
+        return_value=["(none)", "storyteller - text"],
+    )
+    @patch(
+        "qwen3_tts.core.config.save_user_prosody_preset",
+        return_value=(True, "Updated preset 'storyteller'."),
+    )
+    @patch(
+        "qwen3_tts.core.config.get_user_prosody_presets",
+        return_value={"storyteller": "old"},
+    )
+    @patch("qwen3_tts.core.config.validate_prosody_preset_name", return_value=None)
+    def test_save_asymmetric_inputs_reset_the_matching_slot_only(
+        self, _mock_validate, _mock_view, mock_writer, _mock_merged, _mock_user
+    ):
+        """custom_prosody/design_prosody swap detector (save side): only the
+        dropdown whose OWN input names the overwritten preset gets
+        value=NONE — a simultaneous signature or wiring swap between the two
+        slots fails here (stale-label/double-append trap, spec line 101)."""
+        fn = self._save_handler()
+        state = {"armed": True, "ts": time.time(), "armed_name": "storyteller"}
+        result = fn(state, "storyteller", "new text", "(none)", "storyteller - old")
+        self.assertEqual(result[4], gr.update(choices=["(none)", "storyteller - text"]))
+        self.assertNotIn("value", result[4])
+        self.assertEqual(
+            result[5],
+            gr.update(choices=["(none)", "storyteller - text"], value="(none)"),
+        )
+        # The delete dropdown is never value-reset by SAVE (not an input).
+        self.assertEqual(result[6], gr.update(choices=["(none)"]))
+        mock_writer.assert_called_once()
+
     # --- Delete handler ---
 
     @patch(
@@ -1023,6 +1061,7 @@ class TestProsodyPresetHandlerContracts(unittest.TestCase):
             result[2], "Delete preset 'storyteller'? Click again within 5s to confirm."
         )
         self._assert_bare_dropdowns(result)
+        self._assert_announced(result)
         mock_writer.assert_not_called()
 
     @patch(
@@ -1057,6 +1096,7 @@ class TestProsodyPresetHandlerContracts(unittest.TestCase):
         # The two apply dropdowns showed "(none)" -> choices only, no value.
         self.assertEqual(result[4], gr.update(choices=["(none)", "other - x"]))
         self.assertEqual(result[5], gr.update(choices=["(none)", "other - x"]))
+        self._assert_announced(result)
         mock_writer.assert_called_once()
 
     @patch(
