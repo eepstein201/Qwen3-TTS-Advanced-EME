@@ -442,15 +442,9 @@ def _build_clone_tab(status_html, history_state):
                 )
                 # sr-only announcer — never visible=False (Gradio 6 drops it
                 # from the DOM); mirrors both status boxes for SR users.
-                generation_preset_announcer = gr.HTML(
-                    generation._announce_status("")
-                )
-                generation_preset_save_state = gr.State(
-                    dict(_PROSODY_DISARMED_STATE)
-                )
-                generation_preset_delete_state = gr.State(
-                    dict(_PROSODY_DISARMED_STATE)
-                )
+                generation_preset_announcer = gr.HTML(generation._announce_status(""))
+                generation_preset_save_state = gr.State(dict(_PROSODY_DISARMED_STATE))
+                generation_preset_delete_state = gr.State(dict(_PROSODY_DISARMED_STATE))
 
         with gr.Column(scale=1):
             clone_ctrls = generation._build_common_controls()
@@ -512,7 +506,32 @@ def _build_clone_tab(status_html, history_state):
         audio_url_converter=clone_btns["audio_url_converter"],
         gen_guard_state=gen_guard_state,
     )
-    return clone_prompt, clone_model_indicator, clone_chain, clone_ctrls["seed"]
+    # Cross-tab refs for the facade-wired save/delete clicks (D1a): the dict
+    # avoids a 13-tuple; sliders ride along because the wiring needs them as
+    # positional inputs.
+    preset_builder = {
+        "name": generation_preset_name,
+        "save_btn": generation_preset_save_btn,
+        "delete_btn": generation_preset_delete_btn,
+        "save_state": generation_preset_save_state,
+        "delete_state": generation_preset_delete_state,
+        "save_status": generation_preset_save_status,
+        "delete_status": generation_preset_delete_status,
+        "delete_dropdown": generation_preset_delete_dropdown,
+        "announcer": generation_preset_announcer,
+        "clone_preset": clone_preset,
+        "temp": clone_ctrls["temp"],
+        "top_k": clone_ctrls["top_k"],
+        "top_p": clone_ctrls["top_p"],
+        "rep": clone_ctrls["rep"],
+    }
+    return (
+        clone_prompt,
+        clone_model_indicator,
+        clone_chain,
+        clone_ctrls["seed"],
+        preset_builder,
+    )
 
 
 def _build_design_tab(status_html, history_state, clone_prompt):
@@ -768,7 +787,13 @@ def _build_design_tab(status_html, history_state, clone_prompt):
         inputs=[design_save_name, history_state],
         outputs=[design_save_status, clone_prompt],
     )
-    return design_model_indicator, design_chain, design_ctrls["seed"], design_prosody
+    return (
+        design_model_indicator,
+        design_chain,
+        design_ctrls["seed"],
+        design_prosody,
+        design_preset,
+    )
 
 
 def _build_custom_tab(status_html, history_state, design_prosody):
@@ -970,4 +995,9 @@ def _build_custom_tab(status_html, history_state, design_prosody):
         inputs=[custom_prosody, custom_instruct],
         outputs=custom_instruct,
     )
-    return custom_model_indicator, custom_chain, custom_ctrls["seed"]
+    return (
+        custom_model_indicator,
+        custom_chain,
+        custom_ctrls["seed"],
+        custom_preset,
+    )

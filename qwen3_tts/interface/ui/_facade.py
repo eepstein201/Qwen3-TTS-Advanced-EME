@@ -61,6 +61,8 @@ from qwen3_tts.interface.ui.tabs_generation import (  # noqa: F401
     _build_clone_tab,
     _build_custom_tab,
     _build_design_tab,
+    _on_delete_generation_preset,
+    _on_save_generation_preset,
     _sanitize_voice_name,
 )
 from qwen3_tts.interface.ui.tabs_management import (  # noqa: F401
@@ -302,17 +304,76 @@ def build_ui():
         # Tabs for different modes
         with gr.Tabs():
             with gr.Tab("Clone Mode"):
-                clone_prompt, clone_model_indicator, clone_chain, clone_seed = (
-                    _build_clone_tab(status_html, history_state)
-                )
+                (
+                    clone_prompt,
+                    clone_model_indicator,
+                    clone_chain,
+                    clone_seed,
+                    preset_builder,
+                ) = _build_clone_tab(status_html, history_state)
             with gr.Tab("Design Mode"):
-                design_model_indicator, design_chain, design_seed, design_prosody = (
-                    _build_design_tab(status_html, history_state, clone_prompt)
-                )
+                (
+                    design_model_indicator,
+                    design_chain,
+                    design_seed,
+                    design_prosody,
+                    design_preset,
+                ) = _build_design_tab(status_html, history_state, clone_prompt)
             with gr.Tab("Custom Mode"):
-                custom_model_indicator, custom_chain, custom_seed = _build_custom_tab(
-                    status_html, history_state, design_prosody
-                )
+                (
+                    custom_model_indicator,
+                    custom_chain,
+                    custom_seed,
+                    custom_preset,
+                ) = _build_custom_tab(status_html, history_state, design_prosody)
+
+            # Generation-preset builder (Clone tab): both clicks live here,
+            # after _build_custom_tab, where all three Preset dropdowns exist
+            # (D1a — save/delete live-refresh every tab's dropdown).
+            preset_builder["save_btn"].click(
+                fn=_on_save_generation_preset,
+                inputs=[
+                    preset_builder["save_state"],
+                    preset_builder["name"],
+                    preset_builder["temp"],
+                    preset_builder["top_k"],
+                    preset_builder["top_p"],
+                    preset_builder["rep"],
+                    preset_builder["clone_preset"],
+                    design_preset,
+                    custom_preset,
+                ],
+                outputs=[
+                    preset_builder["save_state"],
+                    preset_builder["save_btn"],
+                    preset_builder["save_status"],
+                    preset_builder["announcer"],
+                    preset_builder["clone_preset"],
+                    design_preset,
+                    custom_preset,
+                    preset_builder["delete_dropdown"],
+                ],
+            )
+            preset_builder["delete_btn"].click(
+                fn=_on_delete_generation_preset,
+                inputs=[
+                    preset_builder["delete_state"],
+                    preset_builder["delete_dropdown"],
+                    preset_builder["clone_preset"],
+                    design_preset,
+                    custom_preset,
+                ],
+                outputs=[
+                    preset_builder["delete_state"],
+                    preset_builder["delete_btn"],
+                    preset_builder["delete_status"],
+                    preset_builder["announcer"],
+                    preset_builder["clone_preset"],
+                    design_preset,
+                    custom_preset,
+                    preset_builder["delete_dropdown"],
+                ],
+            )
 
             with gr.Tab("Create Voice"):
                 _build_create_voice_tab(clone_prompt)
