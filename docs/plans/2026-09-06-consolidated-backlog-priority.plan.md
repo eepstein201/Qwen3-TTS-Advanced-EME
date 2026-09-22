@@ -1754,9 +1754,23 @@ analysis rather than duplicated as a new step.)*
 
 ### Track T2 — mlx-env FastAPI repair (0.135.1 → 0.141.1)
 
-- **Status: NEXT UP (2026-09-21, T1 closed via #322/#324).** Deliberately held as its own isolated restart window since the 2026-09-05/06 dependabot session (two transport-library bumps in one week would be unattributable if something regressed). Confirmed 2026-09-06 still on 0.135.1; re-verify the installed version when the window opens.
-- **When to run:** anytime, isolated from the waves — pick a quiet window, bump, smoke-test `/generate` + `/generate-stream` + `/ws` per the #223 uvicorn-bump protocol precedent, restart, verify.
-- **Sequenced slot:** bundle into the next mechanical-fix batch (alongside Wave 6's 6Q or 6R, both already "small same-shape work" sessions) rather than a standalone one-off — no code overlap, just reuses the restart/smoke-test window instead of opening a second one.
+- **Status: DONE 2026-09-22.** Executed standalone rather than bundled (see "Sequenced slot" below — that rationale expired). No PR: this was an environment change only, so this plan entry is the sole durable record.
+- **It was a repair, not an upgrade — the entry's original framing understated this.** `pyproject.toml` already declared `fastapi>=0.141.1` and `requirements.lock` already pinned `fastapi==0.141.1` + `starlette==1.6.0`. Only the `qwen3-tts-mlx` conda env had drifted *below* our own declared floor, at 0.135.1. CI had been exercising 0.141.1 on every PR the whole time, so this aligned one env with an already-proven combination rather than adopting anything new.
+- **Pre-checks (the gate, run before touching the env):** installed version re-confirmed at 0.135.1 as the entry asked. The open question was whether FastAPI 0.141.1 wanted a starlette outside the `>=1.6.0,<2` pin that `RequestBodySizeLimitMiddleware` depends on — it does not: 0.141.1 declares `starlette>=0.46.0`, a floor with no ceiling. `pip install --dry-run` confirmed the blast radius was a single wheel: **"Would install fastapi-0.141.1"**, every other requirement already satisfied.
+- **Verification:**
+
+  | Check | Result |
+  |---|---|
+  | Install | `fastapi 0.141.1`; **starlette unmoved at 1.6.0**; `pip check` → no broken requirements |
+  | App import | 28 routes registered; `RequestBodySizeLimitMiddleware` present in the stack |
+  | Test suite | **6/6 batches green** (Batch 1's one failure was proven local `settings.json` dirt, fixed separately, then 604 tests OK) |
+  | Server | PM2 restart; `/ready` in ~5 s; clone model loaded in 6.2 s; `restart_time` stayed 1 (no autorestart-masked crash) |
+  | `/generate` | 200 in 46.8 s; decoded to a real RIFF WAV, 24 kHz mono, 2.72 s, peak amplitude 24740/32767 — audio, not silence |
+  | `/generate-stream` | 200 + `X-Seed`; framing correct (168960 B ÷ 4 = 42240 float32 samples); peak 0.414; clean finish, no `sample_rate == 0` error frame |
+  | `/ws` | auth ack → `generating` → binary frame (44162 samples, peak 0.643) → `complete` with chunk count + seed; **socket stayed open after the terminal message**, per the never-close-on-classified-paths contract |
+
+- **Two findings banked from the smokes:** (1) `/generate-stream` accepts `text` **singular** only, while `/generate` takes either `text` or `texts` (`app_generation.py:858` vs `:291`) — the asymmetry is real and returns a 400 `"No text provided"` if you send `texts` to the stream route. (2) Prefixing `timeout` onto `conda run` resolves a *different* conda installation on this machine (`/opt/homebrew/Caskroom/miniconda` instead of `~/miniforge3`) and fails with `EnvironmentLocationNotFound` — never wrap `conda run` in `timeout`.
+- **Sequenced slot (expired):** the original plan was to bundle this into a mechanical-fix batch alongside 6Q or 6R purely to reuse one restart/smoke window. Once T2 ran standalone that rationale was spent — 6Q no longer needs to carry it and is free-standing.
 
 ### Track T3 — Branch disposition register (decision-gated: user action only)
 
@@ -1832,8 +1846,9 @@ reliability question itself plus the E2E coverage it needs (Wave 4), coverage-ga
 waves; within Wave 6, the 6F–6R small fixes may run before or alongside the 6A–6E splits, whose
 structural risk is what actually wants the last position), then Wave 7 (interface polish). The
 three independent tracks fold into this same sequence rather than sitting outside it (2026-09-20):
-**T2** slots into whichever Wave 6 small-fixes session (6Q or 6R) is next, reusing that session's
-restart/smoke-test window — now the live slot, T2 being next up; **T1** was EXECUTED 2026-09-21
+**T2** was EXECUTED 2026-09-22 — run standalone rather than bundled into a 6Q/6R window, so that
+slot is released and 6Q no longer carries it (env change only; no PR, the track entry is the
+record); **T1** was EXECUTED 2026-09-21
 (PR #322, mark #324) — its 7A serialization constraint is resolved, 7A builds on the current
 post-T1 UI; **T1b** was EXECUTED and merged 2026-09-22 (PR #327), shipping its own paperwork in-PR;
 **T3** needs no slot — its register is
