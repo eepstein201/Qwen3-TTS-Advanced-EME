@@ -186,6 +186,161 @@ def _on_delete_prosody_preset(state, selection, custom_choice, design_choice):
     )
 
 
+def _generation_preset_disarmed_result(btn_label, status):
+    """Non-arm branch shape for the 8-slot generation-preset flows: full
+    disarmed state, base button label, status, announcer, and bare
+    no-change updates on all four dropdowns."""
+    return (
+        dict(_PROSODY_DISARMED_STATE),
+        gr.update(value=btn_label),
+        status,
+        generation._announce_status(status),
+        gr.update(),
+        gr.update(),
+        gr.update(),
+        gr.update(),
+    )
+
+
+def _generation_preset_dropdown_reset(choice, affected, merged_choices):
+    """Conditional reset: value=NONE only when THIS dropdown's own value is
+    the affected preset name (bare names — no formatter here, unlike
+    prosody). None / non-str guards to no reset."""
+    current = choice if isinstance(choice, str) else ""
+    if current == affected:
+        return gr.update(choices=merged_choices, value=NONE_CHOICE)
+    return gr.update(choices=merged_choices)
+
+
+def _on_save_generation_preset(
+    state,
+    preset_name,
+    temp,
+    top_k,
+    top_p,
+    rep,
+    clone_choice,
+    design_choice,
+    custom_choice,
+):
+    """Save (or overwrite) a user-defined generation preset from the Clone
+    tab's sampling sliders. The name is stripped once, up front (prosody
+    handler precedent); all writes go through the data-layer writer."""
+    now = time.time()
+    name = preset_name.strip() if isinstance(preset_name, str) else ""
+
+    error = core_config.validate_generation_preset_name(name)
+    if error is None:
+        # Defense-in-depth: sliders are naturally in range, but the apply
+        # path is a blind dict update, so params re-validate at the boundary.
+        params = {
+            "temperature": temp,
+            "top_k": top_k,
+            "top_p": top_p,
+            "repetition_penalty": rep,
+        }
+        error = core_config.validate_generation_preset_params(params)
+    if error is not None:
+        return _generation_preset_disarmed_result(_PROSODY_SAVE_BTN_BASE, error)
+
+    if (
+        not _prosody_arm_is_fresh(state, name, now)
+        and name in core_config.get_user_generation_presets()
+    ):
+        status = f"A preset named '{name}' exists — click Save again to overwrite."
+        return (
+            {"armed": True, "ts": now, "armed_name": name},
+            gr.update(value=_PROSODY_SAVE_BTN_ARM),
+            status,
+            generation._announce_status(status),
+            gr.update(),
+            gr.update(),
+            gr.update(),
+            gr.update(),
+        )
+
+    ok, msg = core_config.save_user_generation_preset(name, params)
+    if not ok:
+        return _generation_preset_disarmed_result(
+            _PROSODY_SAVE_BTN_BASE, f"Could not save: {msg}"
+        )
+    merged = shared.get_presets()
+    return (
+        dict(_PROSODY_DISARMED_STATE),
+        gr.update(value=_PROSODY_SAVE_BTN_BASE),
+        msg,
+        generation._announce_status(msg),
+        # Save refreshes CHOICES only — never a value reset (spec §6). Labels
+        # are bare names here, unlike prosody's "name - text", so an overwrite
+        # leaves every selection valid; clearing one would silently deselect
+        # the preset on a tab the user never touched, whose own sliders hold
+        # different values.
+        gr.update(choices=merged),
+        gr.update(choices=merged),
+        gr.update(choices=merged),
+        gr.update(choices=shared.get_user_generation_preset_choices()),
+    )
+
+
+def _on_delete_generation_preset(
+    state, selection, clone_choice, design_choice, custom_choice
+):
+    """Delete a user-defined generation preset. Classification (factory /
+    membership) happens BEFORE arming and never writes; the confirm path
+    goes through the data-layer writer."""
+    now = time.time()
+    name = selection.strip() if isinstance(selection, str) else ""
+
+    if not name or name == NONE_CHOICE:
+        return _generation_preset_disarmed_result(
+            _PROSODY_DELETE_BTN_BASE, "Select one of your presets to delete."
+        )
+    error = core_config.factory_generation_preset_error(name)
+    if error is not None:
+        # Factory classification ONLY — never arms, never writes. The full
+        # name validator does not belong here: the name came from the
+        # dropdown, not the user, and the reader applies no name filter, so
+        # charset/length rules would strand a hand-edited junk entry as
+        # visible-but-undeletable.
+        return _generation_preset_disarmed_result(_PROSODY_DELETE_BTN_BASE, error)
+
+    fresh = _prosody_arm_is_fresh(state, name, now)
+    if not fresh and name not in core_config.get_user_generation_presets():
+        return _generation_preset_disarmed_result(
+            _PROSODY_DELETE_BTN_BASE, f"Preset '{name}' no longer exists."
+        )
+
+    if not fresh:
+        status = f"Click Delete again to delete '{name}'."
+        return (
+            {"armed": True, "ts": now, "armed_name": name},
+            gr.update(value=_PROSODY_DELETE_BTN_ARM),
+            status,
+            generation._announce_status(status),
+            gr.update(),
+            gr.update(),
+            gr.update(),
+            gr.update(),
+        )
+
+    ok, msg = core_config.delete_user_generation_preset(name)
+    if not ok:
+        return _generation_preset_disarmed_result(_PROSODY_DELETE_BTN_BASE, msg)
+    merged = shared.get_presets()
+    return (
+        dict(_PROSODY_DISARMED_STATE),
+        gr.update(value=_PROSODY_DELETE_BTN_BASE),
+        msg,
+        generation._announce_status(msg),
+        _generation_preset_dropdown_reset(clone_choice, name, merged),
+        _generation_preset_dropdown_reset(design_choice, name, merged),
+        _generation_preset_dropdown_reset(custom_choice, name, merged),
+        gr.update(
+            choices=shared.get_user_generation_preset_choices(), value=NONE_CHOICE
+        ),
+    )
+
+
 def _new_gen_guard_state() -> dict:
     """Fresh per-tab generate-guard state.
 
@@ -254,6 +409,51 @@ def _build_clone_tab(status_html, history_state):
                 label="Preset", choices=shared.get_presets(), value=NONE_CHOICE
             )
 
+            with gr.Accordion("My generation presets", open=False):
+                gr.Markdown(
+                    "Save the current Temperature / Top-K / Top-P / "
+                    "Repetition Penalty sliders as a named preset, or delete "
+                    "presets you created. Factory presets can't be "
+                    "overwritten. Your presets appear in the Preset dropdown "
+                    "on every tab."
+                )
+                generation_preset_name = gr.Textbox(
+                    label="Preset name",
+                    placeholder="Preset name (max 40 characters)",
+                )
+                with gr.Row():
+                    generation_preset_save_btn = gr.Button(
+                        _PROSODY_SAVE_BTN_BASE, variant="secondary", size="sm"
+                    )
+                    generation_preset_delete_btn = gr.Button(
+                        _PROSODY_DELETE_BTN_BASE, variant="stop", size="sm"
+                    )
+                generation_preset_save_status = gr.Textbox(
+                    label="",
+                    show_label=False,
+                    interactive=False,
+                    max_lines=2,
+                    container=False,
+                )
+                generation_preset_delete_status = gr.Textbox(
+                    label="",
+                    show_label=False,
+                    interactive=False,
+                    max_lines=2,
+                    container=False,
+                )
+                generation_preset_delete_dropdown = gr.Dropdown(
+                    label="Preset to delete",
+                    info="Only presets you created appear here.",
+                    choices=shared.get_user_generation_preset_choices(),
+                    value=NONE_CHOICE,
+                )
+                # sr-only announcer — never visible=False (Gradio 6 drops it
+                # from the DOM); mirrors both status boxes for SR users.
+                generation_preset_announcer = gr.HTML(generation._announce_status(""))
+                generation_preset_save_state = gr.State(dict(_PROSODY_DISARMED_STATE))
+                generation_preset_delete_state = gr.State(dict(_PROSODY_DISARMED_STATE))
+
         with gr.Column(scale=1):
             clone_ctrls = generation._build_common_controls()
             clone_no_transcript = gr.Checkbox(
@@ -314,7 +514,32 @@ def _build_clone_tab(status_html, history_state):
         audio_url_converter=clone_btns["audio_url_converter"],
         gen_guard_state=gen_guard_state,
     )
-    return clone_prompt, clone_model_indicator, clone_chain, clone_ctrls["seed"]
+    # Cross-tab refs for the facade-wired save/delete clicks (D1a): the dict
+    # avoids a 13-tuple; sliders ride along because the wiring needs them as
+    # positional inputs.
+    preset_builder = {
+        "name": generation_preset_name,
+        "save_btn": generation_preset_save_btn,
+        "delete_btn": generation_preset_delete_btn,
+        "save_state": generation_preset_save_state,
+        "delete_state": generation_preset_delete_state,
+        "save_status": generation_preset_save_status,
+        "delete_status": generation_preset_delete_status,
+        "delete_dropdown": generation_preset_delete_dropdown,
+        "announcer": generation_preset_announcer,
+        "clone_preset": clone_preset,
+        "temp": clone_ctrls["temp"],
+        "top_k": clone_ctrls["top_k"],
+        "top_p": clone_ctrls["top_p"],
+        "rep": clone_ctrls["rep"],
+    }
+    return (
+        clone_prompt,
+        clone_model_indicator,
+        clone_chain,
+        clone_ctrls["seed"],
+        preset_builder,
+    )
 
 
 def _build_design_tab(status_html, history_state, clone_prompt):
@@ -570,7 +795,13 @@ def _build_design_tab(status_html, history_state, clone_prompt):
         inputs=[design_save_name, history_state],
         outputs=[design_save_status, clone_prompt],
     )
-    return design_model_indicator, design_chain, design_ctrls["seed"], design_prosody
+    return (
+        design_model_indicator,
+        design_chain,
+        design_ctrls["seed"],
+        design_prosody,
+        design_preset,
+    )
 
 
 def _build_custom_tab(status_html, history_state, design_prosody):
@@ -772,4 +1003,9 @@ def _build_custom_tab(status_html, history_state, design_prosody):
         inputs=[custom_prosody, custom_instruct],
         outputs=custom_instruct,
     )
-    return custom_model_indicator, custom_chain, custom_ctrls["seed"]
+    return (
+        custom_model_indicator,
+        custom_chain,
+        custom_ctrls["seed"],
+        custom_preset,
+    )

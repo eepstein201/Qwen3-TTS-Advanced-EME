@@ -1745,6 +1745,13 @@ analysis rather than duplicated as a new step.)*
 - **When to run:** anytime after you approve it; does not depend on or block any wave above (touches `core/config/presets.py`, `interface/voice_helpers.py`, `interface/ui/tabs_generation.py`, `interface/ui/_facade.py` — no overlap with the waves). **One exception (2026-09-08): Wave 7 Step 7A** modifies `interface/ui/tabs_generation.py` + `_facade.py` too — serialize T1 against 7A (T1 first on the current UI, or rebase T1 onto 7A's design layer if it lands second).
 - **Sequenced slot:** immediately after Wave 7 Step 7A lands (or before it, per the serialization note above — whichever you pick first). Sits ahead of 7B/7C in the upcoming-deliverables order once approved, since 7A is its one point of file contention.
 
+### Track T1b — Generation-preset builder, Clone tab (feature, not backlog cleanup)
+
+- **Status: EXECUTED 2026-09-21 — PR open on `feature/generation-preset-builder`, awaiting merge.** T1's follow-on: the same save/delete experience for the **Preset** dropdown (sampling-param bundles), built on the Clone tab because a live probe proved clone has no style channel (`instruct` is ignored byte-identically; style text prepended to the spoken text is read aloud), so prosody presets cannot exist there but generation presets already apply on all three modes. Gate A 2×PASS; Gate B 2×PASS after round-1 fixes (1 HIGH: overwrite dropped each tab's live dropdown value; 1 MEDIUM: the delete path ran the full name validator, stranding hand-edited names as visible-but-undeletable). Spec shipped in-repo as `docs/plans/2026-09-21-generation-preset-builder.plan.md`. T1b is a track, outside the 49-step Open count.
+- **Gate:** your explicit go-ahead — new user-facing scope. (Go-ahead given 2026-09-21; executed same day.)
+- **When to run:** done. Touched `core/config/presets.py`, `core/config/__init__.py`, `interface/ui/tabs_generation.py`, `interface/ui/_facade.py` — same **Wave 7 Step 7A** file contention as T1, and like T1 it landed on the pre-7A UI, so 7A builds on top of it.
+- **Decision on record (D1a):** a save or delete refreshes the Preset dropdown on all three tabs immediately, without changing the current selection on any of them.
+
 ### Track T2 — mlx-env FastAPI repair (0.135.1 → 0.141.1)
 
 - **Status: NEXT UP (2026-09-21, T1 closed via #322/#324).** Deliberately held as its own isolated restart window since the 2026-09-05/06 dependabot session (two transport-library bumps in one week would be unattributable if something regressed). Confirmed 2026-09-06 still on 0.135.1; re-verify the installed version when the window opens.
