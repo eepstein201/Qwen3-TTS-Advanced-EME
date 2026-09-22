@@ -505,7 +505,14 @@ class TestSaveHandler(unittest.TestCase):
             self.assertEqual(result[slot], gr.update(), slot)
 
     def _call(
-        self, state, name, existing=None, writer=None, choices=None, user_choices=None
+        self,
+        state,
+        name,
+        existing=None,
+        writer=None,
+        choices=None,
+        user_choices=None,
+        dd_values=("whatever", "(none)", "(none)"),
     ):
         if user_choices is None:
             user_choices = ["(none)"] + sorted(existing or {})
@@ -539,9 +546,7 @@ class TestSaveHandler(unittest.TestCase):
                 40,
                 0.92,
                 1.08,
-                "whatever",
-                "(none)",
-                "(none)",
+                *dd_values,
             )
         return result, save_mock
 
@@ -634,6 +639,27 @@ class TestSaveHandler(unittest.TestCase):
             self.assertEqual(result[slot], gr.update(choices=["(none)", "mine"]), slot)
         self.assertEqual(result[7], gr.update(choices=["(none)", "mine"]))
         self._assert_announced(result)
+
+    def test_overwrite_never_deselects_the_preset_on_any_tab(self):
+        # Regression: save must refresh CHOICES only. Delete's conditional
+        # value reset leaking onto this path silently flipped every dropdown
+        # holding the saved name to "(none)" — and since Design/Custom own
+        # sliders independent of the Clone-tab sliders that fed the save,
+        # their next generation would fall back to different sampling params
+        # with no message. Only reachable when a dropdown holds the saved
+        # name, which the default dd_values deliberately do not.
+        armed = {"armed": True, "ts": time.time(), "armed_name": "mine"}
+        result, save_mock = self._call(
+            armed,
+            "mine",
+            existing={"mine": dict(VALID_PARAMS)},
+            choices=["(none)", "mine"],
+            dd_values=("mine", "mine", "mine"),
+        )
+        save_mock.assert_called_once()
+        for slot in (4, 5, 6):
+            self.assertEqual(result[slot], gr.update(choices=["(none)", "mine"]), slot)
+            self.assertNotIn("value", result[slot])
 
     def test_arm_then_mismatched_target_rearms_not_saves(self):
         armed = {"armed": True, "ts": time.time(), "armed_name": "a"}
@@ -827,6 +853,34 @@ class TestDeleteHandler(unittest.TestCase):
         )
         self._assert_announced(result)
 
+    def test_hand_edited_junk_name_is_deletable(self):
+        # Regression: the reader applies no name filter (spec §4), so a
+        # hand-edited config key the UI itself could never create is still
+        # offered in the delete dropdown. Running the full name validator
+        # here rejected it on charset/length — the entry showed up but could
+        # never be removed except by editing config.json by hand.
+        junk = "my preset!"
+        armed = {"armed": True, "ts": time.time(), "armed_name": junk}
+        result, delete_mock = self._call(
+            armed,
+            junk,
+            existing={junk: dict(VALID_PARAMS)},
+            dd_values=(junk, "(none)", "(none)"),
+        )
+        delete_mock.assert_called_once_with(junk)
+        self.assertEqual(result[2], f"Deleted preset '{junk}'.")
+        self.assertEqual(result[0], DISARMED)
+        self._assert_announced(result)
+
+    def test_junk_name_first_click_arms_rather_than_rejecting(self):
+        junk = "my preset!"
+        result, delete_mock = self._call(
+            dict(DISARMED), junk, existing={junk: dict(VALID_PARAMS)}
+        )
+        self.assertEqual(result[2], COPY_DELETE_ARM.format(name=junk))
+        self.assertTrue(result[0]["armed"])
+        delete_mock.assert_not_called()
+
     def test_writer_failure_renders_message_and_disarms(self):
         # The writer's ok/msg must be honored at confirm time: the default
         # mock's success message is string-identical to the section-7
@@ -898,6 +952,18 @@ class TestGenerationPresetUiWiring(unittest.TestCase):
 
         return Path(shared.__file__).read_text()
 
+    def _click_block(self, src, idx):
+        """Source window covering exactly ONE .click( registration.
+
+        A fixed-width window bled into the NEXT .click( block (save and
+        delete sit 966 chars apart), so a name dropped from this block's
+        outputs= was still found downstream inside the sibling's inputs=,
+        in increasing order — the ordering assertion false-passed. End the
+        window at the next registration instead of a char count.
+        """
+        nxt = src.find(".click(", idx)
+        return src[idx:nxt] if nxt != -1 else src[idx:]
+
     def _kwargs_window(self, block, start_marker, end_marker=None):
         # Character window from start_marker to end_marker (default: block
         # end). Used instead of T1's "]" terminator because preset_builder
@@ -955,7 +1021,7 @@ class TestGenerationPresetUiWiring(unittest.TestCase):
         before = src[max(0, idx - 300) : idx]
         self.assertIn(".click(", before)
         self.assertIn("preset_builder", before)
-        block = src[idx : idx + 1600]
+        block = self._click_block(src, idx)
         inputs = self._kwargs_window(block, "inputs=[", "outputs=[")
         # The four sliders map POSITIONALLY onto (temp, top_k, top_p, rep) —
         # an order swap here saves presets with swapped params.
@@ -996,7 +1062,7 @@ class TestGenerationPresetUiWiring(unittest.TestCase):
         before = src[max(0, idx - 300) : idx]
         self.assertIn(".click(", before)
         self.assertIn("preset_builder", before)
-        block = src[idx : idx + 1600]
+        block = self._click_block(src, idx)
         inputs = self._kwargs_window(block, "inputs=[", "outputs=[")
         # Order matters positionally: a state/selection swap corrupts the
         # arm logic; a design/custom swap misdirects the conditional reset.

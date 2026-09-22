@@ -156,6 +156,19 @@ def validate_generation_preset_name(name):
     return None
 
 
+def factory_generation_preset_error(name):
+    """Return the factory-reservation error for a name, else None.
+
+    The DELETE path classifies on factory reservation alone: the reader
+    applies no name filter (a hand-edited junk NAME stays visible so the
+    delete dropdown can remove it), so running the full name validator
+    there would strand such an entry — offered but undeletable.
+    """
+    if _stripped(name).lower() in _FACTORY_GENERATION_PRESET_NAMES:
+        return _GEN_FACTORY_MSG
+    return None
+
+
 def validate_generation_preset_params(params):
     """Return an error message for invalid preset params, else None.
 
@@ -234,7 +247,7 @@ def save_user_generation_preset(name, params):
         return (False, _GEN_CORRUPT_SAVE_MSG)
     presets = _raw_user_generation_entries(config)
     try:
-        save_config({**config, "presets": {**presets, name: dict(params or {})}})
+        save_config({**config, "presets": {**presets, name: dict(params)}})
     except OSError as err:
         return (
             False,

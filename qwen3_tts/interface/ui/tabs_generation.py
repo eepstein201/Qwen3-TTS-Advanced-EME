@@ -270,9 +270,14 @@ def _on_save_generation_preset(
         gr.update(value=_PROSODY_SAVE_BTN_BASE),
         msg,
         generation._announce_status(msg),
-        _generation_preset_dropdown_reset(clone_choice, name, merged),
-        _generation_preset_dropdown_reset(design_choice, name, merged),
-        _generation_preset_dropdown_reset(custom_choice, name, merged),
+        # Save refreshes CHOICES only — never a value reset (spec §6). Labels
+        # are bare names here, unlike prosody's "name - text", so an overwrite
+        # leaves every selection valid; clearing one would silently deselect
+        # the preset on a tab the user never touched, whose own sliders hold
+        # different values.
+        gr.update(choices=merged),
+        gr.update(choices=merged),
+        gr.update(choices=merged),
         gr.update(choices=shared.get_user_generation_preset_choices()),
     )
 
@@ -290,10 +295,13 @@ def _on_delete_generation_preset(
         return _generation_preset_disarmed_result(
             _PROSODY_DELETE_BTN_BASE, "Select one of your presets to delete."
         )
-    error = core_config.validate_generation_preset_name(name)
+    error = core_config.factory_generation_preset_error(name)
     if error is not None:
-        # Factory classification (and any other name rule) — never arms,
-        # never writes.
+        # Factory classification ONLY — never arms, never writes. The full
+        # name validator does not belong here: the name came from the
+        # dropdown, not the user, and the reader applies no name filter, so
+        # charset/length rules would strand a hand-edited junk entry as
+        # visible-but-undeletable.
         return _generation_preset_disarmed_result(_PROSODY_DELETE_BTN_BASE, error)
 
     fresh = _prosody_arm_is_fresh(state, name, now)
