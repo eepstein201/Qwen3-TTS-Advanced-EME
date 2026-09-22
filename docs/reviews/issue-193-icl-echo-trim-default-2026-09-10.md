@@ -407,7 +407,7 @@ All exit codes: 0.
 ## Part 2 — live smoke (freshly restarted server, ASR unloaded)
 
 **Appended at gate time by the controller** (2026-09-10). Server restarted onto the branch by the
-user (`tts server stop && tts server start`, PID 47494 started 16:49:30 EDT); prompt `LT_4`
+user (`tts server stop && tts server start`, PID 47494 started 16:49:30 EDT); prompt `sample_voice`
 (`.pt`+`.wav`+`.txt` — transcript resolvable). Authed via the standard bearer token. One honest
 timeline note: the machine slept ~6.5 h between leg 1 and leg 2 (log timestamps are the server's
 own clock and are reproduced verbatim).
@@ -417,7 +417,7 @@ own clock and are reproduced verbatim).
 ASR state BEFORE, via `/models`: `{"asr_loaded":{"loaded":false,"backend":null,"model_name":null}}`.
 
 ```
-POST /generate  {"texts": ["<264 chars>"], "mode": "clone", "prompt_file": "LT_4.wav"}
+POST /generate  {"texts": ["<264 chars>"], "mode": "clone", "prompt_file": "sample_voice.wav"}
 → HTTP 200, {"n_results": 1, "cancelled": false}
 ```
 

@@ -41,7 +41,7 @@ def voice_prompt_exists(prompt_file):
             base = base[:-3]
         elif base.endswith(".wav"):
             # get_default_clone_prompt() returns the stored filename
-            # ("LT_4.wav"); load_voice_prompt_mlx() strips .wav the same way,
+            # ("sample_voice.wav"); load_voice_prompt_mlx() strips .wav the same way,
             # so the existence check must agree or the loader is never
             # reached (local default-prompt generation exited 1 instead).
             base = base[:-4]

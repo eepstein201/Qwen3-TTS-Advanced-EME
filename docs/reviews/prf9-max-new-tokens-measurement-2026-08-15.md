@@ -19,7 +19,7 @@ doc**. Verdict up front:
 |------|-------|
 | Machine | MacBook Pro (M2 Pro, 16 GB unified memory, Mac14,10) |
 | Backend | `mlx`, model `mlx-community/Qwen3-TTS-12Hz-1.7B-Base-8bit`, clone mode |
-| Voice prompt | `lsmith` (.wav + .txt pair), seed 424242 |
+| Voice prompt | `sample_voice` (.wav + .txt pair), seed 424242 |
 | mlx / mlx-audio | 0.32.0 / 0.4.8 |
 | Chunking | disabled (`max_chunk_chars: 0` request + `max_chunk_tokens: 100000` config) — one `generate()` call per text |
 | Harness | stdlib-only `prf9_harness.py` (wall clock, WAV decode → duration/peak/RMS, `/stats` + `ps` polling at 5 s, log scrape) |
