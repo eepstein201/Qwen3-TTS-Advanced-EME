@@ -1747,7 +1747,7 @@ analysis rather than duplicated as a new step.)*
 
 ### Track T1b — Generation-preset builder, Clone tab (feature, not backlog cleanup)
 
-- **Status: EXECUTED 2026-09-21 — PR open on `feature/generation-preset-builder`, awaiting merge.** T1's follow-on: the same save/delete experience for the **Preset** dropdown (sampling-param bundles), built on the Clone tab because a live probe proved clone has no style channel (`instruct` is ignored byte-identically; style text prepended to the spoken text is read aloud), so prosody presets cannot exist there but generation presets already apply on all three modes. Gate A 2×PASS; Gate B 2×PASS after round-1 fixes (1 HIGH: overwrite dropped each tab's live dropdown value; 1 MEDIUM: the delete path ran the full name validator, stranding hand-edited names as visible-but-undeletable). Spec shipped in-repo as `docs/plans/2026-09-21-generation-preset-builder.plan.md`. T1b is a track, outside the 49-step Open count.
+- **Status: DONE (PR #327, squash `a0a9ae0b`, merged 2026-09-22).** T1's follow-on: the same save/delete experience for the **Preset** dropdown (sampling-param bundles), built on the Clone tab because a live probe proved clone has no style channel (`instruct` is ignored byte-identically; style text prepended to the spoken text is read aloud), so prosody presets cannot exist there but generation presets already apply on all three modes. Gate A 2×PASS; Gate B 2×PASS after round-1 fixes (1 HIGH: overwrite dropped each tab's live dropdown value; 1 MEDIUM: the delete path ran the full name validator, stranding hand-edited names as visible-but-undeletable). Spec shipped in-repo as `docs/plans/2026-09-21-generation-preset-builder.plan.md`. T1b is a track, outside the 49-step Open count.
 - **Gate:** your explicit go-ahead — new user-facing scope. (Go-ahead given 2026-09-21; executed same day.)
 - **When to run:** done. Touched `core/config/presets.py`, `core/config/__init__.py`, `interface/ui/tabs_generation.py`, `interface/ui/_facade.py` — same **Wave 7 Step 7A** file contention as T1, and like T1 it landed on the pre-7A UI, so 7A builds on top of it.
 - **Decision on record (D1a):** a save or delete refreshes the Preset dropdown on all three tabs immediately, without changing the current selection on any of them.
@@ -1794,6 +1794,15 @@ analysis rather than duplicated as a new step.)*
   convenient (e.g. the same session as a Wave 6 merge, when other branch housekeeping is already
   happening).
 
+### Track T4 — Separate runtime user data from the version-controlled checkout (raised 2026-09-22)
+
+- **Status: OPEN, decision-gated.** `paths._resolve_config_path()` prefers `USER_FILES_DIR/config.json` and only falls back to repo-root — but on this install `USER_FILES_DIR` **is** the repo checkout, so the active config resolves to the *tracked* `config.json`. Every user-generated name the UI writes therefore lands in a version-controlled file whose origin is **public**: prosody preset names (T1) and, since T1b, generation preset names too.
+- **Interim guard in place (2026-09-22, local to one clone):** `git update-index --skip-worktree config.json` hides the file from `git add -A` / `git add .` / `git commit -a`. Verified at the time that nothing had leaked — the preset names appear in zero commits on any branch, and `origin/main:config.json` carries only stock defaults. Two caveats: the flag is per-clone (a fresh clone or second worktree has none), and it makes `git pull` error if an upstream commit ever touches `config.json` (undo with `--no-skip-worktree`, pull, re-apply).
+- **Why it still wants a real fix:** the guard is invisible and unshared, and the exposure surface grows with each feature that stores user-named data in `config.json` — two features have done so already, and the preset builders are the pattern going forward, not the exception.
+- **Decision required before implementation** (this is the gate): relocate user files to `~/.config/qwen3-tts/` — where the auth token already lives — or keep the repo-root layout and gitignore the runtime artifacts instead. The first is structurally cleaner and also protects voice prompts and generation history, but it moves data for an existing install, so it needs a migration path rather than a bare path change.
+- **When to run:** anytime; no wave dependency. Touches `core/config/paths.py` plus docs (CONFIG/RUNBOOK/install). Serialize against any step that edits `paths.py`.
+- **T4 is a track, outside the 49-step Open count** — it never moves that number.
+
 ### Standing watch — not an execution step
 
 - **Issue #112** (Upstream Watch) is a passive monthly-refreshed dashboard, not actionable work. No step needed; re-check only if a ⚡ blocker clears in its next auto-comment.
@@ -1805,7 +1814,7 @@ analysis rather than duplicated as a new step.)*
 
 **49 execution steps across 9 waves** — Wave 0: 0A–0G (7) · Wave 1: 1A–1E (5) · Wave 2: 2
 (1) · Wave 3: 3A–3E (5) · Wave 4: 4A–4E (5) · Wave 4B: 4B.1–4B.4 (4) · Wave 5: 5 (1) · Wave 6:
-6A–6R (18) · Wave 7: 7A–7C (3) — **plus 3 independent tracks** (feature, dependency, and the decision-gated branch register — none gated by the waves) **+ 1 passive watch** (no action). Step 6·0 (dead-code cleanup) was already
+6A–6R (18) · Wave 7: 7A–7C (3) — **plus 5 independent track entries** (T1 and its follow-on T1b, both features; T2 dependency; T3 decision-gated branch register; T4 user-data/repo separation, raised 2026-09-22 — none gated by the waves, none counted in Open) **+ 1 passive watch** (no action). Step 6·0 (dead-code cleanup) was already
 executed directly on 2026-09-06 and is recorded in Wave 6; it is not counted among the pending
 steps. **Executed so far: 0A (PR #263), 0B (PR #269), 0C (PR #270), 0D (PR #271), 0E (PR #276), 0F (PR #281), 0G (PR #282), 1A (PR #283), 1B (PR #287), 1C (PR #284), 1D (PR #289), 1E (PR #290), 3B (PR #291), 3C (PR #292), 3D (PR #293), 3E (PR #294), 4A (branch `fix/e2e-model-load-assertions`), 4B (branch `fix/e2e-load-cycle-investigation`), 2 (branch `fix/on-demand-model-load-generate`), 3A (PR #304), 4C (branch `refactor/e2e-shared-page-object`, Gate B 2026-09-17), 4E (branch `fix/e2e-preexisting-failures`), 4D (PR #310), 4B.1 (PR #311), 4B.2 (PR #314), 4B.3 (PR #315), 4B.4 (PR #316), 6H (PR #318), 6O (PR #319), 6P (PR #320).** **6G is
 folded into Wave 7 Step 7C** (not independently pending). ***Open: 18.*** *(Counter reconciled 2026-09-17 against a full heading census: 49 steps - 20 executed - 1 folded (6G) = 28; 4C's Gate B landed 2026-09-17 (pass by recorded deviation) → 21 executed = 27; 4E executed 2026-09-17 → 22 = 26; 4D executed 2026-09-18, closed with retriage (gap 5 → 7A/7B/7C add-ons + standing ledger) → 23 = 25; 4B.1 executed 2026-09-18 → 24 = 24 (the headline read 25 for one day — a stale
@@ -1826,9 +1835,11 @@ three independent tracks fold into this same sequence rather than sitting outsid
 **T2** slots into whichever Wave 6 small-fixes session (6Q or 6R) is next, reusing that session's
 restart/smoke-test window — now the live slot, T2 being next up; **T1** was EXECUTED 2026-09-21
 (PR #322, mark #324) — its 7A serialization constraint is resolved, 7A builds on the current
-post-T1 UI; **T3** needs no slot — its register is
+post-T1 UI; **T1b** was EXECUTED and merged 2026-09-22 (PR #327), shipping its own paperwork in-PR;
+**T3** needs no slot — its register is
 already empty, and its one remaining item (leisure branch cleanup) rides along with any Wave 6/7
-merge's housekeeping.
+merge's housekeeping; **T4** is decision-gated on the user's choice of user-files location and needs
+no slot until that decision lands (an interim local `skip-worktree` guard holds the line meanwhile).
 
 **Provenance of the additions:** the original 19-step plan (waves 1–6) was Blueprint-drafted and
 adversarially reviewed against source (verdict below). The 2026-09-06 addendum then folded in
