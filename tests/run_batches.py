@@ -178,6 +178,7 @@ BATCHES = {
             "tests.test_server_peaks",
             "tests.test_peaks_caching",
             "tests.test_response_contracts",
+            "tests.test_generation_status_authed",
             "tests.test_streaming_chunk_total",
             "tests.test_validation_ext",
             "tests.test_server_vllm_integration",

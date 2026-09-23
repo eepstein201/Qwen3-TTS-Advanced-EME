@@ -110,6 +110,35 @@ def _estimate_eta(app_state, text_length: int, elapsed_sec: float) -> float | No
     return round(remaining, 1)
 
 
+# Completion is signalled by ``active=False``, never by the percentage, so a
+# client bar cannot saturate before the result arrives.
+_PROGRESS_PCT_CEILING = 99.0
+
+
+def chunk_progress_pct(completed: int, total: int) -> float | None:
+    """Percent of text chunks completed; ``None`` when the total is unknown
+    (0, per the engine contract) or there is only one chunk."""
+    if total <= 0 or total == 1:
+        return None
+    return round(min(max(completed, 0) / total * 100, _PROGRESS_PCT_CEILING), 1)
+
+
+def estimate_eta_sec(gen_state: dict, now: float | None = None) -> float | None:
+    """Remaining seconds for the in-flight text from its own per-chunk rate.
+
+    ``chunk_index`` is the number of chunks COMPLETED (both ``_chunk_progress``
+    closures normalize to it). ``None`` until one chunk has completed or while
+    ``chunk_total`` is unknown.
+    """
+    completed = gen_state["chunk_index"]
+    total = gen_state["chunk_total"]
+    if completed < 1 or total <= 0:
+        return None
+    now = time.time() if now is None else now
+    per_chunk = (now - gen_state["start_time"]) / completed
+    return round(max(0.0, per_chunk * (total - completed)), 1)
+
+
 # Degradation thresholds for the IN-FLIGHT generation.
 #
 # Measured on an M2 Pro / MLX 1.7B-8bit: a healthy generation runs roughly

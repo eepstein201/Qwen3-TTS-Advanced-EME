@@ -209,13 +209,22 @@ class ReadyResponse(BaseModel):
 
 
 class GenerationStatusResponse(BaseModel):
-    """Response model for /generation-status (public — sensitive fields stripped)."""
+    """Response model for /generation-status (public — sensitive fields stripped).
+
+    ``batch_total``/``chunk_total``/``progress_pct``/``eta_sec`` are emitted only
+    when the request carries a valid token: they reveal the in-flight request's
+    size. ``progress_pct``/``eta_sec`` are also omitted while unknown.
+    """
 
     active: bool
     batch_index: int
     chunk_index: int
     cancelled: bool
     elapsed_sec: float | None = None  # only emitted while a generation is active
+    batch_total: int | None = None
+    chunk_total: int | None = None
+    progress_pct: float | None = None
+    eta_sec: float | None = None
 
 
 class QueueStatusResponse(BaseModel):
