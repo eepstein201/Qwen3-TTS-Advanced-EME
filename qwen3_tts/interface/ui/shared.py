@@ -10,6 +10,7 @@ This module contains:
 
 import logging
 import os
+import re
 import shutil
 import threading
 import time
@@ -130,6 +131,18 @@ SPEAKER_CHOICES = [
     for key, info in CUSTOM_VOICE_SPEAKERS.items()
 ]
 
+# prompt_enhancer.api_key_env comes from config.json, and its value is sent to
+# the provider — only *_API_KEY names may be read.
+_API_KEY_ENV_PATTERN = re.compile(r"[A-Z][A-Z0-9_]*_API_KEY")
+
+
+def _allowed_api_key_env(enhancer_config):
+    """Return the configured API-key env-var name, or None if not a *_API_KEY name."""
+    name = enhancer_config.get("api_key_env", "ANTHROPIC_API_KEY")
+    if isinstance(name, str) and _API_KEY_ENV_PATTERN.fullmatch(name):
+        return name
+    return None
+
 
 def enhance_description_with_ai(description):
     """Enhance a brief voice description using an LLM API.
@@ -159,7 +172,9 @@ def enhance_description_with_ai(description):
             "AI enhancement is not enabled. Set prompt_enhancer.enabled=true in config.json"
         )
 
-    api_key_env = enhancer_config.get("api_key_env", "ANTHROPIC_API_KEY")
+    api_key_env = _allowed_api_key_env(enhancer_config)
+    if api_key_env is None:
+        raise gr.Error("prompt_enhancer.api_key_env must name a *_API_KEY environment variable")
     api_key = os.environ.get(api_key_env)
     if not api_key:
         raise gr.Error(f"API key not found. Set the {api_key_env} environment variable")
@@ -204,8 +219,8 @@ def is_enhancer_available():
     enhancer_config = config.get("prompt_enhancer", {})
     if not enhancer_config.get("enabled", False):
         return False
-    api_key_env = enhancer_config.get("api_key_env", "ANTHROPIC_API_KEY")
-    return bool(os.environ.get(api_key_env))
+    api_key_env = _allowed_api_key_env(enhancer_config)
+    return api_key_env is not None and bool(os.environ.get(api_key_env))
 
 
 def get_current_model_settings():
