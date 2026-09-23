@@ -1477,7 +1477,7 @@ analysis rather than duplicated as a new step.)*
 - **Verify:** `pytest tests/test_validation.py -v`; full suite; `ruff`; `mypy`.
 - **Exit criteria:** every request string field bounded; oversize rejected with 422, not 500.
 
-### Step 6Q — Batch of small same-shape fixes (python-review L2–L8 + security LOW-1–LOW-4)
+### Step 6Q — Batch of small same-shape fixes (python-review L2–L8 + security LOW-1–LOW-4) ✅ EXECUTED 2026-09-23
 
 - **Model tier:** default · **Branch:** `chore/small-fixes-batch` (may split into 2–3 PRs by
   theme; each item lands with its own test where testable) — composed as ONE batch step per the
@@ -1526,6 +1526,19 @@ analysis rather than duplicated as a new step.)*
   not CONFIG.md).
 - **Exit criteria:** all 11 items landed (or individually dispositioned in the PR with a
   reason); no behavior change beyond the fixes themselves.
+- **Executed:** split in two PRs, all 11 items landed. **PR A #332** (items 1–7 + 11).
+  **PR B #342** (squash `8140da17`, 2026-09-23): item 8 floors all seven runtime extras from
+  evidence (live-installed versions; `bitsandbytes>=0.43.1` = transformers 4.57.3's load-time
+  minimum; `vllm-omni>=0.14.0` = first stable release with Qwen3-TTS) and adds the `audio` extra
+  to `requirements.lock` (OSV now covers pydub/pyrubberband/pyloudnorm; torch/mlx/cuda/vllm stay
+  out — transformers conflict); item 9 `os.path.splitext` at all three sidecar sites; item 10
+  `api_key_env` allowlist to `*_API_KEY` names — first cut used a backtracking regex that CodeQL
+  flagged `py/polynomial-redos` (high), replaced by charset class + `endswith()` (fuzz-equivalent).
+- **Carry (pre-existing, found during PR B):** `tests/test_ui_shared_metadata.py`'s 9
+  module-level pytest functions are invisible to the unittest batch runner (only CI `coverage`
+  runs them) — `tests/test_batched_testcase_hygiene.py` inspects `Test*` classes only, so
+  batched modules with bare `def test_*` functions pass the guard hollowly. Owner: the next
+  test-infra PR (convert the module + extend the guard to flag module-level test functions).
 
 ### Step 6R — Legacy-plan reconciliation batch (WS-remediation + 2026-08-03 audit survivors; all re-verified 2026-09-08)
 
@@ -1830,9 +1843,9 @@ analysis rather than duplicated as a new step.)*
 (1) · Wave 3: 3A–3E (5) · Wave 4: 4A–4E (5) · Wave 4B: 4B.1–4B.4 (4) · Wave 5: 5 (1) · Wave 6:
 6A–6R (18) · Wave 7: 7A–7C (3) — **plus 5 independent track entries** (T1 and its follow-on T1b, both features; T2 dependency; T3 decision-gated branch register; T4 user-data/repo separation, raised 2026-09-22 — none gated by the waves, none counted in Open) **+ 1 passive watch** (no action). Step 6·0 (dead-code cleanup) was already
 executed directly on 2026-09-06 and is recorded in Wave 6; it is not counted among the pending
-steps. **Executed so far: 0A (PR #263), 0B (PR #269), 0C (PR #270), 0D (PR #271), 0E (PR #276), 0F (PR #281), 0G (PR #282), 1A (PR #283), 1B (PR #287), 1C (PR #284), 1D (PR #289), 1E (PR #290), 3B (PR #291), 3C (PR #292), 3D (PR #293), 3E (PR #294), 4A (branch `fix/e2e-model-load-assertions`), 4B (branch `fix/e2e-load-cycle-investigation`), 2 (branch `fix/on-demand-model-load-generate`), 3A (PR #304), 4C (branch `refactor/e2e-shared-page-object`, Gate B 2026-09-17), 4E (branch `fix/e2e-preexisting-failures`), 4D (PR #310), 4B.1 (PR #311), 4B.2 (PR #314), 4B.3 (PR #315), 4B.4 (PR #316), 6H (PR #318), 6O (PR #319), 6P (PR #320).** **6G is
-folded into Wave 7 Step 7C** (not independently pending). ***Open: 18.*** *(Counter reconciled 2026-09-17 against a full heading census: 49 steps - 20 executed - 1 folded (6G) = 28; 4C's Gate B landed 2026-09-17 (pass by recorded deviation) → 21 executed = 27; 4E executed 2026-09-17 → 22 = 26; 4D executed 2026-09-18, closed with retriage (gap 5 → 7A/7B/7C add-ons + standing ledger) → 23 = 25; 4B.1 executed 2026-09-18 → 24 = 24 (the headline read 25 for one day — a stale
-one-word lag, not a census change); 4B.2 executed 2026-09-18 → 25 = 23; 4B.3 executed 2026-09-18 (PR #315) → 26 = 22; 4B.4 executed 2026-09-20 (PR #316, merged `cddc185a`) → 27 = 21; 6H (PR #318), 6O (PR #319), 6P (PR #320) executed 2026-09-20, marked by #321 → 30 = 18. The pre-reconciliation value read 27 because Step 6·0 was subtracted twice - it is already excluded from the wave totals, since Wave 6 counts 6A-6R = 18, and was then deducted again as though it sat inside them; that arithmetic error was fixed at the 28 mark and is history, not a reason to touch the number again.)* *(Open: 22 → 18, reconciled 2026-09-21; the three independent tracks (T1/T2/T3) are outside the 49-step count and never move this number.)* *(Wave 7 incorporated
+steps. **Executed so far: 0A (PR #263), 0B (PR #269), 0C (PR #270), 0D (PR #271), 0E (PR #276), 0F (PR #281), 0G (PR #282), 1A (PR #283), 1B (PR #287), 1C (PR #284), 1D (PR #289), 1E (PR #290), 3B (PR #291), 3C (PR #292), 3D (PR #293), 3E (PR #294), 4A (branch `fix/e2e-model-load-assertions`), 4B (branch `fix/e2e-load-cycle-investigation`), 2 (branch `fix/on-demand-model-load-generate`), 3A (PR #304), 4C (branch `refactor/e2e-shared-page-object`, Gate B 2026-09-17), 4E (branch `fix/e2e-preexisting-failures`), 4D (PR #310), 4B.1 (PR #311), 4B.2 (PR #314), 4B.3 (PR #315), 4B.4 (PR #316), 6H (PR #318), 6O (PR #319), 6P (PR #320), 6Q (PRs #332 + #342).** **6G is
+folded into Wave 7 Step 7C** (not independently pending). ***Open: 17.*** *(Counter reconciled 2026-09-17 against a full heading census: 49 steps - 20 executed - 1 folded (6G) = 28; 4C's Gate B landed 2026-09-17 (pass by recorded deviation) → 21 executed = 27; 4E executed 2026-09-17 → 22 = 26; 4D executed 2026-09-18, closed with retriage (gap 5 → 7A/7B/7C add-ons + standing ledger) → 23 = 25; 4B.1 executed 2026-09-18 → 24 = 24 (the headline read 25 for one day — a stale
+one-word lag, not a census change); 4B.2 executed 2026-09-18 → 25 = 23; 4B.3 executed 2026-09-18 (PR #315) → 26 = 22; 4B.4 executed 2026-09-20 (PR #316, merged `cddc185a`) → 27 = 21; 6H (PR #318), 6O (PR #319), 6P (PR #320) executed 2026-09-20, marked by #321 → 30 = 18; 6Q executed 2026-09-23 (PRs #332 + #342) → 31 = 17. The pre-reconciliation value read 27 because Step 6·0 was subtracted twice - it is already excluded from the wave totals, since Wave 6 counts 6A-6R = 18, and was then deducted again as though it sat inside them; that arithmetic error was fixed at the 28 mark and is history, not a reason to touch the number again.)* *(Open: 22 → 18, reconciled 2026-09-21; the three independent tracks (T1/T2/T3) are outside the 49-step count and never move this number.)* *(Wave 7 incorporated
 2026-09-08 from the Interface Quality Improvement Plan — a three-surface audit of Web UI, CLI,
 and HTTP API, user-scoped; tracked at `docs/plans/2026-09-07-interface-quality.plan.md`, which
 is the spec for 7A–7C.)* Ordered by: critical correctness/security findings from the 2026-09-06 cross-cutting
