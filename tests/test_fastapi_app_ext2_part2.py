@@ -6,6 +6,7 @@ Covers: run_server, lifespan, CORS regex, ETA estimation.
 
 Run: python -m pytest tests/test_fastapi_app_ext2_part2.py -v
 """
+
 import pathlib
 import threading
 import time
@@ -42,18 +43,21 @@ def _make_app_state(**overrides):
 # run_server
 # ---------------------------------------------------------------------------
 
-class TestRunServer(unittest.TestCase):
 
+class TestRunServer(unittest.TestCase):
     def test_run_server_public_binds_all(self):
         from qwen3_tts.server.app import run_server
+
         mock_handler = MagicMock()
         mock_handler.level = 0
-        with patch(f"{_APP}.uvicorn") as mock_uv, \
-             patch(f"{_APP}.IN_COLAB", False), \
-             patch("qwen3_tts.core.config.LOG_FILE", "/tmp/fake_log.log"), \
-             patch("logging.handlers.RotatingFileHandler", return_value=mock_handler), \
-             patch("logging.StreamHandler", return_value=mock_handler), \
-             patch("builtins.print"):
+        with (
+            patch(f"{_APP}.uvicorn") as mock_uv,
+            patch(f"{_APP}.IN_COLAB", False),
+            patch("qwen3_tts.core.config.LOG_FILE", "/tmp/fake_log.log"),
+            patch("logging.handlers.RotatingFileHandler", return_value=mock_handler),
+            patch("logging.StreamHandler", return_value=mock_handler),
+            patch("builtins.print"),
+        ):
             run_server(host="127.0.0.1", port=5123, public=True)
         mock_uv.run.assert_called_once()
         # Verify host was changed to 0.0.0.0 for public
@@ -62,25 +66,67 @@ class TestRunServer(unittest.TestCase):
 
     def test_run_server_colab_binds_all(self):
         from qwen3_tts.server.app import run_server
+
         mock_handler = MagicMock()
         mock_handler.level = 0
-        with patch(f"{_APP}.uvicorn") as mock_uv, \
-             patch(f"{_APP}.IN_COLAB", True), \
-             patch("qwen3_tts.core.config.LOG_FILE", "/tmp/fake_log.log"), \
-             patch("logging.handlers.RotatingFileHandler", return_value=mock_handler), \
-             patch("logging.StreamHandler", return_value=mock_handler), \
-             patch("builtins.print"):
+        with (
+            patch(f"{_APP}.uvicorn") as mock_uv,
+            patch(f"{_APP}.IN_COLAB", True),
+            patch("qwen3_tts.core.config.LOG_FILE", "/tmp/fake_log.log"),
+            patch("logging.handlers.RotatingFileHandler", return_value=mock_handler),
+            patch("logging.StreamHandler", return_value=mock_handler),
+            patch("builtins.print"),
+        ):
             run_server(host="127.0.0.1", port=5123, public=False)
         mock_uv.run.assert_called_once()
         self.assertEqual(mock_uv.run.call_args.kwargs.get("host"), "0.0.0.0")
+
+    def test_run_server_does_not_duplicate_handlers(self):
+        """A second in-process run_server call must not re-add logging handlers.
+
+        Pre-fix, both handlers were added unconditionally, so every line was
+        logged twice per extra call (6Q item 7).
+        """
+        import logging
+
+        from qwen3_tts.server import app as app_module
+        from qwen3_tts.server.app import run_server
+
+        tts_logger = logging.getLogger("tts")
+        self.addCleanup(
+            setattr, app_module, "_logging_configured", app_module._logging_configured
+        )
+        self.addCleanup(setattr, tts_logger, "handlers", tts_logger.handlers)
+        app_module._logging_configured = False
+        tts_logger.handlers = []
+
+        mock_file_handler = MagicMock()
+        mock_file_handler.level = 0
+        mock_stderr_handler = MagicMock()
+        mock_stderr_handler.level = 0
+        with (
+            patch(f"{_APP}.uvicorn"),
+            patch(f"{_APP}.IN_COLAB", False),
+            patch("qwen3_tts.core.config.LOG_FILE", "/tmp/fake_log.log"),
+            patch(
+                "logging.handlers.RotatingFileHandler", return_value=mock_file_handler
+            ),
+            patch("logging.StreamHandler", return_value=mock_stderr_handler),
+            patch("builtins.print"),
+        ):
+            run_server(host="127.0.0.1", port=5123)
+            handlers_after_first = list(tts_logger.handlers)
+            run_server(host="127.0.0.1", port=5123)
+        self.assertEqual(len(handlers_after_first), 2)
+        self.assertEqual(tts_logger.handlers, handlers_after_first)
 
 
 # ---------------------------------------------------------------------------
 # Lifespan startup/shutdown
 # ---------------------------------------------------------------------------
 
-class TestLifespan(unittest.TestCase):
 
+class TestLifespan(unittest.TestCase):
     def test_lifespan_initializes_state(self):
         """Test that the lifespan context manager initializes app state correctly."""
         import asyncio
@@ -94,17 +140,23 @@ class TestLifespan(unittest.TestCase):
         }
 
         async def _run():
-            with patch(f"{_APP_LIFESPAN}.load_config", return_value=mock_config), \
-                 patch(f"{_APP_LIFESPAN}.TOKEN_FILE", pathlib.Path("/tmp/test_token_xyz")), \
-                 patch(f"{_APP_LIFESPAN}._acquire_startup_lock", return_value=MagicMock()), \
-                 patch(f"{_APP_LIFESPAN}._background_load"), \
-                 patch(f"{_APP_LIFESPAN}.cleanup_resources"), \
-                 patch(f"{_APP_LIFESPAN}.cleanup_pid_file"), \
-                 patch("atexit.register"), \
-                 patch("builtins.open", MagicMock()), \
-                 patch("os.chmod"), \
-                 patch("os.unlink"), \
-                 patch("fcntl.flock"):
+            with (
+                patch(f"{_APP_LIFESPAN}.load_config", return_value=mock_config),
+                patch(
+                    f"{_APP_LIFESPAN}.TOKEN_FILE", pathlib.Path("/tmp/test_token_xyz")
+                ),
+                patch(
+                    f"{_APP_LIFESPAN}._acquire_startup_lock", return_value=MagicMock()
+                ),
+                patch(f"{_APP_LIFESPAN}._background_load"),
+                patch(f"{_APP_LIFESPAN}.cleanup_resources"),
+                patch(f"{_APP_LIFESPAN}.cleanup_pid_file"),
+                patch("atexit.register"),
+                patch("builtins.open", MagicMock()),
+                patch("os.chmod"),
+                patch("os.unlink"),
+                patch("fcntl.flock"),
+            ):
                 async with lifespan(app):
                     # Verify state was initialized during startup
                     self.assertIsNotNone(app.state.auth_token)
@@ -121,11 +173,12 @@ class TestLifespan(unittest.TestCase):
 # IN_COLAB CORS regex
 # ---------------------------------------------------------------------------
 
-class TestColabCors(unittest.TestCase):
 
+class TestColabCors(unittest.TestCase):
     def test_colab_cors_regex_matches_gradio_live(self):
         """Verify the Colab CORS regex allows *.gradio.live origins."""
         import re
+
         colab_regex = (
             r"(^https?://(localhost|127\.0\.0\.1)(:\d+)?$)"
             r"|(^https://[a-z0-9-]+\.gradio\.live$)"
@@ -139,20 +192,24 @@ class TestColabCors(unittest.TestCase):
 # _estimate_eta
 # ---------------------------------------------------------------------------
 
-class TestEstimateEta(unittest.TestCase):
 
+class TestEstimateEta(unittest.TestCase):
     def test_no_history(self):
         from qwen3_tts.server.app import _estimate_eta
+
         state = _make_app_state()
         state.eta_cache = {"median_rate": None, "last_updated": 0}
-        with patch(f"{_APP_LIFESPAN}.get_eta_cache_ttl", return_value=60), \
-             patch(f"{_APP_LIFESPAN}.HISTORY_FILE", "/nonexistent_history.jsonl"), \
-             patch("os.path.exists", return_value=False):
+        with (
+            patch(f"{_APP_LIFESPAN}.get_eta_cache_ttl", return_value=60),
+            patch(f"{_APP_LIFESPAN}.HISTORY_FILE", "/nonexistent_history.jsonl"),
+            patch("os.path.exists", return_value=False),
+        ):
             result = _estimate_eta(state, 100, 5.0)
         self.assertIsNone(result)
 
     def test_with_cached_rate(self):
         from qwen3_tts.server.app import _estimate_eta
+
         state = _make_app_state()
         # median_rate = chars/sec; fresh cache
         state.eta_cache = {"median_rate": 10.0, "last_updated": time.time()}
