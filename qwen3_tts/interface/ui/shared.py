@@ -132,14 +132,22 @@ SPEAKER_CHOICES = [
 ]
 
 # prompt_enhancer.api_key_env comes from config.json, and its value is sent to
-# the provider — only *_API_KEY names may be read.
-_API_KEY_ENV_PATTERN = re.compile(r"[A-Z][A-Z0-9_]*_API_KEY")
+# the provider — only *_API_KEY names may be read. The charset is checked with a
+# single unambiguous class and the suffix with endswith(): a "[A-Z0-9_]*_API_KEY"
+# regex backtracks polynomially on user-supplied input (CodeQL py/polynomial-redos).
+_API_KEY_ENV_CHARSET = re.compile(r"[A-Z0-9_]+")
+_API_KEY_ENV_SUFFIX = "_API_KEY"
 
 
 def _allowed_api_key_env(enhancer_config):
     """Return the configured API-key env-var name, or None if not a *_API_KEY name."""
     name = enhancer_config.get("api_key_env", "ANTHROPIC_API_KEY")
-    if isinstance(name, str) and _API_KEY_ENV_PATTERN.fullmatch(name):
+    if (
+        isinstance(name, str)
+        and _API_KEY_ENV_CHARSET.fullmatch(name)
+        and name[0].isalpha()
+        and name.endswith(_API_KEY_ENV_SUFFIX)
+    ):
         return name
     return None
 
@@ -174,7 +182,9 @@ def enhance_description_with_ai(description):
 
     api_key_env = _allowed_api_key_env(enhancer_config)
     if api_key_env is None:
-        raise gr.Error("prompt_enhancer.api_key_env must name a *_API_KEY environment variable")
+        raise gr.Error(
+            "prompt_enhancer.api_key_env must name a *_API_KEY environment variable"
+        )
     api_key = os.environ.get(api_key_env)
     if not api_key:
         raise gr.Error(f"API key not found. Set the {api_key_env} environment variable")
