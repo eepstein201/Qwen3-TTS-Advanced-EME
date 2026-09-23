@@ -24,4 +24,4 @@ Gradio floor is capped in practice: `>=6.15` needs `huggingface-hub>=1.2`, which
 PM2 — `ecosystem.config.cjs`, service `tts-server-5123` (conda: `qwen3-tts-mlx`), port 5123. CLI/UI auto-detect PM2 supervision and delegate `tts server start/stop/restart` + UI stop-button to `pm2 start/stop/restart` (#248; prevents autorestart from undoing intentional stops).
 
 ## Python
-3.10+. Editable install (`pyproject.toml`). `requirements.lock` pins test+ui+dev (standalone envs only — never install into the platform conda envs). `mypy` type-checking exclusion list shrank: `server/app.py` is back in scope (its mypy annotation debt was cleared, #176) — only `vllm_client.py`/`engine_vllm.py` remain excluded (optional vLLM-Omni backend, looser typing).
+3.10+. Editable install (`pyproject.toml`). `requirements.lock` pins test+ui+dev+audio (standalone envs only — never install into the platform conda envs). `mypy` type-checking exclusion list shrank: `server/app.py` is back in scope (its mypy annotation debt was cleared, #176) — only `vllm_client.py`/`engine_vllm.py` remain excluded (optional vLLM-Omni backend, looser typing).

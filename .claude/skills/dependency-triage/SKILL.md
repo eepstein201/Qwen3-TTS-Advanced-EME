@@ -167,11 +167,11 @@ blocked band is a config bug to investigate, not a merge candidate.**
 Command (source: `CLAUDE.md`, "Reproducible installs"; rationale in `docs/CONTRIBUTING.md`):
 
 ```bash
-python -m piptools compile pyproject.toml --extra test --extra ui --extra dev --output-file requirements.lock
+python -m piptools compile pyproject.toml --extra test --extra ui --extra dev --extra audio --output-file requirements.lock
 ```
 
 **Never install this lock into the platform conda envs** (`qwen3-tts` / `qwen3-tts-mlx`). It pins
-`test+ui+dev` for standalone test/CI environments only; `mlx` and `torch` extras are deliberately
+`test+ui+dev+audio` for standalone test/CI environments only; `mlx` and `torch` extras are deliberately
 excluded because they conflict on `transformers`. In the torch env, transformers 4.57.3 requires
 `huggingface-hub<1.0` while the lock's gradio needs `>=1.2.0`, so installing it there breaks
 `pip check`.
