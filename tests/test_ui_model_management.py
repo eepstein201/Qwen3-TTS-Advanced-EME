@@ -427,3 +427,32 @@ class TestLoadedBadgeMemoryFormat(unittest.TestCase):
                 html = self._badge(info)
                 self.assertIn("Loaded", html)
                 self.assertNotIn("Loaded (", html)
+
+
+class TestModelTablePlaceholders(unittest.TestCase):
+    """T1.3 sweep (b): one empty-value glyph and fmt_memory_mb in the model table."""
+
+    def _rows(self, running=True, status_code=200, payload=None):
+        from unittest.mock import MagicMock, patch
+
+        from qwen3_tts.interface.ui import model_management as mm
+
+        resp = MagicMock(status_code=status_code)
+        resp.json.return_value = payload or {}
+        with (
+            patch.object(mm, "load_config", return_value={}),
+            patch.object(mm, "is_server_running", return_value=running),
+            patch("qwen3_tts.core.http_client.server_request", return_value=resp),
+        ):
+            return mm.get_model_table_data()
+
+    def test_loaded_memory_uses_fmt_memory_mb(self):
+        rows = self._rows(payload={"models": {"clone": {"loaded": True, "memory_mb": 3500}}})
+        self.assertEqual(rows[0][2], "3500 MB")
+
+    def test_unavailable_rows_use_the_em_dash(self):
+        for kwargs in ({"running": False}, {"status_code": 500}):
+            with self.subTest(**kwargs):
+                for row in self._rows(**kwargs):
+                    self.assertEqual(row[2:], ["—", "—"])
+

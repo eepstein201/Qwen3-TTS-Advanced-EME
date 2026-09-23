@@ -34,10 +34,10 @@ def get_model_table_data():
 
     if not is_server_running(config):
         return [
-            ["clone", "server not running", "-", "—"],
-            ["design", "server not running", "-", "—"],
-            ["custom", "server not running", "-", "—"],
-            ["asr", "server not running", "-", "—"],
+            ["clone", "server not running", "—", "—"],
+            ["design", "server not running", "—", "—"],
+            ["custom", "server not running", "—", "—"],
+            ["asr", "server not running", "—", "—"],
         ]
 
     try:
@@ -47,10 +47,10 @@ def get_model_table_data():
 
         if resp.status_code != 200:
             return [
-                ["clone", "error", "-", "—"],
-                ["design", "error", "-", "—"],
-                ["custom", "error", "-", "—"],
-                ["asr", "error", "-", "—"],
+                ["clone", "error", "—", "—"],
+                ["design", "error", "—", "—"],
+                ["custom", "error", "—", "—"],
+                ["asr", "error", "—", "—"],
             ]
 
         data = resp.json()
@@ -67,7 +67,7 @@ def get_model_table_data():
             )
 
             status = "Loaded" if loaded else "Not loaded"
-            memory_str = f"{memory:.0f}MB" if memory else "—"
+            memory_str = shared.fmt_memory_mb(memory)
             startup_str = "Yes" if load_at_startup else "No"
 
             rows.append([model_type, status, memory_str, startup_str])
@@ -84,10 +84,10 @@ def get_model_table_data():
     except Exception as e:
         logger.error("Failed to get model table data: %s", e)
         return [
-            ["clone", f"error: {e}", "-", "—"],
-            ["design", f"error: {e}", "-", "—"],
-            ["custom", f"error: {e}", "-", "—"],
-            ["asr", f"error: {e}", "-", "—"],
+            ["clone", f"error: {e}", "—", "—"],
+            ["design", f"error: {e}", "—", "—"],
+            ["custom", f"error: {e}", "—", "—"],
+            ["asr", f"error: {e}", "—", "—"],
         ]
 
 
