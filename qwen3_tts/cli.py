@@ -9,6 +9,8 @@ Usage:
     tts config                             # Run config wizard
 """
 
+import logging
+import os
 import sys
 
 import click
@@ -53,6 +55,15 @@ class TTSGroup(click.Group):
         from qwen3_tts import cli_output
         from qwen3_tts.core.config import TTSError
         from qwen3_tts.interface.generate_server import TTSGenericError
+
+        # TTS_LOG_LEVEL configures the CLI's loggers (default WARNING to
+        # stderr); an invalid value falls back to WARNING.
+        level_name = os.environ.get("TTS_LOG_LEVEL", "WARNING").upper()
+        logging.basicConfig(
+            level=getattr(logging, level_name, logging.WARNING),
+            format="%(levelname)s %(name)s: %(message)s",
+            stream=sys.stderr,
+        )
 
         try:
             return super().invoke(ctx)

@@ -9,6 +9,8 @@ import sys
 
 import click
 
+from qwen3_tts import cli_output
+
 # ---------------------------------------------------------------------------
 # voice group
 # ---------------------------------------------------------------------------
@@ -183,12 +185,11 @@ def _ensure_torch_backend_for_rebuild():
     backend_env_before = os.environ.get("TTS_BACKEND")
     if get_backend() != "torch":
         if not _torch_available():
-            click.echo(
+            cli_output.error(
                 "Rebuilding .pt prompts requires the torch backend, but the "
                 "qwen_tts package is not installed in this environment.\n"
                 "Re-run in the torch environment:\n"
-                "  conda run -n qwen3-tts tts voice rebuild",
-                err=True,
+                "  conda run -n qwen3-tts tts voice rebuild"
             )
             sys.exit(1)
         click.echo("Forcing torch backend (.pt prompts cannot be built with MLX).")
@@ -259,7 +260,7 @@ def _rebuild_voice_prompts(to_rebuild, voice_prompts_dir):
             click.echo(f"  {base}: rebuilt ({os.path.getsize(pt_path)} bytes)")
             rebuilt += 1
         except Exception as e:
-            click.echo(f"  {base}: FAILED — {e}", err=True)
+            cli_output.error(f"  {base}: FAILED — {e}")
             failed += 1
     return rebuilt, failed
 
@@ -319,7 +320,7 @@ def info(name):
     if resp.status_code == 200:
         click.echo(json.dumps(resp.json(), indent=2))
     else:
-        click.echo(f"Error: {resp.json().get('error', resp.text)}")
+        cli_output.error(f"Error: {resp.json().get('error', resp.text)}")
         sys.exit(1)
 
 

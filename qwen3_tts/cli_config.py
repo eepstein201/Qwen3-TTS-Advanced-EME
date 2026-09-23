@@ -9,6 +9,7 @@ import sys
 
 import click
 
+from qwen3_tts import cli_output
 from qwen3_tts.core.config import (
     VALID_MLX_QUANTIZATIONS as _VALID_MLX_Q,
 )
@@ -32,19 +33,17 @@ def config(ctx):
 
         wizard = os.path.join(USER_FILES_DIR, "install.sh")
         if not os.path.isfile(wizard):
-            click.echo(
+            cli_output.error(
                 f"Configuration wizard not found: {wizard}\n"
-                "Re-run the installer, or edit settings directly: tts config edit",
-                err=True,
+                "Re-run the installer, or edit settings directly: tts config edit"
             )
             sys.exit(1)
         try:
             subprocess.run([wizard, "--reconfigure"], timeout=300)  # nosec B603
         except subprocess.TimeoutExpired:
-            click.echo(
+            cli_output.error(
                 "Configuration wizard timed out after 300 seconds — "
-                "no changes were made.",
-                err=True,
+                "no changes were made."
             )
             sys.exit(1)
 
