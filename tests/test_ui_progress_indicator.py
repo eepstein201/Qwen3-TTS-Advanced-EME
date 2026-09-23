@@ -259,16 +259,13 @@ class TestPollModelLoadProgress(unittest.TestCase):
 class TestModelLoadHandlerUsesProgressIndicator(unittest.TestCase):
     """toggle_model('clone','load') wires ProgressIndicator for live feedback."""
 
-    def test_toggle_model_load_imports_progress_indicator(self):
-        """Source-level: handler module references ProgressIndicator."""
+    def test_model_management_builds_no_unrendered_indicator(self):
+        """T1.4: a ProgressIndicator built inside a blocking handler is never
+        rendered — load feedback is the shared badge Timer, not the handler."""
         from qwen3_tts.interface.ui import model_management
 
         src = inspect.getsource(model_management)
-        self.assertIn(
-            "ProgressIndicator",
-            src,
-            "model_management.py does not use ProgressIndicator",
-        )
+        self.assertNotIn("ProgressIndicator(", src)
 
     def test_toggle_model_load_imports_poll_helper(self):
         """Source-level: load ETA is wired via the badge renderer.
@@ -290,17 +287,13 @@ class TestModelLoadHandlerUsesProgressIndicator(unittest.TestCase):
 
 @_skip
 class TestASRLoadHandlerUsesProgressIndicator(unittest.TestCase):
-    """toggle_asr('load') uses indeterminate ProgressIndicator."""
+    """T1.4: toggle_asr's indicator was never rendered (blocking handler) — gone."""
 
-    def test_toggle_asr_emits_indeterminate_progress(self):
+    def test_toggle_asr_builds_no_unrendered_indicator(self):
         from qwen3_tts.interface.ui import model_management
 
         src = inspect.getsource(model_management.toggle_asr)
-        self.assertIn(
-            "ProgressIndicator",
-            src,
-            "toggle_asr does not use ProgressIndicator for indeterminate progress",
-        )
+        self.assertNotIn("ProgressIndicator(", src)
 
 
 @_skip
