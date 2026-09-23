@@ -526,7 +526,7 @@ def _gen_cache_key(
         key_parts.append(f"mcc={max_chunk_chars}")
     key_parts.append(f"slc={seed_lock_chunks}")
     raw = "|".join(key_parts)
-    return hashlib.sha256(raw.encode(), usedforsecurity=False).hexdigest()[:16]
+    return hashlib.sha256(raw.encode(), usedforsecurity=False).hexdigest()[:32]
 
 
 def _error_response(

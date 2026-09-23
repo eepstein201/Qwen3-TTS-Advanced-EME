@@ -340,6 +340,16 @@ class TestGenCacheKey(unittest.TestCase):
         key = _gen_cache_key("hello", "clone", {"temp": 0.7})
         assert all(c in "0123456789abcdef" for c in key)
 
+    def test_hash_width_is_32_hex_chars(self):
+        """Truncation width is 32 hex chars (128 bits), not 16 (64 bits).
+
+        64 bits is collision-safe at current scale but 128 costs nothing.
+        """
+        from qwen3_tts.server.validation import _gen_cache_key
+
+        key = _gen_cache_key("hello", "clone", {"temp": 0.7})
+        assert len(key) == 32
+
     def test_different_language_produces_different_hash(self):
         """language changes pronunciation and must distinguish cache entries.
 
