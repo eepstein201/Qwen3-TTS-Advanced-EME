@@ -20,6 +20,7 @@ import sys
 
 logger = logging.getLogger("tts.cli")
 
+from qwen3_tts import cli_output  # noqa: E402
 from qwen3_tts.core.config import (  # noqa: E402
     CONFIG_PATH,
     CUSTOM_VOICE_SPEAKERS,
@@ -583,7 +584,7 @@ def _handle_stats(config):
             for k, v in stats.items():
                 print(f"  {k}: {v}")
         else:
-            print("Error: Failed to get stats")
+            cli_output.error("Error: Failed to get stats")
     else:
         print("Server not running. Start with 'tts server start'.")
     return False
@@ -626,7 +627,9 @@ def _resolve_prompt_file(alias_prompt, args, config):
         source = f"voice alias '{args.voice}'"
     else:
         source = "configured prompt"
-    print(f"Error: {source} points at a missing voice prompt: {alias_prompt}")
+    cli_output.error(
+        f"Error: {source} points at a missing voice prompt: {alias_prompt}"
+    )
     print("Use 'tts voice list' to see available prompts.")
     sys.exit(1)
 
@@ -643,14 +646,14 @@ def _handle_generation(args, config, gen_params, use_server, max_chunk_chars):
     if args.srt:
         srt_path = os.path.expanduser(args.srt)
         if not os.path.isfile(srt_path):
-            print(f"Error: SRT file not found: {srt_path}")
+            cli_output.error(f"Error: SRT file not found: {srt_path}")
             sys.exit(1)
         process_srt_file(srt_path, config, args, gen_params, use_server)
         return use_server
     if args.dialogue:
         dialogue_path = os.path.expanduser(args.dialogue)
         if not os.path.isfile(dialogue_path):
-            print(f"Error: Dialogue file not found: {dialogue_path}")
+            cli_output.error(f"Error: Dialogue file not found: {dialogue_path}")
             sys.exit(1)
         process_dialogue(dialogue_path, config, args, gen_params, use_server)
         return use_server
@@ -662,7 +665,7 @@ def _handle_generation(args, config, gen_params, use_server, max_chunk_chars):
     if args.voice:
         alias = get_voice_alias(args.voice, config)
         if alias is None:
-            print(f"Error: Unknown voice alias '{args.voice}'")
+            cli_output.error(f"Error: Unknown voice alias '{args.voice}'")
             print("Available aliases:")
             aliases = config.get("aliases", {})
             for name, settings in aliases.items():
@@ -695,12 +698,12 @@ def _handle_generation(args, config, gen_params, use_server, max_chunk_chars):
     if args.batch:
         batch_path = os.path.expanduser(args.batch)
         if not os.path.isfile(batch_path):
-            print(f"Error: Batch file not found: {batch_path}")
+            cli_output.error(f"Error: Batch file not found: {batch_path}")
             sys.exit(1)
         with open(batch_path) as f:
             texts = json.load(f)
         if not isinstance(texts, list):
-            print("Error: Batch file must contain a JSON array of texts")
+            cli_output.error("Error: Batch file must contain a JSON array of texts")
             sys.exit(1)
         process_batch(texts, args, config, gen_params, use_server)
         return use_server
@@ -761,7 +764,7 @@ def _handle_generation(args, config, gen_params, use_server, max_chunk_chars):
             print(f"Using prosody preset '{args.prosody}': {instruct}")
         else:
             available = ", ".join(sorted(prosody_presets.keys()))
-            print(f"Error: Unknown prosody preset '{args.prosody}'")
+            cli_output.error(f"Error: Unknown prosody preset '{args.prosody}'")
             print(f"Available: {available}")
             sys.exit(1)
 
@@ -773,7 +776,7 @@ def _handle_generation(args, config, gen_params, use_server, max_chunk_chars):
         mode = "custom"
         speaker_key = (args.speaker or "ryan").lower()
         if speaker_key not in CUSTOM_VOICE_SPEAKERS:
-            print(f"Error: Unknown speaker '{args.speaker}'")
+            cli_output.error(f"Error: Unknown speaker '{args.speaker}'")
             print("Use --list-speakers to see available options.")
             sys.exit(1)
         speaker_name = CUSTOM_VOICE_SPEAKERS[speaker_key]["name"]

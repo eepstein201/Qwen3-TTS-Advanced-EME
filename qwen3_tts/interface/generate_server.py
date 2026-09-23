@@ -20,6 +20,7 @@ class TTSGenericError(RuntimeError):
 
 # get_server_url / load_config are part of this module's namespace contract: they
 # are patched by tests (see tests/test_generate_server.py). Keep them imported.
+from qwen3_tts import cli_output  # noqa: E402
 from qwen3_tts.core.config import (  # noqa: E402, F401
     CONFIG_PATH,
     VOICE_PROMPTS_DIR,
@@ -94,7 +95,7 @@ def ensure_server_running(config):
         if (i + 1) % 10 == 0:
             print(f"  Still loading models... ({i + 1} seconds)")
 
-    print("Error: Server failed to start. Check log:", LOG_FILE)
+    cli_output.error(f"Error: Server failed to start. Check log: {LOG_FILE}")
     return False
 
 
@@ -449,13 +450,13 @@ def generate_local(
     voice_prompt = None
     if mode == "clone":
         if not prompt_file:
-            print("Error: Voice prompt required for clone mode")
+            cli_output.error("Error: Voice prompt required for clone mode")
             sys.exit(1)
         if not voice_prompt_exists(prompt_file):
             backend = get_backend()
             if backend == "mlx":
                 base = prompt_file[:-3] if prompt_file.endswith(".pt") else prompt_file
-                print(f"Error: MLX voice prompt not found for '{base}'.")
+                cli_output.error(f"Error: MLX voice prompt not found for '{base}'.")
                 print(f"  Need: voice_prompts/{base}.wav + voice_prompts/{base}.txt")
                 print(
                     f"  Create with: tts voice create <audio> -t <transcript> -n {base} --mlx-only"

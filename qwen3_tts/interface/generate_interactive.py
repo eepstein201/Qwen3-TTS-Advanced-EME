@@ -13,6 +13,7 @@ import time
 
 logger = logging.getLogger("tts.cli")
 
+from qwen3_tts import cli_output  # noqa: E402
 from qwen3_tts.core.config import (  # noqa: E402
     VOICE_PROMPTS_DIR,
     get_default_clone_prompt,
@@ -38,7 +39,7 @@ from qwen3_tts.interface.generate_helpers import (  # noqa: E402
 def delete_voice_prompt(prompt_name):
     """Delete a voice prompt file (supports .pt, .wav+.txt formats)."""
     if ".." in prompt_name or "/" in prompt_name or "\\" in prompt_name:
-        print(f"Error: Invalid prompt name: {prompt_name!r}")
+        cli_output.error(f"Error: Invalid prompt name: {prompt_name!r}")
         return False
 
     # Strip known extensions to get the base name
@@ -55,7 +56,7 @@ def delete_voice_prompt(prompt_name):
     to_delete = [p for p in (pt_path, wav_path, txt_path) if os.path.exists(p)]
 
     if not to_delete:
-        print(f"Error: Voice prompt not found: {prompt_name}")
+        cli_output.error(f"Error: Voice prompt not found: {prompt_name}")
         return False
 
     filenames = ", ".join(os.path.basename(p) for p in to_delete)
@@ -78,7 +79,7 @@ def rename_voice_prompt(old_name, new_name):
     """Rename a voice prompt file (supports .pt, .wav+.txt formats)."""
     for _name in (old_name, new_name):
         if ".." in _name or "/" in _name or "\\" in _name:
-            print(f"Error: Invalid prompt name: {_name!r}")
+            cli_output.error(f"Error: Invalid prompt name: {_name!r}")
             return False
 
     # Strip known extensions to get base names
@@ -97,12 +98,12 @@ def rename_voice_prompt(old_name, new_name):
         new_path = safe_path_join(VOICE_PROMPTS_DIR, f"{new_base}{ext}")
         if os.path.exists(old_path):
             if os.path.exists(new_path):
-                print(f"Error: Voice prompt already exists: {new_base}{ext}")
+                cli_output.error(f"Error: Voice prompt already exists: {new_base}{ext}")
                 return False
             rename_pairs.append((old_path, new_path))
 
     if not rename_pairs:
-        print(f"Error: Voice prompt not found: {old_name}")
+        cli_output.error(f"Error: Voice prompt not found: {old_name}")
         return False
 
     completed = []
@@ -117,7 +118,7 @@ def rename_voice_prompt(old_name, new_name):
                 os.rename(done_new, done_old)
             except OSError:
                 pass
-        print(f"Error: Rename failed: {e}")
+        cli_output.error(f"Error: Rename failed: {e}")
         return False
 
     print(f"Renamed: {old_base} -> {new_base}")
@@ -139,7 +140,7 @@ def preview_voice_prompt(prompt_name, config):
     prompt_name = f"{base}.wav" if get_backend() == "mlx" else f"{base}.pt"
 
     if not voice_prompt_exists(prompt_name):
-        print(f"Error: Voice prompt not found: {prompt_name}")
+        cli_output.error(f"Error: Voice prompt not found: {prompt_name}")
         return False
 
     if is_server_running(config):
@@ -174,7 +175,7 @@ def preview_voice_prompt(prompt_name, config):
             except GenerationError as e:
                 # GenerationError's str() is a generic banner; the specific
                 # reason (cancelled / no audio) rides on technical_detail.
-                print(f"Error: {e.technical_detail or e.user_message}")
+                cli_output.error(f"Error: {e.technical_detail or e.user_message}")
                 return False
             print("Playing preview...")
             import tempfile
@@ -189,7 +190,7 @@ def preview_voice_prompt(prompt_name, config):
                 error_msg = resp.json().get("error", "Unknown error")
             except (ValueError, requests.exceptions.JSONDecodeError):
                 error_msg = f"Server returned HTTP {resp.status_code}"
-            print(f"Error: {error_msg}")
+            cli_output.error(f"Error: {error_msg}")
             return False
     else:
         print(
@@ -406,7 +407,7 @@ def interactive_mode(use_server, config, gen_params):
 
     text_input = input("\nEnter text or file path: ").strip()
     if not text_input:
-        print("Error: No text provided")
+        cli_output.error("Error: No text provided")
         sys.exit(1)
     text = get_text(text_input)
     print(
@@ -421,7 +422,7 @@ def interactive_mode(use_server, config, gen_params):
     if mode_choice == "2":
         prompts = list_voice_prompts()
         if not prompts:
-            print("Error: No voice prompts found in", VOICE_PROMPTS_DIR)
+            cli_output.error(f"Error: No voice prompts found in {VOICE_PROMPTS_DIR}")
             sys.exit(1)
 
         print("\nAvailable voice prompts:")
@@ -691,7 +692,7 @@ def run_repl(config, use_server, gen_params=None):
             state["counter"] += 1
 
         except Exception as e:
-            print(f"Error: {e}")
+            cli_output.error(f"Error: {e}")
 
 
 # ---------------------------------------------------------------------------
@@ -717,7 +718,7 @@ def run_watch_mode(watch_dir, config, args, gen_params, use_server):
         safe_watch_dir = safe_path_join(os.getcwd(), expanded)
 
     if not os.path.isdir(safe_watch_dir):
-        print(f"Error: Directory not found: {safe_watch_dir}")
+        cli_output.error(f"Error: Directory not found: {safe_watch_dir}")
         return
 
     # Security: validate output_dir against traversal
@@ -803,7 +804,7 @@ def run_watch_mode(watch_dir, config, args, gen_params, use_server):
                     play_audio(output_path)
 
             except Exception as e:
-                print(f"Error processing {event.src_path}: {e}")
+                cli_output.error(f"Error processing {event.src_path}: {e}")
 
     print("\n=== Watch Mode ===")
     print(f"Watching: {watch_dir}")
