@@ -134,38 +134,6 @@ def get_player_html(tab_id):
         tab_id: Unique identifier for the tab (e.g., 'clone', 'design', 'custom').
     """
     return f"""
-    <style>
-        .ws-btn {{
-            padding: 10px 20px;
-            border-radius: 4px;
-            border: 1px solid var(--border-color-primary, #d1d5db);
-            background: var(--button-secondary-background-fill, #e5e7eb);
-            color: var(--button-secondary-text-color, #374151);
-            cursor: pointer;
-            font-size: 0.9em;
-        }}
-        .ws-btn:focus {{
-            outline: 2px solid #4a9eff;
-            outline-offset: 2px;
-        }}
-        .ws-btn:disabled {{
-            opacity: 0.5;
-            cursor: not-allowed;
-        }}
-        .ws-waveform {{
-            width: 100%;
-            min-height: 80px;
-            background: var(--block-background-fill, #f7f7f8);
-            border-radius: 8px;
-            margin-bottom: 8px;
-            overflow: hidden;
-        }}
-        .ws-controls {{
-            display: flex;
-            align-items: center;
-            gap: 8px;
-        }}
-    </style>
     <div id="{tab_id}-player" style="margin-top: 8px;">
         <div id="{tab_id}-waveform" class="ws-waveform"></div>
         <div class="ws-controls">
@@ -193,7 +161,7 @@ def get_player_html(tab_id):
                 <option value="1.5">1.5x</option>
                 <option value="2">2x</option>
             </select>
-            <span id="{tab_id}-time" style="color: var(--body-text-color-subdued, #6b7280); font-size: 0.9em;">0:00 / 0:00</span>
+            <span id="{tab_id}-time" class="tts-num" style="color: var(--body-text-color-subdued, #6b7280); font-size: 0.9em;">0:00 / 0:00</span>
             <span id="{tab_id}-status" role="status" aria-live="polite" aria-atomic="true"
                   style="color: var(--body-text-color-subdued, #6b7280); font-size: 0.9em; margin-left: 8px;"></span>
         </div>
