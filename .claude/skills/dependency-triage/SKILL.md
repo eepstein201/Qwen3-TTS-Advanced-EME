@@ -14,13 +14,19 @@ wins — update this skill.** Nothing here is validated automatically, so a stal
 ## Step 1 — Enumerate the queue
 
 ```bash
-gh pr list --label dependencies --json number,title,headRefName
+gh pr list --state open --json number,title,headRefName \
+  --jq '.[] | select(.headRefName | startswith("dependabot/")) | "\(.number)\t\(.title)\t\(.headRefName)"'
 ```
 
-Returns `[]` when there is nothing to triage. That is a valid outcome, not an error — stop there.
+Returns nothing when the queue is empty. That is a valid outcome, not an error — stop there.
 
-Both ecosystems apply the `dependencies` label; `github-actions` updates additionally carry `ci`
-(source: `.github/dependabot.yml`).
+Enumeration keys on the `dependabot/` branch prefix, **not** the `dependencies` label:
+Dependabot applies labels only at PR-open time and silently skips labels that don't exist in
+the repo, so a deleted label empties a label-filtered list while the PRs stay open (observed
+2026-09-23: five open dep PRs, all carrying zero labels, `gh pr list --label dependencies`
+returned `[]`). The `dependencies` (+`ci` for github-actions) labels are configured in
+`.github/dependabot.yml` and have existed in the repo since 2026-09-23 — treat them as a
+secondary signal only, and re-create them (`gh label create …`) before trusting a label query.
 
 ## Step 2 — Classify each PR
 
