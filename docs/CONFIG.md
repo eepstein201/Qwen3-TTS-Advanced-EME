@@ -51,7 +51,7 @@ All `TTS_RATE_LIMIT_*` and `TTS_DISABLE_RATE_LIMITING` values are read **once at
 
 | Variable | Required | Description | Example |
 |----------|----------|-------------|---------|
-| `ANTHROPIC_API_KEY` | No* | API key for the AI voice-description enhancer. The variable *name* is itself configurable via `prompt_enhancer.api_key_env`. | `sk-ant-...` |
+| `ANTHROPIC_API_KEY` | No* | API key for the AI voice-description enhancer. The variable *name* is itself configurable via `prompt_enhancer.api_key_env` (must end in `_API_KEY`). | `sk-ant-...` |
 
 *Required only when `prompt_enhancer.enabled` is `true`.
 
@@ -233,7 +233,7 @@ Use with `tts "..." -v default`. List them with `tts list aliases`.
 | `prompt_enhancer.enabled` | boolean | `false` | Enable AI voice-description enhancement. |
 | `prompt_enhancer.provider` | string | `"anthropic"` | AI provider (anthropic). |
 | `prompt_enhancer.model` | string | `"claude-haiku-4-5-20251001"` | Model used for enhancement. |
-| `prompt_enhancer.api_key_env` | string | `"ANTHROPIC_API_KEY"` | Name of the env var holding the API key. |
+| `prompt_enhancer.api_key_env` | string | `"ANTHROPIC_API_KEY"` | Name of the env var holding the API key. Must match `*_API_KEY` (uppercase letters, digits, `_`); any other name is rejected. |
 
 **Install:** `pip install -e ".[prompt-enhancer]"` (adds the `anthropic` SDK).
 

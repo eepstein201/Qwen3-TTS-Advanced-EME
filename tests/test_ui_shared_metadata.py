@@ -1,6 +1,9 @@
 import json
 import os
+import tempfile
 import time
+import unittest
+from unittest.mock import patch
 
 import pytest
 
@@ -110,3 +113,36 @@ def test_get_history_data_seed_none_displays_dash():
                 "path": "/tmp/x.wav", "chunks": 1, "seed": None}]
     rows = get_history_data(history)
     assert rows[0][3] == "-"
+
+
+class TestSidecarDerivationIgnoresParentDirectories(unittest.TestCase):
+    """A .wav/.json substring in a parent directory must not be rewritten."""
+
+    def setUp(self):
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        env = patch.dict(os.environ, {"HOME": tmp.name})
+        env.start()
+        self.addCleanup(env.stop)
+        self.home = tmp.name
+
+    def test_save_generation_metadata_writes_next_to_the_wav(self):
+        out_dir = os.path.join(self.home, "take.wav.d")
+        os.makedirs(out_dir)
+        wav_path = os.path.join(out_dir, "voice_ui_nested.wav")
+        open(wav_path, "w").close()
+        save_generation_metadata(wav_path, {"mode": "clone", "seed": 7})
+        with open(os.path.join(out_dir, "voice_ui_nested.json")) as f:
+            self.assertEqual(json.load(f)["seed"], 7)
+
+    def test_load_history_from_disk_pairs_the_sibling_wav(self):
+        out_dir = os.path.join(self.home, "take.json.d")
+        os.makedirs(out_dir)
+        open(os.path.join(out_dir, "voice_ui_nested.wav"), "w").close()
+        with open(os.path.join(out_dir, "voice_ui_nested.json"), "w") as f:
+            json.dump({"timestamp": 1.0, "mode": "clone", "text": "hi"}, f)
+        entries = load_history_from_disk(out_dir)
+        self.assertEqual(len(entries), 1)
+        self.assertEqual(
+            entries[0]["path"], os.path.join(out_dir, "voice_ui_nested.wav")
+        )

@@ -19,7 +19,7 @@ dependencies = [
 torch = [
     "torch>=2.13.0",
     "torchaudio>=2.11.0",
-    "qwen-tts",
+    "qwen-tts>=0.1.1",  # upstream Qwen/Qwen3-TTS model package (imports as qwen_tts) — not this repo's qwen3-tts
     "transformers>=4.57.3",
 ]
 
@@ -28,7 +28,7 @@ mlx = [
     "mlx>=0.32.2",
     "mlx-audio>=0.5.4",
     "mlx-lm>=0.31.3",
-    "huggingface_hub",
+    "huggingface_hub>=0.36.2",  # only floor both envs satisfy (torch 0.36.2 via transformers<4.58; mlx 1.5.0)
 ]
 
 # FastAPI server
@@ -53,15 +53,15 @@ ui = [
 audio = [
     "librosa>=0.11.0",
     "soundfile>=0.14.0",
-    "pyrubberband",
+    "pyrubberband>=0.4.0",
     "pyloudnorm>=0.2.0",
-    "pydub",
+    "pydub>=0.25.1",  # last release (2021); shells out to ffmpeg on user-supplied audio
 ]
 
 # CUDA/Colab optimizations
 cuda = [
-    "accelerate",
-    "bitsandbytes",
+    "accelerate>=1.12.0",
+    "bitsandbytes>=0.43.1",  # transformers>=4.57.3 rejects older at 4/8-bit load time
 ]
 
 # Rich CLI progress bars
@@ -112,7 +112,7 @@ prompt-enhancer = [
 # vLLM-Omni backend (Linux/CUDA only)
 vllm = [
     "vllm>=0.8",
-    "vllm-omni",
+    "vllm-omni>=0.14.0",  # first stable release with Qwen3-TTS support (vllm-omni #895)
 ]
 
 [project.scripts]

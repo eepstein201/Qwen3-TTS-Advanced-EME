@@ -20,6 +20,7 @@ these tests inspect is result[8].
 
 Run: conda run -n qwen3-tts-mlx python -m pytest tests/test_history_hard_delete.py -q
 """
+
 import os
 import tempfile
 import unittest
@@ -82,6 +83,31 @@ class TestDeleteGenerationFiles(unittest.TestCase):
             self.assertFalse(os.path.exists(entry["path"]))
             self.assertFalse(os.path.exists(entry["path"].replace(".wav", ".json")))
 
+    def test_sidecar_derivation_ignores_wav_in_parent_directory(self):
+        # A ".wav" substring in a parent directory must not be rewritten: the
+        # sidecar is the file next to the .wav, and a decoy at the globally
+        # replaced path must survive.
+        from qwen3_tts.interface.ui import shared
+
+        with tempfile.TemporaryDirectory() as tmp:
+            automated = os.path.join(tmp, "take.wav.d", "Automated Output")
+            os.makedirs(automated)
+            entry = _make_entry(automated, "voice_ui_nested")
+            decoy_dir = os.path.join(tmp, "take.json.d", "Automated Output")
+            os.makedirs(decoy_dir)
+            decoy = os.path.join(decoy_dir, "voice_ui_nested.json")
+            with open(decoy, "w") as f:
+                f.write("{}")
+            with patch.object(
+                shared, "resolve_automated_output_dir", return_value=automated
+            ):
+                ok = shared.delete_generation_files(entry["path"], {})
+            self.assertTrue(ok)
+            self.assertFalse(
+                os.path.exists(os.path.join(automated, "voice_ui_nested.json"))
+            )
+            self.assertTrue(os.path.exists(decoy), "must not delete outside files")
+
     def test_refuses_a_path_outside_automated_output(self):
         from qwen3_tts.interface.ui import shared
 
@@ -121,9 +147,12 @@ class TestDeleteConfirmStateMachine(unittest.TestCase):
 
         evt = MagicMock()
         evt.index = [row, col]
-        with patch.object(
-            shared, "resolve_automated_output_dir", return_value=config_dir
-        ), patch("qwen3_tts.core.config.load_config", return_value={}):
+        with (
+            patch.object(
+                shared, "resolve_automated_output_dir", return_value=config_dir
+            ),
+            patch("qwen3_tts.core.config.load_config", return_value={}),
+        ):
             return history_panel.on_history_select(evt, history, state)
 
     def test_first_click_arms_without_deleting(self):
@@ -211,8 +240,9 @@ class TestClearAllHardDelete(unittest.TestCase):
             self._seed(automated, count=3)
             config = {"history_output_directory": tmp}
 
-            with patch.dict(os.environ, {"HOME": tmp}), patch(
-                "qwen3_tts.core.config.load_config", return_value=config
+            with (
+                patch.dict(os.environ, {"HOME": tmp}),
+                patch("qwen3_tts.core.config.load_config", return_value=config),
             ):
                 history = shared.load_history_from_disk_for_config(config)
                 self.assertEqual(len(history), 3)
@@ -250,8 +280,9 @@ class TestClearAllHardDelete(unittest.TestCase):
             os.makedirs(automated)
             config = {"history_output_directory": tmp}
 
-            with patch.dict(os.environ, {"HOME": tmp}), patch(
-                "qwen3_tts.core.config.load_config", return_value=config
+            with (
+                patch.dict(os.environ, {"HOME": tmp}),
+                patch("qwen3_tts.core.config.load_config", return_value=config),
             ):
                 armed = history_panel.on_clear_history_click(
                     {"armed": False, "ts": 0.0}, []

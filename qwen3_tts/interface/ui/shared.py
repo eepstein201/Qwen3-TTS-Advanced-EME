@@ -10,6 +10,7 @@ This module contains:
 
 import logging
 import os
+import re
 import shutil
 import threading
 import time
@@ -130,6 +131,26 @@ SPEAKER_CHOICES = [
     for key, info in CUSTOM_VOICE_SPEAKERS.items()
 ]
 
+# prompt_enhancer.api_key_env comes from config.json, and its value is sent to
+# the provider — only *_API_KEY names may be read. The charset is checked with a
+# single unambiguous class and the suffix with endswith(): a "[A-Z0-9_]*_API_KEY"
+# regex backtracks polynomially on user-supplied input (CodeQL py/polynomial-redos).
+_API_KEY_ENV_CHARSET = re.compile(r"[A-Z0-9_]+")
+_API_KEY_ENV_SUFFIX = "_API_KEY"
+
+
+def _allowed_api_key_env(enhancer_config):
+    """Return the configured API-key env-var name, or None if not a *_API_KEY name."""
+    name = enhancer_config.get("api_key_env", "ANTHROPIC_API_KEY")
+    if (
+        isinstance(name, str)
+        and _API_KEY_ENV_CHARSET.fullmatch(name)
+        and name[0].isalpha()
+        and name.endswith(_API_KEY_ENV_SUFFIX)
+    ):
+        return name
+    return None
+
 
 def enhance_description_with_ai(description):
     """Enhance a brief voice description using an LLM API.
@@ -159,7 +180,11 @@ def enhance_description_with_ai(description):
             "AI enhancement is not enabled. Set prompt_enhancer.enabled=true in config.json"
         )
 
-    api_key_env = enhancer_config.get("api_key_env", "ANTHROPIC_API_KEY")
+    api_key_env = _allowed_api_key_env(enhancer_config)
+    if api_key_env is None:
+        raise gr.Error(
+            "prompt_enhancer.api_key_env must name a *_API_KEY environment variable"
+        )
     api_key = os.environ.get(api_key_env)
     if not api_key:
         raise gr.Error(f"API key not found. Set the {api_key_env} environment variable")
@@ -204,8 +229,8 @@ def is_enhancer_available():
     enhancer_config = config.get("prompt_enhancer", {})
     if not enhancer_config.get("enabled", False):
         return False
-    api_key_env = enhancer_config.get("api_key_env", "ANTHROPIC_API_KEY")
-    return bool(os.environ.get(api_key_env))
+    api_key_env = _allowed_api_key_env(enhancer_config)
+    return api_key_env is not None and bool(os.environ.get(api_key_env))
 
 
 def get_current_model_settings():
@@ -707,7 +732,7 @@ def delete_generation_files(path: str, config: dict) -> bool:
     if not resolved.startswith(root + os.sep):
         logger.warning("Refusing to delete %r: outside Automated Output", path)
         return False
-    for target in (resolved, resolved.replace(".wav", ".json")):
+    for target in (resolved, os.path.splitext(resolved)[0] + ".json"):
         try:
             os.remove(target)
         except FileNotFoundError:
@@ -772,7 +797,7 @@ def save_generation_metadata(wav_path: str, metadata: dict) -> None:
     if not (resolved_wav == home or resolved_wav.startswith(home + os.sep)):
         raise ValueError(f"wav_path must be under home directory: {wav_path}")
 
-    json_path = safe_wav_path.replace(".wav", ".json")
+    json_path = os.path.splitext(safe_wav_path)[0] + ".json"
     with open(json_path, "w") as f:
         json_mod.dump(metadata, f, indent=2)
 
@@ -808,7 +833,7 @@ def load_history_from_disk(output_dir: str) -> list:
     json_files = glob.glob(os.path.join(safe_output_dir, "voice_ui_*.json"))
     entries: list = []
     for jf in json_files:
-        wav_path = jf.replace(".json", ".wav")
+        wav_path = os.path.splitext(jf)[0] + ".wav"
         if not os.path.exists(wav_path):
             continue
         try:

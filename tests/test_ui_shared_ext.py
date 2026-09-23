@@ -43,25 +43,25 @@ class TestEnhanceDescription(unittest.TestCase):
 
     def test_missing_api_key_raises(self):
         from qwen3_tts.interface.ui.shared import enhance_description_with_ai
-        config = {"prompt_enhancer": {"enabled": True, "api_key_env": "FAKE_KEY_12345"}}
+        config = {"prompt_enhancer": {"enabled": True, "api_key_env": "FAKE_12345_API_KEY"}}
         with patch(f"{_MOD}.load_config", return_value=config), \
              patch.dict(os.environ, {}, clear=False):
-            # Make sure FAKE_KEY_12345 is not set
-            os.environ.pop("FAKE_KEY_12345", None)
+            # Make sure FAKE_12345_API_KEY is not set
+            os.environ.pop("FAKE_12345_API_KEY", None)
             with self.assertRaises(gr.Error):
                 enhance_description_with_ai("warm voice")
 
     def test_unsupported_provider_raises(self):
         from qwen3_tts.interface.ui.shared import enhance_description_with_ai
-        config = {"prompt_enhancer": {"enabled": True, "api_key_env": "TEST_KEY", "provider": "openai"}}
+        config = {"prompt_enhancer": {"enabled": True, "api_key_env": "TEST_API_KEY", "provider": "openai"}}
         with patch(f"{_MOD}.load_config", return_value=config), \
-             patch.dict(os.environ, {"TEST_KEY": "sk-test"}):
+             patch.dict(os.environ, {"TEST_API_KEY": "sk-test"}):
             with self.assertRaises(gr.Error):
                 enhance_description_with_ai("warm voice")
 
     def test_anthropic_success(self):
         from qwen3_tts.interface.ui.shared import enhance_description_with_ai
-        config = {"prompt_enhancer": {"enabled": True, "api_key_env": "TEST_KEY", "provider": "anthropic"}}
+        config = {"prompt_enhancer": {"enabled": True, "api_key_env": "TEST_API_KEY", "provider": "anthropic"}}
         mock_msg = MagicMock()
         mock_msg.content = [MagicMock(text="  A warm, smooth male voice  ")]
         mock_client = MagicMock()
@@ -69,21 +69,35 @@ class TestEnhanceDescription(unittest.TestCase):
         mock_anthropic_mod = MagicMock()
         mock_anthropic_mod.Anthropic.return_value = mock_client
         with patch(f"{_MOD}.load_config", return_value=config), \
-             patch.dict(os.environ, {"TEST_KEY": "sk-test"}), \
+             patch.dict(os.environ, {"TEST_API_KEY": "sk-test"}), \
              patch.dict("sys.modules", {"anthropic": mock_anthropic_mod}):
             result = enhance_description_with_ai("warm voice")
         self.assertEqual(result, "A warm, smooth male voice")
 
     def test_api_error_raises_gr_error(self):
         from qwen3_tts.interface.ui.shared import enhance_description_with_ai
-        config = {"prompt_enhancer": {"enabled": True, "api_key_env": "TEST_KEY", "provider": "anthropic"}}
+        config = {"prompt_enhancer": {"enabled": True, "api_key_env": "TEST_API_KEY", "provider": "anthropic"}}
         mock_anthropic_mod = MagicMock()
         mock_anthropic_mod.Anthropic.side_effect = Exception("API down")
         with patch(f"{_MOD}.load_config", return_value=config), \
-             patch.dict(os.environ, {"TEST_KEY": "sk-test"}), \
+             patch.dict(os.environ, {"TEST_API_KEY": "sk-test"}), \
              patch.dict("sys.modules", {"anthropic": mock_anthropic_mod}):
             with self.assertRaises(gr.Error):
                 enhance_description_with_ai("warm voice")
+
+    def test_disallowed_api_key_env_is_never_sent(self):
+        # api_key_env is config-driven: a non-*_API_KEY name (here HOME) must be
+        # rejected before its value can reach the provider client.
+        from qwen3_tts.interface.ui.shared import enhance_description_with_ai
+        config = {"prompt_enhancer": {"enabled": True, "api_key_env": "HOME", "provider": "anthropic"}}
+        mock_anthropic_mod = MagicMock()
+        with patch(f"{_MOD}.load_config", return_value=config), \
+             patch.dict(os.environ, {"HOME": "/home/someone"}), \
+             patch.dict("sys.modules", {"anthropic": mock_anthropic_mod}):
+            with self.assertRaises(gr.Error) as ctx:
+                enhance_description_with_ai("warm voice")
+        self.assertIn("_API_KEY", str(ctx.exception))
+        mock_anthropic_mod.Anthropic.assert_not_called()
 
 
 @unittest.skipUnless(HAS_GRADIO, "requires gradio")
@@ -96,17 +110,31 @@ class TestIsEnhancerAvailable(unittest.TestCase):
 
     def test_enabled_with_key(self):
         from qwen3_tts.interface.ui.shared import is_enhancer_available
-        config = {"prompt_enhancer": {"enabled": True, "api_key_env": "TEST_KEY"}}
+        config = {"prompt_enhancer": {"enabled": True, "api_key_env": "TEST_API_KEY"}}
         with patch(f"{_MOD}.load_config", return_value=config), \
-             patch.dict(os.environ, {"TEST_KEY": "sk-test"}):
+             patch.dict(os.environ, {"TEST_API_KEY": "sk-test"}):
             self.assertTrue(is_enhancer_available())
 
     def test_enabled_without_key(self):
         from qwen3_tts.interface.ui.shared import is_enhancer_available
-        config = {"prompt_enhancer": {"enabled": True, "api_key_env": "MISSING_KEY_XYZ"}}
+        config = {"prompt_enhancer": {"enabled": True, "api_key_env": "MISSING_XYZ_API_KEY"}}
         with patch(f"{_MOD}.load_config", return_value=config):
-            os.environ.pop("MISSING_KEY_XYZ", None)
+            os.environ.pop("MISSING_XYZ_API_KEY", None)
             self.assertFalse(is_enhancer_available())
+
+    def test_disallowed_api_key_env_is_unavailable(self):
+        from qwen3_tts.interface.ui.shared import is_enhancer_available
+        config = {"prompt_enhancer": {"enabled": True, "api_key_env": "HOME"}}
+        with patch(f"{_MOD}.load_config", return_value=config), \
+             patch.dict(os.environ, {"HOME": "/home/someone"}):
+            self.assertFalse(is_enhancer_available())
+
+    def test_default_api_key_env_is_allowed(self):
+        from qwen3_tts.interface.ui.shared import is_enhancer_available
+        config = {"prompt_enhancer": {"enabled": True}}
+        with patch(f"{_MOD}.load_config", return_value=config), \
+             patch.dict(os.environ, {"ANTHROPIC_API_KEY": "sk-test"}):
+            self.assertTrue(is_enhancer_available())
 
 
 @unittest.skipUnless(HAS_GRADIO, "requires gradio")

@@ -54,7 +54,7 @@ pip install -e ".[test]"
 python -m pytest tests/ -v
 ```
 
-`requirements.lock` pins the full `test+ui+dev` dependency tree for
+`requirements.lock` pins the full `test+ui+dev+audio` dependency tree for
 standalone test/CI environments (regenerate it after changing dependencies in
 `pyproject.toml`). **Never install the lock into the platform conda envs**
 (`qwen3-tts` / `qwen3-tts-mlx`): the transformers/huggingface-hub conflict is
