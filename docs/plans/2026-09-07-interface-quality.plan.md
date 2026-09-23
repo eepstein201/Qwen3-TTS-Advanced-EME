@@ -244,6 +244,8 @@ def status_update(message: str, severity: Severity | None = None) -> dict:
 - [ ] **Step 2 (GREEN):** implement + swap terminal return sites (`:269`, `:296`, `:310` `gr.Warning`, `:395-415`, `cancel_streaming_generation` `:105-127`, `generate_guard_check` `:71`, `_prepare_streaming_config` `:178-221`). Run `test_ui_generation_ext.py` + `test_ui_a11y_announcer.py` + `test_ui_tab_select_wiring.py` → PASS (if propagation fails → D6-alt, documented cost).
 - [ ] **Step 3:** gates. Commit: `feat(ui): generation outcomes carry severity styling via tokens`.
 
+> **Executed deviation (2026-09-23):** D6 held — a `process_api` probe (gradio 6.20) shows the update reaches the client with `elem_classes` and the next `.then` receives the plain string (pinned by `TestStatusUpdateReachesTheAnnouncerAsPlainText`). Instead of swapping each terminal return site, `_wire_generation_tab` wraps the three status-writing handlers (`_guarded_config`/`config_handler`, `_generate_server_side`, `on_cancel_click`) in `_with_status_severity(fn, index)`: handlers keep returning plain strings (the ~44 existing exact-string assertions stay untouched), non-string `gr.update()` no-ops pass through, and `functools.wraps` preserves the signature Gradio reads. `gr.Warning` toasts are unchanged. Table additions beyond the sketch: `warning` = in-progress / server-not-running / stop-confirm / model-not-loaded; `loading` = `Generating...` / `STATUS_GENERATION_STOPPING`; matching is by fragment, not prefix (the model-not-loaded message starts with the model name).
+
 ### Task 1.8: WaveSurfer CSS dedup — S
 
 **Files:** Modify `qwen3_tts/interface/wavesurfer_js.py` (`:136-168`, `:196`), `theme.py` (`.ws-btn` rules move into `BLOCKS_CSS`); Test: `tests/test_wavesurfer_js.py`.

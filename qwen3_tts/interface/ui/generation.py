@@ -8,6 +8,7 @@ This module contains:
 - Generation tab wiring
 """
 
+import functools
 import logging
 import os
 import shutil
@@ -46,6 +47,61 @@ STATUS_STOP_CONFIRM_HINT = "Click again within 5s to confirm stop."
 STATUS_GENERATION_STOPPING = "Stopping generation…"
 STATUS_GENERATION_STOPPED = "Generation stopped"
 STATUS_STOP_CANCELED = "Stop canceled"
+
+# Outcome severity by message fragment, most specific first; unmatched = "info".
+_OUTCOME_SEVERITY = (
+    ("error", ("Error:", "Failed:", "Stop failed")),
+    ("success", ("Generated", "Saved", "Copied")),
+    (
+        "warning",
+        (
+            "Generation in progress",
+            "Server not running",
+            "Stop generation?",
+            "model is not loaded",
+        ),
+    ),
+    ("loading", ("Generating...", STATUS_GENERATION_STOPPING)),
+)
+
+
+def outcome_severity(message: str):
+    """Severity of a status message, per ``_OUTCOME_SEVERITY``."""
+    for severity, fragments in _OUTCOME_SEVERITY:
+        if any(fragment in message for fragment in fragments):
+            return severity
+    return "info"
+
+
+def status_update(message: str, severity=None) -> dict:
+    """Status Textbox update styled as a banner of the message's severity.
+
+    A dict update (not gr.HTML) keeps Textbox escaping client-side, and the
+    next ``.then`` reading the Textbox still receives the plain string.
+    """
+    from qwen3_tts.interface.ui.components import severity_class
+
+    return gr.update(
+        value=message,
+        elem_classes=[severity_class(severity or outcome_severity(message))],
+    )
+
+
+def _with_status_severity(fn, index):
+    """Wrap a chain handler so its string output at *index* gets severity styling.
+
+    Handlers keep returning plain strings; non-string outputs (``gr.update()``
+    no-ops) pass through. ``functools.wraps`` keeps the signature Gradio reads.
+    """
+
+    @functools.wraps(fn)
+    def wrapper(*args):
+        result = list(fn(*args))
+        if isinstance(result[index], str):
+            result[index] = status_update(result[index])
+        return tuple(result)
+
+    return wrapper
 
 
 def _announce_status(msg: str | None) -> str:
@@ -656,13 +712,13 @@ def _wire_generation_tab(
             return new_guard_state, cfg, cfg_status
 
         click_kwargs = {
-            "fn": _guarded_config,
+            "fn": _with_status_severity(_guarded_config, 2),
             "inputs": [gen_guard_state, *inputs_list],
             "outputs": [gen_guard_state, stream_config, status],
         }
     else:
         click_kwargs = {
-            "fn": config_handler,
+            "fn": _with_status_severity(config_handler, 1),
             "inputs": inputs_list,
             "outputs": [stream_config, status],
         }
@@ -682,7 +738,7 @@ def _wire_generation_tab(
         chain = chain.then(fn=start_progress_timer, outputs=[progress_timer])
     chain = chain.then(
         # Step 2: Generate audio server-side via TTSClient (no JS streaming)
-        fn=_generate_server_side,
+        fn=_with_status_severity(_generate_server_side, 1),
         inputs=[mode_hidden, text_hidden, history_state, stream_config],
         outputs=[audio_url_converter, status, status_html, history_state],
     )
@@ -796,7 +852,7 @@ def _wire_generation_tab(
         )
 
     cancel_chain = cancel_btn.click(
-        fn=on_cancel_click,
+        fn=_with_status_severity(on_cancel_click, 2),
         inputs=[cancel_confirm_state],
         outputs=[cancel_confirm_state, cancel_btn, status, status_html],
     ).then(
