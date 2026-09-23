@@ -19,6 +19,7 @@ import numpy as np
 
 try:
     import pytest
+
     HAS_PYTEST = True
 except ImportError:  # pragma: no cover - pytest always present in test env
     HAS_PYTEST = False
@@ -70,10 +71,12 @@ class TestSnapToZeroCrossing(unittest.TestCase):
         """A crossing beyond max_search must be ignored."""
         from qwen3_tts.core.engine.inference import _snap_to_zero_crossing
 
-        head = np.concatenate([
-            np.ones(50, dtype=np.float32),
-            np.ones(50, dtype=np.float32) * -1.0,
-        ])
+        head = np.concatenate(
+            [
+                np.ones(50, dtype=np.float32),
+                np.ones(50, dtype=np.float32) * -1.0,
+            ]
+        )
         self.assertEqual(_snap_to_zero_crossing(head, max_search=10), 0)
 
     def test_prefers_earliest_crossing(self):
@@ -334,6 +337,19 @@ class TestExistingBehaviourPreserved(unittest.TestCase):
 
         chunk = np.ones(1000, dtype=np.float32)
         np.testing.assert_array_equal(_crossfade_chunks([chunk], SR), chunk)
+
+    def test_single_chunk_returns_copy(self):
+        """Single-chunk returns a copy, symmetric with the multi-chunk path.
+
+        Returning the caller's array uncopied lets downstream in-place
+        post-processing mutate the caller's chunk (6Q item 5).
+        """
+        from qwen3_tts.core.engine.inference import _crossfade_chunks
+
+        chunk = np.ones(1000, dtype=np.float32)
+        result = _crossfade_chunks([chunk], SR)
+        self.assertIsNot(result, chunk)
+        np.testing.assert_array_equal(result, chunk)
 
     def test_empty_returns_empty(self):
         from qwen3_tts.core.engine.inference import _crossfade_chunks
