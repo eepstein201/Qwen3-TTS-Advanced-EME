@@ -208,6 +208,14 @@ class _ProgressPoller:
     """Background thread that polls /generation-status and displays progress.
 
     Uses Rich for pretty progress bars if available, falls back to print-based progress.
+
+    Percent rules (plan T2.4): a determinate percent renders only when the
+    authed status payload carries ``progress_pct`` (single-item generations);
+    it is NEVER synthesized from ``chunk_index`` (a completed-chunk count).
+    ``stream=True`` renders "Streaming..." and never a percent. The bar owns
+    stderr, so stdout item lines never interleave with it. ``elapsed_only()``
+    builds the local-path ticker (no server to poll). ``quiet_progress=True``
+    (dry-run/CI) makes start() a no-op.
     """
 
     SPINNER = "⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏"
@@ -228,13 +236,26 @@ class _ProgressPoller:
     except ImportError:
         HAS_RICH = False
 
-    def __init__(self, batch_total=1):
+    def __init__(self, batch_total=1, *, stream=False, quiet_progress=False):
         self.batch_total = batch_total
+        self.stream = stream
+        self.quiet_progress = quiet_progress
+        self._elapsed_only = False
         self._stop = threading.Event()
         self._thread = None
         self._rich_progress = None
 
+    @classmethod
+    def elapsed_only(cls, *, quiet_progress=False):
+        """Ticker for the local generation path: no server to poll, so
+        elapsed time is the honest maximum (run_inference has no callback)."""
+        poller = cls(batch_total=1, quiet_progress=quiet_progress)
+        poller._elapsed_only = True
+        return poller
+
     def start(self):
+        if self.quiet_progress:
+            return
         self._thread = threading.Thread(target=self._run, daemon=True)
         self._thread.start()
 
@@ -272,6 +293,7 @@ class _ProgressPoller:
         from qwen3_tts.core.http_client import server_request
 
         console = Console(stderr=True)
+        description = "Streaming..." if self.stream else "Generating audio..."
 
         with Progress(
             SpinnerColumn(),
@@ -284,11 +306,15 @@ class _ProgressPoller:
             transient=True,
         ) as progress:
             task_id = progress.add_task(
-                "Generating audio...",
+                description,
                 total=100 if self.batch_total > 1 else None,
             )
 
             while not self._stop.is_set():
+                if self._elapsed_only:
+                    # No server to poll — the elapsed columns tick on their own.
+                    self._stop.wait(1.0)
+                    continue
                 try:
                     resp = server_request("GET", "/generation-status", timeout=2)
                     if resp.status_code == 200:
@@ -296,18 +322,24 @@ class _ProgressPoller:
                         if state.get("active"):
                             elapsed = state.get("elapsed_sec", 0)
                             eta = state.get("eta_sec")
+                            pct = state.get("progress_pct")
 
                             # Chunk progress suffix
                             chunk_total = state.get("chunk_total", 0)
                             chunk_suffix = ""
+                            label = "Streaming..." if self.stream else "Generating..."
                             if chunk_total > 1:
                                 chunk_idx = state.get("chunk_index", 0) + 1
                                 chunk_suffix = f" [chunk {chunk_idx}/{chunk_total}]"
                                 progress.update(
-                                    task_id, description=f"Generating...{chunk_suffix}"
+                                    task_id, description=f"{label}{chunk_suffix}"
                                 )
 
-                            if self.batch_total > 1:
+                            if self.stream:
+                                # Streaming never renders a percent: the audio
+                                # IS the progress; chunk counts are counts.
+                                pass
+                            elif self.batch_total > 1:
                                 idx = state.get("batch_index", 0) + 1
                                 progress.update(
                                     task_id,
@@ -321,6 +353,11 @@ class _ProgressPoller:
                                         else 0
                                     )
                                     progress.update(task_id, completed=pct)
+                            elif pct is not None:
+                                # Determinate only from the server's own
+                                # progress_pct (authed payload); never
+                                # synthesized from chunk_index (plan D2).
+                                progress.update(task_id, total=100, completed=pct)
                 except Exception as e:
                     logger.debug("Progress poller (_run_rich) error: %s", e)
 
@@ -331,7 +368,18 @@ class _ProgressPoller:
         from qwen3_tts.core.http_client import server_request
 
         tick = 0
+        start_time = time.monotonic()
         while not self._stop.is_set():
+            spinner = self.SPINNER[tick % len(self.SPINNER)]
+            if self._elapsed_only:
+                # No server to poll — tick elapsed time only (local path).
+                elapsed = time.monotonic() - start_time
+                line = f"\r{spinner} Generating audio... {elapsed:.0f}s elapsed"
+                sys.stderr.write(line)
+                sys.stderr.flush()
+                tick += 1
+                self._stop.wait(1.0)
+                continue
             try:
                 resp = server_request("GET", "/generation-status", timeout=2)
                 if resp.status_code == 200:
@@ -339,7 +387,7 @@ class _ProgressPoller:
                     if state.get("active"):
                         elapsed = state.get("elapsed_sec", 0)
                         eta = state.get("eta_sec")
-                        spinner = self.SPINNER[tick % len(self.SPINNER)]
+                        pct = state.get("progress_pct")
 
                         # Chunk progress suffix
                         chunk_total = state.get("chunk_total", 0)
@@ -348,7 +396,11 @@ class _ProgressPoller:
                             chunk_idx = state.get("chunk_index", 0) + 1
                             chunk_suffix = f" [chunk {chunk_idx}/{chunk_total}]"
 
-                        if self.batch_total > 1:
+                        if self.stream:
+                            # Streaming never renders a percent: the audio IS
+                            # the progress; chunk counts are counts.
+                            line = f"\r{spinner} Streaming... {elapsed:.0f}s elapsed{chunk_suffix}"
+                        elif self.batch_total > 1:
                             idx = state.get("batch_index", 0) + 1
                             if eta is not None:
                                 total_est = elapsed + eta
@@ -362,11 +414,17 @@ class _ProgressPoller:
                                 line = f"\r{spinner} [{idx}/{self.batch_total}] Generating... {elapsed:.0f}s / ~{elapsed + eta:.0f}s [{bar}] {pct}%{chunk_suffix}"
                             else:
                                 line = f"\r{spinner} [{idx}/{self.batch_total}] Generating... {elapsed:.0f}s elapsed{chunk_suffix}"
+                        elif pct is not None:
+                            # Determinate only from the server's own
+                            # progress_pct (authed payload); never synthesized
+                            # from chunk_index (plan D2).
+                            bar_filled = int(pct) // 5
+                            bar = "=" * bar_filled + ">" + " " * (19 - bar_filled)
+                            line = f"\r{spinner} Generating... {pct:.0f}% [{bar}] {elapsed:.0f}s elapsed{chunk_suffix}"
+                        elif eta is not None:
+                            line = f"\r{spinner} Generating... {elapsed:.0f}s elapsed (ETA ~{eta:.0f}s){chunk_suffix}"
                         else:
-                            if eta is not None:
-                                line = f"\r{spinner} Generating... {elapsed:.0f}s elapsed (ETA ~{eta:.0f}s){chunk_suffix}"
-                            else:
-                                line = f"\r{spinner} Generating... {elapsed:.0f}s elapsed{chunk_suffix}"
+                            line = f"\r{spinner} Generating... {elapsed:.0f}s elapsed{chunk_suffix}"
 
                         sys.stderr.write(line)
                         sys.stderr.flush()

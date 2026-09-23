@@ -198,6 +198,7 @@ class TestGenerateViaServer(unittest.TestCase):
         with patches["url"], patches["payload"], patches["poller"], \
              patch("qwen3_tts.core.http_client.server_request", side_effect=[resp_503, resp_200]), \
              patch("builtins.input", return_value="y"), \
+             patch("sys.stdin", MagicMock(isatty=lambda: True)), \
              patch(f"{_MOD}.load_model_on_server", return_value=True):
             results = generate_via_server(["Hi"], "clone", _CONFIG, {})
         self.assertEqual(results, [{"audio": "ok"}])
@@ -264,6 +265,7 @@ class TestGenerateViaServer(unittest.TestCase):
              patch("qwen3_tts.core.http_client.server_request",
                    side_effect=[resp_503, resp_200]) as mock_req, \
              patch("builtins.input", return_value="y"), \
+             patch("sys.stdin", MagicMock(isatty=lambda: True)), \
              patch(f"{_MOD}.load_model_on_server", return_value=True):
             generate_via_server(long_texts, "clone", _CONFIG, {})
         expected = _generation_timeout(12000)
@@ -833,6 +835,7 @@ class TestGenerateViaServerExtended(unittest.TestCase):
         with patches["url"], patches["payload"], patches["poller"], \
              patch("qwen3_tts.core.http_client.server_request", return_value=resp_503), \
              patch("builtins.input", return_value="n"), \
+             patch("sys.stdin", MagicMock(isatty=lambda: True)), \
              patch("builtins.print"):
             with self.assertRaises(Exception) as ctx:
                 generate_via_server(["Hi"], "clone", _CONFIG, {})
@@ -849,6 +852,7 @@ class TestGenerateViaServerExtended(unittest.TestCase):
         with patches["url"], patches["payload"], patches["poller"], \
              patch("qwen3_tts.core.http_client.server_request", return_value=resp_503), \
              patch("builtins.input", return_value="y"), \
+             patch("sys.stdin", MagicMock(isatty=lambda: True)), \
              patch(f"{_MOD}.load_model_on_server", return_value=False), \
              patch("builtins.print"):
             with self.assertRaises(Exception) as ctx:
