@@ -332,7 +332,8 @@ class TestPrintHelpers(unittest.TestCase):
         from qwen3_tts.tools.healthcheck import _print_header
         with patch("builtins.print") as mock_print:
             _print_header("Test")
-        self.assertEqual(mock_print.call_count, 2)
+        # T2.3: delegates to cli_output.header — one multi-line print.
+        self.assertEqual(mock_print.call_count, 1)
 
     def test_print_check_pass(self):
         from qwen3_tts.tools.healthcheck import _print_check
