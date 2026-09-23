@@ -114,6 +114,11 @@ class TestThemeStylesheet(unittest.TestCase):
         # JS-bridge components rely on it (visible=False is banned for them).
         self.assertRegex(self.css, r"\.gr-hidden\s*\{[^}]*display:\s*none\s*!important")
 
+    def test_action_cells_suppress_selection_highlight(self):
+        for col in (6, 7):
+            with self.subTest(col=col):
+                self.assertIn(f".tts-history td:nth-child({col})::selection", self.css)
+
     def test_never_transitions_all_properties(self):
         self.assertNotRegex(self.css, r"transition(-property)?\s*:\s*all\b")
 

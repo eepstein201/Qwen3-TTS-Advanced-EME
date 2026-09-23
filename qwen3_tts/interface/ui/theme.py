@@ -68,6 +68,8 @@ UI_CSS = (
     f"transition-duration:{var('dur_fast')};}}"
     ".tts-history td:nth-child(6):hover,.tts-history td:nth-child(7):hover"
     f"{{background-color:{var('accent_soft')};}}"
+    ".tts-history td:nth-child(6)::selection,.tts-history td:nth-child(7)::selection"
+    "{background:transparent;}"
     + _severity_rules()
     + f".tts-empty{{color:{var('text_subtle')};text-align:center;padding:16px;"
     f"border:1px dashed {var('border')};border-radius:{var('radius_md')};}}"

@@ -679,17 +679,12 @@ def get_history_data(history_list, armed_delete_path=None, armed_download_path=N
     Returns:
         List of [time, mode, text, seed, chunks, remove, download] rows.
     """
-    import datetime
-
     if not history_list:
         return []
 
     rows = []
     for entry in history_list:
-        ts = entry.get("timestamp", 0)
-        time_str = (
-            datetime.datetime.fromtimestamp(ts).strftime("%H:%M:%S") if ts else ""
-        )
+        time_str = format_history_time(entry.get("timestamp", 0))
         seed_val = entry.get("seed")
         seed_str = str(seed_val) if seed_val is not None else "-"
         is_armed_delete = (

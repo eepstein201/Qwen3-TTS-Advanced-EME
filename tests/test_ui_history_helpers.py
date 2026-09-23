@@ -129,6 +129,40 @@ class TestGetHistoryDataRemoveColumn(unittest.TestCase):
         self.assertEqual(rows[0][4], 2)
 
 
+class TestGetHistoryDataTimeColumn(unittest.TestCase):
+    """T1.5: the time cell is date-aware; the 7-column shape is unchanged."""
+
+    def _row(self, ts):
+        from qwen3_tts.interface.ui.shared import get_history_data
+
+        entry = {"timestamp": ts, "mode": "clone", "text": "hi", "path": "/x.wav"}
+        return get_history_data([entry])[0]
+
+    def test_other_day_carries_the_date(self):
+        from qwen3_tts.interface.ui.shared import format_history_time
+
+        row = self._row(1710000000)
+        self.assertEqual(row[0], format_history_time(1710000000))
+        self.assertRegex(row[0], r"^[A-Z][a-z]{2} \d{1,2} \d\d:\d\d$")
+
+    def test_missing_timestamp_is_the_em_dash(self):
+        self.assertEqual(self._row(0)[0], "—")
+
+    def test_shape_stays_seven_columns(self):
+        self.assertEqual(len(self._row(1710000000)), 7)
+
+
+class TestFormatHistoryTimeFuture(unittest.TestCase):
+    def test_future_day_carries_the_date(self):
+        import datetime
+
+        from qwen3_tts.interface.ui.shared import format_history_time
+
+        now = datetime.datetime(2026, 9, 6, 18, 0, 0).timestamp()
+        ts = datetime.datetime(2026, 9, 8, 9, 5, 0).timestamp()
+        self.assertEqual(format_history_time(ts, now=now), "Sep 8 09:05")
+
+
 class TestHistoryLock(unittest.TestCase):
     """history_lock is a usable threading lock shared across modules."""
 
