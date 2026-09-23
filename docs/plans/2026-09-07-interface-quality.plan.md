@@ -111,6 +111,8 @@ Branch-internal order: **T1.0 → T1.1 → T1.2 → T1.3 → {T1.4, T1.5, T1.8} 
 
 ### Task 1.1: `ui/theme.py` design layer + single CSS wiring — M
 
+> **Executed deviation (2026-09-23):** gradio 6.20 removed `css`/`theme` from `gr.Blocks()` (deprecated kwargs; `launch()` owns them), so the wiring is inverted: `get_gradio_launch_kwargs()` stays the single source and carries `css=theme.UI_CSS` (the plan's `BLOCKS_CSS`, renamed; it also absorbs the `.gr-hidden` rule). `_facade.py` Blocks is untouched apart from `history_df` `elem_classes`. The Colab notebook launch (which bypasses the helper) now passes the same `theme`/`css` — it previously had no `.gr-hidden` rule at all.
+
 **Files:**
 - Create: `qwen3_tts/interface/ui/theme.py` (import-light: stdlib only)
 - Modify: `qwen3_tts/interface/ui/_facade.py:233` (Blocks gets `css=`/`theme=`), `:375` (`history_df` gets `elem_classes=["tts-history"]`)

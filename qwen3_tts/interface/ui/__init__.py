@@ -8,6 +8,7 @@ Modules:
 - _facade: Main entry points (build_ui, main, stop_server)
 - components: Reusable UI widgets (ConfirmButton, StatusBanner, ...)
 - shared: Shared utilities, constants, status helpers
+- theme: Design tokens and the launch stylesheet (UI_CSS)
 - generation: Generation tab logic and wiring
 - voice_management: Voice prompt creation and management
 - model_management: Model load/unload and status
@@ -149,6 +150,7 @@ _SUBMODULES = {
     "history_panel",
     "tabs_generation",
     "tabs_management",
+    "theme",
 }
 
 

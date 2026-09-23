@@ -446,6 +446,7 @@ def build_ui():
             value=[],
             interactive=False,
             wrap=True,
+            elem_classes=["tts-history"],
         )
         gr.HTML(value=get_player_html("history"))
         history_audio_url = gr.Audio(elem_classes=["gr-hidden"])

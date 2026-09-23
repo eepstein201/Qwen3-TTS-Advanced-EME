@@ -30,6 +30,7 @@ from qwen3_tts.core.config import (
     safe_path_join,
 )
 from qwen3_tts.core.engine.audio_processing import DEFAULT_SAMPLE_RATE
+from qwen3_tts.interface.ui import theme
 
 logger = logging.getLogger("tts.ui")
 
@@ -979,7 +980,7 @@ def get_gradio_launch_kwargs(config: dict, *, share: bool = False) -> dict:
         "server_name": "0.0.0.0" if IN_COLAB else "127.0.0.1",  # nosec B104  # Colab only
         "allowed_paths": allowed,
         "theme": gr.themes.Soft(),
-        "css": ".gr-hidden { display: none !important; height: 0 !important; overflow: hidden !important; }",
+        "css": theme.UI_CSS,
     }
     if not share:
         return kwargs
