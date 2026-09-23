@@ -641,6 +641,56 @@ class TestConfirmHandlerContracts(unittest.TestCase):
 
         toggle_model.assert_called_once_with("clone", "unload")
 
+    def _voice_rename_handler(self):
+        from qwen3_tts.interface.ui.tabs_management import _build_manage_voices_tab
+
+        return self._handler_from_tab(
+            _build_manage_voices_tab,
+            "on_rename_click",
+            gr.Dropdown(choices=[], label="prompt"),
+        )
+
+    def test_rename_first_click_arms_without_renaming(self):
+        handler, outputs = self._voice_rename_handler()
+
+        with patch(
+            "qwen3_tts.interface.ui.voice_management.rename_voice"
+        ) as rename_voice:
+            result = handler({"armed": False, "ts": 0.0}, "old-voice", " new-voice ")
+
+        rename_voice.assert_not_called()
+        self.assertEqual(len(result), len(outputs))
+        self.assertIsInstance(result[0], dict)
+        self.assertTrue(result[0]["armed"])
+        self.assertEqual(result[1]["value"], "Confirm Rename? (click again)")
+        self.assertIn("Rename 'old-voice' to 'new-voice'?", result[2])
+
+    def test_rename_second_click_within_window_renames(self):
+        handler, _ = self._voice_rename_handler()
+        first = handler({"armed": False, "ts": 0.0}, "old-voice", "new-voice")
+
+        with patch(
+            "qwen3_tts.interface.ui.voice_management.rename_voice",
+            return_value=("Renamed", [["new-voice"]], "dropdown"),
+        ) as rename_voice:
+            result = handler(first[0], "old-voice", "new-voice")
+
+        rename_voice.assert_called_once_with("old-voice", "new-voice")
+        self.assertFalse(result[0]["armed"])
+        self.assertEqual(result[2:], ("Renamed", [["new-voice"]], "dropdown"))
+
+    def test_rename_after_timeout_rearms_instead_of_renaming(self):
+        handler, _ = self._voice_rename_handler()
+        expired = {"armed": True, "ts": time.time() - 60}
+
+        with patch(
+            "qwen3_tts.interface.ui.voice_management.rename_voice"
+        ) as rename_voice:
+            result = handler(expired, "old-voice", "new-voice")
+
+        rename_voice.assert_not_called()
+        self.assertTrue(result[0]["armed"])
+
 
 if __name__ == "__main__":
     unittest.main()

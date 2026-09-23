@@ -222,6 +222,41 @@ class TestPreviewVoice(unittest.TestCase):
 
 
 @unittest.skipUnless(HAS_GRADIO, "requires gradio")
+class TestPreviewLoadingState(unittest.TestCase):
+    """T1.9: Preview shows a loading status before the blocking GET, then clears it."""
+
+    def _preview_chain(self):
+        from qwen3_tts.interface.ui import voice_management
+        from qwen3_tts.interface.ui.tabs_management import _build_manage_voices_tab
+
+        with gr.Blocks() as demo:
+            _build_manage_voices_tab(gr.Dropdown(choices=[], label="prompt"))
+        fns = list(demo.fns.values())
+        idx = next(
+            i for i, f in enumerate(fns) if f.fn is voice_management.preview_voice
+        )
+        return fns[idx - 1], fns[idx], fns[idx + 1]
+
+    def test_loading_step_precedes_preview_on_the_same_status(self):
+        loading, preview, restore = self._preview_chain()
+
+        self.assertEqual(preview.targets[0][1], "then")
+        self.assertEqual(loading.outputs, restore.outputs)
+        self.assertIsInstance(loading.outputs[0], gr.Textbox)
+        update = loading.fn("alice")
+        self.assertEqual(update["value"], "Previewing alice…")
+        self.assertEqual(update["elem_classes"], ["tts-sev-loading"])
+
+    def test_restore_step_clears_the_loading_status(self):
+        _, _, restore = self._preview_chain()
+
+        update = restore.fn()
+        self.assertEqual(update["value"], "")
+        self.assertEqual(update["elem_classes"], [])
+        self.assertEqual(restore.targets[0][1], "then")
+
+
+@unittest.skipUnless(HAS_GRADIO, "requires gradio")
 class TestRenameVoice(unittest.TestCase):
 
     def test_no_old_name_raises(self):

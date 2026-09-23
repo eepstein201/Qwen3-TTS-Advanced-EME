@@ -1031,6 +1031,7 @@ class TestOnClearHistoryClick(unittest.TestCase):
         import time
 
         from qwen3_tts.interface.ui._facade import on_clear_history_click
+        from qwen3_tts.interface.ui.shared import empty_history_rows
 
         # Armed + recent timestamp -> confirm_step confirms within 5s window.
         state = {"armed": True, "ts": time.time()}
@@ -1053,7 +1054,7 @@ class TestOnClearHistoryClick(unittest.TestCase):
             )
         self.assertFalse(new_state["armed"])  # disarmed after action
         self.assertEqual(hist, [])  # history_state cleared
-        self.assertEqual(df, [])  # table re-rendered empty
+        self.assertEqual(df, empty_history_rows())  # table re-renders the placeholder
         self.assertIsNone(
             audio
         )  # player cleared via None ("" crashes Audio postprocess)
@@ -1067,13 +1068,14 @@ class TestOnClearHistoryClick(unittest.TestCase):
         import time
 
         from qwen3_tts.interface.ui._facade import on_clear_history_click
+        from qwen3_tts.interface.ui.shared import empty_history_rows
 
         state = {"armed": True, "ts": time.time()}
         _new_state, _btn, df, hist, _audio, _status, _payload = on_clear_history_click(
             state, None
         )
         self.assertEqual(hist, [])
-        self.assertEqual(df, [])
+        self.assertEqual(df, empty_history_rows())
 
 
 class TestFormatStatusDisplayEscaping(unittest.TestCase):

@@ -53,6 +53,7 @@ from qwen3_tts.interface.ui.model_management import (
 # Import from sibling modules
 from qwen3_tts.interface.ui.shared import (
     apply_model_settings,
+    empty_history_rows,
     format_status_display,
     get_current_model_settings,
 )
@@ -456,7 +457,7 @@ def build_ui():
                 "Remove",
                 "Download",
             ],
-            value=[],
+            value=empty_history_rows(),
             interactive=False,
             wrap=True,
             elem_classes=["tts-history"],

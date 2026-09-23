@@ -667,6 +667,11 @@ def clear_history(history_list=None):
     return []
 
 
+def empty_history_rows() -> list[list[str]]:
+    """One placeholder row for an empty history table (7 columns, blank actions)."""
+    return [["—", "", "No generations yet — generated audio appears here", "", "", "", ""]]
+
+
 def get_history_data(history_list, armed_delete_path=None, armed_download_path=None):
     """Convert history list to list-of-lists format.
 
@@ -680,7 +685,7 @@ def get_history_data(history_list, armed_delete_path=None, armed_download_path=N
         List of [time, mode, text, seed, chunks, remove, download] rows.
     """
     if not history_list:
-        return []
+        return empty_history_rows()
 
     rows = []
     for entry in history_list:

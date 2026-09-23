@@ -163,6 +163,43 @@ class TestFormatHistoryTimeFuture(unittest.TestCase):
         self.assertEqual(format_history_time(ts, now=now), "Sep 8 09:05")
 
 
+class TestEmptyHistoryRows(unittest.TestCase):
+    """T1.9: an empty history renders one 7-column placeholder row, not a blank grid."""
+
+    def test_placeholder_is_one_seven_column_row(self):
+        from qwen3_tts.interface.ui.shared import empty_history_rows
+
+        rows = empty_history_rows()
+        self.assertEqual(len(rows), 1)
+        self.assertEqual(len(rows[0]), 7)
+        self.assertTrue(all(isinstance(cell, str) for cell in rows[0]))
+        self.assertIn("No generations yet", rows[0][2])
+
+    def test_placeholder_leaves_the_action_cells_blank(self):
+        from qwen3_tts.interface.ui.shared import empty_history_rows
+
+        self.assertEqual(empty_history_rows()[0][5:], ["", ""])
+
+    def test_empty_history_data_is_the_placeholder(self):
+        from qwen3_tts.interface.ui.shared import empty_history_rows, get_history_data
+
+        for history in ([], None):
+            with self.subTest(history=history):
+                self.assertEqual(get_history_data(history), empty_history_rows())
+
+    def test_history_table_starts_on_the_placeholder(self):
+        from qwen3_tts.interface.ui._facade import build_ui
+        from qwen3_tts.interface.ui.shared import empty_history_rows
+
+        config = build_ui().get_config_file()
+        (history,) = [
+            c for c in config["components"]
+            if c.get("type") == "dataframe"
+            and "Remove" in (c.get("props", {}).get("headers") or [])
+        ]
+        self.assertEqual(history["props"]["value"]["data"], empty_history_rows())
+
+
 class TestHistoryLock(unittest.TestCase):
     """history_lock is a usable threading lock shared across modules."""
 

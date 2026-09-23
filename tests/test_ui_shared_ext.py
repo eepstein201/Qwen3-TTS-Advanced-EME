@@ -362,8 +362,8 @@ class TestHistoryFunctions(unittest.TestCase):
         self.assertEqual(result[0]["text"], "new")
 
     def test_get_history_data_empty(self):
-        from qwen3_tts.interface.ui.shared import get_history_data
-        self.assertEqual(get_history_data([]), [])
+        from qwen3_tts.interface.ui.shared import empty_history_rows, get_history_data
+        self.assertEqual(get_history_data([]), empty_history_rows())
 
     def test_get_history_data_formats(self):
         from qwen3_tts.interface.ui.shared import get_history_data
