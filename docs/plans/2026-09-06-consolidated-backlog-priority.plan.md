@@ -1700,6 +1700,17 @@ analysis rather than duplicated as a new step.)*
 - **Exit criteria:** Phase 1 tasks all landed; the public `/generation-status` payload
   byte-identical; the fabricated-progress defect regression-tested away; CLAUDE.md UI section
   updated.
+- **Status: DONE (PR #344, merge `29e260ea`, merged 2026-09-23).** Exit criteria met: T1.0–T1.9
+  all landed; public payload pinned byte-identical by `tests/test_generation_status_authed.py`
+  (both sides, wrong-token==absent); fabricated-progress defect regression-tested away
+  (`ce44c0e6`); CLAUDE.md UI section updated (`8135dc6e`). Gate B adversarial review APPROVE
+  (0 CRITICAL/HIGH; one test-only dead helper removed post-review, `e4c59074`). Local gates:
+  batches 2/3/4 green in both gradio env shapes (6.20 / 6.22); CI green on head `69de528e`
+  (Tests, coverage ×2, CodeQL ×3, Bandit, OSV, audio, docker) after one CI-caught stale pin
+  (`'0.0MB'`→`'0.0 MB'`, `69de528e` — batch-2 cross-consumer of `shared.get_server_status`, gap
+  banked in memory). Deferred review findings A–D recorded in the interface plan's Phase 1
+  close note (`docs/plans/2026-09-07-interface-quality.plan.md`), follow-up A (cross-tab timer
+  disarm race) targeted at Phase 2.
 
 ### Step 7B — Phase 2: CLI consistency
 
