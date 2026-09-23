@@ -217,6 +217,8 @@ Verified against installed gradio: `Timer(value, *, active, ...)` accepts `activ
 - [ ] **Step 4 (GREEN):** implement poller + timer plumbing; pass through `tabs_generation.py`; create the shared Timer in `_facade.py`. Run new tests + `tests/test_ui_generation_ext.py` (chain-arity) + `tests/test_ui_facade.py` + `tests/test_ui_headless.py` → PASS.
 - [ ] **Step 5:** wiring test (pattern of `tests/test_ui_tab_select_wiring.py`): generate chain contains a `.then` arming the timer and the terminal step disarms it. Gates + batch-4 registration. Commit: `feat(ui): live generation progress via authed generation-status`.
 
+> **Executed deviations (2026-09-23):** (1) The poller does NOT pre-check `is_server_running` — that is itself a `/health` GET, doubling the budget to 60/min; a failed `/generation-status` request already degrades to `""`. (2) The shared Timer gets one `tick` listener per tab (`_poll_progress_for_tab`), each gated on that tab's own `gen_guard_state["generating"]` (the guards are per-tab), so idle tabs make no HTTP call and write no HTML. (3) The 20-minute hard cap disarms through the tick's second output (`gr.Timer(active=False)`); otherwise the tick returns `gr.skip()` for the timer. Known caveat: if two tabs ever generate concurrently, the first to finish disarms the shared timer for both (server-side `inference_lock` serializes them anyway).
+
 ### Task 1.7: Outcome severity routing (on the existing Textbox) — M
 
 **Design decision (D6):** the status Textbox is *styled into* a banner via `elem_classes` — NOT swapped for `gr.HTML`. A `gr.HTML` takes raw innerHTML (today's `f"Error: {e}"` strings are safe only because Textbox escapes), and a swap breaks `_announce_status` input plus ~5 exact-equality assertions. Visual consistency is achieved through **shared tokens** (`StatusBanner` and `.tts-sev-*` classes read the same `theme.var` values), not a shared component.
@@ -251,6 +253,8 @@ def status_update(message: str, severity: Severity | None = None) -> dict:
 **Steps:**
 - [ ] **Step 1 (RED):** player JS contains no `<style>` tag; contains `tts-num`, `--tts-focus`, `scale(0.96)`; `BLOCKS_CSS` contains `.ws-btn`. Existing CDN/self-host/security tests (`test_wavesurfer_security.py`, `test_wavesurfer_selfhost.py`) enumerated as must-stay-green. Run → FAIL.
 - [ ] **Step 2 (GREEN):** move styles, delete inline blocks. Run all wavesurfer tests → PASS. Gates. Commit: `refactor(ui): wavesurfer styling onto shared tokens`.
+
+> **Executed deviation (2026-09-23):** `BLOCKS_CSS` is `theme.UI_CSS` (T1.1 rename), so the `--tts-focus` / `scale(0.96)` assertions pin the `.ws-btn` rules in `UI_CSS`, not the player JS — the JS now emits markup only, which is the point of the dedup.
 
 ### Task 1.9: Empty states, dead code, confirm + loading affordances — M
 
