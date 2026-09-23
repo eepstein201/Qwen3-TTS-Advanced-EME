@@ -707,7 +707,7 @@ def delete_generation_files(path: str, config: dict) -> bool:
     if not resolved.startswith(root + os.sep):
         logger.warning("Refusing to delete %r: outside Automated Output", path)
         return False
-    for target in (resolved, resolved.replace(".wav", ".json")):
+    for target in (resolved, os.path.splitext(resolved)[0] + ".json"):
         try:
             os.remove(target)
         except FileNotFoundError:
@@ -772,7 +772,7 @@ def save_generation_metadata(wav_path: str, metadata: dict) -> None:
     if not (resolved_wav == home or resolved_wav.startswith(home + os.sep)):
         raise ValueError(f"wav_path must be under home directory: {wav_path}")
 
-    json_path = safe_wav_path.replace(".wav", ".json")
+    json_path = os.path.splitext(safe_wav_path)[0] + ".json"
     with open(json_path, "w") as f:
         json_mod.dump(metadata, f, indent=2)
 
@@ -808,7 +808,7 @@ def load_history_from_disk(output_dir: str) -> list:
     json_files = glob.glob(os.path.join(safe_output_dir, "voice_ui_*.json"))
     entries: list = []
     for jf in json_files:
-        wav_path = jf.replace(".json", ".wav")
+        wav_path = os.path.splitext(jf)[0] + ".wav"
         if not os.path.exists(wav_path):
             continue
         try:
