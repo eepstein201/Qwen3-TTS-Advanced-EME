@@ -293,6 +293,7 @@ class TestGenerationCancelProgress(unittest.TestCase):
                 "active": True,
                 "chunk_index": 1,
                 "chunk_total": 20,
+                "progress_pct": 5.0,
                 "eta_sec": 45,
             },
         )
@@ -319,6 +320,7 @@ class TestGenerationCancelProgress(unittest.TestCase):
                 "active": True,
                 "chunk_index": 12,
                 "chunk_total": 20,
+                "progress_pct": 60.0,
                 "eta_sec": 18,
             },
         )

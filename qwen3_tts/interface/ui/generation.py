@@ -149,21 +149,32 @@ def _prepare_cancel_confirmation():
         if not status.get("active", False):
             return "No active generation", True, 0, 0, "N/A"
 
-        # Calculate progress percentage
-        chunk_index = status.get("chunk_index", 0)
-        chunk_total = status.get("chunk_total", 1)
-        progress_pct = int(chunk_index / chunk_total * 100) if chunk_total > 0 else 0
+        # progress_pct is present only for authed callers while progress is
+        # known; never derive a percent from chunk_index alone. Unknown
+        # progress takes the confirm path (the safe default).
+        progress_pct = status.get("progress_pct")
+        if progress_pct is None:
+            return (
+                "Stop generation?\nProgress: unknown\nChunks: n/a\nETA: n/a",
+                False,
+                0,
+                0,
+                None,
+            )
 
-        chunks = chunk_index
-        eta = status.get("eta_sec", "N/A")
+        chunks = status.get("chunk_index", 0)
+        chunk_total = status.get("chunk_total")
+        eta = status.get("eta_sec")
 
         # Fast path: <10% progress, no confirmation needed
         if progress_pct < 10:
             return "Stopping...", True, progress_pct, chunks, eta
 
+        chunks_str = f"{chunks}/{chunk_total}" if chunk_total else str(chunks)
         # Full confirmation required
         return (
-            f"Stop generation?\nProgress: {progress_pct}%\nChunks: {chunks}\nETA: {eta}s",
+            f"Stop generation?\nProgress: {progress_pct:.0f}%\n"
+            f"Chunks: {chunks_str}\nETA: {shared.fmt_eta(eta)}",
             False,  # requires confirmation
             progress_pct,
             chunks,

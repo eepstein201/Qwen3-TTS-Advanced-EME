@@ -220,6 +220,7 @@ BATCHES = {
             "tests.test_ui_voice_mgmt",
             "tests.test_ui_create_voice_prompt_torch",
             "tests.test_ui_generation_ext",
+            "tests.test_ui_generation_progress",
             "tests.test_fastapi_app_ext",
             "tests.test_wavesurfer_js",
             "tests.test_wavesurfer_security",
