@@ -135,6 +135,37 @@ class TestProgressIndicatorXSSSafe(unittest.TestCase):
 # ---------------------------------------------------------------------------
 
 @_skip
+class TestProgressIndicatorThemeTokens(unittest.TestCase):
+    """T1.2: progressbar colours and radii come from the theme layer."""
+
+    def setUp(self):
+        from qwen3_tts.interface.ui import theme
+
+        self.theme = theme
+
+    def _render(self, **kwargs):
+        from qwen3_tts.interface.ui.components import ProgressIndicator
+
+        return ProgressIndicator(**kwargs).render()
+
+    def test_bounded_bar_uses_loading_token_and_keeps_width_transition(self):
+        html = self._render(mode="bounded", percent=40, message="Loading")
+        self.assertIn(f"background:{self.theme.var('loading')}", html)
+        self.assertIn("transition:width 200ms ease-out", html)
+
+    def test_concentric_radii(self):
+        html = self._render(mode="bounded", percent=40, message="Loading")
+        self.assertIn(f"border-radius:{self.theme.var('radius_lg')}", html)
+        self.assertIn(f"border-radius:{self.theme.var('radius_sm')}", html)
+
+    def test_no_raw_hex_colours_outside_tokens(self):
+        for kwargs in ({"mode": "bounded", "percent": 40}, {"mode": "indeterminate"}):
+            html = self._render(message="Loading", **kwargs)
+            for token in self.theme.TOKENS:
+                html = html.replace(self.theme.var(token), "")
+            self.assertNotRegex(html, r"#[0-9a-fA-F]{3,6}\b")
+
+
 class TestPollModelLoadProgress(unittest.TestCase):
     """poll_model_load_progress returns structured progress dict."""
 

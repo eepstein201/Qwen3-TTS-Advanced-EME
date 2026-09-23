@@ -16,6 +16,7 @@ Run: pytest tests/test_ui_status_banner.py -v
 """
 
 import threading
+import unittest
 
 try:
     import pytest
@@ -383,3 +384,59 @@ def test_get_model_status_html_reflects_models_endpoint_not_config():
     assert "Loaded (" not in html
     # Must show loading/in-progress state
     assert "Loading" in html or "loading" in html.lower()
+
+
+def _strip_token_refs(html):
+    """Remove every theme.var() reference so leftover raw hex is detectable."""
+    from qwen3_tts.interface.ui import theme
+
+    for token in theme.TOKENS:
+        html = html.replace(theme.var(token), "")
+    return html
+
+
+class TestStatusBannerThemeTokens(unittest.TestCase):
+    """T1.2: banner/badge colours and radii come from the theme layer."""
+
+    def setUp(self):
+        from qwen3_tts.interface.ui import theme
+        from qwen3_tts.interface.ui.components import StatusBanner
+
+        self.theme = theme
+        self.banner = StatusBanner()
+
+    def test_each_severity_uses_its_token(self):
+        for severity in ("info", "success", "warning", "error", "loading"):
+            with self.subTest(severity=severity):
+                html = self.banner.render("msg", severity)
+                self.assertIn(f"color:{self.theme.var(severity)}", html)
+
+    def test_loading_is_not_rendered_in_the_info_colour(self):
+        html = self.banner.render("msg", "loading")
+        self.assertNotIn(self.theme.var("info"), html)
+
+    def test_outer_surface_uses_the_large_radius(self):
+        html = self.banner.render("msg", "info")
+        self.assertIn(f"border-radius:{self.theme.var('radius_lg')}", html)
+
+    def test_no_raw_hex_colours_outside_tokens(self):
+        for severity in ("info", "error", "loading"):
+            html = _strip_token_refs(self.banner.render("msg", severity))
+            self.assertNotRegex(html, r"#[0-9a-fA-F]{3,6}\b")
+
+    def test_status_badge_uses_tokens(self):
+        from qwen3_tts.interface.ui.components import status_badge
+
+        html = status_badge("Loaded", "success")
+        self.assertIn(self.theme.var("success"), html)
+        self.assertNotRegex(_strip_token_refs(html), r"#[0-9a-fA-F]{3,6}\b")
+
+    def test_empty_placeholder_keeps_its_min_height(self):
+        self.assertIn("min-height:1.5rem", self.banner.render("", "info"))
+
+    def test_severity_class(self):
+        from qwen3_tts.interface.ui.components import severity_class
+
+        self.assertEqual(severity_class("error"), "tts-sev-error")
+        self.assertEqual(severity_class("loading"), "tts-sev-loading")
+        self.assertEqual(severity_class("bogus"), "tts-sev-info")
