@@ -6,7 +6,11 @@ This module handles parsing and processing of SRT subtitle files.
 
 import os
 
-from qwen3_tts.core.config import get_default_clone_prompt, safe_path_join
+from qwen3_tts.core.config import (
+    InvalidInputError,
+    get_default_clone_prompt,
+    safe_path_join,
+)
 from qwen3_tts.interface.generate import (
     _decode_base64_result,
     generate_local,
@@ -36,8 +40,7 @@ def process_srt_file(srt_path, config, args, gen_params, use_server):
 
     entries = parse_srt(srt_path)
     if not entries:
-        print(f"Error: No subtitles found in {srt_path}")
-        return
+        raise InvalidInputError(f"No subtitles found in {srt_path}")
 
     # Security: validate output directory against path traversal
     base_raw = config.get("output_directory", "~/Downloads")

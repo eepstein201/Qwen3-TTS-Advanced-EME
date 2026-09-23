@@ -101,6 +101,7 @@ BATCHES = {
             "tests.test_cli_daemonization",
             "tests.test_cli_commands",
             "tests.test_cli_output",
+            "tests.test_cli_error_boundary",
             "tests.test_cli_batch",
             "tests.test_cli_dialogue",
             "tests.test_cli_srt",

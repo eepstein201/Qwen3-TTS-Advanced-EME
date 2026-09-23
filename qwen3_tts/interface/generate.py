@@ -737,8 +737,9 @@ def _handle_generation(args, config, gen_params, use_server, max_chunk_chars):
 
     output_name = args.output or "tts_output.wav"
     if ".." in output_name or output_name.startswith("/"):
-        print(f"Error: Invalid output path: {output_name}")
-        return use_server
+        from qwen3_tts.core.config import TTSError
+
+        raise TTSError(f"Invalid output path: {output_name}", recovery="config")
     if not output_name.endswith(".wav"):
         output_name += ".wav"
     output_dir = os.path.expanduser(config.get("output_directory", "~/Downloads"))

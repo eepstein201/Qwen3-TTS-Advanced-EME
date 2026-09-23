@@ -40,7 +40,26 @@ from qwen3_tts.core.config import VALID_MODEL_SIZES
 
 
 class TTSGroup(click.Group):
-    """Routes bare `tts "Hello"` to the generate subcommand."""
+    """Routes bare `tts "Hello"` to the generate subcommand.
+
+    Also the CLI-wide exception boundary (T2.2): TTSError/TTSGenericError
+    from any command render one clean cli_output.error line and exit 1;
+    Click's own UsageError/Abort pass through untouched. Exit codes:
+    0 success · 1 error · 2 completed via the server (reserved, treat
+    as success — pinned by tests/test_cli_commands.py).
+    """
+
+    def invoke(self, ctx):
+        from qwen3_tts import cli_output
+        from qwen3_tts.core.config import TTSError
+        from qwen3_tts.interface.generate_server import TTSGenericError
+
+        try:
+            return super().invoke(ctx)
+        except (TTSError, TTSGenericError) as exc:
+            message = exc.format_cli() if isinstance(exc, TTSError) else f"Error: {exc}"
+            cli_output.error(message)
+            raise SystemExit(1) from exc
 
     def parse_args(self, ctx, args):
         # Strip --_server-mode before routing (it's a generate-level flag)
@@ -118,7 +137,11 @@ _FLAG_MAP = {
 
 
 def _call_generate(text=(), **kwargs):
-    """Translate Click kwargs to argparse-style sys.argv and call generate main()."""
+    """Translate Click kwargs to argparse-style sys.argv and call generate main().
+
+    Exit contract: generate.main() returning True means "completed via the
+    server" — exit 2, deliberately not 0 (pinned; treat 2 as success).
+    """
     argv = []
     for key, (flag, typ) in _FLAG_MAP.items():
         val = kwargs.get(key)

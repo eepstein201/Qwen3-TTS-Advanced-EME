@@ -160,15 +160,17 @@ class TestProcessSrtLocalMode(unittest.TestCase):
 class TestProcessSrtEdgeCases(unittest.TestCase):
     """Edge case tests for process_srt_file."""
 
-    def test_empty_srt_prints_error(self):
-        """Empty SRT file prints error and returns None."""
+    def test_empty_srt_raises_invalid_input(self):
+        """Empty SRT file raises InvalidInputError (exit 1 via the T2.2 boundary)."""
+        from qwen3_tts.core.config import InvalidInputError
+
         with tempfile.TemporaryDirectory(dir=os.path.expanduser("~")) as tmpdir:
             srt_path = _write_srt(tmpdir, content="")
             args = _make_args(output=tmpdir)
             config = {"language": "English"}
-            with patch("builtins.print"):
-                result = process_srt_file(srt_path, config, args, {}, use_server=True)
-            self.assertIsNone(result)
+            with self.assertRaises(InvalidInputError) as raised:
+                process_srt_file(srt_path, config, args, {}, use_server=True)
+            self.assertIn(srt_path, raised.exception.user_message)
 
     @patch(f"{_MOD}.play_audio")
     @patch("soundfile.write")
