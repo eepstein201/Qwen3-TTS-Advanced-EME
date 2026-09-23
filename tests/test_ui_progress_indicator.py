@@ -166,6 +166,25 @@ class TestProgressIndicatorThemeTokens(unittest.TestCase):
             self.assertNotRegex(html, r"#[0-9a-fA-F]{3,6}\b")
 
 
+class TestProgressIndicatorEtaSpelling(unittest.TestCase):
+    """T1.3 sweep (d): the bar's ETA uses shared.fmt_eta, the single ETA spelling."""
+
+    def _render(self, eta_s):
+        from qwen3_tts.interface.ui.components import ProgressIndicator
+
+        return ProgressIndicator(percent=50, eta_s=eta_s, mode="bounded").render()
+
+    def test_minutes_use_the_shared_spelling(self):
+        self.assertIn("50% · ~1m 20s", self._render(80))
+
+    def test_unknown_eta_is_omitted(self):
+        for eta in ("abc", -5, float("nan")):
+            with self.subTest(eta=eta):
+                html = self._render(eta)
+                self.assertIn("50%", html)
+                self.assertNotIn("·", html)
+
+
 class TestPollModelLoadProgress(unittest.TestCase):
     """poll_model_load_progress returns structured progress dict."""
 

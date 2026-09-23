@@ -296,13 +296,16 @@ class ProgressIndicator:
             )
 
         # Bounded mode
+        from qwen3_tts.interface.ui import shared
+
         eta_part = ""
         if self.eta_s is not None:
             try:
-                secs = max(0, int(round(float(self.eta_s))))
-                eta_part = f" · ~{secs}s"
+                eta_text = shared.fmt_eta(float(self.eta_s))
             except (TypeError, ValueError):
-                eta_part = ""
+                eta_text = shared.EMPTY_VALUE
+            if eta_text != shared.EMPTY_VALUE:
+                eta_part = f" · {eta_text}"
         label_text = f"{self.percent}%{eta_part}"
         if self.message:
             label_text = f"{safe_msg} — {label_text}"

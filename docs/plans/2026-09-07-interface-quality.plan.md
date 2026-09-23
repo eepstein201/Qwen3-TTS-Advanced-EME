@@ -162,6 +162,8 @@ All pure. Module docstring notes `qwen3_tts/tools/_shared._format_size` is the C
 - [ ] **Step 3:** sweep call sites — **one commit per site-group** so a visual regression bisects cleanly: (a) `_badge_from_models_payload`, (b) `get_model_table_data` (`"-"` → `"—"`), (c) `format_status_display` + tab mgmt memory strings, (d) history duration lines. Gates after each.
 - [ ] **Step 4:** Commit sequence: `feat(ui): shared duration/size/eta/memory formatters` then the sweep commits.
 
+> **Executed (2026-09-23):** helpers + sweeps (a)–(c) as specified. Sweep (d) found no history duration lines (the Duration column is a Non-goal; the history *time* cell is T1.5), so (d) instead routes `ProgressIndicator`'s ETA through `fmt_eta` — the last hand-rolled ETA outside T1.4's lines. `get_server_status` keeps `"0.0 MB"` for a real zero reading (fmt_memory_mb's `"—"` means unknown). New T1.3 tests are `unittest.TestCase` classes: the pytest-style functions in `test_ui_status_banner.py`/`test_ui_model_management.py` are invisible to the batch runner (same carried hollow-module item as `test_ui_shared_metadata.py`).
+
 ### Task 1.4: Model badge + Manage Models honesty — S
 
 **Files:** Modify `qwen3_tts/interface/ui/model_management.py`; Test: `tests/test_ui_model_management.py`.
