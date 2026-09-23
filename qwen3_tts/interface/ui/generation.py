@@ -242,7 +242,6 @@ def _prepare_cancel_confirmation():
         return f"Error: {e}", True, 0, 0, "N/A"
 
 
-
 # Live generation progress. One shared gr.Timer (built inactive in _facade)
 # is armed/disarmed around each generation; 2 s = 30 req/min on top of the
 # ~24-36/min status polling, under the 120/min global ceiling.
@@ -273,19 +272,15 @@ def _progress_html(status):
     progress_pct = status.get("progress_pct")
     if progress_pct is None:
         elapsed = status.get("elapsed_sec")
-        suffix = f" {shared.fmt_duration(elapsed)} elapsed" if elapsed is not None else ""
+        suffix = (
+            f" {shared.fmt_duration(elapsed)} elapsed" if elapsed is not None else ""
+        )
         return ProgressIndicator(
             mode="indeterminate", message=f"Generating…{suffix}"
         ).render()
     return ProgressIndicator(
         percent=progress_pct, eta_s=status.get("eta_sec"), message="Generating…"
     ).render()
-
-
-def poll_generation_progress():
-    """Progress HTML for the in-flight generation; "" when there is none."""
-    status = _active_generation_status()
-    return _progress_html(status) if status else ""
 
 
 def start_progress_timer():
@@ -304,6 +299,7 @@ def _poll_progress_for_tab(gen_guard_state):
     if status and (status.get("elapsed_sec") or 0) > PROGRESS_POLL_MAX_MINUTES * 60:
         return "", stop_progress_timer()
     return (_progress_html(status) if status else ""), gr.skip()
+
 
 def _prepare_streaming_config(
     mode,
@@ -747,19 +743,16 @@ def _wire_generation_tab(
             fn=lambda: (stop_progress_timer(), ""),
             outputs=[progress_timer, progress],
         )
-    chain = (
-        chain.then(
-            # Step 3: Load saved file into tab's WaveSurfer player via hidden gr.Audio URL
-            # NOTE: fn=passthrough required for Gradio 6 .then() chain continuity
-            fn=lambda x: x,
-            js=get_load_into_player_js(mode),
-            inputs=[audio_url_converter],
-            outputs=[audio_url_converter],
-        )
-        .then(
-            fn=lambda: get_model_status_html(mode),
-            outputs=model_indicator,
-        )
+    chain = chain.then(
+        # Step 3: Load saved file into tab's WaveSurfer player via hidden gr.Audio URL
+        # NOTE: fn=passthrough required for Gradio 6 .then() chain continuity
+        fn=lambda x: x,
+        js=get_load_into_player_js(mode),
+        inputs=[audio_url_converter],
+        outputs=[audio_url_converter],
+    ).then(
+        fn=lambda: get_model_status_html(mode),
+        outputs=model_indicator,
     )
 
     # Reset generating flag after the chain completes (including errors).

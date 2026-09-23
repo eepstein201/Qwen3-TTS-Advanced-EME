@@ -28,10 +28,14 @@ class TestCancelConfirmationProgress(unittest.TestCase):
     def _prepare(self, payload):
         from qwen3_tts.interface.ui import generation
 
-        with patch.object(generation, "load_config", return_value={}), \
-                patch.object(generation, "is_server_running", return_value=True), \
-                patch("qwen3_tts.core.http_client.server_request",
-                      return_value=_status(payload)):
+        with (
+            patch.object(generation, "load_config", return_value={}),
+            patch.object(generation, "is_server_running", return_value=True),
+            patch(
+                "qwen3_tts.core.http_client.server_request",
+                return_value=_status(payload),
+            ),
+        ):
             return generation._prepare_cancel_confirmation()
 
     def test_absent_progress_takes_the_confirm_path(self):
@@ -64,9 +68,10 @@ class TestCancelConfirmationProgress(unittest.TestCase):
             }
         )
         self.assertFalse(should_proceed)
-        self.assertEqual(msg, "Stop generation?\nProgress: 42%\nChunks: 5/12\nETA: ~30s")
+        self.assertEqual(
+            msg, "Stop generation?\nProgress: 42%\nChunks: 5/12\nETA: ~30s"
+        )
         self.assertEqual((pct, chunks, eta), (42.0, 5, 30))
-
 
 
 @unittest.skipUnless(HAS_GRADIO, "requires gradio")
@@ -74,17 +79,27 @@ class TestPollGenerationProgress(unittest.TestCase):
     def _poll(self, response=None, side_effect=None):
         from qwen3_tts.interface.ui import generation
 
-        with patch("qwen3_tts.core.http_client.server_request",
-                   return_value=response, side_effect=side_effect) as req:
-            html = generation.poll_generation_progress()
+        with patch(
+            "qwen3_tts.core.http_client.server_request",
+            return_value=response,
+            side_effect=side_effect,
+        ) as req:
+            html, _ = generation._poll_progress_for_tab({"generating": True})
         return html, req
 
     def test_known_progress_renders_percent_and_eta(self):
         from qwen3_tts.interface.ui.components import ProgressIndicator
 
-        html, req = self._poll(_status(
-            {"active": True, "elapsed_sec": 12.0, "progress_pct": 42.0, "eta_sec": 80.0}
-        ))
+        html, req = self._poll(
+            _status(
+                {
+                    "active": True,
+                    "elapsed_sec": 12.0,
+                    "progress_pct": 42.0,
+                    "eta_sec": 80.0,
+                }
+            )
+        )
         expected = ProgressIndicator(
             percent=42.0, eta_s=80.0, message="Generating…"
         ).render()
@@ -95,9 +110,9 @@ class TestPollGenerationProgress(unittest.TestCase):
     def test_absent_progress_is_elapsed_only(self):
         from qwen3_tts.interface.ui.components import ProgressIndicator
 
-        html, _ = self._poll(_status(
-            {"active": True, "elapsed_sec": 65.0, "chunk_index": 3}
-        ))
+        html, _ = self._poll(
+            _status({"active": True, "elapsed_sec": 65.0, "chunk_index": 3})
+        )
         expected = ProgressIndicator(
             mode="indeterminate", message="Generating… 1:05 elapsed"
         ).render()
@@ -128,7 +143,10 @@ class TestProgressTimerSteps(unittest.TestCase):
 
         from qwen3_tts.interface.ui import generation
 
-        started, stopped = generation.start_progress_timer(), generation.stop_progress_timer()
+        started, stopped = (
+            generation.start_progress_timer(),
+            generation.stop_progress_timer(),
+        )
         self.assertIsInstance(started, gr.Timer)
         self.assertIsInstance(stopped, gr.Timer)
         self.assertTrue(started.active)
@@ -140,9 +158,10 @@ class TestProgressTimerSteps(unittest.TestCase):
         from qwen3_tts.interface.ui import generation
 
         for guard in (None, {"generating": False}):
-            with self.subTest(guard=guard), patch(
-                "qwen3_tts.core.http_client.server_request"
-            ) as req:
+            with (
+                self.subTest(guard=guard),
+                patch("qwen3_tts.core.http_client.server_request") as req,
+            ):
                 html, timer = generation._poll_progress_for_tab(guard)
                 req.assert_not_called()
                 self.assertEqual(html, "")
@@ -153,8 +172,10 @@ class TestProgressTimerSteps(unittest.TestCase):
 
         from qwen3_tts.interface.ui import generation
 
-        with patch("qwen3_tts.core.http_client.server_request",
-                   return_value=_status({"active": True, "elapsed_sec": 5.0})):
+        with patch(
+            "qwen3_tts.core.http_client.server_request",
+            return_value=_status({"active": True, "elapsed_sec": 5.0}),
+        ):
             html, timer = generation._poll_progress_for_tab({"generating": True})
         self.assertIn("Generating… 0:05 elapsed", html)
         self.assertEqual(timer, gr.skip())
@@ -163,8 +184,10 @@ class TestProgressTimerSteps(unittest.TestCase):
         from qwen3_tts.interface.ui import generation
 
         elapsed = generation.PROGRESS_POLL_MAX_MINUTES * 60 + 1
-        with patch("qwen3_tts.core.http_client.server_request",
-                   return_value=_status({"active": True, "elapsed_sec": elapsed})):
+        with patch(
+            "qwen3_tts.core.http_client.server_request",
+            return_value=_status({"active": True, "elapsed_sec": elapsed}),
+        ):
             html, timer = generation._poll_progress_for_tab({"generating": True})
         self.assertEqual(html, "")
         self.assertFalse(timer.active)
@@ -185,7 +208,8 @@ class TestProgressTimerWiring(unittest.TestCase):
         cls.generation = generation
         cls.demo = build_ui()
         cls.timers = [
-            b for b in cls.demo.blocks.values()
+            b
+            for b in cls.demo.blocks.values()
             if isinstance(b, gr.Timer) and b.value == generation.PROGRESS_POLL_SECONDS
         ]
         cls.fns = list(cls.demo.fns.values())
@@ -199,13 +223,17 @@ class TestProgressTimerWiring(unittest.TestCase):
         self.assertFalse(self.timers[0].active)
 
     def test_each_tab_arms_the_timer(self):
-        arms = [f for f in self._timer_fns() if f.fn is self.generation.start_progress_timer]
+        arms = [
+            f for f in self._timer_fns() if f.fn is self.generation.start_progress_timer
+        ]
         self.assertEqual(len(arms), 3)
 
     def test_each_tab_disarms_the_timer_and_clears_its_progress(self):
         disarms = [
-            f for f in self._timer_fns()
-            if len(f.outputs) == 2 and isinstance(f.outputs[1], self.gr.HTML)
+            f
+            for f in self._timer_fns()
+            if len(f.outputs) == 2
+            and isinstance(f.outputs[1], self.gr.HTML)
             and f.targets[0][1] == "then"
         ]
         self.assertEqual(len(disarms), 3)
