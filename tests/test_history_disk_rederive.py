@@ -17,7 +17,7 @@ def test_refresh_reflects_disk_not_a_stale_in_memory_list(tmp_path, monkeypatch)
     automated = tmp_path / "Automated Output"
     automated.mkdir()
     wav = automated / "voice_ui_fresh.wav"
-    wav.write_bytes(b"RIFF" + b"\x00" * 40)
+    wav.write_bytes(b"RIFF" + b"\x00" * 4 + b"WAVE" + b"\x00" * 12)
     (automated / "voice_ui_fresh.json").write_text(
         '{"timestamp": 999.0, "mode": "clone", "text": "fresh", "seed": 42}'
     )

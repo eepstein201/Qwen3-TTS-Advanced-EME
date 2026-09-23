@@ -305,7 +305,7 @@ class TestOnHistorySelect(unittest.TestCase):
         # Create a real temp file so containment and existence checks pass
         src = os.path.join(tempfile.gettempdir(), "test_on_hist.wav")
         with open(src, "wb") as f:
-            f.write(b"RIFF" + b"\x00" * 40)
+            f.write(b"RIFF" + b"\x00" * 4 + b"WAVE" + b"\x00" * 12)
         try:
             evt = MagicMock()
             evt.index = [0]
@@ -677,7 +677,7 @@ class TestOnHistorySelectHardened(unittest.TestCase):
         # Create a real temp file to simulate a Downloads file
         src = os.path.join(tempfile.gettempdir(), "test_history_select.wav")
         with open(src, "wb") as f:
-            f.write(b"RIFF" + b"\x00" * 40)
+            f.write(b"RIFF" + b"\x00" * 4 + b"WAVE" + b"\x00" * 12)
         try:
             evt = MagicMock()
             evt.index = [0]

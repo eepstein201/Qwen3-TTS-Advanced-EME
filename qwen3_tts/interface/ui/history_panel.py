@@ -323,6 +323,22 @@ def on_history_select(evt: gr.SelectData, history_list, delete_confirm_state=Non
             delete_confirm_state,
             download_confirm_state,
         )
+    if not shared.is_valid_wav_file(resolved):
+        # Undecodable bytes would raise inside Gradio's Audio.preprocess of
+        # the chained load-into-player passthrough -- answer with a clean
+        # banner instead of a 500 (audio output None, never "").
+        return (
+            None,
+            seed_str,
+            seed_str,
+            seed_str,
+            update(),
+            update(),
+            replay_payload,
+            StatusBanner().render("File is not valid audio — cannot replay.", "error"),
+            delete_confirm_state,
+            download_confirm_state,
+        )
     # Copy to temp for Gradio compatibility (tempdir always in allowed_paths)
     temp_path = os.path.join(tempfile.gettempdir(), os.path.basename(resolved))
     if not os.path.exists(temp_path):

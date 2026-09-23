@@ -32,7 +32,7 @@ def _make_entry(directory, name, seed=42):
     wav = os.path.join(directory, f"{name}.wav")
     js = os.path.join(directory, f"{name}.json")
     with open(wav, "wb") as f:
-        f.write(b"RIFF" + b"\x00" * 40)
+        f.write(b"RIFF" + b"\x00" * 4 + b"WAVE" + b"\x00" * 12)
     with open(js, "w") as f:
         f.write('{"timestamp": 1.0}')
     return {"path": wav, "seed": seed, "timestamp": 1.0, "text": name, "mode": "Clone"}
@@ -217,7 +217,7 @@ class TestClearAllHardDelete(unittest.TestCase):
         for i in range(1, count + 1):
             wav = os.path.join(automated, f"voice_ui_{i}.wav")
             with open(wav, "wb") as f:
-                f.write(b"RIFF" + b"\x00" * 40)
+                f.write(b"RIFF" + b"\x00" * 4 + b"WAVE" + b"\x00" * 12)
             with open(wav.replace(".wav", ".json"), "w") as f:
                 json_mod.dump(
                     {
@@ -292,6 +292,55 @@ class TestClearAllHardDelete(unittest.TestCase):
 
                 self.assertEqual(result[3], [])
                 self.assertEqual(sorted(os.listdir(automated)), [])
+
+
+class TestReplayInvalidAudioGuard(unittest.TestCase):
+    """Replaying a non-audio .wav must not 500 the chain.
+
+    The load-into-player step feeds the hidden gr.Audio back as an INPUT, so
+    Gradio pydub-decodes it during preprocessing -- undecodable bytes raise
+    CouldntDecodeError inside Gradio and kill the whole event chain (player
+    never loads, seed never broadcasts, raw traceback in the terminal).
+    on_history_select must screen the file and return a clean banner instead.
+    """
+
+    VALID = b"RIFF" + b"\x00" * 4 + b"WAVE" + b"\x00" * 12
+
+    def _entry(self, automated, content):
+        path = os.path.join(automated, "voice_ui_gd.wav")
+        with open(path, "wb") as f:
+            f.write(content)
+        return {"path": path, "seed": 42, "timestamp": 1.0, "text": "hi", "mode": "Clone"}
+
+    def _replay(self, automated, entry):
+        from qwen3_tts.interface.ui import history_panel, shared
+
+        evt = MagicMock()
+        evt.index = [0, 1]
+        with patch.object(
+            shared, "_resolve_output_dir", return_value=automated
+        ), patch("qwen3_tts.core.config.load_config", return_value={}):
+            return history_panel.on_history_select(evt, [entry], {}, {})
+
+    def test_fake_wav_returns_no_audio_and_an_error_banner(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            automated = os.path.join(tmp, "Automated Output")
+            os.makedirs(automated)
+            entry = self._entry(automated, b"fake wav")
+            result = self._replay(automated, entry)
+        self.assertIsNone(result[0])
+        self.assertIn("not valid audio", result[7])
+
+    def test_valid_wav_still_replays(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            automated = os.path.join(tmp, "Automated Output")
+            os.makedirs(automated)
+            entry = self._entry(automated, self.VALID)
+            result = self._replay(automated, entry)
+        self.assertTrue(result[0])
+        self.assertTrue(result[0].endswith("voice_ui_gd.wav"))
+        temp_copy = os.path.join(tempfile.gettempdir(), "voice_ui_gd.wav")
+        self.addCleanup(lambda: os.path.exists(temp_copy) and os.unlink(temp_copy))
 
 
 if __name__ == "__main__":

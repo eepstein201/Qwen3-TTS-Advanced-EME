@@ -147,6 +147,9 @@ class TestOnHistorySelect(unittest.TestCase):
 
         from qwen3_tts.interface.ui import on_history_select
         with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as f:
+            # Decodable header: the replay chain's gr.Audio input is
+            # pydub-decoded by Gradio, so an empty fixture would 500.
+            f.write(b"RIFF" + b"\x00" * 4 + b"WAVE" + b"\x00" * 12)
             tmp_path = f.name
         try:
             evt = Mock()
