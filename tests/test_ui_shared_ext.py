@@ -253,7 +253,7 @@ class TestGetServerStatus(unittest.TestCase):
         with patch("qwen3_tts.server.client.TTSClient", return_value=mock_client):
             status, mem, models, backend = get_server_status()
         self.assertEqual(status, "Connected")
-        self.assertIn("2048.5", mem)
+        self.assertEqual(mem, "2048 MB")  # T1.3: shared.fmt_memory_mb
         self.assertIn("Clone", models)
         self.assertIn("Custom", models)
         self.assertNotIn("Design", models)
@@ -362,8 +362,8 @@ class TestHistoryFunctions(unittest.TestCase):
         self.assertEqual(result[0]["text"], "new")
 
     def test_get_history_data_empty(self):
-        from qwen3_tts.interface.ui.shared import get_history_data
-        self.assertEqual(get_history_data([]), [])
+        from qwen3_tts.interface.ui.shared import empty_history_rows, get_history_data
+        self.assertEqual(get_history_data([]), empty_history_rows())
 
     def test_get_history_data_formats(self):
         from qwen3_tts.interface.ui.shared import get_history_data

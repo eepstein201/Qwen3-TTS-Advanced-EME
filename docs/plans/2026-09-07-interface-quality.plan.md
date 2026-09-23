@@ -111,6 +111,8 @@ Branch-internal order: **T1.0 → T1.1 → T1.2 → T1.3 → {T1.4, T1.5, T1.8} 
 
 ### Task 1.1: `ui/theme.py` design layer + single CSS wiring — M
 
+> **Executed deviation (2026-09-23):** gradio 6.20 removed `css`/`theme` from `gr.Blocks()` (deprecated kwargs; `launch()` owns them), so the wiring is inverted: `get_gradio_launch_kwargs()` stays the single source and carries `css=theme.UI_CSS` (the plan's `BLOCKS_CSS`, renamed; it also absorbs the `.gr-hidden` rule). `_facade.py` Blocks is untouched apart from `history_df` `elem_classes`. The Colab notebook launch (which bypasses the helper) now passes the same `theme`/`css` — it previously had no `.gr-hidden` rule at all.
+
 **Files:**
 - Create: `qwen3_tts/interface/ui/theme.py` (import-light: stdlib only)
 - Modify: `qwen3_tts/interface/ui/_facade.py:233` (Blocks gets `css=`/`theme=`), `:375` (`history_df` gets `elem_classes=["tts-history"]`)
@@ -159,6 +161,8 @@ All pure. Module docstring notes `qwen3_tts/tools/_shared._format_size` is the C
 - [ ] **Step 2 (GREEN):** implement the five helpers. Run → PASS.
 - [ ] **Step 3:** sweep call sites — **one commit per site-group** so a visual regression bisects cleanly: (a) `_badge_from_models_payload`, (b) `get_model_table_data` (`"-"` → `"—"`), (c) `format_status_display` + tab mgmt memory strings, (d) history duration lines. Gates after each.
 - [ ] **Step 4:** Commit sequence: `feat(ui): shared duration/size/eta/memory formatters` then the sweep commits.
+
+> **Executed (2026-09-23):** helpers + sweeps (a)–(c) as specified. Sweep (d) found no history duration lines (the Duration column is a Non-goal; the history *time* cell is T1.5), so (d) instead routes `ProgressIndicator`'s ETA through `fmt_eta` — the last hand-rolled ETA outside T1.4's lines. `get_server_status` keeps `"0.0 MB"` for a real zero reading (fmt_memory_mb's `"—"` means unknown). New T1.3 tests are `unittest.TestCase` classes: the pytest-style functions in `test_ui_status_banner.py`/`test_ui_model_management.py` are invisible to the batch runner (same carried hollow-module item as `test_ui_shared_metadata.py`).
 
 ### Task 1.4: Model badge + Manage Models honesty — S
 
@@ -213,6 +217,8 @@ Verified against installed gradio: `Timer(value, *, active, ...)` accepts `activ
 - [ ] **Step 4 (GREEN):** implement poller + timer plumbing; pass through `tabs_generation.py`; create the shared Timer in `_facade.py`. Run new tests + `tests/test_ui_generation_ext.py` (chain-arity) + `tests/test_ui_facade.py` + `tests/test_ui_headless.py` → PASS.
 - [ ] **Step 5:** wiring test (pattern of `tests/test_ui_tab_select_wiring.py`): generate chain contains a `.then` arming the timer and the terminal step disarms it. Gates + batch-4 registration. Commit: `feat(ui): live generation progress via authed generation-status`.
 
+> **Executed deviations (2026-09-23):** (1) The poller does NOT pre-check `is_server_running` — that is itself a `/health` GET, doubling the budget to 60/min; a failed `/generation-status` request already degrades to `""`. (2) The shared Timer gets one `tick` listener per tab (`_poll_progress_for_tab`), each gated on that tab's own `gen_guard_state["generating"]` (the guards are per-tab), so idle tabs make no HTTP call and write no HTML. (3) The 20-minute hard cap disarms through the tick's second output (`gr.Timer(active=False)`); otherwise the tick returns `gr.skip()` for the timer. Known caveat: if two tabs ever generate concurrently, the first to finish disarms the shared timer for both (server-side `inference_lock` serializes them anyway).
+
 ### Task 1.7: Outcome severity routing (on the existing Textbox) — M
 
 **Design decision (D6):** the status Textbox is *styled into* a banner via `elem_classes` — NOT swapped for `gr.HTML`. A `gr.HTML` takes raw innerHTML (today's `f"Error: {e}"` strings are safe only because Textbox escapes), and a swap breaks `_announce_status` input plus ~5 exact-equality assertions. Visual consistency is achieved through **shared tokens** (`StatusBanner` and `.tts-sev-*` classes read the same `theme.var` values), not a shared component.
@@ -238,6 +244,8 @@ def status_update(message: str, severity: Severity | None = None) -> dict:
 - [ ] **Step 2 (GREEN):** implement + swap terminal return sites (`:269`, `:296`, `:310` `gr.Warning`, `:395-415`, `cancel_streaming_generation` `:105-127`, `generate_guard_check` `:71`, `_prepare_streaming_config` `:178-221`). Run `test_ui_generation_ext.py` + `test_ui_a11y_announcer.py` + `test_ui_tab_select_wiring.py` → PASS (if propagation fails → D6-alt, documented cost).
 - [ ] **Step 3:** gates. Commit: `feat(ui): generation outcomes carry severity styling via tokens`.
 
+> **Executed deviation (2026-09-23):** D6 held — a `process_api` probe (gradio 6.20) shows the update reaches the client with `elem_classes` and the next `.then` receives the plain string (pinned by `TestStatusUpdateReachesTheAnnouncerAsPlainText`). Instead of swapping each terminal return site, `_wire_generation_tab` wraps the three status-writing handlers (`_guarded_config`/`config_handler`, `_generate_server_side`, `on_cancel_click`) in `_with_status_severity(fn, index)`: handlers keep returning plain strings (the ~44 existing exact-string assertions stay untouched), non-string `gr.update()` no-ops pass through, and `functools.wraps` preserves the signature Gradio reads. `gr.Warning` toasts are unchanged. Table additions beyond the sketch: `warning` = in-progress / server-not-running / stop-confirm / model-not-loaded; `loading` = `Generating...` / `STATUS_GENERATION_STOPPING`; matching is by fragment, not prefix (the model-not-loaded message starts with the model name).
+
 ### Task 1.8: WaveSurfer CSS dedup — S
 
 **Files:** Modify `qwen3_tts/interface/wavesurfer_js.py` (`:136-168`, `:196`), `theme.py` (`.ws-btn` rules move into `BLOCKS_CSS`); Test: `tests/test_wavesurfer_js.py`.
@@ -248,6 +256,8 @@ def status_update(message: str, severity: Severity | None = None) -> dict:
 - [ ] **Step 1 (RED):** player JS contains no `<style>` tag; contains `tts-num`, `--tts-focus`, `scale(0.96)`; `BLOCKS_CSS` contains `.ws-btn`. Existing CDN/self-host/security tests (`test_wavesurfer_security.py`, `test_wavesurfer_selfhost.py`) enumerated as must-stay-green. Run → FAIL.
 - [ ] **Step 2 (GREEN):** move styles, delete inline blocks. Run all wavesurfer tests → PASS. Gates. Commit: `refactor(ui): wavesurfer styling onto shared tokens`.
 
+> **Executed deviation (2026-09-23):** `BLOCKS_CSS` is `theme.UI_CSS` (T1.1 rename), so the `--tts-focus` / `scale(0.96)` assertions pin the `.ws-btn` rules in `UI_CSS`, not the player JS — the JS now emits markup only, which is the point of the dedup.
+
 ### Task 1.9: Empty states, dead code, confirm + loading affordances — M
 
 **Files:** Modify `shared.py` (new `empty_history_rows() -> list[list[str]]` returning one dimmed 7-column placeholder row; consumed by `_facade.py:385` `value=`), `tabs_management.py:178-182` (rename voice wrapped in `ConfirmButton`, pattern of delete at `:185-195`), `voice_management.py:343-392` (preview two-step chain: `.then` sets `status_update(f"Previewing {n}…", "loading")` before the blocking GET; existing return restores; `preview_voice` still returns path/`None` — no generator), delete dead `ProgressIndicator` at `shared.py:146` + `voice_management.py:247` (model_management's already gone in T1.4); Test: `tests/test_ui_confirm_patterns.py`, `tests/test_ui_voice_mgmt.py`, `tests/test_ui_history_helpers.py`.
@@ -256,7 +266,15 @@ def status_update(message: str, severity: Severity | None = None) -> dict:
 - [ ] **Step 1 (RED):** rename arm/execute/timeout confirm tests; preview loading-then-restore test; empty-rows shape test (7 columns). Run → FAIL.
 - [ ] **Step 2 (GREEN):** implement rename confirm + preview loading + empty states. Run → PASS.
 - [ ] **Step 3 (cleanup, last, own commit):** delete the dead `ProgressIndicator` constructions so a revert is clean. Gates. Commits: `feat(ui): rename confirm + preview loading state + empty states`, then `chore(ui): remove constructed-but-discarded ProgressIndicator instances`.
+> **Executed deviations (2026-09-23):** (1) The placeholder comes from `get_history_data()`'s empty branch, not only the build-time `value=` — `demo.load(_load_initial_history)` and Clear All both re-render through `get_history_data`, so a build-only placeholder would vanish on page load. Three pins of the old blank grid were repointed (`test_ui_shared_ext`, `test_ui_facade` ×2, `test_history_hard_delete`). The row is not dimmed: `gr.Dataframe` has no per-row class hook; the em dash and message carry it. (2) Preview's restore step is `gr.update(value="", elem_classes=[])` (a `.then`, so it also runs after a `gr.Error`). (3) Rename's first click arms even with a blank new name; `rename_voice`'s existing `gr.Error` fires on the confirming click. (4) The dead `ProgressIndicator` sites are `shared.enhance_description_with_ai` and `voice_management.auto_transcribe_audio` (line numbers drifted).
+
 - [ ] **Step 4 (phase close):** run batch 4 in BOTH envs (`python -m pytest tests/ -m "not e2e" -k ui` in `.venv-310` for the gradio-6.14-shaped env; `conda run -n qwen3-tts-mlx` for 6.20) — R6 mitigation. Update CLAUDE.md UI section. Push → PR.
+
+> **Phase 1 close (2026-09-23):** Executed. Batch 4 both envs (mlx 6.20: 809 passed; `.venv-310`: 806 passed); Batch 3 (server, touched by de0337d4): 985 tests OK; ruff/mypy/bandit clean; CLAUDE.md updated (`8135dc6e`). **R6 deviation:** `.venv-310` is gradio 6.22 now, not the 6.14-shaped env the mitigation assumed — both env shapes are ≥6.20, so the `!=6.14.*` floor is exercised nowhere locally (note in PR body). **Gate B** (adversarial review, full 18-commit diff): APPROVE, 0 CRITICAL/HIGH. Dead `poll_generation_progress` removed post-review (`e4c59074`; T1.6's spec'd public seam was superseded by `_poll_progress_for_tab` in the wiring — tests repointed). Deferred by decision (behavior changes need their own RED/GREEN, not a bolt-on to a reviewed phase close):
+> - **Follow-up A (M):** shared-timer cross-tab disarm race — the first tab to finish disarms the one timer while another tab may still be generating (`_wire_generation_tab` disarm step). Fix: feed all three guard states into the disarm step, `gr.skip()` the timer while any is generating.
+> - **Follow-up B (M):** `_prepare_cancel_confirmation` is 57 lines and its 5-tuple's numeric tail is consumed only by tests; return `(message, should_proceed)` and shrink under 50 lines.
+> - **Follow-up C (L, pre-existing):** the cancel `.then(fn=lambda x: x, js=get_cancel_js(mode))` passthrough overwrites the cancel outcome message with the `stream_config` value (pre-branch), so the severity class persists under a mismatched value.
+> - **Follow-up D (L batch):** local `status_update` shadows the module fn in `on_cancel_click`; missing return/param annotations on `outcome_severity`/`status_update`/`_with_status_severity`; inline poll `timeout=2` deserves a named constant; `test_poll_interval_respects_the_request_budget` pins a constant (tautological); poll failures log at DEBUG only (consider capped INFO); rename arm banner renders "Rename 'None'…" with nothing selected.
 
 ## Phase 2 — CLI consistency (worktree → branch `feat/cli-output-consistency`)
 

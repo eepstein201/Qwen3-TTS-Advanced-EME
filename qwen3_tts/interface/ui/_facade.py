@@ -34,6 +34,7 @@ from qwen3_tts.interface.ui.components import (  # noqa: F401
     StatusBanner,
     confirm_step,
 )
+from qwen3_tts.interface.ui.generation import PROGRESS_POLL_SECONDS
 
 # Recent Generations handlers — re-exported for callers and tests.
 from qwen3_tts.interface.ui.history_panel import (  # noqa: F401
@@ -52,6 +53,7 @@ from qwen3_tts.interface.ui.model_management import (
 # Import from sibling modules
 from qwen3_tts.interface.ui.shared import (
     apply_model_settings,
+    empty_history_rows,
     format_status_display,
     get_current_model_settings,
 )
@@ -301,6 +303,14 @@ def build_ui():
         # Per-session history state (shared across tabs)
         history_state = gr.State([])
 
+        # Live generation progress: one Timer shared by all three tabs, built
+        # inactive and armed only around a generation.
+        progress_timer = (
+            gr.Timer(value=PROGRESS_POLL_SECONDS, active=False)
+            if hasattr(gr, "Timer")
+            else None
+        )
+
         # Tabs for different modes
         with gr.Tabs():
             with gr.Tab("Clone Mode"):
@@ -310,7 +320,7 @@ def build_ui():
                     clone_chain,
                     clone_seed,
                     preset_builder,
-                ) = _build_clone_tab(status_html, history_state)
+                ) = _build_clone_tab(status_html, history_state, progress_timer)
             with gr.Tab("Design Mode"):
                 (
                     design_model_indicator,
@@ -318,14 +328,18 @@ def build_ui():
                     design_seed,
                     design_prosody,
                     design_preset,
-                ) = _build_design_tab(status_html, history_state, clone_prompt)
+                ) = _build_design_tab(
+                    status_html, history_state, clone_prompt, progress_timer
+                )
             with gr.Tab("Custom Mode"):
                 (
                     custom_model_indicator,
                     custom_chain,
                     custom_seed,
                     custom_preset,
-                ) = _build_custom_tab(status_html, history_state, design_prosody)
+                ) = _build_custom_tab(
+                    status_html, history_state, design_prosody, progress_timer
+                )
 
             # Generation-preset builder (Clone tab): both clicks live here,
             # after _build_custom_tab, where all three Preset dropdowns exist
@@ -443,9 +457,10 @@ def build_ui():
                 "Remove",
                 "Download",
             ],
-            value=[],
+            value=empty_history_rows(),
             interactive=False,
             wrap=True,
+            elem_classes=["tts-history"],
         )
         gr.HTML(value=get_player_html("history"))
         history_audio_url = gr.Audio(elem_classes=["gr-hidden"])

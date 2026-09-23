@@ -109,6 +109,30 @@ class TestPublicStatusContracts(_ContractTestBase):
             gs["active"] = False
             gs["start_time"] = 0.0
 
+    def test_generation_status_authed_idle_matches_contract(self):
+        from qwen3_tts.server.validation import GenerationStatusResponse
+
+        resp = self.client.get("/generation-status", headers=self.auth)
+        model = GenerationStatusResponse.model_validate(resp.json())
+        self.assertEqual(model.batch_total, 0)
+        self.assertEqual(model.chunk_total, 0)
+
+    def test_generation_status_authed_active_matches_contract(self):
+        import time as _time
+
+        from qwen3_tts.server.validation import GenerationStatusResponse
+
+        gs = self.app.state.generation_state
+        gs.update(active=True, start_time=_time.time() - 5, chunk_index=1, chunk_total=4)
+        try:
+            resp = self.client.get("/generation-status", headers=self.auth)
+            model = GenerationStatusResponse.model_validate(resp.json())
+            self.assertEqual(model.chunk_total, 4)
+            self.assertEqual(model.progress_pct, 25.0)
+            self.assertIsNotNone(model.eta_sec)
+        finally:
+            gs.update(active=False, start_time=0.0, chunk_index=0, chunk_total=0)
+
     def test_stats_matches_contract(self):
         from qwen3_tts.server.validation import StatsResponse
 

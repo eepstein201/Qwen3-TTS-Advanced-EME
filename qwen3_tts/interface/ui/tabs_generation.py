@@ -364,7 +364,7 @@ def _sanitize_voice_name(raw: str) -> tuple[str, str | None]:
     return name, None
 
 
-def _build_clone_tab(status_html, history_state):
+def _build_clone_tab(status_html, history_state, progress_timer=None):
     """Build Clone Mode tab components and wiring.
 
     Returns (clone_prompt, clone_model_indicator, clone_chain, clone_seed) for cross-tab references.
@@ -508,6 +508,8 @@ def _build_clone_tab(status_html, history_state):
         ],
         status_html=status_html,
         status_announcer=clone_btns["status_announcer"],
+        progress=clone_btns["progress"],
+        progress_timer=progress_timer,
         config_handler=clone_config_handler,
         api_name="generate_clone",
         history_state=history_state,
@@ -542,7 +544,7 @@ def _build_clone_tab(status_html, history_state):
     )
 
 
-def _build_design_tab(status_html, history_state, clone_prompt):
+def _build_design_tab(status_html, history_state, clone_prompt, progress_timer=None):
     """Build Design Mode tab components and wiring.
 
     Returns (design_model_indicator, design_chain, design_seed) for cross-tab references.
@@ -705,6 +707,8 @@ def _build_design_tab(status_html, history_state, clone_prompt):
         ],
         status_html=status_html,
         status_announcer=design_btns["status_announcer"],
+        progress=design_btns["progress"],
+        progress_timer=progress_timer,
         config_handler=design_config_handler,
         history_state=history_state,
         audio_url_converter=design_btns["audio_url_converter"],
@@ -804,7 +808,7 @@ def _build_design_tab(status_html, history_state, clone_prompt):
     )
 
 
-def _build_custom_tab(status_html, history_state, design_prosody):
+def _build_custom_tab(status_html, history_state, design_prosody, progress_timer=None):
     """Build Custom Mode tab components and wiring.
 
     Returns (custom_model_indicator, custom_chain, custom_seed) for cross-tab references.
@@ -993,6 +997,8 @@ def _build_custom_tab(status_html, history_state, design_prosody):
         ],
         status_html=status_html,
         status_announcer=custom_btns["status_announcer"],
+        progress=custom_btns["progress"],
+        progress_timer=progress_timer,
         config_handler=custom_config_handler,
         history_state=history_state,
         audio_url_converter=custom_btns["audio_url_converter"],

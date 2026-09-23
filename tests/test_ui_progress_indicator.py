@@ -135,6 +135,56 @@ class TestProgressIndicatorXSSSafe(unittest.TestCase):
 # ---------------------------------------------------------------------------
 
 @_skip
+class TestProgressIndicatorThemeTokens(unittest.TestCase):
+    """T1.2: progressbar colours and radii come from the theme layer."""
+
+    def setUp(self):
+        from qwen3_tts.interface.ui import theme
+
+        self.theme = theme
+
+    def _render(self, **kwargs):
+        from qwen3_tts.interface.ui.components import ProgressIndicator
+
+        return ProgressIndicator(**kwargs).render()
+
+    def test_bounded_bar_uses_loading_token_and_keeps_width_transition(self):
+        html = self._render(mode="bounded", percent=40, message="Loading")
+        self.assertIn(f"background:{self.theme.var('loading')}", html)
+        self.assertIn("transition:width 200ms ease-out", html)
+
+    def test_concentric_radii(self):
+        html = self._render(mode="bounded", percent=40, message="Loading")
+        self.assertIn(f"border-radius:{self.theme.var('radius_lg')}", html)
+        self.assertIn(f"border-radius:{self.theme.var('radius_sm')}", html)
+
+    def test_no_raw_hex_colours_outside_tokens(self):
+        for kwargs in ({"mode": "bounded", "percent": 40}, {"mode": "indeterminate"}):
+            html = self._render(message="Loading", **kwargs)
+            for token in self.theme.TOKENS:
+                html = html.replace(self.theme.var(token), "")
+            self.assertNotRegex(html, r"#[0-9a-fA-F]{3,6}\b")
+
+
+class TestProgressIndicatorEtaSpelling(unittest.TestCase):
+    """T1.3 sweep (d): the bar's ETA uses shared.fmt_eta, the single ETA spelling."""
+
+    def _render(self, eta_s):
+        from qwen3_tts.interface.ui.components import ProgressIndicator
+
+        return ProgressIndicator(percent=50, eta_s=eta_s, mode="bounded").render()
+
+    def test_minutes_use_the_shared_spelling(self):
+        self.assertIn("50% · ~1m 20s", self._render(80))
+
+    def test_unknown_eta_is_omitted(self):
+        for eta in ("abc", -5, float("nan")):
+            with self.subTest(eta=eta):
+                html = self._render(eta)
+                self.assertIn("50%", html)
+                self.assertNotIn("·", html)
+
+
 class TestPollModelLoadProgress(unittest.TestCase):
     """poll_model_load_progress returns structured progress dict."""
 
@@ -209,16 +259,13 @@ class TestPollModelLoadProgress(unittest.TestCase):
 class TestModelLoadHandlerUsesProgressIndicator(unittest.TestCase):
     """toggle_model('clone','load') wires ProgressIndicator for live feedback."""
 
-    def test_toggle_model_load_imports_progress_indicator(self):
-        """Source-level: handler module references ProgressIndicator."""
+    def test_model_management_builds_no_unrendered_indicator(self):
+        """T1.4: a ProgressIndicator built inside a blocking handler is never
+        rendered — load feedback is the shared badge Timer, not the handler."""
         from qwen3_tts.interface.ui import model_management
 
         src = inspect.getsource(model_management)
-        self.assertIn(
-            "ProgressIndicator",
-            src,
-            "model_management.py does not use ProgressIndicator",
-        )
+        self.assertNotIn("ProgressIndicator(", src)
 
     def test_toggle_model_load_imports_poll_helper(self):
         """Source-level: load ETA is wired via the badge renderer.
@@ -240,47 +287,37 @@ class TestModelLoadHandlerUsesProgressIndicator(unittest.TestCase):
 
 @_skip
 class TestASRLoadHandlerUsesProgressIndicator(unittest.TestCase):
-    """toggle_asr('load') uses indeterminate ProgressIndicator."""
+    """T1.4: toggle_asr's indicator was never rendered (blocking handler) — gone."""
 
-    def test_toggle_asr_emits_indeterminate_progress(self):
+    def test_toggle_asr_builds_no_unrendered_indicator(self):
         from qwen3_tts.interface.ui import model_management
 
         src = inspect.getsource(model_management.toggle_asr)
-        self.assertIn(
-            "ProgressIndicator",
-            src,
-            "toggle_asr does not use ProgressIndicator for indeterminate progress",
-        )
+        self.assertNotIn("ProgressIndicator(", src)
 
 
 @_skip
 class TestAIEnhancementUsesProgressIndicator(unittest.TestCase):
-    """enhance_description_with_ai shows inline 'Enhancing…' progress."""
+    """T1.9: enhance_description_with_ai keeps its toast but builds no unrendered indicator."""
 
     def test_enhance_handler_uses_progress_indicator(self):
         from qwen3_tts.interface.ui import shared
 
         src = inspect.getsource(shared.enhance_description_with_ai)
-        self.assertIn(
-            "ProgressIndicator",
-            src,
-            "enhance_description_with_ai does not show inline progress",
-        )
+        self.assertNotIn("ProgressIndicator(", src)
+        self.assertIn('gr.Info("Enhancing description…")', src)
 
 
 @_skip
 class TestAutoTranscribeUsesProgressIndicator(unittest.TestCase):
-    """auto_transcribe_audio shows inline 'Transcribing…' spinner."""
+    """T1.9: auto_transcribe_audio keeps its toast but builds no unrendered indicator."""
 
     def test_auto_transcribe_uses_progress_indicator(self):
         from qwen3_tts.interface.ui import voice_management
 
         src = inspect.getsource(voice_management.auto_transcribe_audio)
-        self.assertIn(
-            "ProgressIndicator",
-            src,
-            "auto_transcribe_audio does not show inline progress",
-        )
+        self.assertNotIn("ProgressIndicator(", src)
+        self.assertIn('gr.Info("Transcribing audio…")', src)
 
 
 @_skip

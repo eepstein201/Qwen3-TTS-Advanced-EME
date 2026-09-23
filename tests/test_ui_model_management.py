@@ -12,6 +12,8 @@ Covers:
 Run: pytest tests/test_ui_model_management.py -v
 """
 
+import unittest
+
 try:
     import pytest
     HAS_PYTEST = True
@@ -152,10 +154,10 @@ def test_toggle_model_load_success_reports_duration():
          patch("qwen3_tts.interface.ui.model_management.get_model_table_data", return_value=[]), \
          patch("qwen3_tts.interface.ui.model_management.format_status_display", return_value="ok"), \
          patch("qwen3_tts.interface.ui.model_management.time.monotonic",
-               side_effect=[10.0, 47.5]):
+               side_effect=[10.0, 47.0]):
         msg, table, status = toggle_model("clone", "load")
 
-    assert "37.5s" in msg
+    assert "in 0:37" in msg
 
 
 @pytest.mark.unit
@@ -289,8 +291,8 @@ def test_update_startup_defaults(tmp_path):
 # ---- get_model_status_html ----
 
 @pytest.mark.unit
-def test_badge_loading_shows_eta_from_prior_load():
-    """Loading badge surfaces the prior load duration as an expected ETA."""
+def test_badge_loading_shows_last_load_duration():
+    """Loading badge labels the prior load duration as history, not an ETA."""
     from qwen3_tts.interface.ui.model_management import _badge_from_models_payload
 
     html = _badge_from_models_payload(
@@ -300,8 +302,8 @@ def test_badge_loading_shows_eta_from_prior_load():
     )
 
     assert "Loading" in html
-    assert "42" in html
-    assert "expected" in html
+    assert "last load 0:42" in html
+    assert "expected" not in html
 
 
 @pytest.mark.unit
@@ -316,6 +318,7 @@ def test_badge_loading_without_eta_omits_expectation():
 
     assert "Loading" in html
     assert "expected" not in html
+    assert "last load" not in html
 
 
 @pytest.mark.unit
@@ -406,3 +409,108 @@ def test_set_audio_loader_setting():
 
     assert "librosa" in msg
     assert saved["advanced"]["audio_loader"] == "librosa"
+
+
+class TestLoadedBadgeMemoryFormat(unittest.TestCase):
+    """T1.3 sweep (a): the loaded badge formats memory via shared.fmt_memory_mb."""
+
+    def _badge(self, info):
+        from qwen3_tts.interface.ui.model_management import _badge_from_models_payload
+
+        return _badge_from_models_payload({"models": {"clone": info}}, "clone")
+
+    def test_known_memory_is_spaced(self):
+        self.assertIn("Loaded (2500 MB)", self._badge({"loaded": True, "memory_mb": 2500}))
+
+    def test_unknown_memory_shows_plain_loaded(self):
+        for info in ({"loaded": True, "memory_mb": 0}, {"loaded": True}):
+            with self.subTest(info=info):
+                html = self._badge(info)
+                self.assertIn("Loaded", html)
+                self.assertNotIn("Loaded (", html)
+
+
+class TestModelTablePlaceholders(unittest.TestCase):
+    """T1.3 sweep (b): one empty-value glyph and fmt_memory_mb in the model table."""
+
+    def _rows(self, running=True, status_code=200, payload=None):
+        from unittest.mock import MagicMock, patch
+
+        from qwen3_tts.interface.ui import model_management as mm
+
+        resp = MagicMock(status_code=status_code)
+        resp.json.return_value = payload or {}
+        with (
+            patch.object(mm, "load_config", return_value={}),
+            patch.object(mm, "is_server_running", return_value=running),
+            patch("qwen3_tts.core.http_client.server_request", return_value=resp),
+        ):
+            return mm.get_model_table_data()
+
+    def test_loaded_memory_uses_fmt_memory_mb(self):
+        rows = self._rows(payload={"models": {"clone": {"loaded": True, "memory_mb": 3500}}})
+        self.assertEqual(rows[0][2], "3500 MB")
+
+    def test_unavailable_rows_use_the_em_dash(self):
+        for kwargs in ({"running": False}, {"status_code": 500}):
+            with self.subTest(**kwargs):
+                for row in self._rows(**kwargs):
+                    self.assertEqual(row[2:], ["—", "—"])
+
+
+class TestLoadingBadgeHonesty(unittest.TestCase):
+    """T1.4: the prior load time is shown as history, never as this load's ETA."""
+
+    def _badge(self, info):
+        from qwen3_tts.interface.ui.model_management import _badge_from_models_payload
+
+        return _badge_from_models_payload({"models": {"clone": info}}, "clone")
+
+    def test_without_prior_load_is_plain(self):
+        html = self._badge({"loading": True})
+        self.assertIn("Loading clone…", html)
+        self.assertNotIn("last load", html)
+
+    def test_with_prior_load_shows_last_load_duration(self):
+        html = self._badge({"loading": True, "load_time_sec": 83.4})
+        self.assertIn("Loading clone… (last load 1:23)", html)
+        self.assertNotIn("expected", html)
+
+
+class TestModelHandlersFormatting(unittest.TestCase):
+    """T1.4: elapsed via fmt_duration; toggle_asr builds no unrendered indicator."""
+
+    def _ok(self, status):
+        resp = MagicMock(status_code=200)
+        resp.json.return_value = {"status": status}
+        return resp
+
+    def test_toggle_model_elapsed_uses_fmt_duration(self):
+        from qwen3_tts.interface.ui import model_management as mm
+
+        with patch.object(mm, "load_config", return_value={}), \
+                patch.object(mm, "is_server_running", return_value=True), \
+                patch("qwen3_tts.core.http_client.server_request",
+                      return_value=self._ok("loaded")), \
+                patch.object(mm, "get_model_table_data", return_value=[]), \
+                patch.object(mm, "format_status_display", return_value=""), \
+                patch.object(mm.time, "monotonic", side_effect=[100.0, 165.0]):
+            msg, _, _ = mm.toggle_model("clone", "load")
+
+        self.assertEqual(msg, "Model clone: loaded in 1:05")
+
+    def test_toggle_asr_load_constructs_no_progress_indicator(self):
+        from qwen3_tts.interface.ui import model_management as mm
+
+        with patch.object(mm, "load_config", return_value={}), \
+                patch.object(mm, "is_server_running", return_value=True), \
+                patch("qwen3_tts.core.http_client.server_request",
+                      return_value=self._ok("loaded")), \
+                patch.object(mm, "format_status_display", return_value=""), \
+                patch("qwen3_tts.interface.ui.components.ProgressIndicator",
+                      side_effect=AssertionError("constructed")), \
+                patch.object(mm, "ProgressIndicator", create=True,
+                             side_effect=AssertionError("constructed")):
+            msg, _ = mm.toggle_asr("load")
+
+        self.assertEqual(msg, "ASR: loaded")

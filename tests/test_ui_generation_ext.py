@@ -373,5 +373,130 @@ class TestGenerationSavesIntoAutomatedOutput(unittest.TestCase):
         self.assertTrue(history[0]["path"].endswith("voice_ui_abc123.wav"))
 
 
+@unittest.skipUnless(HAS_GRADIO, "requires gradio")
+class TestOutcomeSeverity(unittest.TestCase):
+    """T1.7: generation outcomes carry a severity class on the status Textbox."""
+
+    def test_messages_map_to_their_severity(self):
+        from qwen3_tts.interface.ui import generation as g
+
+        cases = [
+            ("Error: Please enter text to generate", "error"),
+            ("Stop failed: busy", "error"),
+            ("Failed: disk full", "error"),
+            ("Generated: voice_ui_ab.wav\nSaved to: /x", "success"),
+            ("Generation in progress. Click again to stop and restart.", "warning"),
+            ("Server not running", "warning"),
+            ("Stop generation?\nProgress: 42%", "warning"),
+            ("The 'design' model is not loaded. Load it in the 'Manage Models' tab", "warning"),
+            ("Generating...", "loading"),
+            (g.STATUS_GENERATION_STOPPING, "loading"),
+            (g.STATUS_GENERATION_STOPPED, "info"),
+            (g.STATUS_STOP_CANCELED, "info"),
+            ("", "info"),
+        ]
+        for message, expected in cases:
+            with self.subTest(message=message):
+                self.assertEqual(g.outcome_severity(message), expected)
+
+    def test_status_update_carries_the_severity_class(self):
+        from qwen3_tts.interface.ui import generation as g
+        from qwen3_tts.interface.ui.components import severity_class
+
+        update = g.status_update("Error: boom")
+        self.assertEqual(update["value"], "Error: boom")
+        self.assertEqual(update["elem_classes"], [severity_class("error")])
+
+    def test_status_update_explicit_severity_wins(self):
+        from qwen3_tts.interface.ui import generation as g
+        from qwen3_tts.interface.ui.components import severity_class
+
+        update = g.status_update("Error: boom", "info")
+        self.assertEqual(update["elem_classes"], [severity_class("info")])
+
+
+@unittest.skipUnless(HAS_GRADIO, "requires gradio")
+class TestStatusUpdateReachesTheAnnouncerAsPlainText(unittest.TestCase):
+    """D6 gate: a status_update output read by the next .then is the plain string."""
+
+    def test_announcer_receives_the_plain_message(self):
+        import asyncio
+
+        from gradio.state_holder import SessionState
+
+        from qwen3_tts.interface.ui import generation as g
+
+        with gr.Blocks() as demo:
+            status = gr.Textbox()
+            announcer = gr.HTML()
+            btn = gr.Button()
+            btn.click(
+                fn=lambda: g.status_update("Error: <b>x</b>"), outputs=[status]
+            ).then(fn=g._announce_status, inputs=[status], outputs=[announcer])
+        first, second = list(demo.fns.values())
+        state = SessionState(demo)
+
+        async def run():
+            out = await demo.process_api(block_fn=first, inputs=[], state=state)
+            sent = out["data"][0]
+            ann = await demo.process_api(
+                block_fn=second, inputs=[sent["value"]], state=state
+            )
+            return sent, ann["data"][0]
+
+        sent, announced = asyncio.run(run())
+        self.assertEqual(sent["elem_classes"], ["tts-sev-error"])
+        self.assertIn("Error: &lt;b&gt;x&lt;/b&gt;</div>", announced)
+
+
+@unittest.skipUnless(HAS_GRADIO, "requires gradio")
+class TestStatusSeverityWiring(unittest.TestCase):
+    """Handlers keep returning plain strings; the wiring adds the severity."""
+
+    def test_wrapper_routes_only_the_status_slot(self):
+        from qwen3_tts.interface.ui import generation as g
+
+        wrapped = g._with_status_severity(lambda a, b: ("keep", f"Error: {a}{b}"), 1)
+        first, status = wrapped("x", "y")
+        self.assertEqual(first, "keep")
+        self.assertEqual(status["value"], "Error: xy")
+        self.assertEqual(status["elem_classes"], ["tts-sev-error"])
+
+    def test_wrapper_passes_non_string_updates_through(self):
+        from qwen3_tts.interface.ui import generation as g
+
+        noop = gr.update()
+        wrapped = g._with_status_severity(lambda: (None, noop), 1)
+        self.assertIs(wrapped()[1], noop)
+
+    def test_wrapper_keeps_the_handler_signature(self):
+        import inspect
+
+        from qwen3_tts.interface.ui import generation as g
+
+        wrapped = g._with_status_severity(g._generate_server_side, 1)
+        self.assertEqual(
+            inspect.signature(wrapped), inspect.signature(g._generate_server_side)
+        )
+
+    def test_every_tab_routes_generate_and_cancel_status_through_severity(self):
+        from qwen3_tts.interface.ui import generation as g
+        from qwen3_tts.interface.ui._facade import build_ui
+
+        fns = list(build_ui().fns.values())
+        generate = [
+            f for f in fns if getattr(f.fn, "__wrapped__", None) is g._generate_server_side
+        ]
+        cancel = [
+            f for f in fns
+            if getattr(getattr(f.fn, "__wrapped__", None), "__name__", "") == "on_cancel_click"
+        ]
+        guarded = [
+            f for f in fns
+            if getattr(getattr(f.fn, "__wrapped__", None), "__name__", "") == "_guarded_config"
+        ]
+        self.assertEqual((len(generate), len(cancel), len(guarded)), (3, 3, 3))
+
+
 if __name__ == "__main__":
     unittest.main()

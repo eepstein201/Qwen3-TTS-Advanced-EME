@@ -16,52 +16,67 @@ from tests._ui_share_isolation import CredentialWriterIsolation
 
 try:
     import pytest
+
     HAS_PYTEST = True
 except ImportError:
     HAS_PYTEST = False
+
     # Dummy decorator for when pytest is not available
     class _DummyMarkerFunc:
         """Represents a marker function like skipif that takes condition and returns decorator."""
+
         def __init__(self, name=None):
             self._name = name
+
         def __call__(self, condition, **kwargs):
             # skipif, etc. take condition as first arg, return a decorator
             return lambda f: f
+
     class _DummyMarker:
         def __call__(self, func):
             return func
+
         def __getattr__(self, name):
             # Return special function for skipif, otherwise return a callable marker
-            if name == 'skipif':
+            if name == "skipif":
                 return _DummyMarkerFunc(name)
             return _DummyMarkerFunc(name)
+
         @property
         def unit(self):
             return self
+
     class _DummyMark:
         def __getattr__(self, name):
             return _DummyMarkerFunc()
+
     class _DummyPytest:
         mark = _DummyMark()
+
     pytest = _DummyPytest()
 
 # Check optional dependencies
 try:
     import soundfile  # noqa: F401
+
     HAS_SOUNDFILE = True
 except ImportError:
     HAS_SOUNDFILE = False
 
 try:
     import fastapi  # noqa: F401
+
     HAS_FASTAPI = True
 except ImportError:
     HAS_FASTAPI = False
 
-_skip_server = unittest.skipUnless(HAS_SOUNDFILE and HAS_FASTAPI, "requires soundfile + fastapi")
+_skip_server = unittest.skipUnless(
+    HAS_SOUNDFILE and HAS_FASTAPI, "requires soundfile + fastapi"
+)
 
 try:
     import gradio  # noqa: F401
+
     HAS_GRADIO = True
 except ImportError:
     HAS_GRADIO = False
@@ -73,6 +88,7 @@ _skip_gradio = unittest.skipUnless(HAS_GRADIO, "requires gradio")
 # Gradio UI Launch Tests
 # =========================================================================
 
+
 @pytest.mark.unit
 class TestLaunchGradioUI(unittest.TestCase):
     """Verify launch_gradio_ui does not shell out to a subprocess."""
@@ -80,6 +96,7 @@ class TestLaunchGradioUI(unittest.TestCase):
     def test_no_subprocess_run(self):
         """launch_gradio_ui must not call subprocess.run."""
         from qwen3_tts.interface.generate import launch_gradio_ui
+
         source = inspect.getsource(launch_gradio_ui)
         self.assertNotIn("subprocess.run", source)
 
@@ -97,6 +114,7 @@ class TestLaunchGradioUI(unittest.TestCase):
 # ensure_server_running Tests
 # =========================================================================
 
+
 @pytest.mark.unit
 class TestEnsureServerRunning(unittest.TestCase):
     """Verify ensure_server_running uses new CLI paths."""
@@ -104,12 +122,14 @@ class TestEnsureServerRunning(unittest.TestCase):
     def test_has_tts_lookup(self):
         """ensure_server_running should use shutil.which to find tts."""
         from qwen3_tts.interface.generate import ensure_server_running
+
         source = inspect.getsource(ensure_server_running)
         self.assertIn("shutil.which", source)
 
     def test_has_server_module_reference(self):
         """ensure_server_running should reference qwen3_tts.server.app module."""
         from qwen3_tts.interface.generate import ensure_server_running
+
         source = inspect.getsource(ensure_server_running)
         self.assertIn("qwen3_tts.server.app", source)
 
@@ -117,6 +137,7 @@ class TestEnsureServerRunning(unittest.TestCase):
 # =========================================================================
 # App Helper Function Tests
 # =========================================================================
+
 
 @pytest.mark.unit
 @_skip_server
@@ -126,13 +147,19 @@ class TestAppHelperFunctions(unittest.TestCase):
     def test_gen_cache_key_deterministic(self):
         """_gen_cache_key returns same hash for same inputs."""
         from qwen3_tts.server.app import _gen_cache_key
-        key1 = _gen_cache_key("hello", "clone", {"temperature": 0.7}, prompt_file="voice.pt")
-        key2 = _gen_cache_key("hello", "clone", {"temperature": 0.7}, prompt_file="voice.pt")
+
+        key1 = _gen_cache_key(
+            "hello", "clone", {"temperature": 0.7}, prompt_file="voice.pt"
+        )
+        key2 = _gen_cache_key(
+            "hello", "clone", {"temperature": 0.7}, prompt_file="voice.pt"
+        )
         self.assertEqual(key1, key2)
 
     def test_gen_cache_key_different_text(self):
         """_gen_cache_key returns different hash for different text."""
         from qwen3_tts.server.app import _gen_cache_key
+
         key1 = _gen_cache_key("hello", "clone", {"temperature": 0.7})
         key2 = _gen_cache_key("world", "clone", {"temperature": 0.7})
         self.assertNotEqual(key1, key2)
@@ -140,6 +167,7 @@ class TestAppHelperFunctions(unittest.TestCase):
     def test_gen_cache_key_is_hex_string(self):
         """_gen_cache_key returns a hex string of length 32."""
         from qwen3_tts.server.app import _gen_cache_key
+
         key = _gen_cache_key("test", "design", {})
         self.assertEqual(len(key), 32)
         int(key, 16)  # Should not raise
@@ -149,155 +177,186 @@ class TestAppHelperFunctions(unittest.TestCase):
 # build_ui_and_launch Tests
 # =========================================================================
 
+
 @pytest.mark.unit
 @_skip_gradio
 class TestBuildUIAndLaunch(CredentialWriterIsolation, unittest.TestCase):
     """build_ui_and_launch should respect TTS_UI_NO_BROWSER and TTS_UI_SHARE env vars."""
 
-    @patch('qwen3_tts.interface.ui._find_available_port', return_value=7860)
-    @patch('qwen3_tts.interface.ui.build_ui')
+    @patch("qwen3_tts.interface.ui._find_available_port", return_value=7860)
+    @patch("qwen3_tts.interface.ui.build_ui")
     def test_inbrowser_true_by_default(self, mock_build_ui, _mock_port):
         """Browser should open by default when TTS_UI_NO_BROWSER is not set."""
         mock_demo = MagicMock()
         mock_build_ui.return_value = mock_demo
         config = {"ui": {"port": 7860}}
-        clean_env = {k: v for k, v in os.environ.items()
-                     if k not in ('TTS_UI_NO_BROWSER', 'TTS_UI_SHARE')}
+        clean_env = {
+            k: v
+            for k, v in os.environ.items()
+            if k not in ("TTS_UI_NO_BROWSER", "TTS_UI_SHARE")
+        }
         with patch.dict(os.environ, clean_env, clear=True):
             from qwen3_tts.interface.generate import build_ui_and_launch
+
             build_ui_and_launch(config)
         call_kwargs = mock_demo.launch.call_args[1]
-        self.assertTrue(call_kwargs.get('inbrowser'),
-                        "Expected inbrowser=True when TTS_UI_NO_BROWSER is not set")
+        self.assertTrue(
+            call_kwargs.get("inbrowser"),
+            "Expected inbrowser=True when TTS_UI_NO_BROWSER is not set",
+        )
 
-    @patch('qwen3_tts.interface.ui._find_available_port', return_value=7860)
-    @patch('qwen3_tts.interface.ui.build_ui')
+    @patch("qwen3_tts.interface.ui._find_available_port", return_value=7860)
+    @patch("qwen3_tts.interface.ui.build_ui")
     def test_inbrowser_false_when_no_browser_set(self, mock_build_ui, _mock_port):
         """Browser should NOT open when TTS_UI_NO_BROWSER=1."""
         mock_demo = MagicMock()
         mock_build_ui.return_value = mock_demo
         config = {"ui": {"port": 7860}}
-        with patch.dict(os.environ, {'TTS_UI_NO_BROWSER': '1'}):
+        with patch.dict(os.environ, {"TTS_UI_NO_BROWSER": "1"}):
             from qwen3_tts.interface.generate import build_ui_and_launch
+
             build_ui_and_launch(config)
         call_kwargs = mock_demo.launch.call_args[1]
-        self.assertFalse(call_kwargs.get('inbrowser'),
-                         "Expected inbrowser=False when TTS_UI_NO_BROWSER=1")
+        self.assertFalse(
+            call_kwargs.get("inbrowser"),
+            "Expected inbrowser=False when TTS_UI_NO_BROWSER=1",
+        )
 
-    @patch('qwen3_tts.interface.ui._find_available_port', return_value=7860)
-    @patch('qwen3_tts.interface.ui.build_ui')
+    @patch("qwen3_tts.interface.ui._find_available_port", return_value=7860)
+    @patch("qwen3_tts.interface.ui.build_ui")
     def test_share_true_when_env_var_set(self, mock_build_ui, _mock_port):
         """Share should be True when TTS_UI_SHARE=1."""
         mock_demo = MagicMock()
         mock_build_ui.return_value = mock_demo
         config = {"ui": {"port": 7860}}
-        with patch.dict(os.environ, {'TTS_UI_SHARE': '1', 'TTS_UI_NO_BROWSER': '1'}):
+        with patch.dict(os.environ, {"TTS_UI_SHARE": "1", "TTS_UI_NO_BROWSER": "1"}):
             from qwen3_tts.interface.generate import build_ui_and_launch
+
             build_ui_and_launch(config)
         call_kwargs = mock_demo.launch.call_args[1]
-        self.assertTrue(call_kwargs.get('share'),
-                        "Expected share=True when TTS_UI_SHARE=1")
+        self.assertTrue(
+            call_kwargs.get("share"), "Expected share=True when TTS_UI_SHARE=1"
+        )
 
-    @patch('qwen3_tts.interface.ui._find_available_port', return_value=7860)
-    @patch('qwen3_tts.interface.ui.build_ui')
+    @patch("qwen3_tts.interface.ui._find_available_port", return_value=7860)
+    @patch("qwen3_tts.interface.ui.build_ui")
     def test_share_false_by_default(self, mock_build_ui, _mock_port):
         """Share should be False by default when TTS_UI_SHARE is not set."""
         mock_demo = MagicMock()
         mock_build_ui.return_value = mock_demo
         config = {"ui": {"port": 7860}}
-        clean_env = {k: v for k, v in os.environ.items()
-                     if k not in ('TTS_UI_NO_BROWSER', 'TTS_UI_SHARE')}
+        clean_env = {
+            k: v
+            for k, v in os.environ.items()
+            if k not in ("TTS_UI_NO_BROWSER", "TTS_UI_SHARE")
+        }
         with patch.dict(os.environ, clean_env, clear=True):
             from qwen3_tts.interface.generate import build_ui_and_launch
+
             build_ui_and_launch(config)
         call_kwargs = mock_demo.launch.call_args[1]
-        self.assertFalse(call_kwargs.get('share'),
-                         "Expected share=False when TTS_UI_SHARE is not set")
+        self.assertFalse(
+            call_kwargs.get("share"),
+            "Expected share=False when TTS_UI_SHARE is not set",
+        )
 
-    @patch('qwen3_tts.core.config.IN_COLAB', True)
-    @patch('qwen3_tts.interface.ui._find_available_port', return_value=7860)
-    @patch('qwen3_tts.interface.ui.build_ui')
+    @patch("qwen3_tts.core.config.IN_COLAB", True)
+    @patch("qwen3_tts.interface.ui._find_available_port", return_value=7860)
+    @patch("qwen3_tts.interface.ui.build_ui")
     def test_colab_forces_share_and_disables_browser(self, mock_build_ui, _mock_port):
         """In Colab, share=True and inbrowser=False regardless of env vars."""
         mock_demo = MagicMock()
         mock_build_ui.return_value = mock_demo
         config = {"ui": {"port": 7860}}
-        clean_env = {k: v for k, v in os.environ.items()
-                     if k not in ('TTS_UI_NO_BROWSER', 'TTS_UI_SHARE')}
+        clean_env = {
+            k: v
+            for k, v in os.environ.items()
+            if k not in ("TTS_UI_NO_BROWSER", "TTS_UI_SHARE")
+        }
         with patch.dict(os.environ, clean_env, clear=True):
             from qwen3_tts.interface.generate import build_ui_and_launch
+
             build_ui_and_launch(config)
         call_kwargs = mock_demo.launch.call_args[1]
-        self.assertTrue(call_kwargs.get('share'),
-                        "Expected share=True in Colab environment")
-        self.assertFalse(call_kwargs.get('inbrowser'),
-                         "Expected inbrowser=False in Colab environment")
+        self.assertTrue(
+            call_kwargs.get("share"), "Expected share=True in Colab environment"
+        )
+        self.assertFalse(
+            call_kwargs.get("inbrowser"),
+            "Expected inbrowser=False in Colab environment",
+        )
 
 
 # =========================================================================
 # get_server_status Tests
 # =========================================================================
 
+
 @pytest.mark.unit
 @_skip_gradio
 class TestGetServerStatus(unittest.TestCase):
     """get_server_status() should correctly parse stats response."""
 
-    @patch('qwen3_tts.server.client.TTSClient')
+    @patch("qwen3_tts.server.client.TTSClient")
     def test_small_memory_not_shown_as_zero(self, mock_client_class):
         """A non-zero memory value (e.g. 0.3 MB) must not display as '0MB'."""
         mock_client = MagicMock()
         mock_client_class.return_value = mock_client
         mock_client.is_server_running.return_value = True
         mock_client.get_stats.return_value = {
-            'mlx_memory_active_mb': 0.3,
-            'backend': 'mlx',
-            'mlx_quantization': '8bit',
-            'clone_model_loaded': False,
-            'design_model_loaded': False,
-            'custom_model_loaded': False,
+            "mlx_memory_active_mb": 0.3,
+            "backend": "mlx",
+            "mlx_quantization": "8bit",
+            "clone_model_loaded": False,
+            "design_model_loaded": False,
+            "custom_model_loaded": False,
         }
         from qwen3_tts.interface.ui import get_server_status
-        _, memory, _, _ = get_server_status()
-        self.assertNotEqual(memory, "0MB",
-            "Memory value 0.3 MB must not round to '0MB'")
 
-    @patch('qwen3_tts.server.client.TTSClient')
+        _, memory, _, _ = get_server_status()
+        self.assertNotEqual(
+            memory, "0MB", "Memory value 0.3 MB must not round to '0MB'"
+        )
+
+    @patch("qwen3_tts.server.client.TTSClient")
     def test_zero_memory_via_or_chain_not_skipped(self, mock_client_class):
         """If mlx_memory_active_mb is 0.0 (falsy), fall through to next key correctly."""
         mock_client = MagicMock()
         mock_client_class.return_value = mock_client
         mock_client.is_server_running.return_value = True
         mock_client.get_stats.return_value = {
-            'mlx_memory_active_mb': 0.0,
-            'mps_memory_allocated_mb': 512.0,
-            'backend': 'mlx',
-            'mlx_quantization': '8bit',
-            'clone_model_loaded': True,
-            'design_model_loaded': False,
-            'custom_model_loaded': False,
+            "mlx_memory_active_mb": 0.0,
+            "mps_memory_allocated_mb": 512.0,
+            "backend": "mlx",
+            "mlx_quantization": "8bit",
+            "clone_model_loaded": True,
+            "design_model_loaded": False,
+            "custom_model_loaded": False,
         }
         from qwen3_tts.interface.ui import get_server_status
+
         _, memory, models, _ = get_server_status()
-        self.assertEqual(memory, "0.0MB",
-            "0.0 MB must be used directly, not skipped as falsy")
+        self.assertEqual(
+            memory, "0.0 MB", "0.0 MB must be used directly, not skipped as falsy"
+        )
         self.assertEqual(models, "Clone")
 
-    @patch('qwen3_tts.server.client.TTSClient')
+    @patch("qwen3_tts.server.client.TTSClient")
     def test_loaded_models_shown_correctly(self, mock_client_class):
         """Loaded models should be listed in status, not 'None'."""
         mock_client = MagicMock()
         mock_client_class.return_value = mock_client
         mock_client.is_server_running.return_value = True
         mock_client.get_stats.return_value = {
-            'mlx_memory_active_mb': 2500.5,
-            'backend': 'mlx',
-            'mlx_quantization': '8bit',
-            'clone_model_loaded': True,
-            'design_model_loaded': True,
-            'custom_model_loaded': False,
+            "mlx_memory_active_mb": 2500.5,
+            "backend": "mlx",
+            "mlx_quantization": "8bit",
+            "clone_model_loaded": True,
+            "design_model_loaded": True,
+            "custom_model_loaded": False,
         }
         from qwen3_tts.interface.ui import get_server_status
+
         _, _, models, _ = get_server_status()
         self.assertIn("Clone", models)
         self.assertIn("Design", models)
@@ -312,18 +371,20 @@ class TestManageVoicesRaceCondition(unittest.TestCase):
     def test_action_buttons_start_non_interactive(self):
         """Action buttons are created with interactive=False."""
         from qwen3_tts.interface.ui._facade import _build_manage_voices_tab
+
         source = inspect.getsource(_build_manage_voices_tab)
-        lines = source.split('\n')
+        lines = source.split("\n")
         for i, line in enumerate(lines):
-            if 'manage_default_btn' in line and 'gr.Button' in line:
+            if "manage_default_btn" in line and "gr.Button" in line:
                 # Check the next few lines for interactive=False (handles multi-line declarations)
                 found_interactive = False
                 for j in range(i, min(i + 3, len(lines))):
-                    if 'interactive=False' in lines[j]:
+                    if "interactive=False" in lines[j]:
                         found_interactive = True
                         break
-                self.assertTrue(found_interactive,
-                              "manage_default_btn must start non-interactive")
+                self.assertTrue(
+                    found_interactive, "manage_default_btn must start non-interactive"
+                )
                 break
         else:
             self.fail("manage_default_btn gr.Button declaration not found")
@@ -331,12 +392,16 @@ class TestManageVoicesRaceCondition(unittest.TestCase):
     def test_select_event_enables_buttons(self):
         """on_table_select returns gr.update(interactive=True) for buttons."""
         from qwen3_tts.interface.ui._facade import _build_manage_voices_tab
+
         source = inspect.getsource(_build_manage_voices_tab)
         # The .select() outputs list must include manage_default_btn
-        self.assertIn('manage_default_btn', source)
+        self.assertIn("manage_default_btn", source)
         # on_table_select must return interactive updates
-        self.assertIn('gr.update(interactive=True)', source,
-                       "on_table_select must enable buttons via gr.update")
+        self.assertIn(
+            "gr.update(interactive=True)",
+            source,
+            "on_table_select must enable buttons via gr.update",
+        )
 
 
 if __name__ == "__main__":

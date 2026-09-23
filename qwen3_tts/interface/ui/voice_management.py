@@ -203,7 +203,7 @@ def create_voice_prompt(audio_path, transcript, voice_name, no_transcript=False)
 def auto_transcribe_audio(audio_path):
     """Auto-transcribe audio using server ASR.
 
-    Phase 1b: surfaces a `gr.Info` toast + ProgressIndicator while the
+    Surfaces a `gr.Info` toast while the
     transcribe round-trip is in flight (typically 1-3s; can queue for
     minutes behind an in-flight generation — the server serializes ASR
     on inference_lock, see TRANSCRIBE_TIMEOUT_SEC).
@@ -214,8 +214,6 @@ def auto_transcribe_audio(audio_path):
     Returns:
         Transcript text
     """
-    from qwen3_tts.interface.ui.components import ProgressIndicator
-
     if not audio_path:
         raise gr.Error("Please upload an audio file first")
 
@@ -223,9 +221,8 @@ def auto_transcribe_audio(audio_path):
     if not is_server_running(config):
         raise gr.Error("Server must be running for auto-transcription")
 
-    progress = ProgressIndicator(mode="indeterminate", message="Transcribing audio…")
     try:
-        gr.Info(progress.message)
+        gr.Info("Transcribing audio…")
     except Exception:  # nosec B110  # gr.Info raises in non-event contexts (e.g. tests); cosmetic UI toast, safe to swallow
         pass
 

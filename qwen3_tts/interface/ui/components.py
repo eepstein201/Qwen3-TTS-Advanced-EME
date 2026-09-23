@@ -12,6 +12,7 @@ Public API:
     poll_model_load_progress(model_type) - structured progress dict for UI
     status_badge(message, severity) - inline badge for table cells
     severity_icon(name) - inline SVG by name
+    severity_class(severity) - banner CSS class for a severity
 """
 
 from __future__ import annotations
@@ -21,6 +22,7 @@ import logging
 import threading
 from typing import Literal
 
+import qwen3_tts.interface.ui.theme as theme
 from qwen3_tts.core.config import (
     is_server_running,
     load_config,
@@ -35,14 +37,19 @@ logger = logging.getLogger("tts.ui")
 
 Severity = Literal["info", "success", "warning", "error", "loading"]
 
-# Colour tokens chosen to meet WCAG 4.5:1 against light + dark Gradio surfaces.
+# Colours come from theme.TOKENS (chosen for WCAG 4.5:1 on light + dark surfaces).
 _SEVERITY_STYLE = {
-    "info": {"color": "#1a4480", "label": "Info", "icon": "info"},
-    "success": {"color": "#0c5d00", "label": "Success", "icon": "check"},
-    "warning": {"color": "#7d4f00", "label": "Warning", "icon": "warn"},
-    "error": {"color": "#9b1c1c", "label": "Error", "icon": "x"},
-    "loading": {"color": "#1a4480", "label": "Loading", "icon": "spinner"},
+    "info": {"color": theme.var("info"), "label": "Info", "icon": "info"},
+    "success": {"color": theme.var("success"), "label": "Success", "icon": "check"},
+    "warning": {"color": theme.var("warning"), "label": "Warning", "icon": "warn"},
+    "error": {"color": theme.var("error"), "label": "Error", "icon": "x"},
+    "loading": {"color": theme.var("loading"), "label": "Loading", "icon": "spinner"},
 }
+
+
+def severity_class(severity: Severity) -> str:
+    """CSS class that renders a component as a banner of *severity* (see theme.UI_CSS)."""
+    return theme.SEVERITY_CLASS.get(severity, theme.SEVERITY_CLASS["info"])
 
 # Inline SVGs (Heroicons-style minimal). 16x16 viewBox, currentColor fill so
 # they inherit the surrounding span's color. aria-hidden because the text
@@ -169,9 +176,9 @@ class StatusBanner:
         return (
             '<div role="status" aria-live="polite" '
             f'aria-label="{aria}" '
-            f'style="padding:8px 12px;border-radius:6px;'
-            f"background:var(--block-background-fill,#f8f8f8);"
-            f"border:1px solid var(--block-border-color,#e0e0e0);"
+            f'style="padding:8px 12px;border-radius:{theme.var("radius_lg")};'
+            f"background:{theme.var('surface')};"
+            f"border:1px solid {theme.var('border')};"
             f"color:{style['color']};font-weight:500;"
             f'display:flex;align-items:center;">'
             f"{icon}<span>{safe}</span></div>"
@@ -282,20 +289,23 @@ class ProgressIndicator:
                 '<div role="progressbar" aria-busy="true" '
                 f'aria-label="{safe_msg or "Working"}" '
                 'style="display:flex;align-items:center;padding:6px 10px;'
-                "border-radius:6px;background:var(--block-background-fill,#f8f8f8);"
-                "border:1px solid var(--block-border-color,#e0e0e0);"
-                'color:#1a4480;font-weight:500;">'
+                f"border-radius:{theme.var('radius_lg')};background:{theme.var('surface')};"
+                f"border:1px solid {theme.var('border')};"
+                f'color:{theme.var("loading")};font-weight:500;">'
                 f"{spinner}<span>{safe_msg}</span></div>"
             )
 
         # Bounded mode
+        from qwen3_tts.interface.ui import shared
+
         eta_part = ""
         if self.eta_s is not None:
             try:
-                secs = max(0, int(round(float(self.eta_s))))
-                eta_part = f" · ~{secs}s"
+                eta_text = shared.fmt_eta(float(self.eta_s))
             except (TypeError, ValueError):
-                eta_part = ""
+                eta_text = shared.EMPTY_VALUE
+            if eta_text != shared.EMPTY_VALUE:
+                eta_part = f" · {eta_text}"
         label_text = f"{self.percent}%{eta_part}"
         if self.message:
             label_text = f"{safe_msg} — {label_text}"
@@ -306,15 +316,15 @@ class ProgressIndicator:
             '<div role="progressbar" '
             f'aria-valuenow="{self.percent}" aria-valuemin="0" aria-valuemax="100" '
             f'aria-label="{html_mod.escape(label_text)}" '
-            'style="padding:6px 10px;border-radius:6px;'
-            "background:var(--block-background-fill,#f8f8f8);"
-            "border:1px solid var(--block-border-color,#e0e0e0);"
-            'color:#1a4480;font-weight:500;">'
+            f'style="padding:6px 10px;border-radius:{theme.var("radius_lg")};'
+            f"background:{theme.var('surface')};"
+            f"border:1px solid {theme.var('border')};"
+            f'color:{theme.var("loading")};font-weight:500;">'
             f'<div style="display:flex;justify-content:space-between;'
             f'margin-bottom:4px;font-size:0.875rem;"><span>{label_text}</span></div>'
-            '<div style="height:6px;border-radius:3px;background:#e0e0e0;'
-            'overflow:hidden;">'
-            f'<div style="height:100%;width:{bar_width}%;background:#1a4480;'
+            f'<div style="height:6px;border-radius:{theme.var("radius_sm")};'
+            f'background:{theme.var("border")};overflow:hidden;">'
+            f'<div style="height:100%;width:{bar_width}%;background:{theme.var("loading")};'
             'transition:width 200ms ease-out;"></div></div></div>'
         )
 

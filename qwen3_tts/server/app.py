@@ -93,9 +93,11 @@ from qwen3_tts.server.app_lifespan import (  # noqa: E402
     _get_queue_size,  # noqa: F401 (re-exported for test backward compat)
     _sanitize_error,  # noqa: F401 (re-exported for test backward compat)
     auto_shutdown,  # noqa: F401 (re-exported for test backward compat)
+    chunk_progress_pct,
     cleanup_pid,  # noqa: F401 (re-exported for test backward compat)
     cleanup_resources,
     detect_degraded_generation,
+    estimate_eta_sec,
     lifespan,
     reset_activity_timer,
 )
@@ -276,6 +278,19 @@ def _get_token_key(request: Request) -> str:
 # ---------------------------------------------------------------------------
 
 
+def _bearer_token(request: Request) -> str:
+    """The request's bearer credential ("" when absent) — shared by
+    ``verify_auth`` and ``request_is_authed`` so extraction cannot drift."""
+    return _strip_bearer_scheme(request.headers.get("Authorization", ""))
+
+
+def request_is_authed(request: Request) -> bool:
+    """True when the request carries the server token. Never raises or logs:
+    public endpoints use it to decide what to include, not to reject."""
+    stored: str = getattr(request.app.state, "auth_token", "") or ""
+    return bool(stored) and _tokens_equal(_bearer_token(request), stored)
+
+
 async def verify_auth(request: Request) -> None:
     """Verify Bearer token for protected endpoints.
 
@@ -283,7 +298,7 @@ async def verify_auth(request: Request) -> None:
     no-auth access by simply not declaring Depends(verify_auth); this function only
     ever runs for protected routes.
     """
-    token = _strip_bearer_scheme(request.headers.get("Authorization", ""))
+    token = _bearer_token(request)
     if not _tokens_equal(token, request.app.state.auth_token):
         client_ip = _get_real_client_ip(request)
         # Determine failure reason for audit logging (R-26)
@@ -656,7 +671,26 @@ async def generation_status(request: Request) -> dict:
     }
     if gen_state["active"]:
         result["elapsed_sec"] = round(time.time() - gen_state["start_time"], 1)
+    if request_is_authed(request):
+        result.update(_authed_generation_details(gen_state))
     return result
+
+
+def _authed_generation_details(gen_state: dict) -> dict:
+    """Size-revealing progress fields for authenticated /generation-status
+    callers; ``progress_pct``/``eta_sec`` only while known."""
+    details = {
+        "batch_total": gen_state["batch_total"],
+        "chunk_total": gen_state["chunk_total"],
+    }
+    if gen_state["active"]:
+        pct = chunk_progress_pct(gen_state["chunk_index"], gen_state["chunk_total"])
+        eta = estimate_eta_sec(gen_state)
+        if pct is not None:
+            details["progress_pct"] = pct
+        if eta is not None:
+            details["eta_sec"] = eta
+    return details
 
 
 @app.get(

@@ -256,9 +256,8 @@ class TestPlayerConstants(unittest.TestCase):
         self.assertIn("MAX_CHUNK_BYTES", js)
 
     def test_waveform_height_constant(self):
-        from qwen3_tts.interface.wavesurfer_js import get_player_html
-        html = get_player_html("clone")
-        self.assertIn("min-height:", html)
+        from qwen3_tts.interface.ui.theme import UI_CSS
+        self.assertIn(".ws-waveform{width:100%;min-height:80px;", UI_CSS)
 
 
 class TestDeadCodeRemoval(unittest.TestCase):
@@ -296,26 +295,50 @@ class TestPlayerAccessibility(unittest.TestCase):
         self.assertIn('aria-live="polite"', html)
 
     def test_buttons_have_focus_styles(self):
-        from qwen3_tts.interface.wavesurfer_js import get_player_html
-        html = get_player_html("clone")
-        self.assertIn(":focus", html)
+        from qwen3_tts.interface.ui.theme import UI_CSS
+        self.assertIn(".ws-btn:focus-visible", UI_CSS)
 
     def test_disabled_button_styling(self):
-        from qwen3_tts.interface.wavesurfer_js import get_player_html
-        html = get_player_html("clone")
-        self.assertIn(":disabled", html)
-        self.assertIn("cursor: not-allowed", html)
+        from qwen3_tts.interface.ui.theme import UI_CSS
+        self.assertIn(".ws-btn:disabled{opacity:0.5;cursor:not-allowed;}", UI_CSS)
 
     def test_css_class_on_buttons(self):
         from qwen3_tts.interface.wavesurfer_js import get_player_html
         html = get_player_html("clone")
         self.assertIn('class="ws-btn"', html)
 
-    def test_css_block_present(self):
+    def test_css_rules_live_on_the_theme_layer(self):
+        from qwen3_tts.interface.ui.theme import UI_CSS
+        for selector in (".ws-btn{", ".ws-waveform{", ".ws-controls{"):
+            with self.subTest(selector=selector):
+                self.assertIn(selector, UI_CSS)
+
+
+class TestPlayerStylesOnThemeLayer(unittest.TestCase):
+    """T1.8: player markup carries no per-instance <style>; rules use tokens."""
+
+    def setUp(self):
+        from qwen3_tts.interface.ui import theme
         from qwen3_tts.interface.wavesurfer_js import get_player_html
-        html = get_player_html("clone")
-        self.assertIn("<style>", html)
-        self.assertIn(".ws-btn", html)
+
+        self.theme = theme
+        self.html = get_player_html("clone")
+
+    def test_player_markup_has_no_style_block(self):
+        self.assertNotIn("<style", self.html)
+
+    def test_time_readout_is_tabular(self):
+        self.assertRegex(self.html, r'<span id="clone-time" class="tts-num"')
+
+    def test_button_rules_use_tokens(self):
+        css = self.theme.UI_CSS
+        self.assertIn(f".ws-btn:focus-visible{{outline:2px solid {self.theme.var('focus')};", css)
+        self.assertIn(".ws-btn:active{transform:scale(0.96);}", css)
+        self.assertIn("transition-property:transform,background-color;", css)
+        self.assertIn("min-width:40px;min-height:40px;", css)
+
+    def test_hardcoded_focus_color_is_gone(self):
+        self.assertNotIn("#4a9eff", self.html + self.theme.UI_CSS)
 
 
 class TestPlayerControls(unittest.TestCase):

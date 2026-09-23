@@ -6,14 +6,21 @@ This module contains:
 - Status and history helpers
 - Model settings utilities
 - AI description enhancement
+- Display formatting (fmt_duration, fmt_size, fmt_eta, fmt_memory_mb,
+  format_history_time) — pure, "—" for unknown values. The CLI sibling of
+  fmt_size is qwen3_tts/tools/_shared._format_size (drift-guarded in
+  tests/test_ui_shared_format.py).
 """
 
+import datetime
 import logging
+import math
 import os
 import re
 import shutil
 import threading
 import time
+from typing import TypeGuard
 
 import gradio as gr
 
@@ -30,6 +37,7 @@ from qwen3_tts.core.config import (
     safe_path_join,
 )
 from qwen3_tts.core.engine.audio_processing import DEFAULT_SAMPLE_RATE
+from qwen3_tts.interface.ui import theme
 
 logger = logging.getLogger("tts.ui")
 
@@ -155,20 +163,14 @@ def _allowed_api_key_env(enhancer_config):
 def enhance_description_with_ai(description):
     """Enhance a brief voice description using an LLM API.
 
-    Phase 1b: surfaces a `gr.Info` toast and constructs an inline
-    ProgressIndicator while the LLM call is in flight, so the user knows
-    something is happening during the round-trip (~2-5s).
+    Surfaces a `gr.Info` toast while the LLM call is in flight, so the user
+    knows something is happening during the round-trip (~2-5s).
     """
-    from qwen3_tts.interface.ui.components import ProgressIndicator
-
     if not description or not description.strip():
         raise gr.Error("Please enter a description to enhance")
 
-    # Visible toast + structured progress object (the indicator HTML is also
-    # available for any inline gr.HTML that wires into this handler).
-    progress = ProgressIndicator(mode="indeterminate", message="Enhancing description…")
     try:
-        gr.Info(progress.message)
+        gr.Info("Enhancing description…")
     except Exception:  # nosec B110  # gr.Info raises in non-event contexts (e.g. tests); cosmetic UI toast, safe to swallow
         pass
 
@@ -396,9 +398,12 @@ def get_server_status():
             if _v is not None:
                 memory_val = _v
                 break
-        memory = (
-            f"{memory_val:.1f}MB" if isinstance(memory_val, (int, float)) else "N/A"
-        )
+        if not isinstance(memory_val, (int, float)):
+            memory = "N/A"
+        elif memory_val == 0:
+            memory = "0.0 MB"  # a real reading here, not fmt_memory_mb's "unknown"
+        else:
+            memory = fmt_memory_mb(memory_val)
 
         loaded_models = []
         if stats.get("clone_model_loaded"):
@@ -477,6 +482,65 @@ def get_user_generation_preset_choices():
     applies — a broken config.json renders an empty list, never an error.
     """
     return ["(none)"] + sorted(get_user_generation_presets())
+
+
+EMPTY_VALUE = "—"
+
+
+def _valid_amount(value: float | int | None) -> TypeGuard[float | int]:
+    return value is not None and math.isfinite(value) and value >= 0
+
+
+def fmt_duration(seconds: float | None) -> str:
+    """``m:ss`` under an hour, ``h:mm:ss`` above; "—" when unknown."""
+    if not _valid_amount(seconds):
+        return EMPTY_VALUE
+    minutes, secs = divmod(int(round(seconds)), 60)
+    hours, minutes = divmod(minutes, 60)
+    return f"{hours}:{minutes:02d}:{secs:02d}" if hours else f"{minutes}:{secs:02d}"
+
+
+def fmt_size(num_bytes: float | int | None) -> str:
+    """Bytes as B/KB/MB/GB/TB with one decimal; "—" when unknown."""
+    if not _valid_amount(num_bytes):
+        return EMPTY_VALUE
+    size = float(num_bytes)
+    for unit in ("B", "KB", "MB", "GB"):
+        if size < 1024.0:
+            return f"{size:.1f} {unit}"
+        size /= 1024.0
+    return f"{size:.1f} TB"
+
+
+def fmt_eta(seconds: float | None) -> str:
+    """The single ETA spelling: ``~12s`` / ``~1m 20s`` / ``~1h 5m``; "—" when unknown."""
+    if not _valid_amount(seconds):
+        return EMPTY_VALUE
+    minutes, secs = divmod(int(round(seconds)), 60)
+    hours, minutes = divmod(minutes, 60)
+    if hours:
+        return f"~{hours}h {minutes}m" if minutes else f"~{hours}h"
+    if minutes:
+        return f"~{minutes}m {secs}s" if secs else f"~{minutes}m"
+    return f"~{secs}s"
+
+
+def fmt_memory_mb(memory_mb: float | int | None) -> str:
+    """``2500 MB`` (one decimal under 1000); "—" when zero or unknown."""
+    if not _valid_amount(memory_mb) or not memory_mb:
+        return EMPTY_VALUE
+    return f"{memory_mb:.0f} MB" if memory_mb >= 1000 else f"{memory_mb:.1f} MB"
+
+
+def format_history_time(ts: float | None, now: float | None = None) -> str:
+    """Local ``14:32:07`` for today, ``Sep 6 14:32`` otherwise; "—" when falsy."""
+    if not ts:
+        return EMPTY_VALUE
+    when = datetime.datetime.fromtimestamp(ts)
+    today = datetime.datetime.fromtimestamp(time.time() if now is None else now).date()
+    if when.date() == today:
+        return when.strftime("%H:%M:%S")
+    return f"{when.strftime('%b')} {when.day} {when.strftime('%H:%M')}"
 
 
 def get_voice_metadata(name: str) -> dict:
@@ -597,6 +661,11 @@ def clear_history(history_list=None):
     return []
 
 
+def empty_history_rows() -> list[list[str]]:
+    """One placeholder row for an empty history table (7 columns, blank actions)."""
+    return [["—", "", "No generations yet — generated audio appears here", "", "", "", ""]]
+
+
 def get_history_data(history_list, armed_delete_path=None, armed_download_path=None):
     """Convert history list to list-of-lists format.
 
@@ -609,17 +678,12 @@ def get_history_data(history_list, armed_delete_path=None, armed_download_path=N
     Returns:
         List of [time, mode, text, seed, chunks, remove, download] rows.
     """
-    import datetime
-
     if not history_list:
-        return []
+        return empty_history_rows()
 
     rows = []
     for entry in history_list:
-        ts = entry.get("timestamp", 0)
-        time_str = (
-            datetime.datetime.fromtimestamp(ts).strftime("%H:%M:%S") if ts else ""
-        )
+        time_str = format_history_time(entry.get("timestamp", 0))
         seed_val = entry.get("seed")
         seed_str = str(seed_val) if seed_val is not None else "-"
         is_armed_delete = (
@@ -979,7 +1043,7 @@ def get_gradio_launch_kwargs(config: dict, *, share: bool = False) -> dict:
         "server_name": "0.0.0.0" if IN_COLAB else "127.0.0.1",  # nosec B104  # Colab only
         "allowed_paths": allowed,
         "theme": gr.themes.Soft(),
-        "css": ".gr-hidden { display: none !important; height: 0 !important; overflow: hidden !important; }",
+        "css": theme.UI_CSS,
     }
     if not share:
         return kwargs

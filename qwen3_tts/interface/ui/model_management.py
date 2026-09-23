@@ -17,7 +17,7 @@ from qwen3_tts.core.config import (
     load_config,
     save_config,
 )
-from qwen3_tts.interface.ui.components import ProgressIndicator
+from qwen3_tts.interface.ui import shared
 from qwen3_tts.interface.ui.shared import format_status_display
 
 logger = logging.getLogger("tts.ui")
@@ -33,10 +33,10 @@ def get_model_table_data():
 
     if not is_server_running(config):
         return [
-            ["clone", "server not running", "-", "—"],
-            ["design", "server not running", "-", "—"],
-            ["custom", "server not running", "-", "—"],
-            ["asr", "server not running", "-", "—"],
+            ["clone", "server not running", "—", "—"],
+            ["design", "server not running", "—", "—"],
+            ["custom", "server not running", "—", "—"],
+            ["asr", "server not running", "—", "—"],
         ]
 
     try:
@@ -46,10 +46,10 @@ def get_model_table_data():
 
         if resp.status_code != 200:
             return [
-                ["clone", "error", "-", "—"],
-                ["design", "error", "-", "—"],
-                ["custom", "error", "-", "—"],
-                ["asr", "error", "-", "—"],
+                ["clone", "error", "—", "—"],
+                ["design", "error", "—", "—"],
+                ["custom", "error", "—", "—"],
+                ["asr", "error", "—", "—"],
             ]
 
         data = resp.json()
@@ -66,7 +66,7 @@ def get_model_table_data():
             )
 
             status = "Loaded" if loaded else "Not loaded"
-            memory_str = f"{memory:.0f}MB" if memory else "—"
+            memory_str = shared.fmt_memory_mb(memory)
             startup_str = "Yes" if load_at_startup else "No"
 
             rows.append([model_type, status, memory_str, startup_str])
@@ -83,21 +83,19 @@ def get_model_table_data():
     except Exception as e:
         logger.error("Failed to get model table data: %s", e)
         return [
-            ["clone", f"error: {e}", "-", "—"],
-            ["design", f"error: {e}", "-", "—"],
-            ["custom", f"error: {e}", "-", "—"],
-            ["asr", f"error: {e}", "-", "—"],
+            ["clone", f"error: {e}", "—", "—"],
+            ["design", f"error: {e}", "—", "—"],
+            ["custom", f"error: {e}", "—", "—"],
+            ["asr", f"error: {e}", "—", "—"],
         ]
 
 
 def toggle_model(model_type, action):
     """Load or unload a model.
 
-    Phase 1b: ProgressIndicator is constructed at start so Gradio toasts /
-    inline progress can wire into it; the function itself stays a normal
-    return-tuple handler because the existing wiring in _facade.py uses a
-    `lambda mt: toggle_model(mt, action)` — Gradio does not iterate generators
-    returned from lambdas.
+    A normal return-tuple handler because the existing wiring in _facade.py
+    uses a `lambda mt: toggle_model(mt, action)` — Gradio does not iterate
+    generators returned from lambdas.
 
     Args:
         model_type: 'clone', 'design', or 'custom'
@@ -112,7 +110,7 @@ def toggle_model(model_type, action):
         return "Server not running", get_model_table_data(), format_status_display()
 
     # In-flight progress is surfaced by the shared badge Timer (see
-    # _badge_from_models_payload — it renders `loading` + prior-load ETA from
+    # _badge_from_models_payload — it renders `loading` + prior-load duration from
     # /models), not by this handler: the blocking POST below leaves no
     # opportunity to update outputs mid-flight under the lambda-wrapped
     # wiring. Here we only measure wall time so the completion message can
@@ -149,7 +147,7 @@ def toggle_model(model_type, action):
             # already_loaded short-circuits server-side without loading, so a
             # duration would be meaningless for it.
             elapsed = (
-                f" in {time.monotonic() - started:.1f}s"
+                f" in {shared.fmt_duration(time.monotonic() - started)}"
                 if status != "already_loaded"
                 else ""
             )
@@ -182,7 +180,6 @@ def toggle_model(model_type, action):
 def toggle_asr(action):
     """Load or unload the ASR model.
 
-    Phase 1b: ProgressIndicator constructed at start for log/toast surfacing.
     Returns a tuple — generator-yield wiring incompatible with current
     `lambda: toggle_asr(action)` wrapper in _facade.py.
 
@@ -196,9 +193,6 @@ def toggle_asr(action):
 
     if not is_server_running(config):
         return "Server not running", format_status_display()
-
-    if action == "load":
-        ProgressIndicator(mode="indeterminate", message="Loading ASR model…")
 
     try:
         from qwen3_tts.core.http_client import (
@@ -273,17 +267,19 @@ def _badge_from_models_payload(data, model_type):
     memory = info.get("memory_mb", 0)
 
     if loaded:
-        return status_badge(f"Loaded ({memory:.0f}MB)", severity="success")
+        memory_str = shared.fmt_memory_mb(memory)
+        label = "Loaded" if memory_str == shared.EMPTY_VALUE else f"Loaded ({memory_str})"
+        return status_badge(label, severity="success")
     if loading:
-        # Prior measured load duration is the best available estimate — the
-        # server cannot know remaining time for the in-flight load.
+        # The server cannot know remaining time for the in-flight load, so the
+        # prior measured duration is labelled as history, never as an ETA.
         load_time_sec = info.get("load_time_sec")
         if load_time_sec is not None:
             return status_badge(
-                f"Loading {model_type}... (~{int(load_time_sec)}s expected)",
+                f"Loading {model_type}… (last load {shared.fmt_duration(load_time_sec)})",
                 severity="loading",
             )
-        return status_badge(f"Loading {model_type}...", severity="loading")
+        return status_badge(f"Loading {model_type}…", severity="loading")
     return status_badge("Not loaded", severity="info")
 
 

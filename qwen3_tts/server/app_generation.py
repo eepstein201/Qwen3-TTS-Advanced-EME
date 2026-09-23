@@ -633,6 +633,9 @@ async def handle_generate(request, state, req, security, config_provider):
                     # exclude nothing here. update_progress writes the pair in
                     # one locked step so a loop-side snapshot never reads the
                     # two keys from different writes.
+                    #
+                    # run_inference reports the 0-based CURRENT chunk before
+                    # generating it — already the completed count.
                     guard.update_progress(chunk_idx, chunk_total)
 
                 # Apply the resolved seed for this generation. gen_params itself
@@ -1097,8 +1100,12 @@ async def handle_generate_stream(request, state, req, security, config_provider)
                     through the guard's threading.Lock: an asyncio lock would
                     exclude nothing there (same reasoning as the batch path's
                     progress callback).
+
+                    run_inference_streaming reports the 1-based CURRENT chunk before
+                    generating it; store the completed count (``chunk_idx - 1``) so
+                    ``chunk_index`` means the same thing on both paths.
                     """
-                    guard.update_progress(chunk_idx, chunk_total)
+                    guard.update_progress(max(chunk_idx - 1, 0), chunk_total)
 
                 def inference_thread():
                     """Run inference in a thread and push chunks to queue."""

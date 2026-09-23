@@ -12,7 +12,12 @@ import time
 
 import gradio as gr
 
-from qwen3_tts.interface.ui import model_management, shared, voice_management
+from qwen3_tts.interface.ui import (
+    generation,
+    model_management,
+    shared,
+    voice_management,
+)
 from qwen3_tts.interface.ui.components import ConfirmButton
 
 # Seconds a two-step confirm stays armed before it re-arms instead of firing.
@@ -123,6 +128,7 @@ def _build_manage_voices_tab(clone_prompt):
                     "Delete", size="sm", variant="stop", interactive=False
                 )
             delete_confirm_state = gr.State(_new_confirm_state())
+            rename_confirm_state = gr.State(_new_confirm_state())
             manage_status = gr.Textbox(
                 label="",
                 show_label=False,
@@ -165,20 +171,56 @@ def _build_manage_voices_tab(clone_prompt):
     manage_refresh_btn.click(
         fn=voice_management.get_prompt_table_data, outputs=[manage_table]
     )
+    # Preview blocks on a server GET; show a loading status first, clear it after
+    # (a .then runs even when preview_voice raises gr.Error).
     manage_preview_btn.click(
+        fn=lambda name: generation.status_update(f"Previewing {name}…", "loading"),
+        inputs=[manage_selected],
+        outputs=[manage_status],
+    ).then(
         fn=voice_management.preview_voice,
         inputs=[manage_selected],
         outputs=[manage_preview_audio],
+    ).then(
+        fn=lambda: gr.update(value="", elem_classes=[]),
+        outputs=[manage_status],
     )
     manage_default_btn.click(
         fn=voice_management.set_voice_default,
         inputs=[manage_selected],
         outputs=[manage_status, manage_table],
     )
+    # ConfirmButton for rename voice action
+    rename_confirm_btn = ConfirmButton(
+        arm_label="Confirm Rename? (click again)",
+        original_label="Rename",
+        timeout_s=CONFIRM_TIMEOUT_S,
+        status_message="Click again within 5s to confirm rename.",
+    )
+
+    def on_rename_click(state, selected, new_name):
+        new_state, btn_update, _status_update, confirmed = rename_confirm_btn.click(
+            state
+        )
+        if not confirmed:
+            banner_msg = (
+                f"Rename '{selected}' to '{(new_name or '').strip()}'?\n"
+                "Click again within 5s to confirm."
+            )
+            return new_state, btn_update, banner_msg, gr.update(), gr.update()
+        status, table, prompt = voice_management.rename_voice(selected, new_name)
+        return new_state, btn_update, status, table, prompt
+
     manage_rename_btn.click(
-        fn=voice_management.rename_voice,
-        inputs=[manage_selected, manage_new_name],
-        outputs=[manage_status, manage_table, clone_prompt],
+        fn=on_rename_click,
+        inputs=[rename_confirm_state, manage_selected, manage_new_name],
+        outputs=[
+            rename_confirm_state,
+            manage_rename_btn,
+            manage_status,
+            manage_table,
+            clone_prompt,
+        ],
     )
 
     # ConfirmButton for delete voice action
@@ -204,7 +246,7 @@ def _build_manage_voices_tab(clone_prompt):
 
             duration = metadata.get("duration", "N/A")
             formats = ", ".join(metadata.get("formats", []))
-            size_mb = metadata.get("size_mb", "N/A")
+            size = shared.fmt_size(metadata.get("size_bytes"))
             created = metadata.get("created")
 
             # Check if recently created (<5 minutes)
@@ -218,7 +260,7 @@ def _build_manage_voices_tab(clone_prompt):
                 f"Delete '{selected}'?\n"
                 f"Duration: {duration}\n"
                 f"Format: {formats}\n"
-                f"Size: {size_mb} MB"
+                f"Size: {size}"
                 f"{recent_warning}"
             )
 

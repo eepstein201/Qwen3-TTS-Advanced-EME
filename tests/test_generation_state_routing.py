@@ -45,6 +45,10 @@ _ENGINE = "qwen3_tts.core.engine"
 # pairing total == 2 * index is the torn-read canary: a snapshot must never
 # observe the two keys from different writes.
 _PROGRESS_CALLS = ((1, 2), (2, 4), (3, 6))
+# The streaming engine reports the 1-based CURRENT chunk before generating it;
+# the streaming closure normalizes to chunks completed, so the guard still
+# receives _PROGRESS_CALLS (Step 7A T1.0).
+_STREAM_PROGRESS_CALLS = tuple((ci + 1, ct) for ci, ct in _PROGRESS_CALLS)
 
 _skip = unittest.skipUnless(_HAS_DEPS, "requires numpy + soundfile")
 
@@ -236,7 +240,7 @@ async def _drive_stream_async(
     state,
     recording,
     text="streaming routing probe",
-    progress_calls=_PROGRESS_CALLS,
+    progress_calls=_STREAM_PROGRESS_CALLS,
     on_stream_done=None,
     guard_for_mock=None,
 ):

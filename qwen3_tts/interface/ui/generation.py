@@ -8,6 +8,7 @@ This module contains:
 - Generation tab wiring
 """
 
+import functools
 import logging
 import os
 import shutil
@@ -46,6 +47,61 @@ STATUS_STOP_CONFIRM_HINT = "Click again within 5s to confirm stop."
 STATUS_GENERATION_STOPPING = "Stopping generation…"
 STATUS_GENERATION_STOPPED = "Generation stopped"
 STATUS_STOP_CANCELED = "Stop canceled"
+
+# Outcome severity by message fragment, most specific first; unmatched = "info".
+_OUTCOME_SEVERITY = (
+    ("error", ("Error:", "Failed:", "Stop failed")),
+    ("success", ("Generated", "Saved", "Copied")),
+    (
+        "warning",
+        (
+            "Generation in progress",
+            "Server not running",
+            "Stop generation?",
+            "model is not loaded",
+        ),
+    ),
+    ("loading", ("Generating...", STATUS_GENERATION_STOPPING)),
+)
+
+
+def outcome_severity(message: str):
+    """Severity of a status message, per ``_OUTCOME_SEVERITY``."""
+    for severity, fragments in _OUTCOME_SEVERITY:
+        if any(fragment in message for fragment in fragments):
+            return severity
+    return "info"
+
+
+def status_update(message: str, severity=None) -> dict:
+    """Status Textbox update styled as a banner of the message's severity.
+
+    A dict update (not gr.HTML) keeps Textbox escaping client-side, and the
+    next ``.then`` reading the Textbox still receives the plain string.
+    """
+    from qwen3_tts.interface.ui.components import severity_class
+
+    return gr.update(
+        value=message,
+        elem_classes=[severity_class(severity or outcome_severity(message))],
+    )
+
+
+def _with_status_severity(fn, index):
+    """Wrap a chain handler so its string output at *index* gets severity styling.
+
+    Handlers keep returning plain strings; non-string outputs (``gr.update()``
+    no-ops) pass through. ``functools.wraps`` keeps the signature Gradio reads.
+    """
+
+    @functools.wraps(fn)
+    def wrapper(*args):
+        result = list(fn(*args))
+        if isinstance(result[index], str):
+            result[index] = status_update(result[index])
+        return tuple(result)
+
+    return wrapper
 
 
 def _announce_status(msg: str | None) -> str:
@@ -149,21 +205,32 @@ def _prepare_cancel_confirmation():
         if not status.get("active", False):
             return "No active generation", True, 0, 0, "N/A"
 
-        # Calculate progress percentage
-        chunk_index = status.get("chunk_index", 0)
-        chunk_total = status.get("chunk_total", 1)
-        progress_pct = int(chunk_index / chunk_total * 100) if chunk_total > 0 else 0
+        # progress_pct is present only for authed callers while progress is
+        # known; never derive a percent from chunk_index alone. Unknown
+        # progress takes the confirm path (the safe default).
+        progress_pct = status.get("progress_pct")
+        if progress_pct is None:
+            return (
+                "Stop generation?\nProgress: unknown\nChunks: n/a\nETA: n/a",
+                False,
+                0,
+                0,
+                None,
+            )
 
-        chunks = chunk_index
-        eta = status.get("eta_sec", "N/A")
+        chunks = status.get("chunk_index", 0)
+        chunk_total = status.get("chunk_total")
+        eta = status.get("eta_sec")
 
         # Fast path: <10% progress, no confirmation needed
         if progress_pct < 10:
             return "Stopping...", True, progress_pct, chunks, eta
 
+        chunks_str = f"{chunks}/{chunk_total}" if chunk_total else str(chunks)
         # Full confirmation required
         return (
-            f"Stop generation?\nProgress: {progress_pct}%\nChunks: {chunks}\nETA: {eta}s",
+            f"Stop generation?\nProgress: {progress_pct:.0f}%\n"
+            f"Chunks: {chunks_str}\nETA: {shared.fmt_eta(eta)}",
             False,  # requires confirmation
             progress_pct,
             chunks,
@@ -173,6 +240,65 @@ def _prepare_cancel_confirmation():
     except Exception as e:
         logger.error("Failed to fetch generation status: %s", e)
         return f"Error: {e}", True, 0, 0, "N/A"
+
+
+# Live generation progress. One shared gr.Timer (built inactive in _facade)
+# is armed/disarmed around each generation; 2 s = 30 req/min on top of the
+# ~24-36/min status polling, under the 120/min global ceiling.
+PROGRESS_POLL_SECONDS = 2.0
+PROGRESS_POLL_MAX_MINUTES = 20  # hard stop; the tick disarms the timer
+
+
+def _active_generation_status():
+    """Authed GET /generation-status; the payload while active, else None."""
+    try:
+        from qwen3_tts.core.http_client import server_request
+
+        resp = server_request("GET", "/generation-status", timeout=2)
+        if resp.status_code != 200:
+            return None
+        status = resp.json()
+        return status if status.get("active", False) else None
+    except Exception as e:
+        logger.debug("Generation progress poll failed: %s", e)
+        return None
+
+
+def _progress_html(status):
+    from qwen3_tts.interface.ui.components import ProgressIndicator
+
+    # progress_pct is present only for authed callers while progress is
+    # known; without it show elapsed time only — never a derived percent.
+    progress_pct = status.get("progress_pct")
+    if progress_pct is None:
+        elapsed = status.get("elapsed_sec")
+        suffix = (
+            f" {shared.fmt_duration(elapsed)} elapsed" if elapsed is not None else ""
+        )
+        return ProgressIndicator(
+            mode="indeterminate", message=f"Generating…{suffix}"
+        ).render()
+    return ProgressIndicator(
+        percent=progress_pct, eta_s=status.get("eta_sec"), message="Generating…"
+    ).render()
+
+
+def start_progress_timer():
+    return gr.Timer(active=True)
+
+
+def stop_progress_timer():
+    return gr.Timer(active=False)
+
+
+def _poll_progress_for_tab(gen_guard_state):
+    """Tick handler for one tab: only the tab that is generating polls."""
+    if not (isinstance(gen_guard_state, dict) and gen_guard_state.get("generating")):
+        return "", gr.skip()
+    status = _active_generation_status()
+    if status and (status.get("elapsed_sec") or 0) > PROGRESS_POLL_MAX_MINUTES * 60:
+        return "", stop_progress_timer()
+    return (_progress_html(status) if status else ""), gr.skip()
 
 
 def _prepare_streaming_config(
@@ -463,8 +589,9 @@ def _build_generate_buttons_and_output(tab_id):
     Args:
         tab_id: Unique identifier for this tab (e.g., 'clone', 'design', 'custom').
 
-    Returns dict with keys: btn, cancel_btn, audio_url_converter, stream_config,
-                            result_data, mode_hidden, text_hidden, status.
+    Returns dict with keys: btn, cancel_btn, progress, audio_url_converter,
+                            stream_config, result_data, mode_hidden, text_hidden,
+                            status, status_announcer.
     """
     from qwen3_tts.interface.wavesurfer_js import (
         get_player_html,
@@ -473,6 +600,7 @@ def _build_generate_buttons_and_output(tab_id):
     with gr.Row():
         btn = gr.Button("Generate", variant="primary")
         cancel_btn = gr.Button("Stop", variant="stop")
+    progress = gr.HTML(value="")
     gr.HTML(
         value=get_player_html(tab_id),
         label="Audio Player",
@@ -496,6 +624,7 @@ def _build_generate_buttons_and_output(tab_id):
     return {
         "btn": btn,
         "cancel_btn": cancel_btn,
+        "progress": progress,
         "audio_url_converter": audio_url_converter,
         "stream_config": stream_config,
         "result_data": result_data,
@@ -526,6 +655,9 @@ def _wire_generation_tab(
     audio_url_converter=None,
     gen_guard_state=None,
     status_announcer=None,
+    *,
+    progress=None,
+    progress_timer=None,
 ):
     """Wire up the generation flow: Python validates → JS streams → Python saves/fallback.
 
@@ -548,6 +680,8 @@ def _wire_generation_tab(
         history_state: Optional history state component.
         audio_url_converter: Hidden gr.Audio for server-side file URL conversion.
         status_announcer: Optional sr-only gr.HTML mirroring `status` for SR users.
+        progress: Optional gr.HTML for live generation progress.
+        progress_timer: Optional shared gr.Timer armed around the generate step.
 
     Returns:
         The final event chain object so callers can append further .then() steps
@@ -574,13 +708,13 @@ def _wire_generation_tab(
             return new_guard_state, cfg, cfg_status
 
         click_kwargs = {
-            "fn": _guarded_config,
+            "fn": _with_status_severity(_guarded_config, 2),
             "inputs": [gen_guard_state, *inputs_list],
             "outputs": [gen_guard_state, stream_config, status],
         }
     else:
         click_kwargs = {
-            "fn": config_handler,
+            "fn": _with_status_severity(config_handler, 1),
             "inputs": inputs_list,
             "outputs": [stream_config, status],
         }
@@ -589,32 +723,36 @@ def _wire_generation_tab(
 
     # Generation flow: Python validates → Python generates server-side → JS loads audio
     # Auth token stays in the Python process and never reaches the browser.
-    chain = (
-        btn.click(**click_kwargs)
-        .then(
-            # Capture the text input for the generation step
-            fn=lambda t: t,
-            inputs=[text],
-            outputs=[text_hidden],
+    chain = btn.click(**click_kwargs).then(
+        # Capture the text input for the generation step
+        fn=lambda t: t,
+        inputs=[text],
+        outputs=[text_hidden],
+    )
+    has_progress = progress is not None and progress_timer is not None
+    if has_progress:
+        chain = chain.then(fn=start_progress_timer, outputs=[progress_timer])
+    chain = chain.then(
+        # Step 2: Generate audio server-side via TTSClient (no JS streaming)
+        fn=_with_status_severity(_generate_server_side, 1),
+        inputs=[mode_hidden, text_hidden, history_state, stream_config],
+        outputs=[audio_url_converter, status, status_html, history_state],
+    )
+    if has_progress:
+        chain = chain.then(
+            fn=lambda: (stop_progress_timer(), ""),
+            outputs=[progress_timer, progress],
         )
-        .then(
-            # Step 2: Generate audio server-side via TTSClient (no JS streaming)
-            fn=_generate_server_side,
-            inputs=[mode_hidden, text_hidden, history_state, stream_config],
-            outputs=[audio_url_converter, status, status_html, history_state],
-        )
-        .then(
-            # Step 3: Load saved file into tab's WaveSurfer player via hidden gr.Audio URL
-            # NOTE: fn=passthrough required for Gradio 6 .then() chain continuity
-            fn=lambda x: x,
-            js=get_load_into_player_js(mode),
-            inputs=[audio_url_converter],
-            outputs=[audio_url_converter],
-        )
-        .then(
-            fn=lambda: get_model_status_html(mode),
-            outputs=model_indicator,
-        )
+    chain = chain.then(
+        # Step 3: Load saved file into tab's WaveSurfer player via hidden gr.Audio URL
+        # NOTE: fn=passthrough required for Gradio 6 .then() chain continuity
+        fn=lambda x: x,
+        js=get_load_into_player_js(mode),
+        inputs=[audio_url_converter],
+        outputs=[audio_url_converter],
+    ).then(
+        fn=lambda: get_model_status_html(mode),
+        outputs=model_indicator,
     )
 
     # Reset generating flag after the chain completes (including errors).
@@ -627,6 +765,15 @@ def _wire_generation_tab(
             ),
             inputs=[gen_guard_state],
             outputs=[gen_guard_state],
+        )
+
+    # One tick listener per tab on the shared timer; only the tab whose guard
+    # says "generating" makes a request, so the budget is one poll per tick.
+    if has_progress and gen_guard_state is not None:
+        progress_timer.tick(
+            fn=_poll_progress_for_tab,
+            inputs=[gen_guard_state],
+            outputs=[progress, progress_timer],
         )
 
     # Mirror the visible status into the sr-only aria-live announcer so screen
@@ -698,7 +845,7 @@ def _wire_generation_tab(
         )
 
     cancel_chain = cancel_btn.click(
-        fn=on_cancel_click,
+        fn=_with_status_severity(on_cancel_click, 2),
         inputs=[cancel_confirm_state],
         outputs=[cancel_confirm_state, cancel_btn, status, status_html],
     ).then(

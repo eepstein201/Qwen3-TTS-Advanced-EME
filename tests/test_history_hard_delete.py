@@ -270,7 +270,7 @@ class TestClearAllHardDelete(unittest.TestCase):
                 # resurrect the cleared rows.
                 entries, rows = shared.refresh_history_from_disk([], config)
                 self.assertEqual(entries, [])
-                self.assertEqual(rows, [])
+                self.assertEqual(rows, shared.empty_history_rows())
 
     def test_clear_all_on_empty_list_is_a_safe_noop(self):
         from qwen3_tts.interface.ui import history_panel
