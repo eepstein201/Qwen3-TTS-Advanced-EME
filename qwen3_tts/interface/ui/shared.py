@@ -866,6 +866,22 @@ def save_generation_metadata(wav_path: str, metadata: dict) -> None:
         json_mod.dump(metadata, f, indent=2)
 
 
+def is_valid_wav_file(path: str) -> bool:
+    """True when path starts with a RIFF/WAVE header (12-byte magic check).
+
+    Guards the gr.Audio passthrough chains: making a gr.Audio an INPUT makes
+    Gradio pydub-decode the file during preprocessing, and undecodable bytes
+    (text, empty, truncated) raise CouldntDecodeError inside Gradio -- killing
+    the whole event chain with a 500 instead of a user-visible error.
+    """
+    try:
+        with open(path, "rb") as f:
+            header = f.read(12)
+    except OSError:
+        return False
+    return header[0:4] == b"RIFF" and header[8:12] == b"WAVE"
+
+
 def load_history_from_disk(output_dir: str) -> list:
     """Load generation history from JSON sidecar files in output directory.
 
@@ -899,6 +915,10 @@ def load_history_from_disk(output_dir: str) -> list:
     for jf in json_files:
         wav_path = os.path.splitext(jf)[0] + ".wav"
         if not os.path.exists(wav_path):
+            continue
+        # A sidecar paired with non-audio bytes would 500 the replay chain
+        # (Gradio decodes the gr.Audio input before any handler runs).
+        if not is_valid_wav_file(wav_path):
             continue
         try:
             with open(jf) as f:

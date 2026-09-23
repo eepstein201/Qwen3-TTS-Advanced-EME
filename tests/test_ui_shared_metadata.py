@@ -15,6 +15,8 @@ from qwen3_tts.interface.ui.shared import (
     save_generation_metadata,
 )
 
+VALID_WAV_HEADER = b"RIFF\x00\x00\x00\x00WAVEfmt \x00\x00\x00\x00"
+
 
 @pytest.fixture()
 def home_tmp(tmp_path, monkeypatch):
@@ -57,7 +59,7 @@ def test_save_generation_metadata_immutable(home_tmp):
 def test_load_history_from_disk_reads_json(home_tmp):
     for i in range(3):
         wav = home_tmp / f"voice_ui_{i:08d}.wav"
-        wav.write_text("")
+        wav.write_bytes(VALID_WAV_HEADER)
         meta = {
             "timestamp": 1000.0 + i,
             "mode": "clone",
@@ -74,7 +76,7 @@ def test_load_history_from_disk_reads_json(home_tmp):
 def test_load_history_from_disk_caps_at_max(home_tmp):
     for i in range(MAX_HISTORY_SIZE + 5):
         wav = home_tmp / f"voice_ui_{i:08d}.wav"
-        wav.write_text("")
+        wav.write_bytes(VALID_WAV_HEADER)
         meta = {"timestamp": float(i), "mode": "clone", "text": f"T{i}"}
         (home_tmp / f"voice_ui_{i:08d}.json").write_text(json.dumps(meta))
     history = load_history_from_disk(str(home_tmp))
@@ -138,7 +140,8 @@ class TestSidecarDerivationIgnoresParentDirectories(unittest.TestCase):
     def test_load_history_from_disk_pairs_the_sibling_wav(self):
         out_dir = os.path.join(self.home, "take.json.d")
         os.makedirs(out_dir)
-        open(os.path.join(out_dir, "voice_ui_nested.wav"), "w").close()
+        with open(os.path.join(out_dir, "voice_ui_nested.wav"), "wb") as f:
+            f.write(VALID_WAV_HEADER)
         with open(os.path.join(out_dir, "voice_ui_nested.json"), "w") as f:
             json.dump({"timestamp": 1.0, "mode": "clone", "text": "hi"}, f)
         entries = load_history_from_disk(out_dir)
@@ -146,3 +149,44 @@ class TestSidecarDerivationIgnoresParentDirectories(unittest.TestCase):
         self.assertEqual(
             entries[0]["path"], os.path.join(out_dir, "voice_ui_nested.wav")
         )
+
+
+class TestIsValidWavFile(unittest.TestCase):
+    """shared.is_valid_wav_file guards the gr.Audio passthrough chains."""
+
+    def test_header_table(self):
+        from qwen3_tts.interface.ui.shared import is_valid_wav_file
+
+        cases = [
+            (VALID_WAV_HEADER, True),
+            (VALID_WAV_HEADER + b"\x00" * 100, True),
+            (b"fake wav", False),  # the poison file class from the live bug
+            (b"", False),  # zero-byte
+            (b"RIFF" + b"\x00" * 40, False),  # RIFF magic without the WAVE form
+            (b"ID3" + b"\x00" * 40, False),
+        ]
+        with tempfile.TemporaryDirectory() as tmp:
+            for i, (content, expected) in enumerate(cases):
+                with self.subTest(i=i):
+                    path = os.path.join(tmp, f"case{i}.wav")
+                    with open(path, "wb") as f:
+                        f.write(content)
+                    self.assertEqual(is_valid_wav_file(path), expected)
+            self.assertFalse(is_valid_wav_file(os.path.join(tmp, "missing.wav")))
+
+
+class TestLoadHistorySkipsNonWavAudio(unittest.TestCase):
+    """A non-audio .wav + sidecar pair must not become a clickable row."""
+
+    def test_fake_wav_pair_is_excluded(self):
+        from qwen3_tts.interface.ui.shared import load_history_from_disk
+
+        with tempfile.TemporaryDirectory() as tmp:
+            env = patch.dict(os.environ, {"HOME": tmp})
+            env.start()
+            self.addCleanup(env.stop)
+            with open(os.path.join(tmp, "voice_ui_fake.wav"), "wb") as f:
+                f.write(b"fake wav")
+            with open(os.path.join(tmp, "voice_ui_fake.json"), "w") as f:
+                json.dump({"timestamp": 1.0, "mode": "clone", "text": "hello"}, f)
+            self.assertEqual(load_history_from_disk(tmp), [])

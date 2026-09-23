@@ -359,7 +359,7 @@ class TestGenerationSavesIntoAutomatedOutput(unittest.TestCase):
             os.makedirs(automated)
             wav = os.path.join(automated, "voice_ui_abc123.wav")
             with open(wav, "wb") as f:
-                f.write(b"RIFF" + b"\x00" * 40)
+                f.write(b"RIFF" + b"\x00" * 4 + b"WAVE" + b"\x00" * 12)
             with open(os.path.join(automated, "voice_ui_abc123.json"), "w") as f:
                 f.write('{"timestamp": 1.0, "mode": "clone", "text": "hi", "seed": 42}')
 
