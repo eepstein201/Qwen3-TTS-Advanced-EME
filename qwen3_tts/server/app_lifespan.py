@@ -785,6 +785,8 @@ def _background_load(app_state):
 
 def cleanup_resources(app_state):
     """Clean up resources on shutdown."""
+    from qwen3_tts.core.engine import unload_model_cleanup
+
     # Stop the auto-shutdown watchdog thread
     activity_watchdog_stop = getattr(app_state, "activity_watchdog_stop", None)
     if activity_watchdog_stop is not None:
@@ -797,8 +799,8 @@ def cleanup_resources(app_state):
             model = models.get(name)
             if model is not None:
                 try:
-                    del model
                     models[name] = None
+                    unload_model_cleanup()
                 except (TypeError, RuntimeError, OSError):
                     pass
 

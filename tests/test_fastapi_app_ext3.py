@@ -67,9 +67,16 @@ def _setup_app_state(token="test_token_ext3"):
     app.state.model_load_times = {}
     app.state.model_load_errors = {"clone": None, "design": None, "custom": None}
     app.state.generation_state = {
-        "active": False, "start_time": 0.0, "text_length": 0, "mode": "",
-        "batch_index": 0, "batch_total": 0, "chunk_index": 0, "chunk_total": 0,
-        "generation_id": None, "cancelled": False,
+        "active": False,
+        "start_time": 0.0,
+        "text_length": 0,
+        "mode": "",
+        "batch_index": 0,
+        "batch_total": 0,
+        "chunk_index": 0,
+        "chunk_total": 0,
+        "generation_id": None,
+        "cancelled": False,
     }
     app.state.generation_lock = asyncio.Lock()
     app.state.inference_lock = asyncio.Lock()
@@ -92,11 +99,13 @@ def _setup_app_state(token="test_token_ext3"):
 # Unit tests (no TestClient needed)
 # ---------------------------------------------------------------------------
 
+
 class TestSetAppConfigProvider(unittest.TestCase):
     """Line 82: set_app_config_provider stores provider."""
 
     def test_sets_provider(self):
         from qwen3_tts.server.app import _get_app_config, set_app_config_provider
+
         mock_provider = MagicMock()
         mock_provider.load.return_value = {"test": True}
         try:
@@ -108,6 +117,7 @@ class TestSetAppConfigProvider(unittest.TestCase):
 
     def test_clears_provider(self):
         from qwen3_tts.server.app import set_app_config_provider
+
         set_app_config_provider(MagicMock())
         set_app_config_provider(None)
         # Should fall back to default loader without error
@@ -118,16 +128,20 @@ class TestEstimateEtaException(unittest.TestCase):
 
     def test_oserror_sets_median_rate_none(self):
         from qwen3_tts.server.app import _estimate_eta
+
         state = MagicMock()
         state.eta_cache = {"median_rate": None, "last_updated": 0}
 
-        with patch(f"{_APP_LIFESPAN}.get_eta_cache_ttl", return_value=0), \
-             patch(f"{_APP_LIFESPAN}.HISTORY_FILE", "/nonexistent/path.jsonl"):
+        with (
+            patch(f"{_APP_LIFESPAN}.get_eta_cache_ttl", return_value=0),
+            patch(f"{_APP_LIFESPAN}.HISTORY_FILE", "/nonexistent/path.jsonl"),
+        ):
             result = _estimate_eta(state, 100, 1.0)
         self.assertIsNone(result)
 
     def test_json_decode_error_sets_median_rate_none(self):
         from qwen3_tts.server.app import _estimate_eta
+
         state = MagicMock()
         state.eta_cache = {"median_rate": None, "last_updated": 0}
 
@@ -135,8 +149,10 @@ class TestEstimateEtaException(unittest.TestCase):
         tmp.write("not valid json\n")
         tmp.close()
         try:
-            with patch(f"{_APP_LIFESPAN}.get_eta_cache_ttl", return_value=0), \
-                 patch(f"{_APP_LIFESPAN}.HISTORY_FILE", tmp.name):
+            with (
+                patch(f"{_APP_LIFESPAN}.get_eta_cache_ttl", return_value=0),
+                patch(f"{_APP_LIFESPAN}.HISTORY_FILE", tmp.name),
+            ):
                 result = _estimate_eta(state, 100, 1.0)
             self.assertIsNone(result)
         finally:
@@ -149,11 +165,14 @@ class TestCleanupResourcesEdgeCases(unittest.TestCase):
     @pytest.mark.filterwarnings("ignore::pytest.PytestUnraisableExceptionWarning")
     def test_model_delete_exception_suppressed(self):
         from qwen3_tts.server.app import cleanup_resources
+
         state = MagicMock()
+
         # Use a real object with a __del__ that raises — MagicMock can't mock __del__
         class FailingModel:
             def __del__(self):
                 raise RuntimeError("bad del")
+
         state.models = {"clone": FailingModel(), "design": None, "custom": None}
         state.gen_cache = {}
         with patch(f"{_APP}.cleanup_pid_file"):
@@ -162,16 +181,67 @@ class TestCleanupResourcesEdgeCases(unittest.TestCase):
 
     def test_gen_cache_file_oserror_suppressed(self):
         from qwen3_tts.server.app import cleanup_resources
+
         state = MagicMock()
         state.models = {"clone": None, "design": None, "custom": None}
         state.gen_cache = {
             "key1": {"main_file": "/nonexistent/cache_file.wav", "sample_rate": 24000}
         }
-        with patch(f"{_APP}.cleanup_pid_file"), \
-             patch("os.path.exists", return_value=True), \
-             patch("os.remove", side_effect=OSError("permission denied")):
+        with (
+            patch(f"{_APP}.cleanup_pid_file"),
+            patch("os.path.exists", return_value=True),
+            patch("os.remove", side_effect=OSError("permission denied")),
+        ):
             cleanup_resources(state)
         # Should not raise
+
+
+class TestCleanupResourcesUnloadCleanup(unittest.TestCase):
+    """6Q item 1: cleanup_resources runs backend memory cleanup for each resident model."""
+
+    def test_unload_model_cleanup_called_per_loaded_model(self):
+        from qwen3_tts.server.app import cleanup_resources
+
+        state = MagicMock()
+        state.models = {"clone": object(), "design": None, "custom": object()}
+        state.gen_cache = {}
+        with (
+            patch(f"{_APP}.cleanup_pid_file"),
+            patch(f"{_ENGINE}.unload_model_cleanup") as mock_cleanup,
+        ):
+            cleanup_resources(state)
+        self.assertEqual(mock_cleanup.call_count, 2)
+        self.assertIsNone(state.models["clone"])
+        self.assertIsNone(state.models["custom"])
+
+    def test_unload_model_cleanup_not_called_when_no_models(self):
+        from qwen3_tts.server.app import cleanup_resources
+
+        state = MagicMock()
+        state.models = {"clone": None, "design": None, "custom": None}
+        state.gen_cache = {}
+        with (
+            patch(f"{_APP}.cleanup_pid_file"),
+            patch(f"{_ENGINE}.unload_model_cleanup") as mock_cleanup,
+        ):
+            cleanup_resources(state)
+        mock_cleanup.assert_not_called()
+
+    def test_unload_model_cleanup_failure_suppressed(self):
+        from qwen3_tts.server.app import cleanup_resources
+
+        state = MagicMock()
+        state.models = {"clone": object(), "design": None, "custom": None}
+        state.gen_cache = {}
+        with (
+            patch(f"{_APP}.cleanup_pid_file"),
+            patch(
+                f"{_ENGINE}.unload_model_cleanup",
+                side_effect=RuntimeError("gc collect failed"),
+            ),
+        ):
+            cleanup_resources(state)  # must not raise
+        self.assertIsNone(state.models["clone"])
 
 
 class TestShutdownBackgroundOSError(unittest.TestCase):
@@ -182,14 +252,17 @@ class TestShutdownBackgroundOSError(unittest.TestCase):
 
         # We test the _shutdown_background function indirectly by extracting it
         # from the /shutdown endpoint. Instead, test cleanup_pid with OSError:
-        with patch(f"{_APP}.cleanup_pid_file"), \
-             patch(f"{_APP}.TOKEN_FILE", "/nonexistent/token"), \
-             patch("os.path.exists", return_value=True), \
-             patch("os.remove", side_effect=OSError("perm denied")), \
-             patch(f"{_APP}.cleanup_resources"), \
-             patch("os.kill"):
+        with (
+            patch(f"{_APP}.cleanup_pid_file"),
+            patch(f"{_APP}.TOKEN_FILE", "/nonexistent/token"),
+            patch("os.path.exists", return_value=True),
+            patch("os.remove", side_effect=OSError("perm denied")),
+            patch(f"{_APP}.cleanup_resources"),
+            patch("os.kill"),
+        ):
             # Simulate _shutdown_background inline
             from qwen3_tts.server.app import cleanup_pid_file
+
             try:
                 cleanup_pid_file()
                 try:
@@ -205,6 +278,7 @@ class TestShutdownBackgroundOSError(unittest.TestCase):
 # TestClient tests
 # ---------------------------------------------------------------------------
 
+
 class TestFastAPIAppExt3(unittest.TestCase):
     """TestClient-based tests for remaining uncovered lines."""
 
@@ -213,6 +287,7 @@ class TestFastAPIAppExt3(unittest.TestCase):
         from fastapi.testclient import TestClient
 
         from qwen3_tts.server.app import app
+
         cls.token = _setup_app_state()
         cls.client = TestClient(app, raise_server_exceptions=False)
 
@@ -221,9 +296,11 @@ class TestFastAPIAppExt3(unittest.TestCase):
 
     # --- /health torch dtype (line 529) ---
     def test_health_torch_dtype_branch(self):
-        with patch(f"{_APP}.get_backend", return_value="torch"), \
-             patch(f"{_APP}.get_torch_dtype_name", return_value="float16"), \
-             patch(f"{_APP}.get_model_size", return_value="1.7B"):
+        with (
+            patch(f"{_APP}.get_backend", return_value="torch"),
+            patch(f"{_APP}.get_torch_dtype_name", return_value="float16"),
+            patch(f"{_APP}.get_model_size", return_value="1.7B"),
+        ):
             resp = self.client.get("/health")
         self.assertEqual(resp.status_code, 200)
         data = resp.json()
@@ -244,7 +321,9 @@ class TestFastAPIAppExt3(unittest.TestCase):
         # Must replace both sys.modules AND parent module attribute for import caching
         original_mlx_core = sys.modules.get("mlx.core")
         original_mlx = sys.modules.get("mlx")
-        original_core_attr = getattr(original_mlx, "core", None) if original_mlx else None
+        original_core_attr = (
+            getattr(original_mlx, "core", None) if original_mlx else None
+        )
         # Create mock parent if mlx not installed (e.g., torch env)
         mock_mlx_parent = MagicMock()
         mock_mlx_parent.core = mock_mx
@@ -254,8 +333,10 @@ class TestFastAPIAppExt3(unittest.TestCase):
             original_mlx.core = mock_mx
         sys.modules["mlx.core"] = mock_mx
         try:
-            with patch(f"{_APP_MODELS}.get_backend", return_value="mlx"), \
-                 patch(f"{_APP_MODELS}.get_mlx_quantization", return_value="8bit"):
+            with (
+                patch(f"{_APP_MODELS}.get_backend", return_value="mlx"),
+                patch(f"{_APP_MODELS}.get_mlx_quantization", return_value="8bit"),
+            ):
                 resp = self.client.get("/stats", headers=self._auth())
         finally:
             if original_mlx_core is None:
@@ -280,8 +361,10 @@ class TestFastAPIAppExt3(unittest.TestCase):
         sys.modules["mlx.core"] = None  # will cause ImportError on import
 
         try:
-            with patch(f"{_APP_MODELS}.get_backend", return_value="mlx"), \
-                 patch(f"{_APP_MODELS}.get_mlx_quantization", return_value="8bit"):
+            with (
+                patch(f"{_APP_MODELS}.get_backend", return_value="mlx"),
+                patch(f"{_APP_MODELS}.get_mlx_quantization", return_value="8bit"),
+            ):
                 resp = self.client.get("/stats", headers=self._auth())
         finally:
             if original_mlx is None:
@@ -319,8 +402,10 @@ class TestFastAPIAppExt3(unittest.TestCase):
             for name in ["a.wav", "a.txt", "b.wav", "b.txt", "c.wav", "c.txt"]:
                 with open(os.path.join(td, name), "w") as f:
                     f.write("x")
-            with patch(f"{_APP_PROMPTS}.VOICE_PROMPTS_DIR", td), \
-                 patch(f"{_APP}.get_backend", return_value="mlx"):
+            with (
+                patch(f"{_APP_PROMPTS}.VOICE_PROMPTS_DIR", td),
+                patch(f"{_APP}.get_backend", return_value="mlx"),
+            ):
                 resp = self.client.get("/prompts?offset=1", headers=self._auth())
             self.assertEqual(resp.status_code, 200)
             data = resp.json()
@@ -333,13 +418,17 @@ class TestFastAPIAppExt3(unittest.TestCase):
     # --- preview-prompt invalid name (line 1072) ---
     def test_preview_prompt_invalid_name(self):
         _setup_app_state(self.token)
-        resp = self.client.get("/preview-prompt?name=../../etc/passwd", headers=self._auth())
+        resp = self.client.get(
+            "/preview-prompt?name=../../etc/passwd", headers=self._auth()
+        )
         self.assertEqual(resp.status_code, 400)
 
     # --- prompt-details invalid name (line 1125) ---
     def test_prompt_details_invalid_name(self):
         _setup_app_state(self.token)
-        resp = self.client.get("/prompt-details?name=../../etc/shadow", headers=self._auth())
+        resp = self.client.get(
+            "/prompt-details?name=../../etc/shadow", headers=self._auth()
+        )
         self.assertEqual(resp.status_code, 400)
 
     # --- delete-prompt config save exception (lines 980-981) ---
@@ -353,13 +442,15 @@ class TestFastAPIAppExt3(unittest.TestCase):
             with open(os.path.join(td, "testprompt.txt"), "w") as f:
                 f.write("txt")
 
-            with patch(f"{_APP_PROMPTS}.VOICE_PROMPTS_DIR", td), \
-                 patch(f"{_APP}.get_backend", return_value="mlx"), \
-                 patch(f"{_APP}._get_app_config", side_effect=OSError("config error")), \
-                 patch(f"{_ENGINE}.clear_voice_prompt_cache"):
-                resp = self.client.post("/delete-prompt",
-                                        json={"name": "testprompt"},
-                                        headers=self._auth())
+            with (
+                patch(f"{_APP_PROMPTS}.VOICE_PROMPTS_DIR", td),
+                patch(f"{_APP}.get_backend", return_value="mlx"),
+                patch(f"{_APP}._get_app_config", side_effect=OSError("config error")),
+                patch(f"{_ENGINE}.clear_voice_prompt_cache"),
+            ):
+                resp = self.client.post(
+                    "/delete-prompt", json={"name": "testprompt"}, headers=self._auth()
+                )
             self.assertEqual(resp.status_code, 200)
         finally:
             shutil.rmtree(td)
@@ -383,12 +474,16 @@ class TestFastAPIAppExt3(unittest.TestCase):
                     raise OSError("disk error")
                 original_rename(src, dst)
 
-            with patch(f"{_APP_PROMPTS}.VOICE_PROMPTS_DIR", td), \
-                 patch(f"{_APP_PROMPTS}.os.rename", side_effect=failing_rename), \
-                 patch(f"{_ENGINE}.clear_voice_prompt_cache"):
-                resp = self.client.post("/rename-prompt",
-                                        json={"old_name": "old", "new_name": "new"},
-                                        headers=self._auth())
+            with (
+                patch(f"{_APP_PROMPTS}.VOICE_PROMPTS_DIR", td),
+                patch(f"{_APP_PROMPTS}.os.rename", side_effect=failing_rename),
+                patch(f"{_ENGINE}.clear_voice_prompt_cache"),
+            ):
+                resp = self.client.post(
+                    "/rename-prompt",
+                    json={"old_name": "old", "new_name": "new"},
+                    headers=self._auth(),
+                )
             self.assertEqual(resp.status_code, 500)
         finally:
             shutil.rmtree(td)
@@ -403,13 +498,17 @@ class TestFastAPIAppExt3(unittest.TestCase):
 
             mock_config = {"default_clone_prompt": "myprompt.pt"}
 
-            with patch(f"{_APP_PROMPTS}.VOICE_PROMPTS_DIR", td), \
-                 patch(f"{_APP}._get_app_config", return_value=mock_config), \
-                 patch(f"{_APP_PROMPTS}.save_config") as mock_save, \
-                 patch(f"{_ENGINE}.clear_voice_prompt_cache"):
-                resp = self.client.post("/rename-prompt",
-                                        json={"old_name": "myprompt", "new_name": "renamed"},
-                                        headers=self._auth())
+            with (
+                patch(f"{_APP_PROMPTS}.VOICE_PROMPTS_DIR", td),
+                patch(f"{_APP}._get_app_config", return_value=mock_config),
+                patch(f"{_APP_PROMPTS}.save_config") as mock_save,
+                patch(f"{_ENGINE}.clear_voice_prompt_cache"),
+            ):
+                resp = self.client.post(
+                    "/rename-prompt",
+                    json={"old_name": "myprompt", "new_name": "renamed"},
+                    headers=self._auth(),
+                )
             self.assertEqual(resp.status_code, 200)
             # Config should be saved with new_base.pt
             if mock_save.called:
@@ -426,12 +525,16 @@ class TestFastAPIAppExt3(unittest.TestCase):
             with open(os.path.join(td, "rprompt.wav"), "w") as f:
                 f.write("wav")
 
-            with patch(f"{_APP_PROMPTS}.VOICE_PROMPTS_DIR", td), \
-                 patch(f"{_APP}._get_app_config", side_effect=OSError("config error")), \
-                 patch(f"{_ENGINE}.clear_voice_prompt_cache"):
-                resp = self.client.post("/rename-prompt",
-                                        json={"old_name": "rprompt", "new_name": "rprompt2"},
-                                        headers=self._auth())
+            with (
+                patch(f"{_APP_PROMPTS}.VOICE_PROMPTS_DIR", td),
+                patch(f"{_APP}._get_app_config", side_effect=OSError("config error")),
+                patch(f"{_ENGINE}.clear_voice_prompt_cache"),
+            ):
+                resp = self.client.post(
+                    "/rename-prompt",
+                    json={"old_name": "rprompt", "new_name": "rprompt2"},
+                    headers=self._auth(),
+                )
             self.assertEqual(resp.status_code, 200)
         finally:
             shutil.rmtree(td)
@@ -440,11 +543,15 @@ class TestFastAPIAppExt3(unittest.TestCase):
     def test_update_model_config_missing_advanced_key(self):
         _setup_app_state(self.token)
         config_no_advanced = {"generation": {}}  # No "advanced" key
-        with patch(f"{_APP}._get_app_config", return_value=config_no_advanced), \
-             patch(f"{_APP_MODELS}.save_config"):
-            resp = self.client.post("/update-model-config",
-                                    json={"model_size": "0.6B"},
-                                    headers=self._auth())
+        with (
+            patch(f"{_APP}._get_app_config", return_value=config_no_advanced),
+            patch(f"{_APP_MODELS}.save_config"),
+        ):
+            resp = self.client.post(
+                "/update-model-config",
+                json={"model_size": "0.6B"},
+                headers=self._auth(),
+            )
         self.assertEqual(resp.status_code, 200)
         # Immutable update: original config_no_advanced is NOT mutated
 
@@ -452,16 +559,21 @@ class TestFastAPIAppExt3(unittest.TestCase):
     def test_update_model_config_cache_oserror(self):
         _setup_app_state(self.token)
         from qwen3_tts.server.app import app
+
         app.state.gen_cache = {
             "k1": {"main_file": "/fake/cache.wav", "sample_rate": 24000}
         }
-        with patch(f"{_APP}._get_app_config", return_value={"advanced": {}}), \
-             patch(f"{_APP_MODELS}.save_config"), \
-             patch(f"{_APP_MODELS}.os.path.exists", return_value=True), \
-             patch(f"{_APP_MODELS}.os.remove", side_effect=OSError("busy")):
-            resp = self.client.post("/update-model-config",
-                                    json={"model_size": "0.6B"},
-                                    headers=self._auth())
+        with (
+            patch(f"{_APP}._get_app_config", return_value={"advanced": {}}),
+            patch(f"{_APP_MODELS}.save_config"),
+            patch(f"{_APP_MODELS}.os.path.exists", return_value=True),
+            patch(f"{_APP_MODELS}.os.remove", side_effect=OSError("busy")),
+        ):
+            resp = self.client.post(
+                "/update-model-config",
+                json={"model_size": "0.6B"},
+                headers=self._auth(),
+            )
         self.assertEqual(resp.status_code, 200)
 
     # --- update-startup-config missing models key (line 876) ---
@@ -469,11 +581,13 @@ class TestFastAPIAppExt3(unittest.TestCase):
         _setup_app_state(self.token)
         config_no_models = {"advanced": {}}  # No "models" key
         before = copy.deepcopy(config_no_models)
-        with patch(f"{_APP}._get_app_config", return_value=config_no_models), \
-             patch(f"{_APP_MODELS}.save_config"):
-            resp = self.client.post("/update-startup-config",
-                                    json={"clone": True},
-                                    headers=self._auth())
+        with (
+            patch(f"{_APP}._get_app_config", return_value=config_no_models),
+            patch(f"{_APP_MODELS}.save_config"),
+        ):
+            resp = self.client.post(
+                "/update-startup-config", json={"clone": True}, headers=self._auth()
+            )
         self.assertEqual(resp.status_code, 200)
         # Immutable update: the handler must build a new dict, never mutate the
         # caller's config in place. Previously only asserted in a comment.
@@ -493,11 +607,15 @@ class TestFastAPIAppExt3(unittest.TestCase):
         _setup_app_state(self.token)
         config = {"models": {}}  # "clone" not in models
         before = copy.deepcopy(config)
-        with patch(f"{_APP}._get_app_config", return_value=config), \
-             patch(f"{_APP_MODELS}.save_config"):
-            resp = self.client.post("/update-startup-config",
-                                    json={"clone": True, "design": False},
-                                    headers=self._auth())
+        with (
+            patch(f"{_APP}._get_app_config", return_value=config),
+            patch(f"{_APP_MODELS}.save_config"),
+        ):
+            resp = self.client.post(
+                "/update-startup-config",
+                json={"clone": True, "design": False},
+                headers=self._auth(),
+            )
         self.assertEqual(resp.status_code, 200)
         # Immutable update: the handler must not add the missing model_type keys
         # to the caller's dict. Previously only asserted in a comment.
@@ -516,15 +634,18 @@ class TestFastAPIAppExt3(unittest.TestCase):
     def test_unload_model_cache_oserror(self):
         _setup_app_state(self.token)
         from qwen3_tts.server.app import app
+
         app.state.models["clone"] = MagicMock()
         app.state.gen_cache = {
             "k1": {"main_file": "/fake/unload.wav", "sample_rate": 24000}
         }
-        with patch(f"{_APP_MODELS}.os.path.exists", return_value=True), \
-             patch(f"{_APP_MODELS}.os.remove", side_effect=OSError("in use")):
-            resp = self.client.post("/unload-model",
-                                    json={"model_type": "clone"},
-                                    headers=self._auth())
+        with (
+            patch(f"{_APP_MODELS}.os.path.exists", return_value=True),
+            patch(f"{_APP_MODELS}.os.remove", side_effect=OSError("in use")),
+        ):
+            resp = self.client.post(
+                "/unload-model", json={"model_type": "clone"}, headers=self._auth()
+            )
         self.assertEqual(resp.status_code, 200)
         self.assertEqual(resp.json()["status"], "unloaded")
 
@@ -537,6 +658,7 @@ class TestGenerateEndpointExt3(unittest.TestCase):
         from fastapi.testclient import TestClient
 
         from qwen3_tts.server.app import app
+
         cls.token = _setup_app_state()
         cls.client = TestClient(app, raise_server_exceptions=False)
 
@@ -546,6 +668,7 @@ class TestGenerateEndpointExt3(unittest.TestCase):
     def setUp(self):
         _setup_app_state(self.token)
         from qwen3_tts.server.app import app
+
         # Load a fake clone model for generation tests
         app.state.models["clone"] = MagicMock()
         app.state.models["design"] = MagicMock()
@@ -555,23 +678,42 @@ class TestGenerateEndpointExt3(unittest.TestCase):
         import numpy as np
 
         fake_wav = np.zeros(1000, dtype=np.float32)
-        with patch(f"{_ENGINE}.load_voice_prompt", return_value=MagicMock()), \
-             patch(f"{_ENGINE}.run_inference", return_value=(fake_wav, 24000)), \
-             patch(f"{_APP_GENERATION}._check_memory_available", return_value=(True, 4096)):
-            resp = self.client.post("/generate",
-                                    json={"text": "seed test", "mode": "clone",
-                                          "prompt_file": "test.wav", "seed": 42},
-                                    headers=self._auth())
+        with (
+            patch(f"{_ENGINE}.load_voice_prompt", return_value=MagicMock()),
+            patch(f"{_ENGINE}.run_inference", return_value=(fake_wav, 24000)),
+            patch(
+                f"{_APP_GENERATION}._check_memory_available", return_value=(True, 4096)
+            ),
+        ):
+            resp = self.client.post(
+                "/generate",
+                json={
+                    "text": "seed test",
+                    "mode": "clone",
+                    "prompt_file": "test.wav",
+                    "seed": 42,
+                },
+                headers=self._auth(),
+            )
         self.assertEqual(resp.status_code, 200)
 
     # --- clone voice_prompt is None (line 1337) ---
     def test_generate_clone_voice_prompt_not_found(self):
-        with patch(f"{_ENGINE}.load_voice_prompt", return_value=None), \
-             patch(f"{_APP_GENERATION}._check_memory_available", return_value=(True, 4096)):
-            resp = self.client.post("/generate",
-                                    json={"text": "hello", "mode": "clone",
-                                          "prompt_file": "nonexistent.wav"},
-                                    headers=self._auth())
+        with (
+            patch(f"{_ENGINE}.load_voice_prompt", return_value=None),
+            patch(
+                f"{_APP_GENERATION}._check_memory_available", return_value=(True, 4096)
+            ),
+        ):
+            resp = self.client.post(
+                "/generate",
+                json={
+                    "text": "hello",
+                    "mode": "clone",
+                    "prompt_file": "nonexistent.wav",
+                },
+                headers=self._auth(),
+            )
         self.assertEqual(resp.status_code, 404)
         self.assertIn("not found", resp.json()["detail"])
 
@@ -592,13 +734,18 @@ class TestGenerateEndpointExt3(unittest.TestCase):
                 chunk_updates.append(True)
             return fake_wav, 24000
 
-        with patch(f"{_ENGINE}.load_voice_prompt", return_value=MagicMock()), \
-             patch(f"{_ENGINE}.run_inference", side_effect=mock_run_inference), \
-             patch(f"{_APP_GENERATION}._check_memory_available", return_value=(True, 4096)):
-            resp = self.client.post("/generate",
-                                    json={"text": "chunk test", "mode": "clone",
-                                          "prompt_file": "test.wav"},
-                                    headers=self._auth())
+        with (
+            patch(f"{_ENGINE}.load_voice_prompt", return_value=MagicMock()),
+            patch(f"{_ENGINE}.run_inference", side_effect=mock_run_inference),
+            patch(
+                f"{_APP_GENERATION}._check_memory_available", return_value=(True, 4096)
+            ),
+        ):
+            resp = self.client.post(
+                "/generate",
+                json={"text": "chunk test", "mode": "clone", "prompt_file": "test.wav"},
+                headers=self._auth(),
+            )
         self.assertEqual(resp.status_code, 200)
 
     # --- cache eviction (lines 1379-1386) ---
@@ -614,16 +761,30 @@ class TestGenerateEndpointExt3(unittest.TestCase):
             old_tmp = tempfile.NamedTemporaryFile(suffix=".wav", delete=False)
             old_tmp.close()
             app.state.gen_cache = {
-                "old_key": {"main_file": old_tmp.name, "sample_rate": 24000, "timestamp": 1.0}
+                "old_key": {
+                    "main_file": old_tmp.name,
+                    "sample_rate": 24000,
+                    "timestamp": 1.0,
+                }
             }
 
-            with patch(f"{_ENGINE}.load_voice_prompt", return_value=MagicMock()), \
-                 patch(f"{_ENGINE}.run_inference", return_value=(fake_wav, 24000)), \
-                 patch(f"{_APP_GENERATION}._check_memory_available", return_value=(True, 4096)):
-                resp = self.client.post("/generate",
-                                        json={"text": "evict test", "mode": "clone",
-                                              "prompt_file": "test.wav"},
-                                        headers=self._auth())
+            with (
+                patch(f"{_ENGINE}.load_voice_prompt", return_value=MagicMock()),
+                patch(f"{_ENGINE}.run_inference", return_value=(fake_wav, 24000)),
+                patch(
+                    f"{_APP_GENERATION}._check_memory_available",
+                    return_value=(True, 4096),
+                ),
+            ):
+                resp = self.client.post(
+                    "/generate",
+                    json={
+                        "text": "evict test",
+                        "mode": "clone",
+                        "prompt_file": "test.wav",
+                    },
+                    headers=self._auth(),
+                )
         self.assertEqual(resp.status_code, 200)
         # Old key should be evicted
         self.assertNotIn("old_key", app.state.gen_cache)
@@ -638,13 +799,18 @@ class TestGenerateEndpointExt3(unittest.TestCase):
         import numpy as np
 
         fake_wav = np.zeros(500, dtype=np.float32)
-        with patch(f"{_ENGINE}.load_voice_prompt", return_value=MagicMock()), \
-             patch(f"{_ENGINE}.run_inference", return_value=(fake_wav, 24000)), \
-             patch(f"{_APP_GENERATION}._check_memory_available", return_value=(True, 4096)):
-            resp = self.client.post("/generate",
-                                    json={"text": "wav accept", "mode": "clone",
-                                          "prompt_file": "test.wav"},
-                                    headers={**self._auth(), "Accept": "audio/wav"})
+        with (
+            patch(f"{_ENGINE}.load_voice_prompt", return_value=MagicMock()),
+            patch(f"{_ENGINE}.run_inference", return_value=(fake_wav, 24000)),
+            patch(
+                f"{_APP_GENERATION}._check_memory_available", return_value=(True, 4096)
+            ),
+        ):
+            resp = self.client.post(
+                "/generate",
+                json={"text": "wav accept", "mode": "clone", "prompt_file": "test.wav"},
+                headers={**self._auth(), "Accept": "audio/wav"},
+            )
         self.assertEqual(resp.status_code, 200)
         self.assertEqual(resp.headers["content-type"], "audio/wav")
         self.assertIn("X-Sample-Rate", resp.headers)
@@ -655,24 +821,34 @@ class TestGenerateEndpointExt3(unittest.TestCase):
         from qwen3_tts.server.validation import _gen_cache_key
 
         gen_params = {
-            "temperature": 0.7, "top_k": 50, "top_p": 0.95,
-            "repetition_penalty": 1.05, "max_new_tokens": 2048,
+            "temperature": 0.7,
+            "top_k": 50,
+            "top_p": 0.95,
+            "repetition_penalty": 1.05,
+            "max_new_tokens": 2048,
         }
         # Must mirror the fields handle_generate feeds into the key, including
         # the GenerateRequest defaults for the behavior toggles (language
         # defaults to "auto"). Omitting language here computes lang=None and
         # would miss the handler's lang=auto entry, forcing real generation.
         cache_key = _gen_cache_key(
-            "cached text", "design", gen_params,
-            prompt_file=None, voice_description="friendly",
-            speaker=None, instruct=None,
-            language="auto", x_vector_only_mode=False,
-            max_chunk_chars=None, seed_lock_chunks=False,
+            "cached text",
+            "design",
+            gen_params,
+            prompt_file=None,
+            voice_description="friendly",
+            speaker=None,
+            instruct=None,
+            language="auto",
+            x_vector_only_mode=False,
+            max_chunk_chars=None,
+            seed_lock_chunks=False,
         )
 
         # Create a real cached wav file
         import numpy as np
         import soundfile as sf
+
         fake_audio = np.zeros(500, dtype=np.float32)
         cache_file = tempfile.NamedTemporaryFile(suffix=".wav", delete=False)
         cache_file.close()
@@ -685,11 +861,18 @@ class TestGenerateEndpointExt3(unittest.TestCase):
         }
 
         try:
-            with patch(f"{_APP_GENERATION}._check_memory_available", return_value=(True, 4096)):
-                resp = self.client.post("/generate",
-                                        json={"text": "cached text", "mode": "design",
-                                              "voice_description": "friendly"},
-                                        headers=self._auth())
+            with patch(
+                f"{_APP_GENERATION}._check_memory_available", return_value=(True, 4096)
+            ):
+                resp = self.client.post(
+                    "/generate",
+                    json={
+                        "text": "cached text",
+                        "mode": "design",
+                        "voice_description": "friendly",
+                    },
+                    headers=self._auth(),
+                )
             self.assertEqual(resp.status_code, 200)
             data = resp.json()
             self.assertIn("results", data)
@@ -703,6 +886,7 @@ class TestGenerateEndpointExt3(unittest.TestCase):
     def test_generate_stream_with_seed(self):
         _setup_app_state(self.token)
         from qwen3_tts.server.app import app
+
         app.state.models["clone"] = MagicMock()
 
         import numpy as np
@@ -712,13 +896,26 @@ class TestGenerateEndpointExt3(unittest.TestCase):
         def mock_run_inference_streaming(model, text, **kwargs):
             yield fake_wav, 24000
 
-        with patch(f"{_ENGINE}.load_voice_prompt", return_value=MagicMock()), \
-             patch(f"{_ENGINE}.run_inference_streaming", return_value=mock_run_inference_streaming(None, None)), \
-             patch(f"{_APP_GENERATION}._check_memory_available", return_value=(True, 4096)):
-            resp = self.client.post("/generate-stream",
-                                    json={"text": "seed stream", "mode": "clone",
-                                          "prompt_file": "test.wav", "seed": 99},
-                                    headers=self._auth())
+        with (
+            patch(f"{_ENGINE}.load_voice_prompt", return_value=MagicMock()),
+            patch(
+                f"{_ENGINE}.run_inference_streaming",
+                return_value=mock_run_inference_streaming(None, None),
+            ),
+            patch(
+                f"{_APP_GENERATION}._check_memory_available", return_value=(True, 4096)
+            ),
+        ):
+            resp = self.client.post(
+                "/generate-stream",
+                json={
+                    "text": "seed stream",
+                    "mode": "clone",
+                    "prompt_file": "test.wav",
+                    "seed": 99,
+                },
+                headers=self._auth(),
+            )
         self.assertEqual(resp.status_code, 200)
 
 
