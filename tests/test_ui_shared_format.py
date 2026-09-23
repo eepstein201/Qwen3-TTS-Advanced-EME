@@ -110,5 +110,28 @@ class TestFormatHelpers(unittest.TestCase):
                 self.assertEqual(self.shared.format_history_time(ts), DASH)
 
 
+@unittest.skipUnless(HAS_GRADIO, "requires gradio")
+class TestStatusDisplayMemory(unittest.TestCase):
+    """T1.3 sweep (c): the status panel's memory field goes through fmt_memory_mb."""
+
+    def _memory(self, value):
+        from unittest.mock import patch
+
+        from qwen3_tts.interface.ui import shared
+
+        with patch("qwen3_tts.server.client.TTSClient") as client_cls:
+            client = client_cls.return_value
+            client.is_server_running.return_value = True
+            client.get_stats.return_value = {"mlx_memory_active_mb": value}
+            return shared.get_server_status()[1]
+
+    def test_memory_is_spaced(self):
+        self.assertEqual(self._memory(512.25), "512.2 MB")
+        self.assertEqual(self._memory(2500.4), "2500 MB")
+
+    def test_zero_is_a_real_reading_not_unknown(self):
+        self.assertEqual(self._memory(0.0), "0.0 MB")
+
+
 if __name__ == "__main__":
     unittest.main()

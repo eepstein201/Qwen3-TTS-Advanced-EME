@@ -204,7 +204,7 @@ def _build_manage_voices_tab(clone_prompt):
 
             duration = metadata.get("duration", "N/A")
             formats = ", ".join(metadata.get("formats", []))
-            size_mb = metadata.get("size_mb", "N/A")
+            size = shared.fmt_size(metadata.get("size_bytes"))
             created = metadata.get("created")
 
             # Check if recently created (<5 minutes)
@@ -218,7 +218,7 @@ def _build_manage_voices_tab(clone_prompt):
                 f"Delete '{selected}'?\n"
                 f"Duration: {duration}\n"
                 f"Format: {formats}\n"
-                f"Size: {size_mb} MB"
+                f"Size: {size}"
                 f"{recent_warning}"
             )
 

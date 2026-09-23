@@ -597,6 +597,19 @@ class TestConfirmHandlerContracts(unittest.TestCase):
 
         delete_voice.assert_called_once_with("my-voice")
 
+    def test_voice_delete_banner_formats_size_via_fmt_size(self):
+        """T1.3 sweep (c): the size line reads the bytes through shared.fmt_size."""
+        handler, _ = self._voice_delete_handler()
+        metadata = {"duration": "3.2s", "formats": [".pt"], "size_bytes": 1536,
+                    "size_mb": 0.0, "created": 0.0}
+        with patch(
+            "qwen3_tts.interface.ui.shared.get_voice_metadata",
+            return_value=metadata,
+        ):
+            banner = handler({"armed": False, "ts": 0.0}, "my-voice")[2]
+
+        self.assertIn("Size: 1.5 KB", banner)
+
     def test_unload_model_second_click_reaches_the_confirmed_branch(self):
         """Same defect on the Unload-Model confirm."""
         handler, _ = self._model_unload_handler()

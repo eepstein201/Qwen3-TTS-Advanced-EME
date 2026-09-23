@@ -253,7 +253,7 @@ class TestGetServerStatus(unittest.TestCase):
         with patch("qwen3_tts.server.client.TTSClient", return_value=mock_client):
             status, mem, models, backend = get_server_status()
         self.assertEqual(status, "Connected")
-        self.assertIn("2048.5", mem)
+        self.assertEqual(mem, "2048 MB")  # T1.3: shared.fmt_memory_mb
         self.assertIn("Clone", models)
         self.assertIn("Custom", models)
         self.assertNotIn("Design", models)

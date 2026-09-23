@@ -404,9 +404,12 @@ def get_server_status():
             if _v is not None:
                 memory_val = _v
                 break
-        memory = (
-            f"{memory_val:.1f}MB" if isinstance(memory_val, (int, float)) else "N/A"
-        )
+        if not isinstance(memory_val, (int, float)):
+            memory = "N/A"
+        elif memory_val == 0:
+            memory = "0.0 MB"  # a real reading here, not fmt_memory_mb's "unknown"
+        else:
+            memory = fmt_memory_mb(memory_val)
 
         loaded_models = []
         if stats.get("clone_model_loaded"):
