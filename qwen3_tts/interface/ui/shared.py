@@ -6,14 +6,21 @@ This module contains:
 - Status and history helpers
 - Model settings utilities
 - AI description enhancement
+- Display formatting (fmt_duration, fmt_size, fmt_eta, fmt_memory_mb,
+  format_history_time) — pure, "—" for unknown values. The CLI sibling of
+  fmt_size is qwen3_tts/tools/_shared._format_size (drift-guarded in
+  tests/test_ui_shared_format.py).
 """
 
+import datetime
 import logging
+import math
 import os
 import re
 import shutil
 import threading
 import time
+from typing import TypeGuard
 
 import gradio as gr
 
@@ -478,6 +485,65 @@ def get_user_generation_preset_choices():
     applies — a broken config.json renders an empty list, never an error.
     """
     return ["(none)"] + sorted(get_user_generation_presets())
+
+
+EMPTY_VALUE = "—"
+
+
+def _valid_amount(value: float | int | None) -> TypeGuard[float | int]:
+    return value is not None and math.isfinite(value) and value >= 0
+
+
+def fmt_duration(seconds: float | None) -> str:
+    """``m:ss`` under an hour, ``h:mm:ss`` above; "—" when unknown."""
+    if not _valid_amount(seconds):
+        return EMPTY_VALUE
+    minutes, secs = divmod(int(round(seconds)), 60)
+    hours, minutes = divmod(minutes, 60)
+    return f"{hours}:{minutes:02d}:{secs:02d}" if hours else f"{minutes}:{secs:02d}"
+
+
+def fmt_size(num_bytes: float | int | None) -> str:
+    """Bytes as B/KB/MB/GB/TB with one decimal; "—" when unknown."""
+    if not _valid_amount(num_bytes):
+        return EMPTY_VALUE
+    size = float(num_bytes)
+    for unit in ("B", "KB", "MB", "GB"):
+        if size < 1024.0:
+            return f"{size:.1f} {unit}"
+        size /= 1024.0
+    return f"{size:.1f} TB"
+
+
+def fmt_eta(seconds: float | None) -> str:
+    """The single ETA spelling: ``~12s`` / ``~1m 20s`` / ``~1h 5m``; "—" when unknown."""
+    if not _valid_amount(seconds):
+        return EMPTY_VALUE
+    minutes, secs = divmod(int(round(seconds)), 60)
+    hours, minutes = divmod(minutes, 60)
+    if hours:
+        return f"~{hours}h {minutes}m" if minutes else f"~{hours}h"
+    if minutes:
+        return f"~{minutes}m {secs}s" if secs else f"~{minutes}m"
+    return f"~{secs}s"
+
+
+def fmt_memory_mb(memory_mb: float | int | None) -> str:
+    """``2500 MB`` (one decimal under 1000); "—" when zero or unknown."""
+    if not _valid_amount(memory_mb) or not memory_mb:
+        return EMPTY_VALUE
+    return f"{memory_mb:.0f} MB" if memory_mb >= 1000 else f"{memory_mb:.1f} MB"
+
+
+def format_history_time(ts: float | None, now: float | None = None) -> str:
+    """Local ``14:32:07`` for today, ``Sep 6 14:32`` otherwise; "—" when falsy."""
+    if not ts:
+        return EMPTY_VALUE
+    when = datetime.datetime.fromtimestamp(ts)
+    today = datetime.datetime.fromtimestamp(time.time() if now is None else now).date()
+    if when.date() == today:
+        return when.strftime("%H:%M:%S")
+    return f"{when.strftime('%b')} {when.day} {when.strftime('%H:%M')}"
 
 
 def get_voice_metadata(name: str) -> dict:

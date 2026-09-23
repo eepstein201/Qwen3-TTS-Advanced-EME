@@ -235,6 +235,7 @@ BATCHES = {
             "tests.test_ui_history_helpers",
             "tests.test_ui_progress_indicator",
             "tests.test_ui_shared_metadata",
+            "tests.test_ui_shared_format",
             "tests.test_ui_shared_paths",
             "tests.test_ui_status_banner",
             "tests.test_ui_tab_select_wiring",
