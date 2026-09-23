@@ -270,6 +270,12 @@ def status_update(message: str, severity: Severity | None = None) -> dict:
 
 - [ ] **Step 4 (phase close):** run batch 4 in BOTH envs (`python -m pytest tests/ -m "not e2e" -k ui` in `.venv-310` for the gradio-6.14-shaped env; `conda run -n qwen3-tts-mlx` for 6.20) — R6 mitigation. Update CLAUDE.md UI section. Push → PR.
 
+> **Phase 1 close (2026-09-23):** Executed. Batch 4 both envs (mlx 6.20: 809 passed; `.venv-310`: 806 passed); Batch 3 (server, touched by de0337d4): 985 tests OK; ruff/mypy/bandit clean; CLAUDE.md updated (`8135dc6e`). **R6 deviation:** `.venv-310` is gradio 6.22 now, not the 6.14-shaped env the mitigation assumed — both env shapes are ≥6.20, so the `!=6.14.*` floor is exercised nowhere locally (note in PR body). **Gate B** (adversarial review, full 18-commit diff): APPROVE, 0 CRITICAL/HIGH. Dead `poll_generation_progress` removed post-review (`e4c59074`; T1.6's spec'd public seam was superseded by `_poll_progress_for_tab` in the wiring — tests repointed). Deferred by decision (behavior changes need their own RED/GREEN, not a bolt-on to a reviewed phase close):
+> - **Follow-up A (M):** shared-timer cross-tab disarm race — the first tab to finish disarms the one timer while another tab may still be generating (`_wire_generation_tab` disarm step). Fix: feed all three guard states into the disarm step, `gr.skip()` the timer while any is generating.
+> - **Follow-up B (M):** `_prepare_cancel_confirmation` is 57 lines and its 5-tuple's numeric tail is consumed only by tests; return `(message, should_proceed)` and shrink under 50 lines.
+> - **Follow-up C (L, pre-existing):** the cancel `.then(fn=lambda x: x, js=get_cancel_js(mode))` passthrough overwrites the cancel outcome message with the `stream_config` value (pre-branch), so the severity class persists under a mismatched value.
+> - **Follow-up D (L batch):** local `status_update` shadows the module fn in `on_cancel_click`; missing return/param annotations on `outcome_severity`/`status_update`/`_with_status_severity`; inline poll `timeout=2` deserves a named constant; `test_poll_interval_respects_the_request_budget` pins a constant (tautological); poll failures log at DEBUG only (consider capped INFO); rename arm banner renders "Rename 'None'…" with nothing selected.
+
 ## Phase 2 — CLI consistency (worktree → branch `feat/cli-output-consistency`)
 
 Order: **T2.1 → T2.2 → T2.3 → {T2.4, T2.5} → T2.6**. Soft cross-phase note: T2.2 should merge before Phase 3's T3.3 so typed `TTSError`s never surface as tracebacks.
