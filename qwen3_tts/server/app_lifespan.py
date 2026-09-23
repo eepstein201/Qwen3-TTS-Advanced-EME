@@ -543,7 +543,7 @@ async def lifespan(app):
             os.unlink(TOKEN_FILE)
         else:
             logger.info("Token file preserved for client use: %s", TOKEN_FILE)
-    except (FileNotFoundError, OSError):
+    except OSError:
         pass
 
     fcntl.flock(lock_fh, fcntl.LOCK_UN)
@@ -831,7 +831,7 @@ def cleanup_pid(app_state):
             on_disk = f.read().strip()
         if on_disk == getattr(app_state, "auth_token", None):
             os.unlink(TOKEN_FILE)
-    except (FileNotFoundError, OSError):
+    except OSError:
         pass
     # Set shutdown event for graceful termination
     shutdown_event = getattr(app_state, "shutdown_event", None)

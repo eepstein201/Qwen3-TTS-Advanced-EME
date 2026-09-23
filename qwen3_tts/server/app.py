@@ -1086,7 +1086,7 @@ async def shutdown(request: Request, _auth: None = Depends(verify_auth)) -> Resp
                 on_disk = f.read().strip()
             if on_disk == state.auth_token:
                 os.remove(TOKEN_FILE)
-        except (FileNotFoundError, OSError):
+        except OSError:
             pass
         cleanup_resources(state)
         os.kill(os.getpid(), signal.SIGTERM)
