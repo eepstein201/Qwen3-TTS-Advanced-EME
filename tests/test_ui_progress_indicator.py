@@ -298,32 +298,26 @@ class TestASRLoadHandlerUsesProgressIndicator(unittest.TestCase):
 
 @_skip
 class TestAIEnhancementUsesProgressIndicator(unittest.TestCase):
-    """enhance_description_with_ai shows inline 'Enhancing…' progress."""
+    """T1.9: enhance_description_with_ai keeps its toast but builds no unrendered indicator."""
 
     def test_enhance_handler_uses_progress_indicator(self):
         from qwen3_tts.interface.ui import shared
 
         src = inspect.getsource(shared.enhance_description_with_ai)
-        self.assertIn(
-            "ProgressIndicator",
-            src,
-            "enhance_description_with_ai does not show inline progress",
-        )
+        self.assertNotIn("ProgressIndicator(", src)
+        self.assertIn('gr.Info("Enhancing description…")', src)
 
 
 @_skip
 class TestAutoTranscribeUsesProgressIndicator(unittest.TestCase):
-    """auto_transcribe_audio shows inline 'Transcribing…' spinner."""
+    """T1.9: auto_transcribe_audio keeps its toast but builds no unrendered indicator."""
 
     def test_auto_transcribe_uses_progress_indicator(self):
         from qwen3_tts.interface.ui import voice_management
 
         src = inspect.getsource(voice_management.auto_transcribe_audio)
-        self.assertIn(
-            "ProgressIndicator",
-            src,
-            "auto_transcribe_audio does not show inline progress",
-        )
+        self.assertNotIn("ProgressIndicator(", src)
+        self.assertIn('gr.Info("Transcribing audio…")', src)
 
 
 @_skip
