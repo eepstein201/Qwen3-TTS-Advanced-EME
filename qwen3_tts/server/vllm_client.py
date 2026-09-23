@@ -130,7 +130,8 @@ class CircuitBreaker:
             self._last_failure_time = time.time()
             if self._failure_count >= self.failure_threshold:
                 logger.warning(
-                    f"Circuit breaker: tripped after {self._failure_count} failures"
+                    "Circuit breaker: tripped after %s failures",
+                    self._failure_count,
                 )
                 self._state = "OPEN"
 
@@ -284,7 +285,9 @@ class AsyncVLLMClient:
                             # Server error - retry with backoff
                             wait_time = 2**attempt  # 1s, 2s, 4s
                             logger.warning(
-                                f"vLLM request failed (attempt {attempt + 1}), retrying in {wait_time}s"
+                                "vLLM request failed (attempt %s), retrying in %ss",
+                                attempt + 1,
+                                wait_time,
                             )
                             await asyncio.sleep(wait_time)
                             continue

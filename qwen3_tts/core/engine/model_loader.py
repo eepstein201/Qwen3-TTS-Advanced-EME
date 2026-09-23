@@ -164,7 +164,7 @@ def _retry_model_load(loader_fn, model_type: str, model_name: str):
                     "Check your internet connection.",
                     len(_RETRY_DELAYS) + 1,
                 )
-                raise last_error
+                raise last_error  # noqa: B904 — re-raise of the caught error itself
 
 
 # ---------------------------------------------------------------------------
@@ -245,7 +245,7 @@ def _resolve_load_kwargs(
         except ImportError as e:
             raise RuntimeError(
                 f"4-bit quantization requires bitsandbytes. Install with: pip install bitsandbytes. Error: {e}"
-            )
+            ) from e
         load_kwargs["quantization_config"] = BitsAndBytesConfig(
             load_in_4bit=True,
             bnb_4bit_compute_dtype=torch_dtype,
@@ -262,7 +262,7 @@ def _resolve_load_kwargs(
         except ImportError as e:
             raise RuntimeError(
                 f"8-bit quantization requires bitsandbytes. Install with: pip install bitsandbytes. Error: {e}"
-            )
+            ) from e
         load_kwargs["load_in_8bit"] = True
         logger.info("Using 8-bit quantization (bitsandbytes)")
     else:
@@ -438,12 +438,12 @@ def _load_model_mlx(model_type):
 
     try:
         from mlx_audio.tts.utils import load_model as mlx_load_model
-    except ImportError:
+    except ImportError as e:
         raise ImportError(
             "MLX backend selected but mlx-audio is not installed. "
             "Activate the MLX environment: conda activate qwen3-tts-mlx\n"
             "Or install dependencies: pip install -e .[mlx]"
-        )
+        ) from e
 
     repo_id = get_mlx_model_name(model_type)
     revision = get_model_revision(model_type)

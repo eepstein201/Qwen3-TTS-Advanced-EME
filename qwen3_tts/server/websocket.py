@@ -88,7 +88,9 @@ async def websocket_tts_handler(
     # through the pre-auth window.
     client_ip = websocket.client.host if websocket.client else "unknown"
     if not _ws_try_acquire(app_state, client_ip):
-        logger.warning("WebSocket connection rejected (limit reached) from %s", client_ip)
+        logger.warning(
+            "WebSocket connection rejected (limit reached) from %s", client_ip
+        )
         await websocket.close(code=1013, reason="Too many connections")
         return
 
@@ -215,7 +217,10 @@ async def websocket_tts_handler(
                                 frame = json.loads(msg)
                             except json.JSONDecodeError:
                                 continue
-                            if isinstance(frame, dict) and frame.get("action") == "cancel":
+                            if (
+                                isinstance(frame, dict)
+                                and frame.get("action") == "cancel"
+                            ):
                                 stop_event.set()
                                 return
                             # Other frames mid-generation: ignore (client protocol
@@ -250,17 +255,17 @@ async def websocket_tts_handler(
                     # terminal-frame precedent below.
                     from qwen3_tts.server.app_lifespan import _sanitize_error
 
-                    logger.error("WebSocket generation request error: %s", e, exc_info=True)
+                    logger.exception("WebSocket generation request error: %s", e)
                     await websocket.send_json(
                         {"error": _sanitize_error(f"Invalid request: {str(e)}")}
                     )
                 except (ConnectionError, OSError) as e:
                     # Network/connection issues
-                    logger.error("WebSocket connection error: %s", e, exc_info=True)
+                    logger.exception("WebSocket connection error: %s", e)
                     await websocket.send_json({"error": "Connection error"})
                 except Exception as e:
                     # Unexpected errors during generation
-                    logger.error("WebSocket generation error: %s", e, exc_info=True)
+                    logger.exception("WebSocket generation error: %s", e)
                     from qwen3_tts.server.app_lifespan import _sanitize_error
 
                     await websocket.send_json({"error": _sanitize_error(str(e))})
@@ -270,9 +275,7 @@ async def websocket_tts_handler(
                     # server-side failure as a clean finish (WS2 2.5, the WebSocket
                     # counterpart of the HTTP terminal error frame).
                     with contextlib.suppress(RuntimeError):
-                        await websocket.close(
-                            code=1011, reason="Generation failed"
-                        )
+                        await websocket.close(code=1011, reason="Generation failed")
                 finally:
                     watcher.cancel()
                     with contextlib.suppress(asyncio.CancelledError, Exception):
@@ -282,10 +285,10 @@ async def websocket_tts_handler(
             logger.info("WebSocket client disconnected")
         except (asyncio.TimeoutError, RuntimeError) as e:
             # Async/await and runtime errors in WebSocket lifecycle
-            logger.error("WebSocket lifecycle error: %s", e, exc_info=True)
+            logger.exception("WebSocket lifecycle error: %s", e)
         except Exception as e:
             # Unexpected errors in WebSocket handler
-            logger.error("WebSocket handler error: %s", e, exc_info=True)
+            logger.exception("WebSocket handler error: %s", e)
         finally:
             stop_event.set()
 
@@ -391,9 +394,7 @@ async def _stream_generation(
         from qwen3_tts.server.prompt_loading import load_voice_prompt_serialized
 
         if not req.prompt_file:
-            await websocket.send_json(
-                {"error": "prompt_file required for clone mode"}
-            )
+            await websocket.send_json({"error": "prompt_file required for clone mode"})
             return
         try:
             voice_prompt = await load_voice_prompt_serialized(
@@ -436,10 +437,15 @@ async def _stream_generation(
     used_seed = _resolve_generation_seed(req.seed)
 
     from qwen3_tts.server.app_lifespan import _check_memory_available
+
     mem_ok, available_mb = _check_memory_available()
     if not mem_ok:
-        await websocket.send_json({"status": "error",
-            "detail": f"Insufficient memory: only {available_mb}MB available. Unload unused models to free memory."})
+        await websocket.send_json(
+            {
+                "status": "error",
+                "detail": f"Insufficient memory: only {available_mb}MB available. Unload unused models to free memory.",
+            }
+        )
         return
 
     await websocket.send_json({"status": "generating", "text_length": len(text)})
@@ -487,13 +493,11 @@ async def _stream_generation(
 
         except (RuntimeError, ValueError, AttributeError, OSError) as e:
             # Model inference, audio processing, or file operation errors
-            logger.error("WebSocket inference thread error: %s", e, exc_info=True)
+            logger.exception("WebSocket inference thread error: %s", e)
             thread_error[0] = str(e)
         except Exception as e:
             # Unexpected errors in inference thread
-            logger.error(
-                "WebSocket inference thread unexpected error: %s", e, exc_info=True
-            )
+            logger.exception("WebSocket inference thread unexpected error: %s", e)
             thread_error[0] = str(e)
         finally:
             # Signal the consumer that the thread has fully stopped BEFORE the
@@ -604,9 +608,7 @@ async def _stream_generation(
             # 500-char default expires mid-generation once max_chunk_chars is
             # raised, releasing inference_lock while model.generate() is still
             # on the GPU. Never reintroduce a constant here.
-            join_timeout = _stream_thread_join_timeout(
-                len(text), req.max_chunk_chars
-            )
+            join_timeout = _stream_thread_join_timeout(len(text), req.max_chunk_chars)
             finished = await _await_inference_thread_done(done, timeout=join_timeout)
             if not finished:
                 logger.error(

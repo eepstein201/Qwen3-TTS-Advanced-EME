@@ -432,11 +432,11 @@ def _validate_generation_request(req: GenerateRequest, security_config: dict) ->
                     status_code=400,
                     detail="Invalid prompt_file: path traversal not allowed",
                 )
-        except (ValueError, OSError):
+        except (ValueError, OSError) as e:
             raise HTTPException(
                 status_code=400,
                 detail="Invalid prompt_file: path traversal not allowed",
-            )
+            ) from e
 
     # Speaker validation for custom mode
     if req.mode == "custom" and req.speaker:
@@ -526,7 +526,7 @@ def _gen_cache_key(
         key_parts.append(f"mcc={max_chunk_chars}")
     key_parts.append(f"slc={seed_lock_chunks}")
     raw = "|".join(key_parts)
-    return hashlib.sha256(raw.encode(), usedforsecurity=False).hexdigest()[:16]
+    return hashlib.sha256(raw.encode(), usedforsecurity=False).hexdigest()[:32]
 
 
 def _error_response(

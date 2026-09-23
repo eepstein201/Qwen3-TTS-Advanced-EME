@@ -410,7 +410,11 @@ def _warn_if_cap_reached(results: Any, max_tokens: int, mode: str) -> None:
     """
     for result in results or ():
         count = getattr(result, "token_count", None)
-        if isinstance(count, int) and not isinstance(count, bool) and count >= max_tokens:
+        if (
+            isinstance(count, int)
+            and not isinstance(count, bool)
+            and count >= max_tokens
+        ):
             _warn_cap_reached(max_tokens, mode)
             return
 
@@ -880,7 +884,7 @@ def _crossfade_chunks(
     if len(chunks) == 0:
         return np.array([], dtype=np.float32)
     if len(chunks) == 1:
-        return chunks[0]
+        return chunks[0].copy()
 
     if silence_gap_s is not None and silence_gap_s > 0:
         silence = np.zeros(int(sample_rate * silence_gap_s), dtype=np.float32)
@@ -1694,9 +1698,7 @@ def run_inference_streaming(
             max_chunk_chars = _get_max_chunk_chars()
         chunks = _prepare_text_chunks(text, language, model, max_chunk_chars)
         chunk_total = len(chunks)
-        logger.info(
-            "Starting streaming inference [mlx]: %d text chunk(s)", chunk_total
-        )
+        logger.info("Starting streaming inference [mlx]: %d text chunk(s)", chunk_total)
         ref_text = _reference_text_from_prompt(voice_prompt)
         base_seed = gen_params.get("seed")
         emitted = 0

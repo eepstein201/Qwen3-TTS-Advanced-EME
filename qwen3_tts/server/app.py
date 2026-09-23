@@ -1086,7 +1086,7 @@ async def shutdown(request: Request, _auth: None = Depends(verify_auth)) -> Resp
                 on_disk = f.read().strip()
             if on_disk == state.auth_token:
                 os.remove(TOKEN_FILE)
-        except (FileNotFoundError, OSError):
+        except OSError:
             pass
         cleanup_resources(state)
         os.kill(os.getpid(), signal.SIGTERM)
@@ -1103,26 +1103,35 @@ async def shutdown(request: Request, _auth: None = Depends(verify_auth)) -> Resp
 # ---------------------------------------------------------------------------
 
 
+_logging_configured = False
+
+
 def run_server(host: str = "127.0.0.1", port: int = 5123, public: bool = False) -> None:
     """Run the FastAPI server."""
+    global _logging_configured
     from qwen3_tts.core.config import LOG_FILE
 
-    # Configure logging
-    log_fmt = logging.Formatter(
-        "%(asctime)s [%(name)s] %(levelname)s: %(message)s", datefmt="%Y-%m-%d %H:%M:%S"
-    )
-    Path(LOG_FILE).parent.mkdir(parents=True, exist_ok=True)
-    file_handler = logging.handlers.RotatingFileHandler(
-        LOG_FILE, maxBytes=5 * 1024 * 1024, backupCount=1
-    )
-    file_handler.setFormatter(log_fmt)
-    stderr_handler = logging.StreamHandler(sys.stderr)
-    stderr_handler.setFormatter(log_fmt)
+    # Attach handlers once per process — a second in-process call (tests,
+    # embedded use) would otherwise duplicate every log line. The level is
+    # re-applied on every call so TTS_LOG_LEVEL changes take effect.
     _log_level_name = os.environ.get("TTS_LOG_LEVEL", "INFO").upper()
     _log_level = getattr(logging, _log_level_name, logging.INFO)
     logging.getLogger("tts").setLevel(_log_level)
-    logging.getLogger("tts").addHandler(file_handler)
-    logging.getLogger("tts").addHandler(stderr_handler)
+    if not _logging_configured:
+        log_fmt = logging.Formatter(
+            "%(asctime)s [%(name)s] %(levelname)s: %(message)s",
+            datefmt="%Y-%m-%d %H:%M:%S",
+        )
+        Path(LOG_FILE).parent.mkdir(parents=True, exist_ok=True)
+        file_handler = logging.handlers.RotatingFileHandler(
+            LOG_FILE, maxBytes=5 * 1024 * 1024, backupCount=1
+        )
+        file_handler.setFormatter(log_fmt)
+        stderr_handler = logging.StreamHandler(sys.stderr)
+        stderr_handler.setFormatter(log_fmt)
+        logging.getLogger("tts").addHandler(file_handler)
+        logging.getLogger("tts").addHandler(stderr_handler)
+        _logging_configured = True
 
     if public:
         host = "0.0.0.0"  # nosec B104  # intentional network bind via --public; logged on the next line

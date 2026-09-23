@@ -138,10 +138,10 @@ class TestAppHelperFunctions(unittest.TestCase):
         self.assertNotEqual(key1, key2)
 
     def test_gen_cache_key_is_hex_string(self):
-        """_gen_cache_key returns a hex string of length 16."""
+        """_gen_cache_key returns a hex string of length 32."""
         from qwen3_tts.server.app import _gen_cache_key
         key = _gen_cache_key("test", "design", {})
-        self.assertEqual(len(key), 16)
+        self.assertEqual(len(key), 32)
         int(key, 16)  # Should not raise
 
 

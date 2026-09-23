@@ -39,6 +39,7 @@ import urllib.request
 
 try:
     import pytest
+
     pytestmark = pytest.mark.e2e
 except ImportError:
     pass
@@ -112,8 +113,8 @@ class TestE2ECancelGeneration(unittest.TestCase):
         try:
             with urllib.request.urlopen(f"{SERVER_URL}/health", timeout=3) as r:
                 health = json.loads(r.read().decode())
-        except Exception:
-            raise unittest.SkipTest("TTS server not running on port 5123")
+        except Exception as e:
+            raise unittest.SkipTest("TTS server not running on port 5123") from e
         if not health.get("clone_model_loaded"):
             raise unittest.SkipTest("clone model not loaded — load it before running")
         cls.prompt = _pick_prompt()
@@ -122,8 +123,11 @@ class TestE2ECancelGeneration(unittest.TestCase):
         """Nothing running → the explicit idle shape, not an error."""
         status, body = _request("POST", "/cancel-generation")
         self.assertEqual(status, 200)
-        self.assertEqual(body.get("status"), "no_active_generation",
-                         f"server must be idle for this test; got {body}")
+        self.assertEqual(
+            body.get("status"),
+            "no_active_generation",
+            f"server must be idle for this test; got {body}",
+        )
 
     def test_02_batch_cancel_returns_short_results_with_flag(self):
         """Cancel mid-batch → 200, cancelled=true, results strictly shorter."""
@@ -160,8 +164,9 @@ class TestE2ECancelGeneration(unittest.TestCase):
                     break
                 time.sleep(1.0)
             else:
-                self.fail("generation never reached batch item 2 "
-                          f"(last status: {snap})")
+                self.fail(
+                    f"generation never reached batch item 2 (last status: {snap})"
+                )
 
             status, body = _request("POST", "/cancel-generation")
             self.assertEqual(status, 200)
@@ -169,22 +174,33 @@ class TestE2ECancelGeneration(unittest.TestCase):
             self.assertIn("generation_id", body)
         finally:
             worker.join(timeout=240)
-        self.assertFalse(worker.is_alive(), "generate thread still running after cancel")
+        self.assertFalse(
+            worker.is_alive(), "generate thread still running after cancel"
+        )
         self.assertNotIn("error", outcome, f"generate request failed: {outcome}")
 
         self.assertEqual(outcome["status"], 200)
         gen_body = outcome["body"]
-        self.assertIs(gen_body.get("cancelled"), True,
-                      f"cancelled flag must be top-level true: {gen_body}")
+        self.assertIs(
+            gen_body.get("cancelled"),
+            True,
+            f"cancelled flag must be top-level true: {gen_body}",
+        )
         results = gen_body.get("results")
         self.assertIsInstance(results, list)
         self.assertGreaterEqual(len(results), 1, "item 1 completed before the cancel")
-        self.assertLess(len(results), 3,
-                        "results must be SHORTER than texts on a cancelled batch — "
-                        "a full-length results list means the cancel didn't take")
+        self.assertLess(
+            len(results),
+            3,
+            "results must be SHORTER than texts on a cancelled batch — "
+            "a full-length results list means the cancel didn't take",
+        )
         for item in results:
-            self.assertIn("audio_base64", item,
-                          "each completed result must carry audio (never a stub)")
+            self.assertIn(
+                "audio_base64",
+                item,
+                "each completed result must carry audio (never a stub)",
+            )
 
 
 if __name__ == "__main__":

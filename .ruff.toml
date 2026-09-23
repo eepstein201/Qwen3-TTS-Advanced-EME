@@ -6,8 +6,10 @@ extend-exclude = ["*.ipynb"]
 
 [lint]
 select = [
+    "B",     # flake8-bugbear (raise-from, loop-var, zip strict)
     "E",     # pycodestyle errors
     "F",     # pyflakes
+    "G",     # flake8-logging-format (lazy %s, exc_info -> exception)
     "I",     # isort
     "N",     # pep8-naming
     "W",     # pycodestyle warnings
@@ -29,4 +31,6 @@ line-ending = "auto"
 "qwen3_tts/interface/ui/model_management.py" = ["E501"]  # Long event chains
 # Tests use descriptive method names (e.g. ..._1_7B, ..._TimeoutError), local
 # class aliases (Request = ...), and constant import aliases — all intentional.
-"tests/**" = ["N802", "N806", "N811"]
+# B007/B011/B017: deliberate test idioms (side-effect-only loop iterations,
+# assert False guards, broad assertRaises in teardown-style checks).
+"tests/**" = ["N802", "N806", "N811", "B007", "B011", "B017"]

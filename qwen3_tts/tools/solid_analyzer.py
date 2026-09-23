@@ -262,8 +262,12 @@ def _analyze_lsp(tree: ast.AST) -> tuple[float, list[Violation]]:
                             )
 
                         # Check type annotations for changes
-                        for i, (base_arg, derived_arg) in enumerate(
-                            zip(base_method.args.args, derived_method.args.args)
+                        for _, (base_arg, derived_arg) in enumerate(
+                            zip(
+                                base_method.args.args,
+                                derived_method.args.args,
+                                strict=False,
+                            )
                         ):
                             base_ann = get_annotation_str(base_arg.annotation)
                             derived_ann = get_annotation_str(derived_arg.annotation)

@@ -35,8 +35,7 @@ def _preload_librosa():
 
         # librosa uses lazy_loader; touch the attributes the fallback actually
         # calls so their submodules are imported now rather than under the patch.
-        librosa.effects
-        librosa.resample
+        _ = (librosa.effects, librosa.resample)
     except Exception:  # noqa: BLE001 - librosa is optional in some environments
         pass
 
@@ -52,6 +51,7 @@ class TestRubberBandAudioProcessing(unittest.TestCase):
         import numpy as np
 
         from qwen3_tts.core.engine import adjust_speed
+
         audio = np.random.randn(16000).astype(np.float32)
         result = adjust_speed(audio, 24000, 1.0)
         np.testing.assert_array_equal(result, audio)
@@ -61,6 +61,7 @@ class TestRubberBandAudioProcessing(unittest.TestCase):
         import numpy as np
 
         from qwen3_tts.core.engine import adjust_pitch
+
         audio = np.random.randn(16000).astype(np.float32)
         result = adjust_pitch(audio, 24000, 0)
         np.testing.assert_array_equal(result, audio)
@@ -70,9 +71,10 @@ class TestRubberBandAudioProcessing(unittest.TestCase):
         import numpy as np
 
         from qwen3_tts.core.engine import adjust_speed
+
         audio = np.random.randn(16000).astype(np.float32)
         # Mock pyrubberband import failure to force librosa fallback
-        with patch.dict('sys.modules', {'pyrubberband': None}):
+        with patch.dict("sys.modules", {"pyrubberband": None}):
             try:
                 result = adjust_speed(audio, 24000, 1.5)
                 self.assertIsInstance(result, np.ndarray)
@@ -90,8 +92,9 @@ class TestRubberBandAudioProcessing(unittest.TestCase):
         import numpy as np
 
         from qwen3_tts.core.engine import adjust_pitch
+
         audio = np.random.randn(16000).astype(np.float32)
-        with patch.dict('sys.modules', {'pyrubberband': None}):
+        with patch.dict("sys.modules", {"pyrubberband": None}):
             try:
                 result = adjust_pitch(audio, 24000, 2)
                 self.assertIsInstance(result, np.ndarray)
@@ -110,6 +113,7 @@ class TestProsodyPresets(unittest.TestCase):
     def test_default_prosody_presets_exist(self):
         """DEFAULT_PROSODY_PRESETS should contain standard presets."""
         from qwen3_tts.core.config import DEFAULT_PROSODY_PRESETS
+
         self.assertIn("excited", DEFAULT_PROSODY_PRESETS)
         self.assertIn("calm", DEFAULT_PROSODY_PRESETS)
         self.assertIn("whisper", DEFAULT_PROSODY_PRESETS)
@@ -119,13 +123,20 @@ class TestProsodyPresets(unittest.TestCase):
     def test_get_prosody_presets_returns_defaults(self):
         """get_prosody_presets with empty config should return defaults."""
         from qwen3_tts.core.config import DEFAULT_PROSODY_PRESETS, get_prosody_presets
+
         presets = get_prosody_presets(config={})
         self.assertEqual(presets, DEFAULT_PROSODY_PRESETS)
 
     def test_get_prosody_presets_merges_user(self):
         """User presets should override defaults."""
         from qwen3_tts.core.config import get_prosody_presets
-        config = {"prosody_presets": {"excited": "custom excited text", "newpreset": "new text"}}
+
+        config = {
+            "prosody_presets": {
+                "excited": "custom excited text",
+                "newpreset": "new text",
+            }
+        }
         presets = get_prosody_presets(config)
         self.assertEqual(presets["excited"], "custom excited text")
         self.assertEqual(presets["newpreset"], "new text")
@@ -135,6 +146,7 @@ class TestProsodyPresets(unittest.TestCase):
     def test_prosody_presets_in_config_json(self):
         """Verify default config schema includes prosody_presets."""
         from qwen3_tts.core.config import get_default_config
+
         config = get_default_config()
         self.assertIn("prosody_presets", config)
         self.assertIn("excited", config["prosody_presets"])
@@ -143,8 +155,13 @@ class TestProsodyPresets(unittest.TestCase):
     def test_prosody_cli_flag_exists(self):
         """qwen3_tts.interface.generate should accept --prosody flag."""
         from qwen3_tts.interface import generate as voice_generate
+
         # Build parser and check --prosody is registered
-        parser = voice_generate.build_parser() if hasattr(voice_generate, 'build_parser') else None
+        parser = (
+            voice_generate.build_parser()
+            if hasattr(voice_generate, "build_parser")
+            else None
+        )
         if parser is None:
             # Check that the module has the argparse setup
             with open(voice_generate.__file__) as f:
@@ -160,6 +177,7 @@ class TestXVectorOnlyMode(unittest.TestCase):
         import inspect
 
         from qwen3_tts.core.engine import run_inference
+
         sig = inspect.signature(run_inference)
         self.assertIn("x_vector_only_mode", sig.parameters)
 
@@ -168,6 +186,7 @@ class TestXVectorOnlyMode(unittest.TestCase):
         import inspect
 
         from qwen3_tts.core.engine import run_inference_streaming
+
         sig = inspect.signature(run_inference_streaming)
         self.assertIn("x_vector_only_mode", sig.parameters)
 
@@ -176,6 +195,7 @@ class TestXVectorOnlyMode(unittest.TestCase):
         import inspect
 
         from qwen3_tts.core.engine.inference import _run_inference_single
+
         sig = inspect.signature(_run_inference_single)
         self.assertIn("x_vector_only_mode", sig.parameters)
 
@@ -185,6 +205,7 @@ class TestXVectorOnlyMode(unittest.TestCase):
         import inspect
 
         from qwen3_tts.interface.generate import generate_via_server
+
         sig = inspect.signature(generate_via_server)
         self.assertIn("x_vector_only_mode", sig.parameters)
 
@@ -194,6 +215,7 @@ class TestXVectorOnlyMode(unittest.TestCase):
         import inspect
 
         from qwen3_tts.interface.generate import generate_streaming
+
         sig = inspect.signature(generate_streaming)
         self.assertIn("x_vector_only_mode", sig.parameters)
 
@@ -207,6 +229,7 @@ class TestXVectorOnlyClient(unittest.TestCase):
         import inspect
 
         from qwen3_tts.server.client import TTSClient
+
         sig = inspect.signature(TTSClient.generate)
         self.assertIn("x_vector_only_mode", sig.parameters)
 
@@ -215,6 +238,7 @@ class TestXVectorOnlyClient(unittest.TestCase):
         import inspect
 
         from qwen3_tts.server.client import TTSClient
+
         sig = inspect.signature(TTSClient.generate_streaming)
         self.assertIn("x_vector_only_mode", sig.parameters)
 
@@ -226,7 +250,9 @@ class TestCreateVoiceNoTranscript(unittest.TestCase):
         """qwen3_tts.tools.create_voice should accept --no-transcript flag."""
         source_path = os.path.join(
             os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
-            "qwen3_tts", "tools", "create_voice.py"
+            "qwen3_tts",
+            "tools",
+            "create_voice.py",
         )
         with open(source_path) as f:
             source = f.read()
@@ -239,21 +265,23 @@ class TestClickCLI(unittest.TestCase):
     def test_cli_imports(self):
         """qwen3_tts.cli imports without error."""
         from qwen3_tts.cli import TTSGroup, cli
+
         self.assertIsNotNone(cli)
         self.assertIsInstance(cli, TTSGroup)
 
     def test_ttsgroup_prepends_generate(self):
         """TTSGroup prepends 'generate' for bare text args."""
         from qwen3_tts.cli import cli
+
         # Check that known subcommands exist
-        self.assertIn('generate', cli.commands)
-        self.assertIn('server', cli.commands)
-        self.assertIn('voice', cli.commands)
-        self.assertIn('list', cli.commands)
-        self.assertIn('config', cli.commands)
-        self.assertIn('ui', cli.commands)
-        self.assertIn('history', cli.commands)
-        self.assertIn('stats', cli.commands)
+        self.assertIn("generate", cli.commands)
+        self.assertIn("server", cli.commands)
+        self.assertIn("voice", cli.commands)
+        self.assertIn("list", cli.commands)
+        self.assertIn("config", cli.commands)
+        self.assertIn("ui", cli.commands)
+        self.assertIn("history", cli.commands)
+        self.assertIn("stats", cli.commands)
 
     def test_ttsgroup_server_mode_stripping(self):
         """TTSGroup strips --_server-mode and re-inserts after subcommand."""
@@ -261,46 +289,77 @@ class TestClickCLI(unittest.TestCase):
         import inspect
 
         from qwen3_tts.cli import TTSGroup
+
         source = inspect.getsource(TTSGroup.parse_args)
-        self.assertIn('--_server-mode', source)
-        self.assertIn('server_mode', source)
+        self.assertIn("--_server-mode", source)
+        self.assertIn("server_mode", source)
 
     def test_ui_rejects_server_mode_flag(self):
         """tts ui does not accept --_server-mode (it's a generate-only flag)."""
         from click.testing import CliRunner
 
         from qwen3_tts.cli import cli
+
         runner = CliRunner()
-        with patch('qwen3_tts.interface.generate.launch_gradio_ui'):
-            result = runner.invoke(cli, ['ui', '--_server-mode'])
+        with patch("qwen3_tts.interface.generate.launch_gradio_ui"):
+            result = runner.invoke(cli, ["ui", "--_server-mode"])
         # ui command should NOT fail with "No such option: --_server-mode"
-        self.assertNotEqual(result.exit_code, 2,
-                            f"ui rejected --_server-mode: {result.output}")
+        self.assertNotEqual(
+            result.exit_code, 2, f"ui rejected --_server-mode: {result.output}"
+        )
 
     def test_ttsgroup_skips_server_mode_for_non_generate_commands(self):
         """TTSGroup.parse_args does NOT re-insert --_server-mode for ui, config, etc."""
         from click.testing import CliRunner
 
         from qwen3_tts.cli import cli
+
         runner = CliRunner()
         # Commands that should NOT get --_server-mode re-inserted
-        non_generate_cmds = ['ui', 'config', 'history', 'stats']
+        non_generate_cmds = ["ui", "config", "history", "stats"]
         for cmd in non_generate_cmds:
-            result = runner.invoke(cli, ['--_server-mode', cmd, '--help'])
-            self.assertNotIn('No such option', result.output,
-                             f"--_server-mode leaked to '{cmd}': {result.output}")
+            result = runner.invoke(cli, ["--_server-mode", cmd, "--help"])
+            self.assertNotIn(
+                "No such option",
+                result.output,
+                f"--_server-mode leaked to '{cmd}': {result.output}",
+            )
 
     def test_flag_map_completeness(self):
         """_FLAG_MAP covers all generation options."""
         from qwen3_tts.cli import _FLAG_MAP
+
         expected_keys = [
-            'mode', 'prompt', 'description', 'speaker', 'instruct',
-            'voice', 'prosody', 'no_transcript', 'output', 'play',
-            'stream', 'no_open', 'speed', 'pitch', 'trim_silence',
-            'normalize', 'preset', 'temperature', 'top_k', 'top_p',
-            'seed', 'repetition_penalty', 'max_chunk_chars',
-            'clipboard', 'ssml', 'local', 'dry_run', 'backend',
-            'model_size', 'server_mode',
+            "mode",
+            "prompt",
+            "description",
+            "speaker",
+            "instruct",
+            "voice",
+            "prosody",
+            "no_transcript",
+            "output",
+            "play",
+            "stream",
+            "no_open",
+            "speed",
+            "pitch",
+            "trim_silence",
+            "normalize",
+            "preset",
+            "temperature",
+            "top_k",
+            "top_p",
+            "seed",
+            "repetition_penalty",
+            "max_chunk_chars",
+            "clipboard",
+            "ssml",
+            "local",
+            "dry_run",
+            "backend",
+            "model_size",
+            "server_mode",
         ]
         for key in expected_keys:
             self.assertIn(key, _FLAG_MAP, f"Missing key in _FLAG_MAP: {key}")
@@ -310,46 +369,50 @@ class TestClickCLI(unittest.TestCase):
         from click.testing import CliRunner
 
         from qwen3_tts.cli import cli
+
         runner = CliRunner()
-        result = runner.invoke(cli, ['--version'])
+        result = runner.invoke(cli, ["--version"])
         self.assertEqual(result.exit_code, 0)
-        self.assertIn('3.0.0', result.output)
+        self.assertIn("3.0.0", result.output)
 
     def test_cli_help(self):
         """CLI --help shows subcommands."""
         from click.testing import CliRunner
 
         from qwen3_tts.cli import cli
+
         runner = CliRunner()
-        result = runner.invoke(cli, ['--help'])
+        result = runner.invoke(cli, ["--help"])
         self.assertEqual(result.exit_code, 0)
-        self.assertIn('generate', result.output)
-        self.assertIn('server', result.output)
-        self.assertIn('voice', result.output)
+        self.assertIn("generate", result.output)
+        self.assertIn("server", result.output)
+        self.assertIn("voice", result.output)
 
     def test_cli_server_help(self):
         """CLI server --help shows subcommands."""
         from click.testing import CliRunner
 
         from qwen3_tts.cli import cli
+
         runner = CliRunner()
-        result = runner.invoke(cli, ['server', '--help'])
+        result = runner.invoke(cli, ["server", "--help"])
         self.assertEqual(result.exit_code, 0)
-        self.assertIn('start', result.output)
-        self.assertIn('stop', result.output)
-        self.assertIn('status', result.output)
+        self.assertIn("start", result.output)
+        self.assertIn("stop", result.output)
+        self.assertIn("status", result.output)
 
     def test_cli_generate_help(self):
         """CLI generate --help shows all options."""
         from click.testing import CliRunner
 
         from qwen3_tts.cli import cli
+
         runner = CliRunner()
-        result = runner.invoke(cli, ['generate', '--help'])
+        result = runner.invoke(cli, ["generate", "--help"])
         self.assertEqual(result.exit_code, 0)
-        self.assertIn('--mode', result.output)
-        self.assertIn('--prompt', result.output)
-        self.assertIn('--output', result.output)
+        self.assertIn("--mode", result.output)
+        self.assertIn("--prompt", result.output)
+        self.assertIn("--output", result.output)
 
     @_skip_ui
     def test_preview_voice_cleanup_on_failure(self):
@@ -377,19 +440,29 @@ class TestClickCLI(unittest.TestCase):
         mock_resp.status_code = 200
         mock_resp.content = b"fake audio bytes"
 
-        with patch('qwen3_tts.interface.ui.voice_management.is_server_running', return_value=True), \
-             patch('qwen3_tts.core.http_client.server_request', return_value=mock_resp), \
-             patch('qwen3_tts.interface.ui.voice_management.tempfile.NamedTemporaryFile', side_effect=mock_named_temp_file):
-
+        with (
+            patch(
+                "qwen3_tts.interface.ui.voice_management.is_server_running",
+                return_value=True,
+            ),
+            patch("qwen3_tts.core.http_client.server_request", return_value=mock_resp),
+            patch(
+                "qwen3_tts.interface.ui.voice_management.tempfile.NamedTemporaryFile",
+                side_effect=mock_named_temp_file,
+            ),
+        ):
             from qwen3_tts.interface.ui import preview_voice
+
             result = preview_voice("test_prompt")
 
             # Should return None on failure
             self.assertIsNone(result)
             # Temp file should be cleaned up (not exist)
             if temp_file_path:
-                self.assertFalse(os.path.exists(temp_file_path),
-                                 f"Temp file {temp_file_path} should be cleaned up on exception")
+                self.assertFalse(
+                    os.path.exists(temp_file_path),
+                    f"Temp file {temp_file_path} should be cleaned up on exception",
+                )
 
     @_skip_ui
     def test_preview_voice_cleanup_on_write_failure(self):
@@ -418,19 +491,29 @@ class TestClickCLI(unittest.TestCase):
         mock_resp.status_code = 200
         mock_resp.content = b"fake audio bytes"
 
-        with patch('qwen3_tts.interface.ui.voice_management.is_server_running', return_value=True), \
-             patch('qwen3_tts.core.http_client.server_request', return_value=mock_resp), \
-             patch('qwen3_tts.interface.ui.voice_management.tempfile.NamedTemporaryFile', side_effect=mock_named_temp_file):
-
+        with (
+            patch(
+                "qwen3_tts.interface.ui.voice_management.is_server_running",
+                return_value=True,
+            ),
+            patch("qwen3_tts.core.http_client.server_request", return_value=mock_resp),
+            patch(
+                "qwen3_tts.interface.ui.voice_management.tempfile.NamedTemporaryFile",
+                side_effect=mock_named_temp_file,
+            ),
+        ):
             from qwen3_tts.interface.ui import preview_voice
+
             result = preview_voice("test_prompt")
 
             # Should return None on write failure
             self.assertIsNone(result)
             # Temp file should be cleaned up even though it was created
             if temp_file_path:
-                self.assertFalse(os.path.exists(temp_file_path),
-                                 f"Temp file {temp_file_path} should be cleaned up on write failure")
+                self.assertFalse(
+                    os.path.exists(temp_file_path),
+                    f"Temp file {temp_file_path} should be cleaned up on write failure",
+                )
 
 
 class TestPlatformSafeCommands(unittest.TestCase):
@@ -441,6 +524,7 @@ class TestPlatformSafeCommands(unittest.TestCase):
         import inspect
 
         from qwen3_tts.interface.generate import play_audio
+
         source = inspect.getsource(play_audio)
         self.assertIn("IS_MACOS", source)
         self.assertIn("IS_LINUX", source)
@@ -451,6 +535,7 @@ class TestPlatformSafeCommands(unittest.TestCase):
         import inspect
 
         from qwen3_tts.interface.generate import get_clipboard_text
+
         source = inspect.getsource(get_clipboard_text)
         self.assertIn("IS_MACOS", source)
         self.assertIn("IS_LINUX", source)
@@ -458,6 +543,7 @@ class TestPlatformSafeCommands(unittest.TestCase):
     def test_open_file_exists(self):
         """voice_generate has open_file helper function."""
         from qwen3_tts.interface.generate import open_file
+
         self.assertTrue(callable(open_file))
 
     def test_open_file_handles_missing_xdg(self):
@@ -465,6 +551,7 @@ class TestPlatformSafeCommands(unittest.TestCase):
         import inspect
 
         from qwen3_tts.interface.generate import open_file
+
         source = inspect.getsource(open_file)
         self.assertIn("FileNotFoundError", source)
         self.assertIn("xdg-open", source)
@@ -477,6 +564,7 @@ class TestGetPresets(unittest.TestCase):
     def test_includes_none_as_first_choice(self, mock_config):
         mock_config.return_value = {"presets": {"consistent": {}, "creative": {}}}
         from qwen3_tts.interface.ui.shared import get_presets
+
         result = get_presets()
         self.assertEqual(result[0], "(none)")
 
@@ -484,6 +572,7 @@ class TestGetPresets(unittest.TestCase):
     def test_contains_config_presets_after_none(self, mock_config):
         mock_config.return_value = {"presets": {"consistent": {}, "creative": {}}}
         from qwen3_tts.interface.ui.shared import get_presets
+
         result = get_presets()
         self.assertIn("consistent", result)
         self.assertIn("creative", result)
@@ -494,6 +583,7 @@ class TestGetPresets(unittest.TestCase):
         mock_config.return_value = {"presets": {}}
         from qwen3_tts.core.config import DEFAULT_GENERATION_PRESETS
         from qwen3_tts.interface.ui.shared import get_presets
+
         result = get_presets()
         self.assertIn("(none)", result)
         self.assertEqual(result[0], "(none)")

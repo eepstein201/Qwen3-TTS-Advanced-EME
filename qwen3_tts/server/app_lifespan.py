@@ -538,12 +538,12 @@ async def lifespan(app):
         # Never delete our own valid token on normal shutdown
         if on_disk != app.state.auth_token:
             logger.warning(
-                f"Token mismatch on disk vs memory - cleaning up: {TOKEN_FILE}"
+                "Token mismatch on disk vs memory - cleaning up: %s", TOKEN_FILE
             )
             os.unlink(TOKEN_FILE)
         else:
-            logger.info(f"Token file preserved for client use: {TOKEN_FILE}")
-    except (FileNotFoundError, OSError):
+            logger.info("Token file preserved for client use: %s", TOKEN_FILE)
+    except OSError:
         pass
 
     fcntl.flock(lock_fh, fcntl.LOCK_UN)
@@ -733,9 +733,7 @@ def _background_load(app_state):
             except (ImportError, RuntimeError, OSError, ValueError, MemoryError) as e:
                 outcome = LoadOutcome.FAILED
                 error_msg = str(e)
-                logger.error(
-                    "Failed to load %s model: %s", model_type, error_msg, exc_info=True
-                )
+                logger.exception("Failed to load %s model: %s", model_type, error_msg)
                 # Sanitize before storing — /health is a public endpoint
                 app_state.model_load_errors[model_type] = _sanitize_error(error_msg)
             except Exception as e:  # noqa: BLE001 — one model must not kill startup
@@ -745,11 +743,10 @@ def _background_load(app_state):
                 # mid-list, later models never load and no error is recorded.
                 outcome = LoadOutcome.FAILED
                 error_msg = str(e)
-                logger.error(
+                logger.exception(
                     "Unexpected error loading %s model: %s",
                     sanitize_log(model_type),
                     sanitize_log(error_msg),
-                    exc_info=True,
                 )
                 app_state.model_load_errors[model_type] = _sanitize_error(error_msg)
             finally:
@@ -777,10 +774,9 @@ def _background_load(app_state):
         # (engine import, config parsing). The finally below still signals
         # readiness, so /ready answers 200 and /health reports the reason
         # rather than the server hanging at 503 with nothing logged.
-        logger.error(
+        logger.exception(
             "Background model loading failed before any model could load: %s",
             sanitize_log(e),
-            exc_info=True,
         )
     finally:
         app_state.models_loaded.set()
@@ -789,6 +785,8 @@ def _background_load(app_state):
 
 def cleanup_resources(app_state):
     """Clean up resources on shutdown."""
+    from qwen3_tts.core.engine import unload_model_cleanup
+
     # Stop the auto-shutdown watchdog thread
     activity_watchdog_stop = getattr(app_state, "activity_watchdog_stop", None)
     if activity_watchdog_stop is not None:
@@ -801,8 +799,8 @@ def cleanup_resources(app_state):
             model = models.get(name)
             if model is not None:
                 try:
-                    del model
                     models[name] = None
+                    unload_model_cleanup()
                 except (TypeError, RuntimeError, OSError):
                     pass
 
@@ -833,7 +831,7 @@ def cleanup_pid(app_state):
             on_disk = f.read().strip()
         if on_disk == getattr(app_state, "auth_token", None):
             os.unlink(TOKEN_FILE)
-    except (FileNotFoundError, OSError):
+    except OSError:
         pass
     # Set shutdown event for graceful termination
     shutdown_event = getattr(app_state, "shutdown_event", None)

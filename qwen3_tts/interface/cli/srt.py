@@ -86,7 +86,7 @@ def process_srt_file(srt_path, config, args, gen_params, use_server):
     sample_rate = None
     success_count = 0
 
-    for idx, start_ms, end_ms, text in entries:
+    for idx, _start_ms, _end_ms, text in entries:
         print(f"  [{idx}/{len(entries)}] {text[:50]}{'...' if len(text) > 50 else ''}")
 
         try:
