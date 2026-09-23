@@ -118,7 +118,9 @@ def _stream_thread_join_timeout(
         if max_chunk_chars and max_chunk_chars > 0
         else text_len
     )
-    return max(_STREAM_THREAD_JOIN_FLOOR_SEC, effective_chars * _STREAM_SECONDS_PER_CHAR)
+    return max(
+        _STREAM_THREAD_JOIN_FLOOR_SEC, effective_chars * _STREAM_SECONDS_PER_CHAR
+    )
 
 
 # Back-compat alias: existing callers/tests reference the old constant name.
@@ -136,6 +138,7 @@ def _stage_cache_tempfile() -> str:
     cache_file.close()  # Close handle before sf.write to avoid leak
     os.chmod(cache_file.name, 0o600)
     return cache_file.name
+
 
 async def _await_inference_thread_done(
     done_event: threading.Event,
@@ -179,7 +182,9 @@ def _require_model_under_lock(state, mode) -> Any:
         load finishing between this return and the inference call is not
         observed.
     """
-    current = state.models.get(mode)  # .get(), never [mode]: partial-dict test states exist
+    current = state.models.get(
+        mode
+    )  # .get(), never [mode]: partial-dict test states exist
     if current is None:
         logger.warning(
             "%s model was unloaded while the generation waited for "
@@ -444,7 +449,9 @@ async def handle_generate(request, state, req, security, config_provider):
             if entry:
                 cache_file = entry.get("main_file") or entry.get("file")
                 if cache_file and os.path.exists(cache_file):
-                    b64_audio = await asyncio.to_thread(_read_cache_file_b64, cache_file)
+                    b64_audio = await asyncio.to_thread(
+                        _read_cache_file_b64, cache_file
+                    )
                     pre_lock_results[i] = {
                         "index": i,
                         "audio_base64": b64_audio,
@@ -494,7 +501,9 @@ async def handle_generate(request, state, req, security, config_provider):
             if entry:
                 cache_file = entry.get("main_file") or entry.get("file")
                 if cache_file and os.path.exists(cache_file):
-                    b64_audio = await asyncio.to_thread(_read_cache_file_b64, cache_file)
+                    b64_audio = await asyncio.to_thread(
+                        _read_cache_file_b64, cache_file
+                    )
                     results.append(
                         {
                             "index": i,
@@ -657,7 +666,8 @@ async def handle_generate(request, state, req, security, config_provider):
                         )
                     else:
                         logger.warning(
-                            f"vLLM circuit breaker state: {circuit_state}, falling back to torch/MLX"
+                            "vLLM circuit breaker state: %s, falling back to torch/MLX",
+                            circuit_state,
                         )
                         if not vllm_fallback_enabled:
                             raise RuntimeError(
@@ -680,7 +690,7 @@ async def handle_generate(request, state, req, security, config_provider):
                         )
                         logger.info("vLLM generation completed successfully")
                     except Exception as e:
-                        logger.error(f"vLLM generation failed: {e}")
+                        logger.error("vLLM generation failed: %s", e)
                         if vllm_fallback_enabled:
                             logger.info("Falling back to torch/MLX due to vLLM failure")
                             use_vllm = False
@@ -815,7 +825,7 @@ async def handle_generate(request, state, req, security, config_provider):
         TypeError,
         ImportError,
     ) as e:
-        logger.error("Generation failed: %s", e, exc_info=True)
+        logger.exception("Generation failed: %s", e)
         _error_response(
             500,
             "Audio generation failed",
@@ -959,9 +969,7 @@ async def handle_generate_stream(request, state, req, security, config_provider)
             # the exact sink per the websocket.py late-import precedent.
             from qwen3_tts.server.app_lifespan import _sanitize_error
 
-            raise HTTPException(
-                status_code=404, detail=_sanitize_error(str(e))
-            ) from e
+            raise HTTPException(status_code=404, detail=_sanitize_error(str(e))) from e
         if voice_prompt is None:
             raise HTTPException(
                 status_code=404, detail=f"Voice prompt not found: {prompt_file}"
@@ -1131,7 +1139,7 @@ async def handle_generate_stream(request, state, req, security, config_provider)
                         # (e.g. AttributeError) would otherwise kill the thread
                         # without the None sentinel, deadlocking the consumer.
                         thread_error[0] = str(e)
-                        logger.error("Streaming inference failed: %s", e, exc_info=True)
+                        logger.exception("Streaming inference failed: %s", e)
                     finally:
                         # Signal the consumer that the thread has fully stopped.
                         # Separate from the queue-None sentinel (which means "no

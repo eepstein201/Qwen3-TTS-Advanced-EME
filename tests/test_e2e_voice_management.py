@@ -63,12 +63,14 @@ from tests.e2e_ui import (
 
 try:
     import pytest
+
     pytestmark = pytest.mark.e2e
 except ImportError:
     pass
 
 try:
     from playwright.sync_api import sync_playwright
+
     HAS_PLAYWRIGHT = True
 except ImportError:
     HAS_PLAYWRIGHT = False
@@ -161,8 +163,8 @@ class TestE2EVoiceManagement(unittest.TestCase):
     def setUpClass(cls):
         try:
             urllib.request.urlopen(f"{SERVER_URL}/health", timeout=3)
-        except Exception:
-            raise unittest.SkipTest("TTS server not running on port 5123")
+        except Exception as e:
+            raise unittest.SkipTest("TTS server not running on port 5123") from e
 
         cls.suffix = str(int(time.time() * 1000) % 100_000_000)
         cls.fixtures = {
@@ -280,9 +282,8 @@ class TestE2EVoiceManagement(unittest.TestCase):
             arg=name,
             timeout=15_000,
         )
-        cell = (
-            self.page.locator("div[role='tabpanel']:visible")
-            .first.locator(f'[data-row="{idx}"][data-col="0"]')
+        cell = self.page.locator("div[role='tabpanel']:visible").first.locator(
+            f'[data-row="{idx}"][data-col="0"]'
         )
         cell.click()
 

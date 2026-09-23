@@ -47,8 +47,11 @@ def log_gpu_memory_usage():
         gpus = GPUtil.getGPUs()
         for gpu in gpus:
             logger.info(
-                f"GPU {gpu.id}: {gpu.memoryUsed}MB/{gpu.memoryTotal}MB "
-                f"({gpu.memoryUtil * 100:.1f}%)"
+                "GPU %s: %sMB/%sMB (%.1f%%)",
+                gpu.id,
+                gpu.memoryUsed,
+                gpu.memoryTotal,
+                gpu.memoryUtil * 100,
             )
     except ImportError:
         # GPUtil not available, use nvidia-smi
@@ -64,7 +67,7 @@ def log_gpu_memory_usage():
                 timeout=5.0,
             )
             if result.returncode == 0 and result.stdout.strip():
-                logger.info(f"GPU Memory: {result.stdout.strip()}")
+                logger.info("GPU Memory: %s", result.stdout.strip())
             else:
                 logger.warning("nvidia-smi command failed or returned no output")
         except (FileNotFoundError, subprocess.TimeoutExpired) as e:

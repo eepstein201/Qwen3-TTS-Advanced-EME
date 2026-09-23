@@ -195,7 +195,7 @@ def enhance_description_with_ai(description):
             raise gr.Error(f"Unsupported provider: {provider}")
     except Exception as e:
         logger.error("AI enhancement failed: %s", e)
-        raise gr.Error(f"Enhancement failed: {e}")
+        raise gr.Error(f"Enhancement failed: {e}") from e
 
 
 def is_enhancer_available():

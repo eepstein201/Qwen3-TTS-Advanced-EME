@@ -35,9 +35,7 @@ from qwen3_tts.interface.voice_helpers import (
 logger = logging.getLogger("tts.ui")
 
 
-def create_voice_prompt(
-    audio_path, transcript, voice_name, no_transcript=False
-):
+def create_voice_prompt(audio_path, transcript, voice_name, no_transcript=False):
     """Create a voice prompt from audio file and transcript.
 
     Args:
@@ -75,7 +73,7 @@ def create_voice_prompt(
     try:
         validate_voice_name(base_name)
     except ValueError as exc:
-        raise gr.Error(str(exc))
+        raise gr.Error(str(exc)) from exc
     if backend == "mlx":
         # MLX needs .wav + .txt pair
         wav_path = safe_path_join(VOICE_PROMPTS_DIR, f"{base_name}.wav")
@@ -124,25 +122,25 @@ def create_voice_prompt(
                 # The server maps this to 400 unsupported_reference_audio;
                 # str(e) carries the actionable reason (no samples, or a
                 # sub-native rate the writer refuses to store).
-                raise gr.Error(str(e))
+                raise gr.Error(str(e)) from e
             except ValueError as e:
                 # Containment reject: the reference lives outside home AND
                 # the system tempdir. The server cannot reach this clause
                 # (it stages uploads into TMPDIR by construction), so the
                 # engine's own message is surfaced verbatim instead of the
                 # generic invalid_audio text.
-                raise gr.Error(str(e))
-            except sf_local.LibsndfileError:
+                raise gr.Error(str(e)) from e
+            except sf_local.LibsndfileError as e:
                 # The server maps this to 400 invalid_audio.
                 raise gr.Error(
                     "Audio could not be decoded (accepted: wav/flac/ogg; "
                     "m4a/mp3 must be converted first)"
-                )
+                ) from e
             except RuntimeError as e:
                 # Store-phase fault (write/copy/transcript failure after a
                 # clean decode) — the writer has already rolled the .wav
                 # back, so there is nothing to clean up here.
-                raise gr.Error(f"Failed to create prompt: {e}")
+                raise gr.Error(f"Failed to create prompt: {e}") from e
 
             # Clear the engine voice-prompt cache so the new prompt is
             # visible — same as the server path (app_prompts.py).
@@ -199,7 +197,7 @@ def create_voice_prompt(
         raise
     except Exception as e:
         logger.error("Failed to create voice prompt: %s", e)
-        raise gr.Error(f"Failed to create prompt: {e}")
+        raise gr.Error(f"Failed to create prompt: {e}") from e
 
 
 def auto_transcribe_audio(audio_path):
@@ -284,7 +282,7 @@ def auto_transcribe_audio(audio_path):
         raise
     except Exception as e:
         logger.error("Auto-transcription failed: %s", e)
-        raise gr.Error(f"Transcription failed: {e}")
+        raise gr.Error(f"Transcription failed: {e}") from e
 
 
 def get_prompt_table_data():
@@ -428,7 +426,7 @@ def rename_voice(old_name, new_name):
         raise
     except Exception as e:
         logger.error("Rename failed: %s", e)
-        raise gr.Error(f"Rename failed: {e}")
+        raise gr.Error(f"Rename failed: {e}") from e
 
 
 def delete_voice(name):
@@ -470,7 +468,7 @@ def delete_voice(name):
         raise
     except Exception as e:
         logger.error("Delete failed: %s", e)
-        raise gr.Error(f"Delete failed: {e}")
+        raise gr.Error(f"Delete failed: {e}") from e
 
 
 def set_voice_default(name):

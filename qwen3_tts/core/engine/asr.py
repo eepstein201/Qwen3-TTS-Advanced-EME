@@ -51,7 +51,7 @@ def _ensure_asr_torch_loaded():
             raise ImportError(
                 f"ASR transcription requires transformers: {e}\n"
                 "Install with: pip install transformers"
-            )
+            ) from e
 
 
 def preload_asr_model():
@@ -155,7 +155,9 @@ def load_asr_model():
                 logger.info("Loaded MLX ASR model")
                 return True
             except ImportError as e:
-                raise ImportError(f"ASR requires mlx-audio with STT support: {e}")
+                raise ImportError(
+                    f"ASR requires mlx-audio with STT support: {e}"
+                ) from e
     else:
         _ensure_asr_torch_loaded()
         return True
@@ -180,7 +182,7 @@ def _transcribe_mlx(audio_path, language="en"):
         )
         return transcript
     except Exception as e:
-        raise RuntimeError(f"Transcription failed: {e}")
+        raise RuntimeError(f"Transcription failed: {e}") from e
 
 
 def _transcribe_torch(audio_path, language="en"):
@@ -204,7 +206,7 @@ def _transcribe_torch(audio_path, language="en"):
         )
         return transcript
     except Exception as e:
-        raise RuntimeError(f"Transcription failed: {e}")
+        raise RuntimeError(f"Transcription failed: {e}") from e
 
 
 def transcribe_audio(audio_path, language="en"):

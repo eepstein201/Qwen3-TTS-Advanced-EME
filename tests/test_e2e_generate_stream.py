@@ -41,6 +41,7 @@ import urllib.request
 
 try:
     import pytest
+
     pytestmark = pytest.mark.e2e
 except ImportError:
     pass
@@ -82,8 +83,8 @@ class TestE2EGenerateStream(unittest.TestCase):
         try:
             with urllib.request.urlopen(f"{SERVER_URL}/health", timeout=3) as r:
                 health = json.loads(r.read().decode())
-        except Exception:
-            raise unittest.SkipTest("TTS server not running on port 5123")
+        except Exception as e:
+            raise unittest.SkipTest("TTS server not running on port 5123") from e
         if not health.get("clone_model_loaded"):
             raise unittest.SkipTest("clone model not loaded — load it before running")
         cls.token = _read_token()
@@ -119,20 +120,26 @@ class TestE2EGenerateStream(unittest.TestCase):
     def test_01_supplied_seed_is_echoed_in_x_seed_header(self):
         """Client seed → X-Seed echoes it verbatim; frames parse as float32."""
         seed = 4321
-        resp, header_seed = self._stream({
-            "text": _TEXT,
-            "mode": "clone",
-            "prompt_file": self.prompt,
-            "seed": seed,
-        })
+        resp, header_seed = self._stream(
+            {
+                "text": _TEXT,
+                "mode": "clone",
+                "prompt_file": self.prompt,
+                "seed": seed,
+            }
+        )
         self.assertEqual(header_seed, str(seed))
 
         chunks = self._parse_chunks(resp)
         self.assertGreaterEqual(len(chunks), 1, "no audio frames parsed")
         total_samples = 0
         for samples, sr in chunks:
-            self.assertGreater(sr, 0, "sample_rate 0 is the error sentinel — "
-                                      "must never appear on a happy-path stream")
+            self.assertGreater(
+                sr,
+                0,
+                "sample_rate 0 is the error sentinel — "
+                "must never appear on a happy-path stream",
+            )
             self.assertLessEqual(sr, 192_000, f"implausible sample rate: {sr}")
             self.assertEqual(samples.dtype.name, "float32")
             total_samples += len(samples)
@@ -140,13 +147,17 @@ class TestE2EGenerateStream(unittest.TestCase):
 
     def test_02_omitted_seed_server_generates_one_and_reports_it(self):
         """No seed in the request → server generates one and reports it via X-Seed."""
-        resp, header_seed = self._stream({
-            "text": _TEXT,
-            "mode": "clone",
-            "prompt_file": self.prompt,
-        })
-        self.assertTrue(header_seed.isdigit(),
-                        f"X-Seed must be a non-negative integer, got {header_seed!r}")
+        resp, header_seed = self._stream(
+            {
+                "text": _TEXT,
+                "mode": "clone",
+                "prompt_file": self.prompt,
+            }
+        )
+        self.assertTrue(
+            header_seed.isdigit(),
+            f"X-Seed must be a non-negative integer, got {header_seed!r}",
+        )
 
         chunks = self._parse_chunks(resp)
         self.assertGreaterEqual(len(chunks), 1, "no audio frames parsed")

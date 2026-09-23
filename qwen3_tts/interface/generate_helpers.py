@@ -185,7 +185,7 @@ def play_audio(file_path):
     # Validate file extension to expected audio formats
     valid_extensions = (".wav", ".mp3", ".flac", ".ogg", ".m4a")
     if not any(file_path.lower().endswith(ext) for ext in valid_extensions):
-        logger.warning(f"Invalid audio file format - expected {valid_extensions}")
+        logger.warning("Invalid audio file format - expected %s", valid_extensions)
         return
     # Validate file exists before playback
     if not os.path.isfile(file_path):
@@ -229,14 +229,16 @@ def open_file(path):
         except subprocess.TimeoutExpired:
             # The file was saved; a hung handler must not surface a traceback
             # to the caller after a successful generation.
-            logger.warning(f"System handler timed out opening {path} — open it manually")
+            logger.warning(
+                "System handler timed out opening %s — open it manually", path
+            )
     elif IS_LINUX:
         try:
             subprocess.run(["xdg-open", path], timeout=10)  # nosec B603 B607
         except FileNotFoundError:
             logger.warning("xdg-open not found — cannot open file automatically")
         except subprocess.TimeoutExpired:
-            logger.warning(f"xdg-open timed out opening {path} — open it manually")
+            logger.warning("xdg-open timed out opening %s — open it manually", path)
 
 
 # ---------------------------------------------------------------------------

@@ -130,7 +130,7 @@ def _load_pt_safe(prompt_path: str, prompt_file: str, device: str):
         )  # CodeQL: weights_only=True is safe [py/unsafe-deserialization]
         _store_in_torch_cache(prompt_file, result)
         return result
-    except (RuntimeError, ValueError, TypeError, pickle.UnpicklingError):
+    except (RuntimeError, ValueError, TypeError, pickle.UnpicklingError) as e:
         # Only unpickling/weights_only failures reach here.
         # PermissionError, MemoryError, OSError propagate normally.
         real_prompt = os.path.realpath(prompt_path)
@@ -138,7 +138,7 @@ def _load_pt_safe(prompt_path: str, prompt_file: str, device: str):
         if not real_prompt.startswith(real_prompts_dir + os.sep):
             raise ValueError(
                 f"Refusing to load {prompt_file}: outside voice_prompts/ directory"
-            )
+            ) from e
         base = prompt_file.removesuffix(".pt")
         wav_exists = os.path.exists(
             safe_path_join(str(VOICE_PROMPTS_DIR), f"{base}.wav")
@@ -148,12 +148,12 @@ def _load_pt_safe(prompt_path: str, prompt_file: str, device: str):
             if wav_exists
             else f"No {base}.wav found — re-create with 'tts voice create'."
         )
-        raise RuntimeError(
-            f"Cannot load {prompt_file} safely. {hint}"
-        )
+        raise RuntimeError(f"Cannot load {prompt_file} safely. {hint}") from e
 
 
-def _load_voice_prompt_torch(prompt_file, *, allow_create: bool = True, clone_model=None):
+def _load_voice_prompt_torch(
+    prompt_file, *, allow_create: bool = True, clone_model=None
+):
     """Load and cache a .pt voice prompt (torch backend).
 
     If the .pt file doesn't exist but .wav + .txt files do, auto-creates
@@ -318,7 +318,11 @@ def migrate_orphan_mlx_prompts(clone_model=None):
                 from qwen3_tts.core.engine.inference import create_voice_prompt
 
                 voice_prompt = create_voice_prompt(
-                    model, ref_audio, ref_sr, transcript, x_vector_only_mode=not transcript
+                    model,
+                    ref_audio,
+                    ref_sr,
+                    transcript,
+                    x_vector_only_mode=not transcript,
                 )
                 import torch  # lazy: only needed when saving .pt
 
@@ -499,9 +503,7 @@ def save_voice_prompt_mlx(base: str, audio_path: str, transcript: str) -> str:
     # as a LibsndfileError.
     ref_audio, ref_sr = sf.read(audio_path, dtype="float32")
     if len(ref_audio) == 0:
-        raise UnsupportedReferenceAudioError(
-            "reference audio contains no samples"
-        )
+        raise UnsupportedReferenceAudioError("reference audio contains no samples")
     try:
         ref_audio, ref_sr, was_modified = ensure_min_sample_rate(ref_audio, ref_sr)
     except RuntimeError as e:
@@ -531,9 +533,7 @@ def save_voice_prompt_mlx(base: str, audio_path: str, transcript: str) -> str:
         # STORE-phase failure: a server fault (disk, permissions), NOT client
         # input — convert so the handler's 400 invalid_audio clause cannot
         # swallow it (LibsndfileError is a RuntimeError subclass).
-        raise RuntimeError(
-            f"failed to store voice prompt '{base}': {e}"
-        ) from e
+        raise RuntimeError(f"failed to store voice prompt '{base}': {e}") from e
 
     logger.info(
         "Stored MLX voice prompt '%s' (%.1fs audio @ %d Hz)",

@@ -62,7 +62,7 @@ def _announce_status(msg: str | None) -> str:
     return (
         '<div role="status" aria-live="polite" '
         'style="position:absolute;width:1px;height:1px;padding:0;'
-        'margin:-1px;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap;'
+        "margin:-1px;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap;"
         'border:0">'
         f"{text}</div>"
     )
@@ -281,7 +281,7 @@ def _generate_server_side(mode, text, history_list, stream_config):
         history_list = []
     elif not isinstance(history_list, list):
         logger.warning(
-            f"history_list is not a list: {type(history_list)}, resetting to []"
+            "history_list is not a list: %s, resetting to []", type(history_list)
         )
         history_list = []
     else:
@@ -387,8 +387,7 @@ def _generate_server_side(mode, text, history_list, stream_config):
             temp_path,
             # First line stays the bare filename: e2e tests parse the wav
             # basename from line 1 of this status ("Generated: <name>.wav").
-            f"Generated: {os.path.basename(persistent_path)}\n"
-            f"Saved to: {output_dir}",
+            f"Generated: {os.path.basename(persistent_path)}\nSaved to: {output_dir}",
             format_status_display(),
             history_list_copy,
         )
@@ -399,9 +398,7 @@ def _generate_server_side(mode, text, history_list, stream_config):
         # Manage Models tab and the load_at_startup config key directly.
         model_type = e.model_type or mode
         logger.warning("Generation blocked: '%s' model not loaded", model_type)
-        safe_history_list = (
-            list(history_list) if isinstance(history_list, list) else []
-        )
+        safe_history_list = list(history_list) if isinstance(history_list, list) else []
         status_msg = (
             f"The '{model_type}' model is not loaded. "
             "Load it in the 'Manage Models' tab, or enable "
@@ -427,10 +424,18 @@ def _build_common_controls():
     # UI tracks the user's configured generation defaults, not hardcoded values.
     _defaults = get_generation_defaults()
     with gr.Accordion("Advanced Settings", open=False):
-        temp = gr.Slider(0.1, 1.5, value=_defaults["temperature"], step=0.05, label="Temperature")
+        temp = gr.Slider(
+            0.1, 1.5, value=_defaults["temperature"], step=0.05, label="Temperature"
+        )
         top_k = gr.Slider(1, 100, value=_defaults["top_k"], step=1, label="Top-K")
         top_p = gr.Slider(0.1, 1.0, value=_defaults["top_p"], step=0.01, label="Top-P")
-        rep = gr.Slider(1.0, 2.0, value=_defaults["repetition_penalty"], step=0.01, label="Repetition Penalty")
+        rep = gr.Slider(
+            1.0,
+            2.0,
+            value=_defaults["repetition_penalty"],
+            step=0.01,
+            label="Repetition Penalty",
+        )
         seed = gr.Textbox(
             label="Seed (empty = random)",
             value="",
@@ -685,7 +690,12 @@ def _wire_generation_tab(
             )
 
         status_msg, status_html_msg = cancel_streaming_generation()
-        return new_state, gr.update(value=STATUS_STOP_LABEL), status_msg, status_html_msg
+        return (
+            new_state,
+            gr.update(value=STATUS_STOP_LABEL),
+            status_msg,
+            status_html_msg,
+        )
 
     cancel_chain = cancel_btn.click(
         fn=on_cancel_click,

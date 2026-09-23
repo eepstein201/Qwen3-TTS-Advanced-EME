@@ -538,11 +538,11 @@ async def lifespan(app):
         # Never delete our own valid token on normal shutdown
         if on_disk != app.state.auth_token:
             logger.warning(
-                f"Token mismatch on disk vs memory - cleaning up: {TOKEN_FILE}"
+                "Token mismatch on disk vs memory - cleaning up: %s", TOKEN_FILE
             )
             os.unlink(TOKEN_FILE)
         else:
-            logger.info(f"Token file preserved for client use: {TOKEN_FILE}")
+            logger.info("Token file preserved for client use: %s", TOKEN_FILE)
     except (FileNotFoundError, OSError):
         pass
 
@@ -733,9 +733,7 @@ def _background_load(app_state):
             except (ImportError, RuntimeError, OSError, ValueError, MemoryError) as e:
                 outcome = LoadOutcome.FAILED
                 error_msg = str(e)
-                logger.error(
-                    "Failed to load %s model: %s", model_type, error_msg, exc_info=True
-                )
+                logger.exception("Failed to load %s model: %s", model_type, error_msg)
                 # Sanitize before storing — /health is a public endpoint
                 app_state.model_load_errors[model_type] = _sanitize_error(error_msg)
             except Exception as e:  # noqa: BLE001 — one model must not kill startup
@@ -745,11 +743,10 @@ def _background_load(app_state):
                 # mid-list, later models never load and no error is recorded.
                 outcome = LoadOutcome.FAILED
                 error_msg = str(e)
-                logger.error(
+                logger.exception(
                     "Unexpected error loading %s model: %s",
                     sanitize_log(model_type),
                     sanitize_log(error_msg),
-                    exc_info=True,
                 )
                 app_state.model_load_errors[model_type] = _sanitize_error(error_msg)
             finally:
@@ -777,10 +774,9 @@ def _background_load(app_state):
         # (engine import, config parsing). The finally below still signals
         # readiness, so /ready answers 200 and /health reports the reason
         # rather than the server hanging at 503 with nothing logged.
-        logger.error(
+        logger.exception(
             "Background model loading failed before any model could load: %s",
             sanitize_log(e),
-            exc_info=True,
         )
     finally:
         app_state.models_loaded.set()

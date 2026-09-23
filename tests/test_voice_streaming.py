@@ -95,14 +95,14 @@ class TestStreamingClientMethod(unittest.TestCase):
         from qwen3_tts.server.client import TTSClient
         client = TTSClient()
         self.assertTrue(hasattr(client, "generate_streaming"))
-        self.assertTrue(callable(getattr(client, "generate_streaming")))
+        self.assertTrue(callable(client.generate_streaming))
 
     def test_cancel_generation_method_exists(self):
         """TTSClient has cancel_generation method."""
         from qwen3_tts.server.client import TTSClient
         client = TTSClient()
         self.assertTrue(hasattr(client, "cancel_generation"))
-        self.assertTrue(callable(getattr(client, "cancel_generation")))
+        self.assertTrue(callable(client.cancel_generation))
 
     def test_generate_streaming_signature(self):
         """generate_streaming has expected parameters."""

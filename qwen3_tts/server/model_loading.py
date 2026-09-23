@@ -358,9 +358,7 @@ async def load_model_deduped(state, model_type: str, request=None) -> dict | Non
             # classify it as retryable instead (C3).
             _error_response(500, record.code, record.error, record.recovery)
         if wait is WaitResult.FAILED:
-            _error_response(
-                503, "load_failed", "the in-flight load failed", "retry"
-            )
+            _error_response(503, "load_failed", "the in-flight load failed", "retry")
         # CANCELLED / TIMEOUT / DISCONNECTED are all retryable.
         _error_response(
             503, "load_in_progress", "the in-flight load ended early", "retry"
@@ -449,11 +447,10 @@ async def load_model_deduped(state, model_type: str, request=None) -> dict | Non
         outcome = LoadOutcome.FAILED
         code, recovery = "import_error", "config"
         error = _sanitize(str(e))
-        logger.error(
+        logger.exception(
             "Backend not available for model loading %s: %s",
             _safe(model_type),
             error,
-            exc_info=True,
         )
         # A superseded owner must not null a NEWER load or leave a stale
         # error for /health to report against it.
@@ -467,11 +464,10 @@ async def load_model_deduped(state, model_type: str, request=None) -> dict | Non
         outcome = LoadOutcome.FAILED
         code, recovery = "load_failed", "restart"
         error = _sanitize(str(e))
-        logger.error(
+        logger.exception(
             "Failed to load %s model: %s",
             _safe(model_type),
             error,
-            exc_info=True,
         )
         with MODEL_LOAD_LOCK:
             if not _is_superseded(state, record):
@@ -483,11 +479,10 @@ async def load_model_deduped(state, model_type: str, request=None) -> dict | Non
         outcome = LoadOutcome.FAILED
         code, recovery = "unknown_error", "bug"
         error = _sanitize(str(e))
-        logger.error(
+        logger.exception(
             "Unexpected error loading %s model: %s",
             _safe(model_type),
             error,
-            exc_info=True,
         )
         with MODEL_LOAD_LOCK:
             if not _is_superseded(state, record):

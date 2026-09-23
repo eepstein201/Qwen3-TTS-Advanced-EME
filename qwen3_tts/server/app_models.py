@@ -140,9 +140,7 @@ def handle_list_models(state, server_config):
         # loaded cannot also be in flight. UI polls this to drive Phase 1b
         # progress indicators (poll_model_loading_state in components.py).
         inflight = load_records.get(model_type)
-        loading = (
-            inflight is not None and not inflight.done.is_set()
-        ) and not loaded
+        loading = (inflight is not None and not inflight.done.is_set()) and not loaded
 
         entry = {
             "loaded": loaded,
@@ -373,9 +371,7 @@ async def handle_update_model_config(state, req, config_fn):
 
             set_audio_loader(new_loader)
         except (ValueError, ImportError) as e:
-            logger.warning(
-                "Failed to sync audio loader cache to %r: %s", new_loader, e
-            )
+            logger.warning("Failed to sync audio loader cache to %r: %s", new_loader, e)
 
     logger.info(
         "Model config updated: %s. Models unloaded. Generation cache cleared.",
@@ -451,15 +447,15 @@ def handle_load_asr(state):
         logger.info("ASR model loaded in %.1fs", elapsed)
         return {"status": "loaded", "load_time_sec": elapsed}
     except ImportError as e:
-        logger.error("ASR backend not available: %s", sanitize_log(e), exc_info=True)
+        logger.exception("ASR backend not available: %s", sanitize_log(e))
         _error_response(500, "import_error", _sanitize_error(str(e)), "config")
         return
     except (RuntimeError, OSError, ValueError) as e:
-        logger.error("Failed to load ASR model: %s", sanitize_log(e), exc_info=True)
+        logger.exception("Failed to load ASR model: %s", sanitize_log(e))
         _error_response(500, "load_failed", _sanitize_error(str(e)), "restart")
         return
     except Exception as e:
-        logger.error("Unexpected error loading ASR: %s", sanitize_log(e), exc_info=True)
+        logger.exception("Unexpected error loading ASR: %s", sanitize_log(e))
         _error_response(500, "unknown_error", _sanitize_error(str(e)), "bug")
         return
 
@@ -548,8 +544,8 @@ async def handle_transcribe(state, req):
     # policy, cf. tests/test_server_async_offload.py).
     try:
         audio_bytes = await asyncio.to_thread(_decode_audio, req.audio_base64)
-    except Exception:
-        raise HTTPException(status_code=400, detail="Invalid base64 audio data")
+    except Exception as e:
+        raise HTTPException(status_code=400, detail="Invalid base64 audio data") from e
 
     # Write to tempfile for ASR processing
     tmp_path = None

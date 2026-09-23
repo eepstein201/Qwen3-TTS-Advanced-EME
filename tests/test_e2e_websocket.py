@@ -48,6 +48,7 @@ import urllib.request
 
 try:
     import pytest
+
     pytestmark = pytest.mark.e2e
 except ImportError:
     pass
@@ -55,6 +56,7 @@ except ImportError:
 try:
     from websockets.exceptions import ConnectionClosed
     from websockets.sync.client import connect
+
     HAS_WEBSOCKETS = True
 except ImportError:
     HAS_WEBSOCKETS = False
@@ -105,8 +107,9 @@ def _authed_connect(token):
     return conn
 
 
-def _recv_until_terminal(conn, first_timeout=FIRST_CHUNK_TIMEOUT,
-                         frame_timeout=CHUNK_TIMEOUT):
+def _recv_until_terminal(
+    conn, first_timeout=FIRST_CHUNK_TIMEOUT, frame_timeout=CHUNK_TIMEOUT
+):
     """Bounded receive loop → (control_frames, binary_frames, terminal_frame).
 
     Every recv has an explicit timeout (TestClient's unbounded receive is the
@@ -137,8 +140,8 @@ class TestE2EWebsocket(unittest.TestCase):
         try:
             with urllib.request.urlopen(f"{SERVER_URL}/health", timeout=3) as r:
                 health = json.loads(r.read().decode())
-        except Exception:
-            raise unittest.SkipTest("TTS server not running on port 5123")
+        except Exception as e:
+            raise unittest.SkipTest("TTS server not running on port 5123") from e
         # /ws never auto-loads (no Step-2 path here) — skip loudly, not hollow.
         if not health.get("clone_model_loaded"):
             raise unittest.SkipTest(
@@ -152,7 +155,9 @@ class TestE2EWebsocket(unittest.TestCase):
 
     def _assert_binary_frame(self, frame):
         """One wire frame: [sr:4][len:4][float32 payload] — full contract."""
-        self.assertGreaterEqual(len(frame), 8, f"binary frame shorter than header: {len(frame)}")
+        self.assertGreaterEqual(
+            len(frame), 8, f"binary frame shorter than header: {len(frame)}"
+        )
         sr, length = struct.unpack("<II", frame[:8])
         payload = frame[8:]
         self.assertGreater(sr, 0, "sample_rate must be positive audio, not a sentinel")
@@ -196,12 +201,16 @@ class TestE2EWebsocket(unittest.TestCase):
         conn = _authed_connect(self.token)
         try:
             supplied_seed = 1234
-            conn.send(json.dumps({
-                "text": _TEXT,
-                "mode": "clone",
-                "prompt_file": self.prompt,
-                "seed": supplied_seed,
-            }))
+            conn.send(
+                json.dumps(
+                    {
+                        "text": _TEXT,
+                        "mode": "clone",
+                        "prompt_file": self.prompt,
+                        "seed": supplied_seed,
+                    }
+                )
+            )
             control, binary, terminal = _recv_until_terminal(conn)
         finally:
             conn.close()
@@ -216,20 +225,30 @@ class TestE2EWebsocket(unittest.TestCase):
         for frame in binary:
             self._assert_binary_frame(frame)
         self.assertEqual(terminal.get("status"), "complete", f"terminal: {terminal}")
-        self.assertEqual(terminal.get("chunks"), len(binary),
-                         "terminal chunk count must equal binary frames received")
-        self.assertEqual(terminal.get("seed"), supplied_seed,
-                         "server must echo the client-supplied seed")
+        self.assertEqual(
+            terminal.get("chunks"),
+            len(binary),
+            "terminal chunk count must equal binary frames received",
+        )
+        self.assertEqual(
+            terminal.get("seed"),
+            supplied_seed,
+            "server must echo the client-supplied seed",
+        )
 
     def test_04_cancel_mid_generation_keeps_socket_open(self):
         """Cancel inside the first chunk → terminal 'cancelled', chunks 0, socket open."""
         conn = _authed_connect(self.token)
         try:
-            conn.send(json.dumps({
-                "text": _TEXT,
-                "mode": "clone",
-                "prompt_file": self.prompt,
-            }))
+            conn.send(
+                json.dumps(
+                    {
+                        "text": _TEXT,
+                        "mode": "clone",
+                        "prompt_file": self.prompt,
+                    }
+                )
+            )
             frame = json.loads(conn.recv(timeout=STATUS_TIMEOUT))
             self.assertEqual(frame.get("status"), "generating")
             # Cancel inside the first chunk: the cancel-watcher reads it (the
@@ -238,9 +257,14 @@ class TestE2EWebsocket(unittest.TestCase):
             conn.send(json.dumps({"action": "cancel"}))
             control, binary, terminal = _recv_until_terminal(conn)
 
-            self.assertEqual(terminal.get("status"), "cancelled", f"terminal: {terminal}")
-            self.assertEqual(terminal.get("chunks"), 0,
-                             f"cancel inside the first chunk must yield 0 chunks: {terminal}")
+            self.assertEqual(
+                terminal.get("status"), "cancelled", f"terminal: {terminal}"
+            )
+            self.assertEqual(
+                terminal.get("chunks"),
+                0,
+                f"cancel inside the first chunk must yield 0 chunks: {terminal}",
+            )
             # Socket still open (classified outcomes never close): a fresh
             # request on the same socket gets a normal validation reply.
             conn.send(json.dumps({"text": ""}))

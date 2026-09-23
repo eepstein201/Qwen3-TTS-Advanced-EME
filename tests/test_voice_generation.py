@@ -271,19 +271,19 @@ class TestClientModelMethods(unittest.TestCase):
         from qwen3_tts.server.client import TTSClient
         client = TTSClient()
         self.assertTrue(hasattr(client, "unload_model"))
-        self.assertTrue(callable(getattr(client, "unload_model")))
+        self.assertTrue(callable(client.unload_model))
 
     def test_update_startup_config_exists(self):
         from qwen3_tts.server.client import TTSClient
         client = TTSClient()
         self.assertTrue(hasattr(client, "update_startup_config"))
-        self.assertTrue(callable(getattr(client, "update_startup_config")))
+        self.assertTrue(callable(client.update_startup_config))
 
     def test_get_models_exists(self):
         from qwen3_tts.server.client import TTSClient
         client = TTSClient()
         self.assertTrue(hasattr(client, "get_models"))
-        self.assertTrue(callable(getattr(client, "get_models")))
+        self.assertTrue(callable(client.get_models))
 
 
 class TestReturnValueCounts(unittest.TestCase):

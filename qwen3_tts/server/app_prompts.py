@@ -196,16 +196,15 @@ def handle_rename_prompt(state, req, config_fn):
                 os.rename(current, rollback_to)
             except OSError:
                 pass
-        logger.error(
+        logger.exception(
             "Rename failed %s -> %s: %s",
             sanitize_log(req.old_name),
             sanitize_log(req.new_name),
             sanitize_log(e),
-            exc_info=True,
         )
         raise HTTPException(
             status_code=500, detail="Rename failed. Check server logs for details."
-        )
+        ) from e
 
     # Update default if the renamed prompt was the default (immutable — Phase 10d)
     try:
@@ -438,8 +437,8 @@ async def handle_create_voice_prompt(state, req, backend=None):
     # cf. tests/test_server_async_offload.py).
     try:
         audio_bytes = await asyncio.to_thread(_decode_audio, req.audio_base64)
-    except Exception:
-        raise HTTPException(status_code=400, detail="Invalid base64 audio data")
+    except Exception as e:
+        raise HTTPException(status_code=400, detail="Invalid base64 audio data") from e
 
     # Write to tempfile, load audio, create prompt
     tmp_path = None
@@ -503,9 +502,7 @@ async def handle_create_voice_prompt(state, req, backend=None):
         # UNLOCKED: audio decode is blocking-but-uncontended work and must
         # not starve /generate (mirrors the /transcribe and /load-model
         # load/warm-up splits).
-        ref_audio, ref_sr = await asyncio.to_thread(
-            load_audio_for_cloning, tmp_path
-        )
+        ref_audio, ref_sr = await asyncio.to_thread(load_audio_for_cloning, tmp_path)
 
         transcript = "" if req.no_transcript else (req.transcript or "")
 
