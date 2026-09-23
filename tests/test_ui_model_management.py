@@ -12,6 +12,8 @@ Covers:
 Run: pytest tests/test_ui_model_management.py -v
 """
 
+import unittest
+
 try:
     import pytest
     HAS_PYTEST = True
@@ -406,3 +408,22 @@ def test_set_audio_loader_setting():
 
     assert "librosa" in msg
     assert saved["advanced"]["audio_loader"] == "librosa"
+
+
+class TestLoadedBadgeMemoryFormat(unittest.TestCase):
+    """T1.3 sweep (a): the loaded badge formats memory via shared.fmt_memory_mb."""
+
+    def _badge(self, info):
+        from qwen3_tts.interface.ui.model_management import _badge_from_models_payload
+
+        return _badge_from_models_payload({"models": {"clone": info}}, "clone")
+
+    def test_known_memory_is_spaced(self):
+        self.assertIn("Loaded (2500 MB)", self._badge({"loaded": True, "memory_mb": 2500}))
+
+    def test_unknown_memory_shows_plain_loaded(self):
+        for info in ({"loaded": True, "memory_mb": 0}, {"loaded": True}):
+            with self.subTest(info=info):
+                html = self._badge(info)
+                self.assertIn("Loaded", html)
+                self.assertNotIn("Loaded (", html)

@@ -17,6 +17,7 @@ from qwen3_tts.core.config import (
     load_config,
     save_config,
 )
+from qwen3_tts.interface.ui import shared
 from qwen3_tts.interface.ui.components import ProgressIndicator
 from qwen3_tts.interface.ui.shared import format_status_display
 
@@ -273,7 +274,9 @@ def _badge_from_models_payload(data, model_type):
     memory = info.get("memory_mb", 0)
 
     if loaded:
-        return status_badge(f"Loaded ({memory:.0f}MB)", severity="success")
+        memory_str = shared.fmt_memory_mb(memory)
+        label = "Loaded" if memory_str == shared.EMPTY_VALUE else f"Loaded ({memory_str})"
+        return status_badge(label, severity="success")
     if loading:
         # Prior measured load duration is the best available estimate — the
         # server cannot know remaining time for the in-flight load.

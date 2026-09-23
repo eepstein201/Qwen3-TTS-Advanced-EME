@@ -123,7 +123,7 @@ class TestGetAllModelStatusHtml(unittest.TestCase):
             badges = mm.get_all_model_status_html()
 
         self.assertEqual(len(badges), len(mm.MODEL_INDICATOR_TYPES))
-        self.assertIn("Loaded (2500MB)", badges[0])
+        self.assertIn("Loaded (2500 MB)", badges[0])
         self.assertIn("Loading design", badges[1])
         self.assertIn("Not loaded", badges[2])
 
