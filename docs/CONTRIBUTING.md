@@ -99,7 +99,7 @@ make lint            # ruff check qwen3_tts/ tests/
 
 | Script | Description |
 |--------|-------------|
-| `make install` | Install all dependencies |
+| `make install` | Editable install, core dependencies only (`pip install -e .`) |
 | `make test-batch` | Run all test batches (1-6) |
 | `make test-quick` | Run quick subset of tests |
 | `make lint` | Run ruff linter (`ruff check`) |
@@ -133,11 +133,11 @@ The project has **3,200+ tests** across 184 modules, organized into 6 batches
 
 | Batch | Name | Modules | Description | Server Required |
 |-------|------|---------|-------------|-----------------|
-| 1 | Core | 29 | Core utilities, config, validation | No |
-| 2 | Voice | 24 | Voice prompts, CLI commands | No |
-| 3 | Server | 67 | Server infrastructure, API endpoints | No |
-| 4 | Engine | 40 | Engine components, UI logic | No |
-| 5 | Optional | 15 | Optional-dependency features | No |
+| 1 | Core | 31 | Core utilities, config, validation | No |
+| 2 | Voice | 30 | Voice prompts, CLI commands | No |
+| 3 | Server | 71 | Server infrastructure, API endpoints | No |
+| 4 | Engine | 47 | Engine components, UI logic | No |
+| 5 | Optional | 16 | Optional-dependency features | No |
 | 6 | E2E | 1 | End-to-end Playwright tests | **Yes** |
 
 Note: batch 6 runs only `tests.test_e2e_playwright`. The rest of the
