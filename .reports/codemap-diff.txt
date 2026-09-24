@@ -1,32 +1,48 @@
-CODEMAP DIFF 2026-09-21 (base: 2026-09-18 refresh, ~#310)
-Base scanned: 75 .py / 29.0k LOC -> 76 .py / 29.8k LOC
+CODEMAP DIFF 2026-09-24 (base: 59c23ac, 2026-09-21 codemap drift sync #325)
+Pinned HEAD: 6c6a39dfb38810dcd8e526affe1f84f240840725
+Scan method: tracked .py only (git ls-files 'qwen3_tts/*.py' | xargs wc -l) —
+same method that reproduces the prior header (76 .py / 29,825 LOC at 59c23ac).
+Base scanned: 76 .py / 29.8k LOC -> 79 .py / 31.3k LOC (31,342)
 
-Product-code commits since base (qwen3_tts/ only):
-  cddc185a 4B.4 per-module coverage floor gate (#316 — tools/coverage_floors.py
-    NEW, 236 LOC; wired into the CI coverage job)
-  d5753265 6H activity watchdog (#318) · 35a94d81 6O _EMAIL_RE bounds (#319)
-  bc228cf2 6P GenerateRequest string bounds (#320)
-  9aebaebb T1 user-defined prosody presets (#322 — presets.py 119->287,
-    voice_helpers 157->199, tabs_generation 502->775, _facade re-threaded)
-  (docs/plans-only #317/#321/#323 — not codemap-relevant)
+Files added (qwen3_tts/):
+  cli_output.py (186)  — canonical CLI formatting, NO_COLOR/tty colour (#347)
+  cli_tables.py (136)  — Column/render_* per list resource (#347)
+  interface/ui/theme.py (90) — design tokens TOKENS / SEVERITY_CLASS / UI_CSS
+Files removed: none
+Files modified: 41 (git diff --name-status 59c23ac 6c6a39d -- qwen3_tts)
+  largest movers: ui/tabs_generation 775->1017 (T1b generation presets),
+  ui/shared 982->1102, ui/generation 712->869, ui/_facade 585->661,
+  cli.py (+lifecycle aliases, say, TTSGroup exception boundary),
+  server/app.py 1180->1223 (authed /generation-status details),
+  app_lifespan 843->870 (chunk_progress_pct / estimate_eta_sec)
+Layer sizes: core 7.7k->7.9k · server 8.2k->8.3k · interface 9.5k->10.3k
+  (ui 5.5k->6.2k) · tools 2.5k->2.5k
+Tests: 205 -> 215 tracked test_*.py modules (4,110 `def test_` functions).
+  (Prior "218 modules" counted every tracked .py under tests/; now 228.)
 
-Changes applied:
-  architecture.md — heaviest-module LOC (app.py 1180, app_lifespan 843);
-    layer sizes (core 7.7k, interface 9.5k / ui 5.5k, tools 2.5k); tests
-    218 modules / ~3.7k functions; header 76 files / 29.8k LOC.
-  backend.md — key-file LOC (app.py 1180, app_lifespan 843, validation
-    549; Pydantic model count unchanged at 33); + 6H activity-watchdog
-    bullet; + 6O/6P string-field-bounds bullet.
-  frontend.md — tabs_generation 775 (T1 note), model_management 387;
-    + "User prosody presets (T1 #322)" section; header 5.5k LOC.
-  data.md — + prosody_presets user-defined entries line (T1: raw-base
-    writers, factory names reserved, legacy-shadowing note).
-  dependencies.md — header refresh only (no dependency changes; the
-    mlx-audio floor is unchanged — dependabot #302 unmerged).
+New / changed dependencies (pyproject.toml, 59c23ac..6c6a39d):
+  mlx-audio >=0.5.1 -> >=0.5.4 (#302) · uvicorn[standard] >=0.52.4 -> >=0.53.0 (#339)
+  anthropic >=1.3.0 -> >=1.7.0 (#301/#338) · ruff >=0.16.5 -> >=0.16.8 (#303/#340)
+  playwright >=1.62.0 -> >=1.63.0 (#341)
+  6Q PR B (#342) floors: qwen-tts>=0.1.1, huggingface_hub>=0.36.2,
+    pyrubberband>=0.4.0, pydub>=0.25.1, accelerate>=1.12.0, bitsandbytes>=0.43.1
+  No new packages.
 
-No new routes or services since base. Validation model count unchanged
-(33). Test-suite growth (197 -> 218 modules) is 4B.2-4B.4 coverage work
-plus T1's tests/test_prosody_preset_builder.py.
+Architecture changes:
+  - /generation-status: authed callers additionally get batch_total/chunk_total
+    and, while active, progress_pct/eta_sec (de0337d); UI polls it via one
+    shared inactive gr.Timer (PROGRESS_POLL_SECONDS=2.0) (9f023a1)
+  - UI styling layer: theme.py -> UI_CSS via get_gradio_launch_kwargs(css=)
+  - UI model-loading badge shows "(last load M:SS)", no longer an "ETA" (08c2d83)
+  - CLI: bare `tts start|stop|restart|status|log` aliases + `tts say`; TTSGroup
+    is the CLI exception boundary; TTS_LOG_LEVEL now read by the CLI too
+    (default WARNING); NO_COLOR honoured (#347)
+  - Generation-preset builder in the Clone tab (T1b #327)
+  No new routes (24 total). No new services.
 
-Staleness: next scheduled refresh ~2026-11-11 (90-day cadence from
-2026-08-13); this is a second off-cycle drift sync.
+Corrections to pre-existing codemap errors (not drift): see
+.reports/doc-refresh-ledger-cloud.md (vLLM "DISABLED" claim, route->handler
+grouping, response_model coverage, generation.language, mlx-audio floor).
+
+Docs not modified in 90+ days (full history, unshallowed): none.
+  Oldest tracked docs/*.md: docs/reviews/e2e-review-2026-07-01.md (85 days).

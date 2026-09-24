@@ -13,7 +13,7 @@
 | `pip install -e ".[ui]"` | Install with Gradio web UI dependencies |
 | `pip install -e ".[dev]"` | Install with development tools (pytest, ruff, mypy, bandit) |
 | `pip install -e ".[test]"` | Install test dependencies (works in any Python env) |
-| `make install` | Quick install with all dependencies |
+| `make install` | Editable install, core dependencies only (`pip install -e .`) |
 | `tts doctor` | Check installation health and dependencies |
 
 ## Core CLI Commands
@@ -22,6 +22,8 @@
 |---------|-------------|
 | `tts "TEXT"` | Generate audio from text (default command) |
 | `tts generate "TEXT"` | Explicit generate command |
+| `tts say "TEXT"` | Alias of `tts generate` (explicit synthesis — use it when the text starts with a command name) |
+| `tts start` · `tts stop` · `tts restart` · `tts status` · `tts log` | Bare aliases of the `tts server …` lifecycle commands (same command objects) |
 | `tts ui` | Launch Gradio web interface |
 | `tts stats` | Show server statistics (memory, cache, history) |
 
@@ -30,11 +32,11 @@
 | Command | Description |
 |---------|-------------|
 | `tts voice list` | List all voice clone prompts |
-| `tts voice create AUDIO` | Create voice clone from audio file |
+| `tts voice create [AUDIO]` | Create voice clone from audio file (`-n/--name`, `-t/--transcript`, `--mlx-only`, `--force-torch`, `--no-transcript`, `--auto-transcribe`) |
 | `tts voice delete NAME` | Delete voice prompt |
 | `tts voice rename OLD NEW` | Rename voice prompt |
 | `tts voice preview NAME` | Play voice prompt |
-| `tts voice rebuild NAME` | Regenerate a prompt's `.pt` (torch-only; forces `TTS_BACKEND=torch`). Needs the `qwen_tts` package, so on MLX-default Macs run it from the torch env: `conda run -n qwen3-tts tts voice rebuild NAME` — otherwise it fails on the missing `qwen_tts` import |
+| `tts voice rebuild [NAME]` | Regenerate `.pt` files from `.wav`+`.txt` pairs — one prompt with NAME, all corrupt/missing ones without (torch-only; forces `TTS_BACKEND=torch`). Needs the `qwen_tts` package, so on MLX-default Macs run it from the torch env: `conda run -n qwen3-tts tts voice rebuild NAME` — otherwise it fails on the missing `qwen_tts` import |
 | `tts voice info NAME` | Show prompt metadata (formats, size, duration) via server |
 | `tts list speakers` | List premium speakers (Custom mode) |
 | `tts list presets` | List generation presets |
@@ -69,7 +71,7 @@
 |---------|-------------|
 | `tts cache list` | List all cached HuggingFace models |
 | `tts cache size` | Show total cache size on disk |
-| `tts cache prune` | Remove models unused for N days |
+| `tts cache prune` | Remove models unused for N days (`--unused N`, default 30) |
 | `tts cache clear` | Remove all cached models |
 
 ## Uninstall Commands
@@ -115,6 +117,7 @@
 | `make format` | Format code (`ruff format qwen3_tts/ tests/`) |
 | `make coverage` | Run test coverage analysis |
 | `make solid-score` | SOLID-compliance analyzer report |
+| `make solid-score-fail` | SOLID analyzer, exits non-zero below score 35 |
 | `ruff check qwen3_tts/ tests/` | Fast linting with ruff |
 | `ruff format qwen3_tts/ tests/` | Format code with ruff |
 | `mypy qwen3_tts/{core,server,interface}` | Type check with mypy |
@@ -156,6 +159,7 @@ All generation commands support these options (use `tts generate --help` for ful
 | `--clipboard` | Read text from clipboard |
 | `--no-open` | Don't open the output file |
 | `--dry-run` | Show what would be generated without running |
+| `--list-speakers` / `--list-presets` / `--list-prosody` | Print the list and exit (same tables as `tts list …`) |
 
 ## Server Commands
 

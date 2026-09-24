@@ -29,7 +29,8 @@ These are the environment variables actually read by the TTS code.
 
 | Variable | Required | Description | Example |
 |----------|----------|-------------|---------|
-| `TTS_LOG_LEVEL` | No | Server/log verbosity (default `INFO`). | `DEBUG` |
+| `TTS_LOG_LEVEL` | No | Log verbosity. Server default `INFO`; the `tts` CLI configures its own stderr logging with default `WARNING` (invalid names fall back to `WARNING`). | `DEBUG` |
+| `TTS_SKIP_WARMUP` | No | `1`/`true`/`yes` skips model warm-up after load (read at call time; ablation control). | `1` |
 | `TTS_TRUSTED_PROXIES` | No | Comma-separated IP allowlist; `X-Forwarded-For` is honored only when the direct peer is in this list (default: loopback). Set this behind a reverse proxy so per-IP rate limiting sees the real client. | `10.0.0.1,10.0.0.2` |
 | `TTS_RATE_LIMIT_GENERATE` | No | Override `security.rate_limits.generate` (`/generate`, `/generate-stream`). | `120/minute` |
 | `TTS_RATE_LIMIT_MODEL_OPS` | No | Override `security.rate_limits.model_ops` (model load/unload/config endpoints). | `5/minute` |
@@ -48,6 +49,13 @@ All `TTS_RATE_LIMIT_*` and `TTS_DISABLE_RATE_LIMITING` values are read **once at
 | `TTS_UI_PORT` | No | Gradio UI port override. | `8080` |
 | `TTS_UI_SHARE` | No | Enable a public Gradio share link. | `1` |
 | `TTS_UI_NO_BROWSER` | No | Suppress auto-opening the browser when launching the UI. | `1` |
+| `TTS_UI_USERNAME` / `TTS_UI_PASSWORD` | No | Credentials for a shared (`--share`) UI. Both must be set, or neither (then a username + one-time password are generated; the password goes to the 0600 file `~/.config/qwen3-tts/.ui_share_credentials`). Setting only one refuses to launch. | `alice` / `…` |
+
+### CLI output
+
+| Variable | Required | Description | Example |
+|----------|----------|-------------|---------|
+| `NO_COLOR` | No | Any non-empty value disables ANSI color in `tts` CLI output (color is also off when the stream is not a TTY). | `1` |
 
 ### Prompt enhancer
 

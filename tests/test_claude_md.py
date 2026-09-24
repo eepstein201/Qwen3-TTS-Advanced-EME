@@ -33,19 +33,16 @@ def test_memory_index_guard_rule_present():
     )
 
 
-def test_session_save_rule_cites_global_hook_not_missing_local_overrides():
-    """The session-save rule must not point at nonexistent local override files.
+def test_claude_md_does_not_cite_missing_local_command_overrides():
+    """CLAUDE.md must not point at nonexistent local ecc command overrides.
 
     `.claude/commands/ecc/` holds only pm2 commands — the ecc commands come
-    from the plugin cache. The durable enforcement is the user-scope global
-    hook, which works in every project and survives plugin updates.
+    from the plugin cache. The session-save `.tmp` rule itself lives only in
+    the user-scope global CLAUDE.md (enforced by the global
+    no-tmp-session-writes hook), so the project file no longer restates it.
     """
     with open("CLAUDE.md") as f:
         content = f.read()
     assert ".claude/commands/ecc/" not in content, (
-        "CLAUDE.md cites .claude/commands/ecc/ overrides that do not exist; "
-        "cite the global hook (~/.claude/hooks/no-tmp-session-writes.py)."
-    )
-    assert "no-tmp-session-writes" in content, (
-        "CLAUDE.md session-save rule should name the enforcing global hook."
+        "CLAUDE.md cites .claude/commands/ecc/ overrides that do not exist."
     )
