@@ -221,7 +221,7 @@ curl http://127.0.0.1:5123/models \
 
 **Backup config.json:**
 ```bash
-cp config.json config.json.backup
+cp ~/.config/qwen3-tts/config.json ~/.config/qwen3-tts/config.json.backup
 ```
 
 **Voice prompts backup:**
@@ -488,8 +488,8 @@ tts server start
 
 **Reset to defaults:**
 ```bash
-# Backup current config
-cp config.json config.json.backup
+# Backup current config (tts uninstall config also writes ~/.config/qwen3-tts/config.backup)
+cp ~/.config/qwen3-tts/config.json ~/.config/qwen3-tts/config.json.backup
 
 # Reset to defaults
 tts uninstall config
@@ -589,8 +589,8 @@ rotator (or a scheduled task) to archive and compress it, e.g.:
 
 1. **Backup current installation**
    ```bash
-   cp config.json config.json.backup
-   tar -czf qwen3tts_backup.tar.gz config.json voice_prompts/
+   cp ~/.config/qwen3-tts/config.json ~/.config/qwen3-tts/config.json.backup
+   tar -czf qwen3tts_backup.tar.gz -C ~ .config/qwen3-tts/config.json Qwen3-TTS_UserFiles/voice_prompts
    ```
 
 2. **Pull latest changes**
@@ -640,6 +640,21 @@ rotator (or a scheduled task) to archive and compress it, e.g.:
    tts doctor
    tts "Test" -o test.wav
    ```
+
+### Migrating config.json to ~/.config/qwen3-tts
+
+The runtime config moved from `~/Qwen3-TTS_UserFiles/config.json` (the repo checkout) to `~/.config/qwen3-tts/config.json`. An un-migrated install keeps working — the legacy file is still read, with a warning, and `tts doctor` reports it — and the first save already writes the new location. Migrate once so the tracked repo-root `config.json` goes back to the stock default:
+
+```bash
+mkdir -p ~/.config/qwen3-tts
+cp ~/Qwen3-TTS_UserFiles/config.json ~/.config/qwen3-tts/config.json
+chmod 600 ~/.config/qwen3-tts/config.json
+cd ~/Qwen3-TTS_UserFiles
+git update-index --no-skip-worktree config.json   # only if you had set skip-worktree
+git checkout -- config.json                        # restore the tracked stock default
+```
+
+Verify: `tts config path` prints `~/.config/qwen3-tts/config.json`; `tts config show` still lists your presets; `git status` shows `config.json` clean.
 
 ## Security Considerations
 

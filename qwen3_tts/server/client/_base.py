@@ -11,10 +11,10 @@ import json
 import requests
 
 from qwen3_tts.core.config import (
-    CONFIG_PATH,
     VOICE_PROMPTS_DIR,
     get_server_url,
     is_server_running,
+    resolve_config_read_path,
 )
 from qwen3_tts.core.stream_protocol import MAX_STREAM_CHUNK_BYTES
 
@@ -198,12 +198,13 @@ class _ClientBase:
         """Initialize the TTS client.
 
         Args:
-            config_path: Path to config.json. Defaults to ~/Qwen3-TTS_UserFiles/config.json
+            config_path: Path to config.json. Defaults to the config in effect
+                (~/.config/qwen3-tts/config.json, then legacy fallbacks).
             config_provider: Optional ConfigProvider instance for dependency injection.
                            If provided, config_path is ignored.
         """
         self._config_provider = config_provider
-        self.config_path = config_path or CONFIG_PATH
+        self.config_path = config_path or resolve_config_read_path()
         self.voice_prompts_dir = VOICE_PROMPTS_DIR
         self._config = None
         self._session = requests.Session()

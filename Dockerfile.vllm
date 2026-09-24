@@ -22,9 +22,10 @@ RUN pip install --no-cache-dir ".[torch,server,audio,vllm,ui]"
 COPY qwen3_tts/ ./qwen3_tts/
 COPY config.json ./
 
-# Create expected directory structure (code resolves ~/Qwen3-TTS_UserFiles/)
-RUN mkdir -p /root/Qwen3-TTS_UserFiles /app/voice_prompts && \
-    ln -sf /app/config.json /root/Qwen3-TTS_UserFiles/config.json && \
+# Create expected directory structure (config at ~/.config/qwen3-tts/, voice
+# prompts under ~/Qwen3-TTS_UserFiles/)
+RUN mkdir -p /root/Qwen3-TTS_UserFiles /root/.config/qwen3-tts /app/voice_prompts && \
+    ln -sf /app/config.json /root/.config/qwen3-tts/config.json && \
     ln -sf /app/voice_prompts /root/Qwen3-TTS_UserFiles/voice_prompts
 
 # Expose ports
