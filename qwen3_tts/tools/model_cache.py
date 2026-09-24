@@ -159,6 +159,8 @@ def get_total_size() -> int:
 
 def list_models_cmd() -> None:
     """List all cached models in a formatted table."""
+    from qwen3_tts import cli_tables
+
     models = list_models()
 
     if not models:
@@ -169,29 +171,16 @@ def list_models_cmd() -> None:
     click.echo(f"  Found {len(models)} cached TTS model(s):")
     click.echo()
 
-    # Table header — one size column; the old table duplicated
-    # size_formatted into both "Size" and "Size on Disk".
-    click.echo(
-        f"  {'Model Type':<12} {'Size':<8} {'Backend':<6} {'Last Accessed':<20}"
-    )
-    click.echo(
-        f"  {'-' * 12:<12} {'-' * 8:<8} {'-' * 6:<6} {'-' * 20:<20}"
-    )
-
+    rows = []
     for model in models:
-        model_type = model["model_type"] or "unknown"
-        model_size = model["model_size"] or "unknown"
-        backend = model["backend"] or "unknown"
-        last_access = model["last_access"].strftime("%Y-%m-%d %H:%M")
-        if model["last_access"] == datetime.min:
-            last_access = "unknown"
-        size_formatted = model["size_formatted"]
-
-        type_str = f"{model_type} ({model_size})"
-
-        click.echo(
-            f"  {type_str:<12} {size_formatted:<8} {backend:<6} {last_access:<20}"
+        last_access_str = (
+            "unknown"
+            if model["last_access"] == datetime.min
+            else model["last_access"].strftime("%Y-%m-%d %H:%M")
         )
+        rows.append({**model, "last_access_str": last_access_str})
+
+    click.echo(cli_tables.render_cache(rows))
 
     click.echo()
     click.echo(f"  Total: {_format_size(get_total_size())}")

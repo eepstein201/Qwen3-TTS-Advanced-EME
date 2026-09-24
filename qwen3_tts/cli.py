@@ -9,6 +9,8 @@ Usage:
     tts config                             # Run config wizard
 """
 
+import logging
+import os
 import sys
 
 import click
@@ -40,7 +42,35 @@ from qwen3_tts.core.config import VALID_MODEL_SIZES
 
 
 class TTSGroup(click.Group):
-    """Routes bare `tts "Hello"` to the generate subcommand."""
+    """Routes bare `tts "Hello"` to the generate subcommand.
+
+    Also the CLI-wide exception boundary (T2.2): TTSError/TTSGenericError
+    from any command render one clean cli_output.error line and exit 1;
+    Click's own UsageError/Abort pass through untouched. Exit codes:
+    0 success · 1 error · 2 completed via the server (reserved, treat
+    as success — pinned by tests/test_cli_commands.py).
+    """
+
+    def invoke(self, ctx):
+        from qwen3_tts import cli_output
+        from qwen3_tts.core.config import TTSError
+        from qwen3_tts.interface.generate_server import TTSGenericError
+
+        # TTS_LOG_LEVEL configures the CLI's loggers (default WARNING to
+        # stderr); an invalid value falls back to WARNING.
+        level_name = os.environ.get("TTS_LOG_LEVEL", "WARNING").upper()
+        logging.basicConfig(
+            level=getattr(logging, level_name, logging.WARNING),
+            format="%(levelname)s %(name)s: %(message)s",
+            stream=sys.stderr,
+        )
+
+        try:
+            return super().invoke(ctx)
+        except (TTSError, TTSGenericError) as exc:
+            message = exc.format_cli() if isinstance(exc, TTSError) else f"Error: {exc}"
+            cli_output.error(message)
+            raise SystemExit(1) from exc
 
     def parse_args(self, ctx, args):
         # Strip --_server-mode before routing (it's a generate-level flag)
@@ -106,6 +136,9 @@ _FLAG_MAP = {
     "backend": ("--backend", str),
     "model_size": ("--model-size", str),
     "server_mode": ("--_server-mode", bool),
+    "list_speakers": ("--list-speakers", bool),
+    "list_presets": ("--list-presets", bool),
+    "list_prosody": ("--list-prosody", bool),
     "text_override": ("--text-override", str),
     # Advanced mode flags
     "batch": ("--batch", str),
@@ -118,7 +151,11 @@ _FLAG_MAP = {
 
 
 def _call_generate(text=(), **kwargs):
-    """Translate Click kwargs to argparse-style sys.argv and call generate main()."""
+    """Translate Click kwargs to argparse-style sys.argv and call generate main().
+
+    Exit contract: generate.main() returning True means "completed via the
+    server" — exit 2, deliberately not 0 (pinned; treat 2 as success).
+    """
     argv = []
     for key, (flag, typ) in _FLAG_MAP.items():
         val = kwargs.get(key)
@@ -251,6 +288,17 @@ def _misc_and_hidden_options():
     ]
 
 
+def _info_flag_options():
+    """Legacy `--list-X` info flags, kept reachable from Click (T2.6)."""
+    return [
+        click.option(
+            "--list-speakers", is_flag=True, help="List premium CustomVoice speakers"
+        ),
+        click.option("--list-presets", is_flag=True, help="List generation presets"),
+        click.option("--list-prosody", is_flag=True, help="List prosody presets"),
+    ]
+
+
 def _generation_options(f):
     """Apply all generation-related options to a command."""
     decorators = [
@@ -259,6 +307,7 @@ def _generation_options(f):
         *_audio_shaping_options(),
         *_sampling_options(),
         *_misc_and_hidden_options(),
+        *_info_flag_options(),
     ]
     for decorator in reversed(decorators):
         f = decorator(f)
@@ -270,8 +319,15 @@ def _generation_options(f):
 # ---------------------------------------------------------------------------
 
 
-@cli.command()
-@click.argument("text", nargs=-1)
+@cli.command(
+    epilog="""\b
+Examples:
+  tts "Hello, world!" -o hello
+  tts "Bonjour" -m clone -p narrator -o output
+  tts "Welcome" -m custom -s ryan --prosody excited
+"""
+)
+@click.argument("text", nargs=-1, metavar="TEXT")
 @_generation_options
 def generate(text, **kwargs):
     """Generate audio from text.
@@ -319,7 +375,13 @@ def ui(port, share, no_browser):
     ui_command(port, share, no_browser)
 
 
-@cli.command()
+@cli.command(
+    epilog="""\b
+Examples:
+  tts history
+  tts history 20
+"""
+)
 @click.argument("count", default=10, type=int, required=False)
 def history(count):
     """Show last N generations (default: 10)."""
@@ -337,7 +399,13 @@ def stats():
 # ---------------------------------------------------------------------------
 
 
-@cli.command()
+@cli.command(
+    epilog="""\b
+Examples:
+  tts batch requests.json
+  tts batch requests.json -o output_dir
+"""
+)
 @click.argument("file", type=click.Path(exists=True))
 @_generation_options
 def batch(file, **kwargs):
@@ -345,7 +413,12 @@ def batch(file, **kwargs):
     _call_generate(batch=file, **kwargs)
 
 
-@cli.command()
+@cli.command(
+    epilog="""\b
+Examples:
+  tts srt subtitles.srt -o narration
+"""
+)
 @click.argument("file", type=click.Path(exists=True))
 @_generation_options
 def srt(file, **kwargs):
@@ -353,7 +426,13 @@ def srt(file, **kwargs):
     _call_generate(srt=file, **kwargs)
 
 
-@cli.command()
+@cli.command(
+    epilog="""\b
+Examples:
+  tts dialogue conversation.json
+  tts dialogue conversation.json --save-individual
+"""
+)
 @click.argument("file", type=click.Path(exists=True))
 @click.option(
     "--save-individual", is_flag=True, help="Save individual audio files for each line"
@@ -384,7 +463,12 @@ def watch(directory, **kwargs):
 # ---------------------------------------------------------------------------
 
 
-@cli.command()
+@cli.command(
+    epilog="""\b
+Examples:
+  tts doctor
+"""
+)
 def doctor():
     """Check TTS installation health."""
     doctor_command()

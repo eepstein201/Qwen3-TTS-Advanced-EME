@@ -5,9 +5,9 @@ This module handles multi-speaker dialogue generation from JSON files.
 """
 
 import json
-import logging
 import os
 
+from qwen3_tts import cli_output
 from qwen3_tts.core.config import (
     CUSTOM_VOICE_SPEAKERS,
     get_default_clone_prompt,
@@ -22,8 +22,6 @@ from qwen3_tts.interface.generate import (
     play_audio,
     process_audio_args,
 )
-
-logger = logging.getLogger("tts.cli.dialogue")
 
 
 def process_dialogue(dialogue_path, config, args, gen_params, use_server):
@@ -77,7 +75,7 @@ def process_dialogue(dialogue_path, config, args, gen_params, use_server):
             pause_ms = 500
 
     if not lines:
-        print("Error: No dialogue lines found in file")
+        cli_output.error("Error: No dialogue lines found in file")
         return
 
     # Security: validate output directory against path traversal
@@ -198,12 +196,11 @@ def process_dialogue(dialogue_path, config, args, gen_params, use_server):
                 sf.write(individual_path, wav, sr)
 
         except Exception as e:
-            logger.error("Error generating line %d: %s", idx, e)
             print(f"    Error generating line {idx}: {e}")
             continue
 
     if not all_audio:
-        print("Error: No audio generated")
+        cli_output.error("Error: No audio generated")
         return
 
     # Combine with pauses

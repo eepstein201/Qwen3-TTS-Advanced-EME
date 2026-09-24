@@ -20,6 +20,7 @@ import sys
 
 logger = logging.getLogger("tts.cli")
 
+from qwen3_tts import cli_output, cli_tables  # noqa: E402
 from qwen3_tts.core.config import (  # noqa: E402
     CONFIG_PATH,
     CUSTOM_VOICE_SPEAKERS,
@@ -238,6 +239,12 @@ def _build_parser():
         help="Max chars per chunk for long text (default: 500 from config, 0 to disable)",
     )
     parser.add_argument(
+        "--max-new-tokens",
+        type=int,
+        dest="max_new_tokens",
+        help="Max new tokens per chunk (default: 2048 from config)",
+    )
+    parser.add_argument(
         "--backend",
         choices=["torch", "mlx"],
         help="Override backend for this run (default: from config.json)",
@@ -407,19 +414,13 @@ def _handle_info_commands(args, config, gen_params):
 
     if args.list_prompts or args.voices:
         prompts = list_voice_prompts()
-        print("Available voice prompts:")
-        for p in prompts:
-            default_marker = (
-                " (default)" if p == config.get("default_clone_prompt") else ""
-            )
-            print(f"  - {p}{default_marker}")
+        default = config.get("default_clone_prompt")
+        print(cli_tables.render_voice_prompts(prompts, default=default))
         return False
 
     if args.list_presets:
         presets = config.get("presets", {})
-        print("Available presets:")
-        for name, settings in presets.items():
-            print(f"  - {name}: {settings}")
+        print(cli_tables.render_presets(presets))
         return False
 
     if args.list_aliases:
@@ -442,29 +443,14 @@ def _handle_info_commands(args, config, gen_params):
         from qwen3_tts.core.config import get_prosody_presets
 
         presets = get_prosody_presets(config)
-        print("Available prosody presets (use with --prosody PRESET):\n")
-        for name, text in sorted(presets.items()):
-            print(f"  {name:<18} {text}")
+        print(cli_tables.render_prosody(presets))
         print()
         print('Example: tts -m custom -s ryan --prosody excited "Hello!" -o output')
         print(f"\nCustomize in {CONFIG_PATH} under 'prosody_presets'.")
         return False
 
     if args.list_speakers:
-        print("Premium CustomVoice speakers (use with -m custom -s SPEAKER):")
-        print()
-        for group_name, lang_filter in [("English", "English"), ("Chinese", "Chinese")]:
-            print(f"  {group_name}:")
-            for key, info in CUSTOM_VOICE_SPEAKERS.items():
-                if info["lang"] == lang_filter:
-                    print(f"    {key:<12} - {info['desc']}")
-            print()
-        print("  Other languages:")
-        for key, info in CUSTOM_VOICE_SPEAKERS.items():
-            if info["lang"] not in ("English", "Chinese"):
-                print(f"    {key:<12} - {info['desc']} ({info['lang']})")
-        print()
-        print("Example: tts 'Hello world' -m custom -s ryan -o output")
+        print(cli_tables.render_speakers(CUSTOM_VOICE_SPEAKERS))
         return False
 
     if args.list_models:
@@ -583,7 +569,7 @@ def _handle_stats(config):
             for k, v in stats.items():
                 print(f"  {k}: {v}")
         else:
-            print("Error: Failed to get stats")
+            cli_output.error("Error: Failed to get stats")
     else:
         print("Server not running. Start with 'tts server start'.")
     return False
@@ -626,7 +612,9 @@ def _resolve_prompt_file(alias_prompt, args, config):
         source = f"voice alias '{args.voice}'"
     else:
         source = "configured prompt"
-    print(f"Error: {source} points at a missing voice prompt: {alias_prompt}")
+    cli_output.error(
+        f"Error: {source} points at a missing voice prompt: {alias_prompt}"
+    )
     print("Use 'tts voice list' to see available prompts.")
     sys.exit(1)
 
@@ -643,14 +631,14 @@ def _handle_generation(args, config, gen_params, use_server, max_chunk_chars):
     if args.srt:
         srt_path = os.path.expanduser(args.srt)
         if not os.path.isfile(srt_path):
-            print(f"Error: SRT file not found: {srt_path}")
+            cli_output.error(f"Error: SRT file not found: {srt_path}")
             sys.exit(1)
         process_srt_file(srt_path, config, args, gen_params, use_server)
         return use_server
     if args.dialogue:
         dialogue_path = os.path.expanduser(args.dialogue)
         if not os.path.isfile(dialogue_path):
-            print(f"Error: Dialogue file not found: {dialogue_path}")
+            cli_output.error(f"Error: Dialogue file not found: {dialogue_path}")
             sys.exit(1)
         process_dialogue(dialogue_path, config, args, gen_params, use_server)
         return use_server
@@ -662,7 +650,7 @@ def _handle_generation(args, config, gen_params, use_server, max_chunk_chars):
     if args.voice:
         alias = get_voice_alias(args.voice, config)
         if alias is None:
-            print(f"Error: Unknown voice alias '{args.voice}'")
+            cli_output.error(f"Error: Unknown voice alias '{args.voice}'")
             print("Available aliases:")
             aliases = config.get("aliases", {})
             for name, settings in aliases.items():
@@ -695,12 +683,12 @@ def _handle_generation(args, config, gen_params, use_server, max_chunk_chars):
     if args.batch:
         batch_path = os.path.expanduser(args.batch)
         if not os.path.isfile(batch_path):
-            print(f"Error: Batch file not found: {batch_path}")
+            cli_output.error(f"Error: Batch file not found: {batch_path}")
             sys.exit(1)
         with open(batch_path) as f:
             texts = json.load(f)
         if not isinstance(texts, list):
-            print("Error: Batch file must contain a JSON array of texts")
+            cli_output.error("Error: Batch file must contain a JSON array of texts")
             sys.exit(1)
         process_batch(texts, args, config, gen_params, use_server)
         return use_server
@@ -737,8 +725,9 @@ def _handle_generation(args, config, gen_params, use_server, max_chunk_chars):
 
     output_name = args.output or "tts_output.wav"
     if ".." in output_name or output_name.startswith("/"):
-        print(f"Error: Invalid output path: {output_name}")
-        return use_server
+        from qwen3_tts.core.config import TTSError
+
+        raise TTSError(f"Invalid output path: {output_name}", recovery="config")
     if not output_name.endswith(".wav"):
         output_name += ".wav"
     output_dir = os.path.expanduser(config.get("output_directory", "~/Downloads"))
@@ -760,7 +749,7 @@ def _handle_generation(args, config, gen_params, use_server, max_chunk_chars):
             print(f"Using prosody preset '{args.prosody}': {instruct}")
         else:
             available = ", ".join(sorted(prosody_presets.keys()))
-            print(f"Error: Unknown prosody preset '{args.prosody}'")
+            cli_output.error(f"Error: Unknown prosody preset '{args.prosody}'")
             print(f"Available: {available}")
             sys.exit(1)
 
@@ -772,7 +761,7 @@ def _handle_generation(args, config, gen_params, use_server, max_chunk_chars):
         mode = "custom"
         speaker_key = (args.speaker or "ryan").lower()
         if speaker_key not in CUSTOM_VOICE_SPEAKERS:
-            print(f"Error: Unknown speaker '{args.speaker}'")
+            cli_output.error(f"Error: Unknown speaker '{args.speaker}'")
             print("Use --list-speakers to see available options.")
             sys.exit(1)
         speaker_name = CUSTOM_VOICE_SPEAKERS[speaker_key]["name"]

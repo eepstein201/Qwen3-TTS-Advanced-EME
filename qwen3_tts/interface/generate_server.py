@@ -20,9 +20,11 @@ class TTSGenericError(RuntimeError):
 
 # get_server_url / load_config are part of this module's namespace contract: they
 # are patched by tests (see tests/test_generate_server.py). Keep them imported.
+from qwen3_tts import cli_output  # noqa: E402
 from qwen3_tts.core.config import (  # noqa: E402, F401
     CONFIG_PATH,
     VOICE_PROMPTS_DIR,
+    TTSError,
     get_backend,
     get_server_url,
     is_server_running,
@@ -94,7 +96,7 @@ def ensure_server_running(config):
         if (i + 1) % 10 == 0:
             print(f"  Still loading models... ({i + 1} seconds)")
 
-    print("Error: Server failed to start. Check log:", LOG_FILE)
+    cli_output.error(f"Error: Server failed to start. Check log: {LOG_FILE}")
     return False
 
 
@@ -194,6 +196,7 @@ def generate_via_server(
     auto_load_model=True,
     max_chunk_chars=None,
     x_vector_only_mode=False,
+    quiet_progress=False,
 ):
     """Generate audio via the TTS server."""
     import requests  # lazy (used for exception types only)
@@ -217,7 +220,7 @@ def generate_via_server(
     gen_timeout = _generation_timeout(sum(len(t) for t in texts))
 
     # Start progress polling
-    progress = _ProgressPoller(batch_total=len(texts))
+    progress = _ProgressPoller(batch_total=len(texts), quiet_progress=quiet_progress)
     progress.start()
 
     try:
@@ -230,9 +233,7 @@ def generate_via_server(
         try:
             error_data = resp.json()
         except (ValueError, requests.exceptions.JSONDecodeError) as e:
-            raise TTSGenericError(
-                "Server returned HTTP 503 (non-JSON response)"
-            ) from e
+            raise TTSGenericError("Server returned HTTP 503 (non-JSON response)") from e
 
         if error_data.get("error") == "model_not_loaded":
             model_type = error_data.get("model_type")
@@ -242,6 +243,14 @@ def generate_via_server(
             print()
 
             if auto_load_model:
+                if not sys.stdin.isatty():
+                    # A non-interactive caller (pipe, CI, scripted run) would
+                    # hang forever on the prompt below — fail fast instead.
+                    raise TTSError(
+                        f"Model '{model_type}' is not loaded and stdin is not a tty; "
+                        f"set models.{model_type}.load_at_startup=true in config.json "
+                        "or run from a terminal to be prompted"
+                    )
                 choice = (
                     input(
                         f"Would you like to load the '{model_type}' model now? [Y/n]: "
@@ -251,7 +260,9 @@ def generate_via_server(
                 )
                 if choice != "n":
                     if load_model_on_server(config, model_type):
-                        progress = _ProgressPoller(batch_total=len(texts))
+                        progress = _ProgressPoller(
+                            batch_total=len(texts), quiet_progress=quiet_progress
+                        )
                         progress.start()
                         try:
                             resp = server_request(
@@ -312,8 +323,7 @@ def generate_via_server(
         )
         if not results:
             raise TTSGenericError(
-                f"Server returned no audio for {expected} requested text(s): "
-                f"{reason}."
+                f"Server returned no audio for {expected} requested text(s): {reason}."
             )
         raise TTSGenericError(
             f"Server returned {len(results)} result(s) for {expected} "
@@ -333,6 +343,7 @@ def generate_streaming(
     speaker=None,
     instruct=None,
     x_vector_only_mode=False,
+    quiet_progress=False,
 ):
     """Generate and stream audio playback in real-time (MLX backend).
 
@@ -345,6 +356,8 @@ def generate_streaming(
     import requests  # lazy
     import soundfile as sf
 
+    from qwen3_tts.interface.generate_interactive import _ProgressPoller
+
     payload = _build_generation_payload(
         mode,
         config,
@@ -356,6 +369,12 @@ def generate_streaming(
         x_vector_only_mode=x_vector_only_mode,
     )
     payload["text"] = text
+
+    # Streaming owns a poller too (plan T2.4): "Streaming...", never a percent.
+    progress = _ProgressPoller(
+        batch_total=1, stream=True, quiet_progress=quiet_progress
+    )
+    progress.start()
 
     print("Streaming generation...")
 
@@ -372,9 +391,7 @@ def generate_streaming(
 
         if resp.status_code != 200:
             error_data = resp.json()
-            raise TTSGenericError(
-                f"Server error: {error_data.get('error', 'Unknown')}"
-            )
+            raise TTSGenericError(f"Server error: {error_data.get('error', 'Unknown')}")
 
         # Collect all chunks for saving
         all_chunks = []
@@ -422,6 +439,8 @@ def generate_streaming(
 
     except requests.exceptions.RequestException as e:
         raise ConnectionError(f"Streaming request failed: {e}") from e
+    finally:
+        progress.stop()
 
 
 # ---------------------------------------------------------------------------
@@ -439,6 +458,7 @@ def generate_local(
     speaker=None,
     instruct=None,
     max_chunk_chars=None,
+    quiet_progress=False,
 ):
     """Generate speech locally using qwen3_tts.core.engine (imports torch on first call)."""
     from qwen3_tts.core.engine import load_model, load_voice_prompt, run_inference
@@ -449,13 +469,13 @@ def generate_local(
     voice_prompt = None
     if mode == "clone":
         if not prompt_file:
-            print("Error: Voice prompt required for clone mode")
+            cli_output.error("Error: Voice prompt required for clone mode")
             sys.exit(1)
         if not voice_prompt_exists(prompt_file):
             backend = get_backend()
             if backend == "mlx":
                 base = prompt_file[:-3] if prompt_file.endswith(".pt") else prompt_file
-                print(f"Error: MLX voice prompt not found for '{base}'.")
+                cli_output.error(f"Error: MLX voice prompt not found for '{base}'.")
                 print(f"  Need: voice_prompts/{base}.wav + voice_prompts/{base}.txt")
                 print(
                     f"  Create with: tts voice create <audio> -t <transcript> -n {base} --mlx-only"
@@ -476,19 +496,27 @@ def generate_local(
     elif mode == "design":
         print(f"Using voice description: {voice_description}")
 
-    print("Generating audio...")
-    wav, sr = run_inference(
-        model=model,
-        text=text,
-        mode=mode,
-        gen_params=gen_params,
-        language=language,
-        voice_prompt=voice_prompt,
-        voice_description=voice_description,
-        speaker=speaker,
-        instruct=instruct,
-        max_chunk_chars=max_chunk_chars,
-    )
+    # Local path has no server to poll: an elapsed-only ticker is the honest
+    # maximum (run_inference exposes no progress callback) — plan T2.4.
+    from qwen3_tts.interface.generate_interactive import _ProgressPoller
+
+    poller = _ProgressPoller.elapsed_only(quiet_progress=quiet_progress)
+    poller.start()
+    try:
+        wav, sr = run_inference(
+            model=model,
+            text=text,
+            mode=mode,
+            gen_params=gen_params,
+            language=language,
+            voice_prompt=voice_prompt,
+            voice_description=voice_description,
+            speaker=speaker,
+            instruct=instruct,
+            max_chunk_chars=max_chunk_chars,
+        )
+    finally:
+        poller.stop()
     return wav, sr
 
 

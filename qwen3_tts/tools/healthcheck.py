@@ -9,6 +9,7 @@ import pathlib
 import platform
 import sys
 
+from qwen3_tts import cli_output
 from qwen3_tts.core.config import (
     CONFIG_PATH,
     HF_CACHE,
@@ -21,38 +22,27 @@ from qwen3_tts.core.config import (
 )
 from qwen3_tts.tools.model_cache import _MLX_MODEL_PREFIXES, _TORCH_MODEL_PREFIXES
 
-# Color codes for terminal output
-GREEN = "\033[92m"
-RED = "\033[91m"
-YELLOW = "\033[93m"
-BLUE = "\033[94m"
-RESET = "\033[0m"
-BOLD = "\033[1m"
-
 
 def _print_header(text: str) -> None:
-    """Print a section header with color."""
-    print(f"\n{BOLD}{BLUE}  {text}{RESET}")
-    print(f"  {'=' * (len(text) + 2)}")
+    """Print a section header (one idiom with the rest of the CLI)."""
+    cli_output.header(text)
 
 
 def _print_check(label: str, status: str, details: str = "") -> None:
-    """Print a check result with colored status indicator."""
+    """Print a check result; details print on their own indented line."""
     if status == "pass":
-        indicator = f"{GREEN}✓{RESET}"
+        cli_output.success(label)
     elif status == "warn":
-        indicator = f"{YELLOW}⚠{RESET}"
+        cli_output.warn(label)
     else:
-        indicator = f"{RED}✗{RESET}"
-
-    print(f"  {indicator} {label}")
+        cli_output.error(label)
     if details:
         print(f"    {details}")
 
 
 def _print_info(label: str, details: str) -> None:
-    """Print an info item with color."""
-    print(f"  {BLUE}ℹ{RESET} {label}")
+    """Print an info item; details print on their own indented line."""
+    cli_output.info(label)
     if details:
         print(f"    {details}")
 
@@ -287,7 +277,7 @@ def check_disk_space() -> tuple:
 
 def run_healthcheck() -> int:
     """Run all health checks and return exit code."""
-    print(f"\n{BOLD}Qwen3-TTS Health Check{RESET}")
+    print("\nQwen3-TTS Health Check")
     print(f"  Platform: {platform.system()} {platform.machine()}")
     print(f"  Python: {sys.version.split()[0]}")
     if IN_COLAB:
@@ -316,11 +306,11 @@ def run_healthcheck() -> int:
 
     # Summary
     if all_pass:
-        print(f"  {GREEN}All checks passed!{RESET}")
+        cli_output.success("All checks passed!")
         print("  Your TTS installation is healthy.")
         return 0
     else:
-        print(f"  {YELLOW}Some checks failed or warnings.{RESET}")
+        cli_output.warn("Some checks failed or warnings.")
         print("  See above for details.")
         return 1
 

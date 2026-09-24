@@ -93,7 +93,8 @@ config.json → qwen3_tts.core.config → qwen3_tts.core.engine (dispatch)
 | `qwen3_tts/tools/uninstall.py` | Uninstall utilities (models, voices, config, all) | No |
 | `qwen3_tts/tools/solid_analyzer.py` | SOLID compliance analyzer; per-principle scores with line-number violations (`make solid-score`) | No |
 | `qwen3_tts/tools/check_config_docs.py` | CONFIG.md drift checker — documented defaults vs `get_default_config()`, exit 1 on mismatch (`make check-config-docs`). Guards the AUTO-GENERATED `docs/CONFIG.md` (no live generator). | No |
-| `qwen3_tts/cli.py` | Click entry point — imports command groups from sibling modules | No (all lazy) |
+| `qwen3_tts/cli.py` | Click entry point — imports command groups from sibling modules. `_FLAG_MAP` (Click kwarg → argparse flag) drives `_call_generate`'s argv delegation to `interface/generate.py`'s legacy parser; every entry is guarded against drifting into a dead flag by `tests/test_cli_help.py::TestFlagMapCompleteness` (introspects `_build_parser()`'s real option strings — caught `--max-new-tokens` and `--list-speakers/-presets/-prosody` as unreachable before 7B T2.6 fixed them). | No (all lazy) |
+| `qwen3_tts/cli_output.py` + `qwen3_tts/cli_tables.py` | Canonical CLI formatting (T2.1) + one `Column`/`render_*` pair per list resource (T2.5), shared by `tts list X` and the legacy `tts generate --list-X` flags so both surfaces stay byte-identical | No |
 | `qwen3_tts/cli_server.py` | Server CLI group: start, stop, restart, status, log, stats | No |
 | `qwen3_tts/cli_voice.py` | Voice CLI group + list group: voice CRUD, list speakers/presets | No |
 | `qwen3_tts/cli_config.py` | Config/uninstall/cache groups, ui/history/doctor commands | No |

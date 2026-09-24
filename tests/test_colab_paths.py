@@ -73,7 +73,7 @@ def test_clipboard_colab_exits(capsys):
         get_clipboard_text()
 
     captured = capsys.readouterr()
-    assert "Clipboard not available" in captured.out
+    assert "Clipboard not available" in captured.err
 
 
 # ---- play_audio in Colab ----

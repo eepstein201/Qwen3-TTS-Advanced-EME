@@ -9,6 +9,8 @@ import sys
 
 import click
 
+from qwen3_tts import cli_output, cli_tables
+
 # ---------------------------------------------------------------------------
 # voice group
 # ---------------------------------------------------------------------------
@@ -55,17 +57,17 @@ def voice_list():
     from qwen3_tts.interface.generate import list_voice_prompts
 
     prompts = list_voice_prompts()
-    if not prompts:
-        click.echo("No voice prompts found.")
-        return
-    click.echo("Available voice prompts:")
     default = get_default_clone_prompt()
-    for p in prompts:
-        marker = " (default)" if p == default else ""
-        click.echo(f"  {p}{marker}")
+    click.echo(cli_tables.render_voice_prompts(prompts, default=default))
 
 
-@voice.command()
+@voice.command(
+    epilog="""\b
+Examples:
+  tts voice create sample.wav -n narrator
+  tts voice create sample.wav -n narrator --auto-transcribe
+"""
+)
 @click.argument("audio", required=False)
 @click.option("-n", "--name", help="Name for the voice prompt")
 @click.option("-t", "--transcript", help="Transcript text")
@@ -79,7 +81,9 @@ def voice_list():
     "--no-transcript", is_flag=True, help="Skip transcript (use speaker embedding only)"
 )
 @click.option("--auto-transcribe", is_flag=True, help="Auto-transcribe with ASR")
-def create(audio, name, transcript, mlx_only, force_torch, no_transcript, auto_transcribe):
+def create(
+    audio, name, transcript, mlx_only, force_torch, no_transcript, auto_transcribe
+):
     """Create a voice clone from reference audio."""
     argv = []
     if audio:
@@ -183,12 +187,11 @@ def _ensure_torch_backend_for_rebuild():
     backend_env_before = os.environ.get("TTS_BACKEND")
     if get_backend() != "torch":
         if not _torch_available():
-            click.echo(
+            cli_output.error(
                 "Rebuilding .pt prompts requires the torch backend, but the "
                 "qwen_tts package is not installed in this environment.\n"
                 "Re-run in the torch environment:\n"
-                "  conda run -n qwen3-tts tts voice rebuild",
-                err=True,
+                "  conda run -n qwen3-tts tts voice rebuild"
             )
             sys.exit(1)
         click.echo("Forcing torch backend (.pt prompts cannot be built with MLX).")
@@ -259,12 +262,18 @@ def _rebuild_voice_prompts(to_rebuild, voice_prompts_dir):
             click.echo(f"  {base}: rebuilt ({os.path.getsize(pt_path)} bytes)")
             rebuilt += 1
         except Exception as e:
-            click.echo(f"  {base}: FAILED — {e}", err=True)
+            cli_output.error(f"  {base}: FAILED — {e}")
             failed += 1
     return rebuilt, failed
 
 
-@voice.command()
+@voice.command(
+    epilog="""\b
+Examples:
+  tts voice rebuild
+  tts voice rebuild narrator
+"""
+)
 @click.argument("name", required=False)
 def rebuild(name):
     """Rebuild .pt voice prompts from .wav+.txt pairs.
@@ -319,7 +328,7 @@ def info(name):
     if resp.status_code == 200:
         click.echo(json.dumps(resp.json(), indent=2))
     else:
-        click.echo(f"Error: {resp.json().get('error', resp.text)}")
+        cli_output.error(f"Error: {resp.json().get('error', resp.text)}")
         sys.exit(1)
 
 
@@ -334,14 +343,17 @@ def list_group():
     pass
 
 
-@list_group.command()
+@list_group.command(
+    epilog="""\b
+Examples:
+  tts list speakers
+"""
+)
 def speakers():
     """List premium CustomVoice speakers."""
     from qwen3_tts.core.config import CUSTOM_VOICE_SPEAKERS
 
-    click.echo("Premium CustomVoice speakers:")
-    for key, info in CUSTOM_VOICE_SPEAKERS.items():
-        click.echo(f"  {key:12s} ({info['lang']}) - {info['desc']}")
+    click.echo(cli_tables.render_speakers(CUSTOM_VOICE_SPEAKERS))
 
 
 @list_group.command()
@@ -351,13 +363,7 @@ def presets():
 
     config = load_config()
     preset_dict = config.get("presets", {})
-    if not preset_dict:
-        click.echo("No presets configured.")
-        return
-    click.echo("Generation presets:")
-    for name, params in preset_dict.items():
-        parts = [f"{k}={v}" for k, v in params.items()]
-        click.echo(f"  {name}: {', '.join(parts)}")
+    click.echo(cli_tables.render_presets(preset_dict))
 
 
 @list_group.command()
@@ -388,12 +394,7 @@ def prosody():
     from qwen3_tts.core.config import get_prosody_presets
 
     presets = get_prosody_presets()
-    if not presets:
-        click.echo("No prosody presets configured.")
-        return
-    click.echo("Prosody presets:")
-    for name, text in sorted(presets.items()):
-        click.echo(f"  {name:12s} {text}")
+    click.echo(cli_tables.render_prosody(presets))
 
 
 @list_group.command()

@@ -9,6 +9,7 @@ import sys
 
 import click
 
+from qwen3_tts import cli_output
 from qwen3_tts.core.config import (
     VALID_MLX_QUANTIZATIONS as _VALID_MLX_Q,
 )
@@ -32,19 +33,17 @@ def config(ctx):
 
         wizard = os.path.join(USER_FILES_DIR, "install.sh")
         if not os.path.isfile(wizard):
-            click.echo(
+            cli_output.error(
                 f"Configuration wizard not found: {wizard}\n"
-                "Re-run the installer, or edit settings directly: tts config edit",
-                err=True,
+                "Re-run the installer, or edit settings directly: tts config edit"
             )
             sys.exit(1)
         try:
             subprocess.run([wizard, "--reconfigure"], timeout=300)  # nosec B603
         except subprocess.TimeoutExpired:
-            click.echo(
+            cli_output.error(
                 "Configuration wizard timed out after 300 seconds — "
-                "no changes were made.",
-                err=True,
+                "no changes were made."
             )
             sys.exit(1)
 
@@ -59,7 +58,9 @@ def show():
     click.echo(json.dumps(load_config(), indent=2))
 
 
-def _apply_advanced_edits(adv, backend, model_size, mlx_quantization, torch_quantization):
+def _apply_advanced_edits(
+    adv, backend, model_size, mlx_quantization, torch_quantization
+):
     """Apply advanced-section option overrides. Returns (new_adv, change_descriptions)."""
     changes = []
 
@@ -144,7 +145,13 @@ def _save_config_edits(top, adv, changes):
         click.echo(f"  • {change}")
 
 
-@config.command()
+@config.command(
+    epilog="""\b
+Examples:
+  tts config edit
+  tts config edit --backend mlx --model-size 1.7B
+"""
+)
 @click.option(
     "--backend",
     type=click.Choice(["mlx", "torch", "vllm"]),
@@ -196,7 +203,9 @@ def edit(
     adv, adv_changes = _apply_advanced_edits(
         adv, backend, model_size, mlx_quantization, torch_quantization
     )
-    top, top_changes = _apply_top_level_edits(top, language, output_dir, voice_description)
+    top, top_changes = _apply_top_level_edits(
+        top, language, output_dir, voice_description
+    )
     changes = adv_changes + top_changes
 
     # If no options provided, fall back to interactive voice description editor

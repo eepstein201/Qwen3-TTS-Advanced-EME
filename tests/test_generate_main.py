@@ -303,6 +303,28 @@ class TestHandleInfoCommands(unittest.TestCase):
         self.assertFalse(result)
         mock_preview.assert_called_once_with("my_voice", {"key": "val"})
 
+    @patch("qwen3_tts.interface.generate.save_config")
+    @patch("builtins.input", return_value="A new voice description")
+    def test_edit_config_saves_new_description(self, _mock_input, mock_save):
+        from qwen3_tts.interface.generate import _handle_info_commands
+        args = self._make_args(edit_config=True)
+        config = {"default_voice_description": "old"}
+        result = _handle_info_commands(args, config, {})
+        self.assertFalse(result)
+        self.assertEqual(config["default_voice_description"], "A new voice description")
+        mock_save.assert_called_once_with(config)
+
+    @patch("qwen3_tts.interface.generate.save_config")
+    @patch("builtins.input", return_value="")
+    def test_edit_config_keeps_existing_description_on_empty_input(self, _mock_input, mock_save):
+        from qwen3_tts.interface.generate import _handle_info_commands
+        args = self._make_args(edit_config=True)
+        config = {"default_voice_description": "old"}
+        result = _handle_info_commands(args, config, {})
+        self.assertFalse(result)
+        self.assertEqual(config["default_voice_description"], "old")
+        mock_save.assert_not_called()
+
 
 class TestHandleListModels(unittest.TestCase):
     """Tests for _handle_list_models."""

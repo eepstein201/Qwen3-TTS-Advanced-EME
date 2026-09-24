@@ -15,6 +15,7 @@ import sys
 
 logger = logging.getLogger("tts.cli")
 
+from qwen3_tts import cli_output  # noqa: E402
 from qwen3_tts.core.config import (  # noqa: E402
     HISTORY_FILE,
     VOICE_PROMPTS_DIR,
@@ -97,27 +98,27 @@ def get_clipboard_text():
     from qwen3_tts.core.config import IN_COLAB, IS_LINUX, IS_MACOS
 
     if IN_COLAB:
-        print("Error: Clipboard not available in Colab environment")
+        cli_output.error("Error: Clipboard not available in Colab environment")
         sys.exit(1)
     if IS_MACOS:
         cmd = ["pbpaste"]
     elif IS_LINUX:
         cmd = ["xclip", "-selection", "clipboard", "-o"]
     else:
-        print("Error: Clipboard not supported on this platform")
+        cli_output.error("Error: Clipboard not supported on this platform")
         sys.exit(1)
     try:
         result = subprocess.run(cmd, capture_output=True, text=True, check=True)  # nosec B603
         text = result.stdout.strip()
         if not text:
-            print("Error: Clipboard is empty")
+            cli_output.error("Error: Clipboard is empty")
             sys.exit(1)
         return text
     except subprocess.CalledProcessError:
-        print("Error: Failed to read clipboard")
+        cli_output.error("Error: Failed to read clipboard")
         sys.exit(1)
     except FileNotFoundError:
-        print(f"Error: {cmd[0]} not found")
+        cli_output.error(f"Error: {cmd[0]} not found")
         sys.exit(1)
 
 
@@ -627,5 +628,7 @@ def get_generation_params(args, config):
         params["repetition_penalty"] = args.repetition_penalty
     if args.seed is not None:
         params["seed"] = args.seed
+    if getattr(args, "max_new_tokens", None) is not None:
+        params["max_new_tokens"] = args.max_new_tokens
 
     return params

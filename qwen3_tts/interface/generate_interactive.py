@@ -13,6 +13,7 @@ import time
 
 logger = logging.getLogger("tts.cli")
 
+from qwen3_tts import cli_output  # noqa: E402
 from qwen3_tts.core.config import (  # noqa: E402
     VOICE_PROMPTS_DIR,
     get_default_clone_prompt,
@@ -38,7 +39,7 @@ from qwen3_tts.interface.generate_helpers import (  # noqa: E402
 def delete_voice_prompt(prompt_name):
     """Delete a voice prompt file (supports .pt, .wav+.txt formats)."""
     if ".." in prompt_name or "/" in prompt_name or "\\" in prompt_name:
-        print(f"Error: Invalid prompt name: {prompt_name!r}")
+        cli_output.error(f"Error: Invalid prompt name: {prompt_name!r}")
         return False
 
     # Strip known extensions to get the base name
@@ -55,7 +56,7 @@ def delete_voice_prompt(prompt_name):
     to_delete = [p for p in (pt_path, wav_path, txt_path) if os.path.exists(p)]
 
     if not to_delete:
-        print(f"Error: Voice prompt not found: {prompt_name}")
+        cli_output.error(f"Error: Voice prompt not found: {prompt_name}")
         return False
 
     filenames = ", ".join(os.path.basename(p) for p in to_delete)
@@ -78,7 +79,7 @@ def rename_voice_prompt(old_name, new_name):
     """Rename a voice prompt file (supports .pt, .wav+.txt formats)."""
     for _name in (old_name, new_name):
         if ".." in _name or "/" in _name or "\\" in _name:
-            print(f"Error: Invalid prompt name: {_name!r}")
+            cli_output.error(f"Error: Invalid prompt name: {_name!r}")
             return False
 
     # Strip known extensions to get base names
@@ -97,12 +98,12 @@ def rename_voice_prompt(old_name, new_name):
         new_path = safe_path_join(VOICE_PROMPTS_DIR, f"{new_base}{ext}")
         if os.path.exists(old_path):
             if os.path.exists(new_path):
-                print(f"Error: Voice prompt already exists: {new_base}{ext}")
+                cli_output.error(f"Error: Voice prompt already exists: {new_base}{ext}")
                 return False
             rename_pairs.append((old_path, new_path))
 
     if not rename_pairs:
-        print(f"Error: Voice prompt not found: {old_name}")
+        cli_output.error(f"Error: Voice prompt not found: {old_name}")
         return False
 
     completed = []
@@ -117,7 +118,7 @@ def rename_voice_prompt(old_name, new_name):
                 os.rename(done_new, done_old)
             except OSError:
                 pass
-        print(f"Error: Rename failed: {e}")
+        cli_output.error(f"Error: Rename failed: {e}")
         return False
 
     print(f"Renamed: {old_base} -> {new_base}")
@@ -139,7 +140,7 @@ def preview_voice_prompt(prompt_name, config):
     prompt_name = f"{base}.wav" if get_backend() == "mlx" else f"{base}.pt"
 
     if not voice_prompt_exists(prompt_name):
-        print(f"Error: Voice prompt not found: {prompt_name}")
+        cli_output.error(f"Error: Voice prompt not found: {prompt_name}")
         return False
 
     if is_server_running(config):
@@ -174,7 +175,7 @@ def preview_voice_prompt(prompt_name, config):
             except GenerationError as e:
                 # GenerationError's str() is a generic banner; the specific
                 # reason (cancelled / no audio) rides on technical_detail.
-                print(f"Error: {e.technical_detail or e.user_message}")
+                cli_output.error(f"Error: {e.technical_detail or e.user_message}")
                 return False
             print("Playing preview...")
             import tempfile
@@ -189,7 +190,7 @@ def preview_voice_prompt(prompt_name, config):
                 error_msg = resp.json().get("error", "Unknown error")
             except (ValueError, requests.exceptions.JSONDecodeError):
                 error_msg = f"Server returned HTTP {resp.status_code}"
-            print(f"Error: {error_msg}")
+            cli_output.error(f"Error: {error_msg}")
             return False
     else:
         print(
@@ -207,6 +208,14 @@ class _ProgressPoller:
     """Background thread that polls /generation-status and displays progress.
 
     Uses Rich for pretty progress bars if available, falls back to print-based progress.
+
+    Percent rules (plan T2.4): a determinate percent renders only when the
+    authed status payload carries ``progress_pct`` (single-item generations);
+    it is NEVER synthesized from ``chunk_index`` (a completed-chunk count).
+    ``stream=True`` renders "Streaming..." and never a percent. The bar owns
+    stderr, so stdout item lines never interleave with it. ``elapsed_only()``
+    builds the local-path ticker (no server to poll). ``quiet_progress=True``
+    (dry-run/CI) makes start() a no-op.
     """
 
     SPINNER = "⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏"
@@ -227,13 +236,26 @@ class _ProgressPoller:
     except ImportError:
         HAS_RICH = False
 
-    def __init__(self, batch_total=1):
+    def __init__(self, batch_total=1, *, stream=False, quiet_progress=False):
         self.batch_total = batch_total
+        self.stream = stream
+        self.quiet_progress = quiet_progress
+        self._elapsed_only = False
         self._stop = threading.Event()
         self._thread = None
         self._rich_progress = None
 
+    @classmethod
+    def elapsed_only(cls, *, quiet_progress=False):
+        """Ticker for the local generation path: no server to poll, so
+        elapsed time is the honest maximum (run_inference has no callback)."""
+        poller = cls(batch_total=1, quiet_progress=quiet_progress)
+        poller._elapsed_only = True
+        return poller
+
     def start(self):
+        if self.quiet_progress:
+            return
         self._thread = threading.Thread(target=self._run, daemon=True)
         self._thread.start()
 
@@ -271,6 +293,7 @@ class _ProgressPoller:
         from qwen3_tts.core.http_client import server_request
 
         console = Console(stderr=True)
+        description = "Streaming..." if self.stream else "Generating audio..."
 
         with Progress(
             SpinnerColumn(),
@@ -283,11 +306,15 @@ class _ProgressPoller:
             transient=True,
         ) as progress:
             task_id = progress.add_task(
-                "Generating audio...",
+                description,
                 total=100 if self.batch_total > 1 else None,
             )
 
             while not self._stop.is_set():
+                if self._elapsed_only:
+                    # No server to poll — the elapsed columns tick on their own.
+                    self._stop.wait(1.0)
+                    continue
                 try:
                     resp = server_request("GET", "/generation-status", timeout=2)
                     if resp.status_code == 200:
@@ -295,18 +322,24 @@ class _ProgressPoller:
                         if state.get("active"):
                             elapsed = state.get("elapsed_sec", 0)
                             eta = state.get("eta_sec")
+                            pct = state.get("progress_pct")
 
                             # Chunk progress suffix
                             chunk_total = state.get("chunk_total", 0)
                             chunk_suffix = ""
+                            label = "Streaming..." if self.stream else "Generating..."
                             if chunk_total > 1:
                                 chunk_idx = state.get("chunk_index", 0) + 1
                                 chunk_suffix = f" [chunk {chunk_idx}/{chunk_total}]"
                                 progress.update(
-                                    task_id, description=f"Generating...{chunk_suffix}"
+                                    task_id, description=f"{label}{chunk_suffix}"
                                 )
 
-                            if self.batch_total > 1:
+                            if self.stream:
+                                # Streaming never renders a percent: the audio
+                                # IS the progress; chunk counts are counts.
+                                pass
+                            elif self.batch_total > 1:
                                 idx = state.get("batch_index", 0) + 1
                                 progress.update(
                                     task_id,
@@ -320,6 +353,11 @@ class _ProgressPoller:
                                         else 0
                                     )
                                     progress.update(task_id, completed=pct)
+                            elif pct is not None:
+                                # Determinate only from the server's own
+                                # progress_pct (authed payload); never
+                                # synthesized from chunk_index (plan D2).
+                                progress.update(task_id, total=100, completed=pct)
                 except Exception as e:
                     logger.debug("Progress poller (_run_rich) error: %s", e)
 
@@ -330,7 +368,18 @@ class _ProgressPoller:
         from qwen3_tts.core.http_client import server_request
 
         tick = 0
+        start_time = time.monotonic()
         while not self._stop.is_set():
+            spinner = self.SPINNER[tick % len(self.SPINNER)]
+            if self._elapsed_only:
+                # No server to poll — tick elapsed time only (local path).
+                elapsed = time.monotonic() - start_time
+                line = f"\r{spinner} Generating audio... {elapsed:.0f}s elapsed"
+                sys.stderr.write(line)
+                sys.stderr.flush()
+                tick += 1
+                self._stop.wait(1.0)
+                continue
             try:
                 resp = server_request("GET", "/generation-status", timeout=2)
                 if resp.status_code == 200:
@@ -338,7 +387,7 @@ class _ProgressPoller:
                     if state.get("active"):
                         elapsed = state.get("elapsed_sec", 0)
                         eta = state.get("eta_sec")
-                        spinner = self.SPINNER[tick % len(self.SPINNER)]
+                        pct = state.get("progress_pct")
 
                         # Chunk progress suffix
                         chunk_total = state.get("chunk_total", 0)
@@ -347,7 +396,11 @@ class _ProgressPoller:
                             chunk_idx = state.get("chunk_index", 0) + 1
                             chunk_suffix = f" [chunk {chunk_idx}/{chunk_total}]"
 
-                        if self.batch_total > 1:
+                        if self.stream:
+                            # Streaming never renders a percent: the audio IS
+                            # the progress; chunk counts are counts.
+                            line = f"\r{spinner} Streaming... {elapsed:.0f}s elapsed{chunk_suffix}"
+                        elif self.batch_total > 1:
                             idx = state.get("batch_index", 0) + 1
                             if eta is not None:
                                 total_est = elapsed + eta
@@ -361,11 +414,17 @@ class _ProgressPoller:
                                 line = f"\r{spinner} [{idx}/{self.batch_total}] Generating... {elapsed:.0f}s / ~{elapsed + eta:.0f}s [{bar}] {pct}%{chunk_suffix}"
                             else:
                                 line = f"\r{spinner} [{idx}/{self.batch_total}] Generating... {elapsed:.0f}s elapsed{chunk_suffix}"
+                        elif pct is not None:
+                            # Determinate only from the server's own
+                            # progress_pct (authed payload); never synthesized
+                            # from chunk_index (plan D2).
+                            bar_filled = int(pct) // 5
+                            bar = "=" * bar_filled + ">" + " " * (19 - bar_filled)
+                            line = f"\r{spinner} Generating... {pct:.0f}% [{bar}] {elapsed:.0f}s elapsed{chunk_suffix}"
+                        elif eta is not None:
+                            line = f"\r{spinner} Generating... {elapsed:.0f}s elapsed (ETA ~{eta:.0f}s){chunk_suffix}"
                         else:
-                            if eta is not None:
-                                line = f"\r{spinner} Generating... {elapsed:.0f}s elapsed (ETA ~{eta:.0f}s){chunk_suffix}"
-                            else:
-                                line = f"\r{spinner} Generating... {elapsed:.0f}s elapsed{chunk_suffix}"
+                            line = f"\r{spinner} Generating... {elapsed:.0f}s elapsed{chunk_suffix}"
 
                         sys.stderr.write(line)
                         sys.stderr.flush()
@@ -406,7 +465,7 @@ def interactive_mode(use_server, config, gen_params):
 
     text_input = input("\nEnter text or file path: ").strip()
     if not text_input:
-        print("Error: No text provided")
+        cli_output.error("Error: No text provided")
         sys.exit(1)
     text = get_text(text_input)
     print(
@@ -421,7 +480,7 @@ def interactive_mode(use_server, config, gen_params):
     if mode_choice == "2":
         prompts = list_voice_prompts()
         if not prompts:
-            print("Error: No voice prompts found in", VOICE_PROMPTS_DIR)
+            cli_output.error(f"Error: No voice prompts found in {VOICE_PROMPTS_DIR}")
             sys.exit(1)
 
         print("\nAvailable voice prompts:")
@@ -691,7 +750,7 @@ def run_repl(config, use_server, gen_params=None):
             state["counter"] += 1
 
         except Exception as e:
-            print(f"Error: {e}")
+            cli_output.error(f"Error: {e}")
 
 
 # ---------------------------------------------------------------------------
@@ -717,7 +776,7 @@ def run_watch_mode(watch_dir, config, args, gen_params, use_server):
         safe_watch_dir = safe_path_join(os.getcwd(), expanded)
 
     if not os.path.isdir(safe_watch_dir):
-        print(f"Error: Directory not found: {safe_watch_dir}")
+        cli_output.error(f"Error: Directory not found: {safe_watch_dir}")
         return
 
     # Security: validate output_dir against traversal
@@ -803,7 +862,7 @@ def run_watch_mode(watch_dir, config, args, gen_params, use_server):
                     play_audio(output_path)
 
             except Exception as e:
-                print(f"Error processing {event.src_path}: {e}")
+                cli_output.error(f"Error processing {event.src_path}: {e}")
 
     print("\n=== Watch Mode ===")
     print(f"Watching: {watch_dir}")
