@@ -106,7 +106,7 @@ test = [
 
 # AI voice-description enhancement (Design mode)
 prompt-enhancer = [
-    "anthropic>=1.5.0",
+    "anthropic>=1.7.0",
 ]
 
 # vLLM-Omni backend (Linux/CUDA only)
