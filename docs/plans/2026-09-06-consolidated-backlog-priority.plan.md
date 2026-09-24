@@ -1728,6 +1728,25 @@ analysis rather than duplicated as a new step.)*
 - **Exit criteria:** one output idiom (`cli_output`), errors on stderr with exit 1 and no
   tracebacks, the exit-code contract documented (0 / 1 / 2-reserved-success), one renderer per
   resource, help text + metvars + `_FLAG_MAP` completeness.
+- **Status: DONE (PR #347, squash `2887a908`, merged 2026-09-24).** Exit criteria met: one
+  output idiom via `cli_output.py` (T2.1); `TTSGroup.invoke` CLI-wide exception boundary with
+  the 0/1/2 exit-code contract documented (T2.2); ~38 error prints migrated to stderr +
+  `TTS_LOG_LEVEL` logging (T2.3); determinate progress from 7A's authed `/generation-status`
+  (`progress_pct` only, never synthesized from `chunk_index`), streaming + local elapsed
+  tickers, tty-guarded mid-generation model-load prompt (T2.4); one renderer per resource in
+  `cli_tables.py` with `tts list X` and the legacy `--list-X` flags byte-identical (T2.5);
+  help epilogs/metvars + `_FLAG_MAP` completeness (T2.6) — the completeness audit exposed and
+  fixed two live dead-flag defects: `--max-new-tokens` (Click option + `_FLAG_MAP` entry but
+  NO argparse flag — `tts generate --max-new-tokens N` crashed with "unrecognized arguments")
+  and `--list-speakers/-presets/-prosody` (declared but unreachable from Click), now guarded
+  by an introspection test against `_build_parser()`'s real option strings. Gates: full
+  non-e2e suite 4000/0/5; ruff/mypy/bandit/check-config-docs clean; Gate B full-diff review
+  0 CRITICAL/HIGH; one in-PR fix for the per-module coverage floor (`interface/generate.py`
+  79.7% → 81% via new `edit_config` branch tests — T2.5's consolidation shrank the file's
+  denominator). Recorded deviation: T2.4's tty-guard message references
+  `models.<type>.load_at_startup` instead of the plan's `tts model load clone` (no such
+  command exists anywhere in the CLI). Task-level detail: interface plan Phase 2
+  (`docs/plans/2026-09-07-interface-quality.plan.md`).
 
 ### Step 7C — Phase 3: API error/status contract
 
@@ -1854,9 +1873,9 @@ analysis rather than duplicated as a new step.)*
 (1) · Wave 3: 3A–3E (5) · Wave 4: 4A–4E (5) · Wave 4B: 4B.1–4B.4 (4) · Wave 5: 5 (1) · Wave 6:
 6A–6R (18) · Wave 7: 7A–7C (3) — **plus 5 independent track entries** (T1 and its follow-on T1b, both features; T2 dependency; T3 decision-gated branch register; T4 user-data/repo separation, raised 2026-09-22 — none gated by the waves, none counted in Open) **+ 1 passive watch** (no action). Step 6·0 (dead-code cleanup) was already
 executed directly on 2026-09-06 and is recorded in Wave 6; it is not counted among the pending
-steps. **Executed so far: 0A (PR #263), 0B (PR #269), 0C (PR #270), 0D (PR #271), 0E (PR #276), 0F (PR #281), 0G (PR #282), 1A (PR #283), 1B (PR #287), 1C (PR #284), 1D (PR #289), 1E (PR #290), 3B (PR #291), 3C (PR #292), 3D (PR #293), 3E (PR #294), 4A (branch `fix/e2e-model-load-assertions`), 4B (branch `fix/e2e-load-cycle-investigation`), 2 (branch `fix/on-demand-model-load-generate`), 3A (PR #304), 4C (branch `refactor/e2e-shared-page-object`, Gate B 2026-09-17), 4E (branch `fix/e2e-preexisting-failures`), 4D (PR #310), 4B.1 (PR #311), 4B.2 (PR #314), 4B.3 (PR #315), 4B.4 (PR #316), 6H (PR #318), 6O (PR #319), 6P (PR #320), 6Q (PRs #332 + #342).** **6G is
-folded into Wave 7 Step 7C** (not independently pending). ***Open: 17.*** *(Counter reconciled 2026-09-17 against a full heading census: 49 steps - 20 executed - 1 folded (6G) = 28; 4C's Gate B landed 2026-09-17 (pass by recorded deviation) → 21 executed = 27; 4E executed 2026-09-17 → 22 = 26; 4D executed 2026-09-18, closed with retriage (gap 5 → 7A/7B/7C add-ons + standing ledger) → 23 = 25; 4B.1 executed 2026-09-18 → 24 = 24 (the headline read 25 for one day — a stale
-one-word lag, not a census change); 4B.2 executed 2026-09-18 → 25 = 23; 4B.3 executed 2026-09-18 (PR #315) → 26 = 22; 4B.4 executed 2026-09-20 (PR #316, merged `cddc185a`) → 27 = 21; 6H (PR #318), 6O (PR #319), 6P (PR #320) executed 2026-09-20, marked by #321 → 30 = 18; 6Q executed 2026-09-23 (PRs #332 + #342) → 31 = 17. The pre-reconciliation value read 27 because Step 6·0 was subtracted twice - it is already excluded from the wave totals, since Wave 6 counts 6A-6R = 18, and was then deducted again as though it sat inside them; that arithmetic error was fixed at the 28 mark and is history, not a reason to touch the number again.)* *(Open: 22 → 18, reconciled 2026-09-21; the three independent tracks (T1/T2/T3) are outside the 49-step count and never move this number.)* *(Wave 7 incorporated
+steps. **Executed so far: 0A (PR #263), 0B (PR #269), 0C (PR #270), 0D (PR #271), 0E (PR #276), 0F (PR #281), 0G (PR #282), 1A (PR #283), 1B (PR #287), 1C (PR #284), 1D (PR #289), 1E (PR #290), 3B (PR #291), 3C (PR #292), 3D (PR #293), 3E (PR #294), 4A (branch `fix/e2e-model-load-assertions`), 4B (branch `fix/e2e-load-cycle-investigation`), 2 (branch `fix/on-demand-model-load-generate`), 3A (PR #304), 4C (branch `refactor/e2e-shared-page-object`, Gate B 2026-09-17), 4E (branch `fix/e2e-preexisting-failures`), 4D (PR #310), 4B.1 (PR #311), 4B.2 (PR #314), 4B.3 (PR #315), 4B.4 (PR #316), 6H (PR #318), 6O (PR #319), 6P (PR #320), 6Q (PRs #332 + #342), 7A (PR #344), 7B (PR #347).** **6G is
+folded into Wave 7 Step 7C** (not independently pending). ***Open: 15.*** *(Counter reconciled 2026-09-17 against a full heading census: 49 steps - 20 executed - 1 folded (6G) = 28; 4C's Gate B landed 2026-09-17 (pass by recorded deviation) → 21 executed = 27; 4E executed 2026-09-17 → 22 = 26; 4D executed 2026-09-18, closed with retriage (gap 5 → 7A/7B/7C add-ons + standing ledger) → 23 = 25; 4B.1 executed 2026-09-18 → 24 = 24 (the headline read 25 for one day — a stale
+one-word lag, not a census change); 4B.2 executed 2026-09-18 → 25 = 23; 4B.3 executed 2026-09-18 (PR #315) → 26 = 22; 4B.4 executed 2026-09-20 (PR #316, merged `cddc185a`) → 27 = 21; 6H (PR #318), 6O (PR #319), 6P (PR #320) executed 2026-09-20, marked by #321 → 30 = 18; 6Q executed 2026-09-23 (PRs #332 + #342) → 31 = 17; 7A executed 2026-09-23 (PR #344, status marked by #345 — the headline read 17 for one day, same one-word-lag class as the 4B.1 note above) → 32 = 16; 7B executed 2026-09-24 (PR #347, squash `2887a908`) → 33 = 15. The pre-reconciliation value read 27 because Step 6·0 was subtracted twice - it is already excluded from the wave totals, since Wave 6 counts 6A-6R = 18, and was then deducted again as though it sat inside them; that arithmetic error was fixed at the 28 mark and is history, not a reason to touch the number again.)* *(Open: 22 → 18, reconciled 2026-09-21; the three independent tracks (T1/T2/T3) are outside the 49-step count and never move this number.)* *(Wave 7 incorporated
 2026-09-08 from the Interface Quality Improvement Plan — a three-surface audit of Web UI, CLI,
 and HTTP API, user-scoped; tracked at `docs/plans/2026-09-07-interface-quality.plan.md`, which
 is the spec for 7A–7C.)* Ordered by: critical correctness/security findings from the 2026-09-06 cross-cutting
