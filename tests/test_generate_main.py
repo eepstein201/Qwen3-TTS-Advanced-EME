@@ -14,7 +14,6 @@ Covers:
 
 Run: pytest tests/test_generate_main.py -v
 """
-
 import argparse
 import unittest
 from unittest.mock import MagicMock, mock_open, patch
@@ -23,21 +22,9 @@ from unittest.mock import MagicMock, mock_open, patch
 # _handle_list_models iterates MODEL_INFO.items() expecting model_type keys
 # with 'name'/'description' — provide the shape the code consumes.
 _MOCK_MODEL_INFO = {
-    "clone": {
-        "name": "Qwen/Qwen3-TTS-12Hz-1.7B-Base",
-        "description": "Clone",
-        "memory_mb": 3500,
-    },
-    "design": {
-        "name": "Qwen/Qwen3-TTS-12Hz-1.7B-VoiceDesign",
-        "description": "Design",
-        "memory_mb": 3500,
-    },
-    "custom": {
-        "name": "Qwen/Qwen3-TTS-12Hz-1.7B-CustomVoice",
-        "description": "Custom",
-        "memory_mb": 3500,
-    },
+    "clone": {"name": "Qwen/Qwen3-TTS-12Hz-1.7B-Base", "description": "Clone", "memory_mb": 3500},
+    "design": {"name": "Qwen/Qwen3-TTS-12Hz-1.7B-VoiceDesign", "description": "Design", "memory_mb": 3500},
+    "custom": {"name": "Qwen/Qwen3-TTS-12Hz-1.7B-CustomVoice", "description": "Custom", "memory_mb": 3500},
 }
 
 
@@ -46,7 +33,6 @@ class TestBuildParser(unittest.TestCase):
 
     def _parse(self, args_list):
         from qwen3_tts.interface.generate import _build_parser
-
         return _build_parser().parse_args(args_list)
 
     def test_text_positional(self):
@@ -93,17 +79,7 @@ class TestBuildParser(unittest.TestCase):
         self.assertEqual(args.dialogue, "dialog.json")
 
     def test_audio_processing_flags(self):
-        args = self._parse(
-            [
-                "--trim-silence",
-                "--normalize",
-                "--speed",
-                "1.5",
-                "--pitch",
-                "2.0",
-                "Hello",
-            ]
-        )
+        args = self._parse(["--trim-silence", "--normalize", "--speed", "1.5", "--pitch", "2.0", "Hello"])
         self.assertTrue(args.trim_silence)
         self.assertTrue(args.normalize)
         self.assertEqual(args.speed, 1.5)
@@ -133,15 +109,12 @@ class TestProcessBatch(unittest.TestCase):
     @patch("builtins.print")
     def test_server_mode_no_processing(self, _print, _makedirs, mock_save, mock_gen):
         from qwen3_tts.interface.generate import process_batch
-
         mock_gen.return_value = ["base64data1", "base64data2"]
         args = self._make_args()
         config = {"language": "English"}
         gen_params = {"temperature": 0.7}
 
-        result = process_batch(
-            ["Hello", "World"], args, config, gen_params, use_server=True
-        )
+        result = process_batch(["Hello", "World"], args, config, gen_params, use_server=True)
 
         self.assertEqual(len(result), 2)
         mock_gen.assert_called_once()
@@ -155,7 +128,6 @@ class TestProcessBatch(unittest.TestCase):
         import numpy as np
 
         from qwen3_tts.interface.generate import process_batch
-
         wav = np.zeros(1000, dtype="float32")
         mock_gen.return_value = (wav, 24000)
         mock_process.return_value = wav
@@ -164,9 +136,7 @@ class TestProcessBatch(unittest.TestCase):
         gen_params = {"temperature": 0.7}
 
         with patch("soundfile.write"):
-            result = process_batch(
-                ["Hello"], args, config, gen_params, use_server=False
-            )
+            result = process_batch(["Hello"], args, config, gen_params, use_server=False)
 
         self.assertEqual(len(result), 1)
         mock_gen.assert_called_once()
@@ -176,13 +146,10 @@ class TestProcessBatch(unittest.TestCase):
     @patch("qwen3_tts.interface.generate.process_audio_args")
     @patch("os.makedirs")
     @patch("builtins.print")
-    def test_server_mode_with_processing(
-        self, _print, _makedirs, mock_process, mock_decode, mock_gen
-    ):
+    def test_server_mode_with_processing(self, _print, _makedirs, mock_process, mock_decode, mock_gen):
         import numpy as np
 
         from qwen3_tts.interface.generate import process_batch
-
         wav = np.zeros(1000, dtype="float32")
         mock_gen.return_value = ["base64data"]
         mock_decode.return_value = (wav, 24000)
@@ -191,9 +158,7 @@ class TestProcessBatch(unittest.TestCase):
         config = {"language": "English"}
 
         with patch("soundfile.write"):
-            result = process_batch(
-                ["Hello"], args, config, {"temperature": 0.7}, use_server=True
-            )
+            result = process_batch(["Hello"], args, config, {"temperature": 0.7}, use_server=True)
 
         self.assertEqual(len(result), 1)
         mock_decode.assert_called_once()
@@ -206,14 +171,12 @@ class TestDelegators(unittest.TestCase):
     @patch("qwen3_tts.interface.cli.dialogue.process_dialogue")
     def test_process_dialogue_delegates(self, mock_impl):
         from qwen3_tts.interface.generate import process_dialogue
-
         process_dialogue("dialog.json", {}, None, {}, True)
         mock_impl.assert_called_once_with("dialog.json", {}, None, {}, True)
 
     @patch("qwen3_tts.interface.cli.srt.process_srt_file")
     def test_process_srt_file_delegates(self, mock_impl):
         from qwen3_tts.interface.generate import process_srt_file
-
         process_srt_file("subs.srt", {}, None, {}, False)
         mock_impl.assert_called_once_with("subs.srt", {}, None, {}, False)
 
@@ -223,42 +186,27 @@ class TestHandleInfoCommands(unittest.TestCase):
 
     def _make_args(self, **kwargs):
         defaults = {
-            "list_backends": False,
-            "list_prompts": False,
-            "voices": False,
-            "list_presets": False,
-            "list_aliases": False,
-            "list_prosody": False,
-            "list_speakers": False,
-            "list_models": False,
-            "stats": False,
-            "edit_config": False,
-            "history": None,
-            "delete_prompt": None,
-            "rename_prompt": None,
-            "preview_prompt": None,
-            "backend": None,
+            "list_backends": False, "list_prompts": False, "voices": False,
+            "list_presets": False, "list_aliases": False, "list_prosody": False,
+            "list_speakers": False, "list_models": False, "stats": False,
+            "edit_config": False, "history": None, "delete_prompt": None,
+            "rename_prompt": None, "preview_prompt": None, "backend": None,
         }
         defaults.update(kwargs)
         return argparse.Namespace(**defaults)
 
     def test_no_info_command_returns_none(self):
         from qwen3_tts.interface.generate import _handle_info_commands
-
         args = self._make_args()
         result = _handle_info_commands(args, {}, {})
         self.assertIsNone(result)
 
     @patch("qwen3_tts.interface.generate.get_backend", return_value="mlx")
     @patch("qwen3_tts.interface.generate.get_mlx_quantization", return_value="8bit")
-    @patch(
-        "qwen3_tts.interface.generate.get_mlx_model_name",
-        return_value="mlx-community/model",
-    )
+    @patch("qwen3_tts.interface.generate.get_mlx_model_name", return_value="mlx-community/model")
     @patch("builtins.print")
     def test_list_backends_mlx(self, mock_print, *_mocks):
         from qwen3_tts.interface.generate import _handle_info_commands
-
         args = self._make_args(list_backends=True)
         result = _handle_info_commands(args, {}, {})
         self.assertFalse(result)
@@ -271,19 +219,14 @@ class TestHandleInfoCommands(unittest.TestCase):
     @patch("builtins.print")
     def test_list_backends_torch(self, mock_print, *_mocks):
         from qwen3_tts.interface.generate import _handle_info_commands
-
         args = self._make_args(list_backends=True)
         result = _handle_info_commands(args, {}, {})
         self.assertFalse(result)
 
-    @patch(
-        "qwen3_tts.interface.generate.list_voice_prompts",
-        return_value=["voice1.pt", "voice2.pt"],
-    )
+    @patch("qwen3_tts.interface.generate.list_voice_prompts", return_value=["voice1.pt", "voice2.pt"])
     @patch("builtins.print")
     def test_list_prompts(self, mock_print, _mock):
         from qwen3_tts.interface.generate import _handle_info_commands
-
         args = self._make_args(list_prompts=True)
         result = _handle_info_commands(args, {}, {})
         self.assertFalse(result)
@@ -291,7 +234,6 @@ class TestHandleInfoCommands(unittest.TestCase):
     @patch("builtins.print")
     def test_list_presets(self, mock_print):
         from qwen3_tts.interface.generate import _handle_info_commands
-
         args = self._make_args(list_presets=True)
         config = {"presets": {"fast": {"temperature": 0.3}}}
         result = _handle_info_commands(args, config, {})
@@ -300,7 +242,6 @@ class TestHandleInfoCommands(unittest.TestCase):
     @patch("builtins.print")
     def test_list_aliases_empty(self, mock_print):
         from qwen3_tts.interface.generate import _handle_info_commands
-
         args = self._make_args(list_aliases=True)
         result = _handle_info_commands(args, {}, {})
         self.assertFalse(result)
@@ -308,20 +249,15 @@ class TestHandleInfoCommands(unittest.TestCase):
     @patch("builtins.print")
     def test_list_aliases_with_data(self, mock_print):
         from qwen3_tts.interface.generate import _handle_info_commands
-
         args = self._make_args(list_aliases=True)
         config = {"aliases": {"myvoice": {"prompt": "v.pt", "mode": "clone"}}}
         result = _handle_info_commands(args, config, {})
         self.assertFalse(result)
 
-    @patch(
-        "qwen3_tts.core.config.get_prosody_presets",
-        return_value={"calm": "Speak calmly"},
-    )
+    @patch("qwen3_tts.core.config.get_prosody_presets", return_value={"calm": "Speak calmly"})
     @patch("builtins.print")
     def test_list_prosody(self, mock_print, _mock):
         from qwen3_tts.interface.generate import _handle_info_commands
-
         args = self._make_args(list_prosody=True)
         result = _handle_info_commands(args, {}, {})
         self.assertFalse(result)
@@ -329,7 +265,6 @@ class TestHandleInfoCommands(unittest.TestCase):
     @patch("builtins.print")
     def test_list_speakers(self, mock_print):
         from qwen3_tts.interface.generate import _handle_info_commands
-
         args = self._make_args(list_speakers=True)
         result = _handle_info_commands(args, {}, {})
         self.assertFalse(result)
@@ -339,7 +274,6 @@ class TestHandleInfoCommands(unittest.TestCase):
     @patch("qwen3_tts.interface.generate.show_history")
     def test_history(self, mock_hist):
         from qwen3_tts.interface.generate import _handle_info_commands
-
         args = self._make_args(history=5)
         result = _handle_info_commands(args, {}, {})
         self.assertFalse(result)
@@ -348,7 +282,6 @@ class TestHandleInfoCommands(unittest.TestCase):
     @patch("qwen3_tts.interface.generate.delete_voice_prompt")
     def test_delete_prompt(self, mock_del):
         from qwen3_tts.interface.generate import _handle_info_commands
-
         args = self._make_args(delete_prompt="old_voice")
         result = _handle_info_commands(args, {}, {})
         self.assertFalse(result)
@@ -357,7 +290,6 @@ class TestHandleInfoCommands(unittest.TestCase):
     @patch("qwen3_tts.interface.generate.rename_voice_prompt")
     def test_rename_prompt(self, mock_rename):
         from qwen3_tts.interface.generate import _handle_info_commands
-
         args = self._make_args(rename_prompt=["old", "new"])
         result = _handle_info_commands(args, {}, {})
         self.assertFalse(result)
@@ -366,7 +298,6 @@ class TestHandleInfoCommands(unittest.TestCase):
     @patch("qwen3_tts.interface.generate.preview_voice_prompt")
     def test_preview_prompt(self, mock_preview):
         from qwen3_tts.interface.generate import _handle_info_commands
-
         args = self._make_args(preview_prompt="my_voice")
         result = _handle_info_commands(args, {"key": "val"}, {})
         self.assertFalse(result)
@@ -376,7 +307,6 @@ class TestHandleInfoCommands(unittest.TestCase):
     @patch("builtins.input", return_value="A new voice description")
     def test_edit_config_saves_new_description(self, _mock_input, mock_save):
         from qwen3_tts.interface.generate import _handle_info_commands
-
         args = self._make_args(edit_config=True)
         config = {"default_voice_description": "old"}
         result = _handle_info_commands(args, config, {})
@@ -386,11 +316,8 @@ class TestHandleInfoCommands(unittest.TestCase):
 
     @patch("qwen3_tts.interface.generate.save_config")
     @patch("builtins.input", return_value="")
-    def test_edit_config_keeps_existing_description_on_empty_input(
-        self, _mock_input, mock_save
-    ):
+    def test_edit_config_keeps_existing_description_on_empty_input(self, _mock_input, mock_save):
         from qwen3_tts.interface.generate import _handle_info_commands
-
         args = self._make_args(edit_config=True)
         config = {"default_voice_description": "old"}
         result = _handle_info_commands(args, config, {})
@@ -407,7 +334,6 @@ class TestHandleListModels(unittest.TestCase):
     @patch("builtins.print")
     def test_server_not_running(self, mock_print, _mock):
         from qwen3_tts.interface.generate import _handle_list_models
-
         args = argparse.Namespace(backend=None)
         result = _handle_list_models(args, {})
         self.assertFalse(result)
@@ -416,15 +342,11 @@ class TestHandleListModels(unittest.TestCase):
 
     @patch("qwen3_tts.interface.generate.MODEL_INFO", _MOCK_MODEL_INFO)
     @patch("qwen3_tts.interface.generate.is_server_running", return_value=True)
-    @patch(
-        "qwen3_tts.core.http_client.get_server_url",
-        return_value="http://127.0.0.1:5123",
-    )
+    @patch("qwen3_tts.core.http_client.get_server_url", return_value="http://127.0.0.1:5123")
     @patch("qwen3_tts.core.config.auth_headers", return_value={})
     @patch("builtins.print")
     def test_server_running_with_models(self, mock_print, _auth, _url, _running):
         from qwen3_tts.interface.generate import _handle_list_models
-
         mock_resp = MagicMock()
         mock_resp.status_code = 200
         mock_resp.json.return_value = {"models": {"clone": {"loaded": True}}}
@@ -443,22 +365,17 @@ class TestHandleStats(unittest.TestCase):
     @patch("builtins.print")
     def test_server_not_running(self, mock_print, _mock):
         from qwen3_tts.interface.generate import _handle_stats
-
         result = _handle_stats({})
         self.assertFalse(result)
         mock_print.assert_called_once()
         self.assertIn("not running", mock_print.call_args[0][0])
 
     @patch("qwen3_tts.interface.generate.is_server_running", return_value=True)
-    @patch(
-        "qwen3_tts.core.http_client.get_server_url",
-        return_value="http://127.0.0.1:5123",
-    )
+    @patch("qwen3_tts.core.http_client.get_server_url", return_value="http://127.0.0.1:5123")
     @patch("qwen3_tts.core.config.auth_headers", return_value={})
     @patch("builtins.print")
     def test_server_running_success(self, mock_print, _auth, _url, _running):
         from qwen3_tts.interface.generate import _handle_stats
-
         mock_resp = MagicMock()
         mock_resp.status_code = 200
         mock_resp.json.return_value = {"generations": 5, "uptime": "1h"}
@@ -467,15 +384,11 @@ class TestHandleStats(unittest.TestCase):
         self.assertFalse(result)
 
     @patch("qwen3_tts.interface.generate.is_server_running", return_value=True)
-    @patch(
-        "qwen3_tts.core.http_client.get_server_url",
-        return_value="http://127.0.0.1:5123",
-    )
+    @patch("qwen3_tts.core.http_client.get_server_url", return_value="http://127.0.0.1:5123")
     @patch("qwen3_tts.core.config.auth_headers", return_value={})
     @patch("builtins.print")
     def test_server_error_response(self, mock_print, _auth, _url, _running):
         from qwen3_tts.interface.generate import _handle_stats
-
         mock_resp = MagicMock()
         mock_resp.status_code = 500
         with patch("qwen3_tts.core.http_client.server_request", return_value=mock_resp):
@@ -490,18 +403,10 @@ class TestHandleDryRun(unittest.TestCase):
 
     def _make_args(self, **kwargs):
         defaults = {
-            "mode": "clone",
-            "prompt": "voice.pt",
-            "description": "",
-            "output": None,
-            "batch": None,
-            "text": ["Hello"],
-            "speaker": None,
-            "instruct": None,
-            "trim_silence": False,
-            "normalize": False,
-            "speed": None,
-            "pitch": None,
+            "mode": "clone", "prompt": "voice.pt", "description": "",
+            "output": None, "batch": None, "text": ["Hello"],
+            "speaker": None, "instruct": None, "trim_silence": False,
+            "normalize": False, "speed": None, "pitch": None,
             "ssml": False,
         }
         defaults.update(kwargs)
@@ -510,7 +415,6 @@ class TestHandleDryRun(unittest.TestCase):
     @patch("builtins.print")
     def test_dry_run_single_text(self, mock_print):
         from qwen3_tts.interface.generate import _handle_dry_run
-
         args = self._make_args()
         config = {"output_directory": "/tmp"}
         result = _handle_dry_run(args, config, {"temperature": 0.7}, True, 500)
@@ -522,7 +426,6 @@ class TestHandleDryRun(unittest.TestCase):
     @patch("builtins.print")
     def test_dry_run_custom_mode(self, mock_print):
         from qwen3_tts.interface.generate import _handle_dry_run
-
         args = self._make_args(mode="custom", speaker="ryan", instruct="happy")
         config = {"output_directory": "/tmp"}
         result = _handle_dry_run(args, config, {}, False, None)
@@ -533,7 +436,6 @@ class TestHandleDryRun(unittest.TestCase):
     @patch("builtins.print")
     def test_dry_run_design_mode(self, mock_print):
         from qwen3_tts.interface.generate import _handle_dry_run
-
         args = self._make_args(mode="design", description="warm voice")
         config = {"output_directory": "/tmp", "default_voice_description": "warm voice"}
         result = _handle_dry_run(args, config, {}, True, 0)
@@ -545,32 +447,13 @@ class TestHandleGeneration(unittest.TestCase):
 
     def _make_args(self, **kwargs):
         defaults = {
-            "repl": False,
-            "watch": None,
-            "srt": None,
-            "dialogue": None,
-            "voice": None,
-            "clipboard": False,
-            "dry_run": False,
-            "batch": None,
-            "text": [],
-            "text_override": None,
-            "ssml": False,
-            "output": None,
-            "mode": None,
-            "prompt": None,
-            "description": None,
-            "preset": None,
-            "prosody": None,
-            "instruct": None,
-            "speaker": None,
-            "play": False,
-            "no_open": False,
-            "stream": False,
-            "trim_silence": False,
-            "normalize": False,
-            "speed": None,
-            "pitch": None,
+            "repl": False, "watch": None, "srt": None, "dialogue": None,
+            "voice": None, "clipboard": False, "dry_run": False,
+            "batch": None, "text": [], "text_override": None, "ssml": False,
+            "output": None, "mode": None, "prompt": None, "description": None,
+            "preset": None, "prosody": None, "instruct": None, "speaker": None,
+            "play": False, "no_open": False, "stream": False,
+            "trim_silence": False, "normalize": False, "speed": None, "pitch": None,
         }
         defaults.update(kwargs)
         return argparse.Namespace(**defaults)
@@ -578,7 +461,6 @@ class TestHandleGeneration(unittest.TestCase):
     @patch("qwen3_tts.interface.generate.run_repl")
     def test_repl_dispatch(self, mock_repl):
         from qwen3_tts.interface.generate import _handle_generation
-
         args = self._make_args(repl=True)
         result = _handle_generation(args, {}, {}, True, None)
         mock_repl.assert_called_once()
@@ -587,7 +469,6 @@ class TestHandleGeneration(unittest.TestCase):
     @patch("qwen3_tts.interface.generate.interactive_mode", return_value=None)
     def test_interactive_mode_when_no_text(self, mock_interactive):
         from qwen3_tts.interface.generate import _handle_generation
-
         args = self._make_args()
         with patch("sys.stdin") as mock_stdin:
             mock_stdin.isatty.return_value = True
@@ -599,13 +480,8 @@ class TestHandleGeneration(unittest.TestCase):
     @patch("builtins.open", mock_open())
     def test_single_text_generation(self, mock_gen):
         from qwen3_tts.interface.generate import _handle_generation
-
         args = self._make_args(text=["Hello world"])
-        config = {
-            "output_directory": "/tmp",
-            "language": "English",
-            "default_voice_description": "",
-        }
+        config = {"output_directory": "/tmp", "language": "English", "default_voice_description": ""}
         _handle_generation(args, config, {}, True, None)
         mock_gen.assert_called_once()
 
@@ -619,14 +495,9 @@ class TestHandleGeneration(unittest.TestCase):
     @patch("builtins.print")
     def test_voice_alias_resolution(self, _print, mock_gen, mock_alias, _mock_exists):
         from qwen3_tts.interface.generate import _handle_generation
-
         mock_alias.return_value = {"prompt": "narrator.pt", "mode": "clone"}
         args = self._make_args(text=["Hello"], voice="narrator")
-        config = {
-            "output_directory": "/tmp",
-            "language": "English",
-            "default_voice_description": "",
-        }
+        config = {"output_directory": "/tmp", "language": "English", "default_voice_description": ""}
         _handle_generation(args, config, {}, True, None)
         mock_alias.assert_called_once_with("narrator", config)
 
@@ -634,7 +505,6 @@ class TestHandleGeneration(unittest.TestCase):
     @patch("builtins.print")
     def test_unknown_voice_alias_exits(self, _print, mock_alias):
         from qwen3_tts.interface.generate import _handle_generation
-
         args = self._make_args(text=["Hello"], voice="nonexistent")
         with self.assertRaises(SystemExit):
             _handle_generation(args, {"aliases": {}}, {}, True, None)
@@ -649,7 +519,6 @@ class TestMain(unittest.TestCase):
     @patch("qwen3_tts.interface.generate.launch_gradio_ui")
     def test_ui_flag_launches_gradio(self, mock_ui, _params, _config, mock_parser):
         from qwen3_tts.interface.generate import main
-
         mock_args = MagicMock()
         mock_args.backend = None
         mock_args.model_size = None
@@ -665,7 +534,6 @@ class TestMain(unittest.TestCase):
     @patch("qwen3_tts.interface.generate._handle_info_commands", return_value=False)
     def test_info_command_handled(self, mock_info, _params, _config, mock_parser):
         from qwen3_tts.interface.generate import main
-
         mock_args = MagicMock()
         mock_args.backend = None
         mock_args.model_size = None
@@ -679,11 +547,8 @@ class TestMain(unittest.TestCase):
     @patch("qwen3_tts.interface.generate.get_generation_params", return_value={})
     @patch("qwen3_tts.interface.generate._handle_info_commands", return_value=None)
     @patch("qwen3_tts.interface.generate._handle_generation", return_value=True)
-    def test_generation_dispatched(
-        self, mock_gen, mock_info, _params, _config, mock_parser
-    ):
+    def test_generation_dispatched(self, mock_gen, mock_info, _params, _config, mock_parser):
         from qwen3_tts.interface.generate import main
-
         mock_args = MagicMock()
         mock_args.backend = None
         mock_args.model_size = None
@@ -711,19 +576,17 @@ class TestResolvePromptFile(unittest.TestCase):
         defaults.update(kwargs)
         return argparse.Namespace(**defaults)
 
-    @patch(
-        "qwen3_tts.interface.generate.get_default_clone_prompt",
-        return_value="fallback.wav",
-    )
+    @patch("qwen3_tts.interface.generate.get_default_clone_prompt",
+           return_value="fallback.wav")
     def test_no_explicit_prompt_uses_fallback(self, _mock_default):
         from qwen3_tts.interface.generate import _resolve_prompt_file
-
-        self.assertEqual(_resolve_prompt_file(None, self._args(), {}), "fallback.wav")
+        self.assertEqual(
+            _resolve_prompt_file(None, self._args(), {}), "fallback.wav"
+        )
 
     @patch("qwen3_tts.core.config.prompt_file_exists", return_value=True)
     def test_existing_explicit_prompt_is_returned(self, _mock_exists):
         from qwen3_tts.interface.generate import _resolve_prompt_file
-
         self.assertEqual(
             _resolve_prompt_file("real.pt", self._args(prompt="real.pt"), {}),
             "real.pt",
@@ -733,7 +596,6 @@ class TestResolvePromptFile(unittest.TestCase):
     def test_missing_explicit_prompt_exits_instead_of_raising(self, _mock_exists):
         """Must exit(1) with a message, not fall back and not raise."""
         from qwen3_tts.interface.generate import _resolve_prompt_file
-
         with patch("builtins.print") as mock_print:
             with self.assertRaises(SystemExit) as ctx:
                 _resolve_prompt_file("gone.pt", self._args(prompt="gone.pt"), {})
@@ -746,7 +608,6 @@ class TestResolvePromptFile(unittest.TestCase):
     def test_missing_alias_prompt_names_the_alias(self, _mock_exists):
         """The message must point at the alias, not a generic path error."""
         from qwen3_tts.interface.generate import _resolve_prompt_file
-
         with patch("builtins.print") as mock_print:
             with self.assertRaises(SystemExit):
                 _resolve_prompt_file("gone.pt", self._args(voice="myvoice"), {})
@@ -754,16 +615,13 @@ class TestResolvePromptFile(unittest.TestCase):
         self.assertIn("myvoice", printed)
 
     @patch("qwen3_tts.core.config.prompt_file_exists", return_value=False)
-    @patch(
-        "qwen3_tts.interface.generate.get_default_clone_prompt",
-        return_value="fallback.wav",
-    )
+    @patch("qwen3_tts.interface.generate.get_default_clone_prompt",
+           return_value="fallback.wav")
     def test_missing_explicit_prompt_does_not_silently_substitute(
         self, _mock_default, _mock_exists
     ):
         """The regression that matters: never swap in a different voice."""
         from qwen3_tts.interface.generate import _resolve_prompt_file
-
         with patch("builtins.print"):
             with self.assertRaises(SystemExit):
                 _resolve_prompt_file("gone.pt", self._args(prompt="gone.pt"), {})
