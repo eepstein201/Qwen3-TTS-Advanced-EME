@@ -165,7 +165,7 @@ pillow==12.3.0
     # via gradio
 platformdirs==4.11.3
     # via pooch
-playwright==1.62.0
+playwright==1.63.0
     # via qwen3-tts (pyproject.toml)
 pluggy==1.6.0
     # via
