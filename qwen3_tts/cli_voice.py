@@ -61,7 +61,13 @@ def voice_list():
     click.echo(cli_tables.render_voice_prompts(prompts, default=default))
 
 
-@voice.command()
+@voice.command(
+    epilog="""\b
+Examples:
+  tts voice create sample.wav -n narrator
+  tts voice create sample.wav -n narrator --auto-transcribe
+"""
+)
 @click.argument("audio", required=False)
 @click.option("-n", "--name", help="Name for the voice prompt")
 @click.option("-t", "--transcript", help="Transcript text")
@@ -261,7 +267,13 @@ def _rebuild_voice_prompts(to_rebuild, voice_prompts_dir):
     return rebuilt, failed
 
 
-@voice.command()
+@voice.command(
+    epilog="""\b
+Examples:
+  tts voice rebuild
+  tts voice rebuild narrator
+"""
+)
 @click.argument("name", required=False)
 def rebuild(name):
     """Rebuild .pt voice prompts from .wav+.txt pairs.
@@ -331,7 +343,12 @@ def list_group():
     pass
 
 
-@list_group.command()
+@list_group.command(
+    epilog="""\b
+Examples:
+  tts list speakers
+"""
+)
 def speakers():
     """List premium CustomVoice speakers."""
     from qwen3_tts.core.config import CUSTOM_VOICE_SPEAKERS

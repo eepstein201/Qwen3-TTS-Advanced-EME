@@ -136,6 +136,9 @@ _FLAG_MAP = {
     "backend": ("--backend", str),
     "model_size": ("--model-size", str),
     "server_mode": ("--_server-mode", bool),
+    "list_speakers": ("--list-speakers", bool),
+    "list_presets": ("--list-presets", bool),
+    "list_prosody": ("--list-prosody", bool),
     "text_override": ("--text-override", str),
     # Advanced mode flags
     "batch": ("--batch", str),
@@ -285,6 +288,17 @@ def _misc_and_hidden_options():
     ]
 
 
+def _info_flag_options():
+    """Legacy `--list-X` info flags, kept reachable from Click (T2.6)."""
+    return [
+        click.option(
+            "--list-speakers", is_flag=True, help="List premium CustomVoice speakers"
+        ),
+        click.option("--list-presets", is_flag=True, help="List generation presets"),
+        click.option("--list-prosody", is_flag=True, help="List prosody presets"),
+    ]
+
+
 def _generation_options(f):
     """Apply all generation-related options to a command."""
     decorators = [
@@ -293,6 +307,7 @@ def _generation_options(f):
         *_audio_shaping_options(),
         *_sampling_options(),
         *_misc_and_hidden_options(),
+        *_info_flag_options(),
     ]
     for decorator in reversed(decorators):
         f = decorator(f)
@@ -304,8 +319,15 @@ def _generation_options(f):
 # ---------------------------------------------------------------------------
 
 
-@cli.command()
-@click.argument("text", nargs=-1)
+@cli.command(
+    epilog="""\b
+Examples:
+  tts "Hello, world!" -o hello
+  tts "Bonjour" -m clone -p narrator -o output
+  tts "Welcome" -m custom -s ryan --prosody excited
+"""
+)
+@click.argument("text", nargs=-1, metavar="TEXT")
 @_generation_options
 def generate(text, **kwargs):
     """Generate audio from text.
@@ -353,7 +375,13 @@ def ui(port, share, no_browser):
     ui_command(port, share, no_browser)
 
 
-@cli.command()
+@cli.command(
+    epilog="""\b
+Examples:
+  tts history
+  tts history 20
+"""
+)
 @click.argument("count", default=10, type=int, required=False)
 def history(count):
     """Show last N generations (default: 10)."""
@@ -371,7 +399,13 @@ def stats():
 # ---------------------------------------------------------------------------
 
 
-@cli.command()
+@cli.command(
+    epilog="""\b
+Examples:
+  tts batch requests.json
+  tts batch requests.json -o output_dir
+"""
+)
 @click.argument("file", type=click.Path(exists=True))
 @_generation_options
 def batch(file, **kwargs):
@@ -379,7 +413,12 @@ def batch(file, **kwargs):
     _call_generate(batch=file, **kwargs)
 
 
-@cli.command()
+@cli.command(
+    epilog="""\b
+Examples:
+  tts srt subtitles.srt -o narration
+"""
+)
 @click.argument("file", type=click.Path(exists=True))
 @_generation_options
 def srt(file, **kwargs):
@@ -387,7 +426,13 @@ def srt(file, **kwargs):
     _call_generate(srt=file, **kwargs)
 
 
-@cli.command()
+@cli.command(
+    epilog="""\b
+Examples:
+  tts dialogue conversation.json
+  tts dialogue conversation.json --save-individual
+"""
+)
 @click.argument("file", type=click.Path(exists=True))
 @click.option(
     "--save-individual", is_flag=True, help="Save individual audio files for each line"
@@ -418,7 +463,12 @@ def watch(directory, **kwargs):
 # ---------------------------------------------------------------------------
 
 
-@cli.command()
+@cli.command(
+    epilog="""\b
+Examples:
+  tts doctor
+"""
+)
 def doctor():
     """Check TTS installation health."""
     doctor_command()

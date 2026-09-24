@@ -239,6 +239,12 @@ def _build_parser():
         help="Max chars per chunk for long text (default: 500 from config, 0 to disable)",
     )
     parser.add_argument(
+        "--max-new-tokens",
+        type=int,
+        dest="max_new_tokens",
+        help="Max new tokens per chunk (default: 2048 from config)",
+    )
+    parser.add_argument(
         "--backend",
         choices=["torch", "mlx"],
         help="Override backend for this run (default: from config.json)",

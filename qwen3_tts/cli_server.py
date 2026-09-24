@@ -79,7 +79,13 @@ def _start_via_pm2(name, config, public):
     sys.exit(1)
 
 
-@server.command()
+@server.command(
+    epilog="""\b
+Examples:
+  tts server start
+  tts server start --foreground
+"""
+)
 @click.option("--public", is_flag=True, help="Bind to 0.0.0.0")
 @click.option(
     "--foreground", is_flag=True, help="Run in foreground (for Colab/notebooks)"
@@ -289,7 +295,12 @@ def _stop_via_pm2(name, config, port):
     sys.exit(1)
 
 
-@server.command()
+@server.command(
+    epilog="""\b
+Examples:
+  tts server stop
+"""
+)
 def stop():
     """Stop the TTS server."""
     from qwen3_tts.core.config import (

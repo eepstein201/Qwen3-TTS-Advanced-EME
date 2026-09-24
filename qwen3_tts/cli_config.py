@@ -58,7 +58,9 @@ def show():
     click.echo(json.dumps(load_config(), indent=2))
 
 
-def _apply_advanced_edits(adv, backend, model_size, mlx_quantization, torch_quantization):
+def _apply_advanced_edits(
+    adv, backend, model_size, mlx_quantization, torch_quantization
+):
     """Apply advanced-section option overrides. Returns (new_adv, change_descriptions)."""
     changes = []
 
@@ -143,7 +145,13 @@ def _save_config_edits(top, adv, changes):
         click.echo(f"  • {change}")
 
 
-@config.command()
+@config.command(
+    epilog="""\b
+Examples:
+  tts config edit
+  tts config edit --backend mlx --model-size 1.7B
+"""
+)
 @click.option(
     "--backend",
     type=click.Choice(["mlx", "torch", "vllm"]),
@@ -195,7 +203,9 @@ def edit(
     adv, adv_changes = _apply_advanced_edits(
         adv, backend, model_size, mlx_quantization, torch_quantization
     )
-    top, top_changes = _apply_top_level_edits(top, language, output_dir, voice_description)
+    top, top_changes = _apply_top_level_edits(
+        top, language, output_dir, voice_description
+    )
     changes = adv_changes + top_changes
 
     # If no options provided, fall back to interactive voice description editor

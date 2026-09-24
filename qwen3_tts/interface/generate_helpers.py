@@ -628,5 +628,7 @@ def get_generation_params(args, config):
         params["repetition_penalty"] = args.repetition_penalty
     if args.seed is not None:
         params["seed"] = args.seed
+    if getattr(args, "max_new_tokens", None) is not None:
+        params["max_new_tokens"] = args.max_new_tokens
 
     return params
