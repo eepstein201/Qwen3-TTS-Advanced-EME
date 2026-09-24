@@ -9,7 +9,7 @@ import sys
 
 import click
 
-from qwen3_tts import cli_output
+from qwen3_tts import cli_output, cli_tables
 
 # ---------------------------------------------------------------------------
 # voice group
@@ -57,14 +57,8 @@ def voice_list():
     from qwen3_tts.interface.generate import list_voice_prompts
 
     prompts = list_voice_prompts()
-    if not prompts:
-        click.echo("No voice prompts found.")
-        return
-    click.echo("Available voice prompts:")
     default = get_default_clone_prompt()
-    for p in prompts:
-        marker = " (default)" if p == default else ""
-        click.echo(f"  {p}{marker}")
+    click.echo(cli_tables.render_voice_prompts(prompts, default=default))
 
 
 @voice.command()
@@ -81,7 +75,9 @@ def voice_list():
     "--no-transcript", is_flag=True, help="Skip transcript (use speaker embedding only)"
 )
 @click.option("--auto-transcribe", is_flag=True, help="Auto-transcribe with ASR")
-def create(audio, name, transcript, mlx_only, force_torch, no_transcript, auto_transcribe):
+def create(
+    audio, name, transcript, mlx_only, force_torch, no_transcript, auto_transcribe
+):
     """Create a voice clone from reference audio."""
     argv = []
     if audio:
@@ -340,9 +336,7 @@ def speakers():
     """List premium CustomVoice speakers."""
     from qwen3_tts.core.config import CUSTOM_VOICE_SPEAKERS
 
-    click.echo("Premium CustomVoice speakers:")
-    for key, info in CUSTOM_VOICE_SPEAKERS.items():
-        click.echo(f"  {key:12s} ({info['lang']}) - {info['desc']}")
+    click.echo(cli_tables.render_speakers(CUSTOM_VOICE_SPEAKERS))
 
 
 @list_group.command()
@@ -352,13 +346,7 @@ def presets():
 
     config = load_config()
     preset_dict = config.get("presets", {})
-    if not preset_dict:
-        click.echo("No presets configured.")
-        return
-    click.echo("Generation presets:")
-    for name, params in preset_dict.items():
-        parts = [f"{k}={v}" for k, v in params.items()]
-        click.echo(f"  {name}: {', '.join(parts)}")
+    click.echo(cli_tables.render_presets(preset_dict))
 
 
 @list_group.command()
@@ -389,12 +377,7 @@ def prosody():
     from qwen3_tts.core.config import get_prosody_presets
 
     presets = get_prosody_presets()
-    if not presets:
-        click.echo("No prosody presets configured.")
-        return
-    click.echo("Prosody presets:")
-    for name, text in sorted(presets.items()):
-        click.echo(f"  {name:12s} {text}")
+    click.echo(cli_tables.render_prosody(presets))
 
 
 @list_group.command()

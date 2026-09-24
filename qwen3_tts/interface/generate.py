@@ -20,7 +20,7 @@ import sys
 
 logger = logging.getLogger("tts.cli")
 
-from qwen3_tts import cli_output  # noqa: E402
+from qwen3_tts import cli_output, cli_tables  # noqa: E402
 from qwen3_tts.core.config import (  # noqa: E402
     CONFIG_PATH,
     CUSTOM_VOICE_SPEAKERS,
@@ -408,19 +408,13 @@ def _handle_info_commands(args, config, gen_params):
 
     if args.list_prompts or args.voices:
         prompts = list_voice_prompts()
-        print("Available voice prompts:")
-        for p in prompts:
-            default_marker = (
-                " (default)" if p == config.get("default_clone_prompt") else ""
-            )
-            print(f"  - {p}{default_marker}")
+        default = config.get("default_clone_prompt")
+        print(cli_tables.render_voice_prompts(prompts, default=default))
         return False
 
     if args.list_presets:
         presets = config.get("presets", {})
-        print("Available presets:")
-        for name, settings in presets.items():
-            print(f"  - {name}: {settings}")
+        print(cli_tables.render_presets(presets))
         return False
 
     if args.list_aliases:
@@ -443,29 +437,14 @@ def _handle_info_commands(args, config, gen_params):
         from qwen3_tts.core.config import get_prosody_presets
 
         presets = get_prosody_presets(config)
-        print("Available prosody presets (use with --prosody PRESET):\n")
-        for name, text in sorted(presets.items()):
-            print(f"  {name:<18} {text}")
+        print(cli_tables.render_prosody(presets))
         print()
         print('Example: tts -m custom -s ryan --prosody excited "Hello!" -o output')
         print(f"\nCustomize in {CONFIG_PATH} under 'prosody_presets'.")
         return False
 
     if args.list_speakers:
-        print("Premium CustomVoice speakers (use with -m custom -s SPEAKER):")
-        print()
-        for group_name, lang_filter in [("English", "English"), ("Chinese", "Chinese")]:
-            print(f"  {group_name}:")
-            for key, info in CUSTOM_VOICE_SPEAKERS.items():
-                if info["lang"] == lang_filter:
-                    print(f"    {key:<12} - {info['desc']}")
-            print()
-        print("  Other languages:")
-        for key, info in CUSTOM_VOICE_SPEAKERS.items():
-            if info["lang"] not in ("English", "Chinese"):
-                print(f"    {key:<12} - {info['desc']} ({info['lang']})")
-        print()
-        print("Example: tts 'Hello world' -m custom -s ryan -o output")
+        print(cli_tables.render_speakers(CUSTOM_VOICE_SPEAKERS))
         return False
 
     if args.list_models:

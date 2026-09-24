@@ -161,19 +161,23 @@ def render_table(
     rows: Sequence[Mapping[str, object]],
     *,
     indent: str = "  ",
+    header: bool = True,
     empty_message: str | None = None,
 ) -> str:
     """Render a table as a pure string; never prints.
 
     Rows are mappings keyed by ``Column.key``. Empty ``rows`` yield
-    ``empty_message`` verbatim when given, else ``""``.
+    ``empty_message`` verbatim when given, else ``""``. ``header=False``
+    skips the title/separator lines for list-style output with no header row.
     """
     if not rows:
         return empty_message or ""
-    lines = [
-        indent + "  ".join(_cell(column.title, column) for column in columns),
-        indent + "  ".join("-" * column.width for column in columns),
-    ]
+    lines = []
+    if header:
+        lines.append(
+            indent + "  ".join(_cell(column.title, column) for column in columns)
+        )
+        lines.append(indent + "  ".join("-" * column.width for column in columns))
     for row in rows:
         lines.append(
             indent
