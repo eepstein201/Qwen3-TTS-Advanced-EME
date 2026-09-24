@@ -79,8 +79,8 @@ class TestCheckConfig(unittest.TestCase):
     def test_config_exists_valid(self):
         from qwen3_tts.tools.healthcheck import check_config
         mock_config = {"advanced": {"backend": "mlx", "model_size": "1.7B"}}
-        with patch(f"{_MOD}.CONFIG_PATH", "/tmp/fake_config.json"), \
-             patch("pathlib.Path.exists", return_value=True), \
+        with patch("qwen3_tts.core.config.resolve_config_read_path", return_value="/tmp/fake_config.json"), \
+             patch(f"{_MOD}.os.path.exists", return_value=True), \
              patch("qwen3_tts.core.config.load_config", return_value=mock_config), \
              patch("qwen3_tts.core.config.validate_config", return_value=({}, [])):
             status, details = check_config()
@@ -89,8 +89,8 @@ class TestCheckConfig(unittest.TestCase):
 
     def test_config_exists_with_issues(self):
         from qwen3_tts.tools.healthcheck import check_config
-        with patch(f"{_MOD}.CONFIG_PATH", "/tmp/fake_config.json"), \
-             patch("pathlib.Path.exists", return_value=True), \
+        with patch("qwen3_tts.core.config.resolve_config_read_path", return_value="/tmp/fake_config.json"), \
+             patch(f"{_MOD}.os.path.exists", return_value=True), \
              patch("qwen3_tts.core.config.load_config", return_value={}), \
              patch("qwen3_tts.core.config.validate_config", return_value=({}, ["issue1", "issue2"])):
             status, details = check_config()
@@ -99,16 +99,16 @@ class TestCheckConfig(unittest.TestCase):
 
     def test_config_missing(self):
         from qwen3_tts.tools.healthcheck import check_config
-        with patch(f"{_MOD}.CONFIG_PATH", "/nonexistent/config.json"), \
-             patch("pathlib.Path.exists", return_value=False):
+        with patch("qwen3_tts.core.config.resolve_config_read_path", return_value="/nonexistent/config.json"), \
+             patch(f"{_MOD}.os.path.exists", return_value=False):
             status, details = check_config()
         self.assertEqual(status, "warn")
         self.assertIn("not found", details)
 
     def test_config_load_error(self):
         from qwen3_tts.tools.healthcheck import check_config
-        with patch(f"{_MOD}.CONFIG_PATH", "/tmp/fake.json"), \
-             patch("pathlib.Path.exists", return_value=True), \
+        with patch("qwen3_tts.core.config.resolve_config_read_path", return_value="/tmp/fake.json"), \
+             patch(f"{_MOD}.os.path.exists", return_value=True), \
              patch("qwen3_tts.core.config.load_config", side_effect=ValueError("bad json")), \
              patch("qwen3_tts.core.config.validate_config", return_value=({}, [])):
             status, details = check_config()

@@ -4,7 +4,9 @@
 
 ## Configuration File Location
 
-The main configuration file lives at the repository root: `config.json`.
+The runtime configuration file lives at `~/.config/qwen3-tts/config.json` (next to the auth token), outside the checkout, so user-named values such as saved presets never land in a version-controlled file. `tts config path` prints it.
+
+Reads fall back in order: `~/.config/qwen3-tts/config.json` → the legacy `~/Qwen3-TTS_UserFiles/config.json` (logs a warning naming the migration) → the repo-root `config.json`, which is the tracked stock default CI reads. Writes (`tts config edit`, the web UI's preset save/delete) always go to `~/.config/qwen3-tts/config.json`, creating the directory if needed — never to either fallback. To migrate an existing install, see RUNBOOK.md → "Migrating config.json to ~/.config/qwen3-tts".
 
 The on-disk `config.json` is a **sparse override** — it only needs the keys you want to change. Any key it omits falls back to the built-in default from `get_default_config()`. On load, `validate_config()` fills in missing sections (for example, it adds a default `security.rate_limits` block).
 

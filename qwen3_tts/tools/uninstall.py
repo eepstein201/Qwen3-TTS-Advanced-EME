@@ -11,7 +11,6 @@ import shutil
 import sys
 
 from qwen3_tts.core.config import (
-    CONFIG_PATH,
     HF_CACHE,
     HISTORY_FILE,
     LOG_FILE,
@@ -157,7 +156,10 @@ def uninstall_config(dry_run: bool = False) -> None:
     Args:
         dry_run: If True, preview what would be done without doing it.
     """
-    if not CONFIG_PATH.exists():
+    from qwen3_tts.core.config import CONFIG_PATH, resolve_config_read_path
+
+    read_path = resolve_config_read_path()
+    if not os.path.exists(read_path):
         print_info("No config.json found (will be created with defaults on next use).")
         return
 
@@ -171,10 +173,12 @@ def uninstall_config(dry_run: bool = False) -> None:
     # Import config utilities
     from qwen3_tts.core.config import get_default_config, load_config, save_config
 
-    # Backup current config
-    backup_path = CONFIG_PATH.with_suffix(".backup")
+    # Backup the config in effect beside the canonical path, never into the
+    # checkout (a legacy config.json holds user-named presets).
+    backup_path = os.path.splitext(CONFIG_PATH)[0] + ".backup"
     try:
-        shutil.copy2(CONFIG_PATH, backup_path)
+        os.makedirs(os.path.dirname(backup_path), mode=0o700, exist_ok=True)
+        shutil.copy2(read_path, backup_path)
         print_info(f"Backup saved to: {backup_path}")
     except OSError as e:
         print_warning(f"Could not create backup: {e}")

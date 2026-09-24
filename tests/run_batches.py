@@ -59,6 +59,7 @@ BATCHES = {
             "tests.test_batched_testcase_hygiene",
             "tests.test_e2e_harness_hygiene",
             "tests.test_config",
+            "tests.test_config_relocation",
             "tests.test_p3_p4_remediation",
             "tests.test_lufs_return_shape",
             "tests.test_clone_rate_control",

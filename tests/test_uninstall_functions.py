@@ -10,6 +10,7 @@ Covers:
   - print_environment_instructions: env detection paths
   - main: CLI entry point with various flags
 """
+import contextlib
 import json
 import pathlib
 import tempfile
@@ -367,6 +368,15 @@ class TestUninstallVoices(unittest.TestCase):
 # uninstall_config
 # ---------------------------------------------------------------------------
 
+def _config_at(path):
+    """Point both the canonical config path and the read chain at ``path``."""
+    stack = contextlib.ExitStack()
+    stack.enter_context(mock.patch("qwen3_tts.core.config.CONFIG_PATH", str(path)))
+    stack.enter_context(mock.patch(
+        "qwen3_tts.core.config.resolve_config_read_path", return_value=str(path)))
+    return stack
+
+
 class TestUninstallConfig(unittest.TestCase):
     """Tests for uninstall_config."""
 
@@ -376,8 +386,7 @@ class TestUninstallConfig(unittest.TestCase):
 
         with tempfile.TemporaryDirectory() as tmpdir:
             fake_config = pathlib.Path(tmpdir) / "config.json"
-            with mock.patch("qwen3_tts.tools.uninstall.CONFIG_PATH",
-                            fake_config):
+            with _config_at(fake_config):
                 with mock.patch("builtins.print") as mock_print:
                     uninstall_config()
 
@@ -393,8 +402,7 @@ class TestUninstallConfig(unittest.TestCase):
             original_data = {"key": "original_value"}
             config_path.write_text(json.dumps(original_data))
 
-            with mock.patch("qwen3_tts.tools.uninstall.CONFIG_PATH",
-                            config_path):
+            with _config_at(config_path):
                 with mock.patch("builtins.print") as mock_print:
                     uninstall_config(dry_run=True)
 
@@ -417,9 +425,7 @@ class TestUninstallConfig(unittest.TestCase):
             config_path = pathlib.Path(tmpdir) / "config.json"
             config_path.write_text(json.dumps({"key": "old"}))
 
-            with mock.patch("qwen3_tts.tools.uninstall.CONFIG_PATH",
-                            config_path), mock.patch(
-                "qwen3_tts.core.config.CONFIG_PATH", config_path):
+            with _config_at(config_path):
                 uninstall_config()
 
             # Backup should exist
@@ -443,9 +449,7 @@ class TestUninstallConfig(unittest.TestCase):
             config_path = pathlib.Path(tmpdir) / "config.json"
             config_path.write_text("not json")
 
-            with mock.patch("qwen3_tts.tools.uninstall.CONFIG_PATH",
-                            config_path), mock.patch(
-                "qwen3_tts.core.config.CONFIG_PATH", config_path):
+            with _config_at(config_path):
                 uninstall_config()
 
             with open(config_path) as f:
@@ -466,9 +470,7 @@ class TestUninstallConfig(unittest.TestCase):
             config_path = pathlib.Path(tmpdir) / "config.json"
             config_path.write_text(json.dumps({"key": "old"}))
 
-            with mock.patch("qwen3_tts.tools.uninstall.CONFIG_PATH",
-                            config_path), mock.patch(
-                "qwen3_tts.core.config.CONFIG_PATH", config_path):
+            with _config_at(config_path):
                 with mock.patch("builtins.print") as mock_print:
                     uninstall_config()
 
@@ -495,8 +497,7 @@ class TestUninstallConfig(unittest.TestCase):
             config_path = pathlib.Path(tmpdir) / "config.json"
             config_path.write_text(json.dumps({"key": "old"}))
 
-            with mock.patch("qwen3_tts.tools.uninstall.CONFIG_PATH",
-                            config_path):
+            with _config_at(config_path):
                 uninstall_config()
 
         mock_save.assert_called_once_with({"reset": True})

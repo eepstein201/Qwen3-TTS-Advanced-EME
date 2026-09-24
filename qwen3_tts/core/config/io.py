@@ -24,7 +24,7 @@ from typing import Any
 logger = logging.getLogger("tts.config")
 
 _config_lock = threading.Lock()
-_config_cache: dict[str, Any] = {"data": None, "mtime": 0}
+_config_cache: dict[str, Any] = {"data": None, "mtime": 0, "path": None}
 
 
 def _validate_rate_limit_string(limit_str: str) -> bool:
@@ -180,6 +180,25 @@ def validate_config(config: dict) -> tuple[dict, list[str]]:
     return result, issues
 
 
+def resolve_config_read_path() -> str:
+    """Return the config file reads should use: the first that exists of
+    CONFIG_PATH (canonical), the legacy UserFiles location, and the tracked
+    repo-root default. Falls back to CONFIG_PATH when none exists, so a
+    missing config surfaces as FileNotFoundError on the canonical path.
+    Writes never use this — save_config() always targets CONFIG_PATH.
+    """
+    from qwen3_tts.core.config import (
+        _LEGACY_CONFIG_PATH,
+        _REPO_CONFIG_PATH,
+        CONFIG_PATH,
+    )
+
+    for path in (CONFIG_PATH, _LEGACY_CONFIG_PATH, _REPO_CONFIG_PATH):
+        if os.path.exists(path):
+            return str(path)
+    return str(CONFIG_PATH)
+
+
 def load_config() -> dict:
     """Load configuration from config.json with mtime-based caching.
 
@@ -190,29 +209,44 @@ def load_config() -> dict:
         QWEN3_TTS_BACKEND: If set, overrides the backend setting in config.
                            Useful for testing in different environments.
     """
-    from qwen3_tts.core.config import CONFIG_PATH, VALID_BACKENDS
+    from qwen3_tts.core.config import (
+        _LEGACY_CONFIG_PATH,
+        CONFIG_PATH,
+        VALID_BACKENDS,
+        resolve_config_read_path,
+    )
 
     with _config_lock:
+        read_path = resolve_config_read_path()
         try:
-            current_mtime = os.path.getmtime(CONFIG_PATH)
+            current_mtime = os.path.getmtime(read_path)
         except OSError:
             current_mtime = 0
 
         if (
             _config_cache["data"] is not None
             and current_mtime == _config_cache["mtime"]
+            and read_path == _config_cache.get("path")
         ):
             return copy.deepcopy(_config_cache["data"])
 
+        if read_path == str(_LEGACY_CONFIG_PATH):
+            logger.warning(
+                "Reading config from legacy path %s — copy it to %s "
+                "(see docs/RUNBOOK.md); saves already go there",
+                read_path,
+                CONFIG_PATH,
+            )
         try:
-            with open(CONFIG_PATH) as f:
+            with open(read_path) as f:
                 data = json.load(f)
         except json.JSONDecodeError as e:
             raise ValueError(
                 f"config.json is corrupt or invalid JSON: {e}\n"
-                f"Run 'tts config' to reset, or fix {CONFIG_PATH} manually."
+                f"Run 'tts config' to reset, or fix {read_path} manually."
             ) from e
         _config_cache["mtime"] = current_mtime
+        _config_cache["path"] = read_path
         from qwen3_tts.core.config import validate_config as _validate_config
 
         try:
@@ -223,7 +257,7 @@ def load_config() -> dict:
             # never quietly ignored.
             raise ValueError(
                 f"config.json is not a valid config object: {e}\n"
-                f"Run 'tts config' to reset, or fix {CONFIG_PATH} manually."
+                f"Run 'tts config' to reset, or fix {read_path} manually."
             ) from e
 
         # Allow environment variable override for backend (useful for test runner)
@@ -240,6 +274,8 @@ def load_config() -> dict:
 def save_config(config: dict) -> None:
     """Save configuration to config.json and invalidate the cache.
 
+    Always writes to CONFIG_PATH (creating its directory), never to the legacy
+    or repo-root locations load_config() may have read from.
     Writes atomically: serialize to a temp file in the same directory, fsync,
     then os.replace() onto the target (atomic on POSIX). This guarantees a crash
     mid-write leaves the previous config.json intact rather than truncated.
@@ -249,6 +285,7 @@ def save_config(config: dict) -> None:
 
     with _config_lock:
         config_dir = os.path.dirname(CONFIG_PATH) or "."
+        os.makedirs(config_dir, mode=0o700, exist_ok=True)
         fd, tmp_path = tempfile.mkstemp(
             dir=config_dir, prefix=".config.", suffix=".tmp"
         )
@@ -267,6 +304,7 @@ def save_config(config: dict) -> None:
             raise
         _config_cache["data"] = None
         _config_cache["mtime"] = 0
+        _config_cache["path"] = None
 
 
 def get_default_config(current_config: dict | None = None) -> dict:

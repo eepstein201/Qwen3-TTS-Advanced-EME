@@ -47,8 +47,8 @@ class TestCheckConfig(unittest.TestCase):
         """Returns warn when config file doesn't exist."""
         from qwen3_tts.tools.healthcheck import check_config
 
-        with mock.patch('qwen3_tts.tools.healthcheck.CONFIG_PATH') as mock_path:
-            mock_path.exists.return_value = False
+        with mock.patch('qwen3_tts.core.config.resolve_config_read_path',
+                        return_value='/nonexistent/config.json'):
             status, details = check_config()
             self.assertEqual(status, "warn")
             self.assertIn("not found", details.lower())
