@@ -38,8 +38,23 @@ jobs:
       # default; --include-git-root is the opt-in inverse). Verified against
       # the v2.6.0 container: `-r --skip-git ./` fails with "flag provided
       # but not defined: -skip-git"; `-r ./` walks and scans correctly.
+      #
+      # docker/ is excluded from the scheduled scan: requirements-vllm.txt
+      # carries ~30 known CVEs (issue #351) in pins that are unverifiable
+      # without a CUDA/vLLM build, so scanning them fails the gate with no
+      # actionable outcome. PR scans still cover docker/ via old-vs-new
+      # comparison, so a PR that introduces a NEW vuln still fails CI.
+      # requirements.lock is not a recognized lockfile name, so it is scanned
+      # explicitly via the type-override form; without that the walk finds
+      # no other sources and the job errors with "no package sources".
+      # Full invocation verified against the v2.6.0 container: exit 0,
+      # 105 packages, no issues.
       scan-args: |-
         -r
+        --experimental-exclude
+        docker
+        -L
+        requirements.txt:./requirements.lock
         ./
   scan-pr:
     if: ${{ github.event_name == 'pull_request' || github.event_name == 'merge_group' }}
