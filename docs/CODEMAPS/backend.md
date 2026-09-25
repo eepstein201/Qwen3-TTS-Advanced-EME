@@ -5,7 +5,7 @@
 Base `http://127.0.0.1:5123`. Bearer-token auth on all endpoints except the public set.
 
 ## Routes (24, all registered in `app.py`; grouped by handler module)
-Rate-limit column: `_rate_limit(...)` decorator (all hybrid IP+token); every route also sits under the 120/min global pre-auth ceiling.
+Rate-limit column: `_rate_limit(...)` decorator (all hybrid IP+token); every HTTP route also sits under the 120/min global pre-auth ceiling — `/ws` does not (`SlowAPIMiddleware` subclasses Starlette's `BaseHTTPMiddleware`, which passes non-`http` ASGI scopes straight through untouched); `/ws` is bounded instead by its own per-IP `_ws_try_acquire` connection cap.
 - **Inline in `app.py`** — GET `/health`, `/ready`, `/generation-status`, `/queue-status` (public); POST `/cancel-generation`, `/shutdown`
 - **`app_generation.py`** — POST `/generate` → `handle_generate(request, state, req, security, config_provider)` [generate]; POST `/generate-stream` → `handle_generate_stream(...)` [generate]
 - **`websocket.py`** — WS `/ws` → `websocket_tts_handler(websocket, app_state, verify_token_fn, config_provider=None)` (no decorator; auth = first message)
@@ -14,7 +14,7 @@ Rate-limit column: `_rate_limit(...)` decorator (all hybrid IP+token); every rou
 
 **Public (no auth):** `/health` `/ready` `/generation-status` `/queue-status` — no `Depends(verify_auth)`; every other HTTP route declares it. `/generation-status` adds `batch_total`/`chunk_total` (+ `progress_pct`/`eta_sec` while active and known) only when `request_is_authed(request)` — helpers `chunk_progress_pct` / `estimate_eta_sec` in `app_lifespan.py`; this is the web UI's live-progress source.
 
-18 routes carry a Pydantic `response_model=` (`server/validation.py`, 33 models total). Untyped: binary `/generate-stream`, `/ws`, `/preview-prompt`, `/shutdown`, plus `/cancel-generation` (plain dict: `status` + `generation_id`). Guarded by `tests/test_response_contracts.py`.
+19 routes carry a Pydantic `response_model=` (18 distinct model classes in `server/validation.py`, 33 models total — `ModelOpResponse` covers both `/load-model` and `/unload-model`). Untyped: binary `/generate-stream`, `/ws`, `/preview-prompt`, `/shutdown`, plus `/cancel-generation` (plain dict: `status`, `generation_id` only when a generation was actually targeted). Guarded by `tests/test_response_contracts.py`.
 
 ## Middleware & Security (`app.py`)
 - **Order (outer → inner):** `SlowAPIMiddleware` (global IP-keyed ceiling) → `security_headers` (nosniff, `X-Frame-Options: DENY`, Referrer-Policy) → `RequestBodySizeLimitMiddleware` (~100 MB, no buffering, `Content-Length` fast path) → `CORSMiddleware` → ExceptionMiddleware → routing → `Depends(verify_auth)` → per-route `_rate_limit`
