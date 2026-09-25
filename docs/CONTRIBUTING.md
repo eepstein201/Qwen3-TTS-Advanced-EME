@@ -128,8 +128,9 @@ qwen3-tts/
 
 ### Test Suite Overview
 
-The project has **~4.1k tests** across 215 modules, organized into 6 batches
-(module counts from the `BATCHES` dict in `tests/run_batches.py`):
+The project has **~4.1k tests** across 215 modules; 196 of them are organized
+into 6 batches (module counts from the `BATCHES` dict in
+`tests/run_batches.py`), the rest are deliberately unbatched (see note below):
 
 | Batch | Name | Modules | Description | Server Required |
 |-------|------|---------|-------------|-----------------|
