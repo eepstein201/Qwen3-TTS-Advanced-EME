@@ -118,7 +118,7 @@ qwen3-tts/
 │   ├── server/            # FastAPI server and client
 │   ├── interface/         # CLI and Gradio UI
 │   └── tools/             # Utilities (healthcheck, cache, voice)
-├── tests/                  # Test suite (3,200+ tests)
+├── tests/                  # Test suite (~4.1k tests)
 ├── docs/                   # Documentation
 ├── config.json             # Configuration file
 └── pyproject.toml          # Package metadata
@@ -128,8 +128,9 @@ qwen3-tts/
 
 ### Test Suite Overview
 
-The project has **3,200+ tests** across 184 modules, organized into 6 batches
-(module counts from the `BATCHES` dict in `tests/run_batches.py`):
+The project has **~4.1k tests** across 215 modules; 196 of them are organized
+into 6 batches (module counts from the `BATCHES` dict in
+`tests/run_batches.py`), the rest are deliberately unbatched (see note below):
 
 | Batch | Name | Modules | Description | Server Required |
 |-------|------|---------|-------------|-----------------|
@@ -262,8 +263,10 @@ ruff check --fix qwen3_tts/ tests/
 
 ### Type Checking
 
-Static typing is checked with **mypy** (config in `pyproject.toml`; FastAPI
-`app.py` and vLLM modules are excluded):
+Static typing is checked with **mypy** (config in `pyproject.toml`; only
+`tests/`, `build/`, `colab_notebook.ipynb`, and the vLLM modules
+(`server/vllm_client.py`, `core/engine_vllm.py`) are excluded — `app.py`
+IS type-checked):
 
 ```bash
 mypy qwen3_tts/{core,server,interface}

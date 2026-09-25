@@ -35,7 +35,7 @@ These are the environment variables actually read by the TTS code.
 | `TTS_RATE_LIMIT_TRANSCRIBE` | No | Override `security.rate_limits.transcribe` (`/transcribe`). | `30/minute` |
 | `TTS_RATE_LIMIT_PROMPT_OPS` | No | Override `security.rate_limits.prompt_ops` (prompt create/delete/rename). | `30/minute` |
 | `TTS_RATE_LIMIT_CONFIG_OPS` | No | Override `security.rate_limits.config_ops` (`/update-startup-config`). | `5/minute` |
-| `TTS_RATE_LIMIT_GLOBAL` | No | Override the global pre-auth ceiling (`security.rate_limits.global`), applied to **all** routes. | `240/minute` |
+| `TTS_RATE_LIMIT_GLOBAL` | No | Override the global pre-auth ceiling (`security.rate_limits.global`), applied to **all HTTP** routes (`/ws` is excluded — see [`rate-limiting.md`](rate-limiting.md)). | `240/minute` |
 | `TTS_DISABLE_RATE_LIMITING` | No | Test/CI kill-switch: `1` makes every rate-limit decorator and the global limiter a no-op. For local E2E/CI servers only — production leaves it unset. | `1` |
 
 All `TTS_RATE_LIMIT_*` and `TTS_DISABLE_RATE_LIMITING` values are read **once at server import** (`qwen3_tts/server/app.py`) — restart the server to apply a change.
@@ -110,7 +110,7 @@ Every table below reflects `get_default_config()` defaults.
 | `security.rate_limits.transcribe` | string | `"10/minute"` | Rate limit for `/transcribe`. |
 | `security.rate_limits.prompt_ops` | string | `"10/minute"` | Rate limit for prompt create/delete/rename. |
 | `security.rate_limits.config_ops` | string | `"2/minute"` | Rate limit for `/update-startup-config`. |
-| `security.rate_limits.global` | string | `"120/minute"` | Global pre-auth ceiling on **all** routes (IP-keyed middleware). Deliberately decoupled from the per-route limits above — it must stay above the Gradio UI's ~24/min `/health`+`/models` polling, or `/health` 429s and the UI reports "Disconnected / Server not running". Override via `TTS_RATE_LIMIT_GLOBAL`. |
+| `security.rate_limits.global` | string | `"120/minute"` | Global pre-auth ceiling on **all HTTP** routes (IP-keyed middleware; `/ws` is excluded — bounded instead by its own per-IP connection cap). Deliberately decoupled from the per-route limits above — it must stay above the Gradio UI's ~24/min `/health`+`/models` polling, or `/health` 429s and the UI reports "Disconnected / Server not running". Override via `TTS_RATE_LIMIT_GLOBAL`. |
 
 Rate-limit values use slowapi's `"<count>/<unit>"` format (`second`/`minute`/`hour`/`day`). See [`rate-limiting.md`](rate-limiting.md) for strategy details. `security.rate_limits.global` is not part of the `validate_config()` default block — the server supplies the `120/minute` fallback at import (`qwen3_tts/server/app.py`).
 

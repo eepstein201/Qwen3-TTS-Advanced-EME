@@ -659,7 +659,8 @@ chmod 600 ~/.config/qwen3-tts/.voice_server_token
 **Default limits** are per-endpoint-group (slowapi): generation `10/minute`,
 model ops `5/minute`, transcription `10/minute`, prompt operations `10/minute`,
 config operations `2/minute`, plus a global pre-auth ceiling of `120/minute` on all
-routes (flood backstop — keep it above the Gradio UI's ~24/min `/health`+`/models`
+HTTP routes (`/ws` excluded — bounded by its own per-IP connection cap; flood
+backstop — keep the ceiling above the Gradio UI's ~24/min `/health`+`/models`
 polling or the UI shows "Disconnected / Server not running"). See
 [rate-limiting.md](rate-limiting.md) for the full endpoint-wiring table.
 
