@@ -348,7 +348,7 @@ tts config edit                          # Interactive voice description editor
 
 ## Rate Limiting
 
-Rate limiting is **on by default** (no opt-in needed) to prevent abuse and ensure fair resource allocation. It uses **slowapi** — a hard dependency of the `server` extra, so there is nothing extra to install — with support for multiple strategies: per-IP, per-token, and hybrid (both). A global, per-IP, pre-auth ceiling on **all** routes (default `120/minute` via `SlowAPIMiddleware`) also applies, so unauthenticated floods cannot bypass the per-route limits entirely.
+Rate limiting is **on by default** (no opt-in needed) to prevent abuse and ensure fair resource allocation. It uses **slowapi** — a hard dependency of the `server` extra, so there is nothing extra to install — with support for multiple strategies: per-IP, per-token, and hybrid (both). A global, per-IP, pre-auth ceiling on **all HTTP** routes (default `120/minute` via `SlowAPIMiddleware`; `/ws` is excluded — bounded instead by its own per-IP connection cap) also applies, so unauthenticated floods cannot bypass the per-route limits entirely.
 
 ### Configuration
 
