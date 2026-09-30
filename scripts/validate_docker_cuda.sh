@@ -63,7 +63,7 @@ docker build -f Dockerfile -t "$IMAGE_TAG" .
 
 # --- run with GPU + the HF cache volume ----------------------------------------
 # Config and voice_prompts are intentionally NOT bind-mounted: the image bakes
-# config.json in and symlinks the UserFiles paths, and this gate verifies those
+# config.json in and symlinks the config/UserFiles paths, and this gate verifies those
 # Dockerfile-declared symlinks resolve. Only the HF cache is mounted, so models
 # are not re-downloaded on every run.
 log "starting container $CONTAINER (GPU, port 5123, HF cache volume)..."
@@ -98,9 +98,9 @@ log "check: GPU visible inside the container"
 docker exec "$CONTAINER" nvidia-smi -L >/dev/null \
   || fail "nvidia-smi not visible inside the container (GPU passthrough failed)"
 
-log "check: symlinked config resolves (/root/Qwen3-TTS_UserFiles/config.json)"
-docker exec "$CONTAINER" test -f /root/Qwen3-TTS_UserFiles/config.json \
-  || fail "config.json not reachable at the Dockerfile's symlinked UserFiles path"
+log "check: symlinked config resolves (/root/.config/qwen3-tts/config.json)"
+docker exec "$CONTAINER" test -f /root/.config/qwen3-tts/config.json \
+  || fail "config.json not reachable at the Dockerfile's symlinked config path"
 
 log "check: symlinked voice_prompts resolves (/root/Qwen3-TTS_UserFiles/voice_prompts)"
 docker exec "$CONTAINER" test -d /root/Qwen3-TTS_UserFiles/voice_prompts \

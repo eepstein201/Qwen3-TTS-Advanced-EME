@@ -80,12 +80,13 @@ COPY --chown=testuser:testuser .claude/hooks/ ./.claude/hooks/
 COPY --chown=testuser:testuser .claude/settings.json ./.claude/settings.json
 
 # Create expected directory structure with symlinks for both root and testuser
-RUN mkdir -p /root/Qwen3-TTS_UserFiles /home/testuser/Qwen3-TTS_UserFiles && \
-    ln -sf /app/config.json /root/Qwen3-TTS_UserFiles/config.json && \
-    ln -sf /app/config.json /home/testuser/Qwen3-TTS_UserFiles/config.json && \
+RUN mkdir -p /root/Qwen3-TTS_UserFiles /home/testuser/Qwen3-TTS_UserFiles \
+             /root/.config/qwen3-tts /home/testuser/.config/qwen3-tts && \
+    ln -sf /app/config.json /root/.config/qwen3-tts/config.json && \
+    ln -sf /app/config.json /home/testuser/.config/qwen3-tts/config.json && \
     ln -sf /app/voice_prompts /root/Qwen3-TTS_UserFiles/voice_prompts && \
     ln -sf /app/voice_prompts /home/testuser/Qwen3-TTS_UserFiles/voice_prompts && \
-    chown -R testuser:testuser /home/testuser/Qwen3-TTS_UserFiles
+    chown -R testuser:testuser /home/testuser/Qwen3-TTS_UserFiles /home/testuser/.config
 
 # Run tests as non-root user
 USER testuser

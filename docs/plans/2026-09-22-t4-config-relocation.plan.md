@@ -1,6 +1,6 @@
 # Track T4 — Relocate the runtime config to `~/.config/qwen3-tts/`
 
-**Status:** SPEC — awaiting go-ahead to implement.
+**Status:** IMPLEMENTED 2026-09-24 (branch `feat/t4-config-relocation`; PR pending). Step 4 (migrate the maintainer install) runs after merge.
 **Raised:** 2026-09-22 (after the T1b merge, #327).
 **Scope decision:** config only. Settled 2026-09-22.
 **Track, not a wave step** — outside the 49-step Open count; never moves that number.

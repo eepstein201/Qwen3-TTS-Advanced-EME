@@ -55,7 +55,7 @@ convention (see CLAUDE.md) applied internally too.
 Internal symbols (prefixed with _) are exported here as well, matching
 qwen3_tts/core/engine/__init__.py's convention, because several are
 themselves patched directly by tests (e.g. ``_has_flash_attn``,
-``_resolve_config_path``).
+``_LEGACY_CONFIG_PATH``).
 """
 
 import copy  # noqa: F401 -- re-exported so dotted-attribute patches resolve
@@ -96,6 +96,7 @@ from qwen3_tts.core.config.io import (
     _validate_rate_limit_string,  # noqa: F401
     get_default_config,
     load_config,
+    resolve_config_read_path,
     save_config,
     validate_config,
 )
@@ -130,7 +131,10 @@ from qwen3_tts.core.config.models import (
 
 # --- paths ---
 from qwen3_tts.core.config.paths import (
+    _CONFIG_DIR,  # noqa: F401
+    _LEGACY_CONFIG_PATH,  # noqa: F401
     _LEGACY_TOKEN_FILE,  # noqa: F401
+    _REPO_CONFIG_PATH,  # noqa: F401
     _TOKEN_DIR,  # noqa: F401
     CONFIG_PATH,
     HF_CACHE,
@@ -144,7 +148,6 @@ from qwen3_tts.core.config.paths import (
     TOKEN_FILE,
     USER_FILES_DIR,
     VOICE_PROMPTS_DIR,
-    _resolve_config_path,  # noqa: F401
 )
 
 # --- pid ---
@@ -249,6 +252,7 @@ __all__ = [
     # io
     "validate_config",
     "load_config",
+    "resolve_config_read_path",
     "save_config",
     "get_default_config",
     # pid
