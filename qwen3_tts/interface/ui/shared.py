@@ -18,6 +18,7 @@ import math
 import os
 import re
 import shutil
+import tempfile
 import threading
 import time
 from typing import TypeGuard
@@ -861,7 +862,12 @@ def save_generation_metadata(wav_path: str, metadata: dict) -> None:
     if not (resolved_wav == home or resolved_wav.startswith(home + os.sep)):
         raise ValueError(f"wav_path must be under home directory: {wav_path}")
 
-    json_path = os.path.splitext(safe_wav_path)[0] + ".json"
+    # Re-check the sidecar itself: it is what gets opened, and a symlinked
+    # .json would otherwise escape the .wav check above. CodeQL only credits
+    # a startswith guard on the exact variable the sink uses (keep it inline).
+    json_path = os.path.realpath(os.path.splitext(safe_wav_path)[0] + ".json")
+    if not json_path.startswith(home + os.sep):
+        raise ValueError(f"metadata path must be under home directory: {wav_path}")
     with open(json_path, "w") as f:
         json_mod.dump(metadata, f, indent=2)
 
@@ -874,6 +880,14 @@ def is_valid_wav_file(path: str) -> bool:
     (text, empty, truncated) raise CouldntDecodeError inside Gradio -- killing
     the whole event chain with a 500 instead of a user-visible error.
     """
+    # Containment on the exact path opened (CodeQL: guards in callers do not
+    # survive the call boundary). Gradio uploads live under the system temp
+    # dir; history files under home. One tuple-form startswith, kept inline.
+    path = os.path.realpath(path)
+    home_root = os.path.realpath(os.path.expanduser("~")) + os.sep
+    tmp_root = os.path.realpath(tempfile.gettempdir()) + os.sep
+    if not path.startswith((home_root, tmp_root)):
+        return False
     try:
         with open(path, "rb") as f:
             header = f.read(12)
@@ -912,16 +926,27 @@ def load_history_from_disk(output_dir: str) -> list:
 
     json_files = glob.glob(os.path.join(safe_output_dir, "voice_ui_*.json"))
     entries: list = []
+    home_prefix = home + os.sep
     for jf in json_files:
+        # Re-check each file actually opened: a symlinked sidecar or .wav
+        # must not pull data from outside home (inline guards for CodeQL).
+        # Sinks use the resolved paths; the entry keeps the unresolved
+        # wav_path, which the path-keyed Remove/Download confirms match on.
         wav_path = os.path.splitext(jf)[0] + ".wav"
-        if not os.path.exists(wav_path):
+        real_json = os.path.realpath(jf)
+        if not real_json.startswith(home_prefix):
+            continue
+        real_wav = os.path.realpath(wav_path)
+        if not real_wav.startswith(home_prefix):
+            continue
+        if not os.path.exists(real_wav):
             continue
         # A sidecar paired with non-audio bytes would 500 the replay chain
         # (Gradio decodes the gr.Audio input before any handler runs).
-        if not is_valid_wav_file(wav_path):
+        if not is_valid_wav_file(real_wav):
             continue
         try:
-            with open(jf) as f:
+            with open(real_json) as f:
                 data = json_mod.load(f)
             text = data.get("text", "")
             entries.append(

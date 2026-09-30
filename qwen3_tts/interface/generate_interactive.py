@@ -23,6 +23,7 @@ from qwen3_tts.core.config import (  # noqa: E402
 from qwen3_tts.interface.generate_helpers import (  # noqa: E402
     _decode_base64_result,
     _save_base64_result,
+    containment_roots,
     get_voice_alias,
     list_voice_prompts,
     open_file,
@@ -775,6 +776,14 @@ def run_watch_mode(watch_dir, config, args, gen_params, use_server):
     else:
         safe_watch_dir = safe_path_join(os.getcwd(), expanded)
 
+    # Contain the watched dir to home/temp on the exact path the sinks use
+    # (the trailing separator lets the guard admit the directory itself).
+    safe_watch_dir = os.path.join(os.path.realpath(safe_watch_dir), "")
+    if not safe_watch_dir.startswith(containment_roots()):
+        raise ValueError(
+            f"watch_dir must be under the home or temp directory: {watch_dir}"
+        )
+
     if not os.path.isdir(safe_watch_dir):
         cli_output.error(f"Error: Directory not found: {safe_watch_dir}")
         return
@@ -872,7 +881,7 @@ def run_watch_mode(watch_dir, config, args, gen_params, use_server):
 
     event_handler = TTSHandler()
     observer = Observer()
-    observer.schedule(event_handler, watch_dir, recursive=False)
+    observer.schedule(event_handler, safe_watch_dir, recursive=False)
     observer.start()
 
     try:
