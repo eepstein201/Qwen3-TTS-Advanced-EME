@@ -12,6 +12,7 @@ Coverage:
   6. tools/create_voice.py — output path traversal
 """
 
+import ast
 import os
 import tempfile
 import unittest
@@ -548,6 +549,58 @@ class TestCliArgumentContainment(unittest.TestCase):
         with patch.dict("sys.modules", modules):
             # Passes containment, then returns on the not-found branch.
             self.assertIsNone(run_watch_mode(missing, {}, args, {}, True))
+
+
+class TestContainmentGuardShape(unittest.TestCase):
+    """A containment guard must end its failing branch in ``raise``.
+
+    CodeQL does not model ``sys.exit()`` as terminating the block, so a guard
+    ending in ``sys.exit(1)`` never dominates the sink below it and
+    py/path-injection stays open (alerts #3300-#3303). Verified with a
+    local probe: unguarded and ``sys.exit`` shapes alert; ``raise`` does not.
+    ``raise SystemExit(1)`` keeps the exit behaviour of ``sys.exit(1)``.
+    """
+
+    @staticmethod
+    def _containment_guards(module):
+        import ast
+        import inspect
+
+        def is_guard(test):
+            return (
+                isinstance(test, ast.UnaryOp)
+                and isinstance(test.op, ast.Not)
+                and isinstance(test.operand, ast.Call)
+                and isinstance(test.operand.func, ast.Attribute)
+                and test.operand.func.attr == "startswith"
+                and len(test.operand.args) == 1
+                and isinstance(test.operand.args[0], ast.Call)
+                and getattr(test.operand.args[0].func, "id", "") == "containment_roots"
+            )
+
+        tree = ast.parse(inspect.getsource(module))
+        return [n for n in ast.walk(tree) if isinstance(n, ast.If) and is_guard(n.test)]
+
+    def test_generate_guards_end_in_raise(self):
+        from qwen3_tts.interface import generate
+
+        guards = self._containment_guards(generate)
+        # process_batch output dir + --srt + --dialogue + --batch
+        self.assertGreaterEqual(len(guards), 4)
+        for guard in guards:
+            self.assertIsInstance(
+                guard.body[-1],
+                ast.Raise,
+                f"guard at generate.py:{guard.lineno} must end in raise, not sys.exit()",
+            )
+
+    def test_watch_guard_ends_in_raise(self):
+        from qwen3_tts.interface import generate_interactive
+
+        guards = self._containment_guards(generate_interactive)
+        self.assertGreaterEqual(len(guards), 1)
+        for guard in guards:
+            self.assertIsInstance(guard.body[-1], ast.Raise)
 
 
 class TestVoiceManagementPathInjection(unittest.TestCase):

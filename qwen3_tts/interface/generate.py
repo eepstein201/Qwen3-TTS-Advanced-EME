@@ -647,7 +647,9 @@ def _handle_generation(args, config, gen_params, use_server, max_chunk_chars):
             cli_output.error(
                 f"Error: SRT file must be under the home or temp directory: {srt_path}"
             )
-            sys.exit(1)
+            # raise, not sys.exit(): CodeQL only credits a guard whose failing
+            # branch ends in a raise (same exit behaviour).
+            raise SystemExit(1)
         if not os.path.isfile(srt_path):
             cli_output.error(f"Error: SRT file not found: {srt_path}")
             sys.exit(1)
@@ -660,7 +662,7 @@ def _handle_generation(args, config, gen_params, use_server, max_chunk_chars):
                 "Error: Dialogue file must be under the home or temp directory: "
                 f"{dialogue_path}"
             )
-            sys.exit(1)
+            raise SystemExit(1)
         if not os.path.isfile(dialogue_path):
             cli_output.error(f"Error: Dialogue file not found: {dialogue_path}")
             sys.exit(1)
@@ -710,7 +712,7 @@ def _handle_generation(args, config, gen_params, use_server, max_chunk_chars):
             cli_output.error(
                 f"Error: Batch file must be under the home or temp directory: {batch_path}"
             )
-            sys.exit(1)
+            raise SystemExit(1)
         if not os.path.isfile(batch_path):
             cli_output.error(f"Error: Batch file not found: {batch_path}")
             sys.exit(1)
