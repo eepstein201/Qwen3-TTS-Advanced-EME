@@ -61,7 +61,7 @@ audio = [
 # CUDA/Colab optimizations
 cuda = [
     "accelerate>=1.12.0",
-    "bitsandbytes>=0.43.1",  # transformers>=4.57.3 rejects older at 4/8-bit load time
+    "bitsandbytes>=0.50.2",  # transformers>=4.57.3 rejects older at 4/8-bit load time
 ]
 
 # Rich CLI progress bars
