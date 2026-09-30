@@ -6,12 +6,14 @@ Covers: REPL voice alias with preset, audio processing, watch mode.
 
 Run: pytest tests/test_generate_interactive_ext_part2.py -v
 """
+
 import os
 import unittest
 from unittest.mock import MagicMock, patch
 
 try:
     import watchdog  # noqa: F401
+
     HAS_WATCHDOG = True
 except ImportError:
     HAS_WATCHDOG = False
@@ -23,13 +25,22 @@ class TestReplVoiceAliasWithPreset(unittest.TestCase):
     def test_voice_alias_with_preset(self):
         """Lines 472-474: voice alias includes preset key."""
         from qwen3_tts.interface.generate_interactive import run_repl
+
         inputs = iter(["/voice narrator", "/quit"])
         config = {"presets": {"warm": {"temperature": 0.8}}, "generation": {}}
         alias = {"prompt": "narrator.pt", "preset": "warm"}
-        with patch("builtins.input", side_effect=inputs), \
-             patch("builtins.print") as mock_print, \
-             patch("qwen3_tts.interface.generate_interactive.get_default_clone_prompt", return_value="default.pt"), \
-             patch("qwen3_tts.interface.generate_interactive.get_voice_alias", return_value=alias):
+        with (
+            patch("builtins.input", side_effect=inputs),
+            patch("builtins.print") as mock_print,
+            patch(
+                "qwen3_tts.interface.generate_interactive.get_default_clone_prompt",
+                return_value="default.pt",
+            ),
+            patch(
+                "qwen3_tts.interface.generate_interactive.get_voice_alias",
+                return_value=alias,
+            ),
+        ):
             run_repl(config, True)
         output = " ".join(str(c) for c in mock_print.call_args_list)
         self.assertIn("narrator", output)
@@ -37,10 +48,16 @@ class TestReplVoiceAliasWithPreset(unittest.TestCase):
     def test_play_invalid_arg(self):
         """Line 507: /play with bad argument."""
         from qwen3_tts.interface.generate_interactive import run_repl
+
         inputs = iter(["/play maybe", "/quit"])
-        with patch("builtins.input", side_effect=inputs), \
-             patch("builtins.print") as mock_print, \
-             patch("qwen3_tts.interface.generate_interactive.get_default_clone_prompt", return_value="default.pt"):
+        with (
+            patch("builtins.input", side_effect=inputs),
+            patch("builtins.print") as mock_print,
+            patch(
+                "qwen3_tts.interface.generate_interactive.get_default_clone_prompt",
+                return_value="default.pt",
+            ),
+        ):
             run_repl({}, True)
         output = " ".join(str(c) for c in mock_print.call_args_list)
         self.assertIn("/play on|off", output)
@@ -54,17 +71,33 @@ class TestReplAudioProcessing(unittest.TestCase):
         import numpy as np
 
         from qwen3_tts.interface.generate_interactive import run_repl
+
         inputs = iter(["/speed 1.5", "/pitch 2.0", "Hello world", "/quit"])
         mock_wav = np.zeros(1000, dtype=np.float32)
-        with patch("builtins.input", side_effect=inputs), \
-             patch("builtins.print"), \
-             patch("qwen3_tts.interface.generate_interactive.get_default_clone_prompt", return_value="default.pt"), \
-             patch("qwen3_tts.interface.generate_server.generate_local", return_value=(mock_wav, 24000)), \
-             patch("soundfile.write"), \
-             patch("qwen3_tts.interface.generate_interactive._decode_base64_result", return_value=(mock_wav, 24000)), \
-             patch("qwen3_tts.interface.generate_interactive.play_audio"), \
-             patch("qwen3_tts.core.engine.adjust_speed", return_value=mock_wav) as mock_speed, \
-             patch("qwen3_tts.core.engine.adjust_pitch", return_value=mock_wav) as mock_pitch:
+        with (
+            patch("builtins.input", side_effect=inputs),
+            patch("builtins.print"),
+            patch(
+                "qwen3_tts.interface.generate_interactive.get_default_clone_prompt",
+                return_value="default.pt",
+            ),
+            patch(
+                "qwen3_tts.interface.generate_server.generate_local",
+                return_value=(mock_wav, 24000),
+            ),
+            patch("soundfile.write"),
+            patch(
+                "qwen3_tts.interface.generate_interactive._decode_base64_result",
+                return_value=(mock_wav, 24000),
+            ),
+            patch("qwen3_tts.interface.generate_interactive.play_audio"),
+            patch(
+                "qwen3_tts.core.engine.adjust_speed", return_value=mock_wav
+            ) as mock_speed,
+            patch(
+                "qwen3_tts.core.engine.adjust_pitch", return_value=mock_wav
+            ) as mock_pitch,
+        ):
             run_repl({}, False)
         mock_speed.assert_called_once()
         mock_pitch.assert_called_once()
@@ -77,9 +110,15 @@ class TestRunWatchMode(unittest.TestCase):
     def test_watch_dir_not_found(self):
         """Lines 590-592: non-existent watch directory."""
         from qwen3_tts.interface.generate_interactive import run_watch_mode
+
         args = MagicMock()
         with patch("builtins.print") as mock_print:
-            run_watch_mode("/nonexistent_xyz", {}, args, {}, True)
+            import tempfile
+
+            # Must sit under temp: paths outside home/temp are refused before
+            # the not-found check.
+            missing = os.path.join(tempfile.gettempdir(), "nonexistent_xyz")
+            run_watch_mode(missing, {}, args, {}, True)
         output = " ".join(str(c) for c in mock_print.call_args_list)
         self.assertIn("not found", output)
 
@@ -89,6 +128,7 @@ class TestRunWatchMode(unittest.TestCase):
         import tempfile
 
         from qwen3_tts.interface.generate_interactive import run_watch_mode
+
         # run_watch_mode rejects output dirs outside $HOME; keep the temp dir
         # under home so the security check passes (default macOS tmp is not).
         tmp_dir = tempfile.mkdtemp(dir=os.path.expanduser("~"))
@@ -101,10 +141,15 @@ class TestRunWatchMode(unittest.TestCase):
 
         mock_observer = MagicMock()
         # Simulate KeyboardInterrupt during sleep loop
-        with patch("builtins.print"), \
-             patch("qwen3_tts.interface.generate_interactive.get_default_clone_prompt", return_value="default.pt"), \
-             patch("watchdog.observers.Observer", return_value=mock_observer), \
-             patch("time.sleep", side_effect=KeyboardInterrupt):
+        with (
+            patch("builtins.print"),
+            patch(
+                "qwen3_tts.interface.generate_interactive.get_default_clone_prompt",
+                return_value="default.pt",
+            ),
+            patch("watchdog.observers.Observer", return_value=mock_observer),
+            patch("time.sleep", side_effect=KeyboardInterrupt),
+        ):
             try:
                 run_watch_mode(tmp_dir, {}, args, {}, True)
             except KeyboardInterrupt:
@@ -119,6 +164,7 @@ class TestRunWatchMode(unittest.TestCase):
         import tempfile
 
         from qwen3_tts.interface.generate_interactive import run_watch_mode
+
         # run_watch_mode rejects output dirs outside $HOME; keep the temp dir
         # under home so the security check passes (default macOS tmp is not).
         tmp_dir = tempfile.mkdtemp(dir=os.path.expanduser("~"))
@@ -137,10 +183,15 @@ class TestRunWatchMode(unittest.TestCase):
 
         mock_observer.schedule = capture_schedule
 
-        with patch("builtins.print"), \
-             patch("qwen3_tts.interface.generate_interactive.get_default_clone_prompt", return_value="default.pt"), \
-             patch("watchdog.observers.Observer", return_value=mock_observer), \
-             patch("time.sleep", side_effect=KeyboardInterrupt):
+        with (
+            patch("builtins.print"),
+            patch(
+                "qwen3_tts.interface.generate_interactive.get_default_clone_prompt",
+                return_value="default.pt",
+            ),
+            patch("watchdog.observers.Observer", return_value=mock_observer),
+            patch("time.sleep", side_effect=KeyboardInterrupt),
+        ):
             try:
                 run_watch_mode(tmp_dir, {}, args, {}, True)
             except KeyboardInterrupt:
@@ -160,12 +211,24 @@ class TestRunWatchMode(unittest.TestCase):
         mock_event.src_path = txt_path
 
         import numpy as np
+
         mock_wav = np.zeros(1000, dtype=np.float32)
-        with patch("qwen3_tts.interface.generate_server.generate_via_server", return_value=["b64"]), \
-             patch("qwen3_tts.interface.generate_interactive._decode_base64_result", return_value=(mock_wav, 24000)), \
-             patch("qwen3_tts.interface.generate_interactive.process_audio_args", return_value=mock_wav), \
-             patch("soundfile.write"), \
-             patch("time.sleep"):
+        with (
+            patch(
+                "qwen3_tts.interface.generate_server.generate_via_server",
+                return_value=["b64"],
+            ),
+            patch(
+                "qwen3_tts.interface.generate_interactive._decode_base64_result",
+                return_value=(mock_wav, 24000),
+            ),
+            patch(
+                "qwen3_tts.interface.generate_interactive.process_audio_args",
+                return_value=mock_wav,
+            ),
+            patch("soundfile.write"),
+            patch("time.sleep"),
+        ):
             handler.on_created(mock_event)
 
         shutil.rmtree(tmp_dir)
@@ -176,6 +239,7 @@ class TestRunWatchMode(unittest.TestCase):
         import tempfile
 
         from qwen3_tts.interface.generate_interactive import run_watch_mode
+
         # run_watch_mode rejects output dirs outside $HOME; keep the temp dir
         # under home so the security check passes (default macOS tmp is not).
         tmp_dir = tempfile.mkdtemp(dir=os.path.expanduser("~"))
@@ -194,10 +258,15 @@ class TestRunWatchMode(unittest.TestCase):
 
         mock_observer.schedule = capture_schedule
 
-        with patch("builtins.print"), \
-             patch("qwen3_tts.interface.generate_interactive.get_default_clone_prompt", return_value="default.pt"), \
-             patch("watchdog.observers.Observer", return_value=mock_observer), \
-             patch("time.sleep", side_effect=KeyboardInterrupt):
+        with (
+            patch("builtins.print"),
+            patch(
+                "qwen3_tts.interface.generate_interactive.get_default_clone_prompt",
+                return_value="default.pt",
+            ),
+            patch("watchdog.observers.Observer", return_value=mock_observer),
+            patch("time.sleep", side_effect=KeyboardInterrupt),
+        ):
             try:
                 run_watch_mode(tmp_dir, {}, args, {}, True)
             except KeyboardInterrupt:

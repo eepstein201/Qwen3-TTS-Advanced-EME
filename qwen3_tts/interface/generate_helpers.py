@@ -12,6 +12,7 @@ import re
 import shutil
 import subprocess  # nosec B404
 import sys
+import tempfile
 
 logger = logging.getLogger("tts.cli")
 
@@ -27,6 +28,22 @@ from qwen3_tts.core.config import (  # noqa: E402
 # ---------------------------------------------------------------------------
 # Text helpers
 # ---------------------------------------------------------------------------
+
+
+def containment_roots():
+    """Prefixes a CLI path argument must resolve under: home or a temp dir.
+
+    All carry a trailing separator. ``/tmp`` is listed beside
+    ``tempfile.gettempdir()`` because on macOS the latter is under
+    ``/var/folders`` while people (and tests) use ``/tmp``. Callers run the
+    ``startswith`` guard inline on the exact path their sink opens -- CodeQL
+    credits the guard only on that receiver, never through a helper.
+    """
+    return (
+        os.path.realpath(os.path.expanduser("~")) + os.sep,
+        os.path.realpath(tempfile.gettempdir()) + os.sep,
+        os.path.realpath("/tmp") + os.sep,  # nosec B108
+    )
 
 
 def voice_prompt_exists(prompt_file):

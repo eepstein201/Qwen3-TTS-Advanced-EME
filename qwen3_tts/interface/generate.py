@@ -47,6 +47,7 @@ from qwen3_tts.interface.generate_helpers import (  # noqa: E402, F401
     _decode_base64_result,
     _save_base64_result,
     auto_increment_filename,
+    containment_roots,
     get_clipboard_text,
     get_generation_params,
     get_text,
@@ -93,9 +94,21 @@ def process_batch(texts, args, config, gen_params, use_server):
     """Process multiple texts."""
     import soundfile as sf
 
-    output_dir = os.path.expanduser(
-        args.output or config.get("output_directory", "~/Downloads")
+    # Trailing separator so the guard below also admits the home dir itself.
+    output_dir = os.path.join(
+        os.path.realpath(
+            os.path.expanduser(
+                args.output or config.get("output_directory", "~/Downloads")
+            )
+        ),
+        "",
     )
+    # Same containment as the other CLI path arguments, inline on the exact
+    # path the sinks use (CodeQL credits the startswith guard only there).
+    if not output_dir.startswith(containment_roots()):
+        raise ValueError(
+            f"Output directory must be under the home or temp directory: {output_dir}"
+        )
     if not os.path.isdir(output_dir):
         os.makedirs(output_dir, exist_ok=True)
 
@@ -629,14 +642,25 @@ def _handle_generation(args, config, gen_params, use_server, max_chunk_chars):
         run_watch_mode(args.watch, config, args, gen_params, use_server)
         return use_server
     if args.srt:
-        srt_path = os.path.expanduser(args.srt)
+        srt_path = os.path.realpath(os.path.expanduser(args.srt))
+        if not srt_path.startswith(containment_roots()):
+            cli_output.error(
+                f"Error: SRT file must be under the home or temp directory: {srt_path}"
+            )
+            sys.exit(1)
         if not os.path.isfile(srt_path):
             cli_output.error(f"Error: SRT file not found: {srt_path}")
             sys.exit(1)
         process_srt_file(srt_path, config, args, gen_params, use_server)
         return use_server
     if args.dialogue:
-        dialogue_path = os.path.expanduser(args.dialogue)
+        dialogue_path = os.path.realpath(os.path.expanduser(args.dialogue))
+        if not dialogue_path.startswith(containment_roots()):
+            cli_output.error(
+                "Error: Dialogue file must be under the home or temp directory: "
+                f"{dialogue_path}"
+            )
+            sys.exit(1)
         if not os.path.isfile(dialogue_path):
             cli_output.error(f"Error: Dialogue file not found: {dialogue_path}")
             sys.exit(1)
@@ -681,7 +705,12 @@ def _handle_generation(args, config, gen_params, use_server, max_chunk_chars):
 
     # Batch mode from file
     if args.batch:
-        batch_path = os.path.expanduser(args.batch)
+        batch_path = os.path.realpath(os.path.expanduser(args.batch))
+        if not batch_path.startswith(containment_roots()):
+            cli_output.error(
+                f"Error: Batch file must be under the home or temp directory: {batch_path}"
+            )
+            sys.exit(1)
         if not os.path.isfile(batch_path):
             cli_output.error(f"Error: Batch file not found: {batch_path}")
             sys.exit(1)
