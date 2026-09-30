@@ -176,6 +176,8 @@ cd Qwen3-TTS-Advanced-EME
 > ```
 > Pick one backend per machine unless you specifically need both.
 
+> **Note — `torchaudio` ≥ 2.11 requires `torchcodec`:** audio loading in the torch backend routes through `torchcodec`, which the `torch` extra installs automatically. In an env that predates it you'll see `TorchCodec is required for load_with_torchcodec` warnings (audio still loads via a `soundfile` fallback) — fix with `conda run -n qwen3-tts pip install torchcodec`.
+
 3. **Pro-Tip (Native Install Only): Add a Shell Alias**
 To run the `tts` command from anywhere without polluting your global shell or manually activating environments, add this to your `~/.zshrc` or `~/.bashrc`:
 ```bash

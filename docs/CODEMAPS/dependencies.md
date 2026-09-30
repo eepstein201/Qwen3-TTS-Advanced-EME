@@ -11,7 +11,7 @@
 Revision-pinned via `models.<type>.revision` (default `"main"`). ASR model loaded on-demand (`/load-asr`); its unload now serializes on `inference_lock` too (#214 item 2).
 
 ## Backends
-- **torch** extra → `torch>=2.13.0`, `torchaudio>=2.11.0`, `qwen-tts>=0.1.1` (imports as `qwen_tts`), `transformers>=4.57.3` (env `qwen3-tts`)
+- **torch** extra → `torch>=2.13.0`, `torchaudio>=2.11.0`, `torchcodec>=0.17` (torchaudio≥2.11 loads through it; missing → soundfile fallback), `qwen-tts>=0.1.1` (imports as `qwen_tts`), `transformers>=4.57.3` (env `qwen3-tts`)
 - **mlx** extra → `mlx>=0.32.2`, `mlx-audio>=0.5.4`, `mlx-lm>=0.31.3`, `huggingface_hub>=0.36.2` (env `qwen3-tts-mlx`, Apple Silicon)
 - **vllm** extra → `vllm>=0.8`, `vllm-omni>=0.14.0`; code `core/engine_vllm.py` + `server/vllm_client.py` (CUDA)
 - **cuda** extra → `accelerate>=1.12.0`, `bitsandbytes>=0.43.1`
