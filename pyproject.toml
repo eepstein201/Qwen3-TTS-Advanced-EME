@@ -112,7 +112,7 @@ prompt-enhancer = [
 # vLLM-Omni backend (Linux/CUDA only)
 vllm = [
     "vllm>=0.8",
-    "vllm-omni>=0.14.0",  # first stable release with Qwen3-TTS support (vllm-omni #895)
+    "vllm-omni>=0.30.0",  # first stable release with Qwen3-TTS support (vllm-omni #895)
 ]
 
 [project.scripts]
