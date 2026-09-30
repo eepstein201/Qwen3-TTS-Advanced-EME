@@ -510,5 +510,25 @@
 
     window.getOrCreatePlayer = getOrCreatePlayer;
 
+    // Gradio's bundled audio player (MinimalAudioPlayer) restarts its fetch when
+    // a gr.Audio value is rewritten within the same chain (generation output ->
+    // URL conversion; history replay -> seed broadcast). The superseded fetch
+    // rejects with AbortError, which Gradio leaves unhandled: a red "Uncaught
+    // (in promise)" console entry per load with no functional impact (the retry
+    // succeeds). AbortError is by definition a deliberate .abort() call, so
+    // downgrade only that shape to a debug line — every other rejection still
+    // surfaces. Idempotent: ScriptReexecutor may re-run this module on tab
+    // remounts, and duplicate listeners would duplicate the downgrade.
+    if (!window._abortNoiseHandled) {
+        window._abortNoiseHandled = true;
+        window.addEventListener('unhandledrejection', (event) => {
+            const reason = event && event.reason;
+            if (reason && reason.name === 'AbortError') {
+                event.preventDefault();
+                console.debug('[StreamingPlayer] Superseded audio load aborted:', reason.message || '');
+            }
+        });
+    }
+
     // Diagnostic: confirm module loaded and function is available
     console.log('[StreamingPlayer] Module loaded, getOrCreatePlayer =', typeof window.getOrCreatePlayer);
