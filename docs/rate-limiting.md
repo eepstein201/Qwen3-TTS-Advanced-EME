@@ -4,7 +4,7 @@
 
 Rate limiting is implemented using **slowapi** with support for multiple strategies. The server creates **four** separate limiters at startup:
 
-1. **Global pre-auth ceiling** (`limiter_global`): an IP-keyed default limit enforced by `SlowAPIMiddleware` at the ASGI layer, **before routing and auth**, on ALL routes. This exists because the per-route `@limiter.limit` decorators run *after* `Depends(verify_auth)` — without a pre-auth ceiling, an unauthenticated flood 401s on every request before any limiter fires and bypasses rate limiting entirely.
+1. **Global pre-auth ceiling** (`limiter_global`): an IP-keyed default limit enforced by `SlowAPIMiddleware` at the ASGI layer, **before routing and auth**, on ALL HTTP routes. This exists because the per-route `@limiter.limit` decorators run *after* `Depends(verify_auth)` — without a pre-auth ceiling, an unauthenticated flood 401s on every request before any limiter fires and bypasses rate limiting entirely. `SlowAPIMiddleware` subclasses Starlette's `BaseHTTPMiddleware`, which only intercepts `http`-scope ASGI requests, so `/ws` is NOT covered by this ceiling — it has its own per-IP connection cap (`_ws_try_acquire`) instead.
 2. **Hybrid Rate Limiting** (`limiter_hybrid`): Combines IP + token for strictest enforcement
 3. **IP-Based Rate Limiting** (`limiter_ip`): Uses `_get_real_client_ip()` to handle reverse proxies
 4. **Token-Based Rate Limiting** (`limiter_token`): Hashes auth tokens for per-user limits (SHA-256, first 16 hex chars)
@@ -43,7 +43,7 @@ Every config key maps to real endpoints — each category has its own decorator 
 | `/transcribe` | `transcribe` (10/minute) |
 | `/create-voice-prompt`, `/delete-prompt`, `/rename-prompt` | `prompt_ops` (10/minute) |
 | `/update-startup-config` | `config_ops` (2/minute) |
-| All routes (pre-auth) | `global` (120/minute) |
+| All HTTP routes (pre-auth); `/ws` excluded — see above | `global` (120/minute) |
 
 ### Environment Variables
 

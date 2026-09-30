@@ -41,6 +41,7 @@ Protocol: reads the PreToolUse payload on stdin; prints ask-decision JSON
 on stdout for matching commands; always exits 0 (a warn never kills the
 call on its own). Unparseable input exits 0 silently.
 """
+
 import json
 import re
 import sys
@@ -50,7 +51,7 @@ _SUBTREE_BOUNDARY_RE = re.compile(r"(?:^|/)tests/")
 
 _REASON = (
     "[prefer-batch-runner-over-raw-pytest] Raw suite-level pytest runs risk"
-    " hangs and OOM kills (exit 137) here — 3,200+ tests in one process is a"
+    " hangs and OOM kills (exit 137) here — ~4.1k tests in one process is a"
     " known NO-GO. Use the batch runner instead: python tests/run_batches.py"
     " (all batches), python tests/run_batches.py --batch N (one batch), or"
     " make test-batch. Explicit single files stay fine:"
@@ -87,7 +88,7 @@ def _names_suite_target(token):
     m = _SUBTREE_BOUNDARY_RE.search(t)
     if not m:
         return False
-    rest = t[m.end():]
+    rest = t[m.end() :]
     if not rest:
         return True
     base = rest.split("::", 1)[0].rsplit("/", 1)[-1]
@@ -170,13 +171,17 @@ def main():
     except Exception:
         return 0
     if _reason(command):
-        print(json.dumps({
-            "hookSpecificOutput": {
-                "hookEventName": "PreToolUse",
-                "permissionDecision": "ask",
-                "permissionDecisionReason": _REASON,
-            }
-        }))
+        print(
+            json.dumps(
+                {
+                    "hookSpecificOutput": {
+                        "hookEventName": "PreToolUse",
+                        "permissionDecision": "ask",
+                        "permissionDecisionReason": _REASON,
+                    }
+                }
+            )
+        )
     return 0
 
 

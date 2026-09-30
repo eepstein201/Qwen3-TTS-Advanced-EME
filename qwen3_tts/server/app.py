@@ -506,7 +506,8 @@ _global_limit = _rate_limit_from_env("TTS_RATE_LIMIT_GLOBAL", "global", "120/min
 # before the per-route limiter fires. The global limiter is a SEPARATE instance
 # from the strategy limiters below; slowapi's decorator binds to its own Limiter
 # at decoration time and never reads app.state.limiter, so the two coexist:
-# global = pre-auth ceiling on all routes; per-route = post-auth fine-grain.
+# global = pre-auth ceiling on all HTTP routes (/ws excluded — BaseHTTPMiddleware
+# only sees http-scope requests); per-route = post-auth fine-grain.
 _rate_limit_enabled = not _RATE_LIMITING_DISABLED
 limiter_global = Limiter(
     key_func=_get_ip_key,

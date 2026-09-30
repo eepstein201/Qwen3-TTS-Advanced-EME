@@ -13,6 +13,11 @@ TORCH_ENV_NAME="qwen3-tts"
 PYTHON_VERSION="3.11"
 USER_FILES_DIR="$HOME/Qwen3-TTS_UserFiles"
 VOICE_PROMPTS_DIR="$USER_FILES_DIR/voice_prompts"
+# Runtime config lives outside the checkout (Track T4); the repo-root
+# config.json is only the tracked stock default.
+CONFIG_DIR="$HOME/.config/qwen3-tts"
+CONFIG_FILE="$CONFIG_DIR/config.json"
+LEGACY_CONFIG_FILE="$USER_FILES_DIR/config.json"
 MIN_DISK_SPACE_GB=15
 
 # Platform detection (set by detect_platform)
@@ -1017,7 +1022,14 @@ get_linux_torch_quant() {
 create_config() {
     step "Creating configuration file..."
 
-    CONFIG_FILE="$USER_FILES_DIR/config.json"
+    mkdir -p "$CONFIG_DIR"
+    chmod 700 "$CONFIG_DIR"
+    # Seed the canonical config from the legacy/stock one so its settings carry over
+    if [[ ! -f "$CONFIG_FILE" ]] && [[ -f "$LEGACY_CONFIG_FILE" ]]; then
+        cp "$LEGACY_CONFIG_FILE" "$CONFIG_FILE"
+        chmod 600 "$CONFIG_FILE"
+        info "Copied $LEGACY_CONFIG_FILE -> $CONFIG_FILE"
+    fi
 
     if [[ -f "$CONFIG_FILE" ]] && [[ "$RECONFIGURE_ONLY" != true ]]; then
         warn "config.json already exists."
@@ -1451,7 +1463,7 @@ print_summary() {
     echo -e "  ${CYAN}$USER_FILES_DIR/README.md${NC}"
     echo ""
     echo -e "${BOLD}Configuration file:${NC}"
-    echo -e "  ${CYAN}$USER_FILES_DIR/config.json${NC}"
+    echo -e "  ${CYAN}$CONFIG_FILE${NC}"
     echo ""
 
     if [[ "$PLATFORM" == "macos" ]] && [[ ":$PATH:" != *":$HOME/bin:"* ]]; then
@@ -1524,7 +1536,6 @@ show_config() {
     fi
     echo ""
 
-    CONFIG_FILE="$USER_FILES_DIR/config.json"
     if [[ -f "$CONFIG_FILE" ]]; then
         echo -e "${BOLD}Current config.json:${NC}"
         CURRENT_BACKEND=$(python3 -c "import json; print(json.load(open('$CONFIG_FILE')).get('advanced',{}).get('backend','torch'))" 2>/dev/null || echo "unknown")

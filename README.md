@@ -46,7 +46,7 @@ Qwen3-TTS isn't just a research script; it is engineered to be a production-read
 ### ⚙️ Production Architecture
 * **Chunked Streaming:** Long texts are split into sentence-aligned chunks and streamed back as each chunk finishes, so playback can begin well before the full generation completes. (Chunks generate sequentially — expect ~40-70 s per chunk on MLX/M2 Pro; this is "start hearing audio sooner", not real-time synthesis.)
 * **Serialized GPU Access:** Strict `asyncio` locking queues concurrent requests so model state is never corrupted under concurrent load — one generation at a time, by design.
-* **Rate Limiting (on by default):** Per-endpoint limits via `slowapi` (a hard dependency) plus a global pre-auth ceiling on all routes, with reverse-proxy-aware IP resolution (`X-Forwarded-For` honored only for trusted proxies).
+* **Rate Limiting (on by default):** Per-endpoint limits via `slowapi` (a hard dependency) plus a global pre-auth ceiling on all HTTP routes (`/ws` excluded — bounded by its own per-IP connection cap), with reverse-proxy-aware IP resolution (`X-Forwarded-For` honored only for trusted proxies).
 * **Smooth Multi-Chunk Audio:** Raised-cosine crossfade between audio chunks eliminates audible clicks at boundaries. Chunks are phase-aligned and level-matched before the crossfade; configurable silence gaps are also supported.
 * **LUFS Normalization:** Optional EBU R128 loudness normalization via `pyloudnorm` for broadcast-ready audio output.
 
@@ -348,7 +348,7 @@ tts config edit                          # Interactive voice description editor
 
 ## Rate Limiting
 
-Rate limiting is **on by default** (no opt-in needed) to prevent abuse and ensure fair resource allocation. It uses **slowapi** — a hard dependency of the `server` extra, so there is nothing extra to install — with support for multiple strategies: per-IP, per-token, and hybrid (both). A global, per-IP, pre-auth ceiling on **all** routes (default `120/minute` via `SlowAPIMiddleware`) also applies, so unauthenticated floods cannot bypass the per-route limits entirely.
+Rate limiting is **on by default** (no opt-in needed) to prevent abuse and ensure fair resource allocation. It uses **slowapi** — a hard dependency of the `server` extra, so there is nothing extra to install — with support for multiple strategies: per-IP, per-token, and hybrid (both). A global, per-IP, pre-auth ceiling on **all HTTP** routes (default `120/minute` via `SlowAPIMiddleware`; `/ws` is excluded — bounded instead by its own per-IP connection cap) also applies, so unauthenticated floods cannot bypass the per-route limits entirely.
 
 ### Configuration
 
@@ -395,7 +395,7 @@ Effective limits as actually applied (a few endpoints currently use a different 
 | `/transcribe` | `transcribe` (default 10/minute) | Hybrid |
 | `/create-voice-prompt`, `/delete-prompt`, `/rename-prompt` | `prompt_ops` (default 10/minute) | Hybrid |
 | `/update-startup-config` | `config_ops` (default 2/minute) | Hybrid |
-| All routes (pre-auth ceiling) | `global` (default 120/minute) | Per-IP |
+| All HTTP routes (pre-auth ceiling); `/ws` excluded | `global` (default 120/minute) | Per-IP |
 
 ### Error Responses
 
@@ -593,7 +593,7 @@ Development environment setup and testing procedures, including:
 - Installation steps (MLX and Torch backends)
 - Available scripts and development tools
 - Project structure overview
-- Testing procedures (3,200+ tests across 6 batches)
+- Testing procedures (~4.1k tests across 6 batches)
 - Code style enforcement (ruff, mypy, bandit)
 - Development workflow (feature branches, commits, PRs)
 - Troubleshooting common issues
@@ -649,7 +649,7 @@ This installs all required dependencies including gradio, pytest, and playwright
 
 ### Test Execution
 
-**Run all tests using the batch runner (3,200+ tests across 180+ modules, organized in 6 batches):
+**Run all tests using the batch runner (~4.1k tests across 215 modules, 196 of them organized in 6 batches):
 ```bash
 python tests/run_batches.py        # Run all batches
 python tests/run_batches.py --batch 1  # Run a specific batch

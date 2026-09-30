@@ -5,13 +5,13 @@ Verifies installation status, backend availability, model cache,
 and common configuration issues.
 """
 
+import os
 import pathlib
 import platform
 import sys
 
 from qwen3_tts import cli_output
 from qwen3_tts.core.config import (
-    CONFIG_PATH,
     HF_CACHE,
     IN_COLAB,
     IS_LINUX,
@@ -120,8 +120,14 @@ def check_backend_availability() -> tuple:
 
 def check_config() -> tuple:
     """Check configuration file status."""
-    config_path = pathlib.Path(CONFIG_PATH)
-    if config_path.exists():
+    from qwen3_tts.core.config import (
+        _LEGACY_CONFIG_PATH,
+        CONFIG_PATH,
+        resolve_config_read_path,
+    )
+
+    read_path = resolve_config_read_path()
+    if os.path.exists(read_path):
         try:
             from qwen3_tts.core.config import load_config, validate_config
 
@@ -134,6 +140,8 @@ def check_config() -> tuple:
             backend = config.get("advanced", {}).get("backend")
             model_size = config.get("advanced", {}).get("model_size")
             details = f"Backend: {backend}, Model size: {model_size}"
+            if read_path == str(_LEGACY_CONFIG_PATH):
+                return "warn", f"{details} (legacy location — copy to {CONFIG_PATH})"
             return "pass", details
         except Exception as e:
             return "fail", f"Config error: {e}"
