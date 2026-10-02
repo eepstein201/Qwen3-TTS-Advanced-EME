@@ -239,7 +239,7 @@ rich==15.0.0
     # via
     #   bandit
     #   typer
-ruff==0.16.8
+ruff==0.16.10
     # via qwen3-tts (pyproject.toml)
 safehttpx==0.1.7
     # via gradio
@@ -265,7 +265,7 @@ soundfile==0.14.0
     #   qwen3-tts (pyproject.toml)
 soxr==1.1.0
     # via librosa
-starlette==1.6.0
+starlette==1.7.0
     # via
     #   fastapi
     #   gradio
@@ -304,7 +304,7 @@ typing-inspection==0.4.2
     #   pydantic
 urllib3==2.8.0
     # via requests
-uvicorn[standard]==0.53.0
+uvicorn[standard]==0.54.0
     # via
     #   gradio
     #   qwen3-tts (pyproject.toml)
