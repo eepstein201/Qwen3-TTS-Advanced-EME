@@ -525,6 +525,66 @@ class TestEvictIfFull(unittest.TestCase):
 
 
 @pytest.mark.unit
+class TestUnloadModelCleanupMlx(unittest.TestCase):
+    """#299: the MLX branch of unload_model_cleanup releases the Metal buffer cache."""
+
+    def _fake_mlx(self, mx):
+        fake_mlx = MagicMock()
+        fake_mlx.core = mx
+        return {"mlx": fake_mlx, "mlx.core": mx}
+
+    def test_mlx_unload_clears_metal_cache_after_gc(self):
+        from qwen3_tts.core.engine import asr
+
+        calls = []
+        mx = MagicMock()
+        mx.clear_cache.side_effect = lambda: calls.append("clear_cache")
+        with (
+            patch.object(asr, "get_backend", return_value="mlx"),
+            patch.dict(sys.modules, self._fake_mlx(mx)),
+            patch("gc.collect", side_effect=lambda: calls.append("gc")),
+        ):
+            asr.unload_model_cleanup()
+
+        self.assertEqual(calls, ["gc", "clear_cache"])
+
+    def test_mlx_unload_tolerates_missing_mlx(self):
+        from qwen3_tts.core.engine import asr
+
+        with (
+            patch.object(asr, "get_backend", return_value="mlx"),
+            patch.dict(sys.modules, {"mlx": None, "mlx.core": None}),
+        ):
+            asr.unload_model_cleanup()  # must not raise
+
+    def test_mlx_clear_cache_failure_is_logged_not_raised(self):
+        from qwen3_tts.core.engine import asr
+
+        mx = MagicMock()
+        mx.clear_cache.side_effect = RuntimeError("metal error")
+        with (
+            patch.object(asr, "get_backend", return_value="mlx"),
+            patch.dict(sys.modules, self._fake_mlx(mx)),
+            self.assertLogs("tts.engine", level="WARNING") as logs,
+        ):
+            asr.unload_model_cleanup()
+
+        self.assertIn("metal error", "\n".join(logs.output))
+
+    def test_torch_backend_never_touches_mlx(self):
+        from qwen3_tts.core.engine import asr
+
+        mx = MagicMock()
+        with (
+            patch.object(asr, "get_backend", return_value="torch"),
+            patch.dict(sys.modules, {**self._fake_mlx(mx), "torch": MagicMock()}),
+        ):
+            asr.unload_model_cleanup()
+
+        mx.clear_cache.assert_not_called()
+
+
+@pytest.mark.unit
 class TestRetryModelLoad(unittest.TestCase):
     """Tests for the _retry_model_load helper in model_loader.py."""
 

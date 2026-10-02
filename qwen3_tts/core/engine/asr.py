@@ -343,3 +343,14 @@ def unload_model_cleanup():
                 torch.mps.empty_cache()
         except ImportError:
             pass
+    elif backend == "mlx":
+        # #299: without this the freed weights stay in MLX's Metal buffer
+        # cache and the process footprint never shrinks after an unload.
+        try:
+            import mlx.core as mx
+
+            mx.clear_cache()
+        except ImportError:
+            pass
+        except Exception as e:
+            logger.warning("MLX cache clear after unload failed: %s", e)
