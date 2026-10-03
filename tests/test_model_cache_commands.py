@@ -121,7 +121,7 @@ def test_get_model_info_mlx_8bit():
     from qwen3_tts.tools.model_cache import _get_model_info
 
     mock_path = MagicMock(spec=pathlib.Path)
-    mock_path.name = "models--mlx-community--Qwen3-TTS-12Hz-0.6B-VoiceDesign-8bit-foo"
+    mock_path.name = "models--mlx-community--Qwen3-TTS-12Hz-0.6B-CustomVoice-8bit-foo"
 
     with patch('qwen3_tts.tools.model_cache._get_model_dir_size', return_value=1000000000), \
          patch('qwen3_tts.tools.model_cache._get_model_access_time', return_value=datetime.now()):
@@ -129,7 +129,7 @@ def test_get_model_info_mlx_8bit():
 
     assert result["backend"] == "mlx"
     assert result["quantization"] == "8bit"
-    assert result["model_type"] == "design"
+    assert result["model_type"] == "custom"
     assert result["model_size"] == "0.6B"
 
 

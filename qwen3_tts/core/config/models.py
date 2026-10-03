@@ -300,10 +300,12 @@ MODEL_INFO = {
             "description": "Voice cloning from audio samples (clone mode, lightweight)",
             "memory_mb": 2000,
         },
+        # No 0.6B VoiceDesign was ever published, so design mode always loads
+        # the 1.7B model (and costs its memory) regardless of model_size.
         "design": {
-            "name": "Qwen/Qwen3-TTS-12Hz-0.6B-VoiceDesign",
-            "description": "Generate voice from text description (design mode, lightweight)",
-            "memory_mb": 2000,
+            "name": "Qwen/Qwen3-TTS-12Hz-1.7B-VoiceDesign",
+            "description": "Generate voice from text description (design mode; 1.7B only)",
+            "memory_mb": 3500,
         },
         "custom": {
             "name": "Qwen/Qwen3-TTS-12Hz-0.6B-CustomVoice",
@@ -337,10 +339,11 @@ MLX_MODEL_INFO = {
             "description": "Voice cloning from audio samples (clone mode, lightweight)",
             "memory_mb": 1500,
         },
+        # See MODEL_INFO["0.6B"]["design"]: no 0.6B VoiceDesign exists.
         "design": {
-            "name_template": "mlx-community/Qwen3-TTS-12Hz-0.6B-VoiceDesign-{quant}",
-            "description": "Generate voice from text description (design mode, lightweight)",
-            "memory_mb": 1500,
+            "name_template": "mlx-community/Qwen3-TTS-12Hz-1.7B-VoiceDesign-{quant}",
+            "description": "Generate voice from text description (design mode; 1.7B only)",
+            "memory_mb": 2500,
         },
         "custom": {
             "name_template": "mlx-community/Qwen3-TTS-12Hz-0.6B-CustomVoice-{quant}",

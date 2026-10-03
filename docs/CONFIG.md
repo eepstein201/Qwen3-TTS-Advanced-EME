@@ -121,7 +121,7 @@ Rate-limit values use slowapi's `"<count>/<unit>"` format (`second`/`minute`/`ho
 | Key | Type | Default | Description |
 |-----|------|---------|-------------|
 | `advanced.backend` | string | `"mlx"` (Apple Silicon), `"torch"` elsewhere | Inference backend: `"mlx"`, `"torch"`, or `"vllm"`. |
-| `advanced.model_size` | string | `"1.7B"` | `"1.7B"` (full) or `"0.6B"` (fast/light). |
+| `advanced.model_size` | string | `"1.7B"` | `"1.7B"` (full) or `"0.6B"` (fast/light; clone + custom only — design always loads the 1.7B VoiceDesign, the only one published). |
 | `advanced.mlx_quantization` | string | `"8bit"` | MLX quantization: `"4bit"`, `"5bit"`, `"6bit"`, `"8bit"`, or `"bf16"`. |
 | `advanced.torch_quantization` | string | `"none"` | Torch quantization: `"none"`, `"8bit"`, or `"4bit"`. |
 | `advanced.dtype` | string | `"bfloat16"` | Torch compute dtype. |

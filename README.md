@@ -323,7 +323,7 @@ tts config edit                          # Interactive voice description editor
 | Key | Default | Description |
 |-----|---------|-------------|
 | `advanced.backend` | Auto | `mlx`, `torch`, or `vllm` |
-| `advanced.model_size` | `1.7B` | `1.7B` (High fidelity) or `0.6B` (Fast/Light) |
+| `advanced.model_size` | `1.7B` | `1.7B` (High fidelity) or `0.6B` (Fast/Light; clone + custom only — no 0.6B VoiceDesign exists, so design mode always loads 1.7B) |
 | `advanced.torch_quantization` | `none` | PyTorch backend quantization: `none`, `8bit`, `4bit` |
 | `advanced.mlx_quantization` | `8bit` | MLX backend quantization: `4bit`, `5bit`, `6bit`, `8bit`, `bf16` |
 | `advanced.attn_implementation` | `auto` | `auto` (SDPA), `sdpa`, `flash_attention_2`, `eager`. FA2 is opt-in only — it can produce NaNs on Qwen3-TTS (upstream #333) |

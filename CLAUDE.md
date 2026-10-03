@@ -152,7 +152,7 @@ All other endpoints require `Authorization: Bearer <token>` (token from `~/.conf
 | Key | Options | Default |
 |-----|---------|---------|
 | `advanced.backend` | `"mlx"`, `"torch"`, `"vllm"` | `"mlx"` (Apple Silicon), `"torch"` (elsewhere) |
-| `advanced.model_size` | `"1.7B"`, `"0.6B"` | `"1.7B"` |
+| `advanced.model_size` | `"1.7B"`, `"0.6B"` | `"1.7B"` (0.6B covers clone + custom only — no 0.6B VoiceDesign is published, so design maps to 1.7B on both backends; pinned by `tests/test_backend_torch.py::TestModelReposArePublished`) |
 | `advanced.mlx_quantization` | `"4bit"`, `"5bit"`, `"6bit"`, `"8bit"`, `"bf16"` | `"8bit"` |
 | `advanced.torch_quantization` | `"none"`, `"8bit"`, `"4bit"` | `"none"` |
 | `advanced.audio_loader` | `"torchaudio"`, `"librosa"` | `"torchaudio"` |

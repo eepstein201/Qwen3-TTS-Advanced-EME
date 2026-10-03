@@ -21,7 +21,6 @@ _TORCH_MODEL_PREFIXES = (
     "models--Qwen--Qwen3-TTS-12Hz-1.7B-VoiceDesign",
     "models--Qwen--Qwen3-TTS-12Hz-1.7B-CustomVoice",
     "models--Qwen--Qwen3-TTS-12Hz-0.6B-Base",
-    "models--Qwen--Qwen3-TTS-12Hz-0.6B-VoiceDesign",
     "models--Qwen--Qwen3-TTS-12Hz-0.6B-CustomVoice",
 )
 
@@ -30,7 +29,6 @@ _MLX_MODEL_PREFIXES = (
     "models--mlx-community--Qwen3-TTS-12Hz-1.7B-VoiceDesign-",
     "models--mlx-community--Qwen3-TTS-12Hz-1.7B-CustomVoice-",
     "models--mlx-community--Qwen3-TTS-12Hz-0.6B-Base-",
-    "models--mlx-community--Qwen3-TTS-12Hz-0.6B-VoiceDesign-",
     "models--mlx-community--Qwen3-TTS-12Hz-0.6B-CustomVoice-",
 )
 
@@ -39,7 +37,6 @@ _MODEL_ALIASES = {
     "Qwen3-TTS-12Hz-1.7B-VoiceDesign": {"torch": "design", "mlx": "design"},
     "Qwen3-TTS-12Hz-1.7B-CustomVoice": {"torch": "custom", "mlx": "custom"},
     "Qwen3-TTS-12Hz-0.6B-Base": {"torch": "clone", "mlx": "clone"},
-    "Qwen3-TTS-12Hz-0.6B-VoiceDesign": {"torch": "design", "mlx": "design"},
     "Qwen3-TTS-12Hz-0.6B-CustomVoice": {"torch": "custom", "mlx": "custom"},
 }
 
