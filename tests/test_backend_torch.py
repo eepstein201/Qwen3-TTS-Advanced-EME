@@ -12,6 +12,7 @@ Covers:
 Run: pytest tests/test_backend_torch.py -v
 """
 import os
+import unittest
 
 try:
     import pytest
@@ -270,12 +271,12 @@ def test_torch_model_name_clone_17b():
 
 @pytest.mark.unit
 def test_torch_model_name_design_06b():
-    """get_torch_model_name returns correct repo ID for design 0.6B."""
+    """design at 0.6B resolves to the 1.7B VoiceDesign repo (no 0.6B VoiceDesign is published)."""
     from qwen3_tts.core.config import get_torch_model_name
 
     with patch("qwen3_tts.core.config.get_model_size", return_value="0.6B"):
         name = get_torch_model_name("design")
-    assert name == "Qwen/Qwen3-TTS-12Hz-0.6B-VoiceDesign"
+    assert name == "Qwen/Qwen3-TTS-12Hz-1.7B-VoiceDesign"
 
 
 @pytest.mark.unit
@@ -307,7 +308,7 @@ def test_mlx_model_name_design_4bit():
     with patch("qwen3_tts.core.config.get_model_size", return_value="0.6B"), \
          patch("qwen3_tts.core.config.get_mlx_quantization", return_value="4bit"):
         name = get_mlx_model_name("design")
-    assert name == "mlx-community/Qwen3-TTS-12Hz-0.6B-VoiceDesign-4bit"
+    assert name == "mlx-community/Qwen3-TTS-12Hz-1.7B-VoiceDesign-4bit"
 
 
 @pytest.mark.unit
@@ -386,3 +387,78 @@ def test_get_model_info_unknown_type():
          patch("qwen3_tts.core.config.get_backend", return_value="torch"):
         info = get_model_info("nonexistent")
     assert info == {}
+
+
+# Every repo ID published on HuggingFace for these models (HF API, 2026-10-02).
+# Qwen never released a 0.6B VoiceDesign, under its own org or mlx-community.
+_PUBLISHED_TORCH_REPOS = {
+    "Qwen/Qwen3-TTS-12Hz-1.7B-Base",
+    "Qwen/Qwen3-TTS-12Hz-1.7B-VoiceDesign",
+    "Qwen/Qwen3-TTS-12Hz-1.7B-CustomVoice",
+    "Qwen/Qwen3-TTS-12Hz-0.6B-Base",
+    "Qwen/Qwen3-TTS-12Hz-0.6B-CustomVoice",
+}
+_PUBLISHED_MLX_VARIANTS = (
+    "1.7B-Base",
+    "1.7B-VoiceDesign",
+    "1.7B-CustomVoice",
+    "0.6B-Base",
+    "0.6B-CustomVoice",
+)
+
+
+@pytest.mark.unit
+class TestModelReposArePublished(unittest.TestCase):
+    """PRF-11: every configured model ID must name a repo that actually exists."""
+
+    def _published_mlx_repos(self):
+        from qwen3_tts.core.config import VALID_MLX_QUANTIZATIONS
+
+        return {
+            f"mlx-community/Qwen3-TTS-12Hz-{variant}-{quant}"
+            for variant in _PUBLISHED_MLX_VARIANTS
+            for quant in VALID_MLX_QUANTIZATIONS
+        }
+
+    def test_every_torch_model_name_is_published(self):
+        from qwen3_tts.core.config import MODEL_INFO
+
+        for size, types in MODEL_INFO.items():
+            for model_type, info in types.items():
+                with self.subTest(size=size, model_type=model_type):
+                    self.assertIn(info["name"], _PUBLISHED_TORCH_REPOS)
+
+    def test_every_mlx_model_name_is_published_at_every_quantization(self):
+        from qwen3_tts.core.config import MLX_MODEL_INFO, VALID_MLX_QUANTIZATIONS
+
+        published = self._published_mlx_repos()
+        for size, types in MLX_MODEL_INFO.items():
+            for model_type, info in types.items():
+                for quant in VALID_MLX_QUANTIZATIONS:
+                    with self.subTest(size=size, model_type=model_type, quant=quant):
+                        self.assertIn(info["name_template"].format(quant=quant), published)
+
+    def test_06b_design_memory_matches_the_17b_model_it_loads(self):
+        from qwen3_tts.core.config import MLX_MODEL_INFO, MODEL_INFO
+
+        for table in (MODEL_INFO, MLX_MODEL_INFO):
+            with self.subTest(table="mlx" if table is MLX_MODEL_INFO else "torch"):
+                self.assertEqual(
+                    table["0.6B"]["design"]["memory_mb"],
+                    table["1.7B"]["design"]["memory_mb"],
+                )
+
+    def test_cache_patterns_name_only_published_repos(self):
+        from qwen3_tts.tools import model_cache
+
+        known = {r.split("/", 1)[1] for r in _PUBLISHED_TORCH_REPOS}
+        for prefix in model_cache._TORCH_MODEL_PREFIXES:
+            with self.subTest(prefix=prefix):
+                self.assertIn(prefix.removeprefix("models--Qwen--"), known)
+        for prefix in model_cache._MLX_MODEL_PREFIXES:
+            with self.subTest(prefix=prefix):
+                variant = prefix.removeprefix("models--mlx-community--Qwen3-TTS-12Hz-")
+                self.assertIn(variant.rstrip("-"), _PUBLISHED_MLX_VARIANTS)
+        for alias in model_cache._MODEL_ALIASES:
+            with self.subTest(alias=alias):
+                self.assertIn(alias, known)

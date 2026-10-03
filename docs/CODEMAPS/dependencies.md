@@ -4,8 +4,8 @@
 
 ## Models (HuggingFace)
 3 distinct models — **Clone**, **Design**, **Custom** (~3.5 GB torch / ~2.5 GB MLX 8-bit each). IDs from `MODEL_INFO` (`core/config/models.py`):
-- torch: `Qwen/Qwen3-TTS-12Hz-{1.7B,0.6B}-{Base,VoiceDesign,CustomVoice}` (Base = clone)
-- mlx: `mlx-community/Qwen3-TTS-12Hz-{1.7B,0.6B}-{Base,VoiceDesign,CustomVoice}-{quant}`
+- torch: `Qwen/Qwen3-TTS-12Hz-{1.7B,0.6B}-{Base,CustomVoice}` + `1.7B-VoiceDesign` (Base = clone; no 0.6B VoiceDesign exists, so design always loads 1.7B)
+- mlx: `mlx-community/Qwen3-TTS-12Hz-{1.7B,0.6B}-{Base,CustomVoice}-{quant}` + `1.7B-VoiceDesign-{quant}`
 - ASR (`core/engine/asr.py`): torch `openai/whisper-base`; MLX `mlx-community/whisper-large-v3-turbo` (processor files from `openai/whisper-large-v3-turbo`)
 - vLLM processor default: `Qwen/Qwen2-Audio-7B-Instruct`
 Revision-pinned via `models.<type>.revision` (default `"main"`). ASR model loaded on-demand (`/load-asr`); its unload now serializes on `inference_lock` too (#214 item 2).
