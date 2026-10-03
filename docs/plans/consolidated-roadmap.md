@@ -104,7 +104,7 @@ Adopted from [`perf-research-2026-07-30.md`](perf-research-2026-07-30.md) (five-
 - **PRF-9:** *validation gate, not a ship gate* — a documented long-form stability + peak-memory measurement on M2 Pro before any cap change; ship only if both pass.
 - **PRF-10:** a test asserting neutral↔emotional x-vector interpolation produces a bounded, monotonic prosody shift; torch-only, gated behind `x_vector_only_mode`.
 
-**Deferred (do not act — watched by the upstream GHA + crons):** speculative decoding (see R-28 below), vLLM prefix-caching the voice-prompt prefix (deployment decision), SageAttention (monkey-patch only), vLLM mainline TTS (absent), FlashAttention-4 (not a native HF value), Qwen3-ASR-1.7B as Whisper replacement (MLX availability unverified), new Qwen3-TTS models (upstream frozen). **Dropped:** EAGLE-3 for TTS, G2P/phoneme frontend, FA3/FA4/SageAttention on T4, full NeMo Text Processing (Pynini won't pip-install on macOS). Rationale in the research doc's KEEP-MONITORING / DROP sections.
+**Deferred (do not act — watched by the upstream GHA + crons):** speculative decoding (see R-28 below), vLLM prefix-caching the voice-prompt prefix (deployment decision), SageAttention (monkey-patch only), vLLM mainline TTS (absent), FlashAttention-4 (not a native HF value), new Qwen3-TTS models (upstream frozen). **Dropped:** EAGLE-3 for TTS, G2P/phoneme frontend, FA3/FA4/SageAttention on T4, full NeMo Text Processing (Pynini won't pip-install on macOS). Rationale in the research doc's KEEP-MONITORING / DROP sections.
 
 ---
 
@@ -122,7 +122,7 @@ Adopted from [`perf-research-2026-07-30.md`](perf-research-2026-07-30.md) (five-
 
 | ID | Task | Blocker | Effort |
 |----|------|---------|--------|
-| **R-28** | Speculative decoding (1.5-3x speedup; 0.6B as draft for 1.7B). See `2026-03-23-speculative-decoding-research.md`. Phase 1 = monitor upstream. **2026-07-30 update:** PCG (arXiv:2511.13732) is now ICASSP-2026–accepted but ships **zero code, zero adopters**; closest analogue SSD (arXiv:2505.15380) is 1.4×/lossy/code-less. Blocker moved "no theory → theory exists, nothing reusable." Re-check ~2027-01. | Upstream library support | High |
+| **R-28** | Speculative decoding (1.5-3x speedup; 0.6B as draft for 1.7B). See `2026-03-23-speculative-decoding-research.md`. Phase 1 = monitor upstream. **2026-07-30 update:** PCG (arXiv:2511.13732) is now ICASSP-2026–accepted but ships **zero code, zero adopters**; closest analogue SSD (arXiv:2505.15380) is 1.4×/lossy/code-less. Blocker moved "no theory → theory exists, nothing reusable." **2026-10-02 update (`perf-research-2026-10-02.md`):** narrowed, not cleared. arXiv:2609.37007 (Argmax, 2026-09-29) is a *lossless* RVQ-position speculative scheme for Qwen3-TTS's own CodePredictor (~3K learned params, 2.13× on M3 Pro, tested on 0.6B CustomVoice only); TensorRT-Edge-LLM shipped CodePredictor spec-decoding for Qwen3-TTS, TensorRT/Jetson only. No MLX/torch code. Act when code is public, the method lands in mlx-audio, or we decide to port it (High). Re-check ~2027-01. | Upstream library support (or self-port) | High |
 | **FUTURE-1** | Entropy-based hallucination monitoring | vLLM forward-pass modification | High |
 | **FUTURE-2** | GFlowNet distribution alignment | Research integration | High |
 | **FUTURE-3** | Adaptive attention head deactivation | Per-model profiling | High |
@@ -132,8 +132,10 @@ Adopted from [`perf-research-2026-07-30.md`](perf-research-2026-07-30.md) (five-
 - **SageAttention** — monkey-patch only, no TTS benchmarks. Trigger: becomes a native HF `attn_implementation`.
 - **vLLM mainline TTS** — absent; vLLM-omni separate/unmerged. Trigger: TTS lands in mainline vLLM.
 - **FlashAttention-4** — active beta (Hopper/Blackwell only), not a native HF value. Trigger: native HF wiring + stability.
-- **Qwen3-ASR-1.7B** as Whisper replacement — beats Whisper-large-v3 (zh especially), MLX availability unverified. Trigger: confirm `mlx-community/Qwen3-ASR*`.
-- **New Qwen3-TTS models** — upstream frozen since 2026-01-29. Trigger: new model ID under `Qwen/`.
+- ~~**Qwen3-ASR-1.7B** as Whisper replacement — MLX availability unverified.~~ **Trigger already satisfied (2026-10-02 sweep):** mlx-audio has shipped `stt/models/qwen3_asr` since v0.3.1 (2026-01-29), present in the pinned 0.5.4; `mlx-community/Qwen3-ASR-1.7B-*` exist. Promoted to candidate **PRF-12** in `perf-research-2026-10-02.md`.
+- **New Qwen3-TTS models** — upstream frozen since 2026-01-29 (re-confirmed 2026-10-02). Trigger: new model ID under `Qwen/`.
+
+**2026-10-02 sweep candidates (ADD, not yet adopted — see `perf-research-2026-10-02.md`):** **PRF-11** fix the nonexistent `0.6B-VoiceDesign` model mapping (no such repo upstream or on mlx-community; `core/config/models.py` maps it → 404); **PRF-12** Qwen3-ASR-1.7B as an optional MLX ASR (memory-gated on 16 GB); **PRF-13** re-measure the MLX `max_tokens` cap, since the PRF-9 NO-GO predates the mlx-audio 0.5.1 EOS/repetition fixes.
 
 ---
 
