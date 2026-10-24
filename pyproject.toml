@@ -118,7 +118,7 @@ vllm = [
 
 [project.scripts]
 tts = "qwen3_tts.cli:cli"
-test = "qwen3_tts.test_cli:test"
+qwen-test = "qwen3_tts.test_cli:test"
 test-unit = "qwen3_tts.test_cli:test_unit"
 test-integration = "qwen3_tts.test_cli:test_integration"
 test-quick = "qwen3_tts.test_cli:test_quick"

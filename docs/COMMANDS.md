@@ -105,7 +105,7 @@
 | `python tests/run_batches.py --batch N` | Run specific batch (1-6) |
 | `python tests/run_full_suite.py --full` | Full suite with multi-environment testing |
 
-> The package also installs console-script wrappers around pytest: `test`,
+> The package also installs console-script wrappers around pytest: `qwen-test`,
 > `test-unit`, `test-integration`, `test-quick`, `test-parallel`, `test-cov`.
 > These are convenience entry points, not `tts` subcommands.
 
