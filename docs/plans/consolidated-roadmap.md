@@ -135,7 +135,7 @@ Adopted from [`perf-research-2026-07-30.md`](perf-research-2026-07-30.md) (five-
 - ~~**Qwen3-ASR-1.7B** as Whisper replacement — MLX availability unverified.~~ **Trigger already satisfied (2026-10-02 sweep):** mlx-audio has shipped `stt/models/qwen3_asr` since v0.3.1 (2026-01-29), present in the pinned 0.5.4; `mlx-community/Qwen3-ASR-1.7B-*` exist. Promoted to candidate **PRF-12** in `perf-research-2026-10-02.md`.
 - **New Qwen3-TTS models** — upstream frozen since 2026-01-29 (re-confirmed 2026-10-02). Trigger: new model ID under `Qwen/`.
 
-**2026-10-02 sweep candidates (ADD, not yet adopted — see `perf-research-2026-10-02.md`):** **PRF-11** fix the nonexistent `0.6B-VoiceDesign` model mapping (no such repo upstream or on mlx-community; `core/config/models.py` maps it → 404); **PRF-12** Qwen3-ASR-1.7B as an optional MLX ASR (memory-gated on 16 GB); **PRF-13** re-measure the MLX `max_tokens` cap, since the PRF-9 NO-GO predates the mlx-audio 0.5.1 EOS/repetition fixes.
+**2026-10-02 sweep candidates (ADD, not yet adopted — see `perf-research-2026-10-02.md`):** ✅ **PRF-11** (#377, `cbf8032f`, 2026-10-03) fixed the nonexistent `0.6B-VoiceDesign` model mapping — 0.6B design now loads the published 1.7B VoiceDesign on both backends, pinned by `TestModelReposArePublished`; **PRF-12** Qwen3-ASR-1.7B as an optional MLX ASR (memory-gated on 16 GB); **PRF-13** re-measure the MLX `max_tokens` cap, since the PRF-9 NO-GO predates the mlx-audio 0.5.1 EOS/repetition fixes.
 
 ---
 
