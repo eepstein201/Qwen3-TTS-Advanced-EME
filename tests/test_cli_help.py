@@ -92,3 +92,43 @@ class TestFlagMapCompleteness(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TestConsoleScriptsDoNotShadowSystemCommands(unittest.TestCase):
+    """A console script named like a system utility hijacks it via PATH.
+
+    A `test` script once shadowed POSIX `test`, so any tool running
+    `test -d DIR` (e.g. through sudo or a pyenv shim) launched pytest instead.
+    """
+
+    # Shell builtins / POSIX utilities that must stay unshadowed on every OS.
+    RESERVED = frozenset({"test", "[", "true", "false", "echo", "printf", "kill"})
+    SYSTEM_BIN_DIRS = ("/bin", "/usr/bin", "/sbin", "/usr/sbin")
+
+    @staticmethod
+    def _script_names():
+        import re
+        from pathlib import Path
+
+        text = (Path(__file__).resolve().parents[1] / "pyproject.toml").read_text()
+        section = re.search(r"^\[project\.scripts\]\n(.*?)(?=^\[)", text, re.M | re.S)
+        assert section, "[project.scripts] section not found"
+        return re.findall(r"^([A-Za-z0-9_.-]+)\s*=", section.group(1), re.M)
+
+    def test_script_names_are_parsed(self):
+        self.assertIn("tts", self._script_names())
+
+    def test_no_script_uses_a_reserved_name(self):
+        clashes = sorted(set(self._script_names()) & self.RESERVED)
+        self.assertEqual(clashes, [], f"console scripts shadow builtins: {clashes}")
+
+    def test_no_script_shadows_a_system_binary(self):
+        import os
+
+        clashes = sorted(
+            name
+            for name in self._script_names()
+            for d in self.SYSTEM_BIN_DIRS
+            if os.path.isfile(os.path.join(d, name))
+        )
+        self.assertEqual(clashes, [], f"console scripts shadow system binaries: {clashes}")

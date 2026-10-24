@@ -15,7 +15,7 @@ config.json → core.config → core.engine (dispatch on advanced.backend)
 ```
 
 ## Entry points
-`pyproject [project.scripts]`: `tts` → `qwen3_tts.cli:cli` (Click `TTSGroup`) · `test`/`test-unit`/`test-integration`/`test-quick`/`test-parallel`/`test-cov` → `qwen3_tts.test_cli` · server app `qwen3_tts/server/app.py` (`app = FastAPI(...)`) · UI `qwen3_tts/interface/ui/_facade.py` (`build_ui()`, `main()`)
+`pyproject [project.scripts]`: `tts` → `qwen3_tts.cli:cli` (Click `TTSGroup`) · `qwen-test`/`test-unit`/`test-integration`/`test-quick`/`test-parallel`/`test-cov` → `qwen3_tts.test_cli` · server app `qwen3_tts/server/app.py` (`app = FastAPI(...)`) · UI `qwen3_tts/interface/ui/_facade.py` (`build_ui()`, `main()`)
 
 ## Layers
 - **core/** — `config/` (io, models, runtime, pid, presets, paths, auth, errors, pm2) + `engine/` (text_processing, audio_processing, voice_prompt, model_loader, inference, asr) + `http_client` (single server chokepoint) + `stream_protocol` (wire-format: sentinel, cap, encode/decode/parse — shared by server AND CLI, no FastAPI/torch/mlx)
