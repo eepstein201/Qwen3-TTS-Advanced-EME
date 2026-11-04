@@ -73,7 +73,7 @@ rich = [
 # Development tools (for development workflow, not required for testing)
 dev = [
     "pytest>=9.1.1",
-    "pytest-asyncio>=1.4.0",
+    "pytest-asyncio>=1.4.1",
     "httpx>=0.28.1",
     "pytest-xdist>=3.8.0",      # parallel execution
     "pytest-timeout>=2.4.0",    # catch hanging tests
@@ -88,7 +88,7 @@ dev = [
 test = [
     "gradio>=6.0.0,!=6.14.*,<7",  # Required for UI tests; see the `ui` extra for why 6.14.x is excluded
     "pytest>=9.1.1",            # Core testing framework
-    "pytest-asyncio>=1.4.0",   # Async test support
+    "pytest-asyncio>=1.4.1",   # Async test support
     "httpx>=0.28.1",            # HTTP client for testing
     "pytest-cov>=7.1.0",        # Coverage reporting
     "playwright>=1.63.0",     # E2E testing (if not already in main deps)
